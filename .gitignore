@@ -1,0 +1,33 @@
+# Environment — never commit
+backend/.env
+**/.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+backend/venv/
+**/*.egg-info/
+
+# Node
+dashboard/node_modules/
+dashboard/.next/
+
+# Sandbox run data (operational, not source)
+sandbox/
+
+# Logs
+logs/
+*.log
+
+# Backup files
+*.backup
+*.backup.*
+*.bak
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

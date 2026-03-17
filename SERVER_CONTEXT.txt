@@ -1,0 +1,1693 @@
+===== WISHSPARK SERVER CONTEXT =====
+Generated: 2026-03-15T21:41:13+00:00
+
+===== SYSTEM =====
+Linux srv1479957 6.8.0-101-generic #101-Ubuntu SMP PREEMPT_DYNAMIC Mon Feb  9 10:15:05 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+
+===== CURRENT PATH =====
+/opt/wishspark
+
+===== NODE / NPM =====
+v20.20.1
+10.8.2
+
+===== TOP-LEVEL PROJECT STRUCTURE =====
+/opt/wishspark
+/opt/wishspark/SERVER_CONTEXT.txt
+/opt/wishspark/backend
+/opt/wishspark/backend/Dockerfile
+/opt/wishspark/backend/app
+/opt/wishspark/backend/app/__init__.py
+/opt/wishspark/backend/app/__pycache__
+/opt/wishspark/backend/app/api
+/opt/wishspark/backend/app/conversion_probability_engine.py
+/opt/wishspark/backend/app/core
+/opt/wishspark/backend/app/dashboard.py
+/opt/wishspark/backend/app/external_lookup_engine.py
+/opt/wishspark/backend/app/external_lookup_engine.py.backup.v2
+/opt/wishspark/backend/app/main.py
+/opt/wishspark/backend/app/main.py.backup
+/opt/wishspark/backend/app/models
+/opt/wishspark/backend/app/price_radar_engine.py
+/opt/wishspark/backend/app/schemas
+/opt/wishspark/backend/app/services
+/opt/wishspark/backend/app/utils
+/opt/wishspark/backend/intent.py
+/opt/wishspark/backend/requirements.txt
+/opt/wishspark/backend/venv
+/opt/wishspark/backend/venv/bin
+/opt/wishspark/backend/venv/include
+/opt/wishspark/backend/venv/lib
+/opt/wishspark/backend/venv/lib64
+/opt/wishspark/backend/venv/pyvenv.cfg
+/opt/wishspark/dashboard
+/opt/wishspark/dashboard/.git
+/opt/wishspark/dashboard/.git/COMMIT_EDITMSG
+/opt/wishspark/dashboard/.git/HEAD
+/opt/wishspark/dashboard/.git/ORIG_HEAD
+/opt/wishspark/dashboard/.git/branches
+/opt/wishspark/dashboard/.git/config
+/opt/wishspark/dashboard/.git/description
+/opt/wishspark/dashboard/.git/hooks
+/opt/wishspark/dashboard/.git/index
+/opt/wishspark/dashboard/.git/info
+/opt/wishspark/dashboard/.git/logs
+/opt/wishspark/dashboard/.git/objects
+/opt/wishspark/dashboard/.git/refs
+/opt/wishspark/dashboard/.gitignore
+/opt/wishspark/dashboard/.next
+/opt/wishspark/dashboard/.next/dev
+/opt/wishspark/dashboard/README.md
+/opt/wishspark/dashboard/SERVER_CONTEXT.txt
+/opt/wishspark/dashboard/eslint.config.mjs
+/opt/wishspark/dashboard/main.py
+/opt/wishspark/dashboard/next-env.d.ts
+/opt/wishspark/dashboard/next.config.ts
+/opt/wishspark/dashboard/node_modules
+/opt/wishspark/dashboard/node_modules/.bin
+/opt/wishspark/dashboard/node_modules/.package-lock.json
+/opt/wishspark/dashboard/node_modules/@alloc
+/opt/wishspark/dashboard/node_modules/@babel
+/opt/wishspark/dashboard/node_modules/@emnapi
+/opt/wishspark/dashboard/node_modules/@eslint
+/opt/wishspark/dashboard/node_modules/@eslint-community
+/opt/wishspark/dashboard/node_modules/@humanfs
+/opt/wishspark/dashboard/node_modules/@humanwhocodes
+/opt/wishspark/dashboard/node_modules/@img
+/opt/wishspark/dashboard/node_modules/@jridgewell
+/opt/wishspark/dashboard/node_modules/@napi-rs
+/opt/wishspark/dashboard/node_modules/@next
+/opt/wishspark/dashboard/node_modules/@nodelib
+/opt/wishspark/dashboard/node_modules/@nolyfill
+/opt/wishspark/dashboard/node_modules/@rtsao
+/opt/wishspark/dashboard/node_modules/@swc
+/opt/wishspark/dashboard/node_modules/@tailwindcss
+/opt/wishspark/dashboard/node_modules/@tybys
+/opt/wishspark/dashboard/node_modules/@types
+/opt/wishspark/dashboard/node_modules/@typescript-eslint
+/opt/wishspark/dashboard/node_modules/@unrs
+/opt/wishspark/dashboard/node_modules/acorn
+/opt/wishspark/dashboard/node_modules/acorn-jsx
+/opt/wishspark/dashboard/node_modules/ajv
+/opt/wishspark/dashboard/node_modules/ansi-styles
+/opt/wishspark/dashboard/node_modules/argparse
+/opt/wishspark/dashboard/node_modules/aria-query
+/opt/wishspark/dashboard/node_modules/array-buffer-byte-length
+/opt/wishspark/dashboard/node_modules/array-includes
+/opt/wishspark/dashboard/node_modules/array.prototype.findlast
+/opt/wishspark/dashboard/node_modules/array.prototype.findlastindex
+/opt/wishspark/dashboard/node_modules/array.prototype.flat
+/opt/wishspark/dashboard/node_modules/array.prototype.flatmap
+/opt/wishspark/dashboard/node_modules/array.prototype.tosorted
+/opt/wishspark/dashboard/node_modules/arraybuffer.prototype.slice
+/opt/wishspark/dashboard/node_modules/ast-types-flow
+/opt/wishspark/dashboard/node_modules/async-function
+/opt/wishspark/dashboard/node_modules/available-typed-arrays
+/opt/wishspark/dashboard/node_modules/axe-core
+/opt/wishspark/dashboard/node_modules/axobject-query
+/opt/wishspark/dashboard/node_modules/balanced-match
+/opt/wishspark/dashboard/node_modules/baseline-browser-mapping
+/opt/wishspark/dashboard/node_modules/brace-expansion
+/opt/wishspark/dashboard/node_modules/braces
+/opt/wishspark/dashboard/node_modules/browserslist
+/opt/wishspark/dashboard/node_modules/call-bind
+/opt/wishspark/dashboard/node_modules/call-bind-apply-helpers
+/opt/wishspark/dashboard/node_modules/call-bound
+/opt/wishspark/dashboard/node_modules/callsites
+/opt/wishspark/dashboard/node_modules/caniuse-lite
+/opt/wishspark/dashboard/node_modules/chalk
+/opt/wishspark/dashboard/node_modules/client-only
+/opt/wishspark/dashboard/node_modules/color-convert
+/opt/wishspark/dashboard/node_modules/color-name
+/opt/wishspark/dashboard/node_modules/concat-map
+/opt/wishspark/dashboard/node_modules/convert-source-map
+/opt/wishspark/dashboard/node_modules/cross-spawn
+/opt/wishspark/dashboard/node_modules/csstype
+/opt/wishspark/dashboard/node_modules/damerau-levenshtein
+/opt/wishspark/dashboard/node_modules/data-view-buffer
+/opt/wishspark/dashboard/node_modules/data-view-byte-length
+/opt/wishspark/dashboard/node_modules/data-view-byte-offset
+/opt/wishspark/dashboard/node_modules/debug
+/opt/wishspark/dashboard/node_modules/deep-is
+/opt/wishspark/dashboard/node_modules/define-data-property
+/opt/wishspark/dashboard/node_modules/define-properties
+/opt/wishspark/dashboard/node_modules/detect-libc
+/opt/wishspark/dashboard/node_modules/doctrine
+/opt/wishspark/dashboard/node_modules/dunder-proto
+/opt/wishspark/dashboard/node_modules/electron-to-chromium
+/opt/wishspark/dashboard/node_modules/emoji-regex
+/opt/wishspark/dashboard/node_modules/enhanced-resolve
+/opt/wishspark/dashboard/node_modules/es-abstract
+/opt/wishspark/dashboard/node_modules/es-define-property
+/opt/wishspark/dashboard/node_modules/es-errors
+/opt/wishspark/dashboard/node_modules/es-iterator-helpers
+/opt/wishspark/dashboard/node_modules/es-object-atoms
+/opt/wishspark/dashboard/node_modules/es-set-tostringtag
+/opt/wishspark/dashboard/node_modules/es-shim-unscopables
+/opt/wishspark/dashboard/node_modules/es-to-primitive
+/opt/wishspark/dashboard/node_modules/escalade
+/opt/wishspark/dashboard/node_modules/escape-string-regexp
+/opt/wishspark/dashboard/node_modules/eslint
+/opt/wishspark/dashboard/node_modules/eslint-config-next
+/opt/wishspark/dashboard/node_modules/eslint-import-resolver-node
+/opt/wishspark/dashboard/node_modules/eslint-import-resolver-typescript
+/opt/wishspark/dashboard/node_modules/eslint-module-utils
+/opt/wishspark/dashboard/node_modules/eslint-plugin-import
+/opt/wishspark/dashboard/node_modules/eslint-plugin-jsx-a11y
+/opt/wishspark/dashboard/node_modules/eslint-plugin-react
+/opt/wishspark/dashboard/node_modules/eslint-plugin-react-hooks
+/opt/wishspark/dashboard/node_modules/eslint-scope
+/opt/wishspark/dashboard/node_modules/eslint-visitor-keys
+/opt/wishspark/dashboard/node_modules/espree
+/opt/wishspark/dashboard/node_modules/esquery
+/opt/wishspark/dashboard/node_modules/esrecurse
+/opt/wishspark/dashboard/node_modules/estraverse
+/opt/wishspark/dashboard/node_modules/esutils
+/opt/wishspark/dashboard/node_modules/fast-deep-equal
+/opt/wishspark/dashboard/node_modules/fast-glob
+/opt/wishspark/dashboard/node_modules/fast-json-stable-stringify
+/opt/wishspark/dashboard/node_modules/fast-levenshtein
+/opt/wishspark/dashboard/node_modules/fastq
+/opt/wishspark/dashboard/node_modules/file-entry-cache
+/opt/wishspark/dashboard/node_modules/fill-range
+/opt/wishspark/dashboard/node_modules/find-up
+/opt/wishspark/dashboard/node_modules/flat-cache
+/opt/wishspark/dashboard/node_modules/flatted
+/opt/wishspark/dashboard/node_modules/for-each
+/opt/wishspark/dashboard/node_modules/function-bind
+/opt/wishspark/dashboard/node_modules/function.prototype.name
+/opt/wishspark/dashboard/node_modules/functions-have-names
+/opt/wishspark/dashboard/node_modules/generator-function
+/opt/wishspark/dashboard/node_modules/gensync
+/opt/wishspark/dashboard/node_modules/get-intrinsic
+/opt/wishspark/dashboard/node_modules/get-proto
+/opt/wishspark/dashboard/node_modules/get-symbol-description
+/opt/wishspark/dashboard/node_modules/get-tsconfig
+/opt/wishspark/dashboard/node_modules/glob-parent
+/opt/wishspark/dashboard/node_modules/globals
+/opt/wishspark/dashboard/node_modules/globalthis
+/opt/wishspark/dashboard/node_modules/gopd
+/opt/wishspark/dashboard/node_modules/graceful-fs
+/opt/wishspark/dashboard/node_modules/has-bigints
+/opt/wishspark/dashboard/node_modules/has-flag
+/opt/wishspark/dashboard/node_modules/has-property-descriptors
+/opt/wishspark/dashboard/node_modules/has-proto
+/opt/wishspark/dashboard/node_modules/has-symbols
+/opt/wishspark/dashboard/node_modules/has-tostringtag
+/opt/wishspark/dashboard/node_modules/hasown
+/opt/wishspark/dashboard/node_modules/hermes-estree
+/opt/wishspark/dashboard/node_modules/hermes-parser
+/opt/wishspark/dashboard/node_modules/ignore
+/opt/wishspark/dashboard/node_modules/import-fresh
+/opt/wishspark/dashboard/node_modules/imurmurhash
+/opt/wishspark/dashboard/node_modules/internal-slot
+/opt/wishspark/dashboard/node_modules/is-array-buffer
+/opt/wishspark/dashboard/node_modules/is-async-function
+/opt/wishspark/dashboard/node_modules/is-bigint
+/opt/wishspark/dashboard/node_modules/is-boolean-object
+/opt/wishspark/dashboard/node_modules/is-bun-module
+/opt/wishspark/dashboard/node_modules/is-callable
+/opt/wishspark/dashboard/node_modules/is-core-module
+/opt/wishspark/dashboard/node_modules/is-data-view
+/opt/wishspark/dashboard/node_modules/is-date-object
+/opt/wishspark/dashboard/node_modules/is-extglob
+/opt/wishspark/dashboard/node_modules/is-finalizationregistry
+/opt/wishspark/dashboard/node_modules/is-generator-function
+/opt/wishspark/dashboard/node_modules/is-glob
+/opt/wishspark/dashboard/node_modules/is-map
+/opt/wishspark/dashboard/node_modules/is-negative-zero
+/opt/wishspark/dashboard/node_modules/is-number
+/opt/wishspark/dashboard/node_modules/is-number-object
+/opt/wishspark/dashboard/node_modules/is-regex
+/opt/wishspark/dashboard/node_modules/is-set
+/opt/wishspark/dashboard/node_modules/is-shared-array-buffer
+/opt/wishspark/dashboard/node_modules/is-string
+/opt/wishspark/dashboard/node_modules/is-symbol
+/opt/wishspark/dashboard/node_modules/is-typed-array
+/opt/wishspark/dashboard/node_modules/is-weakmap
+/opt/wishspark/dashboard/node_modules/is-weakref
+/opt/wishspark/dashboard/node_modules/is-weakset
+/opt/wishspark/dashboard/node_modules/isarray
+/opt/wishspark/dashboard/node_modules/isexe
+/opt/wishspark/dashboard/node_modules/iterator.prototype
+/opt/wishspark/dashboard/node_modules/jiti
+/opt/wishspark/dashboard/node_modules/js-tokens
+/opt/wishspark/dashboard/node_modules/js-yaml
+/opt/wishspark/dashboard/node_modules/jsesc
+/opt/wishspark/dashboard/node_modules/json-buffer
+/opt/wishspark/dashboard/node_modules/json-schema-traverse
+/opt/wishspark/dashboard/node_modules/json-stable-stringify-without-jsonify
+/opt/wishspark/dashboard/node_modules/json5
+/opt/wishspark/dashboard/node_modules/jsx-ast-utils
+/opt/wishspark/dashboard/node_modules/keyv
+/opt/wishspark/dashboard/node_modules/language-subtag-registry
+/opt/wishspark/dashboard/node_modules/language-tags
+/opt/wishspark/dashboard/node_modules/levn
+/opt/wishspark/dashboard/node_modules/lightningcss
+/opt/wishspark/dashboard/node_modules/lightningcss-linux-x64-gnu
+/opt/wishspark/dashboard/node_modules/locate-path
+/opt/wishspark/dashboard/node_modules/lodash.merge
+/opt/wishspark/dashboard/node_modules/loose-envify
+/opt/wishspark/dashboard/node_modules/lru-cache
+/opt/wishspark/dashboard/node_modules/magic-string
+/opt/wishspark/dashboard/node_modules/math-intrinsics
+/opt/wishspark/dashboard/node_modules/merge2
+/opt/wishspark/dashboard/node_modules/micromatch
+/opt/wishspark/dashboard/node_modules/minimatch
+/opt/wishspark/dashboard/node_modules/minimist
+/opt/wishspark/dashboard/node_modules/ms
+/opt/wishspark/dashboard/node_modules/nanoid
+/opt/wishspark/dashboard/node_modules/napi-postinstall
+/opt/wishspark/dashboard/node_modules/natural-compare
+/opt/wishspark/dashboard/node_modules/next
+/opt/wishspark/dashboard/node_modules/node-exports-info
+/opt/wishspark/dashboard/node_modules/node-releases
+/opt/wishspark/dashboard/node_modules/object-assign
+/opt/wishspark/dashboard/node_modules/object-inspect
+/opt/wishspark/dashboard/node_modules/object-keys
+/opt/wishspark/dashboard/node_modules/object.assign
+/opt/wishspark/dashboard/node_modules/object.entries
+/opt/wishspark/dashboard/node_modules/object.fromentries
+/opt/wishspark/dashboard/node_modules/object.groupby
+/opt/wishspark/dashboard/node_modules/object.values
+/opt/wishspark/dashboard/node_modules/optionator
+/opt/wishspark/dashboard/node_modules/own-keys
+/opt/wishspark/dashboard/node_modules/p-limit
+/opt/wishspark/dashboard/node_modules/p-locate
+/opt/wishspark/dashboard/node_modules/parent-module
+/opt/wishspark/dashboard/node_modules/path-exists
+/opt/wishspark/dashboard/node_modules/path-key
+/opt/wishspark/dashboard/node_modules/path-parse
+/opt/wishspark/dashboard/node_modules/picocolors
+/opt/wishspark/dashboard/node_modules/picomatch
+/opt/wishspark/dashboard/node_modules/possible-typed-array-names
+/opt/wishspark/dashboard/node_modules/postcss
+/opt/wishspark/dashboard/node_modules/prelude-ls
+/opt/wishspark/dashboard/node_modules/prop-types
+/opt/wishspark/dashboard/node_modules/punycode
+/opt/wishspark/dashboard/node_modules/queue-microtask
+/opt/wishspark/dashboard/node_modules/react
+/opt/wishspark/dashboard/node_modules/react-dom
+/opt/wishspark/dashboard/node_modules/react-is
+/opt/wishspark/dashboard/node_modules/reflect.getprototypeof
+/opt/wishspark/dashboard/node_modules/regexp.prototype.flags
+/opt/wishspark/dashboard/node_modules/resolve
+/opt/wishspark/dashboard/node_modules/resolve-from
+/opt/wishspark/dashboard/node_modules/resolve-pkg-maps
+/opt/wishspark/dashboard/node_modules/reusify
+/opt/wishspark/dashboard/node_modules/run-parallel
+/opt/wishspark/dashboard/node_modules/safe-array-concat
+/opt/wishspark/dashboard/node_modules/safe-push-apply
+/opt/wishspark/dashboard/node_modules/safe-regex-test
+/opt/wishspark/dashboard/node_modules/scheduler
+/opt/wishspark/dashboard/node_modules/semver
+/opt/wishspark/dashboard/node_modules/set-function-length
+/opt/wishspark/dashboard/node_modules/set-function-name
+/opt/wishspark/dashboard/node_modules/set-proto
+/opt/wishspark/dashboard/node_modules/sharp
+/opt/wishspark/dashboard/node_modules/shebang-command
+/opt/wishspark/dashboard/node_modules/shebang-regex
+/opt/wishspark/dashboard/node_modules/side-channel
+/opt/wishspark/dashboard/node_modules/side-channel-list
+/opt/wishspark/dashboard/node_modules/side-channel-map
+/opt/wishspark/dashboard/node_modules/side-channel-weakmap
+/opt/wishspark/dashboard/node_modules/source-map-js
+/opt/wishspark/dashboard/node_modules/stable-hash
+/opt/wishspark/dashboard/node_modules/stop-iteration-iterator
+/opt/wishspark/dashboard/node_modules/string.prototype.includes
+/opt/wishspark/dashboard/node_modules/string.prototype.matchall
+/opt/wishspark/dashboard/node_modules/string.prototype.repeat
+/opt/wishspark/dashboard/node_modules/string.prototype.trim
+/opt/wishspark/dashboard/node_modules/string.prototype.trimend
+/opt/wishspark/dashboard/node_modules/string.prototype.trimstart
+/opt/wishspark/dashboard/node_modules/strip-bom
+/opt/wishspark/dashboard/node_modules/strip-json-comments
+/opt/wishspark/dashboard/node_modules/styled-jsx
+/opt/wishspark/dashboard/node_modules/supports-color
+/opt/wishspark/dashboard/node_modules/supports-preserve-symlinks-flag
+/opt/wishspark/dashboard/node_modules/tailwindcss
+/opt/wishspark/dashboard/node_modules/tapable
+/opt/wishspark/dashboard/node_modules/tinyglobby
+/opt/wishspark/dashboard/node_modules/to-regex-range
+/opt/wishspark/dashboard/node_modules/ts-api-utils
+/opt/wishspark/dashboard/node_modules/tsconfig-paths
+/opt/wishspark/dashboard/node_modules/tslib
+/opt/wishspark/dashboard/node_modules/type-check
+/opt/wishspark/dashboard/node_modules/typed-array-buffer
+/opt/wishspark/dashboard/node_modules/typed-array-byte-length
+/opt/wishspark/dashboard/node_modules/typed-array-byte-offset
+/opt/wishspark/dashboard/node_modules/typed-array-length
+/opt/wishspark/dashboard/node_modules/typescript
+/opt/wishspark/dashboard/node_modules/typescript-eslint
+/opt/wishspark/dashboard/node_modules/unbox-primitive
+/opt/wishspark/dashboard/node_modules/undici-types
+/opt/wishspark/dashboard/node_modules/unrs-resolver
+/opt/wishspark/dashboard/node_modules/update-browserslist-db
+/opt/wishspark/dashboard/node_modules/uri-js
+/opt/wishspark/dashboard/node_modules/which
+/opt/wishspark/dashboard/node_modules/which-boxed-primitive
+/opt/wishspark/dashboard/node_modules/which-builtin-type
+/opt/wishspark/dashboard/node_modules/which-collection
+/opt/wishspark/dashboard/node_modules/which-typed-array
+/opt/wishspark/dashboard/node_modules/word-wrap
+/opt/wishspark/dashboard/node_modules/yallist
+/opt/wishspark/dashboard/node_modules/yocto-queue
+/opt/wishspark/dashboard/node_modules/zod
+/opt/wishspark/dashboard/node_modules/zod-validation-error
+/opt/wishspark/dashboard/package-lock.json
+/opt/wishspark/dashboard/package.json
+/opt/wishspark/dashboard/postcss.config.mjs
+/opt/wishspark/dashboard/public
+/opt/wishspark/dashboard/public/file.svg
+/opt/wishspark/dashboard/public/globe.svg
+/opt/wishspark/dashboard/public/hedgespark-logo.png
+/opt/wishspark/dashboard/public/hedgespark.png
+/opt/wishspark/dashboard/public/logo-hedgespark.png
+/opt/wishspark/dashboard/public/logo.backup.png
+/opt/wishspark/dashboard/public/logo.png
+/opt/wishspark/dashboard/public/next.svg
+/opt/wishspark/dashboard/public/test.html
+/opt/wishspark/dashboard/public/tracker.js
+/opt/wishspark/dashboard/public/vercel.svg
+/opt/wishspark/dashboard/public/window.svg
+/opt/wishspark/dashboard/src
+/opt/wishspark/dashboard/src/app
+/opt/wishspark/dashboard/tsconfig.json
+/opt/wishspark/docs
+/opt/wishspark/docs/API_MAP.md
+/opt/wishspark/docs/DATA_FLOW.md
+/opt/wishspark/docs/PROJECT_ARCHITECTURE.md
+/opt/wishspark/docs/README.md
+/opt/wishspark/infra
+/opt/wishspark/logs
+/opt/wishspark/logs/backend.log
+/opt/wishspark/logs/dashboard.log
+/opt/wishspark/ops
+/opt/wishspark/ops/logs.sh
+/opt/wishspark/ops/restart-all.sh
+/opt/wishspark/ops/restore-latest-dashboard.sh
+/opt/wishspark/ops/setup_ops.sh
+/opt/wishspark/ops/start-backend.sh
+/opt/wishspark/ops/start-dashboard.sh
+/opt/wishspark/ops/status.sh
+/opt/wishspark/ops/test-ai-actions.sh
+/opt/wishspark/test.html
+/opt/wishspark/tracker
+/opt/wishspark/tracker.js
+/opt/wishspark/tracker/spark-tracker.js
+/opt/wishspark/widget
+/opt/wishspark/widget/test.html
+/opt/wishspark/widget/wishspark.js
+
+===== DASHBOARD APP ROUTES =====
+/opt/wishspark/dashboard/src/app
+/opt/wishspark/dashboard/src/app/favicon.ico
+/opt/wishspark/dashboard/src/app/globals.css
+/opt/wishspark/dashboard/src/app/insights
+/opt/wishspark/dashboard/src/app/insights/page.tsx
+/opt/wishspark/dashboard/src/app/insights/page.tsx.PRO-STABLE
+/opt/wishspark/dashboard/src/app/layout.tsx
+/opt/wishspark/dashboard/src/app/page.tsx
+/opt/wishspark/dashboard/src/app/page.tsx.LITE-STABLE
+/opt/wishspark/dashboard/src/app/page.tsx.alerts-backup
+/opt/wishspark/dashboard/src/app/page.tsx.async-fix-backup
+/opt/wishspark/dashboard/src/app/page.tsx.auto-backup
+/opt/wishspark/dashboard/src/app/page.tsx.backup
+/opt/wishspark/dashboard/src/app/page.tsx.backup.actions
+/opt/wishspark/dashboard/src/app/page.tsx.backup2
+/opt/wishspark/dashboard/src/app/page.tsx.before-alert-panel-backup
+/opt/wishspark/dashboard/src/app/page.tsx.before-alerts-fix-backup
+/opt/wishspark/dashboard/src/app/page.tsx.before-hedgespark-header
+/opt/wishspark/dashboard/src/app/page.tsx.compact-header-backup
+/opt/wishspark/dashboard/src/app/page.tsx.harmony-backup
+/opt/wishspark/dashboard/src/app/page.tsx.header-fix-backup
+/opt/wishspark/dashboard/src/app/page.tsx.layout-backup
+/opt/wishspark/dashboard/src/app/page.tsx.live-opportunities-backup
+/opt/wishspark/dashboard/src/app/page.tsx.live-visitors-backup
+/opt/wishspark/dashboard/src/app/page.tsx.livealerts-fix-backup
+/opt/wishspark/dashboard/src/app/page.tsx.loading-magic-backup
+/opt/wishspark/dashboard/src/app/page.tsx.logo-dominant-backup
+/opt/wishspark/dashboard/src/app/page.tsx.logo-fixed-height-backup
+/opt/wishspark/dashboard/src/app/page.tsx.logo-size-backup
+/opt/wishspark/dashboard/src/app/page.tsx.navbar-center-backup
+/opt/wishspark/dashboard/src/app/page.tsx.pro-messages-backup
+/opt/wishspark/dashboard/src/app/page.tsx.pro-spark-backup
+/opt/wishspark/dashboard/src/app/page.tsx.radar-backup
+/opt/wishspark/dashboard/src/app/page.tsx.radar-compact-backup
+/opt/wishspark/dashboard/src/app/page.tsx.save
+/opt/wishspark/dashboard/src/app/page.tsx.spacing-backup
+/opt/wishspark/dashboard/src/app/page.tsx.spark-animated-phases-backup
+/opt/wishspark/dashboard/src/app/page.tsx.spark-mage-states-backup
+/opt/wishspark/dashboard/src/app/page.tsx.spark-magic-vfx-backup
+/opt/wishspark/dashboard/src/app/page.tsx.spark-visual-boost-backup
+/opt/wishspark/dashboard/src/app/page.tsx.state-repair-backup
+/opt/wishspark/dashboard/src/app/page.tsx.topbar-tweak-backup
+/opt/wishspark/dashboard/src/app/page.tsx.visitor-scores-backup
+/opt/wishspark/dashboard/src/app/page.tsx.weekly-trend-backup
+/opt/wishspark/dashboard/src/app/page.tsx.weeklytrend-fix-backup
+
+===== BACKEND API FILES =====
+/opt/wishspark/backend/app/api/__init__.py
+/opt/wishspark/backend/app/api/__pycache__/__init__.cpython-312.pyc
+/opt/wishspark/backend/app/api/__pycache__/agent.cpython-312.pyc
+/opt/wishspark/backend/app/api/__pycache__/ai_actions.cpython-312.pyc
+/opt/wishspark/backend/app/api/__pycache__/conversion_probability.cpython-312.pyc
+/opt/wishspark/backend/app/api/__pycache__/dashboard.cpython-312.pyc
+/opt/wishspark/backend/app/api/__pycache__/decision_engine.cpython-312.pyc
+/opt/wishspark/backend/app/api/__pycache__/events.cpython-312.pyc
+/opt/wishspark/backend/app/api/__pycache__/intent.cpython-312.pyc
+/opt/wishspark/backend/app/api/__pycache__/live_alerts.cpython-312.pyc
+/opt/wishspark/backend/app/api/__pycache__/live_opportunities.cpython-312.pyc
+/opt/wishspark/backend/app/api/__pycache__/live_visitors.cpython-312.pyc
+/opt/wishspark/backend/app/api/__pycache__/market_lookup.cpython-312.pyc
+/opt/wishspark/backend/app/api/__pycache__/opportunities.cpython-312.pyc
+/opt/wishspark/backend/app/api/__pycache__/price_intelligence.cpython-312.pyc
+/opt/wishspark/backend/app/api/__pycache__/revenue_radar.cpython-312.pyc
+/opt/wishspark/backend/app/api/__pycache__/top_pages.cpython-312.pyc
+/opt/wishspark/backend/app/api/__pycache__/track.cpython-312.pyc
+/opt/wishspark/backend/app/api/__pycache__/tracker.cpython-312.pyc
+/opt/wishspark/backend/app/api/__pycache__/visitor_scores.cpython-312.pyc
+/opt/wishspark/backend/app/api/__pycache__/weekly_trend.cpython-312.pyc
+/opt/wishspark/backend/app/api/agent.py
+/opt/wishspark/backend/app/api/ai_actions.py
+/opt/wishspark/backend/app/api/conversion_probability.py
+/opt/wishspark/backend/app/api/dashboard.py
+/opt/wishspark/backend/app/api/dashboard.py.backup
+/opt/wishspark/backend/app/api/decision_engine.py
+/opt/wishspark/backend/app/api/events.py
+/opt/wishspark/backend/app/api/intent.py
+/opt/wishspark/backend/app/api/live_alerts.py
+/opt/wishspark/backend/app/api/live_opportunities.py
+/opt/wishspark/backend/app/api/live_visitors.py
+/opt/wishspark/backend/app/api/market_lookup.py
+/opt/wishspark/backend/app/api/opportunities.py
+/opt/wishspark/backend/app/api/price_intelligence.py
+/opt/wishspark/backend/app/api/revenue_radar.py
+/opt/wishspark/backend/app/api/top_pages.py
+/opt/wishspark/backend/app/api/track.py
+/opt/wishspark/backend/app/api/tracker.py
+/opt/wishspark/backend/app/api/visitor_scores.py
+/opt/wishspark/backend/app/api/weekly_trend.py
+
+===== OPS SCRIPTS =====
+/opt/wishspark/ops/logs.sh
+/opt/wishspark/ops/restart-all.sh
+/opt/wishspark/ops/restore-latest-dashboard.sh
+/opt/wishspark/ops/setup_ops.sh
+/opt/wishspark/ops/start-backend.sh
+/opt/wishspark/ops/start-dashboard.sh
+/opt/wishspark/ops/status.sh
+/opt/wishspark/ops/test-ai-actions.sh
+
+===== PACKAGE.JSON =====
+{
+  "name": "dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "next": "16.1.6",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.6",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+
+===== NEXT CONFIG =====
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  /* config options here */
+};
+
+export default nextConfig;
+
+
+===== DASHBOARD: page.tsx HEAD =====
+"use client";
+
+import Image from "next/image";
+import { useEffect, useMemo, useState } from "react";
+
+type Summary = {
+  total_visitors?: number;
+  total_sessions?: number;
+  total_events?: number;
+  hot_visitors?: number;
+  warm_visitors?: number;
+  cold_visitors?: number;
+  wishlist_adds?: number;
+  avg_intent_score?: number;
+  conversion_ready_products?: number;
+};
+
+type HotVisitor = {
+  visitor_id?: string;
+  session_id?: string;
+  product_id?: string;
+  intent_score?: number;
+  intent_level?: string;
+  total_views?: number;
+  total_dwell_seconds?: number;
+  max_scroll_depth?: number;
+  wishlist_added?: boolean;
+};
+
+type TopProduct = {
+  product_id?: string;
+  product_name?: string;
+  total_views?: number;
+  unique_visitors?: number;
+  wishlist_adds?: number;
+  avg_intent_score?: number;
+  intent_level?: string;
+};
+
+type ProductOpportunity = {
+  product_id?: string;
+  product_name?: string;
+  signal_type?: string;
+  priority_score?: number;
+  recommended_action?: string;
+  explanation?: string;
+  plan_required?: string;
+  locked_for_lite?: boolean;
+};
+
+type PriceIntelligence = {
+  product_id?: string;
+  product_name?: string;
+  market_status?: string;
+  price_position?: string;
+  price_opportunity?: string;
+  recommended_price_action?: string;
+  intelligence_explanation?: string;
+  confidence_score?: number;
+  plan_required?: string;
+  locked_for_lite?: boolean;
+};
+
+type MarketLookup = {
+  product_id?: string;
+  product_name?: string;
+  lookup_status?: string;
+  comparable_presence?: string;
+  uniqueness_hint?: string;
+  lookup_confidence?: number;
+  market_summary?: string;
+  recommended_next_step?: string;
+  plan_required?: string;
+  locked_for_lite?: boolean;
+};
+
+type LiveVisitor = {
+  visitor_id?: string;
+  url?: string;
+  dwell_seconds?: number;
+  max_scroll_depth?: number;
+  click_count?: number;
+  intent_level?: string;
+};
+
+type OverviewResponse = {
+  summary?: Summary;
+  top_hot_visitors?: HotVisitor[];
+  top_products?: TopProduct[];
+  product_opportunities?: ProductOpportunity[];
+  price_intelligence?: PriceIntelligence[];
+  market_lookup?: MarketLookup[];
+};
+
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://147.93.127.248:8000";
+
+function classNames(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(" ");
+}
+
+function formatNumber(value: unknown) {
+  if (typeof value !== "number" || Number.isNaN(value)) return "—";
+  return new Intl.NumberFormat("en-US").format(value);
+}
+
+function formatScore(value: unknown) {
+  if (typeof value !== "number" || Number.isNaN(value)) return "—";
+  return Math.round(value).toString();
+}
+
+function formatPercent(value: unknown) {
+  if (typeof value !== "number" || Number.isNaN(value)) return "—";
+  return `${Math.round(value)}%`;
+}
+
+function prettyText(value?: string) {
+  if (!value) return "—";
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function truncateMiddle(value?: string, start = 8, end = 4) {
+  if (!value) return "Unknown";
+  if (value.length <= start + end + 3) return value;
+  return `${value.slice(0, start)}...${value.slice(-end)}`;
+}
+
+function intentBadgeClass(intent?: string) {
+  switch ((intent || "").toUpperCase()) {
+    case "HOT":
+      return "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-400/30";
+    case "WARM":
+      return "bg-amber-500/15 text-amber-300 ring-1 ring-amber-400/30";
+    case "COLD":
+      return "bg-slate-500/15 text-slate-300 ring-1 ring-slate-400/30";
+    default:
+      return "bg-white/5 text-slate-300 ring-1 ring-white/10";
+  }
+}
+
+function confidenceClass(score?: number) {
+  if ((score || 0) >= 80) {
+    return "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-400/30";
+  }
+  if ((score || 0) >= 60) {
+    return "bg-amber-500/15 text-amber-300 ring-1 ring-amber-400/30";
+  }
+  return "bg-slate-500/15 text-slate-300 ring-1 ring-slate-400/30";
+}
+
+
+function pageLabel(url?: string) {
+  if (!url) return "Unknown page";
+  if (url.includes("checkout")) return "Checkout";
+  if (url.includes("cart")) return "Cart";
+  if (url.includes("product")) return "Product page";
+  if (url.includes("collection")) return "Collection page";
+  if (url.includes("category")) return "Category page";
+  if (url.includes("test.html")) return "Test page";
+  return url;
+}
+
+function radarDotClass(intent?: string) {
+  switch ((intent || "").toUpperCase()) {
+    case "HOT":
+      return "bg-rose-400 shadow-[0_0_20px_rgba(251,113,133,0.85)]";
+    case "WARM":
+      return "bg-amber-300 shadow-[0_0_20px_rgba(252,211,77,0.85)]";
+    case "COLD":
+      return "bg-slate-300 shadow-[0_0_20px_rgba(226,232,240,0.75)]";
+    default:
+      return "bg-cyan-300 shadow-[0_0_20px_rgba(103,232,249,0.75)]";
+  }
+}
+
+function SectionHeader({
+  eyebrow,
+  title,
+  description,
+  pro,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  pro?: boolean;
+}) {
+  return (
+    <div className="mb-5 flex items-start justify-between gap-4">
+      <div>
+        <div className="mb-2 flex justify-center gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-300/80">
+            {eyebrow}
+          </span>
+          {pro && (
+            <span className="rounded-full border border-violet-400/30 bg-violet-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-violet-200">
+              Pro
+            </span>
+          )}
+        </div>
+        <h2 className="text-xl font-semibold text-white">{title}</h2>
+        <p className="mt-1 max-w-2xl text-sm text-slate-400">{description}</p>
+      </div>
+    </div>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+}) {
+  return (
+
+===== DASHBOARD: page.tsx TAIL =====
+                            <div className="mt-1 text-sm font-semibold text-white">
+                              {formatScore(product.avg_intent_score)}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section className="relative mb-8 overflow-hidden rounded-3xl border border-violet-400/15 bg-white/[0.04] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+              <ProLockedBadge />
+              <SectionHeader
+                eyebrow="Pro"
+                title="Product opportunities"
+                description="AI-style opportunity signals that tell merchants which products deserve a pricing, urgency, or UX action next."
+                pro
+              />
+
+              {opportunities.length === 0 ? (
+                <EmptyState text="No opportunity signals available yet." />
+              ) : (
+                <div className="grid gap-4 lg:grid-cols-2">
+                  {opportunities.slice(0, 6).map((item, index) => (
+                    <div
+                      key={`${item.product_id || "opp"}-${index}`}
+                      className="rounded-2xl border border-white/10 bg-slate-950/40 p-5"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-white">
+                            {item.product_name ||
+                              item.product_id ||
+                              "Unnamed product"}
+                          </div>
+                          <div className="mt-1 text-xs text-slate-400">
+                            Signal: {prettyText(item.signal_type)}
+                          </div>
+                        </div>
+                        <div className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-white">
+                          Priority {formatScore(item.priority_score)}
+                        </div>
+                      </div>
+
+                      <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                        <div className="text-[11px] uppercase tracking-[0.12em] text-slate-500">
+                          Recommended action
+                        </div>
+                        <div className="mt-2 text-sm font-medium text-white">
+                          {prettyText(item.recommended_action)}
+                        </div>
+                        <div className="mt-3 text-sm leading-6 text-slate-300">
+                          {item.explanation || "No explanation provided."}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <ProLockedOverlay />
+              <UpgradeCallout />
+            </section>
+
+            <section className="mb-8 grid gap-6 xl:grid-cols-2">
+              <div className="relative overflow-hidden rounded-3xl border border-violet-400/15 bg-white/[0.04] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+                <ProLockedBadge />
+                <SectionHeader
+                  eyebrow="Pro"
+                  title="Price intelligence"
+                  description="Signals about comparable pricing pressure and where a test discount, scarcity message, or pricing review may increase conversion."
+                  pro
+                />
+
+                {priceIntel.length === 0 ? (
+                  <EmptyState text="No price intelligence available yet." />
+                ) : (
+                  <div className="space-y-4">
+                    {priceIntel.slice(0, 5).map((item, index) => (
+                      <div
+                        key={`${item.product_id || "price"}-${index}`}
+                        className="rounded-2xl border border-white/10 bg-slate-950/40 p-4"
+                      >
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <div className="text-sm font-semibold text-white">
+                              {item.product_name ||
+                                item.product_id ||
+                                "Unnamed product"}
+                            </div>
+                            <div className="mt-1 text-xs text-slate-400">
+                              {prettyText(item.market_status)} •{" "}
+                              {prettyText(item.price_position)}
+                            </div>
+                          </div>
+
+                          <span
+                            className={classNames(
+                              "rounded-full px-2.5 py-1 text-[11px] font-semibold",
+                              confidenceClass(item.confidence_score)
+                            )}
+                          >
+                            Confidence {formatScore(item.confidence_score)}
+                          </span>
+                        </div>
+
+                        <div className="mt-4 grid gap-3">
+                          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                            <div className="text-[11px] uppercase tracking-[0.12em] text-slate-500">
+                              Opportunity
+                            </div>
+                            <div className="mt-1 text-sm font-semibold text-white">
+                              {prettyText(item.price_opportunity)}
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                            <div className="text-[11px] uppercase tracking-[0.12em] text-slate-500">
+                              Suggested action
+                            </div>
+                            <div className="mt-1 text-sm font-semibold text-white">
+                              {prettyText(item.recommended_price_action)}
+                            </div>
+                          </div>
+
+                          <div className="text-sm leading-6 text-slate-300">
+                            {item.intelligence_explanation ||
+                              "No explanation provided."}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <ProLockedOverlay />
+                <UpgradeCallout />
+              </div>
+
+              <div className="relative overflow-hidden rounded-3xl border border-violet-400/15 bg-white/[0.04] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+                <ProLockedBadge />
+                <SectionHeader
+                  eyebrow="Pro"
+                  title="Market intelligence"
+                  description="The product uniqueness layer: whether a product looks comparable, distinct, or likely unique, and what the next strategic move should be."
+                  pro
+                />
+
+                {marketIntel.length === 0 ? (
+                  <EmptyState text="No market lookup intelligence available yet." />
+                ) : (
+                  <div className="space-y-4">
+                    {marketIntel.slice(0, 5).map((item, index) => (
+                      <div
+                        key={`${item.product_id || "market"}-${index}`}
+                        className="rounded-2xl border border-white/10 bg-slate-950/40 p-4"
+                      >
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <div className="text-sm font-semibold text-white">
+                              {item.product_name ||
+                                item.product_id ||
+                                "Unnamed product"}
+                            </div>
+                            <div className="mt-1 text-xs text-slate-400">
+                              {prettyText(item.lookup_status)} •{" "}
+                              {prettyText(item.comparable_presence)}
+                            </div>
+                          </div>
+
+                          <span
+                            className={classNames(
+                              "rounded-full px-2.5 py-1 text-[11px] font-semibold",
+                              confidenceClass(item.lookup_confidence)
+                            )}
+                          >
+                            Confidence {formatScore(item.lookup_confidence)}
+                          </span>
+                        </div>
+
+                        <div className="mt-4 grid gap-3">
+                          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                            <div className="text-[11px] uppercase tracking-[0.12em] text-slate-500">
+                              Uniqueness hint
+                            </div>
+                            <div className="mt-1 text-sm font-semibold text-white">
+                              {prettyText(item.uniqueness_hint)}
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                            <div className="text-[11px] uppercase tracking-[0.12em] text-slate-500">
+                              Recommended next step
+                            </div>
+                            <div className="mt-1 text-sm font-semibold text-white">
+                              {prettyText(item.recommended_next_step)}
+                            </div>
+                          </div>
+
+                          <div className="text-sm leading-6 text-slate-300">
+                            {item.market_summary || "No summary provided."}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <ProLockedOverlay />
+                <UpgradeCallout />
+              </div>
+            </section>
+          </>
+        )}
+      </div>
+    </main>
+  );
+}
+
+
+===== PRO DASHBOARD: insights/page.tsx HEAD =====
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+
+const API_BASE = "http://147.93.127.248:8000";
+
+type TrendPoint = {
+  day?: string;
+  visitors?: number;
+  page_views?: number;
+  clicks?: number;
+  hot_visitors?: number;
+};
+
+type Action = {
+  visitor?: string;
+  page?: string;
+  type?: string;
+  suggestion?: string;
+  impact?: string;
+};
+
+type Alert = {
+  type?: string;
+  message?: string;
+  priority?: string;
+};
+
+type TopPage = {
+  url?: string;
+  views?: number;
+  visitors?: number;
+  avg_dwell?: number;
+};
+
+type VisitorScore = {
+  visitor_id?: string;
+  url?: string;
+  dwell?: number;
+  scroll?: number;
+  clicks?: number;
+  conversion_score?: number;
+};
+
+type Opportunity = {
+  url?: string;
+  views?: number;
+  visitors?: number;
+  avg_dwell?: number;
+  avg_scroll?: number;
+  clicks?: number;
+  signal_type?: string;
+  recommended_action?: string;
+  priority_score?: number;
+  explanation?: string;
+};
+
+function formatNumber(value: unknown) {
+  if (typeof value !== "number" || Number.isNaN(value)) return "0";
+  return new Intl.NumberFormat("en-US").format(Math.round(value));
+}
+
+function prettyText(value?: string) {
+  if (!value) return "—";
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function impactClass(value?: string) {
+  switch ((value || "").toUpperCase()) {
+    case "HIGH":
+      return "bg-rose-500/15 text-rose-300 ring-1 ring-rose-400/30";
+    case "MEDIUM":
+      return "bg-amber-500/15 text-amber-300 ring-1 ring-amber-400/30";
+    case "LOW":
+      return "bg-cyan-500/15 text-cyan-300 ring-1 ring-cyan-400/30";
+    default:
+      return "bg-white/5 text-slate-300 ring-1 ring-white/10";
+  }
+}
+
+function SectionHeader({
+  eyebrow,
+  title,
+  description,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="mb-5">
+      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-300/80">
+        {eyebrow}
+      </div>
+      <h2 className="text-xl font-semibold text-white">{title}</h2>
+      <p className="mt-1 max-w-2xl text-sm text-slate-400">{description}</p>
+    </div>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.18)] backdrop-blur-sm">
+      <div className="text-sm text-slate-400">{label}</div>
+      <div className="mt-3 text-3xl font-semibold text-white">{value}</div>
+      <div className="mt-2 text-xs text-slate-500">{hint}</div>
+    </div>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center text-sm text-slate-400">
+      {text}
+    </div>
+  );
+}
+
+export default function InsightsPage() {
+  const [trend, setTrend] = useState<TrendPoint[]>([]);
+  const [actions, setActions] = useState<Action[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [topPages, setTopPages] = useState<TopPage[]>([]);
+  const [scores, setScores] = useState<VisitorScore[]>([]);
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadAll() {
+      try {
+        const [
+          trendRes,
+          actionsRes,
+          alertsRes,
+          topPagesRes,
+          scoresRes,
+          oppRes,
+        ] = await Promise.all([
+          fetch(`${API_BASE}/analytics/weekly-trend`, { cache: "no-store" }),
+          fetch(`${API_BASE}/ai/actions`, { cache: "no-store" }),
+          fetch(`${API_BASE}/analytics/alerts`, { cache: "no-store" }),
+          fetch(`${API_BASE}/analytics/top-pages`, { cache: "no-store" }),
+          fetch(`${API_BASE}/analytics/visitor-scores`, { cache: "no-store" }),
+          fetch(`${API_BASE}/analytics/live-opportunities`, { cache: "no-store" }),
+        ]);
+
+        const trendJson = trendRes.ok ? await trendRes.json() : { trend: [] };
+        const actionsJson = actionsRes.ok ? await actionsRes.json() : { actions: [] };
+        const alertsJson = alertsRes.ok ? await alertsRes.json() : { alerts: [] };
+        const topPagesJson = topPagesRes.ok ? await topPagesRes.json() : { pages: [] };
+        const scoresJson = scoresRes.ok ? await scoresRes.json() : { visitors: [] };
+        const oppJson = oppRes.ok ? await oppRes.json() : { opportunities: [] };
+
+        if (!active) return;
+
+        setTrend(Array.isArray(trendJson.trend) ? trendJson.trend : []);
+        setActions(Array.isArray(actionsJson.actions) ? actionsJson.actions : []);
+        setAlerts(Array.isArray(alertsJson.alerts) ? alertsJson.alerts : []);
+        setTopPages(Array.isArray(topPagesJson.pages) ? topPagesJson.pages : []);
+        setScores(Array.isArray(scoresJson.visitors) ? scoresJson.visitors : []);
+        setOpportunities(Array.isArray(oppJson.opportunities) ? oppJson.opportunities : []);
+      } catch {}
+    }
+
+    loadAll();
+    const interval = setInterval(loadAll, 8000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const totals = useMemo(() => {
+    return {
+      visitors: trend.reduce((acc, item) => acc + (item.visitors || 0), 0),
+      pageViews: trend.reduce((acc, item) => acc + (item.page_views || 0), 0),
+      clicks: trend.reduce((acc, item) => acc + (item.clicks || 0), 0),
+      hotVisitors: trend.reduce((acc, item) => acc + (item.hot_visitors || 0), 0),
+    };
+  }, [trend]);
+
+  const maxVisitors = useMemo(() => {
+    const max = Math.max(...trend.map((p) => p.visitors || 0), 1);
+    return max < 1 ? 1 : max;
+  }, [trend]);
+
+  return (
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(139,92,246,0.16),transparent_30%),linear-gradient(180deg,#020617_0%,#0f172a_100%)] text-white">
+      <div className="mx-auto max-w-7xl px-6 py-10 lg:px-8">
+        <div className="mb-8 overflow-hidden rounded-3xl border border-white/10 bg-[linear-gradient(135deg,rgba(2,6,23,0.98)_0%,rgba(15,23,42,0.96)_35%,rgba(30,27,75,0.94)_70%,rgba(88,28,135,0.88)_100%)] shadow-[0_24px_80px_rgba(0,0,0,0.38)] backdrop-blur-xl">
+          <div className="px-6 py-5 lg:px-8">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-300/80">
+                  Pro Dashboard
+                </div>
+                <h1 className="mt-2 text-4xl font-semibold text-white">
+                  HedgeSpark Intelligence
+                </h1>
+                <p className="mt-2 max-w-2xl text-sm text-slate-300">
+                  Advanced behavior intelligence, weekly trend analysis, alerts, and AI actions.
+                </p>
+              </div>
+
+              <a
+                href="/"
+                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/10"
+              >
+                Lite Dashboard
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <section className="mb-8">
+          <SectionHeader
+            eyebrow="Pro Overview"
+            title="Intelligence snapshot"
+            description="The advanced layer of WishSpark: weekly behavior, live signals, and AI decision support."
+          />
+
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Weekly Visitors"
+              value={formatNumber(totals.visitors)}
+              hint="Last 7 tracked days"
+            />
+            <MetricCard
+              label="Weekly Page Views"
+              value={formatNumber(totals.pageViews)}
+              hint="Behavior volume"
+            />
+            <MetricCard
+              label="Weekly Clicks"
+              value={formatNumber(totals.clicks)}
+              hint="Engagement actions"
+            />
+            <MetricCard
+              label="Weekly Hot Visitors"
+              value={formatNumber(totals.hotVisitors)}
+              hint="High-intent activity"
+            />
+          </div>
+        </section>
+
+        <section className="mb-8 rounded-3xl border border-cyan-400/15 bg-white/[0.04] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+
+===== PRO DASHBOARD: insights/page.tsx TAIL =====
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Weekly Visitors"
+              value={formatNumber(totals.visitors)}
+              hint="Last 7 tracked days"
+            />
+            <MetricCard
+              label="Weekly Page Views"
+              value={formatNumber(totals.pageViews)}
+              hint="Behavior volume"
+            />
+            <MetricCard
+              label="Weekly Clicks"
+              value={formatNumber(totals.clicks)}
+              hint="Engagement actions"
+            />
+            <MetricCard
+              label="Weekly Hot Visitors"
+              value={formatNumber(totals.hotVisitors)}
+              hint="High-intent activity"
+            />
+          </div>
+        </section>
+
+        <section className="mb-8 rounded-3xl border border-cyan-400/15 bg-white/[0.04] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+          <SectionHeader
+            eyebrow="Trend"
+            title="Weekly trend"
+            description="Behavior trend grouped by day from installation onward."
+          />
+
+          {trend.length === 0 ? (
+            <EmptyState text="No weekly trend data yet." />
+          ) : (
+            <div className="space-y-6">
+              <div className="grid grid-cols-7 gap-3">
+                {trend.map((point, index) => {
+                  const h = Math.max(
+                    24,
+                    Math.round(((point.visitors || 0) / maxVisitors) * 180)
+                  );
+
+                  return (
+                    <div key={index} className="flex flex-col items-center gap-3">
+                      <div className="flex h-[220px] w-full items-end justify-center rounded-2xl border border-white/10 bg-slate-950/40 px-2 py-3">
+                        <div
+                          className="w-full rounded-xl bg-[linear-gradient(180deg,rgba(34,211,238,0.95)_0%,rgba(168,85,247,0.95)_100%)] shadow-[0_0_30px_rgba(34,211,238,0.25)]"
+                          style={{ height: `${h}px` }}
+                        />
+                      </div>
+                      <div className="text-center">
+                        <div className="text-xs font-semibold text-white">
+                          {point.day ? point.day.slice(5) : "—"}
+                        </div>
+                        <div className="mt-1 text-[11px] text-slate-400">
+                          {formatNumber(point.visitors)} visitors
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section className="mb-8 rounded-3xl border border-rose-400/15 bg-white/[0.04] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+          <SectionHeader
+            eyebrow="AI Terminal"
+            title="Live alerts"
+            description="Behavior anomalies and important live signals."
+          />
+
+          {alerts.length === 0 ? (
+            <EmptyState text="No alerts detected." />
+          ) : (
+            <div className="space-y-3">
+              {alerts.map((alert, index) => (
+                <div
+                  key={`${alert.type || "alert"}-${index}`}
+                  className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-950/40 p-4"
+                >
+                  <div className="text-sm text-white">{alert.message || "—"}</div>
+                  <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${impactClass(alert.priority)}`}>
+                    {alert.priority || "Info"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="mb-8 grid gap-6 xl:grid-cols-2">
+          <div className="rounded-3xl border border-violet-400/15 bg-white/[0.04] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+            <SectionHeader
+              eyebrow="AI Copilot"
+              title="Suggested actions"
+              description="Actionable recommendations generated from live store behavior."
+            />
+
+            {actions.length === 0 ? (
+              <EmptyState text="No suggestions yet." />
+            ) : (
+              <div className="space-y-4">
+                {actions.map((action, index) => (
+                  <div
+                    key={`${action.visitor || "action"}-${index}`}
+                    className="rounded-2xl border border-white/10 bg-slate-950/40 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-xs text-slate-400">
+                          Visitor {action.visitor || "—"}
+                        </div>
+                        <div className="mt-1 text-lg font-semibold text-white">
+                          {action.suggestion || "—"}
+                        </div>
+                        <div className="mt-2 text-sm text-slate-300">
+                          Page: {action.page || "—"}
+                        </div>
+                        <div className="mt-1 text-[11px] uppercase tracking-[0.15em] text-violet-300">
+                          {prettyText(action.type)}
+                        </div>
+                      </div>
+
+                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${impactClass(action.impact)}`}>
+                        {action.impact || "Info"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-3xl border border-fuchsia-400/15 bg-white/[0.04] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+            <SectionHeader
+              eyebrow="AI Opportunities"
+              title="Behavior opportunities"
+              description="Pages and products that deserve action now."
+            />
+
+            {opportunities.length === 0 ? (
+              <EmptyState text="No opportunities yet." />
+            ) : (
+              <div className="space-y-4">
+                {opportunities.slice(0, 6).map((item, index) => (
+                  <div
+                    key={`${item.url || "opp"}-${index}`}
+                    className="rounded-2xl border border-white/10 bg-slate-950/40 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-sm font-semibold text-white">
+                          {item.url || "—"}
+                        </div>
+                        <div className="mt-1 text-xs uppercase tracking-[0.14em] text-slate-400">
+                          {prettyText(item.signal_type)}
+                        </div>
+                      </div>
+
+                      <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-white">
+                        Priority {formatNumber(item.priority_score)}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 text-sm font-medium text-white">
+                      {item.recommended_action || "—"}
+                    </div>
+                    <div className="mt-2 text-sm text-slate-300">
+                      {item.explanation || "—"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="mb-8 grid gap-6 xl:grid-cols-2">
+          <div className="rounded-3xl border border-emerald-400/15 bg-white/[0.04] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+            <SectionHeader
+              eyebrow="Pages"
+              title="Top pages"
+              description="The most active pages in your tracked store."
+            />
+
+            {topPages.length === 0 ? (
+              <EmptyState text="No page data yet." />
+            ) : (
+              <div className="space-y-3">
+                {topPages.map((page, index) => (
+                  <div
+                    key={`${page.url || "page"}-${index}`}
+                    className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-950/40 p-4"
+                  >
+                    <div className="text-sm text-white">{page.url || "—"}</div>
+                    <div className="flex gap-4 text-xs text-slate-300">
+                      <span>views {formatNumber(page.views)}</span>
+                      <span>visitors {formatNumber(page.visitors)}</span>
+                      <span>dwell {formatNumber(page.avg_dwell)}s</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-3xl border border-amber-400/15 bg-white/[0.04] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+            <SectionHeader
+              eyebrow="Scoring"
+              title="Conversion probability"
+              description="Visitor ranking by likely conversion strength."
+            />
+
+            {scores.length === 0 ? (
+              <EmptyState text="No visitor scores yet." />
+            ) : (
+              <div className="space-y-3">
+                {scores.slice(0, 8).map((item, index) => (
+                  <div
+                    key={`${item.visitor_id || "score"}-${index}`}
+                    className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-950/40 p-4"
+                  >
+                    <div className="text-sm text-white">{item.visitor_id || "—"}</div>
+                    <div className="flex gap-4 text-xs text-slate-300">
+                      <span>dwell {formatNumber(item.dwell)}s</span>
+                      <span>scroll {formatNumber(item.scroll)}%</span>
+                      <span>clicks {formatNumber(item.clicks)}</span>
+                    </div>
+                    <div className="text-sm font-semibold text-white">
+                      {formatNumber(item.conversion_score)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+          <SectionHeader
+            eyebrow="Reports"
+            title="Export"
+            description="Ready for weekly and monthly data export."
+          />
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <button className="rounded-2xl border border-white/10 bg-slate-950/40 px-5 py-4 text-left text-white hover:bg-white/10">
+              Export Weekly CSV
+            </button>
+            <button className="rounded-2xl border border-white/10 bg-slate-950/40 px-5 py-4 text-left text-white hover:bg-white/10">
+              Export Monthly CSV
+            </button>
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}
+
+
+===== BACKEND main.py =====
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from app.api.decision_engine import router as decision_engine_router
+from app.api.market_lookup import router as market_lookup_router
+from app.core.database import engine
+from app.core.database import Base
+from app.api.opportunities import router as opportunities_router
+from app.api.conversion_probability import router as conversion_probability_router
+from app.models.visitor import Visitor
+from app.models.product_opportunity import ProductOpportunity
+from app.models.product import Product
+from app.models.wishlist_item import WishlistItem
+from app.models.event import Event
+from app.models.visitor_product_state import VisitorProductState
+from app.api.dashboard import router as dashboard_router
+from app.api.events import router as events_router
+from app.api.intent import router as intent_router
+from app.api.track import router as track_router
+from app.models.price_intelligence import PriceIntelligence
+from app.models.market_lookup import MarketLookup
+from app.api.price_intelligence import router as price_intelligence_router
+from app.api.revenue_radar import router as revenue_radar_router
+from app.models.price_watch import PriceWatch
+from app.api.agent import router as agent_router
+from app.api.tracker import router as tracker_router
+from app.api.live_visitors import router as live_visitors_router
+from app.api.top_pages import router as top_pages_router
+from app.api.live_opportunities import router as live_opportunities_router
+from app.api.visitor_scores import router as visitor_scores_router
+from app.api.live_alerts import router as live_alerts_router
+from app.api.ai_actions import router as ai_actions_router
+from app.api.weekly_trend import router as weekly_trend_router
+from app.external_lookup_engine import infer_external_lookup
+
+
+app = FastAPI(title="WishSpark API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+Base.metadata.create_all(bind=engine)
+
+app.include_router(events_router)
+app.include_router(conversion_probability_router)
+app.include_router(revenue_radar_router)
+app.include_router(intent_router)
+app.include_router(track_router)
+app.include_router(dashboard_router)
+app.include_router(opportunities_router)
+app.include_router(price_intelligence_router)
+app.include_router(market_lookup_router)
+app.include_router(decision_engine_router)
+app.include_router(agent_router)
+app.include_router(tracker_router)
+app.include_router(live_visitors_router)
+app.include_router(top_pages_router)
+app.include_router(live_opportunities_router)
+app.include_router(visitor_scores_router)
+app.include_router(live_alerts_router)
+app.include_router(ai_actions_router)
+app.include_router(weekly_trend_router)
+
+
+class ExternalLookupRequest(BaseModel):
+    product_id: str | None = None
+    product_name: str | None = None
+    description: str | None = None
+
+
+@app.get("/")
+def root():
+    return {"service": "wishspark", "status": "running"}
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.post("/external-lookup/infer")
+def external_lookup_infer(payload: ExternalLookupRequest):
+    return infer_external_lookup(
+        product_id=payload.product_id,
+        product_name=payload.product_name,
+        description=payload.description,
+    )
+
+
+===== DATABASE CONFIG =====
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import declarative_base
+
+DATABASE_URL = "postgresql://aiuser:aipassword@localhost:5432/wishspark"
+
+engine = create_engine(DATABASE_URL)
+
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine
+)
+
+Base = declarative_base()
+
+
+===== GIT STATUS =====
+?? SERVER_CONTEXT.txt
+
+===== GIT BRANCH / LAST COMMITS =====
+main
+60ad2a1 Stable UI baseline: Lite Dashboard + HedgeSpark Intelligence Pro
+069a5db Initial commit from Create Next App
+
+
+===== LISTENING PORTS =====
+Netid State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess                                                   
+udp   UNCONN 0      0         127.0.0.54:53        0.0.0.0:*    users:(("systemd-resolve",pid=97188,fd=16))              
+udp   UNCONN 0      0      127.0.0.53%lo:53        0.0.0.0:*    users:(("systemd-resolve",pid=97188,fd=14))              
+tcp   LISTEN 0      2048         0.0.0.0:8000      0.0.0.0:*    users:(("uvicorn",pid=179610,fd=7))                      
+tcp   LISTEN 0      4096         0.0.0.0:6379      0.0.0.0:*    users:(("docker-proxy",pid=3720,fd=8))                   
+tcp   LISTEN 0      200        127.0.0.1:5433      0.0.0.0:*    users:(("postgres",pid=170546,fd=7))                     
+tcp   LISTEN 0      4096         0.0.0.0:5432      0.0.0.0:*    users:(("docker-proxy",pid=3747,fd=8))                   
+tcp   LISTEN 0      4096   127.0.0.53%lo:53        0.0.0.0:*    users:(("systemd-resolve",pid=97188,fd=15))              
+tcp   LISTEN 0      4096      127.0.0.54:53        0.0.0.0:*    users:(("systemd-resolve",pid=97188,fd=17))              
+tcp   LISTEN 0      4096         0.0.0.0:22        0.0.0.0:*    users:(("sshd",pid=100415,fd=3),("systemd",pid=1,fd=135))
+tcp   LISTEN 0      200            [::1]:5433         [::]:*    users:(("postgres",pid=170546,fd=6))                     
+tcp   LISTEN 0      4096            [::]:6379         [::]:*    users:(("docker-proxy",pid=3726,fd=8))                   
+tcp   LISTEN 0      4096            [::]:5432         [::]:*    users:(("docker-proxy",pid=3757,fd=8))                   
+tcp   LISTEN 0      4096               *:443             *:*    users:(("traefik",pid=3181,fd=7))                        
+tcp   LISTEN 0      4096               *:80              *:*    users:(("traefik",pid=3181,fd=4))                        
+tcp   LISTEN 0      4096            [::]:22           [::]:*    users:(("sshd",pid=100415,fd=4),("systemd",pid=1,fd=137))
+
+===== KEY FILE CHECK =====
+-rw-r--r-- 1 root root 66K Mar 15 21:41 /opt/wishspark/SERVER_CONTEXT.txt
+-rw-r--r-- 1 root root 45K Mar 15 20:14 /opt/wishspark/dashboard/src/app/page.tsx
+-rw-r--r-- 1 root root 45K Mar 15 20:40 /opt/wishspark/dashboard/src/app/page.tsx.LITE-STABLE
+-rw-r--r-- 1 root root 47K Mar 15 10:34 /opt/wishspark/dashboard/src/app/page.tsx.alerts-backup
+-rw-r--r-- 1 root root 48K Mar 15 10:52 /opt/wishspark/dashboard/src/app/page.tsx.async-fix-backup
+-rw-r--r-- 1 root root 35K Mar 14 21:10 /opt/wishspark/dashboard/src/app/page.tsx.auto-backup
+-rw-r--r-- 1 root root 34K Mar 15 07:55 /opt/wishspark/dashboard/src/app/page.tsx.backup
+-rw-r--r-- 1 root root 35K Mar 14 13:50 /opt/wishspark/dashboard/src/app/page.tsx.backup.actions
+-rw-r--r-- 1 root root 35K Mar 15 08:05 /opt/wishspark/dashboard/src/app/page.tsx.backup2
+-rw-r--r-- 1 root root 47K Mar 15 17:18 /opt/wishspark/dashboard/src/app/page.tsx.before-alert-panel-backup
+-rw-r--r-- 1 root root 48K Mar 15 17:07 /opt/wishspark/dashboard/src/app/page.tsx.before-alerts-fix-backup
+-rw-r--r-- 1 root root 35K Mar 14 19:56 /opt/wishspark/dashboard/src/app/page.tsx.before-hedgespark-header
+-rw-r--r-- 1 root root 33K Mar 15 08:33 /opt/wishspark/dashboard/src/app/page.tsx.compact-header-backup
+-rw-r--r-- 1 root root 33K Mar 14 21:36 /opt/wishspark/dashboard/src/app/page.tsx.harmony-backup
+-rw-r--r-- 1 root root 37K Mar 14 21:18 /opt/wishspark/dashboard/src/app/page.tsx.header-fix-backup
+-rw-r--r-- 1 root root 33K Mar 14 21:40 /opt/wishspark/dashboard/src/app/page.tsx.layout-backup
+-rw-r--r-- 1 root root 46K Mar 15 10:16 /opt/wishspark/dashboard/src/app/page.tsx.live-opportunities-backup
+-rw-r--r-- 1 root root 33K Mar 15 09:52 /opt/wishspark/dashboard/src/app/page.tsx.live-visitors-backup
+-rw-r--r-- 1 root root 47K Mar 15 17:20 /opt/wishspark/dashboard/src/app/page.tsx.livealerts-fix-backup
+-rw-r--r-- 1 root root 34K Mar 14 22:38 /opt/wishspark/dashboard/src/app/page.tsx.loading-magic-backup
+-rw-r--r-- 1 root root 33K Mar 14 22:04 /opt/wishspark/dashboard/src/app/page.tsx.logo-dominant-backup
+-rw-r--r-- 1 root root 34K Mar 14 22:25 /opt/wishspark/dashboard/src/app/page.tsx.logo-fixed-height-backup
+-rw-r--r-- 1 root root 33K Mar 14 21:43 /opt/wishspark/dashboard/src/app/page.tsx.logo-size-backup
+-rw-r--r-- 1 root root 33K Mar 14 22:20 /opt/wishspark/dashboard/src/app/page.tsx.navbar-center-backup
+-rw-r--r-- 1 root root 34K Mar 14 22:47 /opt/wishspark/dashboard/src/app/page.tsx.pro-messages-backup
+-rw-r--r-- 1 root root 34K Mar 14 22:42 /opt/wishspark/dashboard/src/app/page.tsx.pro-spark-backup
+-rw-r--r-- 1 root root 38K Mar 15 10:04 /opt/wishspark/dashboard/src/app/page.tsx.radar-backup
+-rw-r--r-- 1 root root 45K Mar 15 10:08 /opt/wishspark/dashboard/src/app/page.tsx.radar-compact-backup
+-rw-r--r-- 1 root root   0 Mar 14 16:01 /opt/wishspark/dashboard/src/app/page.tsx.save
+-rw-r--r-- 1 root root 33K Mar 14 22:07 /opt/wishspark/dashboard/src/app/page.tsx.spacing-backup
+-rw-r--r-- 1 root root 34K Mar 14 22:54 /opt/wishspark/dashboard/src/app/page.tsx.spark-animated-phases-backup
+-rw-r--r-- 1 root root 34K Mar 14 23:09 /opt/wishspark/dashboard/src/app/page.tsx.spark-mage-states-backup
+-rw-r--r-- 1 root root 34K Mar 14 23:05 /opt/wishspark/dashboard/src/app/page.tsx.spark-magic-vfx-backup
+-rw-r--r-- 1 root root 34K Mar 14 22:33 /opt/wishspark/dashboard/src/app/page.tsx.spark-visual-boost-backup
+-rw-r--r-- 1 root root 48K Mar 15 17:09 /opt/wishspark/dashboard/src/app/page.tsx.state-repair-backup
+-rw-r--r-- 1 root root 35K Mar 14 21:31 /opt/wishspark/dashboard/src/app/page.tsx.topbar-tweak-backup
+-rw-r--r-- 1 root root 47K Mar 15 10:19 /opt/wishspark/dashboard/src/app/page.tsx.visitor-scores-backup
+-rw-r--r-- 1 root root 47K Mar 15 17:55 /opt/wishspark/dashboard/src/app/page.tsx.weekly-trend-backup
+-rw-r--r-- 1 root root 50K Mar 15 17:58 /opt/wishspark/dashboard/src/app/page.tsx.weeklytrend-fix-backup
+-rw-r--r-- 1 root root 19K Mar 15 20:38 /opt/wishspark/dashboard/src/app/insights/page.tsx
+-rw-r--r-- 1 root root 19K Mar 15 20:40 /opt/wishspark/dashboard/src/app/insights/page.tsx.PRO-STABLE
+
