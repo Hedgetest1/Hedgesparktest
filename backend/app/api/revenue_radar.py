@@ -5,7 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import engine
-from app.conversion_probability_engine import infer_conversion_outcome
+from app.services.conversion_service import infer_conversion_outcome
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

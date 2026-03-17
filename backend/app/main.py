@@ -1,6 +1,5 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 from app.api.decision_engine import router as decision_engine_router
 from app.api.market_lookup import router as market_lookup_router
 from app.core.database import engine
@@ -32,8 +31,6 @@ from app.api.live_alerts import router as live_alerts_router
 from app.api.ai_actions import router as ai_actions_router
 from app.api.revenue_actions import router as revenue_actions_router
 from app.api.weekly_trend import router as weekly_trend_router
-from app.external_lookup_engine import infer_external_lookup
-
 
 app = FastAPI(title="WishSpark API")
 
@@ -69,12 +66,6 @@ app.include_router(ai_actions_router)
 app.include_router(weekly_trend_router)
 
 
-class ExternalLookupRequest(BaseModel):
-    product_id: str | None = None
-    product_name: str | None = None
-    description: str | None = None
-
-
 @app.get("/")
 def root():
     return {"service": "wishspark", "status": "running"}
@@ -83,12 +74,3 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
-
-@app.post("/external-lookup/infer")
-def external_lookup_infer(payload: ExternalLookupRequest):
-    return infer_external_lookup(
-        product_id=payload.product_id,
-        product_name=payload.product_name,
-        description=payload.description,
-    )

@@ -441,32 +441,3 @@ def infer_many(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
             )
         )
     return results
-
-
-if __name__ == "__main__":
-    demo_products = [
-        {
-            "product_id": "demo_001",
-            "product_name": "Handmade Limited Edition Lava Stone Ring",
-            "description": "Artisan small batch piece with custom finish",
-        },
-        {
-            "product_id": "demo_002",
-            "product_name": "Black Cotton T-Shirt XL",
-            "description": "Standard apparel essential",
-        },
-        {
-            "product_id": "demo_003",
-            "product_name": "Aurora Signature Ceramic Bloom Lamp",
-            "description": "Designer collection",
-        },
-        {
-            "product_id": "demo_004",
-            "product_name": "Minimal Leather Crossbody Bag",
-            "description": "Premium daily bag",
-        },
-    ]
-
-    from pprint import pprint
-
-    pprint(infer_many(demo_products))

@@ -37,7 +37,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.database import engine
-from app.external_lookup_engine import infer_external_lookup
+from app.services.external_lookup_service import infer_external_lookup
 from app.api.decision_engine import compute_decision
 
 try:

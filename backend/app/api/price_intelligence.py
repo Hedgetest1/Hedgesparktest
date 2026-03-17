@@ -38,7 +38,7 @@ def top_price_intelligence(db: Session = Depends(get_db)):
         for r in results
     ]
 
-from app.price_radar_engine import evaluate_price
+from app.services.price_radar_service import evaluate_price
 
 
 @router.post("/price-radar")
