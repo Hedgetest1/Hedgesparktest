@@ -9,7 +9,8 @@ class MarketLookup(Base):
 
     id = Column(Integer, primary_key=True)
 
-    product_url = Column(String, unique=True, nullable=False)
+    product_url = Column(String, nullable=False)
+    shop_domain = Column(String, nullable=False)
 
     lookup_status = Column(String)
     comparable_presence = Column(String)

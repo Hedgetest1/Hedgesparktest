@@ -9,7 +9,8 @@ class ProductOpportunity(Base):
 
     id = Column(Integer, primary_key=True)
 
-    product_url = Column(String, unique=True, nullable=False)
+    product_url = Column(String, nullable=False)
+    shop_domain = Column(String, nullable=False)
 
     records = Column(Integer, default=0)
     avg_intent_score = Column(Float, default=0)

@@ -25,3 +25,5 @@ class VisitorProductState(Base):
 
     recommended_action = Column(String)
     intent_explanation = Column(String)
+
+    shop_domain = Column(String, nullable=False)

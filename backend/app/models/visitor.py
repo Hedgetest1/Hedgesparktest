@@ -16,3 +16,5 @@ class Visitor(Base):
     first_seen = Column(DateTime, default=datetime.utcnow)
 
     last_seen = Column(DateTime, default=datetime.utcnow)
+
+    shop_domain = Column(String, nullable=False)

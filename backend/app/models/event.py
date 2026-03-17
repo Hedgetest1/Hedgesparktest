@@ -27,3 +27,5 @@ class Event(Base):
 
     occurred_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    shop_domain = Column(String, nullable=False)

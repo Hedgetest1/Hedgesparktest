@@ -18,3 +18,5 @@ class PriceWatch(Base):
     price_drop_detected = Column(Integer, default=0)
 
     last_checked = Column(DateTime, default=datetime.utcnow)
+
+    shop_domain = Column(String, nullable=False)

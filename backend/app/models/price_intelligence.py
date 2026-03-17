@@ -9,7 +9,8 @@ class PriceIntelligence(Base):
 
     id = Column(Integer, primary_key=True)
 
-    product_url = Column(String, unique=True, nullable=False)
+    product_url = Column(String, nullable=False)
+    shop_domain = Column(String, nullable=False)
 
     market_status = Column(String)
     price_position = Column(String)

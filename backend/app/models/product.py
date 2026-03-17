@@ -22,3 +22,5 @@ class Product(Base):
     image_url = Column(String)
 
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    shop_domain = Column(String, nullable=False)

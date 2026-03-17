@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, ForeignKey, DateTime, String
 from datetime import datetime
 
 from app.core.database import Base
@@ -14,3 +14,5 @@ class WishlistItem(Base):
     product_id = Column(Integer, ForeignKey("products.id"))
 
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    shop_domain = Column(String, nullable=False)

@@ -9,7 +9,8 @@ class UniqueProductDetection(Base):
 
     id = Column(Integer, primary_key=True)
 
-    product_url = Column(String, unique=True, nullable=False)
+    product_url = Column(String, nullable=False)
+    shop_domain = Column(String, nullable=False)
 
     uniqueness_status = Column(String)
     uniqueness_score = Column(Integer, default=0)
