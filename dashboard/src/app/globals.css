@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+:root {
+  --background: #080811;
+  --foreground: #e2e8f0;
+  --hs-purple: #7c3aed;
+  --hs-purple-dim: rgba(124, 58, 237, 0.15);
+  --hs-orange: #f97316;
+  --hs-gold: #fbbf24;
+  --hs-surface: rgba(255, 255, 255, 0.04);
+  --hs-border: rgba(255, 255, 255, 0.08);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans, Arial, Helvetica, sans-serif);
+}
+
+/* ── Hedge Spark brand animations ── */
+
+@keyframes hs-bob {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-8px); }
+}
+
+@keyframes hs-fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes hs-sparkle {
+  0%, 100% { opacity: 0.5; transform: scale(1) rotate(0deg); }
+  50%       { opacity: 1;   transform: scale(1.15) rotate(10deg); }
+}
+
+@keyframes hs-pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.5; transform: scale(0.85); }
+}
+
+.hs-bob     { animation: hs-bob     3s   ease-in-out infinite; }
+.hs-fade-up { animation: hs-fade-up 0.38s ease-out   forwards; }
+.hs-sparkle { animation: hs-sparkle 2.5s ease-in-out infinite; }
+.hs-pulse   { animation: hs-pulse-dot 1.6s ease-in-out infinite; }
