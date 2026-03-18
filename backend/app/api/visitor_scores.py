@@ -1,11 +1,17 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from sqlalchemy import text
+
 from app.core.database import engine
+from app.core.deps import require_api_key, require_shop
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
+
 @router.get("/visitor-scores")
-def visitor_scores():
+def visitor_scores(
+    shop: str = Depends(require_shop),
+    _: None = Depends(require_api_key),
+):
     query = text("""
         WITH visitor_stats AS (
             SELECT
@@ -15,6 +21,7 @@ def visitor_scores():
                 MAX(COALESCE(max_scroll_depth,0)) AS scroll,
                 COUNT(*) FILTER (WHERE event_type='click') AS clicks
             FROM events
+            WHERE shop_domain = :shop_domain
             GROUP BY visitor_id
         )
         SELECT
@@ -33,6 +40,6 @@ def visitor_scores():
         LIMIT 20
     """)
     with engine.begin() as conn:
-        rows = conn.execute(query).mappings().all()
+        rows = conn.execute(query, {"shop_domain": shop}).mappings().all()
 
-    return {"visitors":[dict(r) for r in rows]}
+    return {"visitors": [dict(r) for r in rows]}

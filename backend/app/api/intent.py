@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, case
 
 from app.core.database import SessionLocal
+from app.core.deps import require_api_key, require_shop
 from app.models.visitor_product_state import VisitorProductState
 
 router = APIRouter()
@@ -17,10 +18,17 @@ def get_db():
 
 
 @router.get("/intent/top-hot")
-def top_hot_visitors(db: Session = Depends(get_db)):
+def top_hot_visitors(
+    shop: str = Depends(require_shop),
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+):
     results = (
         db.query(VisitorProductState)
-        .filter(VisitorProductState.intent_level == "HOT")
+        .filter(
+            VisitorProductState.shop_domain == shop,
+            VisitorProductState.intent_level == "HOT",
+        )
         .order_by(VisitorProductState.intent_score.desc())
         .limit(20)
         .all()
@@ -33,17 +41,25 @@ def top_hot_visitors(db: Session = Depends(get_db)):
             "intent_score": r.intent_score,
             "intent_level": r.intent_level,
             "recommended_action": r.recommended_action,
-            "explanation": r.intent_explanation
+            "explanation": r.intent_explanation,
         }
         for r in results
     ]
 
 
 @router.get("/intent/visitor/{visitor_id}")
-def visitor_intent(visitor_id: str, db: Session = Depends(get_db)):
+def visitor_intent(
+    visitor_id: str,
+    shop: str = Depends(require_shop),
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+):
     results = (
         db.query(VisitorProductState)
-        .filter(VisitorProductState.visitor_id == visitor_id)
+        .filter(
+            VisitorProductState.shop_domain == shop,
+            VisitorProductState.visitor_id == visitor_id,
+        )
         .order_by(VisitorProductState.intent_score.desc())
         .all()
     )
@@ -59,35 +75,26 @@ def visitor_intent(visitor_id: str, db: Session = Depends(get_db)):
             "intent_score": r.intent_score,
             "intent_level": r.intent_level,
             "recommended_action": r.recommended_action,
-            "explanation": r.intent_explanation
+            "explanation": r.intent_explanation,
         }
         for r in results
     ]
 
 
 @router.get("/intent/summary")
-def intent_summary(db: Session = Depends(get_db)):
-    total = db.query(func.count(VisitorProductState.id)).scalar() or 0
-    hot = (
-        db.query(func.count(VisitorProductState.id))
-        .filter(VisitorProductState.intent_level == "HOT")
-        .scalar()
-        or 0
-    )
-    warm = (
-        db.query(func.count(VisitorProductState.id))
-        .filter(VisitorProductState.intent_level == "WARM")
-        .scalar()
-        or 0
-    )
-    cold = (
-        db.query(func.count(VisitorProductState.id))
-        .filter(VisitorProductState.intent_level == "COLD")
-        .scalar()
-        or 0
-    )
+def intent_summary(
+    shop: str = Depends(require_shop),
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+):
+    base = db.query(VisitorProductState).filter(VisitorProductState.shop_domain == shop)
 
-    avg_score = db.query(func.avg(VisitorProductState.intent_score)).scalar()
+    total = base.with_entities(func.count(VisitorProductState.id)).scalar() or 0
+    hot = base.filter(VisitorProductState.intent_level == "HOT").with_entities(func.count(VisitorProductState.id)).scalar() or 0
+    warm = base.filter(VisitorProductState.intent_level == "WARM").with_entities(func.count(VisitorProductState.id)).scalar() or 0
+    cold = base.filter(VisitorProductState.intent_level == "COLD").with_entities(func.count(VisitorProductState.id)).scalar() or 0
+
+    avg_score = base.with_entities(func.avg(VisitorProductState.intent_score)).scalar()
     avg_score = round(float(avg_score), 2) if avg_score is not None else 0
 
     return {
@@ -95,12 +102,16 @@ def intent_summary(db: Session = Depends(get_db)):
         "hot_records": hot,
         "warm_records": warm,
         "cold_records": cold,
-        "average_intent_score": avg_score
+        "average_intent_score": avg_score,
     }
 
 
 @router.get("/intent/products/top")
-def top_products(db: Session = Depends(get_db)):
+def top_products(
+    shop: str = Depends(require_shop),
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+):
     rows = (
         db.query(
             VisitorProductState.product_url,
@@ -111,8 +122,9 @@ def top_products(db: Session = Depends(get_db)):
             ).label("hot_count"),
             func.sum(
                 case((VisitorProductState.wishlist_added == True, 1), else_=0)
-            ).label("wishlist_count")
+            ).label("wishlist_count"),
         )
+        .filter(VisitorProductState.shop_domain == shop)
         .group_by(VisitorProductState.product_url)
         .order_by(func.avg(VisitorProductState.intent_score).desc())
         .limit(20)
@@ -125,12 +137,18 @@ def top_products(db: Session = Depends(get_db)):
             "records": int(r.records or 0),
             "avg_intent_score": round(float(r.avg_intent_score or 0), 2),
             "hot_count": int(r.hot_count or 0),
-            "wishlist_count": int(r.wishlist_count or 0)
+            "wishlist_count": int(r.wishlist_count or 0),
         }
         for r in rows
     ]
+
+
 @router.get("/intent/products/opportunities")
-def product_opportunities(db: Session = Depends(get_db)):
+def product_opportunities(
+    shop: str = Depends(require_shop),
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+):
     rows = (
         db.query(
             VisitorProductState.product_url,
@@ -143,8 +161,9 @@ def product_opportunities(db: Session = Depends(get_db)):
                 case((VisitorProductState.wishlist_added == True, 1), else_=0)
             ).label("wishlist_count"),
             func.avg(VisitorProductState.total_dwell_seconds).label("avg_dwell"),
-            func.avg(VisitorProductState.max_scroll_depth).label("avg_scroll")
+            func.avg(VisitorProductState.max_scroll_depth).label("avg_scroll"),
         )
+        .filter(VisitorProductState.shop_domain == shop)
         .group_by(VisitorProductState.product_url)
         .order_by(func.avg(VisitorProductState.intent_score).desc())
         .limit(50)
@@ -167,15 +186,12 @@ def product_opportunities(db: Session = Depends(get_db)):
         if avg_intent_score >= 80 and wishlist_count >= 1:
             opportunity_type = "PRICE_DROP_OR_LOW_STOCK_NUDGE"
             explanation = "High intent product with strong commitment signals"
-
         elif avg_intent_score >= 60 and wishlist_count == 0:
             opportunity_type = "WISHLIST_PROMPT_TEST"
             explanation = "High interest but low commitment; test stronger wishlist CTA"
-
         elif avg_dwell >= 20 and avg_scroll >= 70 and wishlist_count == 0:
             opportunity_type = "FRICTION_OR_PRICE_SENSITIVITY"
             explanation = "Users explore deeply but do not commit; review offer, price, trust, or CTA"
-
         elif hot_count >= 2:
             opportunity_type = "HIGH_INTEREST_PRODUCT"
             explanation = "Multiple HOT visitor-product states detected"
@@ -189,7 +205,7 @@ def product_opportunities(db: Session = Depends(get_db)):
             "avg_dwell_seconds": avg_dwell,
             "avg_scroll_depth": avg_scroll,
             "opportunity_type": opportunity_type,
-            "explanation": explanation
+            "explanation": explanation,
         })
 
     return opportunities

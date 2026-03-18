@@ -1,11 +1,17 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from sqlalchemy import text
+
 from app.core.database import engine
+from app.core.deps import require_api_key, require_shop
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
+
 @router.get("/weekly-trend")
-def weekly_trend():
+def weekly_trend(
+    shop: str = Depends(require_shop),
+    _: None = Depends(require_api_key),
+):
     query = text("""
         WITH daily AS (
             SELECT
@@ -19,6 +25,7 @@ def weekly_trend():
                     THEN visitor_id
                 END) AS hot_visitors
             FROM events
+            WHERE shop_domain = :shop_domain
             GROUP BY DATE(TO_TIMESTAMP(timestamp / 1000.0))
         )
         SELECT
@@ -32,6 +39,6 @@ def weekly_trend():
         LIMIT 7
     """)
     with engine.begin() as conn:
-        rows = conn.execute(query).mappings().all()
+        rows = conn.execute(query, {"shop_domain": shop}).mappings().all()
 
     return {"trend": list(reversed([dict(r) for r in rows]))}

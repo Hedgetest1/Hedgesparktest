@@ -1,42 +1,15 @@
 from __future__ import annotations
 
-from pathlib import Path
 import json
-
-SANDBOX_PATH = Path("/opt/wishspark/sandbox")
-
-def _build_ai_analysis():
-    runs = []
-
-    if not SANDBOX_PATH.exists():
-        return runs
-
-    for path in sorted(SANDBOX_PATH.iterdir(), reverse=True):
-
-        analysis_file = path / "analysis.json"
-
-        if not analysis_file.exists():
-            continue
-
-        try:
-            analysis = json.loads(analysis_file.read_text())
-            analysis["run_id"] = path.name
-            runs.append(analysis)
-        except Exception:
-            continue
-
-    return runs[:10]
-
-
-
-
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.database import engine
+from app.core.deps import require_api_key, require_shop
 from app.services.external_lookup_service import infer_external_lookup
 from app.api.decision_engine import compute_decision
 
@@ -45,6 +18,7 @@ try:
 except Exception:
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+SANDBOX_PATH = Path("/opt/wishspark/sandbox")
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -56,6 +30,10 @@ def get_db():
     finally:
         db.close()
 
+
+# ---------------------------------------------------------------------------
+# Utility helpers
+# ---------------------------------------------------------------------------
 
 def _to_dict(row: Any) -> dict[str, Any]:
     if row is None:
@@ -96,17 +74,17 @@ def _safe_bool(value: Any, default: bool = False) -> bool:
     return default
 
 
-def _rows(query: str, db: Session) -> list[dict[str, Any]]:
+def _rows(query: str, db: Session, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     try:
-        result = db.execute(text(query))
+        result = db.execute(text(query), params or {})
         return [_to_dict(row) for row in result.fetchall()]
     except Exception:
         return []
 
 
-def _row(query: str, db: Session) -> dict[str, Any]:
+def _row(query: str, db: Session, params: dict[str, Any] | None = None) -> dict[str, Any]:
     try:
-        result = db.execute(text(query))
+        result = db.execute(text(query), params or {})
         row = result.fetchone()
         return _to_dict(row) if row else {}
     except Exception:
@@ -156,7 +134,13 @@ def _sql_value(column_name: str | None, alias: str, default_sql: str = "NULL") -
     return f"{default_sql} AS {alias}"
 
 
-def _build_summary(db: Session) -> dict[str, Any]:
+# ---------------------------------------------------------------------------
+# Dashboard section builders (each scoped to a single shop_domain)
+# ---------------------------------------------------------------------------
+
+def _build_summary(db: Session, shop_domain: str) -> dict[str, Any]:
+    p = {"shop_domain": shop_domain}
+
     total_visitors = 0
     total_sessions = 0
     total_events = 0
@@ -177,8 +161,8 @@ def _build_summary(db: Session) -> dict[str, Any]:
             total_visitors = int(
                 _safe_number(
                     _row(
-                        f"SELECT COUNT(DISTINCT {visitor_col}) AS value FROM events",
-                        db,
+                        f"SELECT COUNT(DISTINCT {visitor_col}) AS value FROM events WHERE shop_domain = :shop_domain",
+                        db, p,
                     ).get("value"),
                     0,
                 )
@@ -188,15 +172,21 @@ def _build_summary(db: Session) -> dict[str, Any]:
             total_sessions = int(
                 _safe_number(
                     _row(
-                        f"SELECT COUNT(DISTINCT {session_col}) AS value FROM events",
-                        db,
+                        f"SELECT COUNT(DISTINCT {session_col}) AS value FROM events WHERE shop_domain = :shop_domain",
+                        db, p,
                     ).get("value"),
                     0,
                 )
             )
 
         total_events = int(
-            _safe_number(_row("SELECT COUNT(*) AS value FROM events", db).get("value"), 0)
+            _safe_number(
+                _row(
+                    "SELECT COUNT(*) AS value FROM events WHERE shop_domain = :shop_domain",
+                    db, p,
+                ).get("value"),
+                0,
+            )
         )
 
         if event_type_col:
@@ -207,8 +197,9 @@ def _build_summary(db: Session) -> dict[str, Any]:
                         SELECT COUNT(*) AS value
                         FROM events
                         WHERE {event_type_col} = 'wishlist_add'
+                          AND shop_domain = :shop_domain
                         """,
-                        db,
+                        db, p,
                     ).get("value"),
                     0,
                 )
@@ -223,12 +214,13 @@ def _build_summary(db: Session) -> dict[str, Any]:
             counts = _row(
                 f"""
                 SELECT
-                    COALESCE(SUM(CASE WHEN UPPER({intent_level_col}) = 'HOT' THEN 1 ELSE 0 END), 0) AS hot,
+                    COALESCE(SUM(CASE WHEN UPPER({intent_level_col}) = 'HOT'  THEN 1 ELSE 0 END), 0) AS hot,
                     COALESCE(SUM(CASE WHEN UPPER({intent_level_col}) = 'WARM' THEN 1 ELSE 0 END), 0) AS warm,
                     COALESCE(SUM(CASE WHEN UPPER({intent_level_col}) = 'COLD' THEN 1 ELSE 0 END), 0) AS cold
                 FROM visitor_product_state
+                WHERE shop_domain = :shop_domain
                 """,
-                db,
+                db, p,
             )
             hot_visitors = int(_safe_number(counts.get("hot"), 0))
             warm_visitors = int(_safe_number(counts.get("warm"), 0))
@@ -240,8 +232,9 @@ def _build_summary(db: Session) -> dict[str, Any]:
                     f"""
                     SELECT COALESCE(ROUND(AVG({intent_score_col}), 2), 0) AS value
                     FROM visitor_product_state
+                    WHERE shop_domain = :shop_domain
                     """,
-                    db,
+                    db, p,
                 ).get("value"),
                 0,
             )
@@ -256,8 +249,9 @@ def _build_summary(db: Session) -> dict[str, Any]:
                         f"""
                         SELECT COUNT(DISTINCT {product_key_col}) AS value
                         FROM product_opportunities
+                        WHERE shop_domain = :shop_domain
                         """,
-                        db,
+                        db, p,
                     ).get("value"),
                     0,
                 )
@@ -276,7 +270,7 @@ def _build_summary(db: Session) -> dict[str, Any]:
     }
 
 
-def _build_top_hot_visitors(db: Session) -> list[dict[str, Any]]:
+def _build_top_hot_visitors(db: Session, shop_domain: str) -> list[dict[str, Any]]:
     if not _table_exists(db, "visitor_product_state"):
         return []
 
@@ -294,9 +288,10 @@ def _build_top_hot_visitors(db: Session) -> list[dict[str, Any]]:
     if not visitor_col or not intent_score_col:
         return []
 
-    where_clause = f"WHERE {intent_score_col} >= 80"
     if intent_level_col:
-        where_clause = f"WHERE UPPER(COALESCE({intent_level_col}, '')) = 'HOT'"
+        where_clause = f"WHERE UPPER(COALESCE({intent_level_col}, '')) = 'HOT' AND shop_domain = :shop_domain"
+    else:
+        where_clause = f"WHERE {intent_score_col} >= 80 AND shop_domain = :shop_domain"
 
     rows = _rows(
         f"""
@@ -316,6 +311,7 @@ def _build_top_hot_visitors(db: Session) -> list[dict[str, Any]]:
         LIMIT 10
         """,
         db,
+        {"shop_domain": shop_domain},
     )
 
     cleaned = []
@@ -336,7 +332,7 @@ def _build_top_hot_visitors(db: Session) -> list[dict[str, Any]]:
     return cleaned
 
 
-def _build_top_products(db: Session) -> list[dict[str, Any]]:
+def _build_top_products(db: Session, shop_domain: str) -> list[dict[str, Any]]:
     if not _table_exists(db, "visitor_product_state"):
         return []
 
@@ -375,11 +371,13 @@ def _build_top_products(db: Session) -> list[dict[str, Any]]:
                 ELSE 'COLD'
             END AS intent_level
         FROM visitor_product_state
+        WHERE shop_domain = :shop_domain
         GROUP BY {product_col}
         ORDER BY {avg_intent_sql} DESC, {total_views_sql} DESC
         LIMIT 10
         """,
         db,
+        {"shop_domain": shop_domain},
     )
 
     cleaned = []
@@ -398,7 +396,7 @@ def _build_top_products(db: Session) -> list[dict[str, Any]]:
     return cleaned
 
 
-def _build_product_opportunities(db: Session) -> list[dict[str, Any]]:
+def _build_product_opportunities(db: Session, shop_domain: str) -> list[dict[str, Any]]:
     if not _table_exists(db, "product_opportunities"):
         return []
 
@@ -424,10 +422,12 @@ def _build_product_opportunities(db: Session) -> list[dict[str, Any]]:
             {_sql_value(plan_col, "plan_required", "'pro'")},
             {_sql_value(lock_col, "locked_for_lite", "TRUE")}
         FROM product_opportunities
+        WHERE shop_domain = :shop_domain
         ORDER BY COALESCE({_pick(cols, "priority_score") or '0'}, 0) DESC
         LIMIT 10
         """,
         db,
+        {"shop_domain": shop_domain},
     )
 
     cleaned = []
@@ -447,7 +447,7 @@ def _build_product_opportunities(db: Session) -> list[dict[str, Any]]:
     return cleaned
 
 
-def _build_price_intelligence(db: Session) -> list[dict[str, Any]]:
+def _build_price_intelligence(db: Session, shop_domain: str) -> list[dict[str, Any]]:
     if not _table_exists(db, "price_intelligence"):
         return []
 
@@ -477,10 +477,12 @@ def _build_price_intelligence(db: Session) -> list[dict[str, Any]]:
             {_sql_value(plan_col, "plan_required", "'pro'")},
             {_sql_value(lock_col, "locked_for_lite", "TRUE")}
         FROM price_intelligence
+        WHERE shop_domain = :shop_domain
         ORDER BY COALESCE({_pick(cols, "confidence_score") or '0'}, 0) DESC
         LIMIT 10
         """,
         db,
+        {"shop_domain": shop_domain},
     )
 
     cleaned = []
@@ -502,7 +504,7 @@ def _build_price_intelligence(db: Session) -> list[dict[str, Any]]:
     return cleaned
 
 
-def _build_market_lookup(db: Session) -> list[dict[str, Any]]:
+def _build_market_lookup(db: Session, shop_domain: str) -> list[dict[str, Any]]:
     table_name = None
     if _table_exists(db, "market_lookup"):
         table_name = "market_lookup"
@@ -538,10 +540,12 @@ def _build_market_lookup(db: Session) -> list[dict[str, Any]]:
             {_sql_value(plan_col, "plan_required", "'pro'")},
             {_sql_value(lock_col, "locked_for_lite", "TRUE")}
         FROM {table_name}
+        WHERE shop_domain = :shop_domain
         ORDER BY COALESCE({_pick(cols, "lookup_confidence", "confidence_score") or '0'}, 0) DESC
         LIMIT 10
         """,
         db,
+        {"shop_domain": shop_domain},
     )
 
     cleaned = []
@@ -636,16 +640,36 @@ def _build_ai_recommended_actions(
     return results
 
 
+def _build_sandbox_runs() -> list[dict]:
+    runs = []
+    if not SANDBOX_PATH.exists():
+        return runs
+    for path in sorted(SANDBOX_PATH.iterdir(), reverse=True):
+        if not path.is_dir():
+            continue
+        status_file = path / "status.txt"
+        status = status_file.read_text().strip() if status_file.exists() else "unknown"
+        runs.append({"run_id": path.name, "status": status, "sandbox_path": str(path)})
+    return runs[:10]
+
+
+# ---------------------------------------------------------------------------
+# Route
+# ---------------------------------------------------------------------------
+
 @router.get("/overview")
-def get_dashboard_overview():
+def get_dashboard_overview(
+    shop: str = Depends(require_shop),
+    _: None = Depends(require_api_key),
+):
     db = SessionLocal()
     try:
-        summary = _build_summary(db)
-        top_hot_visitors = _build_top_hot_visitors(db)
-        top_products = _build_top_products(db)
-        product_opportunities = _build_product_opportunities(db)
-        price_intelligence = _build_price_intelligence(db)
-        market_lookup = _build_market_lookup(db)
+        summary = _build_summary(db, shop)
+        top_hot_visitors = _build_top_hot_visitors(db, shop)
+        top_products = _build_top_products(db, shop)
+        product_opportunities = _build_product_opportunities(db, shop)
+        price_intelligence = _build_price_intelligence(db, shop)
+        market_lookup = _build_market_lookup(db, shop)
         ai_recommended_actions = _build_ai_recommended_actions(
             top_products=top_products,
             price_intelligence=price_intelligence,
@@ -663,32 +687,3 @@ def get_dashboard_overview():
         }
     finally:
         db.close()
-
-from pathlib import Path
-
-SANDBOX_PATH = Path("/opt/wishspark/sandbox")
-
-def _build_sandbox_runs():
-    runs = []
-
-    if not SANDBOX_PATH.exists():
-        return runs
-
-    for path in sorted(SANDBOX_PATH.iterdir(), reverse=True):
-
-        if not path.is_dir():
-            continue
-
-        status_file = path / "status.txt"
-
-        status = "unknown"
-        if status_file.exists():
-            status = status_file.read_text().strip()
-
-        runs.append({
-            "run_id": path.name,
-            "status": status,
-            "sandbox_path": str(path)
-        })
-
-    return runs[:10]

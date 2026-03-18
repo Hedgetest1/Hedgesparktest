@@ -1,11 +1,17 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from sqlalchemy import text
+
 from app.core.database import engine
+from app.core.deps import require_api_key, require_shop
 
 router = APIRouter(prefix="/live", tags=["live"])
 
+
 @router.get("/visitors")
-def live_visitors():
+def live_visitors(
+    shop: str = Depends(require_shop),
+    _: None = Depends(require_api_key),
+):
     query = text("""
         WITH latest AS (
             SELECT
@@ -15,12 +21,14 @@ def live_visitors():
                 MAX(COALESCE(dwell_seconds, 0)) AS dwell_seconds,
                 MAX(COALESCE(max_scroll_depth, 0)) AS max_scroll_depth
             FROM events
+            WHERE shop_domain = :shop_domain
             GROUP BY visitor_id
         ),
         clicks AS (
             SELECT visitor_id, COUNT(*) AS click_count
             FROM events
             WHERE event_type = 'click'
+              AND shop_domain = :shop_domain
             GROUP BY visitor_id
         ),
         pages AS (
@@ -52,6 +60,6 @@ def live_visitors():
     """)
 
     with engine.begin() as conn:
-        rows = conn.execute(query).mappings().all()
+        rows = conn.execute(query, {"shop_domain": shop}).mappings().all()
 
     return {"visitors": [dict(r) for r in rows]}

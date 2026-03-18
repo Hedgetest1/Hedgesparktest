@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import engine
+from app.core.deps import require_api_key, require_shop
 from app.services.conversion_service import infer_conversion_outcome
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -12,17 +13,22 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 router = APIRouter(prefix="/revenue-radar", tags=["revenue-radar"])
 
 
-def _rows(query: str) -> list[dict]:
+def _rows(query: str, params: dict) -> list[dict]:
     db = SessionLocal()
     try:
-        result = db.execute(text(query))
+        result = db.execute(text(query), params)
         return [dict(row._mapping) for row in result.fetchall()]
     finally:
         db.close()
 
 
 @router.get("/top")
-def revenue_radar_top():
+def revenue_radar_top(
+    shop: str = Depends(require_shop),
+    _: None = Depends(require_api_key),
+):
+    params = {"shop_domain": shop}
+
     products = _rows(
         """
         SELECT
@@ -32,10 +38,12 @@ def revenue_radar_top():
             COALESCE(SUM(CASE WHEN COALESCE(vps.wishlist_added, FALSE) THEN 1 ELSE 0 END), 0) AS wishlist_adds,
             COALESCE(ROUND(AVG(vps.intent_score), 2), 0) AS avg_intent_score
         FROM visitor_product_state vps
+        WHERE vps.shop_domain = :shop_domain
         GROUP BY vps.product_url
         ORDER BY avg_intent_score DESC, total_views DESC
         LIMIT 20
-        """
+        """,
+        params,
     )
 
     market_lookup_rows = _rows(
@@ -54,7 +62,9 @@ def revenue_radar_top():
                 ELSE 30
             END AS comparability_score
         FROM market_lookup
-        """
+        WHERE shop_domain = :shop_domain
+        """,
+        params,
     )
 
     price_rows = _rows(
@@ -67,7 +77,9 @@ def revenue_radar_top():
                 ELSE 35
             END AS price_pressure_score
         FROM price_intelligence
-        """
+        WHERE shop_domain = :shop_domain
+        """,
+        params,
     )
 
     market_map = {str(row["product_id"]): row for row in market_lookup_rows}
