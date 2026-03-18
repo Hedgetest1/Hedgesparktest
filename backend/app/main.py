@@ -21,6 +21,7 @@ from app.models.market_lookup import MarketLookup
 from app.api.price_intelligence import router as price_intelligence_router
 from app.api.revenue_radar import router as revenue_radar_router
 from app.models.price_watch import PriceWatch
+from app.models.opportunity_signal import OpportunitySignal
 from app.api.agent import router as agent_router
 from app.api.tracker import router as tracker_router
 from app.api.live_visitors import router as live_visitors_router
@@ -31,6 +32,7 @@ from app.api.live_alerts import router as live_alerts_router
 from app.api.ai_actions import router as ai_actions_router
 from app.api.revenue_actions import router as revenue_actions_router
 from app.api.weekly_trend import router as weekly_trend_router
+from app.api.auth import router as auth_router
 
 app = FastAPI(title="WishSpark API")
 
@@ -64,6 +66,7 @@ app.include_router(visitor_scores_router)
 app.include_router(live_alerts_router)
 app.include_router(ai_actions_router)
 app.include_router(weekly_trend_router)
+app.include_router(auth_router)
 
 
 @app.get("/")
