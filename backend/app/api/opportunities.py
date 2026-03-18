@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
+from app.core.deps import require_api_key, require_shop
 from app.models.product_opportunity import ProductOpportunity
+from app.services.opportunity_engine import get_or_refresh_signals
 
 router = APIRouter()
 
@@ -15,10 +17,31 @@ def get_db():
         db.close()
 
 
+@router.get("/opportunities")
+def opportunities(
+    shop: str = Depends(require_shop),
+    _: None = Depends(require_api_key),
+):
+    """
+    Run the live opportunity detection engine for the given shop.
+
+    Returns signals derived from the events table using four rule-based
+    detectors (no AI, no external calls).  Results are served from an
+    in-process cache (TTL 5 min) backed by the opportunity_signals table,
+    so the detection queries run at most once every 5 minutes per shop.
+    """
+    return get_or_refresh_signals(shop)
+
+
 @router.get("/opportunities/top")
-def top_opportunities(db: Session = Depends(get_db)):
+def top_opportunities(
+    shop: str = Depends(require_shop),
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+):
     results = (
         db.query(ProductOpportunity)
+        .filter(ProductOpportunity.shop_domain == shop)
         .order_by(ProductOpportunity.priority_score.desc())
         .limit(20)
         .all()
@@ -37,7 +60,7 @@ def top_opportunities(db: Session = Depends(get_db)):
             "priority_score": r.priority_score,
             "recommended_action": r.recommended_action,
             "opportunity_explanation": r.opportunity_explanation,
-            "plan_required": r.plan_required
+            "plan_required": r.plan_required,
         }
         for r in results
     ]
