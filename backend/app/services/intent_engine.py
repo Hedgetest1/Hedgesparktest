@@ -21,6 +21,7 @@ def calculate_intent_score(events):
 from app.services.opportunity_engine import update_product_opportunity
 from datetime import datetime
 from app.models.visitor_product_state import VisitorProductState
+from app.core.url_utils import normalize_product_url
 
 
 def calculate_intent_score_v2(state):
@@ -100,7 +101,9 @@ def build_intent_explanation(state):
 
 def update_visitor_product_state(db, event):
 
-    product_url = event.page_url
+    # Normalize to /products/{handle} — reject full URLs, non-product pages,
+    # and any garbage that would create an unresolvable product key.
+    product_url = normalize_product_url(event.page_url)
 
     if not product_url:
         return

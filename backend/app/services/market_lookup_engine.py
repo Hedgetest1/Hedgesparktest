@@ -44,13 +44,24 @@ def classify_market_lookup(unique_signal):
     )
 
 
-def update_market_lookup(db: Session, product_url: str):
+def update_market_lookup(db: Session, product_url: str, shop_domain: str) -> None:
+    """
+    Derive and upsert a MarketLookup row from UniqueProductDetection for the
+    given (shop_domain, product_url) pair.
+
+    Both arguments are required.  Raises ValueError on missing input.
+    """
     if not product_url:
-        return
+        raise ValueError("update_market_lookup: product_url is required")
+    if not shop_domain:
+        raise ValueError("update_market_lookup: shop_domain is required")
 
     unique_signal = (
         db.query(UniqueProductDetection)
-        .filter(UniqueProductDetection.product_url == product_url)
+        .filter(
+            UniqueProductDetection.shop_domain == shop_domain,
+            UniqueProductDetection.product_url == product_url,
+        )
         .first()
     )
 
@@ -68,12 +79,15 @@ def update_market_lookup(db: Session, product_url: str):
 
     existing = (
         db.query(MarketLookup)
-        .filter(MarketLookup.product_url == product_url)
+        .filter(
+            MarketLookup.shop_domain == shop_domain,
+            MarketLookup.product_url == product_url,
+        )
         .first()
     )
 
     if not existing:
-        existing = MarketLookup(product_url=product_url)
+        existing = MarketLookup(shop_domain=shop_domain, product_url=product_url)
         db.add(existing)
         db.flush()
 

@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.database import engine
-from app.core.deps import require_api_key, require_shop
+from app.core.deps import require_api_key, require_pro_plan, require_shop
 from app.services.external_lookup_service import infer_external_lookup
 from app.api.decision_engine import compute_decision
 
@@ -640,6 +640,93 @@ def _build_ai_recommended_actions(
     return results
 
 
+def _build_revenue_window_tease(db: Session, shop_domain: str) -> dict:
+    """
+    Lite-facing revenue window tease — total dollar amount, no breakdown.
+
+    Reads from active_nudges (already computed by segment_monitor_worker)
+    so this is a fast query without re-running segment calculations.
+    Shows Lite merchants there is revenue at risk without revealing which
+    products or how to act on it.
+    """
+    total_window = 0.0
+    active_nudge_count = 0
+
+    if _table_exists(db, "active_nudges"):
+        result = _row(
+            """
+            SELECT
+                COALESCE(SUM(estimated_revenue_window), 0) AS total_window,
+                COUNT(*) AS nudge_count
+            FROM active_nudges
+            WHERE shop_domain = :shop
+              AND status      = 'active'
+              AND expires_at  > NOW()
+            """,
+            db,
+            {"shop": shop_domain},
+        )
+        total_window        = float(_safe_number(result.get("total_window"), 0))
+        active_nudge_count  = int(_safe_number(result.get("nudge_count"), 0))
+
+    return {
+        "estimated_revenue_at_risk": round(total_window, 2),
+        "active_opportunity_count":  active_nudge_count,
+        "note":                      "Upgrade to Pro to see which products and segments are at risk.",
+    }
+
+
+def _build_revenue_windows(db: Session, shop_domain: str) -> dict:
+    """
+    Pro revenue windows — per-product breakdown with visitor segments.
+
+    Returns the top 5 active nudge opportunities ranked by estimated revenue.
+    Reads from active_nudges to avoid expensive per-product segment recomputation
+    at query time.  Segment data is always fresh (segment_monitor_worker runs every 5 min).
+    """
+    total_window = 0.0
+    opportunities = []
+
+    if _table_exists(db, "active_nudges"):
+        rows = _rows(
+            """
+            SELECT
+                product_url,
+                action_type,
+                visitor_count,
+                estimated_revenue_window,
+                calibration_state,
+                expires_at
+            FROM active_nudges
+            WHERE shop_domain = :shop
+              AND status      = 'active'
+              AND expires_at  > NOW()
+            ORDER BY estimated_revenue_window DESC
+            LIMIT 5
+            """,
+            db,
+            {"shop": shop_domain},
+        )
+
+        for row in rows:
+            window = float(_safe_number(row.get("estimated_revenue_window"), 0))
+            total_window += window
+            opportunities.append({
+                "product_url":       row.get("product_url"),
+                "action_type":       row.get("action_type"),
+                "visitor_count":     int(_safe_number(row.get("visitor_count"), 0)),
+                "revenue_window":    round(window, 2),
+                "calibration_state": row.get("calibration_state"),
+                "expires_at":        str(row.get("expires_at")) if row.get("expires_at") else None,
+            })
+
+    return {
+        "total_revenue_at_risk": round(total_window, 2),
+        "opportunities":         opportunities,
+        "currency":              "USD",
+    }
+
+
 def _build_sandbox_runs() -> list[dict]:
     runs = []
     if not SANDBOX_PATH.exists():
@@ -654,7 +741,45 @@ def _build_sandbox_runs() -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Route
+# Routes
+#
+# Product boundary
+# ----------------
+# Lite route  GET /dashboard/overview
+#   Returns only Lite-safe sections: summary (aggregate counts) and
+#   top_products (behavioral observations).  Pro-only builders are not
+#   called — this saves the DB queries and the infer_external_lookup() call
+#   that _build_ai_recommended_actions() makes for every top product.
+#
+# Pro route   GET /dashboard/overview/pro
+#   Returns the full payload including all Pro-only sections.
+#   Backend-enforced via require_pro_plan (HTTP 403 for non-Pro shops).
+#
+# Section classification
+# ----------------------
+# Lite-safe:  summary          — aggregate counts and intent segmentation
+#             top_products     — product list with behavioral metrics
+#
+# Pro-only:   price_intelligence    — plan_required="pro" in every row;
+#                                     prescriptive pricing actions
+#             market_lookup         — plan_required="pro" in every row;
+#                                     competitor analysis and next steps
+#             product_opportunities — plan_required="pro" in every row;
+#                                     opportunity signals with recommended_action
+#             top_hot_visitors      — individual visitor intent records;
+#                                     currently dead state in the frontend but
+#                                     included in Pro for completeness
+#             ai_recommended_actions — hardcoded plan_required="pro"; cross-
+#                                      signal prescriptive actions, requires
+#                                      price_intelligence + market_lookup data
+#
+# Why no field-level stripping on this endpoint
+# ---------------------------------------------
+# Unlike opportunities (explanation Lite / human_action Pro) or alerts
+# (message Lite / action Pro), the Pro-only sections here have NO Lite-safe
+# subset worth exposing.  Every meaningful field in price_intelligence,
+# market_lookup, and ai_recommended_actions is prescriptive or derived from
+# a Pro-tier proprietary analysis.  The correct boundary is the whole section.
 # ---------------------------------------------------------------------------
 
 @router.get("/overview")
@@ -662,12 +787,52 @@ def get_dashboard_overview(
     shop: str = Depends(require_shop),
     _: None = Depends(require_api_key),
 ):
+    """
+    Lite dashboard overview — summary and top_products only.
+
+    Pro-only sections (price_intelligence, market_lookup, product_opportunities,
+    top_hot_visitors, ai_recommended_actions) are not computed or returned.
+    Pro subscribers call /dashboard/overview/pro to receive them.
+
+    Lite boundary: summary (aggregate counts + intent segmentation)
+                   top_products (product behavioral observations)
+    Pro boundary:  all other sections (served by /dashboard/overview/pro)
+    """
     db = SessionLocal()
     try:
-        summary = _build_summary(db, shop)
-        top_hot_visitors = _build_top_hot_visitors(db, shop)
+        return {
+            "summary":              _build_summary(db, shop),
+            "top_products":         _build_top_products(db, shop),
+            "revenue_window_tease": _build_revenue_window_tease(db, shop),
+        }
+    finally:
+        db.close()
+
+
+@router.get("/overview/pro")
+def get_dashboard_overview_pro(
+    shop: str = Depends(require_pro_plan),
+):
+    """
+    Pro dashboard overview — full payload including all Pro-only sections.
+
+    Backend-enforced: require_pro_plan raises HTTP 403 if the shop does not
+    have an active Pro plan (merchants.plan != "pro" or billing_active == False).
+    API key and shop-domain validation are composed inside require_pro_plan.
+
+    Returns the same base as /dashboard/overview plus:
+      price_intelligence     — pricing analysis with recommended actions
+      market_lookup          — competitor analysis and market position
+      product_opportunities  — opportunity signals with recommended_action
+      top_hot_visitors       — individual high-intent visitor records
+      ai_recommended_actions — cross-signal AI-computed prescriptive actions
+
+    Lite boundary: summary + top_products (served by /dashboard/overview)
+    Pro boundary:  full payload           (served here — plan-enforced)
+    """
+    db = SessionLocal()
+    try:
         top_products = _build_top_products(db, shop)
-        product_opportunities = _build_product_opportunities(db, shop)
         price_intelligence = _build_price_intelligence(db, shop)
         market_lookup = _build_market_lookup(db, shop)
         ai_recommended_actions = _build_ai_recommended_actions(
@@ -675,15 +840,15 @@ def get_dashboard_overview(
             price_intelligence=price_intelligence,
             market_lookup=market_lookup,
         )
-
         return {
-            "summary": summary,
-            "top_hot_visitors": top_hot_visitors,
-            "top_products": top_products,
-            "product_opportunities": product_opportunities,
-            "price_intelligence": price_intelligence,
-            "market_lookup": market_lookup,
+            "summary":                _build_summary(db, shop),
+            "top_hot_visitors":       _build_top_hot_visitors(db, shop),
+            "top_products":           top_products,
+            "product_opportunities":  _build_product_opportunities(db, shop),
+            "price_intelligence":     price_intelligence,
+            "market_lookup":          market_lookup,
             "ai_recommended_actions": ai_recommended_actions,
+            "revenue_windows":        _build_revenue_windows(db, shop),
         }
     finally:
         db.close()

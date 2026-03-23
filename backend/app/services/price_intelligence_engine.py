@@ -55,13 +55,26 @@ def classify_price_intelligence(opportunity: ProductOpportunity):
     )
 
 
-def update_price_intelligence(db: Session, product_url: str):
+def update_price_intelligence(db: Session, product_url: str, shop_domain: str) -> None:
+    """
+    Derive and upsert a PriceIntelligence row from the ProductOpportunity for
+    the given (shop_domain, product_url) pair.
+
+    Both arguments are required.  Raises ValueError on missing input so the
+    caller always knows exactly what went wrong rather than silently operating
+    on the wrong tenant's data.
+    """
     if not product_url:
-        return
+        raise ValueError("update_price_intelligence: product_url is required")
+    if not shop_domain:
+        raise ValueError("update_price_intelligence: shop_domain is required")
 
     opportunity = (
         db.query(ProductOpportunity)
-        .filter(ProductOpportunity.product_url == product_url)
+        .filter(
+            ProductOpportunity.shop_domain == shop_domain,
+            ProductOpportunity.product_url == product_url,
+        )
         .first()
     )
 
@@ -79,12 +92,15 @@ def update_price_intelligence(db: Session, product_url: str):
 
     existing = (
         db.query(PriceIntelligence)
-        .filter(PriceIntelligence.product_url == product_url)
+        .filter(
+            PriceIntelligence.shop_domain == shop_domain,
+            PriceIntelligence.product_url == product_url,
+        )
         .first()
     )
 
     if not existing:
-        existing = PriceIntelligence(product_url=product_url)
+        existing = PriceIntelligence(shop_domain=shop_domain, product_url=product_url)
         db.add(existing)
         db.flush()
 
@@ -99,4 +115,4 @@ def update_price_intelligence(db: Session, product_url: str):
 
     db.commit()
 
-    update_unique_product_detection(db, product_url)
+    update_unique_product_detection(db, product_url, shop_domain)

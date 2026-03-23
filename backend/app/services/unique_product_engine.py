@@ -52,14 +52,24 @@ def classify_uniqueness(opportunity, price_info):
     )
 
 
-def update_unique_product_detection(db: Session, product_url: str):
+def update_unique_product_detection(db: Session, product_url: str, shop_domain: str) -> None:
+    """
+    Derive and upsert a UniqueProductDetection row from ProductOpportunity and
+    PriceIntelligence for the given (shop_domain, product_url) pair.
 
+    Both arguments are required.  Raises ValueError on missing input.
+    """
     if not product_url:
-        return
+        raise ValueError("update_unique_product_detection: product_url is required")
+    if not shop_domain:
+        raise ValueError("update_unique_product_detection: shop_domain is required")
 
     opportunity = (
         db.query(ProductOpportunity)
-        .filter(ProductOpportunity.product_url == product_url)
+        .filter(
+            ProductOpportunity.shop_domain == shop_domain,
+            ProductOpportunity.product_url == product_url,
+        )
         .first()
     )
 
@@ -68,7 +78,10 @@ def update_unique_product_detection(db: Session, product_url: str):
 
     price_info = (
         db.query(PriceIntelligence)
-        .filter(PriceIntelligence.product_url == product_url)
+        .filter(
+            PriceIntelligence.shop_domain == shop_domain,
+            PriceIntelligence.product_url == product_url,
+        )
         .first()
     )
 
@@ -81,12 +94,15 @@ def update_unique_product_detection(db: Session, product_url: str):
 
     existing = (
         db.query(UniqueProductDetection)
-        .filter(UniqueProductDetection.product_url == product_url)
+        .filter(
+            UniqueProductDetection.shop_domain == shop_domain,
+            UniqueProductDetection.product_url == product_url,
+        )
         .first()
     )
 
     if not existing:
-        existing = UniqueProductDetection(product_url=product_url)
+        existing = UniqueProductDetection(shop_domain=shop_domain, product_url=product_url)
         db.add(existing)
         db.flush()
 
@@ -98,4 +114,4 @@ def update_unique_product_detection(db: Session, product_url: str):
     existing.updated_at = datetime.utcnow()
 
     db.commit()
-    update_market_lookup(db, product_url)
+    update_market_lookup(db, product_url, shop_domain)
