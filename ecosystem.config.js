@@ -1,0 +1,220 @@
+/**
+ * WishSpark PM2 ecosystem config — Phase 1
+ *
+ * Processes
+ * ---------
+ *   wishspark-dashboard          Next.js production server  (port 3000)
+ *   wishspark-backend            FastAPI / uvicorn           (port 8000)
+ *   wishspark-worker             intelligence_worker.py      (10-min cycle)
+ *   wishspark-agent-worker       agent_worker.py             (15-min cycle)
+ *   wishspark-aggregation-worker aggregation_worker.py       ( 5-min cycle)
+ *
+ * Path assumptions
+ * ----------------
+ *   Repo root              /opt/wishspark
+ *   Python venv            /opt/wishspark/backend/venv
+ *   Backend .env           /opt/wishspark/backend/.env   (read by load_dotenv())
+ *   Log directory          /opt/wishspark/logs           (must exist before reload)
+ *   Dashboard build        /opt/wishspark/dashboard/.next (must exist; run npm build first)
+ *
+ * Environment variables
+ * ---------------------
+ *   All Python processes set cwd to /opt/wishspark/backend so that
+ *   load_dotenv() in the application code finds backend/.env automatically.
+ *   Secrets (DATABASE_URL, REDIS_URL, OPENAI_API_KEY, …) are kept in
+ *   backend/.env and are never inlined in this file.
+ *
+ * Exec mode / clustering
+ * ----------------------
+ *   All processes run in fork mode with instances: 1.
+ *   Workers must remain singletons — multiple instances would create
+ *   duplicate watermark advances and duplicate retention runs.
+ *   The backend is kept in fork mode; cluster mode would require a
+ *   reverse proxy and session-safe routing that is not yet in place.
+ *
+ * Restart policy
+ * --------------
+ *   autorestart: true — PM2 restarts on any non-zero exit code or crash.
+ *   min_uptime: "10s" — a restart only counts against max_restarts if
+ *     the process exits within 10 s of starting.  Workers that run their
+ *     full cycle (≥ 5 min) reset the counter each time.
+ *   max_restarts: 10 — if a process crashes 10 times while still within
+ *     min_uptime, PM2 marks it errored and stops restarting.
+ *   restart_delay: 5000 — 5 s back-off between restart attempts to
+ *     avoid hammering the DB on transient startup failures.
+ *
+ * Memory safety
+ * -------------
+ *   max_memory_restart caps RSS growth.  Values are generous enough to
+ *   avoid churn under normal load, but catch actual leaks or runaway jobs.
+ *   backend: 512M   — handles concurrent requests, ASGI, SQLAlchemy pool
+ *   dashboard: 300M — Next.js SSR; React render can spike on first load
+ *   workers: 200M   — background Python; should stay well under 100 M
+ *
+ * Bind address
+ * ------------
+ *   backend and dashboard bind to 127.0.0.1 only.  Public traffic enters
+ *   exclusively through Traefik on ports 80/443.  Direct port access is
+ *   also blocked by ufw deny rules on 3000 and 8000.
+ */
+
+"use strict";
+
+module.exports = {
+  apps: [
+
+    // -------------------------------------------------------------------------
+    // Next.js dashboard — production server
+    // -------------------------------------------------------------------------
+    {
+      name:                "wishspark-dashboard",
+      script:              "/opt/wishspark/dashboard/node_modules/.bin/next",
+      args:                "start -H 127.0.0.1",
+      cwd:                 "/opt/wishspark/dashboard",
+      interpreter:         "none",
+      exec_mode:           "fork",
+      instances:           1,
+      autorestart:         true,
+      min_uptime:          "10s",
+      max_restarts:        10,
+      restart_delay:       5000,
+      max_memory_restart:  "300M",
+      out_file:            "/opt/wishspark/logs/dashboard-out.log",
+      error_file:          "/opt/wishspark/logs/dashboard-error.log",
+      merge_logs:          false,
+      env: {
+        NODE_ENV: "production",
+        HOSTNAME:  "127.0.0.1",
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // FastAPI backend — uvicorn ASGI server
+    // -------------------------------------------------------------------------
+    {
+      name:                "wishspark-backend",
+      script:              "/opt/wishspark/backend/venv/bin/python",
+      args:                "-m uvicorn app.main:app --host 127.0.0.1 --port 8000",
+      cwd:                 "/opt/wishspark/backend",
+      interpreter:         "none",
+      exec_mode:           "fork",
+      instances:           1,
+      autorestart:         true,
+      min_uptime:          "10s",
+      max_restarts:        10,
+      restart_delay:       5000,
+      max_memory_restart:  "512M",
+      out_file:            "/opt/wishspark/logs/backend-out.log",
+      error_file:          "/opt/wishspark/logs/backend-error.log",
+      merge_logs:          false,
+      env: {
+        PYTHONPATH: "/opt/wishspark/backend",
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // Intelligence worker — opportunity scoring across all products
+    // Cycle: 10 minutes.  No per-shop dimension; shops_processed always 0.
+    // -------------------------------------------------------------------------
+    {
+      name:                "wishspark-worker",
+      script:              "/opt/wishspark/backend/venv/bin/python",
+      args:                "app/workers/intelligence_worker.py",
+      cwd:                 "/opt/wishspark/backend",
+      interpreter:         "none",
+      exec_mode:           "fork",
+      instances:           1,
+      autorestart:         true,
+      min_uptime:          "10s",
+      max_restarts:        10,
+      restart_delay:       5000,
+      max_memory_restart:  "200M",
+      out_file:            "/opt/wishspark/logs/worker-out.log",
+      error_file:          "/opt/wishspark/logs/worker-error.log",
+      merge_logs:          false,
+      env: {
+        PYTHONPATH: "/opt/wishspark/backend",
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // Agent worker — sandbox analysis runs
+    // Cycle: 15 minutes.  No per-shop dimension; shops_processed always 0.
+    // -------------------------------------------------------------------------
+    {
+      name:                "wishspark-agent-worker",
+      script:              "/opt/wishspark/backend/venv/bin/python",
+      args:                "app/workers/agent_worker.py",
+      cwd:                 "/opt/wishspark/backend",
+      interpreter:         "none",
+      exec_mode:           "fork",
+      instances:           1,
+      autorestart:         true,
+      min_uptime:          "10s",
+      max_restarts:        10,
+      restart_delay:       5000,
+      max_memory_restart:  "200M",
+      out_file:            "/opt/wishspark/logs/agent-worker-out.log",
+      error_file:          "/opt/wishspark/logs/agent-worker-error.log",
+      merge_logs:          false,
+      env: {
+        PYTHONPATH: "/opt/wishspark/backend",
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // Aggregation worker — product_metrics pre-aggregation (Phase 1 addition)
+    // Cycle: 5 minutes.  Singleton — multiple instances would create duplicate
+    // watermark advances and duplicate retention runs.
+    // -------------------------------------------------------------------------
+    {
+      name:                "wishspark-aggregation-worker",
+      script:              "/opt/wishspark/backend/venv/bin/python",
+      args:                "app/workers/aggregation_worker.py",
+      cwd:                 "/opt/wishspark/backend",
+      interpreter:         "none",
+      exec_mode:           "fork",
+      instances:           1,
+      autorestart:         true,
+      min_uptime:          "10s",
+      max_restarts:        10,
+      restart_delay:       5000,
+      max_memory_restart:  "200M",
+      out_file:            "/opt/wishspark/logs/aggregation-worker-out.log",
+      error_file:          "/opt/wishspark/logs/aggregation-worker-error.log",
+      merge_logs:          false,
+      env: {
+        PYTHONPATH: "/opt/wishspark/backend",
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // Segment monitor worker — proactive hot-segment action task creation
+    // Cycle: 5 minutes.  Scans Pro shops for hot audience segments and creates
+    // SCARCITY_NUDGE action tasks when revenue windows are open.
+    // Singleton — duplicate instances would create duplicate action tasks
+    // despite the dedup guard, and waste segment computation cycles.
+    // -------------------------------------------------------------------------
+    {
+      name:                "wishspark-segment-monitor",
+      script:              "/opt/wishspark/backend/venv/bin/python",
+      args:                "app/workers/segment_monitor_worker.py",
+      cwd:                 "/opt/wishspark/backend",
+      interpreter:         "none",
+      exec_mode:           "fork",
+      instances:           1,
+      autorestart:         true,
+      min_uptime:          "10s",
+      max_restarts:        10,
+      restart_delay:       5000,
+      max_memory_restart:  "200M",
+      out_file:            "/opt/wishspark/logs/segment-monitor-out.log",
+      error_file:          "/opt/wishspark/logs/segment-monitor-error.log",
+      merge_logs:          false,
+      env: {
+        PYTHONPATH: "/opt/wishspark/backend",
+      },
+    },
+
+  ],
+};
