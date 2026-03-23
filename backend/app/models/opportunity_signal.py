@@ -1,20 +1,11 @@
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, Integer, String, UniqueConstraint
+from sqlalchemy import Column, DateTime, Float, Index, Integer, String, UniqueConstraint
 
 from app.core.database import Base
 
 
 class OpportunitySignal(Base):
-    """
-    Persisted output of the rule-based opportunity detection engine.
-
-    One row per (shop_domain, product_url, signal_type) — the unique
-    constraint prevents duplicates.  The refreshed_at column is updated
-    on every detection run; rows not refreshed within _STALE_HOURS are
-    deleted by _persist_signals() to keep the table clean.
-    """
-
     __tablename__ = "opportunity_signals"
 
     id = Column(Integer, primary_key=True)
@@ -29,6 +20,9 @@ class OpportunitySignal(Base):
     detected_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     refreshed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
+    # NO Python default → evita TTL = 0
+    expires_at = Column(DateTime, nullable=False)
+
     __table_args__ = (
         UniqueConstraint(
             "shop_domain",
@@ -36,4 +30,5 @@ class OpportunitySignal(Base):
             "signal_type",
             name="uq_opportunity_signal_shop_product_type",
         ),
+        Index("ix_opportunity_signals_expires_at", "expires_at"),
     )

@@ -1,0 +1,97 @@
+"""
+shop_order.py — Real Shopify order record.
+
+Ingested from Shopify's orders/paid webhook.  Replaces the hardcoded AOV
+fallback (DEFAULT_AOV = 50.0) and inferred conversion probability pipeline
+as the source of truth for all per-merchant revenue calculations.
+
+Why this exists
+---------------
+Before this model, WishSpark computed every revenue figure (expected_loss,
+urgency_score, loss_band) from:
+    views_24h × inferred_conversion_probability × 50.0  (hardcoded AOV)
+
+That chain is an engineering estimate, not a business metric.  shop_orders
+gives us real order value per shop so:
+  - AOV becomes computed: AVG(total_price) WHERE shop_domain = shop
+  - Conversion rate becomes real: COUNT(orders) / COUNT(unique_sessions)
+  - Revenue attribution becomes possible: link orders back to visitor sessions
+  - Feedback loop becomes possible: measure metric delta after action completion
+
+Ingestion
+---------
+POST /webhooks/shopify/orders-paid receives the Shopify orders/paid webhook
+payload and upserts a row here via app.services.order_ingestion.
+
+Idempotency
+-----------
+shopify_order_id has a UNIQUE constraint.  Duplicate webhook deliveries (Shopify
+guarantees at-least-once, not exactly-once) are silently ignored.
+
+Schema notes
+------------
+line_items — stored as JSONB for flexibility.  Each item is the raw Shopify
+    line item object: {id, product_id, variant_id, title, quantity, price, sku}.
+    Enables per-product revenue attribution without a normalised line_items table
+    in v1.  Migrate to a normalised table once query patterns are established.
+
+customer_id — nullable.  Guest checkouts have no Shopify customer record.
+    When present, enables multi-order LTV computation.
+
+currency — stored per-order because a multi-currency shop can have mixed
+    order currencies.  AOV computation must group by currency.
+
+created_at — Shopify-side timestamp, not server ingestion time.  Used for
+    time-scoped analytics (daily/weekly revenue windows).  ingested_at records
+    the server receipt time for audit and dedup purposes.
+"""
+from __future__ import annotations
+
+from datetime import datetime
+
+from sqlalchemy import Column, DateTime, Float, Index, Integer, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
+
+from app.core.database import Base
+
+
+class ShopOrder(Base):
+    __tablename__ = "shop_orders"
+
+    id = Column(Integer, primary_key=True)
+
+    # Tenant scope — all reads must filter by shop_domain
+    shop_domain = Column(String, nullable=False)
+
+    # Shopify's own order ID — globally unique across all Shopify shops
+    shopify_order_id = Column(String, nullable=False)
+
+    # Revenue fields
+    total_price = Column(Float, nullable=False)
+    currency    = Column(String, nullable=False, default="EUR")
+
+    # Optional customer link — NULL for guest checkouts
+    customer_id    = Column(String, nullable=True)
+
+    # Customer email from the order — NULL for guest checkouts without email.
+    # Used for cohort retention analysis and Klaviyo identity resolution.
+    customer_email = Column(String, nullable=True)
+
+    # Raw Shopify line items array: [{id, product_id, variant_id, title, quantity, price, sku}, ...]
+    # REPLACE WITH REAL ORDER DATA: query this column to compute per-product revenue attribution
+    line_items  = Column(JSONB, nullable=False, default=list)
+
+    # Shopify-side order creation timestamp — use for revenue time-window queries
+    created_at  = Column(DateTime, nullable=False)
+
+    # Server-side ingestion timestamp — use for dedup auditing, not analytics
+    ingested_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        # Idempotency: duplicate webhook deliveries are caught at DB level
+        UniqueConstraint("shopify_order_id", name="uq_shop_orders_shopify_order_id"),
+        # Per-shop order listing and AOV computation
+        Index("ix_shop_orders_shop_domain", "shop_domain"),
+        # Time-scoped revenue queries: WHERE shop_domain = X AND created_at > Y
+        Index("ix_shop_orders_shop_created", "shop_domain", "created_at"),
+    )
