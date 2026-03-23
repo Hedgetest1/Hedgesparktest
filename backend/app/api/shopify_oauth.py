@@ -250,7 +250,10 @@ def _upsert_merchant(db: Session, shop: str, encrypted_token: str) -> Merchant:
         db.add(row)
         log.info("shopify_oauth: new merchant created shop=%s", shop)
     else:
-        row.access_token = encrypted_token
+        row.access_token    = encrypted_token
+        # Reinstall — restore active status in case merchant had previously uninstalled
+        row.install_status  = "active"
+        row.uninstalled_at  = None
         log.info("shopify_oauth: merchant token refreshed shop=%s plan=%s", shop, row.plan)
     db.commit()
     db.refresh(row)

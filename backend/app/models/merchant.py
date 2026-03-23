@@ -17,9 +17,7 @@ class Merchant(Base):
     shop_domain    = Column(String,   unique=True, nullable=False, index=True)
 
     # Shopify OAuth access token — stored encrypted (enc:v1:...) when
-    # MERCHANT_TOKEN_ENCRYPTION_KEY is configured.  Legacy plaintext values
-    # (rows written before encryption was added) are transparently handled
-    # by token_crypto.decrypt_token().
+    # MERCHANT_TOKEN_ENCRYPTION_KEY is configured.  Nullified on uninstall.
     access_token   = Column(String,   nullable=True)
 
     plan           = Column(String,   nullable=False, default="starter")
@@ -27,17 +25,30 @@ class Merchant(Base):
     billing_active = Column(Boolean,  default=False,   nullable=False)
 
     # ---------------------------------------------------------------------------
-    # Install-time auto-registration tracking
-    # Populated during the OAuth callback by _register_webhook() and
-    # _register_script_tag() in shopify_oauth.py.
-    # Null = not yet attempted / failed on last attempt.
+    # Install lifecycle
+    # "active"      — app is installed and operational
+    # "uninstalled" — merchant removed the app; access_token is nullified
     # ---------------------------------------------------------------------------
+    install_status  = Column(String,   nullable=False, default="active")
+    uninstalled_at  = Column(DateTime, nullable=True)
 
-    # Shopify webhook ID for the orders/paid webhook we registered.
-    # Stored as string (Shopify IDs can exceed int32 range).
-    webhook_id             = Column(String,   nullable=True)
-    webhook_registered_at  = Column(DateTime, nullable=True)
-
-    # Shopify script tag ID for spark-tracker.js injection.
-    script_tag_id          = Column(String,   nullable=True)
+    # ---------------------------------------------------------------------------
+    # Install-time auto-registration tracking (Phase 1-2 of onboarding pass)
+    # ---------------------------------------------------------------------------
+    webhook_id              = Column(String,   nullable=True)
+    webhook_registered_at   = Column(DateTime, nullable=True)
+    script_tag_id           = Column(String,   nullable=True)
     script_tag_installed_at = Column(DateTime, nullable=True)
+
+    # ---------------------------------------------------------------------------
+    # Billing — Shopify RecurringApplicationCharge
+    #
+    # billing_charge_id:    Shopify's charge ID (stored as string; may exceed int32).
+    #                       Set when a subscribe request is initiated (status pending).
+    #                       Cleared if merchant declines.
+    # billing_confirmed_at: When the charge was accepted AND activated.
+    # plan:                 Updated to "pro" when billing is activated.
+    # billing_active:       Set to True on activation, False on cancellation/uninstall.
+    # ---------------------------------------------------------------------------
+    billing_charge_id    = Column(String,   nullable=True)
+    billing_confirmed_at = Column(DateTime, nullable=True)

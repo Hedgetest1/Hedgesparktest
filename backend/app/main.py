@@ -107,6 +107,7 @@ from app.api.lift import router as lift_router
 from app.api.heatmap import router as heatmap_router
 from app.api.cohorts import router as cohorts_router
 from app.api.shopify_oauth import router as shopify_oauth_router
+from app.api.billing import router as billing_router
 
 _startup_log = logging.getLogger("wishspark.startup")
 
@@ -183,6 +184,7 @@ app.include_router(lift_router)
 app.include_router(heatmap_router)
 app.include_router(cohorts_router)
 app.include_router(shopify_oauth_router)
+app.include_router(billing_router)
 
 
 @app.on_event("startup")
@@ -211,6 +213,7 @@ def _startup_env_audit() -> None:
         ("OPENAI_API_KEY",         os.getenv("OPENAI_API_KEY"),         False),  # degrades gracefully
         ("REDIS_URL",              os.getenv("REDIS_URL"),              False),
         ("RESEND_API_KEY",         os.getenv("RESEND_API_KEY"),         False),
+        ("SHOPIFY_PRO_PLAN_PRICE", os.getenv("SHOPIFY_PRO_PLAN_PRICE"), False),
         ("APP_URL",                os.getenv("APP_URL"),                True),
         ("DASHBOARD_URL",          os.getenv("DASHBOARD_URL"),          True),
         ("MERCHANT_TOKEN_ENCRYPTION_KEY", os.getenv("MERCHANT_TOKEN_ENCRYPTION_KEY"), True),
