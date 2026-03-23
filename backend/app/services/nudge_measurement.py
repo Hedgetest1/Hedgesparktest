@@ -135,12 +135,15 @@ from __future__ import annotations
 import json
 import logging
 import math
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.models.nudge_event import NudgeEvent
+from app.models.nudge_impression_daily import NudgeImpressionDaily
 
 log = logging.getLogger(__name__)
 
@@ -160,6 +163,60 @@ MIN_SAMPLE_PER_GROUP: int = 30
 
 # Backward-compatible alias — used by A/B variant selection code
 MIN_SAMPLE_PER_VARIANT: int = MIN_SAMPLE_PER_GROUP
+
+
+# ---------------------------------------------------------------------------
+# Impression deduplication
+# ---------------------------------------------------------------------------
+
+def _claim_impression_slot(
+    db:          Session,
+    shop_domain: str,
+    nudge_id:    int,
+    visitor_id:  str,
+) -> bool:
+    """
+    Atomically claim the first-impression slot for this visitor+nudge+day.
+
+    Uses INSERT ON CONFLICT DO NOTHING against the nudge_impression_daily
+    table.  Returns True if this is the first impression today (the row was
+    inserted), False if the slot was already taken (duplicate — event should
+    be suppressed).
+
+    The unique constraint (nudge_id, visitor_id, impression_date) is enforced
+    at the database level, making this safe under concurrent requests from
+    the same visitor in multiple tabs.
+
+    Caller must only invoke this for event_type="shown" with a non-null
+    visitor_id.  All other paths bypass this function.
+    """
+    today = datetime.now(timezone.utc).date()
+    try:
+        stmt = (
+            pg_insert(NudgeImpressionDaily)
+            .values(
+                shop_domain     = shop_domain,
+                nudge_id        = nudge_id,
+                visitor_id      = visitor_id,
+                impression_date = today,
+            )
+            .on_conflict_do_nothing(
+                index_elements=["nudge_id", "visitor_id", "impression_date"],
+            )
+        )
+        result = db.execute(stmt)
+        # rowcount == 1  → slot claimed, genuine new impression
+        # rowcount == 0  → conflict (duplicate), suppress
+        return (result.rowcount or 0) > 0
+    except Exception as exc:
+        # If dedup table fails for any reason, fall through and allow the
+        # impression — better to over-count than to silently drop events.
+        log.warning(
+            "nudge_measurement: impression dedup failed shop=%s nudge_id=%d "
+            "visitor=%s — allowing event through: %s",
+            shop_domain, nudge_id, visitor_id[:8] + "…", exc,
+        )
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +241,23 @@ def record_nudge_event(
     Returns the created NudgeEvent on success, None on any error.
     Never raises — errors are logged and swallowed to preserve delivery.
 
+    Deduplication (shown events only)
+    ----------------------------------
+    For event_type="shown" with a non-null visitor_id, this function first
+    attempts to claim an impression slot in nudge_impression_daily via
+    INSERT ON CONFLICT DO NOTHING.
+
+    If the slot is already taken (same visitor, same nudge, same UTC day):
+      - Returns None silently.  No NudgeEvent is written.
+      - The A/B optimizer sees accurate impression counts.
+
+    If the slot is successfully claimed (genuine first impression today):
+      - Proceeds to write the NudgeEvent as normal.
+      - One slot per visitor per nudge per UTC calendar day is guaranteed.
+
+    Null-visitor events (localStorage blocked) are not deduplicated — they
+    are written as before and excluded from attribution and variant joins.
+
     visitor_id = None: stored as NULL; contributes to aggregate counts
     but is excluded from attribution joins and variant stats (which
     require event_meta.copy_variant from a known-identity exposure).
@@ -202,6 +276,19 @@ def record_nudge_event(
             "shop=%s nudge_id=%d product=%s — stored, excluded from attribution",
             event_type, shop_domain, nudge_id, product_url,
         )
+
+    # Impression deduplication — only for "shown" events with a known visitor.
+    # One genuine impression per visitor per nudge per UTC calendar day.
+    # null-visitor events are not deduplicated (identity unknown).
+    if event_type == "shown" and visitor_id:
+        is_new = _claim_impression_slot(db, shop_domain, nudge_id, visitor_id)
+        if not is_new:
+            log.debug(
+                "nudge_measurement: duplicate shown suppressed "
+                "nudge_id=%d visitor=%s shop=%s",
+                nudge_id, visitor_id[:8] + "…", shop_domain,
+            )
+            return None
 
     try:
         ev = NudgeEvent(

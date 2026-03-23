@@ -95,7 +95,8 @@ from app.models.shop_order import ShopOrder  # noqa: F401 — ensures table is c
 from app.models.visitor_purchase_session import VisitorPurchaseSession  # noqa: F401 — ensures table is created
 from app.models.shop_conversion_calibration import ShopConversionCalibration  # noqa: F401 — ensures table is created
 from app.models.active_nudge import ActiveNudge  # noqa: F401 — ensures table is created
-from app.models.nudge_event import NudgeEvent    # noqa: F401 — ensures table is created
+from app.models.nudge_event import NudgeEvent              # noqa: F401 — ensures table is created
+from app.models.nudge_impression_daily import NudgeImpressionDaily  # noqa: F401 — ensures table is created
 from app.api.nudges import router as nudges_router
 from app.api.nudge_script import router as nudge_script_router
 from app.api.nudge_events import router as nudge_events_router
@@ -105,6 +106,7 @@ from app.api.attribution import router as attribution_router
 from app.api.lift import router as lift_router
 from app.api.heatmap import router as heatmap_router
 from app.api.cohorts import router as cohorts_router
+from app.api.shopify_oauth import router as shopify_oauth_router
 
 _startup_log = logging.getLogger("wishspark.startup")
 
@@ -180,6 +182,7 @@ app.include_router(attribution_router)
 app.include_router(lift_router)
 app.include_router(heatmap_router)
 app.include_router(cohorts_router)
+app.include_router(shopify_oauth_router)
 
 
 @app.on_event("startup")
@@ -209,6 +212,7 @@ def _startup_env_audit() -> None:
         ("REDIS_URL",              os.getenv("REDIS_URL"),              False),
         ("RESEND_API_KEY",         os.getenv("RESEND_API_KEY"),         False),
         ("APP_URL",                os.getenv("APP_URL"),                True),
+        ("DASHBOARD_URL",          os.getenv("DASHBOARD_URL"),          True),
     ]
 
     missing_required: list[str] = []
