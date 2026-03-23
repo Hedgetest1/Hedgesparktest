@@ -7,3 +7,4 @@ python-dotenv
 redis
 alembic
 httpx
+cryptography

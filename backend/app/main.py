@@ -213,6 +213,7 @@ def _startup_env_audit() -> None:
         ("RESEND_API_KEY",         os.getenv("RESEND_API_KEY"),         False),
         ("APP_URL",                os.getenv("APP_URL"),                True),
         ("DASHBOARD_URL",          os.getenv("DASHBOARD_URL"),          True),
+        ("MERCHANT_TOKEN_ENCRYPTION_KEY", os.getenv("MERCHANT_TOKEN_ENCRYPTION_KEY"), True),
     ]
 
     missing_required: list[str] = []
