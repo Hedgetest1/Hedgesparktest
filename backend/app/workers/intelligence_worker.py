@@ -8,49 +8,180 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.database import engine
 from app.models.visitor_product_state import VisitorProductState
+from app.models.worker_log import WorkerLog
+from app.models.worker_state import WorkerState
 from app.services.opportunity_engine import update_product_opportunity
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+WORKER_NAME = "intelligence_worker"
+SLEEP_SECONDS = 600     # 10 minutes between cycles
+
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
 
 def log(msg):
-    print(f"[WORKER] {datetime.utcnow().isoformat()} | {msg}")
+    print(f"[WORKER] {datetime.utcnow().isoformat()} | {msg}", flush=True)
 
+
+# ---------------------------------------------------------------------------
+# WorkerState helpers
+# ---------------------------------------------------------------------------
+
+def _load_state(db) -> WorkerState:
+    """
+    Return the WorkerState row for this worker, creating it if absent.
+    last_watermark is unused by this worker; last_run_at is the only
+    field updated each cycle.
+    """
+    state = (
+        db.query(WorkerState)
+        .filter(WorkerState.worker_name == WORKER_NAME)
+        .first()
+    )
+    if state is None:
+        state = WorkerState(
+            worker_name=WORKER_NAME,
+            last_watermark=None,
+            last_run_at=None,
+        )
+        db.add(state)
+        db.commit()
+        db.refresh(state)
+        log("created new worker_state row (first run)")
+    return state
+
+
+def _save_state(db, state: WorkerState) -> None:
+    state.last_run_at = datetime.utcnow()
+    db.commit()
+
+
+# ---------------------------------------------------------------------------
+# WorkerLog helper
+# ---------------------------------------------------------------------------
+
+def _write_log(
+    db,
+    started_at: datetime,
+    shops_processed: int,
+    rows_written: int,
+    errors: int,
+    error_detail: str | None,
+) -> None:
+    finished_at = datetime.utcnow()
+    duration_ms = int((finished_at - started_at).total_seconds() * 1000)
+    entry = WorkerLog(
+        worker_name=WORKER_NAME,
+        started_at=started_at,
+        finished_at=finished_at,
+        shops_processed=shops_processed,
+        rows_written=rows_written,
+        errors=errors,
+        error_detail=error_detail,
+        duration_ms=duration_ms,
+    )
+    db.add(entry)
+    db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Main cycle
+# ---------------------------------------------------------------------------
 
 def run_cycle():
+    started_at = datetime.utcnow()
+    rows_written = 0
+    errors = 0
+    last_error: str | None = None
+    shops_seen: set[str] = set()
+
     log("starting intelligence cycle")
     db = SessionLocal()
 
     try:
-        product_urls = [
-            row[0]
-            for row in db.query(VisitorProductState.product_url)
-            .filter(VisitorProductState.product_url.isnot(None))
+        state = _load_state(db)
+
+        # Enumerate distinct (shop_domain, product_url) pairs so that every
+        # write is scoped to the correct tenant.  Querying product_url alone
+        # (the previous behaviour) caused cross-tenant data contamination when
+        # two shops had products at the same URL path.
+        pairs = (
+            db.query(
+                VisitorProductState.shop_domain,
+                VisitorProductState.product_url,
+            )
+            .filter(
+                VisitorProductState.shop_domain.isnot(None),
+                VisitorProductState.product_url.isnot(None),
+            )
             .distinct()
             .all()
-        ]
+        )
 
-        log(f"found {len(product_urls)} product urls")
+        log(f"found {len(pairs)} (shop_domain, product_url) pairs")
 
-        for product_url in product_urls:
+        for shop_domain, product_url in pairs:
             try:
-                update_product_opportunity(db, product_url)
-                log(f"updated opportunity for {product_url}")
+                update_product_opportunity(db, product_url, shop_domain)
+                log(f"updated opportunity for {shop_domain} | {product_url}")
+                rows_written += 1
+                shops_seen.add(shop_domain)
             except Exception as e:
-                log(f"error on {product_url}: {e}")
+                errors += 1
+                last_error = f"{shop_domain} | {product_url} | {e}"
+                log(f"error on {shop_domain} | {product_url}: {e}")
 
-        log("cycle finished")
+        _save_state(db, state)
+        log(
+            f"cycle complete — shops={len(shops_seen)} "
+            f"rows_written={rows_written} errors={errors}"
+        )
+
+    except Exception as exc:
+        errors += 1
+        last_error = str(exc)
+        log(f"cycle-level error: {exc}")
+        raise   # worker_log is written by finally, then main() re-raises for PM2
+
     finally:
+        try:
+            _write_log(
+                db,
+                started_at=started_at,
+                shops_processed=len(shops_seen),
+                rows_written=rows_written,
+                errors=errors,
+                error_detail=last_error,
+            )
+        except Exception as exc:
+            log(f"worker_log write error (non-fatal): {exc}")
         db.close()
 
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 def main():
     log("worker started")
 
     while True:
-        run_cycle()
-        log("sleeping 10 minutes")
-        time.sleep(600)
+        try:
+            run_cycle()
+        except Exception as exc:
+            # Unhandled exception — log and let PM2 restart the process.
+            log(f"unhandled exception: {exc}")
+            raise
+
+        log(f"sleeping {SLEEP_SECONDS}s")
+        time.sleep(SLEEP_SECONDS)
 
 
 if __name__ == "__main__":
