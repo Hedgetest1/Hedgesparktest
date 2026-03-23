@@ -108,6 +108,7 @@ from app.api.heatmap import router as heatmap_router
 from app.api.cohorts import router as cohorts_router
 from app.api.shopify_oauth import router as shopify_oauth_router
 from app.api.billing import router as billing_router
+from app.api.setup import router as setup_router
 
 _startup_log = logging.getLogger("wishspark.startup")
 
@@ -185,6 +186,7 @@ app.include_router(heatmap_router)
 app.include_router(cohorts_router)
 app.include_router(shopify_oauth_router)
 app.include_router(billing_router)
+app.include_router(setup_router)
 
 
 @app.on_event("startup")
