@@ -38,6 +38,8 @@ Ranking formula
 """
 from __future__ import annotations
 
+import threading
+import time
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
@@ -58,6 +60,58 @@ from app.services.empirical_calibration import (
 from app.services.opportunity_engine import get_or_refresh_signals
 from app.services.revenue_loss import calculate_expected_loss
 from app.services.revenue_metrics import get_shop_aov
+
+# ---------------------------------------------------------------------------
+# Signal refresh concurrency guard
+#
+# Prevents thundering-herd: if N requests arrive simultaneously when signals
+# are stale, only ONE triggers the refresh; the others skip it and serve
+# whatever signals currently exist (possibly slightly stale — acceptable).
+#
+# Uses a simple per-shop lock dict.  The lock is acquired only during the
+# brief check-and-set on _refresh_in_progress; the actual signal refresh runs
+# outside the lock (so it doesn't block other shops or the check itself).
+# ---------------------------------------------------------------------------
+_refresh_locks: dict[str, threading.Lock] = {}
+_refresh_locks_meta: threading.Lock = threading.Lock()
+_refresh_last_run: dict[str, float] = {}   # shop → epoch seconds of last refresh
+
+# Minimum seconds between signal refreshes per shop.
+# The opportunity engine internally checks signal TTL (24h), but without this
+# guard every concurrent request triggers the check query.
+_REFRESH_COOLDOWN_SECS: float = 30.0
+
+
+def _maybe_refresh_signals(shop_domain: str) -> None:
+    """
+    Trigger get_or_refresh_signals() for *shop_domain* at most once per
+    _REFRESH_COOLDOWN_SECS across concurrent requests.
+
+    If a refresh is already in-flight for this shop, the current caller skips
+    it.  Signals from the last completed refresh are used instead — they are
+    never more than SIGNAL_TTL_HOURS old by the opportunity engine's own
+    staleness check.
+    """
+    with _refresh_locks_meta:
+        if shop_domain not in _refresh_locks:
+            _refresh_locks[shop_domain] = threading.Lock()
+        lock = _refresh_locks[shop_domain]
+
+    # Non-blocking try — if another thread holds the lock, skip the refresh.
+    acquired = lock.acquire(blocking=False)
+    if not acquired:
+        return
+
+    try:
+        last = _refresh_last_run.get(shop_domain, 0.0)
+        if time.monotonic() - last < _REFRESH_COOLDOWN_SECS:
+            return   # cooldown not elapsed — skip
+        get_or_refresh_signals(shop_domain)
+        _refresh_last_run[shop_domain] = time.monotonic()
+    except Exception:
+        pass  # signal refresh failures are non-fatal; stale signals degrade gracefully
+    finally:
+        lock.release()
 
 # ---------------------------------------------------------------------------
 # Signal → action type mapping
@@ -223,14 +277,15 @@ def generate_action_candidates(shop_domain: str, db: Session) -> list[dict]:
     calibration = get_or_train_model(db, shop_domain)
 
     # ------------------------------------------------------------------ #
-    # 0. Ensure opportunity_signals are fresh before reading them.        #
-    # Signals have a 24h TTL and are only written by get_or_refresh_      #
-    # signals() — which is normally called from /opportunities endpoints. #
-    # Calling it here makes this endpoint self-healing: expired or        #
-    # missing signals are regenerated on demand without an external       #
-    # trigger.                                                            #
+    # 0. Ensure opportunity_signals are reasonably fresh.                 #
+    # _maybe_refresh_signals() is rate-limited per shop to at most once   #
+    # per _REFRESH_COOLDOWN_SECS — prevents thundering-herd when N        #
+    # dashboard requests arrive simultaneously with stale signals.        #
+    # The opportunity engine's own TTL check (24h) still runs inside      #
+    # get_or_refresh_signals() — this guard only controls HOW OFTEN we    #
+    # call into the engine per shop per process.                          #
     # ------------------------------------------------------------------ #
-    get_or_refresh_signals(shop_domain)
+    _maybe_refresh_signals(shop_domain)
 
     # ------------------------------------------------------------------ #
     # 1. Active opportunity signals — primary triggers                     #

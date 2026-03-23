@@ -3,6 +3,7 @@ Shared FastAPI dependencies for WishSpark.
 
 Available dependencies
 ----------------------
+get_db              — yields a request-scoped SQLAlchemy session (pool-safe)
 require_shop        — extracts and validates shop_domain from the request
 require_api_key     — validates the DASHBOARD_API_KEY header
 require_pro_plan    — validates shop + API key AND enforces active Pro plan
@@ -19,6 +20,14 @@ The Pro definition here — plan == "pro" AND billing_active == True — is the
 same semantic used by merchant.py's _normalise_plan() and by the frontend's
 isProUser check.  If the Pro definition ever changes, update this file and
 merchant.py together; they are the two authoritative sources.
+
+Connection safety
+-----------------
+require_pro_plan now accepts db: Session = Depends(get_db) so it reuses the
+request-scoped session provided by FastAPI's DI system.  This eliminates the
+previous anti-pattern of opening a raw SessionLocal() inside the function on
+every request, which bypassed the connection pool and caused pool exhaustion
+under concurrent load.
 
 To enforce a route as Pro-only, replace:
     shop: str = Depends(require_shop),
@@ -40,7 +49,9 @@ import logging
 import os
 
 from fastapi import Depends, Header, HTTPException, Query
+from sqlalchemy.orm import Session
 
+from app.core.database import get_db
 from app.services.shopify_auth import is_valid_shop_domain
 
 log = logging.getLogger(__name__)
@@ -118,13 +129,14 @@ def require_api_key(
 def require_pro_plan(
     shop: str = Depends(require_shop),
     _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
 ) -> str:
     """
     Enforce that the requesting shop has an active Pro plan.
 
-    Composes require_shop (400 on bad domain) and require_api_key (401 on bad
-    key) — both checks run before the plan check.  Raises 403 if the shop is
-    not on an active Pro plan.
+    Composes require_shop (400 on bad domain), require_api_key (401 on bad
+    key), and a request-scoped DB session — all three checks run before the
+    plan check.  Raises 403 if the shop is not on an active Pro plan.
 
     Returns shop_domain on success, matching the return type of require_shop
     so this is a drop-in replacement on any Pro-only route.
@@ -132,24 +144,22 @@ def require_pro_plan(
     Pro definition (must stay in sync with merchant.py and the frontend):
       merchants.plan == "pro"  AND  merchants.billing_active == True
 
+    DB session
+    ----------
+    The db session is provided by FastAPI's DI system via Depends(get_db).
+    This reuses the request-scoped connection from the pool — it does NOT
+    open a new raw SessionLocal() per call.  This was the critical connection
+    pool leak fixed in this version.
+
     Usage — replace both deps on a Pro route with this single dep:
         shop: str = Depends(require_pro_plan),
 
     To enforce a new Pro endpoint, add only this one dependency.  No other
     changes are required.
     """
-    # Import here to avoid a circular import: deps.py is in app.core, and
-    # the Merchant model and SessionLocal live in app.models / app.core.
-    # Placing the import inside the function is intentional and safe —
-    # FastAPI resolves dependencies at runtime, not at import time.
-    from app.core.database import SessionLocal
     from app.models.merchant import Merchant
 
-    db = SessionLocal()
-    try:
-        row = db.query(Merchant).filter(Merchant.shop_domain == shop).first()
-    finally:
-        db.close()
+    row = db.query(Merchant).filter(Merchant.shop_domain == shop).first()
 
     # No row → shop not installed or unknown → deny with same error as expired plan.
     # Pro definition: plan == "pro" AND billing_active == True.

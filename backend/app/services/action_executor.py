@@ -585,15 +585,349 @@ def _build_scarcity_nudge_payload(candidate: dict) -> dict:
 
 
 def _build_price_test_payload(candidate: dict) -> dict:
-    return {"checklist": [], "suggested_fixes": [], "automation_hint": "SHOPIFY_PRICE_COMPARE_AT", "auto_executable": False}
+    """
+    Build the PRICE_TEST task payload.
+
+    Triggered when price_intelligence signals HIGH_INTENT_PRICE_OPPORTUNITY —
+    the product's price is above the market midpoint and visitors are engaging
+    deeply but not converting, suggesting price friction is the primary barrier.
+
+    The recommended approach is a compare-at price anchor (not a price cut) as
+    the lowest-risk, highest-signal intervention.  A real price reduction is
+    the second step only if anchoring fails to lift conversion.
+    """
+    pi_explanation  = (candidate.get("intelligence_explanation") or "").strip()
+    price_position  = candidate.get("price_position", "above_market")
+    confidence      = int(candidate.get("confidence_score") or 0)
+    product_url     = candidate.get("product_url", "")
+
+    checklist = [
+        {
+            "id": "anchor_compare_at",
+            "label": "Set compare-at price to anchor perceived value",
+            "description": (
+                "Add a crossed-out 'was' price next to the current price. "
+                "The compare-at field in Shopify admin creates this automatically. "
+                "Even a 5–10% higher compare-at price significantly improves "
+                "conversion by confirming the current price is a deal."
+            ),
+        },
+        {
+            "id": "verify_market_position",
+            "label": "Verify current price vs market midpoint",
+            "description": (
+                f"Price intelligence signals position: {price_position} "
+                f"(confidence {confidence}%). "
+                + (f"Context: {pi_explanation}. " if pi_explanation else "")
+                + "Check 3 competitor listings before making any price change."
+            ),
+        },
+        {
+            "id": "test_5pct_reduction",
+            "label": "Test a 5% price reduction on one variant (if anchoring insufficient)",
+            "description": (
+                "Use Shopify's built-in price testing or create a duplicate "
+                "product variant at the reduced price. Do NOT reduce the original "
+                "listing until you have conversion data from the test variant."
+            ),
+        },
+        {
+            "id": "monitor_conversion_48h",
+            "label": "Monitor conversion rate change over 48 hours",
+            "description": (
+                "A meaningful price intervention should produce a detectable "
+                "conversion rate change within 48 hours if traffic is sufficient. "
+                f"Watch the product_url: {product_url} in HedgeSpark's live metrics."
+            ),
+        },
+        {
+            "id": "rollback_plan",
+            "label": "Prepare rollback plan before any live price change",
+            "description": (
+                "Record the original price. Set a calendar reminder at 48h. "
+                "If conversion does not improve, revert immediately — price "
+                "reductions that do not lift conversion erode margin permanently."
+            ),
+        },
+    ]
+
+    suggested_fixes = [
+        {
+            "priority": 1,
+            "fix": "Add a compare-at (was) price to anchor the current price as a deal",
+            "impact": "HIGH",
+            "signal": "PRICE_TEST",
+            "rationale": (
+                "Compare-at pricing costs nothing and typically lifts conversion "
+                "by 5–15% on products where price anxiety is the primary friction. "
+                "It is the lowest-risk first step before any real price change."
+            ),
+        },
+        {
+            "priority": 2,
+            "fix": "Add a value-reframing line near the price ('Includes X, Y, Z')",
+            "impact": "MEDIUM",
+            "signal": "PRICE_TEST",
+            "rationale": (
+                "Visitors hesitating on price often respond to explicit value "
+                "itemisation — showing what they get for the price shifts the "
+                "mental calculation from 'is it cheap enough' to 'is it worth it'."
+            ),
+        },
+        {
+            "priority": 3,
+            "fix": "Run a 5% price reduction test on a secondary variant for 7 days",
+            "impact": "MEDIUM",
+            "signal": "PRICE_TEST",
+            "rationale": (
+                f"Price intelligence detects {price_position} position at "
+                f"{confidence}% confidence. A controlled reduction tests "
+                "whether price is truly the barrier before committing to it."
+            ),
+        },
+    ]
+
+    return {
+        "checklist":        checklist,
+        "suggested_fixes":  suggested_fixes,
+        "automation_hint":  "SHOPIFY_PRICE_COMPARE_AT",
+        "auto_executable":  False,
+        "price_context": {
+            "price_position":            price_position,
+            "confidence_score":          confidence,
+            "intelligence_explanation":  pi_explanation or None,
+        },
+    }
 
 
 def _build_retarget_payload(candidate: dict) -> dict:
-    return {"checklist": [], "suggested_fixes": [], "automation_hint": "SHOPIFY_DISCOUNT_CODE", "auto_executable": False}
+    """
+    Build the RETARGET_HOT_TRAFFIC task payload.
+
+    Triggered when return visitors are engaging with a product repeatedly
+    but not converting — signals strong intent without a closing nudge.
+
+    Goal: bring the return visitor back with a personalised re-engagement
+    that acknowledges their prior interest without feeling intrusive.
+    """
+    return_count    = int(candidate.get("return_visitor_count_7d") or 0)
+    cart_count      = int(candidate.get("cart_conversions_24h") or 0)
+    expected_loss   = float(candidate.get("expected_loss") or 0.0)
+    product_url     = candidate.get("product_url", "")
+
+    checklist = [
+        {
+            "id": "segment_return_visitors",
+            "label": "Export return visitor segment to Klaviyo",
+            "description": (
+                "Use HedgeSpark's /pro/klaviyo/push endpoint to sync the "
+                "hot-intent visitor segment to a Klaviyo list.  This creates "
+                "a targetable audience without touching your main list."
+            ),
+        },
+        {
+            "id": "compose_return_email",
+            "label": "Send a 'you left something behind' re-engagement email",
+            "description": (
+                "Keep it short: product image + headline + single CTA.  "
+                "Personalise the subject line with the product name.  "
+                "Do NOT include a discount in the first email — that trains "
+                "visitors to wait for offers."
+            ),
+        },
+        {
+            "id": "activate_return_nudge",
+            "label": "Activate a return-visitor nudge on the product page",
+            "description": (
+                "In HedgeSpark Pro, create a nudge for this product targeting "
+                "the return_visitor strategy.  The AI composer will generate "
+                "copy grounded in the return-visit signal."
+            ),
+        },
+        {
+            "id": "offer_loyalty_incentive",
+            "label": "Consider a loyalty reward for the 2nd touch (if email unopened at 48h)",
+            "description": (
+                "If the first re-engagement email does not convert within 48h, "
+                "send a follow-up with a modest loyalty reward (free shipping, "
+                "small discount).  Only reveal the incentive on the second touch "
+                "to preserve margin on visitors who would have converted anyway."
+            ),
+        },
+    ]
+
+    suggested_fixes = [
+        {
+            "priority": 1,
+            "fix": (
+                f"Export the {return_count} return visitor segment from HedgeSpark "
+                "to Klaviyo and send a re-engagement email within 24 hours"
+            ),
+            "impact": "HIGH",
+            "signal": "RETARGET_HOT_TRAFFIC",
+            "rationale": (
+                f"{return_count} visitors have returned to this product multiple times "
+                "this week with only {cart_count} cart additions.  These are your "
+                "highest-intent non-buyers — the conversion window is open now."
+            ),
+        },
+        {
+            "priority": 2,
+            "fix": "Activate a return-visitor nudge on this product page in HedgeSpark",
+            "impact": "HIGH",
+            "signal": "RETARGET_HOT_TRAFFIC",
+            "rationale": (
+                "A behaviorally-targeted nudge on the product page itself "
+                "catches return visitors at the highest-intent moment — when they "
+                "are already viewing the product."
+            ),
+        },
+        {
+            "priority": 3,
+            "fix": (
+                f"If email does not convert in 48h, offer a loyalty reward "
+                f"to capture the estimated ${expected_loss:.0f} revenue window"
+                if expected_loss >= 10.0 else
+                "If email does not convert in 48h, offer a small loyalty reward (free shipping)"
+            ),
+            "impact": "MEDIUM",
+            "signal": "RETARGET_HOT_TRAFFIC",
+            "rationale": (
+                "Second-touch incentives should be revealed only after the "
+                "first touch fails — this prevents training all return visitors "
+                "to wait for a deal."
+            ),
+        },
+    ]
+
+    return {
+        "checklist":       checklist,
+        "suggested_fixes": suggested_fixes,
+        "automation_hint": "SHOPIFY_DISCOUNT_CODE",
+        "auto_executable": False,
+        "retarget_context": {
+            "return_visitor_count_7d": return_count,
+            "cart_conversions_24h":    cart_count,
+            "estimated_revenue_loss":  expected_loss,
+            "product_url":             product_url,
+        },
+    }
 
 
 def _build_flash_incentive_payload(candidate: dict) -> dict:
-    return {"checklist": [], "suggested_fixes": [], "automation_hint": "SHOPIFY_DISCOUNT_CODE", "auto_executable": False}
+    """
+    Build the FLASH_INCENTIVE task payload.
+
+    Triggered when a live traffic spike is detected and is NOT converting at
+    the expected rate — a time-limited offer can capture the revenue window
+    before the spike subsides.
+
+    These tasks are inherently time-sensitive.  Agents should prioritise them
+    above other task types when claimed_by timestamp is recent.
+    """
+    views_1h        = int(candidate.get("views_1h") or 0)
+    views_24h       = int(candidate.get("views_24h") or 0)
+    cart_count      = int(candidate.get("cart_conversions_24h") or 0)
+    expected_loss   = float(candidate.get("expected_loss") or 0.0)
+    product_url     = candidate.get("product_url", "")
+
+    checklist = [
+        {
+            "id": "verify_spike_live",
+            "label": "Verify the traffic spike is still active before acting",
+            "description": (
+                f"Current spike: {views_1h} views in the last hour. "
+                "Check HedgeSpark's live visitors panel to confirm the spike "
+                "has not already subsided.  Flash incentives are only effective "
+                "during active traffic — acting after the spike wastes the discount."
+            ),
+        },
+        {
+            "id": "create_discount_code",
+            "label": "Create a time-limited Shopify discount code (2–4 hours)",
+            "description": (
+                "Use the Shopify admin or HedgeSpark's /shopify/discount endpoint. "
+                "Set a hard expiry — 2 to 4 hours maximum.  Longer durations "
+                "train visitors to wait rather than convert during the spike."
+            ),
+        },
+        {
+            "id": "surface_on_product_page",
+            "label": "Surface the discount near the Add to Cart button immediately",
+            "description": (
+                "Options in order of speed: (1) activate a HedgeSpark nudge with "
+                "the discount code embedded; (2) use a Shopify announcement bar app; "
+                "(3) manually update the product description temporarily. "
+                "Time-to-live matters — faster surfacing = more captured revenue."
+            ),
+        },
+        {
+            "id": "monitor_conversion_real_time",
+            "label": "Monitor conversion rate in real time for the duration of the offer",
+            "description": (
+                f"Product: {product_url}. "
+                f"Baseline: {cart_count} cart additions in last 24h. "
+                "A successful flash incentive should show a measurable cart "
+                "addition lift within 30–60 minutes of activation."
+            ),
+        },
+        {
+            "id": "remove_offer_at_expiry",
+            "label": "Remove or deactivate the discount at expiry — do not extend",
+            "description": (
+                "Extensions convert a flash incentive into a permanent discount "
+                "in visitors' mental models.  Stick to the announced expiry "
+                "even if conversion is still active."
+            ),
+        },
+    ]
+
+    suggested_fixes = [
+        {
+            "priority": 1,
+            "fix": (
+                f"Create a 2-hour discount code now and activate a nudge on this product. "
+                f"Live spike: {views_1h} views/hour."
+            ),
+            "impact": "HIGH",
+            "signal": "FLASH_INCENTIVE",
+            "rationale": (
+                f"Traffic is spiking ({views_1h} views/hr, {views_24h} total today) "
+                f"with only {cart_count} cart additions. "
+                "A time-limited incentive converts transient intent into revenue "
+                "before the spike window closes."
+            ),
+        },
+        {
+            "priority": 2,
+            "fix": "Add an announcement bar or countdown timer to create urgency on the page",
+            "impact": "MEDIUM",
+            "signal": "FLASH_INCENTIVE",
+            "rationale": (
+                "Visual urgency reinforces the time-limited nature of the offer. "
+                "A countdown timer on the page has been shown to increase flash "
+                "sale conversion by 15–20% compared to text-only announcements."
+            ),
+        },
+    ]
+
+    return {
+        "checklist":       checklist,
+        "suggested_fixes": suggested_fixes,
+        "automation_hint": "SHOPIFY_DISCOUNT_CODE",
+        "auto_executable": False,
+        "spike_context": {
+            "views_1h":              views_1h,
+            "views_24h":             views_24h,
+            "cart_conversions_24h":  cart_count,
+            "estimated_revenue_loss": expected_loss,
+            "product_url":           product_url,
+            "urgency_note": (
+                "This task is time-sensitive — verify the spike is still active "
+                "before creating a discount code."
+            ),
+        },
+    }
 
 
 _PAYLOAD_BUILDERS = {

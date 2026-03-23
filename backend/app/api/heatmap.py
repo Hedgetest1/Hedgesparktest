@@ -31,7 +31,7 @@ GET /pro/heatmap/top?shop=
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
@@ -179,14 +179,14 @@ def get_heatmap(
     No session replay infrastructure needed — we already have the scroll data.
     """
     hours = max(1, min(hours, 168))
-    since_ms = int((datetime.utcnow() - timedelta(hours=hours)).timestamp() * 1000)
+    since_ms = int((datetime.now(timezone.utc) - timedelta(hours=hours)).timestamp() * 1000)
 
     scroll_data = _compute_scroll_buckets(db, shop, product_url, since_ms)
 
     return {
         "product_url":  product_url,
         "window_hours": hours,
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat() + "Z",
         "scroll":       scroll_data,
     }
 
@@ -204,7 +204,7 @@ def get_top_heatmaps(
     page engagement across their catalog without selecting individual URLs.
     """
     hours = max(1, min(hours, 168))
-    since_ms = int((datetime.utcnow() - timedelta(hours=hours)).timestamp() * 1000)
+    since_ms = int((datetime.now(timezone.utc) - timedelta(hours=hours)).timestamp() * 1000)
 
     # Find top products by viewer count in the window
     try:
@@ -246,5 +246,5 @@ def get_top_heatmaps(
     return {
         "products":     results,
         "window_hours": hours,
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat() + "Z",
     }

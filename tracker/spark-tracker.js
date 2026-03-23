@@ -2,10 +2,25 @@
   "use strict";
 
   // ---------------------------------------------------------------------------
-  // Safety guard — prevent double-init if script is somehow loaded twice
+  // Top-level error boundary
+  //
+  // The entire tracker is wrapped in a try/catch so ANY unhandled exception
+  // — including ones in dependencies we don't control (Shopify API changes,
+  // browser quirks, theme conflicts) — fails silently without affecting the
+  // storefront.  An error here is logged to the console for debugging but
+  // never rethrows.
+  //
+  // The boot guard (window.__wishsparkInit) lives OUTSIDE this boundary so
+  // double-init is prevented even if the first load threw.
   // ---------------------------------------------------------------------------
   if (window.__wishsparkInit) return;
   window.__wishsparkInit = true;
+
+  try { _wishsparkBoot(); } catch (bootErr) {
+    try { console.warn("[WishSpark] tracker boot error (non-fatal):", bootErr); } catch (_) {}
+  }
+
+  function _wishsparkBoot() {
 
   // ---------------------------------------------------------------------------
   // Configuration
@@ -179,24 +194,81 @@
     return window.location.href;
   }
 
-  // Resolve Shopify's numeric product ID from the analytics meta object.
-  // Shopify always populates window.ShopifyAnalytics.meta.product.id on
-  // /products/* pages.  Returns null on all other pages or when the object
-  // is absent (non-Shopify environments, test runners).
+  // Resolve Shopify's numeric product ID using a multi-source fallback chain.
   //
-  // Stored as a string so it survives JSON serialisation without precision
-  // loss — Shopify product IDs are large integers (> 2^53 in some edge cases).
+  // Shopify does not guarantee a single stable API for product ID access, and
+  // the primary source (ShopifyAnalytics.meta) is an undocumented internal
+  // object that has changed in the past.  The fallback chain below is ordered
+  // from most to least reliable:
+  //
+  //   1. ShopifyAnalytics.meta.product.id     — primary (undocumented, stable since 2016)
+  //   2. window.__st.product                  — secondary Shopify analytics object
+  //   3. data-product-id attribute on body/section  — theme-level opt-in
+  //   4. meta[property="shopify:product_id"]  — some themes inject this
+  //   5. Liquid JSON in page source            — __productJSON / ShopifyAnalytics.productGids
+  //
+  // Any failure in the chain falls through to the next option silently.
+  // Returns null if no source provides an ID — the event is still sent without it.
+  //
+  // Stored as a string to survive JSON serialisation without precision loss
+  // (Shopify product IDs can exceed 2^53 on high-volume stores).
   function detectProductId() {
+    // 1. ShopifyAnalytics.meta.product.id (primary)
     try {
-      var id =
+      var id1 =
         window.ShopifyAnalytics &&
         window.ShopifyAnalytics.meta &&
         window.ShopifyAnalytics.meta.product &&
         window.ShopifyAnalytics.meta.product.id;
-      return id ? String(id) : null;
-    } catch (_) {
-      return null;
-    }
+      if (id1) return String(id1);
+    } catch (_) {}
+
+    // 2. window.__st.product (secondary Shopify analytics stub)
+    try {
+      var id2 =
+        window.__st &&
+        window.__st.product;
+      if (id2) return String(id2);
+    } catch (_) {}
+
+    // 3. [data-product-id] attribute on common theme elements
+    try {
+      var el = (
+        document.querySelector("[data-product-id]") ||
+        document.querySelector("[data-productid]") ||
+        document.querySelector(".product-single[data-product-id]") ||
+        document.querySelector("product-form[data-product-id]")
+      );
+      if (el) {
+        var attr = el.getAttribute("data-product-id") || el.getAttribute("data-productid");
+        if (attr) return String(attr);
+      }
+    } catch (_) {}
+
+    // 4. <meta property="shopify:product_id"> or <meta name="product_id">
+    try {
+      var metaEl = (
+        document.querySelector("meta[property='shopify:product_id']") ||
+        document.querySelector("meta[name='product_id']")
+      );
+      if (metaEl) {
+        var content = metaEl.getAttribute("content");
+        if (content) return String(content);
+      }
+    } catch (_) {}
+
+    // 5. ShopifyAnalytics.productGids (newer PWA storefronts, base64 encoded)
+    try {
+      var gids = window.ShopifyAnalytics && window.ShopifyAnalytics.productGids;
+      if (gids && Array.isArray(gids) && gids.length > 0) {
+        // gids are "gid://shopify/Product/12345678" — extract the numeric tail
+        var gid = String(gids[0]);
+        var numeric = gid.replace(/.*\//, "");
+        if (/^\d+$/.test(numeric)) return numeric;
+      }
+    } catch (_) {}
+
+    return null;
   }
 
   function detectProductUrl() {
@@ -266,7 +338,73 @@
   // sendEvent()          — always routes to fetchFallback(). The call site
   //                        (onPageLeave), not the event name, decides transport.
   // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // Offline event buffer
+  //
+  // Events that fail to send (network error, offline) are queued in
+  // sessionStorage under the key "hs_event_queue" and retried on the next
+  // successful network request.  The queue is bounded to MAX_QUEUE_SIZE
+  // events to prevent sessionStorage from growing without bound on persistent
+  // offline sessions.
+  //
+  // Retry fires at most once per page load via _flushQueue() (called before
+  // each successful send).  This is a best-effort retry — events older than
+  // the current browser session are lost on tab close.  For the behavioral
+  // analytics use case (scroll, dwell, product_view) this is acceptable:
+  // stale events from a closed session would confuse recency-sensitive queries.
+  // ---------------------------------------------------------------------------
+  var _QUEUE_KEY    = "hs_event_queue";
+  var _MAX_QUEUE    = 20;
+  var _queueFlushed = false;
+
+  function _readQueue() {
+    try {
+      var raw = sessionStorage.getItem(_QUEUE_KEY);
+      if (!raw) return [];
+      var q = JSON.parse(raw);
+      return Array.isArray(q) ? q : [];
+    } catch (_) { return []; }
+  }
+
+  function _writeQueue(q) {
+    try {
+      sessionStorage.setItem(_QUEUE_KEY, JSON.stringify(q.slice(-_MAX_QUEUE)));
+    } catch (_) {}
+  }
+
+  function _enqueue(body) {
+    try {
+      var q = _readQueue();
+      q.push(body);
+      _writeQueue(q);
+    } catch (_) {}
+  }
+
+  function _flushQueue() {
+    if (_queueFlushed) return;
+    _queueFlushed = true;
+    try {
+      var q = _readQueue();
+      if (!q.length) return;
+      _writeQueue([]);                   // clear before sending (idempotent ok)
+      for (var i = 0; i < q.length; i++) {
+        (function (body) {
+          try {
+            fetch(API_URL, {
+              method:      "POST",
+              headers:     { "Content-Type": "application/json" },
+              body:        body,
+              keepalive:   true,
+              credentials: "omit",
+            }).catch(function () { _enqueue(body); });
+          } catch (_) { _enqueue(body); }
+        })(q[i]);
+      }
+    } catch (_) {}
+  }
+
   function fetchFallback(body) {
+    _flushQueue();   // retry any previously-queued events on a successful connection
     try {
       fetch(API_URL, {
         method:      "POST",
@@ -274,8 +412,12 @@
         body:        body,
         keepalive:   true,
         credentials: "omit",
-      }).catch(function () {});
-    } catch (_) {}
+      }).catch(function () {
+        _enqueue(body);   // buffer on network failure
+      });
+    } catch (_) {
+      _enqueue(body);     // buffer if fetch itself throws (e.g. offline)
+    }
   }
 
   function sendBeaconOrFallback(body) {
@@ -442,5 +584,7 @@
 
     window.addEventListener("beforeunload", onPageLeave);
   } catch (_) {}
+
+  } // end _wishsparkBoot
 
 })();

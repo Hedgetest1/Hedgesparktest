@@ -55,10 +55,14 @@ Output copy_config schema (per variant)
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import re
+import time
+from datetime import datetime, timezone
+from threading import Lock
 from typing import Optional
 
 import httpx
@@ -101,6 +105,103 @@ _FORBIDDEN_PATTERNS: list[str] = [
     r"back\s+in\s+stock",
 ]
 _FORBIDDEN_RE = re.compile("|".join(_FORBIDDEN_PATTERNS), re.IGNORECASE)
+
+# ---------------------------------------------------------------------------
+# Retry configuration
+# ---------------------------------------------------------------------------
+
+# Transient HTTP status codes that warrant a retry.
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+# Retry schedule: [delay_after_attempt_1, delay_after_attempt_2, ...]
+# Total max time with 20s timeout: 20 + 2 + 20 + 4 + 20 = 66s worst-case.
+# Keep attempts low — we'd rather fall back fast than block the request path.
+_RETRY_DELAYS = (2.0, 4.0)   # 3 total attempts (initial + 2 retries)
+
+# ---------------------------------------------------------------------------
+# Per-shop daily OpenAI call budget
+#
+# Prevents a single shop or a looping caller from running unbounded OpenAI
+# spend.  Uses Redis when available; degrades to an in-memory counter when
+# Redis is absent (counter resets on process restart — acceptable degradation).
+#
+# Budget is per shop per UTC calendar day.  The counter key expires at
+# midnight UTC so budget resets automatically without a cron job.
+#
+# DEFAULT_DAILY_BUDGET_CALLS can be overridden per-deploy via env var:
+#   OPENAI_DAILY_CALLS_PER_SHOP=100
+# ---------------------------------------------------------------------------
+
+_DAILY_BUDGET: int = int(os.getenv("OPENAI_DAILY_CALLS_PER_SHOP", "50"))
+
+# Fallback in-memory budget when Redis is unavailable.
+# dict[str, (count: int, date: str)]  — key = shop_domain
+_mem_budget: dict[str, tuple[int, str]] = {}
+_mem_budget_lock = Lock()
+
+
+def _today_utc() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _budget_key(shop_domain: str) -> str:
+    return f"hs:ai_budget:{shop_domain}:{_today_utc()}"
+
+
+def _check_and_increment_budget(shop_domain: str) -> bool:
+    """
+    Return True if the shop is within its daily OpenAI call budget.
+    Atomically increments the counter — the call is counted before it is made.
+
+    Returns False (budget exceeded) when the shop has already hit _DAILY_BUDGET
+    calls today.  The caller should fall back to rule-based copy immediately.
+
+    Redis path: INCR + EXPIRE (atomic enough for our purpose — small over-run
+    on a race is acceptable vs the cost of a distributed lock).
+    Memory fallback: simple dict with date check (resets on restart).
+    """
+    try:
+        from app.core.redis_client import _client as _redis_client
+        client = _redis_client()
+        if client is not None:
+            key = _budget_key(shop_domain)
+            count = client.incr(key)
+            if count == 1:
+                # First call today — set TTL to expire at tomorrow midnight UTC
+                now = datetime.now(timezone.utc)
+                secs_until_midnight = int(
+                    86400 - (now.hour * 3600 + now.minute * 60 + now.second)
+                )
+                client.expire(key, secs_until_midnight + 60)  # +60s safety margin
+            if count > _DAILY_BUDGET:
+                log.warning(
+                    "nudge_composer: daily OpenAI budget exceeded for shop=%s "
+                    "(count=%d limit=%d) — using rule-based fallback",
+                    shop_domain, count, _DAILY_BUDGET,
+                )
+                return False
+            return True
+    except Exception:
+        pass  # fall through to in-memory path
+
+    # In-memory fallback
+    today = _today_utc()
+    with _mem_budget_lock:
+        existing = _mem_budget.get(shop_domain)
+        if existing is None or existing[1] != today:
+            _mem_budget[shop_domain] = (1, today)
+            return True
+        count, _ = existing
+        count += 1
+        _mem_budget[shop_domain] = (count, today)
+        if count > _DAILY_BUDGET:
+            log.warning(
+                "nudge_composer: daily OpenAI budget exceeded (in-memory) for shop=%s "
+                "(count=%d limit=%d) — using rule-based fallback",
+                shop_domain, count, _DAILY_BUDGET,
+            )
+            return False
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +268,7 @@ async def compose_nudge_variants(
     product_url:       str,
     signals:           dict,
     data_window_hours: int = 72,
+    shop_domain:       str = "",
 ) -> tuple[list[dict], dict]:
     """
     Generate 2 AI-composed copy variants for a nudge.
@@ -178,6 +280,8 @@ async def compose_nudge_variants(
     signals           : dict of behavioral metrics from product_metrics row
                         (views_1h, views_24h, unique_visitors_24h, etc.)
     data_window_hours : window the signals cover; injected into copy_config
+    shop_domain       : used for per-shop daily budget enforcement (optional —
+                        if empty, budget check is per-process not per-shop)
 
     Returns
     -------
@@ -190,6 +294,15 @@ async def compose_nudge_variants(
         log.warning("nudge_composer: OPENAI_API_KEY not configured — using rule-based fallback")
         return _rule_based_fallback(signals, data_window_hours), _meta(
             fallback_used=True, rejection_reason="OPENAI_API_KEY not configured"
+        )
+
+    # Budget guard — checked before the API call to prevent cost overruns.
+    # Counts the call even before it is made so concurrent requests are
+    # counted conservatively (we'd rather refuse one extra than over-spend).
+    budget_key = shop_domain or "global"
+    if not _check_and_increment_budget(budget_key):
+        return _rule_based_fallback(signals, data_window_hours), _meta(
+            fallback_used=True, rejection_reason="daily_budget_exceeded"
         )
 
     # 1. Select 2 variant strategies based on available signals
@@ -209,20 +322,20 @@ async def compose_nudge_variants(
         data_window_hours = data_window_hours,
     )
 
-    # 4. Call OpenAI
+    # 4. Call OpenAI with retry
     raw_response = None
     try:
-        raw_response = await _call_openai_async(messages)
+        raw_response = await _call_openai_with_retry(messages)
     except Exception as exc:
         log.warning(
-            "nudge_composer: OpenAI API error for product=%s: %s — falling back",
+            "nudge_composer: OpenAI API error for product=%s after retries: %s — falling back",
             product_url, exc,
         )
         return _rule_based_fallback(signals, data_window_hours), _meta(
             strategy_pair   = strategy_pair,
             signal_basis    = signal_basis,
             fallback_used   = True,
-            rejection_reason = f"OpenAI API error: {type(exc).__name__}",
+            rejection_reason = f"OpenAI API error after retries: {type(exc).__name__}",
         )
 
     # 5. Validate and sanitize output
@@ -401,30 +514,76 @@ def _build_messages(
 # OpenAI API call
 # ---------------------------------------------------------------------------
 
-async def _call_openai_async(messages: list[dict]) -> str:
+async def _call_openai_with_retry(messages: list[dict]) -> str:
     """
-    Call the OpenAI Chat Completions API and return the raw content string.
-    Uses httpx.AsyncClient (openai package not required).
-    Raises on HTTP errors or timeout.
+    Call the OpenAI Chat Completions API with exponential-backoff retry.
+
+    Retries on transient errors: HTTP 429 (rate limit), 500, 502, 503, 504.
+    Raises immediately on permanent errors (400, 401, 403, etc.) since retrying
+    won't help.
+
+    Total attempts = 1 + len(_RETRY_DELAYS).  Uses the shared httpx async
+    client for connection reuse within a single request.
+
+    Raises the last exception if all attempts fail — callers handle this by
+    falling back to rule-based copy.
     """
-    async with httpx.AsyncClient(timeout=_OPENAI_TIMEOUT) as client:
-        resp = await client.post(
-            _OPENAI_API_URL,
-            headers={
-                "Authorization":  f"Bearer {_OPENAI_API_KEY}",
-                "Content-Type":   "application/json",
-            },
-            json={
-                "model":           _OPENAI_MODEL,
-                "messages":        messages,
-                "max_tokens":      _OPENAI_MAX_TOKENS,
-                "temperature":     0.3,
-                "response_format": {"type": "json_object"},
-            },
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"]
+    last_exc: Exception | None = None
+
+    for attempt, delay in enumerate([(None, *_RETRY_DELAYS)], start=1):
+        if attempt > 1:
+            await asyncio.sleep(delay)
+            log.info(
+                "nudge_composer: retry attempt %d/%d after %.1fs",
+                attempt, 1 + len(_RETRY_DELAYS), delay,
+            )
+
+        try:
+            async with httpx.AsyncClient(timeout=_OPENAI_TIMEOUT) as client:
+                resp = await client.post(
+                    _OPENAI_API_URL,
+                    headers={
+                        "Authorization": f"Bearer {_OPENAI_API_KEY}",
+                        "Content-Type":  "application/json",
+                    },
+                    json={
+                        "model":           _OPENAI_MODEL,
+                        "messages":        messages,
+                        "max_tokens":      _OPENAI_MAX_TOKENS,
+                        "temperature":     0.3,
+                        "response_format": {"type": "json_object"},
+                    },
+                )
+
+                if resp.status_code in _RETRYABLE_STATUS and attempt <= len(_RETRY_DELAYS):
+                    log.warning(
+                        "nudge_composer: OpenAI returned %d (transient) — will retry",
+                        resp.status_code,
+                    )
+                    last_exc = httpx.HTTPStatusError(
+                        f"HTTP {resp.status_code}",
+                        request=resp.request,
+                        response=resp,
+                    )
+                    continue  # retry
+
+                resp.raise_for_status()   # permanent errors raise immediately
+                data = resp.json()
+                return data["choices"][0]["message"]["content"]
+
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            last_exc = exc
+            if attempt <= len(_RETRY_DELAYS):
+                log.warning(
+                    "nudge_composer: network/timeout error (attempt %d): %s — will retry",
+                    attempt, exc,
+                )
+                continue
+            # Last attempt failed
+            raise
+
+    # All attempts exhausted — raise the last captured exception
+    raise last_exc  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
