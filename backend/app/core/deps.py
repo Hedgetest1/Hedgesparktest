@@ -1,24 +1,73 @@
 """
-Shared FastAPI dependencies for Hedge Spark.
+Shared FastAPI dependencies for WishSpark.
 
-require_shop    — extracts and validates shop_domain from the request
-require_api_key — validates the DASHBOARD_API_KEY header
+Available dependencies
+----------------------
+require_shop        — extracts and validates shop_domain from the request
+require_api_key     — validates the DASHBOARD_API_KEY header
+require_pro_plan    — validates shop + API key AND enforces active Pro plan
+
+Plan enforcement
+----------------
+require_pro_plan is the canonical backend gate for Pro-only routes.
+It raises HTTP 403 when the shop's merchants row has:
+  - no row at all (unknown shop)
+  - plan != "pro"
+  - billing_active == False
+
+The Pro definition here — plan == "pro" AND billing_active == True — is the
+same semantic used by merchant.py's _normalise_plan() and by the frontend's
+isProUser check.  If the Pro definition ever changes, update this file and
+merchant.py together; they are the two authoritative sources.
+
+To enforce a route as Pro-only, replace:
+    shop: str = Depends(require_shop),
+    _: None = Depends(require_api_key),
+with:
+    shop: str = Depends(require_pro_plan),
+
+require_pro_plan composes both checks internally so nothing is skipped.
 
 Exemptions (applied at the route level, not here):
-  POST /track        — tracker.js write endpoint, no auth header
-  GET  /tracker.js   — static file
-  GET  /install      — Shopify OAuth entry
+  POST /track         — tracker.js write endpoint, no auth header
+  GET  /tracker.js    — static file
+  GET  /install       — Shopify OAuth entry
   GET  /auth/callback — Shopify OAuth callback
 """
 from __future__ import annotations
 
+import logging
 import os
 
-from fastapi import Header, HTTPException, Query
+from fastapi import Depends, Header, HTTPException, Query
 
 from app.services.shopify_auth import is_valid_shop_domain
 
+log = logging.getLogger(__name__)
+
 DASHBOARD_API_KEY: str = os.getenv("DASHBOARD_API_KEY", "")
+
+# When ALLOW_INSECURE_DEV=true the API key check is bypassed if the key is
+# absent — acceptable only in a private development environment where no real
+# merchant data is present.  Production deployments must NEVER set this.
+_ALLOW_INSECURE_DEV: bool = os.getenv("ALLOW_INSECURE_DEV", "").lower() == "true"
+
+# Emit a single message at import time (server startup) so the operator
+# can see the auth posture immediately in: pm2 logs wishspark-backend
+if not DASHBOARD_API_KEY:
+    if _ALLOW_INSECURE_DEV:
+        log.warning(
+            "SECURITY: DASHBOARD_API_KEY is not set — "
+            "API key enforcement is DISABLED because ALLOW_INSECURE_DEV=true. "
+            "This must never be used in a production or merchant-facing deployment."
+        )
+    else:
+        log.error(
+            "SECURITY: DASHBOARD_API_KEY is not set and ALLOW_INSECURE_DEV is not enabled. "
+            "All /pro/* requests will receive HTTP 503 until a key is configured. "
+            "Generate a key with: python3 -c \"import secrets; print(secrets.token_urlsafe(32))\" "
+            "and add it to backend/.env, then run: pm2 reload ecosystem.config.js"
+        )
 
 
 def require_shop(
@@ -48,9 +97,67 @@ def require_api_key(
 ) -> None:
     """
     Validate the dashboard API key.
-    If DASHBOARD_API_KEY is not configured the check is skipped (dev mode).
+
+    Behavior when DASHBOARD_API_KEY is not configured:
+      - ALLOW_INSECURE_DEV=true  → check is bypassed (dev convenience only)
+      - ALLOW_INSECURE_DEV unset → HTTP 503 is returned; Pro endpoints are
+        non-functional until a key is configured.  This is the safe default:
+        an unconfigured deployment fails closed, not open.
     """
     if not DASHBOARD_API_KEY:
-        return
+        if _ALLOW_INSECURE_DEV:
+            return  # explicit dev-mode bypass — operator opted in
+        raise HTTPException(
+            status_code=503,
+            detail="Service not properly configured. Contact the operator.",
+        )
     if x_api_key != DASHBOARD_API_KEY:
         raise HTTPException(status_code=401, detail="Invalid or missing API key.")
+
+
+def require_pro_plan(
+    shop: str = Depends(require_shop),
+    _: None = Depends(require_api_key),
+) -> str:
+    """
+    Enforce that the requesting shop has an active Pro plan.
+
+    Composes require_shop (400 on bad domain) and require_api_key (401 on bad
+    key) — both checks run before the plan check.  Raises 403 if the shop is
+    not on an active Pro plan.
+
+    Returns shop_domain on success, matching the return type of require_shop
+    so this is a drop-in replacement on any Pro-only route.
+
+    Pro definition (must stay in sync with merchant.py and the frontend):
+      merchants.plan == "pro"  AND  merchants.billing_active == True
+
+    Usage — replace both deps on a Pro route with this single dep:
+        shop: str = Depends(require_pro_plan),
+
+    To enforce a new Pro endpoint, add only this one dependency.  No other
+    changes are required.
+    """
+    # Import here to avoid a circular import: deps.py is in app.core, and
+    # the Merchant model and SessionLocal live in app.models / app.core.
+    # Placing the import inside the function is intentional and safe —
+    # FastAPI resolves dependencies at runtime, not at import time.
+    from app.core.database import SessionLocal
+    from app.models.merchant import Merchant
+
+    db = SessionLocal()
+    try:
+        row = db.query(Merchant).filter(Merchant.shop_domain == shop).first()
+    finally:
+        db.close()
+
+    # No row → shop not installed or unknown → deny with same error as expired plan.
+    # Pro definition: plan == "pro" AND billing_active == True.
+    # This mirrors _normalise_plan() in merchant.py — keep them in sync.
+    if row is None or row.plan != "pro" or not row.billing_active:
+        raise HTTPException(
+            status_code=403,
+            detail="Pro plan required.",
+        )
+
+    return shop
