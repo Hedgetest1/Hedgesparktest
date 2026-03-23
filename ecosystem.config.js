@@ -216,5 +216,33 @@ module.exports = {
       },
     },
 
+    // -------------------------------------------------------------------------
+    // Nudge optimization worker — autonomous A/B winner selection + challenger gen
+    // Cycle: 6 hours (NUDGE_OPTIMIZER_INTERVAL_HOURS).  Evaluates all active A/B
+    // nudges, promotes winners when MDE threshold is met, queues AI challengers.
+    // Singleton — duplicate instances would trigger duplicate promotions and
+    // duplicate AI composer calls.
+    // -------------------------------------------------------------------------
+    {
+      name:                "wishspark-nudge-optimizer",
+      script:              "/opt/wishspark/backend/venv/bin/python",
+      args:                "app/workers/nudge_optimization_worker.py",
+      cwd:                 "/opt/wishspark/backend",
+      interpreter:         "none",
+      exec_mode:           "fork",
+      instances:           1,
+      autorestart:         true,
+      min_uptime:          "10s",
+      max_restarts:        10,
+      restart_delay:       5000,
+      max_memory_restart:  "200M",
+      out_file:            "/opt/wishspark/logs/nudge-optimizer-out.log",
+      error_file:          "/opt/wishspark/logs/nudge-optimizer-error.log",
+      merge_logs:          false,
+      env: {
+        PYTHONPATH: "/opt/wishspark/backend",
+      },
+    },
+
   ],
 };
