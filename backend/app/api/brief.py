@@ -24,6 +24,14 @@ on-demand generation).  _strip_to_lite() is applied at the Lite route
 boundary; the service layer and cache always hold the full (Pro-shaped)
 response so the two routes never need separate cache keys.
 
+Session management
+------------------
+Both routes inject a SQLAlchemy session via Depends(get_db).  The session
+is passed through _get_full_brief() → generate_brief() rather than each
+function opening its own SessionLocal().  This ensures session lifecycle
+is owned by FastAPI's DI, connections are returned to the pool correctly
+on both happy and error paths, and no unmanaged sessions leak.
+
 Field classification
 --------------------
 Descriptive: brief_date, generated_at, top_product_url, top_product_label,
@@ -54,12 +62,13 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.core.deps import require_api_key, require_pro_plan, require_shop
 from app.core.redis_client import KEY_BRIEF, TTL_BRIEF, cache_get, cache_set
 from app.models.daily_brief import DailyBrief
@@ -96,16 +105,16 @@ def _serialize(row: DailyBrief) -> dict:
             snapshot = []
 
     return {
-        "brief_date": row.brief_date.isoformat() if row.brief_date else None,
-        "generated_at": row.generated_at.isoformat() if row.generated_at else None,
-        "headline": row.headline,
-        "top_product_url": row.top_product_url,
+        "brief_date":       row.brief_date.isoformat() if row.brief_date else None,
+        "generated_at":     row.generated_at.isoformat() if row.generated_at else None,
+        "headline":         row.headline,
+        "top_product_url":  row.top_product_url,
         "top_product_label": row.top_product_label,
-        "top_signal_type": row.top_signal_type,
-        "top_action": row.top_action,
-        "signals_count": row.signals_count or 0,
+        "top_signal_type":  row.top_signal_type,
+        "top_action":       row.top_action,
+        "signals_count":    row.signals_count or 0,
         "metrics_snapshot": snapshot,
-        "summary_text": row.summary_text,
+        "summary_text":     row.summary_text,
         "summary_generated": bool(row.summary_generated),
     }
 
@@ -129,39 +138,41 @@ def _strip_to_lite(data: dict) -> dict:
     return result
 
 
-def _read_today(db, shop_domain: str) -> DailyBrief | None:
+def _read_today(db: Session, shop_domain: str) -> DailyBrief | None:
     """Return today's DailyBrief row for the shop, or None."""
+    today = datetime.now(timezone.utc).date()
     return (
         db.query(DailyBrief)
         .filter(
             DailyBrief.shop_domain == shop_domain,
-            DailyBrief.brief_date == datetime.utcnow().date(),
+            DailyBrief.brief_date  == today,
         )
         .order_by(DailyBrief.generated_at.desc())
         .first()
     )
 
 
-def _insert_brief(db, brief_dict: dict) -> DailyBrief | None:
+def _insert_brief(db: Session, brief_dict: dict) -> DailyBrief | None:
     """
     Insert a brief row.  Returns the inserted row on success.
     Returns None on IntegrityError (another request already inserted
     the row for today — the caller should re-read).
     All other exceptions propagate to the caller.
     """
+    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
     row = DailyBrief(
-        shop_domain=brief_dict["shop_domain"],
-        brief_date=brief_dict["brief_date"],
-        generated_at=brief_dict.get("generated_at") or datetime.utcnow(),
-        headline=brief_dict["headline"],
-        top_product_url=brief_dict.get("top_product_url"),
-        top_product_label=brief_dict.get("top_product_label"),
-        top_signal_type=brief_dict.get("top_signal_type"),
-        top_action=brief_dict.get("top_action"),
-        signals_count=brief_dict.get("signals_count", 0),
-        metrics_snapshot=brief_dict.get("metrics_snapshot"),
-        summary_text=brief_dict.get("summary_text"),
-        summary_generated=brief_dict.get("summary_generated", False),
+        shop_domain       = brief_dict["shop_domain"],
+        brief_date        = brief_dict["brief_date"],
+        generated_at      = brief_dict.get("generated_at") or now_naive,
+        headline          = brief_dict["headline"],
+        top_product_url   = brief_dict.get("top_product_url"),
+        top_product_label = brief_dict.get("top_product_label"),
+        top_signal_type   = brief_dict.get("top_signal_type"),
+        top_action        = brief_dict.get("top_action"),
+        signals_count     = brief_dict.get("signals_count", 0),
+        metrics_snapshot  = brief_dict.get("metrics_snapshot"),
+        summary_text      = brief_dict.get("summary_text"),
+        summary_generated = brief_dict.get("summary_generated", False),
     )
     db.add(row)
     try:
@@ -173,10 +184,11 @@ def _insert_brief(db, brief_dict: dict) -> DailyBrief | None:
         return None
 
 
-def _get_full_brief(shop: str) -> dict:
+def _get_full_brief(shop: str, db: Session) -> dict:
     """
     Three-level cache (Redis → DB → on-demand generation).
 
+    Accepts an injected SQLAlchemy session; does NOT open its own.
     Always returns the full (Pro-shaped) response including all prescriptive
     fields.  The Redis cache also stores the full response.  Callers that
     serve the Lite route must apply _strip_to_lite() before returning.
@@ -194,66 +206,59 @@ def _get_full_brief(shop: str) -> dict:
     if cached is not None:
         return cached
 
-    db = SessionLocal()
-    try:
-        # ---------------------------------------------------------------- #
-        # Level 2 — DB read                                               #
-        # ---------------------------------------------------------------- #
+    # ------------------------------------------------------------------ #
+    # Level 2 — DB read                                                   #
+    # ------------------------------------------------------------------ #
+    row = _read_today(db, shop)
+    if row is not None:
+        result = _serialize(row)
+        cache_set(redis_key, result, TTL_BRIEF)
+        return result
+
+    # ------------------------------------------------------------------ #
+    # Level 3 — on-demand generation                                      #
+    # ------------------------------------------------------------------ #
+    brief_dict = generate_brief(db, shop)
+    inserted   = _insert_brief(db, brief_dict)
+
+    if inserted is None:
+        # Another concurrent request won the race — re-read the winner.
         row = _read_today(db, shop)
         if row is not None:
             result = _serialize(row)
             cache_set(redis_key, result, TTL_BRIEF)
             return result
+        # Extremely unlikely: still not found after race — return the
+        # generated dict directly without caching or DB.
+        logger.warning(
+            "brief._get_full_brief(%r): insert lost race but re-read also missed",
+            shop,
+        )
+        snapshot: list = []
+        if brief_dict.get("metrics_snapshot"):
+            try:
+                snapshot = json.loads(brief_dict["metrics_snapshot"])
+            except (json.JSONDecodeError, ValueError):
+                snapshot = []
+        brief_date   = brief_dict["brief_date"]
+        generated_at = brief_dict["generated_at"]
+        return {
+            "brief_date":       brief_date.isoformat() if hasattr(brief_date, "isoformat") else str(brief_date),
+            "generated_at":     generated_at.isoformat() if hasattr(generated_at, "isoformat") else str(generated_at),
+            "headline":         brief_dict["headline"],
+            "top_product_url":  brief_dict.get("top_product_url"),
+            "top_product_label": brief_dict.get("top_product_label"),
+            "top_signal_type":  brief_dict.get("top_signal_type"),
+            "top_action":       brief_dict.get("top_action"),
+            "signals_count":    brief_dict.get("signals_count", 0),
+            "metrics_snapshot": snapshot,
+            "summary_text":     brief_dict.get("summary_text"),
+            "summary_generated": brief_dict.get("summary_generated", False),
+        }
 
-        # ---------------------------------------------------------------- #
-        # Level 3 — on-demand generation                                  #
-        # ---------------------------------------------------------------- #
-        brief_dict = generate_brief(shop)
-        inserted = _insert_brief(db, brief_dict)
-
-        if inserted is None:
-            # Another concurrent request won the race — re-read the winner.
-            row = _read_today(db, shop)
-            if row is not None:
-                result = _serialize(row)
-                cache_set(redis_key, result, TTL_BRIEF)
-                return result
-            # Extremely unlikely: still not found after race — return the
-            # generated dict directly without caching or DB.
-            logger.warning(
-                "brief._get_full_brief(%r): insert lost race but re-read also missed",
-                shop,
-            )
-            snapshot: list = []
-            if brief_dict.get("metrics_snapshot"):
-                try:
-                    snapshot = json.loads(brief_dict["metrics_snapshot"])
-                except (json.JSONDecodeError, ValueError):
-                    snapshot = []
-            return {
-                "brief_date": brief_dict["brief_date"].isoformat(),
-                "generated_at": brief_dict["generated_at"].isoformat(),
-                "headline": brief_dict["headline"],
-                "top_product_url": brief_dict.get("top_product_url"),
-                "top_product_label": brief_dict.get("top_product_label"),
-                "top_signal_type": brief_dict.get("top_signal_type"),
-                "top_action": brief_dict.get("top_action"),
-                "signals_count": brief_dict.get("signals_count", 0),
-                "metrics_snapshot": snapshot,
-                "summary_text": brief_dict.get("summary_text"),
-                "summary_generated": brief_dict.get("summary_generated", False),
-            }
-
-        result = _serialize(inserted)
-        cache_set(redis_key, result, TTL_BRIEF)
-        return result
-
-    except Exception as exc:
-        logger.error("brief._get_full_brief(%r): unexpected error — %s", shop, exc)
-        raise
-
-    finally:
-        db.close()
+    result = _serialize(inserted)
+    cache_set(redis_key, result, TTL_BRIEF)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -264,8 +269,9 @@ def _get_full_brief(shop: str) -> dict:
 # ---------------------------------------------------------------------------
 @router.get("/today")
 def get_today_brief(
-    shop: str = Depends(require_shop),
-    _: None = Depends(require_api_key),
+    shop: str         = Depends(require_shop),
+    _:    None        = Depends(require_api_key),
+    db:   Session     = Depends(get_db),
 ):
     """
     Lite daily brief — diagnostic fields only.
@@ -282,7 +288,7 @@ def get_today_brief(
 
     Pro subscribers call /brief/today/pro to receive the full response.
     """
-    return _strip_to_lite(_get_full_brief(shop))
+    return _strip_to_lite(_get_full_brief(shop, db))
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +299,8 @@ def get_today_brief(
 # ---------------------------------------------------------------------------
 @router.get("/today/pro")
 def get_today_brief_pro(
-    shop: str = Depends(require_pro_plan),
+    shop: str         = Depends(require_pro_plan),
+    db:   Session     = Depends(get_db),
 ):
     """
     Pro daily brief — full response including prescriptive fields.
@@ -310,4 +317,4 @@ def get_today_brief_pro(
     Lite boundary: diagnostic fields (served by /brief/today)
     Pro boundary:  prescriptive fields (served here — plan-enforced)
     """
-    return _get_full_brief(shop)
+    return _get_full_brief(shop, db)
