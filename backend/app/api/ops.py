@@ -70,6 +70,7 @@ def orchestrator_readiness(
         "mode": mode,
         "llm_available": anthropic_key or openai_key,
         "llm_provider": "anthropic" if anthropic_key else ("openai" if openai_key else "none"),
+        "provider_policy": _get_provider_policy(),
         "slack_configured": slack_url,
         "operator_key_configured": operator_key,
         "actions": {
@@ -82,6 +83,11 @@ def orchestrator_readiness(
         "warnings": warnings,
         "promotion": _get_promotion_readiness(),
     }
+
+
+def _get_provider_policy() -> dict:
+    from app.core.llm_router import get_provider_policy
+    return get_provider_policy()
 
 
 def _get_promotion_readiness() -> dict:
@@ -110,6 +116,19 @@ def _get_promotion_readiness() -> dict:
         "not_ready_reasons": reasons,
         "stats": stats,
     }
+
+
+# ---------------------------------------------------------------------------
+# LLM Budget
+# ---------------------------------------------------------------------------
+
+@router.get("/llm-budget")
+def get_llm_budget(
+    _auth: bool = Depends(require_operator),
+):
+    """Return current LLM usage summary and limits."""
+    from app.core.llm_budget import get_usage_summary
+    return get_usage_summary()
 
 
 # ---------------------------------------------------------------------------
@@ -821,3 +840,82 @@ def merge_pr(
     if result == "merged":
         return {"status": "merged", "promotion_id": promo_id}
     raise HTTPException(400, result)
+
+
+# ---------------------------------------------------------------------------
+# Evolution Proposals
+# ---------------------------------------------------------------------------
+
+@router.get("/evolution")
+def list_evolution_proposals(
+    status: str | None = Query(default=None),
+    risk_level: str | None = Query(default=None),
+    limit: int = Query(default=30, ge=1, le=100),
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """List evolution proposals."""
+    from app.models.evolution_proposal import EvolutionProposal
+    q = db.query(EvolutionProposal)
+    if status:
+        q = q.filter(EvolutionProposal.status == status)
+    if risk_level:
+        q = q.filter(EvolutionProposal.risk_level == risk_level)
+    rows = q.order_by(EvolutionProposal.created_at.desc()).limit(limit).all()
+    return [
+        {
+            "id": r.id,
+            "created_at": r.created_at.isoformat() + "Z" if r.created_at else None,
+            "proposal_type": r.proposal_type,
+            "target_file": r.target_file,
+            "risk_level": r.risk_level,
+            "reason": r.reason,
+            "expected_impact": r.expected_impact,
+            "auto_applicable": r.auto_applicable,
+            "status": r.status,
+            "audit_cycle": r.audit_cycle,
+        }
+        for r in rows
+    ]
+
+
+@router.post("/evolution/{proposal_id}/accept")
+def accept_evolution(
+    proposal_id: int,
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Accept an evolution proposal."""
+    from app.models.evolution_proposal import EvolutionProposal
+    from datetime import datetime, timezone
+    p = db.query(EvolutionProposal).get(proposal_id)
+    if not p:
+        raise HTTPException(404, "Not found")
+    if p.status != "open":
+        raise HTTPException(409, f"Already {p.status}")
+    p.status = "accepted"
+    p.decided_by = "operator"
+    p.decided_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.commit()
+    return {"status": "accepted", "proposal_id": proposal_id}
+
+
+@router.post("/evolution/{proposal_id}/reject")
+def reject_evolution(
+    proposal_id: int,
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Reject an evolution proposal."""
+    from app.models.evolution_proposal import EvolutionProposal
+    from datetime import datetime, timezone
+    p = db.query(EvolutionProposal).get(proposal_id)
+    if not p:
+        raise HTTPException(404, "Not found")
+    if p.status != "open":
+        raise HTTPException(409, f"Already {p.status}")
+    p.status = "rejected"
+    p.decided_by = "operator"
+    p.decided_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.commit()
+    return {"status": "rejected", "proposal_id": proposal_id}
