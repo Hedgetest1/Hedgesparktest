@@ -1,0 +1,495 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+
+const API_BASE = "http://147.93.127.248:8000";
+
+type TrendPoint = {
+  day?: string;
+  visitors?: number;
+  page_views?: number;
+  clicks?: number;
+  hot_visitors?: number;
+};
+
+type Action = {
+  visitor?: string;
+  page?: string;
+  type?: string;
+  suggestion?: string;
+  impact?: string;
+};
+
+type Alert = {
+  type?: string;
+  message?: string;
+  priority?: string;
+};
+
+type TopPage = {
+  url?: string;
+  views?: number;
+  visitors?: number;
+  avg_dwell?: number;
+};
+
+type VisitorScore = {
+  visitor_id?: string;
+  url?: string;
+  dwell?: number;
+  scroll?: number;
+  clicks?: number;
+  conversion_score?: number;
+};
+
+type Opportunity = {
+  url?: string;
+  views?: number;
+  visitors?: number;
+  avg_dwell?: number;
+  avg_scroll?: number;
+  clicks?: number;
+  signal_type?: string;
+  recommended_action?: string;
+  priority_score?: number;
+  explanation?: string;
+};
+
+function formatNumber(value: unknown) {
+  if (typeof value !== "number" || Number.isNaN(value)) return "0";
+  return new Intl.NumberFormat("en-US").format(Math.round(value));
+}
+
+function prettyText(value?: string) {
+  if (!value) return "—";
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function impactClass(value?: string) {
+  switch ((value || "").toUpperCase()) {
+    case "HIGH":
+      return "bg-rose-500/15 text-rose-300 ring-1 ring-rose-400/30";
+    case "MEDIUM":
+      return "bg-amber-500/15 text-amber-300 ring-1 ring-amber-400/30";
+    case "LOW":
+      return "bg-cyan-500/15 text-cyan-300 ring-1 ring-cyan-400/30";
+    default:
+      return "bg-white/5 text-slate-300 ring-1 ring-white/10";
+  }
+}
+
+function SectionHeader({
+  eyebrow,
+  title,
+  description,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="mb-5">
+      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-300/80">
+        {eyebrow}
+      </div>
+      <h2 className="text-xl font-semibold text-white">{title}</h2>
+      <p className="mt-1 max-w-2xl text-sm text-slate-400">{description}</p>
+    </div>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.18)] backdrop-blur-sm">
+      <div className="text-sm text-slate-400">{label}</div>
+      <div className="mt-3 text-3xl font-semibold text-white">{value}</div>
+      <div className="mt-2 text-xs text-slate-500">{hint}</div>
+    </div>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center text-sm text-slate-400">
+      {text}
+    </div>
+  );
+}
+
+export default function InsightsPage() {
+  const [trend, setTrend] = useState<TrendPoint[]>([]);
+  const [actions, setActions] = useState<Action[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [topPages, setTopPages] = useState<TopPage[]>([]);
+  const [scores, setScores] = useState<VisitorScore[]>([]);
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadAll() {
+      try {
+        const [
+          trendRes,
+          actionsRes,
+          alertsRes,
+          topPagesRes,
+          scoresRes,
+          oppRes,
+        ] = await Promise.all([
+          fetch(`${API_BASE}/analytics/weekly-trend`, { cache: "no-store" }),
+          fetch(`${API_BASE}/ai/actions`, { cache: "no-store" }),
+          fetch(`${API_BASE}/analytics/alerts`, { cache: "no-store" }),
+          fetch(`${API_BASE}/analytics/top-pages`, { cache: "no-store" }),
+          fetch(`${API_BASE}/analytics/visitor-scores`, { cache: "no-store" }),
+          fetch(`${API_BASE}/analytics/live-opportunities`, { cache: "no-store" }),
+        ]);
+
+        const trendJson = trendRes.ok ? await trendRes.json() : { trend: [] };
+        const actionsJson = actionsRes.ok ? await actionsRes.json() : { actions: [] };
+        const alertsJson = alertsRes.ok ? await alertsRes.json() : { alerts: [] };
+        const topPagesJson = topPagesRes.ok ? await topPagesRes.json() : { pages: [] };
+        const scoresJson = scoresRes.ok ? await scoresRes.json() : { visitors: [] };
+        const oppJson = oppRes.ok ? await oppRes.json() : { opportunities: [] };
+
+        if (!active) return;
+
+        setTrend(Array.isArray(trendJson.trend) ? trendJson.trend : []);
+        setActions(Array.isArray(actionsJson.actions) ? actionsJson.actions : []);
+        setAlerts(Array.isArray(alertsJson.alerts) ? alertsJson.alerts : []);
+        setTopPages(Array.isArray(topPagesJson.pages) ? topPagesJson.pages : []);
+        setScores(Array.isArray(scoresJson.visitors) ? scoresJson.visitors : []);
+        setOpportunities(Array.isArray(oppJson.opportunities) ? oppJson.opportunities : []);
+      } catch {}
+    }
+
+    loadAll();
+    const interval = setInterval(loadAll, 8000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const totals = useMemo(() => {
+    return {
+      visitors: trend.reduce((acc, item) => acc + (item.visitors || 0), 0),
+      pageViews: trend.reduce((acc, item) => acc + (item.page_views || 0), 0),
+      clicks: trend.reduce((acc, item) => acc + (item.clicks || 0), 0),
+      hotVisitors: trend.reduce((acc, item) => acc + (item.hot_visitors || 0), 0),
+    };
+  }, [trend]);
+
+  const maxVisitors = useMemo(() => {
+    const max = Math.max(...trend.map((p) => p.visitors || 0), 1);
+    return max < 1 ? 1 : max;
+  }, [trend]);
+
+  return (
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(139,92,246,0.16),transparent_30%),linear-gradient(180deg,#020617_0%,#0f172a_100%)] text-white">
+      <div className="mx-auto max-w-7xl px-6 py-10 lg:px-8">
+        <div className="mb-8 overflow-hidden rounded-3xl border border-white/10 bg-[linear-gradient(135deg,rgba(2,6,23,0.98)_0%,rgba(15,23,42,0.96)_35%,rgba(30,27,75,0.94)_70%,rgba(88,28,135,0.88)_100%)] shadow-[0_24px_80px_rgba(0,0,0,0.38)] backdrop-blur-xl">
+          <div className="px-6 py-5 lg:px-8">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-300/80">
+                  Pro Dashboard
+                </div>
+                <h1 className="mt-2 text-4xl font-semibold text-white">
+                  HedgeSpark Intelligence
+                </h1>
+                <p className="mt-2 max-w-2xl text-sm text-slate-300">
+                  Advanced behavior intelligence, weekly trend analysis, alerts, and AI actions.
+                </p>
+              </div>
+
+              <a
+                href="/"
+                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/10"
+              >
+                Lite Dashboard
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <section className="mb-8">
+          <SectionHeader
+            eyebrow="Pro Overview"
+            title="Intelligence snapshot"
+            description="The advanced layer of WishSpark: weekly behavior, live signals, and AI decision support."
+          />
+
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Weekly Visitors"
+              value={formatNumber(totals.visitors)}
+              hint="Last 7 tracked days"
+            />
+            <MetricCard
+              label="Weekly Page Views"
+              value={formatNumber(totals.pageViews)}
+              hint="Behavior volume"
+            />
+            <MetricCard
+              label="Weekly Clicks"
+              value={formatNumber(totals.clicks)}
+              hint="Engagement actions"
+            />
+            <MetricCard
+              label="Weekly Hot Visitors"
+              value={formatNumber(totals.hotVisitors)}
+              hint="High-intent activity"
+            />
+          </div>
+        </section>
+
+        <section className="mb-8 rounded-3xl border border-cyan-400/15 bg-white/[0.04] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+          <SectionHeader
+            eyebrow="Trend"
+            title="Weekly trend"
+            description="Behavior trend grouped by day from installation onward."
+          />
+
+          {trend.length === 0 ? (
+            <EmptyState text="No weekly trend data yet." />
+          ) : (
+            <div className="space-y-6">
+              <div className="grid grid-cols-7 gap-3">
+                {trend.map((point, index) => {
+                  const h = Math.max(
+                    24,
+                    Math.round(((point.visitors || 0) / maxVisitors) * 180)
+                  );
+
+                  return (
+                    <div key={index} className="flex flex-col items-center gap-3">
+                      <div className="flex h-[220px] w-full items-end justify-center rounded-2xl border border-white/10 bg-slate-950/40 px-2 py-3">
+                        <div
+                          className="w-full rounded-xl bg-[linear-gradient(180deg,rgba(34,211,238,0.95)_0%,rgba(168,85,247,0.95)_100%)] shadow-[0_0_30px_rgba(34,211,238,0.25)]"
+                          style={{ height: `${h}px` }}
+                        />
+                      </div>
+                      <div className="text-center">
+                        <div className="text-xs font-semibold text-white">
+                          {point.day ? point.day.slice(5) : "—"}
+                        </div>
+                        <div className="mt-1 text-[11px] text-slate-400">
+                          {formatNumber(point.visitors)} visitors
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section className="mb-8 rounded-3xl border border-rose-400/15 bg-white/[0.04] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+          <SectionHeader
+            eyebrow="AI Terminal"
+            title="Live alerts"
+            description="Behavior anomalies and important live signals."
+          />
+
+          {alerts.length === 0 ? (
+            <EmptyState text="No alerts detected." />
+          ) : (
+            <div className="space-y-3">
+              {alerts.map((alert, index) => (
+                <div
+                  key={`${alert.type || "alert"}-${index}`}
+                  className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-950/40 p-4"
+                >
+                  <div className="text-sm text-white">{alert.message || "—"}</div>
+                  <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${impactClass(alert.priority)}`}>
+                    {alert.priority || "Info"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="mb-8 grid gap-6 xl:grid-cols-2">
+          <div className="rounded-3xl border border-violet-400/15 bg-white/[0.04] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+            <SectionHeader
+              eyebrow="AI Copilot"
+              title="Suggested actions"
+              description="Actionable recommendations generated from live store behavior."
+            />
+
+            {actions.length === 0 ? (
+              <EmptyState text="No suggestions yet." />
+            ) : (
+              <div className="space-y-4">
+                {actions.map((action, index) => (
+                  <div
+                    key={`${action.visitor || "action"}-${index}`}
+                    className="rounded-2xl border border-white/10 bg-slate-950/40 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-xs text-slate-400">
+                          Visitor {action.visitor || "—"}
+                        </div>
+                        <div className="mt-1 text-lg font-semibold text-white">
+                          {action.suggestion || "—"}
+                        </div>
+                        <div className="mt-2 text-sm text-slate-300">
+                          Page: {action.page || "—"}
+                        </div>
+                        <div className="mt-1 text-[11px] uppercase tracking-[0.15em] text-violet-300">
+                          {prettyText(action.type)}
+                        </div>
+                      </div>
+
+                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${impactClass(action.impact)}`}>
+                        {action.impact || "Info"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-3xl border border-fuchsia-400/15 bg-white/[0.04] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+            <SectionHeader
+              eyebrow="AI Opportunities"
+              title="Behavior opportunities"
+              description="Pages and products that deserve action now."
+            />
+
+            {opportunities.length === 0 ? (
+              <EmptyState text="No opportunities yet." />
+            ) : (
+              <div className="space-y-4">
+                {opportunities.slice(0, 6).map((item, index) => (
+                  <div
+                    key={`${item.url || "opp"}-${index}`}
+                    className="rounded-2xl border border-white/10 bg-slate-950/40 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-sm font-semibold text-white">
+                          {item.url || "—"}
+                        </div>
+                        <div className="mt-1 text-xs uppercase tracking-[0.14em] text-slate-400">
+                          {prettyText(item.signal_type)}
+                        </div>
+                      </div>
+
+                      <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-white">
+                        Priority {formatNumber(item.priority_score)}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 text-sm font-medium text-white">
+                      {item.recommended_action || "—"}
+                    </div>
+                    <div className="mt-2 text-sm text-slate-300">
+                      {item.explanation || "—"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="mb-8 grid gap-6 xl:grid-cols-2">
+          <div className="rounded-3xl border border-emerald-400/15 bg-white/[0.04] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+            <SectionHeader
+              eyebrow="Pages"
+              title="Top pages"
+              description="The most active pages in your tracked store."
+            />
+
+            {topPages.length === 0 ? (
+              <EmptyState text="No page data yet." />
+            ) : (
+              <div className="space-y-3">
+                {topPages.map((page, index) => (
+                  <div
+                    key={`${page.url || "page"}-${index}`}
+                    className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-950/40 p-4"
+                  >
+                    <div className="text-sm text-white">{page.url || "—"}</div>
+                    <div className="flex gap-4 text-xs text-slate-300">
+                      <span>views {formatNumber(page.views)}</span>
+                      <span>visitors {formatNumber(page.visitors)}</span>
+                      <span>dwell {formatNumber(page.avg_dwell)}s</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-3xl border border-amber-400/15 bg-white/[0.04] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+            <SectionHeader
+              eyebrow="Scoring"
+              title="Conversion probability"
+              description="Visitor ranking by likely conversion strength."
+            />
+
+            {scores.length === 0 ? (
+              <EmptyState text="No visitor scores yet." />
+            ) : (
+              <div className="space-y-3">
+                {scores.slice(0, 8).map((item, index) => (
+                  <div
+                    key={`${item.visitor_id || "score"}-${index}`}
+                    className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-950/40 p-4"
+                  >
+                    <div className="text-sm text-white">{item.visitor_id || "—"}</div>
+                    <div className="flex gap-4 text-xs text-slate-300">
+                      <span>dwell {formatNumber(item.dwell)}s</span>
+                      <span>scroll {formatNumber(item.scroll)}%</span>
+                      <span>clicks {formatNumber(item.clicks)}</span>
+                    </div>
+                    <div className="text-sm font-semibold text-white">
+                      {formatNumber(item.conversion_score)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+          <SectionHeader
+            eyebrow="Reports"
+            title="Export"
+            description="Ready for weekly and monthly data export."
+          />
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <button className="rounded-2xl border border-white/10 bg-slate-950/40 px-5 py-4 text-left text-white hover:bg-white/10">
+              Export Weekly CSV
+            </button>
+            <button className="rounded-2xl border border-white/10 bg-slate-950/40 px-5 py-4 text-left text-white hover:bg-white/10">
+              Export Monthly CSV
+            </button>
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}

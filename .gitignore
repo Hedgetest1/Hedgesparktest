@@ -9,13 +9,9 @@ __pycache__/
 backend/venv/
 **/*.egg-info/
 
-# Node
+# Node / Dashboard
 dashboard/node_modules/
 dashboard/.next/
-
-# Dashboard is a separate git repository — tracked independently
-# See: dashboard/.git
-dashboard/
 
 # Sandbox run data (operational, not source)
 sandbox/
