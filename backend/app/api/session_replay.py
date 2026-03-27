@@ -27,15 +27,14 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 
 from app.core.database import engine
-from app.core.deps import require_api_key, require_shop
+from app.core.deps import require_merchant_session
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
 @router.get("/sessions")
 def session_list(
-    shop: str = Depends(require_shop),
-    _: None = Depends(require_api_key),
+    shop: str = Depends(require_merchant_session),
 ):
     """
     Behavioral session timeline — last 10 visitor sessions for the shop.

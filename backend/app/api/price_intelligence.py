@@ -46,7 +46,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
-from app.core.deps import require_pro_plan
+from app.core.deps import require_pro_session
 from app.models.price_intelligence import PriceIntelligence
 from app.services.price_radar_service import evaluate_price
 
@@ -68,7 +68,7 @@ def get_db():
 # ---------------------------------------------------------------------------
 @router.get("/price-intelligence/top")
 def top_price_intelligence(
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """

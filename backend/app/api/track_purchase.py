@@ -12,7 +12,7 @@ Each event carries:
 
 This is the attribution bridge: it joins the persistent visitor behavioral
 identity (established by spark-tracker.js on product pages) to a real Shopify
-order (already stored in shop_orders via the orders/paid webhook).
+order (already stored in shop_orders via the orders/updated webhook).
 
 Design decisions
 ----------------

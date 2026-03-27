@@ -37,10 +37,47 @@ class ProductMetrics(Base):
 
     # Conversion signals
     cart_conversions_24h = Column(Integer, nullable=False, default=0)
+    cart_conversions_7d = Column(Integer, nullable=False, default=0)
+
+    # Device segmentation (24h window)
+    views_mobile = Column(Integer, nullable=False, default=0)
+    views_desktop = Column(Integer, nullable=False, default=0)
+    carts_mobile = Column(Integer, nullable=False, default=0)
+    carts_desktop = Column(Integer, nullable=False, default=0)
+
+    # Source segmentation (24h window, 3 buckets: paid / organic / direct)
+    views_paid = Column(Integer, nullable=False, default=0)
+    views_organic = Column(Integer, nullable=False, default=0)
+    views_direct = Column(Integer, nullable=False, default=0)
+    carts_paid = Column(Integer, nullable=False, default=0)
+    carts_organic = Column(Integer, nullable=False, default=0)
+    carts_direct = Column(Integer, nullable=False, default=0)
 
     # Return visitor signal — distinct visitors who viewed this product
     # on 2+ distinct calendar days within the last 7 days.
     return_visitor_count_7d = Column(Integer, nullable=False, default=0)
+
+    # Purchase attribution (via visitor_purchase_sessions + shop_orders)
+    purchases_24h = Column(Integer, nullable=False, default=0)
+    purchases_7d = Column(Integer, nullable=False, default=0)
+    revenue_24h = Column(Float, nullable=False, default=0)
+    purchases_mobile = Column(Integer, nullable=False, default=0)
+    purchases_desktop = Column(Integer, nullable=False, default=0)
+    purchases_paid = Column(Integer, nullable=False, default=0)
+    purchases_organic = Column(Integer, nullable=False, default=0)
+    purchases_direct = Column(Integer, nullable=False, default=0)
+
+    # Time-of-day intelligence (24h window, peak = best 6h block)
+    peak_hour_views = Column(Integer, nullable=False, default=0)
+    peak_hour_carts = Column(Integer, nullable=False, default=0)
+    off_peak_hour_views = Column(Integer, nullable=False, default=0)
+    off_peak_hour_carts = Column(Integer, nullable=False, default=0)
+
+    # Session context (24h window, landing = first product in session)
+    landing_views_24h = Column(Integer, nullable=False, default=0)
+    browsing_views_24h = Column(Integer, nullable=False, default=0)
+    landing_carts_24h = Column(Integer, nullable=False, default=0)
+    browsing_carts_24h = Column(Integer, nullable=False, default=0)
 
     # Engagement averages (24h window, NULL if no dwell events yet)
     avg_dwell_24h = Column(Float, nullable=True)

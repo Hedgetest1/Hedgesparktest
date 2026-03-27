@@ -1,5 +1,5 @@
 # WishSpark Auto Context
-Auto-generated: 2026-03-23T19:00:01.573773 UTC
+Auto-generated: 2026-03-27T18:00:01.728739 UTC
 
 ## Project Root
 /opt/wishspark
@@ -20,6 +20,7 @@ Auto-generated: 2026-03-23T19:00:01.573773 UTC
 /backend/app/api/ai_actions.py
 /backend/app/api/attribution.py
 /backend/app/api/auth.py
+/backend/app/api/billing.py
 /backend/app/api/brief.py
 /backend/app/api/click_insights.py
 /backend/app/api/cohorts.py
@@ -27,8 +28,11 @@ Auto-generated: 2026-03-23T19:00:01.573773 UTC
 /backend/app/api/dashboard.py
 /backend/app/api/decision_engine.py
 /backend/app/api/events.py
+/backend/app/api/execution_actions.py
 /backend/app/api/funnel.py
+/backend/app/api/health.py
 /backend/app/api/heatmap.py
+/backend/app/api/integrations.py
 /backend/app/api/intent.py
 /backend/app/api/klaviyo.py
 /backend/app/api/lift.py
@@ -41,6 +45,8 @@ Auto-generated: 2026-03-23T19:00:01.573773 UTC
 /backend/app/api/nudge_script.py
 /backend/app/api/nudges.py
 /backend/app/api/opportunities.py
+/backend/app/api/ops.py
+/backend/app/api/orders.py
 /backend/app/api/price_intelligence.py
 /backend/app/api/product_metrics.py
 /backend/app/api/product_trend.py
@@ -48,8 +54,11 @@ Auto-generated: 2026-03-23T19:00:01.573773 UTC
 /backend/app/api/revenue_radar.py
 /backend/app/api/segments.py
 /backend/app/api/session_replay.py
+/backend/app/api/setup.py
 /backend/app/api/shopify_admin_api.py
+/backend/app/api/shopify_oauth.py
 /backend/app/api/source_quality.py
+/backend/app/api/store_intelligence.py
 /backend/app/api/top_pages.py
 /backend/app/api/track.py
 /backend/app/api/track_purchase.py
@@ -62,46 +71,75 @@ Auto-generated: 2026-03-23T19:00:01.573773 UTC
 /backend/app/services/__init__.py
 /backend/app/services/action_candidates_engine.py
 /backend/app/services/action_executor.py
+/backend/app/services/action_proof.py
+/backend/app/services/activation.py
+/backend/app/services/alerting.py
 /backend/app/services/attribution.py
 /backend/app/services/audience_segments.py
+/backend/app/services/audit.py
 /backend/app/services/brief_engine.py
+/backend/app/services/bugfix_pipeline.py
 /backend/app/services/cohort_engine.py
 /backend/app/services/conversion_metrics.py
 /backend/app/services/conversion_service.py
+/backend/app/services/digest_formatter.py
 /backend/app/services/empirical_calibration.py
+/backend/app/services/execution_engine.py
 /backend/app/services/external_lookup_service.py
+/backend/app/services/gdpr_processor.py
 /backend/app/services/intent_engine.py
+/backend/app/services/klaviyo_connection.py
 /backend/app/services/klaviyo_export.py
 /backend/app/services/market_lookup_engine.py
 /backend/app/services/nudge_composer.py
 /backend/app/services/nudge_engine.py
 /backend/app/services/nudge_gating.py
 /backend/app/services/nudge_measurement.py
+/backend/app/services/nudge_optimizer.py
 /backend/app/services/nudge_rank.py
+/backend/app/services/onboarding.py
 /backend/app/services/opportunity_engine.py
+/backend/app/services/orchestrator.py
+/backend/app/services/orchestrator_context.py
+/backend/app/services/orchestrator_llm.py
 /backend/app/services/order_ingestion.py
+/backend/app/services/outcome_evaluator.py
 /backend/app/services/price_intelligence_engine.py
 /backend/app/services/price_radar_service.py
 /backend/app/services/product_intelligence_engine.py
+/backend/app/services/promotion_pipeline.py
 /backend/app/services/revenue_loss.py
 /backend/app/services/revenue_metrics.py
 /backend/app/services/revenue_recovery_engine.py
+/backend/app/services/setup_audit.py
 /backend/app/services/shopify_admin.py
 /backend/app/services/shopify_auth.py
 /backend/app/services/signal_text.py
 /backend/app/services/unique_product_engine.py
 /backend/app/services/utm_attribution.py
+/backend/app/services/webhook_health.py
+/backend/app/services/weekly_digest.py
 
 ## Backend Models
 /backend/app/models/__init__.py
+/backend/app/models/action_approval.py
+/backend/app/models/action_outcome.py
+/backend/app/models/action_snapshot.py
 /backend/app/models/action_task.py
 /backend/app/models/active_nudge.py
+/backend/app/models/audit_log.py
+/backend/app/models/autofix_promotion.py
+/backend/app/models/bugfix_candidate.py
 /backend/app/models/daily_brief.py
 /backend/app/models/event.py
+/backend/app/models/execution.py
+/backend/app/models/gdpr_request.py
 /backend/app/models/market_lookup.py
 /backend/app/models/merchant.py
 /backend/app/models/nudge_event.py
+/backend/app/models/nudge_impression_daily.py
 /backend/app/models/opportunity_signal.py
+/backend/app/models/ops_alert.py
 /backend/app/models/price_intelligence.py
 /backend/app/models/price_watch.py
 /backend/app/models/product.py
@@ -109,6 +147,7 @@ Auto-generated: 2026-03-23T19:00:01.573773 UTC
 /backend/app/models/product_opportunity.py
 /backend/app/models/shop_conversion_calibration.py
 /backend/app/models/shop_order.py
+/backend/app/models/store_metrics.py
 /backend/app/models/unique_product_detection.py
 /backend/app/models/visitor.py
 /backend/app/models/visitor_product_state.py

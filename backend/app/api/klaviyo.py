@@ -8,11 +8,11 @@ GET  /pro/klaviyo/segment?shop=&product_url=&hours=
 
 POST /pro/klaviyo/push?shop=
     Pushes identified HOT visitors to Klaviyo Events API.
-    Requires the merchant's Klaviyo Private API Key in the request body.
-    Body: {"product_url": str, "klaviyo_private_key": str, "hours"?: int}
+    Uses the merchant's stored Klaviyo key (from Settings → Integrations).
+    Body: {"product_url": str, "hours"?: int}
 
-The Klaviyo Private Key is passed per-request (not stored server-side in v1).
-Merchants get this from: Klaviyo Account → Settings → API Keys → Private API Key
+    Legacy: still accepts optional klaviyo_private_key in body for
+    backward compatibility. If omitted, uses the stored key.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
-from app.core.deps import require_pro_plan
+from app.core.deps import require_pro_session
 from app.services.klaviyo_export import (
     get_segment_with_identity,
     push_segment_to_klaviyo,
@@ -44,7 +44,7 @@ def get_db():
 
 class KlaviyoPushRequest(BaseModel):
     product_url:          str   = Field(..., min_length=1)
-    klaviyo_private_key:  str   = Field(..., min_length=10)
+    klaviyo_private_key:  str | None = Field(default=None, min_length=10)  # legacy — use stored key when omitted
     hours:                int   = Field(default=72, ge=1, le=168)
 
 
@@ -52,7 +52,7 @@ class KlaviyoPushRequest(BaseModel):
 def get_klaviyo_segment(
     product_url: str,
     hours: int = 72,
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -73,7 +73,7 @@ def get_klaviyo_segment(
 @router.post("/push")
 def push_to_klaviyo(
     body: KlaviyoPushRequest,
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -82,21 +82,27 @@ def push_to_klaviyo(
     Each visitor receives a "WishSpark — High Intent Signal" event in Klaviyo.
     Merchants can use this in Klaviyo flows to trigger email campaigns.
 
-    Requirements:
-    - Merchant must have Klaviyo installed on their store
-    - Klaviyo Private API Key required (from Klaviyo Account → Settings → API Keys)
-    - Visitors must have previously purchased for identity resolution
+    Uses the merchant's stored Klaviyo key by default. An explicit key in the
+    request body overrides the stored key (legacy support).
 
     Returns: {"pushed": int, "anonymous": int, "errors": int}
     """
-    if len(body.klaviyo_private_key) < 10:
-        raise HTTPException(status_code=422, detail="Invalid Klaviyo private key.")
+    # Resolve key: explicit body key (legacy) > stored merchant key
+    klaviyo_key = body.klaviyo_private_key
+    if not klaviyo_key:
+        from app.services.klaviyo_connection import resolve_klaviyo_key
+        klaviyo_key = resolve_klaviyo_key(db, shop)
+    if not klaviyo_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Klaviyo not connected — save your API key in Settings → Integrations",
+        )
 
     result = push_segment_to_klaviyo(
         db=db,
         shop_domain=shop,
         product_url=body.product_url,
-        klaviyo_private_key=body.klaviyo_private_key,
+        klaviyo_private_key=klaviyo_key,
         hours=body.hours,
     )
 

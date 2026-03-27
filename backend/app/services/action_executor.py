@@ -1002,6 +1002,24 @@ def create_task(
     db.add(task)
     db.commit()
     db.refresh(task)
+
+    # Capture baseline metrics for closed-loop proof-of-impact.
+    # This snapshot will be compared after 7 days to measure the action's effect.
+    try:
+        from app.services.action_proof import capture_baseline
+        capture_baseline(
+            db=db,
+            shop_domain=shop_domain,
+            product_url=product_url,
+            action_type=action_type,
+            action_task_id=task.id,
+            signal_type=candidate.get("signal_type") or candidate.get("supporting_signals", [None])[0],
+            signal_strength=candidate.get("signal_strength"),
+        )
+        db.commit()
+    except Exception as exc:
+        log.warning("action_executor: baseline capture failed task_id=%d: %s", task.id, exc)
+
     return task, True
 
 

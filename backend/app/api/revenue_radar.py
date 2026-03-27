@@ -97,7 +97,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import engine
-from app.core.deps import require_pro_plan
+from app.core.deps import require_pro_session
 from app.services.conversion_metrics import (
     compute_real_conversion_probability,
     get_real_product_conversion_map,
@@ -137,7 +137,7 @@ def _rows(query: str, params: dict) -> list[dict]:
 
 @router.get("/top")
 def revenue_radar_top(
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
 ):
     """
     Pro revenue radar — full response, backend-enforced.

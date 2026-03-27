@@ -18,6 +18,29 @@ if not DATABASE_URL:
     )
 
 # ---------------------------------------------------------------------------
+# Managed Postgres / SSL readiness
+#
+# Managed database providers (DigitalOcean, Supabase, Neon, RDS) require
+# SSL connections.  Detection logic:
+#
+#   1. Explicit env var: DATABASE_SSL=require  → force sslmode=require
+#   2. URL already contains sslmode=           → let psycopg2 handle it
+#   3. Neither                                 → no extra connect_args (local PG)
+#
+# This keeps local development unchanged while enabling a one-env-var
+# switch when migrating to managed Postgres.
+# ---------------------------------------------------------------------------
+_connect_args: dict = {}
+_DATABASE_SSL = os.getenv("DATABASE_SSL", "").lower()
+if _DATABASE_SSL == "require":
+    _connect_args["sslmode"] = "require"
+    log.info("database: SSL mode enforced via DATABASE_SSL=require")
+elif "sslmode=" in (DATABASE_URL or ""):
+    log.info("database: SSL mode detected in DATABASE_URL")
+# else: no SSL — local Postgres assumed
+
+
+# ---------------------------------------------------------------------------
 # Connection pool configuration
 #
 # pool_size=10        — baseline connections kept alive (server normally uses
@@ -45,6 +68,7 @@ engine = create_engine(
     pool_timeout=30,
     pool_pre_ping=True,
     pool_recycle=1800,
+    connect_args=_connect_args,
 )
 
 SessionLocal = sessionmaker(

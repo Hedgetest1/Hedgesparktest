@@ -71,7 +71,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_api_key, require_shop
+from app.core.deps import require_merchant_session
 from app.core.token_crypto import decrypt_token
 from app.models.merchant import Merchant
 
@@ -85,7 +85,7 @@ router = APIRouter(prefix="/billing", tags=["billing"])
 
 _APP_URL:       str   = os.getenv("APP_URL",               "").rstrip("/")
 _DASHBOARD_URL: str   = os.getenv("DASHBOARD_URL",         "").rstrip("/")
-_PRO_PRICE:     float = float(os.getenv("SHOPIFY_PRO_PLAN_PRICE",  "29.00"))
+_PRO_PRICE:     float = float(os.getenv("SHOPIFY_PRO_PLAN_PRICE",  "49.00"))
 _PRO_NAME:      str   = os.getenv("SHOPIFY_PRO_PLAN_NAME", "Hedge Spark Pro")
 _TRIAL_DAYS:    int   = int(os.getenv("SHOPIFY_PRO_TRIAL_DAYS", "14"))
 
@@ -214,12 +214,16 @@ async def _activate_charge(shop: str, token: str, charge_id: str) -> bool:
         return False
 
 
-def _redirect(path: str) -> RedirectResponse:
-    """Build a redirect to the dashboard, falling back to a JSON response when DASHBOARD_URL is absent."""
+def _redirect(path: str, shop: str | None = None) -> RedirectResponse:
+    """Build a redirect to the dashboard with session cookie, falling back to a JSON response."""
+    from app.core.merchant_session import set_session_cookie
     if _DASHBOARD_URL:
-        return RedirectResponse(url=f"{_DASHBOARD_URL}{path}", status_code=302)
-    # Dev fallback — no redirect configured
-    return JSONResponse({"billing": path.lstrip("/?billing="), "detail": "DASHBOARD_URL not configured"})
+        resp = RedirectResponse(url=f"{_DASHBOARD_URL}{path}", status_code=302)
+    else:
+        resp = JSONResponse({"billing": path.lstrip("/?billing="), "detail": "DASHBOARD_URL not configured"})
+    if shop:
+        set_session_cookie(resp, shop)
+    return resp
 
 
 # ---------------------------------------------------------------------------
@@ -229,8 +233,7 @@ def _redirect(path: str) -> RedirectResponse:
 
 @router.post("/subscribe")
 async def subscribe(
-    shop: str = Depends(require_shop),
-    _:    None = Depends(require_api_key),
+    shop: str = Depends(require_merchant_session),
     db:   Session = Depends(get_db),
 ):
     """
@@ -348,23 +351,23 @@ async def billing_callback(
     merchant = _get_merchant(db, shop)
     if merchant is None:
         log.error("billing: callback for unknown shop=%s charge_id=%s", shop, charge_id)
-        return _redirect(f"/?billing=error&shop={shop}")
+        return _redirect(f"/?billing=error&shop={shop}", shop=shop)
 
     # Idempotent: already confirmed billing for this charge
     if merchant.billing_active and merchant.billing_charge_id == charge_id:
         log.info("billing: callback for already-active charge shop=%s charge_id=%s", shop, charge_id)
-        return _redirect(f"/?billing=activated&shop={shop}")
+        return _redirect(f"/?billing=activated&shop={shop}", shop=shop)
 
     token = _get_access_token(merchant)
     if not token:
         log.error("billing: callback — no access token shop=%s", shop)
-        return _redirect(f"/?billing=error&shop={shop}")
+        return _redirect(f"/?billing=error&shop={shop}", shop=shop)
 
     # Fetch authoritative charge status from Shopify
     charge = await _fetch_charge(shop, token, charge_id)
     if charge is None:
         log.error("billing: could not fetch charge shop=%s charge_id=%s", shop, charge_id)
-        return _redirect(f"/?billing=error&shop={shop}")
+        return _redirect(f"/?billing=error&shop={shop}", shop=shop)
 
     status = charge.get("status", "")
     log.info("billing: callback shop=%s charge_id=%s status=%s", shop, charge_id, status)
@@ -373,7 +376,7 @@ async def billing_callback(
         # Activate the charge with Shopify
         activated = await _activate_charge(shop, token, charge_id)
         if not activated:
-            return _redirect(f"/?billing=error&shop={shop}")
+            return _redirect(f"/?billing=error&shop={shop}", shop=shop)
 
         # Update merchant to Pro
         now = _now_naive()
@@ -387,9 +390,9 @@ async def billing_callback(
         except Exception as exc:
             log.error("billing: failed to persist Pro upgrade shop=%s: %s", shop, exc)
             db.rollback()
-            return _redirect(f"/?billing=error&shop={shop}")
+            return _redirect(f"/?billing=error&shop={shop}", shop=shop)
 
-        return _redirect(f"/?billing=activated&shop={shop}")
+        return _redirect(f"/?billing=activated&shop={shop}", shop=shop)
 
     elif status == "declined":
         # Clear the pending charge — merchant chose not to subscribe
@@ -400,13 +403,13 @@ async def billing_callback(
             log.error("billing: failed to clear declined charge shop=%s: %s", shop, exc)
             db.rollback()
         log.info("billing: charge declined shop=%s", shop)
-        return _redirect(f"/?billing=declined&shop={shop}")
+        return _redirect(f"/?billing=declined&shop={shop}", shop=shop)
 
     elif status == "pending":
         # Merchant hasn't completed the flow yet (rare — Shopify normally only
         # calls this URL after a decision is made)
         log.warning("billing: callback received but charge still pending shop=%s", shop)
-        return _redirect(f"/?billing=pending&shop={shop}")
+        return _redirect(f"/?billing=pending&shop={shop}", shop=shop)
 
     else:
         # expired, frozen, cancelled, or unknown
@@ -416,4 +419,4 @@ async def billing_callback(
             db.commit()
         except Exception:
             db.rollback()
-        return _redirect(f"/?billing=error&shop={shop}")
+        return _redirect(f"/?billing=error&shop={shop}", shop=shop)

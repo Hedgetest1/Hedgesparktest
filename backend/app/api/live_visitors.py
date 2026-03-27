@@ -1,40 +1,76 @@
+"""
+live_visitors.py — Real-time visitor pulse endpoint.
+
+GET /live/visitors
+    Returns the top 20 most recent visitors with intent scoring.
+
+    Recency window: 15 minutes.  Only visitors with events in the last
+    15 minutes appear.  This is the "live" contract — no historical ghosts.
+
+    Cached in Redis for 10 seconds to prevent per-tab polling (5s default)
+    from hammering the DB.  With 10s cache + 15s polling, the merchant sees
+    data that is at most 25 seconds old — perceptually live.
+
+Auth: require_merchant_session (session cookie or legacy API key).
+"""
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
 
 from app.core.database import engine
-from app.core.deps import require_api_key, require_shop
+from app.core.deps import require_merchant_session
 
 router = APIRouter(prefix="/live", tags=["live"])
+
+# Recency window: 15 minutes in epoch milliseconds
+_RECENCY_MS = 15 * 60 * 1000
 
 
 @router.get("/visitors")
 def live_visitors(
-    shop: str = Depends(require_shop),
-    _: None = Depends(require_api_key),
+    shop: str = Depends(require_merchant_session),
 ):
+    # Check Redis cache first
+    from app.core.redis_client import cache_get, cache_set
+    cache_key = f"hs:live_visitors:{shop}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     query = text("""
-        WITH latest AS (
+        WITH recent_events AS (
             SELECT
                 visitor_id,
-                MAX(id) AS last_id,
+                event_type,
+                timestamp,
+                dwell_seconds,
+                max_scroll_depth,
+                url
+            FROM events
+            WHERE shop_domain = :shop_domain
+              AND timestamp > (EXTRACT(EPOCH FROM NOW()) * 1000 - :recency_ms)
+        ),
+        latest AS (
+            SELECT
+                visitor_id,
                 MAX(timestamp) AS last_ts,
                 MAX(COALESCE(dwell_seconds, 0)) AS dwell_seconds,
                 MAX(COALESCE(max_scroll_depth, 0)) AS max_scroll_depth
-            FROM events
-            WHERE shop_domain = :shop_domain
+            FROM recent_events
             GROUP BY visitor_id
         ),
         clicks AS (
             SELECT visitor_id, COUNT(*) AS click_count
-            FROM events
+            FROM recent_events
             WHERE event_type = 'click'
-              AND shop_domain = :shop_domain
             GROUP BY visitor_id
         ),
         pages AS (
-            SELECT e.visitor_id, e.url
-            FROM events e
-            JOIN latest l ON e.id = l.last_id
+            SELECT DISTINCT ON (e.visitor_id)
+                e.visitor_id, e.url
+            FROM recent_events e
+            JOIN latest l ON e.visitor_id = l.visitor_id
+                         AND e.timestamp = l.last_ts
+            ORDER BY e.visitor_id, e.timestamp DESC
         )
         SELECT
             l.visitor_id,
@@ -60,6 +96,11 @@ def live_visitors(
     """)
 
     with engine.begin() as conn:
-        rows = conn.execute(query, {"shop_domain": shop}).mappings().all()
+        rows = conn.execute(query, {
+            "shop_domain": shop,
+            "recency_ms": _RECENCY_MS,
+        }).mappings().all()
 
-    return {"visitors": [dict(r) for r in rows]}
+    result = {"visitors": [dict(r) for r in rows]}
+    cache_set(cache_key, result, 10)  # 10 second TTL
+    return result

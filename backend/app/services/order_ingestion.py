@@ -5,7 +5,7 @@ Public interface
 ----------------
     parse_shopify_order(payload: dict) -> dict | None
         Extract and validate the fields we store from a raw Shopify
-        orders/paid webhook body.  Returns None if the payload is
+        orders/updated webhook body.  Returns None if the payload is
         structurally invalid.  Never raises.
 
     upsert_order(db: Session, order_data: dict) -> tuple[ShopOrder, bool]
@@ -111,7 +111,7 @@ def _parse_line_items(raw: Any) -> list[dict]:
     product_url field
     -----------------
     Stored as a forward-compatible field for real conversion matching.
-    Shopify's orders/paid webhook does NOT include the product handle in
+    Shopify's orders/updated webhook does NOT include the product handle in
     line_items — so this field is None for standard webhook payloads.
 
     It will be populated once one of these enrichment paths is in place:
@@ -157,7 +157,7 @@ def _enrich_line_items_with_product_url(
     """
     Resolve product_url for each line item using the events table mapping.
 
-    Shopify's orders/paid webhook stores product_id (an integer) in line_items
+    Shopify's orders/updated webhook stores product_id (an integer) in line_items
     but does not include the product handle.  spark-tracker.js captures the
     handle as product_url AND the Shopify numeric id as product_id in track
     events (since migration o1a2b3c4d5e6).
@@ -227,7 +227,7 @@ def _enrich_line_items_with_product_url(
 
 def parse_shopify_order(payload: dict, shop_domain: str) -> dict | None:
     """
-    Extract storable fields from a raw Shopify orders/paid webhook body.
+    Extract storable fields from a raw Shopify orders/updated webhook body.
 
     Parameters
     ----------
@@ -321,6 +321,33 @@ def upsert_order(db: Session, order_data: dict) -> tuple[ShopOrder, bool]:
         .first()
     )
     if existing:
+        # Upgrade pixel-originated rows with richer webhook data.
+        # Pixel rows have source="pixel" and line_items=[].  When a webhook
+        # delivers the same order with full line_items and customer data,
+        # update the row rather than skipping it.
+        if getattr(existing, "source", "pixel") == "pixel" and order_data.get("line_items"):
+            raw_line_items = order_data.get("line_items", [])
+            enriched = _enrich_line_items_with_product_url(db, shop_domain, raw_line_items)
+            existing.line_items     = enriched
+            existing.customer_id    = order_data.get("customer_id") or existing.customer_id
+            existing.customer_email = order_data.get("customer_email") or existing.customer_email
+            existing.total_price    = order_data["total_price"]
+            existing.currency       = order_data["currency"]
+            existing.source         = "webhook"
+            try:
+                db.commit()
+                log.info(
+                    "order_ingestion: upgraded pixel→webhook shopify_order_id=%s shop=%s",
+                    shopify_order_id, shop_domain,
+                )
+            except Exception as exc:
+                db.rollback()
+                log.error(
+                    "order_ingestion: upgrade failed shopify_order_id=%s: %s",
+                    shopify_order_id, exc,
+                )
+            return existing, False
+
         log.info(
             "order_ingestion: duplicate skipped — shopify_order_id=%s shop=%s",
             shopify_order_id, shop_domain,
@@ -344,6 +371,7 @@ def upsert_order(db: Session, order_data: dict) -> tuple[ShopOrder, bool]:
         line_items       = enriched_line_items,
         created_at       = order_data["created_at"],
         ingested_at      = datetime.utcnow(),
+        source           = "webhook",
     )
 
     try:

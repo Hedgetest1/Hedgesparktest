@@ -50,3 +50,22 @@ body {
 .hs-fade-up { animation: hs-fade-up 0.38s ease-out   forwards; }
 .hs-sparkle { animation: hs-sparkle 2.5s ease-in-out infinite; }
 .hs-pulse   { animation: hs-pulse-dot 1.6s ease-in-out infinite; }
+
+/* Pro gate shimmer border effect */
+@keyframes hs-shimmer {
+  0%   { opacity: 0.3; }
+  50%  { opacity: 0.7; }
+  100% { opacity: 0.3; }
+}
+.hs-shimmer { animation: hs-shimmer 3s ease-in-out infinite; }
+
+/* Gradient text utility for brand emphasis */
+.hs-gradient-text {
+  background: linear-gradient(135deg, #a78bfa 0%, #7c3aed 50%, #c4b5fd 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Smooth scroll for main content area */
+.hs-scroll-smooth { scroll-behavior: smooth; }

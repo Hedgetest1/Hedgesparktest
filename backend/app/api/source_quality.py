@@ -86,7 +86,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 
 from app.core.database import engine
-from app.core.deps import require_api_key, require_pro_plan, require_shop
+from app.core.deps import require_merchant_session, require_pro_session
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -398,8 +398,7 @@ def _build_source_response(shop: str) -> dict:
 # ---------------------------------------------------------------------------
 @router.get("/source-quality")
 def source_quality(
-    shop: str = Depends(require_shop),
-    _: None = Depends(require_api_key),
+    shop: str = Depends(require_merchant_session),
 ):
     """
     Lite Traffic Intelligence — descriptive and diagnostic fields only.
@@ -427,7 +426,7 @@ def source_quality(
 # ---------------------------------------------------------------------------
 @router.get("/source-quality/pro")
 def source_quality_pro(
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
 ):
     """
     Pro Traffic Intelligence — identical to /analytics/source-quality but

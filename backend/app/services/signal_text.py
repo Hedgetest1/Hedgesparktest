@@ -219,6 +219,108 @@ def humanize_signal(
         return f"{label} is experiencing a traffic spike right now."
 
     # ------------------------------------------------------------------ #
+    # Device segmentation signals                                          #
+    # ------------------------------------------------------------------ #
+
+    if signal_type == "MOBILE_CONVERSION_GAP":
+        vm = _fmt_int(m.get("views_mobile"))
+        vd = _fmt_int(m.get("views_desktop"))
+        if vm != "some" and vd != "some":
+            return (
+                f"{label} converts much worse on one device type "
+                f"— {vm} mobile views vs {vd} desktop views with a large cart rate gap."
+            )
+        return f"{label} has a significant device-based conversion gap."
+
+    # ------------------------------------------------------------------ #
+    # Cart rate trend signals                                              #
+    # ------------------------------------------------------------------ #
+
+    if signal_type == "CART_RATE_DECLINING":
+        return (
+            f"{label}'s cart conversion rate is dropping — "
+            "today is significantly below its 7-day average."
+        )
+
+    # ------------------------------------------------------------------ #
+    # Source quality signals                                               #
+    # ------------------------------------------------------------------ #
+
+    if signal_type == "PAID_TRAFFIC_NOT_CONVERTING":
+        vp = _fmt_int(m.get("views_paid"))
+        if vp != "some":
+            return (
+                f"{label} received {vp} paid views today but none moved toward checkout "
+                "— the ad spend may be wasted."
+            )
+        return f"Paid traffic to {label} is not converting."
+
+    # ------------------------------------------------------------------ #
+    # Purchase attribution signals                                         #
+    # ------------------------------------------------------------------ #
+
+    if signal_type == "DEVICE_PURCHASE_GAP":
+        return (
+            f"{label} has purchases from one device type but zero from the other "
+            "despite significant traffic — the checkout experience may be broken on one device."
+        )
+
+    if signal_type == "SOURCE_REVENUE_GAP":
+        return (
+            f"Paid traffic to {label} is not generating any purchases, "
+            "while organic traffic is converting — ad targeting may be misaligned."
+        )
+
+    # ------------------------------------------------------------------ #
+    # Time-of-day signals                                                  #
+    # ------------------------------------------------------------------ #
+
+    if signal_type == "TIME_WINDOW_MISALIGNMENT":
+        return (
+            f"{label} converts at very different rates depending on time of day "
+            "— promotional timing may not match when visitors are ready to buy."
+        )
+
+    # ------------------------------------------------------------------ #
+    # Session context signals                                              #
+    # ------------------------------------------------------------------ #
+
+    if signal_type == "LANDING_PAGE_FAILURE":
+        lv = _fmt_int(m.get("landing_views_24h"))
+        if lv != "some":
+            return (
+                f"{lv} visitors landed directly on {label} but very few added to cart. "
+                "Visitors who browse to it from other pages convert much better — "
+                "the landing experience needs improvement."
+            )
+        return (
+            f"Visitors landing directly on {label} convert much worse than those who browse to it."
+        )
+
+    # ------------------------------------------------------------------ #
+    # Store-level strategic signals                                        #
+    # ------------------------------------------------------------------ #
+
+    if signal_type == "REVENUE_CONCENTRATION":
+        return (
+            f"Your store's revenue is concentrated in {label}. "
+            "If this product's traffic drops, your entire business is affected — "
+            "diversify by improving conversion on other products."
+        )
+
+    if signal_type == "STORE_MOBILE_GAP":
+        return (
+            "Mobile visitors browse your store but don't buy. "
+            "This is a store-wide checkout problem — test the full mobile purchase flow."
+        )
+
+    if signal_type == "STORE_PAID_GAP":
+        return (
+            "Your paid traffic drives visits but not purchases. "
+            "Organic and direct traffic converts better — your ad spend may be misallocated."
+        )
+
+    # ------------------------------------------------------------------ #
     # Classify-opportunity signals                                         #
     # ------------------------------------------------------------------ #
 
@@ -245,6 +347,46 @@ def humanize_signal(
 
     if signal_type == "NO_ACTION":
         return f"{label} is being tracked — no strong signal detected yet."
+
+    # ------------------------------------------------------------------ #
+    # Early signals (low confidence — minimal data)                       #
+    # ------------------------------------------------------------------ #
+
+    if signal_type == "EARLY_BROWSING_NO_CART":
+        views = _fmt_int(m.get("views_24h"))
+        if views != "some":
+            return (
+                f"{label} has had {views} views but no one has added it to cart yet "
+                "— still early, worth watching."
+            )
+        return f"Visitors are browsing {label} but haven't added it to cart yet."
+
+    if signal_type == "FIRST_VISITOR_ENGAGEMENT":
+        dwell = _fmt_float(m.get("avg_dwell_24h"), decimals=0)
+        if dwell != "an average":
+            return (
+                f"A visitor just spent {dwell}s on {label} "
+                "— your first real engagement signal."
+            )
+        return f"Your first visitor engagement on {label} has been detected."
+
+    if signal_type == "EARLY_DROP_OFF":
+        dwell = _fmt_float(m.get("avg_dwell_24h"), decimals=0)
+        scroll = _fmt_float(m.get("avg_scroll_24h"), decimals=0)
+        if dwell != "an average" and scroll != "an average":
+            return (
+                f"Early visitors to {label} are leaving quickly "
+                f"({dwell}s dwell, {scroll}% scroll) "
+                "— the above-the-fold content may need attention."
+            )
+        return f"Early visitors to {label} are leaving before engaging deeply."
+
+    if signal_type == "SINGLE_PRODUCT_FOCUS":
+        views = _fmt_int(m.get("views_24h"))
+        return (
+            f"All recent visitor activity is concentrated on {label} "
+            "— this is your most interesting product right now."
+        )
 
     # Unknown signal type: degrade gracefully
     readable = signal_type.replace("_", " ").title() if signal_type else "A signal"
@@ -292,6 +434,53 @@ _ACTION_MAP: dict[str, str] = {
         "Feature this product prominently while traffic is high — consider a "
         "homepage banner or a limited promotion."
     ),
+    # Device segmentation
+    "MOBILE_CONVERSION_GAP": (
+        "Check the product page layout on the underperforming device — "
+        "images, CTA visibility, and page speed are the usual culprits."
+    ),
+    # Temporal trend
+    "CART_RATE_DECLINING": (
+        "Investigate what changed recently — new competitors, price increase, "
+        "page edits, or broken checkout elements could explain the decline."
+    ),
+    # Source quality
+    "PAID_TRAFFIC_NOT_CONVERTING": (
+        "Review your ad targeting and landing page alignment — the traffic "
+        "you're paying for may not match this product's audience."
+    ),
+    # Purchase attribution
+    "DEVICE_PURCHASE_GAP": (
+        "Test the full checkout flow on the underperforming device — "
+        "payment methods, form layout, and page speed are the usual culprits."
+    ),
+    "SOURCE_REVENUE_GAP": (
+        "Your paid traffic views but doesn't buy — review ad audience targeting, "
+        "landing page alignment, and whether the ad promise matches the product page."
+    ),
+    # Time-of-day
+    "TIME_WINDOW_MISALIGNMENT": (
+        "Consider shifting promotional activity (email sends, ad scheduling) "
+        "to the time window when visitors are most likely to convert."
+    ),
+    # Session context
+    "LANDING_PAGE_FAILURE": (
+        "Improve the above-the-fold experience for direct visitors — "
+        "add social proof, clear pricing, and a visible CTA immediately visible on load."
+    ),
+    # Store-level strategic
+    "REVENUE_CONCENTRATION": (
+        "Diversify your revenue — improve conversion on second-tier products "
+        "and cross-link from your top seller to related items."
+    ),
+    "STORE_MOBILE_GAP": (
+        "Test the full mobile checkout flow — enable Apple Pay / Google Pay, "
+        "check page speed, and ensure the cart button is sticky on mobile."
+    ),
+    "STORE_PAID_GAP": (
+        "Audit your ad targeting — shift budget toward products with proven "
+        "organic conversion, then use retargeting for visitors who already engaged."
+    ),
     # Classify-opportunity signals
     "PRICE_DROP_OR_LOW_STOCK_NUDGE": (
         "Add a price drop or low-stock badge to convert high-intent visitors "
@@ -311,6 +500,23 @@ _ACTION_MAP: dict[str, str] = {
     "NO_ACTION": (
         "Monitor this product — no strong signal yet."
     ),
+    # Early signals (low confidence — softer language)
+    "EARLY_BROWSING_NO_CART": (
+        "Monitor for now — if traffic continues without carts, "
+        "check your product images and add-to-cart placement."
+    ),
+    "FIRST_VISITOR_ENGAGEMENT": (
+        "A good start — keep driving traffic and watch whether "
+        "engagement translates into add-to-carts."
+    ),
+    "EARLY_DROP_OFF": (
+        "Review your hero image and product title — "
+        "first impressions may not be landing."
+    ),
+    "SINGLE_PRODUCT_FOCUS": (
+        "This product is attracting all the attention — consider "
+        "featuring it more prominently or testing a small promotion."
+    ),
 }
 
 _DEFAULT_ACTION = "Review this product for opportunities to increase conversions."
@@ -322,3 +528,49 @@ def humanize_action(signal_type: str) -> str:
     Always returns a non-empty string.  Unknown types return the default.
     """
     return _ACTION_MAP.get(signal_type, _DEFAULT_ACTION)
+
+
+# ---------------------------------------------------------------------------
+# humanize_headline — merchant-friendly short headline per signal type
+# ---------------------------------------------------------------------------
+
+_HEADLINE_MAP: dict[str, str] = {
+    "DEAD_TRAFFIC": "Visitors are bouncing",
+    "HIGH_TRAFFIC_NO_CART": "Traffic but no add-to-carts",
+    "LOW_CONVERSION_ATTENTION": "Low conversion rate",
+    "HIGH_ENGAGEMENT_NO_ACTION": "Engaged visitors not buying",
+    "SCROLL_HIGH_NO_CLICK": "Deep readers not clicking",
+    "HIGH_RETURN_LOW_CONVERSION": "Return visitors not converting",
+    "RETURN_VISITOR_INTEREST": "Growing return interest",
+    "TRAFFIC_SPIKE": "Traffic spike detected",
+    "MOBILE_CONVERSION_GAP": "Device conversion gap",
+    "CART_RATE_DECLINING": "Cart rate declining",
+    "PAID_TRAFFIC_NOT_CONVERTING": "Paid traffic not converting",
+    "DEVICE_PURCHASE_GAP": "Device purchase gap",
+    "SOURCE_REVENUE_GAP": "Paid traffic, no revenue",
+    "TIME_WINDOW_MISALIGNMENT": "Time-of-day mismatch",
+    "LANDING_PAGE_FAILURE": "Landing page underperforming",
+    "REVENUE_CONCENTRATION": "Revenue concentrated",
+    "STORE_MOBILE_GAP": "Store-wide mobile gap",
+    "STORE_PAID_GAP": "Paid traffic not converting",
+    "PRICE_DROP_OR_LOW_STOCK_NUDGE": "Price/stock opportunity",
+    "WISHLIST_PROMPT_TEST": "Wishlist conversion opportunity",
+    "FRICTION_OR_PRICE_SENSITIVITY": "Checkout friction detected",
+    "HIGH_INTEREST_PRODUCT": "High-interest product",
+    "NO_ACTION": "Monitoring",
+    # Early signals
+    "EARLY_BROWSING_NO_CART": "Browsing but no carts yet",
+    "FIRST_VISITOR_ENGAGEMENT": "First engagement detected",
+    "EARLY_DROP_OFF": "Early visitors leaving quickly",
+    "SINGLE_PRODUCT_FOCUS": "All eyes on one product",
+}
+
+_DEFAULT_HEADLINE = "Opportunity detected"
+
+
+def humanize_headline(signal_type: str) -> str:
+    """
+    Return a short merchant-friendly headline for the given signal type.
+    Always returns a non-empty string.  Unknown types return a generic headline.
+    """
+    return _HEADLINE_MAP.get(signal_type, _DEFAULT_HEADLINE)

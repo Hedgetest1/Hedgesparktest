@@ -1,31 +1,16 @@
 """
-app/core/rate_limit.py — In-process sliding-window rate limiter middleware.
+app/core/rate_limit.py — Sliding-window rate limiter middleware.
 
-Design
-------
-Zero external dependencies.  Uses a per-process in-memory dict keyed by
-(ip, method, path).  Sliding-window algorithm: each request appends a
-timestamp; entries older than the window are pruned on every hit.
+Uses Redis when available (correct across multiple uvicorn workers).
+Falls back to in-process dict when Redis is unavailable (single-process only).
 
-This is appropriate for closed-beta scale (single backend process, limited
-merchant traffic).  If the backend ever moves to multi-worker / cluster mode,
-replace with a Redis-backed solution.
+Rules are registered in main.py as:
+  {("POST", "/track"): (600, 60), ...}
 
-Rules registered in main.py
-----------------------------
-  POST /track                        60 req / 60 s per IP
-  POST /nudge/event                  60 req / 60 s per IP
-  POST /webhooks/shopify/orders-paid 20 req / 60 s per IP
-  POST /pro/nudges                   10 req / 60 s per IP
-
-Responses
----------
-  429 Too Many Requests
-  Retry-After: <window_seconds>
-  Content-Type: application/json
-  {"detail": "Too many requests — slow down"}
+Returns 429 Too Many Requests with Retry-After header on breach.
 """
 
+import logging
 import time
 import threading
 from collections import defaultdict
@@ -35,24 +20,84 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+log = logging.getLogger(__name__)
 
-# Type alias: rules dict maps (METHOD, /path) → (max_requests, window_seconds)
 RuleMap = Dict[Tuple[str, str], Tuple[int, int]]
+
+
+def _redis_check(bucket_key: str, max_requests: int, window: int) -> Tuple[bool, int]:
+    """
+    Check rate limit via Redis INCR + EXPIRE.
+    Returns (allowed: bool, retry_after: int).
+    """
+    try:
+        from app.core.redis_client import _client
+        client = _client()
+        if client is None:
+            return True, 0  # Redis unavailable — allow (fallback handles it)
+
+        import redis as _redis
+        key = f"hs:rl:{bucket_key}"
+        pipe = client.pipeline(transaction=True)
+        pipe.incr(key)
+        pipe.ttl(key)
+        results = pipe.execute()
+
+        count = results[0]
+        ttl = results[1]
+
+        # Set expiry on first request in window
+        if count == 1 or ttl == -1:
+            client.expire(key, window)
+            ttl = window
+
+        if count > max_requests:
+            return False, max(1, ttl)
+
+        return True, 0
+
+    except Exception as exc:
+        log.debug("rate_limit: Redis check failed, allowing request: %s", exc)
+        return True, 0  # Fail open on Redis errors
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """
-    Sliding-window rate limiter applied before routing.
+    Rate limiter applied before routing.
 
-    Thread-safe: a single lock protects _buckets.  Lock contention is
-    negligible at closed-beta traffic levels.
+    Primary: Redis-backed (correct across workers).
+    Fallback: in-process dict (when Redis unavailable).
+    Thread-safe: single lock protects in-process fallback.
     """
 
     def __init__(self, app, rules: RuleMap) -> None:
         super().__init__(app)
         self._rules: RuleMap = rules
+        # In-process fallback
         self._buckets: Dict[str, List[float]] = defaultdict(list)
         self._lock = threading.Lock()
+
+    def _check_in_process(self, bucket_key: str, max_requests: int, window: int) -> Tuple[bool, int]:
+        """In-process sliding window fallback."""
+        now = time.monotonic()
+        cutoff = now - window
+
+        with self._lock:
+            timestamps = self._buckets[bucket_key]
+            idx = 0
+            while idx < len(timestamps) and timestamps[idx] < cutoff:
+                idx += 1
+            if idx:
+                del timestamps[:idx]
+
+            if len(timestamps) >= max_requests:
+                oldest = timestamps[0]
+                retry_after = int(window - (now - oldest)) + 1
+                return False, retry_after
+
+            timestamps.append(now)
+
+        return True, 0
 
     async def dispatch(self, request: Request, call_next):
         key = (request.method.upper(), request.url.path)
@@ -64,28 +109,32 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         max_requests, window = rule
         ip = request.client.host if request.client else "unknown"
         bucket_key = f"{ip}|{key[0]}|{key[1]}"
-        now = time.monotonic()
-        cutoff = now - window
 
-        with self._lock:
-            # Prune stale timestamps
-            timestamps = self._buckets[bucket_key]
-            # In-place prune — avoids reallocation on every hit
-            idx = 0
-            while idx < len(timestamps) and timestamps[idx] < cutoff:
-                idx += 1
-            if idx:
-                del timestamps[:idx]
+        # Try Redis first
+        allowed, retry_after = _redis_check(bucket_key, max_requests, window)
 
-            if len(timestamps) >= max_requests:
-                oldest = timestamps[0]
-                retry_after = int(window - (now - oldest)) + 1
-                return JSONResponse(
-                    {"detail": "Too many requests — slow down"},
-                    status_code=429,
-                    headers={"Retry-After": str(retry_after)},
-                )
+        if not allowed:
+            return JSONResponse(
+                {"detail": "Too many requests — slow down"},
+                status_code=429,
+                headers={"Retry-After": str(retry_after)},
+            )
 
-            timestamps.append(now)
+        # If Redis succeeded (allowed=True), we're done.
+        # If Redis was unavailable (allowed=True, retry_after=0 from exception),
+        # also check in-process as backup.
+        try:
+            from app.core.redis_client import _client
+            if _client() is None:
+                # Redis not available — use in-process fallback
+                allowed, retry_after = self._check_in_process(bucket_key, max_requests, window)
+                if not allowed:
+                    return JSONResponse(
+                        {"detail": "Too many requests — slow down"},
+                        status_code=429,
+                        headers={"Retry-After": str(retry_after)},
+                    )
+        except Exception:
+            pass
 
         return await call_next(request)

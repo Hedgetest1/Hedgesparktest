@@ -275,7 +275,7 @@ def get_product_conversion_profile(
                     e.visitor_id,
                     COALESCE(MAX(e.max_scroll_depth), 0)  AS max_scroll,
                     COALESCE(AVG(e.dwell_seconds), 0)     AS avg_dwell,
-                    COUNT(DISTINCT e.id)                  AS visit_count
+                    COUNT(*)                              AS visit_count
                 FROM events e
                 INNER JOIN visitor_purchase_sessions vps
                     ON vps.visitor_id  = e.visitor_id
@@ -298,7 +298,7 @@ def get_product_conversion_profile(
                     e.visitor_id,
                     COALESCE(MAX(e.max_scroll_depth), 0)  AS max_scroll,
                     COALESCE(AVG(e.dwell_seconds), 0)     AS avg_dwell,
-                    COUNT(DISTINCT e.id)                  AS visit_count
+                    COUNT(*)                              AS visit_count
                 FROM events e
                 WHERE e.shop_domain  = :shop
                   AND e.product_url  = :product_url

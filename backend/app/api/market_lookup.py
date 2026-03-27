@@ -55,7 +55,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
-from app.core.deps import require_pro_plan
+from app.core.deps import require_pro_session
 from app.models.market_lookup import MarketLookup
 
 router = APIRouter()
@@ -76,7 +76,7 @@ def get_db():
 # ---------------------------------------------------------------------------
 @router.get("/market-lookup/top")
 def top_market_lookup(
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """

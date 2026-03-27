@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 setup.py — Merchant setup status and repair endpoints.
 
@@ -42,7 +43,7 @@ GET /setup/status?shop=<domain>[&deep=true]
     }
 
 POST /setup/repair/webhook?shop=<domain>
-    Idempotently re-registers the orders/paid webhook with Shopify.
+    Idempotently re-registers the orders/updated webhook with Shopify.
     Updates merchant.webhook_id on success.
     Returns:
     {
@@ -81,7 +82,6 @@ Both repair endpoints call ensure_orders_webhook / ensure_tracker_script_tag,
 which list existing Shopify resources before creating.  Calling repair twice
 will not create duplicate webhooks or script tags.
 """
-from __future__ import annotations
 
 import logging
 import os
@@ -93,7 +93,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_api_key, require_shop
+from app.core.deps import require_merchant_session
 from app.core.token_crypto import decrypt_token
 from app.models.merchant import Merchant
 from app.services.setup_audit import compute_audit_deep, compute_audit_fast
@@ -121,8 +121,7 @@ def _tracker_url() -> str:
 
 @router.get("/status")
 async def get_setup_status(
-    shop: str = Depends(require_shop),
-    _:    None = Depends(require_api_key),
+    shop: str = Depends(require_merchant_session),
     deep: bool = Query(default=False, description="When true, calls Shopify API to verify live state"),
     db:   Session = Depends(get_db),
 ):
@@ -146,12 +145,11 @@ async def get_setup_status(
 
 @router.post("/repair/webhook")
 async def repair_webhook(
-    shop: str = Depends(require_shop),
-    _:    None = Depends(require_api_key),
+    shop: str = Depends(require_merchant_session),
     db:   Session = Depends(get_db),
 ):
     """
-    Idempotently re-register the orders/paid webhook with Shopify.
+    Idempotently re-register the orders/updated webhook with Shopify.
 
     Safe to call repeatedly — will not create duplicates.
     Updates merchant.webhook_id and webhook_registered_at on success.
@@ -265,8 +263,7 @@ async def repair_webhook(
 
 @router.post("/repair/tracker")
 async def repair_tracker(
-    shop: str = Depends(require_shop),
-    _:    None = Depends(require_api_key),
+    shop: str = Depends(require_merchant_session),
     db:   Session = Depends(get_db),
 ):
     """

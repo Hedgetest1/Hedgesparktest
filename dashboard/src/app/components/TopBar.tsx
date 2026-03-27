@@ -1,17 +1,31 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { NotificationBell } from "./NotificationBell";
+import type { SparkNotification } from "../lib/sparkNotifications";
+import type { ReputationScore } from "../lib/sparkReputation";
 
 type Tier = "lite" | "pro";
+
+export type TrialInfo = {
+  daysRemaining: number | null;
+  isPaidPro: boolean;
+};
 
 export function TopBar({
   shop,
   tier,
   onTierToggle,
+  trial,
+  notifications,
+  reputation,
 }: {
   shop: string;
   tier: Tier;
   onTierToggle: () => void;
+  trial?: TrialInfo;
+  notifications?: SparkNotification[];
+  reputation?: ReputationScore | null;
 }) {
   const [dateStr, setDateStr] = useState("");
 
@@ -24,6 +38,15 @@ export function TopBar({
       })
     );
   }, []);
+
+  const showTrialBadge =
+    tier === "pro" &&
+    trial &&
+    trial.daysRemaining != null &&
+    !trial.isPaidPro;
+
+  const trialUrgent = showTrialBadge && trial!.daysRemaining! <= 3;
+  const isProUser = tier === "pro";
 
   return (
     <header className="flex h-14 flex-shrink-0 items-center justify-between border-b border-white/[0.08] bg-[#06060e]/90 px-5 backdrop-blur-sm">
@@ -44,8 +67,54 @@ export function TopBar({
         )}
       </div>
 
-      {/* Right: tier indicator */}
-      <div className="flex items-center">
+      {/* Right: reputation + bell + trial + tier */}
+      <div className="flex items-center gap-2.5">
+        {/* Spark reputation badge — only when enough data */}
+        {reputation?.ready && reputation.accuracy != null && (
+          <div className="hidden items-center gap-1.5 rounded-full border border-white/[0.06] bg-white/[0.03] px-2.5 py-1 sm:flex">
+            <span className={`h-1 w-1 rounded-full ${
+              reputation.accuracy >= 70 ? "bg-emerald-400" : reputation.accuracy >= 50 ? "bg-amber-400" : "bg-slate-500"
+            }`} />
+            <span className="text-[10px] tabular-nums text-slate-500">
+              Spark: {reputation.accuracy}% accurate
+            </span>
+          </div>
+        )}
+
+        {/* Notification bell */}
+        <NotificationBell
+          notifications={notifications ?? []}
+          isProUser={isProUser}
+        />
+
+        {/* Trial countdown badge */}
+        {showTrialBadge && (
+          <div
+            className={`hidden items-center gap-1.5 rounded-full border px-3 py-1 sm:flex ${
+              trialUrgent
+                ? "border-amber-400/30 bg-amber-500/10"
+                : "border-white/[0.08] bg-white/[0.03]"
+            }`}
+          >
+            <span
+              className={`h-1 w-1 rounded-full ${
+                trialUrgent ? "bg-amber-400 animate-pulse" : "bg-slate-500"
+              }`}
+            />
+            <span
+              className={`text-[11px] ${
+                trialUrgent ? "font-medium text-amber-300" : "text-slate-500"
+              }`}
+            >
+              {trial!.daysRemaining! <= 0
+                ? "Trial ends today"
+                : trial!.daysRemaining === 1
+                ? "1 day left in trial"
+                : `${trial!.daysRemaining} days left in trial`}
+            </span>
+          </div>
+        )}
+
         {tier === "pro" ? (
           <div className="flex items-center gap-1.5 rounded-full border border-violet-400/30 bg-violet-500/15 px-3.5 py-1.5">
             <svg
@@ -60,7 +129,9 @@ export function TopBar({
                 clipRule="evenodd"
               />
             </svg>
-            <span className="text-[12px] font-semibold text-violet-200">Pro</span>
+            <span className="text-[12px] font-semibold text-violet-200">
+              {showTrialBadge ? "Pro trial" : "Pro"}
+            </span>
           </div>
         ) : (
           <button

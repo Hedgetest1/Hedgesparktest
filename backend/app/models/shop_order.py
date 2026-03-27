@@ -1,7 +1,7 @@
 """
 shop_order.py — Real Shopify order record.
 
-Ingested from Shopify's orders/paid webhook.  Replaces the hardcoded AOV
+Ingested from Shopify's orders/updated webhook.  Replaces the hardcoded AOV
 fallback (DEFAULT_AOV = 50.0) and inferred conversion probability pipeline
 as the source of truth for all per-merchant revenue calculations.
 
@@ -20,7 +20,7 @@ gives us real order value per shop so:
 
 Ingestion
 ---------
-POST /webhooks/shopify/orders-paid receives the Shopify orders/paid webhook
+POST /webhooks/shopify/orders receives the Shopify orders/updated webhook
 payload and upserts a row here via app.services.order_ingestion.
 
 Idempotency
@@ -86,6 +86,11 @@ class ShopOrder(Base):
 
     # Server-side ingestion timestamp — use for dedup auditing, not analytics
     ingested_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Ingestion source: "pixel" (client-side Custom Pixel) or "webhook" (Shopify Admin API)
+    # Pixel rows have line_items=[] and customer_id/email=None.
+    # Webhook rows (when available) carry full order data.
+    source = Column(String(16), nullable=False, server_default="pixel")
 
     __table_args__ = (
         # Idempotency: duplicate webhook deliveries are caught at DB level

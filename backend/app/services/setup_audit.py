@@ -75,7 +75,8 @@ def _tracker_url() -> str:
 
 
 def _orders_webhook_url() -> str:
-    return f"{_app_url()}/webhooks/shopify/orders-paid"
+    """Target URL for the app/uninstalled lifecycle webhook."""
+    return f"{_app_url()}/webhooks/shopify/app-uninstalled"
 
 
 # ---------------------------------------------------------------------------
@@ -199,8 +200,8 @@ def _build_degraded_reasons(checks: SetupChecks) -> list[str]:
     if checks.merchant_exists and checks.install_active and checks.token_ok:
         if not checks.webhook_ok:
             reasons.append(
-                "webhook_missing — orders/paid webhook not registered on Shopify; "
-                "use POST /setup/repair/webhook to fix"
+                "webhook_missing — lifecycle webhook (app/uninstalled) not registered; "
+                "use POST /setup/repair/webhook to reconnect"
             )
         if not checks.tracker_ok:
             reasons.append(
@@ -272,7 +273,7 @@ def compute_audit_fast(db: Session, shop_domain: str) -> SetupAudit:
 
 async def _verify_webhook_live(shop: str, token: str) -> tuple[bool, Optional[str]]:
     """
-    Returns (ok, webhook_id) by listing orders/paid webhooks from Shopify.
+    Returns (ok, webhook_id) by listing app/uninstalled webhooks from Shopify.
     """
     target = _orders_webhook_url()
     if not target:
@@ -285,7 +286,7 @@ async def _verify_webhook_live(shop: str, token: str) -> tuple[bool, Optional[st
             resp = await client.get(
                 _shopify_url(shop, "webhooks.json"),
                 headers=headers,
-                params={"topic": "orders/paid", "limit": 50},
+                params={"topic": "app/uninstalled", "limit": 50},
             )
         if resp.status_code != 200:
             log.warning(

@@ -31,7 +31,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
-from app.core.deps import require_pro_plan
+from app.core.deps import require_pro_session
 from app.services.shopify_admin import (
     create_discount,
     get_product_inventory,
@@ -77,7 +77,7 @@ class PriceUpdateRequest(BaseModel):
 @router.get("/inventory")
 def get_inventory(
     product_url: str,
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -99,7 +99,7 @@ def get_inventory(
 @router.post("/discount")
 def create_discount_code(
     body: DiscountRequest,
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -135,7 +135,7 @@ def create_discount_code(
 @router.post("/price")
 def update_price(
     body: PriceUpdateRequest,
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -169,7 +169,7 @@ def update_price(
 @router.get("/products")
 def list_products(
     limit: int = 10,
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """

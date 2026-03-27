@@ -81,7 +81,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
-from app.core.deps import require_pro_plan
+from app.core.deps import require_pro_session
 from app.core.url_utils import normalize_product_url
 from app.services.audience_segments import segment_product_visitors
 
@@ -100,7 +100,7 @@ def get_db():
 
 @router.get("/segments")
 def get_audience_segments(
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
     product_url: str = Query(..., description="Canonical product path, e.g. /products/handle"),
     hours: int = Query(
         default=72,

@@ -1,3 +1,4 @@
+import logging
 import sys
 import time
 import json
@@ -5,6 +6,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.append("/opt/wishspark/backend")
+
+from app.core.logging_config import configure_logging, set_worker_context
+configure_logging()
+set_worker_context(worker_name="agent_worker")
 
 from sqlalchemy.orm import sessionmaker
 
@@ -30,8 +35,10 @@ SLEEP_SECONDS = 900     # 15 minutes between cycles
 # Logging
 # ---------------------------------------------------------------------------
 
+_log = logging.getLogger("worker.agent")
+
 def log(msg):
-    print(f"[AGENT_WORKER] {datetime.now(timezone.utc).isoformat()} | {msg}", flush=True)
+    _log.info(msg)
 
 
 # ---------------------------------------------------------------------------
@@ -167,13 +174,104 @@ def write_analysis(run_path: str, analysis: dict):
 # Main cycle
 # ---------------------------------------------------------------------------
 
+def _run_orchestrator():
+    """Run the AI orchestrator — decision/execution + outcome evaluation."""
+    db = SessionLocal()
+    try:
+        # Phase A: Decision + execution
+        from app.services.orchestrator import run_orchestrator_cycle
+        result = run_orchestrator_cycle(db)
+        if result.actions_executed > 0 or result.actions_failed > 0:
+            log(f"orchestrator: exec={result.actions_executed} skip={result.actions_skipped} fail={result.actions_failed}")
+
+        # Phase B: Evaluate outcomes from previous cycles
+        from app.services.outcome_evaluator import evaluate_pending_outcomes
+        eval_result = evaluate_pending_outcomes(db)
+        db.commit()
+        if eval_result.evaluated > 0:
+            log(f"outcomes: evaluated={eval_result.evaluated} success={eval_result.success} no_effect={eval_result.no_effect}")
+
+        # Phase B2: Evaluate merge outcomes
+        from app.services.merge_intelligence import evaluate_merge_outcomes
+        merge_eval = evaluate_merge_outcomes(db)
+        db.commit()
+        if merge_eval["evaluated"] > 0:
+            log(f"merge_eval: healthy={merge_eval['healthy']} regressed={merge_eval['regressed']}")
+    except Exception as exc:
+        log(f"orchestrator error (non-fatal): {exc}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _run_onboarding():
+    """Run pending merchant onboarding."""
+    db = SessionLocal()
+    try:
+        from app.services.onboarding import run_pending_onboarding
+        summary = run_pending_onboarding(db)
+        if summary["processed"] > 0:
+            log(f"onboarding: ready={summary['ready']} failed={summary['failed']}")
+    except Exception as exc:
+        log(f"onboarding error (non-fatal): {exc}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _run_bug_triage():
+    """Scan for new bug-worthy events, create candidates, auto-propose patches."""
+    db = SessionLocal()
+    try:
+        from app.services.bugfix_pipeline import run_bug_triage, run_auto_propose, run_auto_apply
+
+        # Phase A: Triage
+        triage = run_bug_triage(db)
+        db.commit()
+        if triage["created"] > 0:
+            log(f"bug_triage: created={triage['created']} deduped={triage['deduped']}")
+
+        # Phase B: Auto-propose
+        propose = run_auto_propose(db)
+        db.commit()
+        if propose["attempted"] > 0:
+            log(f"auto_propose: proposed={propose['proposed']} failed={propose['failed']}")
+
+        # Phase C: Auto-apply TIER_0 patches
+        auto = run_auto_apply(db)
+        db.commit()
+        if auto["attempted"] > 0:
+            log(f"auto_apply: applied={auto['applied']} failed={auto['failed']}")
+
+        # Phase D: Auto-promote (branch → push → CI poll → PR)
+        from app.services.promotion_pipeline import run_auto_promotion
+        promo = run_auto_promotion(db)
+        db.commit()
+        if promo.get("pushed", 0) > 0 or promo.get("prs_created", 0) > 0:
+            log(f"auto_promotion: pushed={promo['pushed']} prs={promo['prs_created']}")
+
+    except Exception as exc:
+        log(f"bug_triage error (non-fatal): {exc}")
+        db.rollback()
+    finally:
+        db.close()
+
+
 def run_cycle():
     started_at = datetime.utcnow()
+
+    # Phase 1: Orchestrator — reads alerts/state, executes safe actions
+    _run_orchestrator()
+
+    # Phase 2: Onboarding — ensure new merchants reach "ready" state
+    _run_onboarding()
+
+    # Phase 3: Bug triage — scan alerts/outcomes for code-fix candidates
+    _run_bug_triage()
+
+    # Phase 4: Sandbox analysis (original agent_worker logic)
     # This worker has no per-shop dimension — it selects the top-N
     # ProductOpportunity rows globally by priority_score.
-    # shops_processed is always 0.
-    # rows_written counts targets that completed all four steps without error
-    # (create_sandbox_run, write_analysis, write_report, update_sandbox_status).
     rows_written = 0
     errors = 0
     last_error: str | None = None

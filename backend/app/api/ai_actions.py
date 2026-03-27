@@ -2,15 +2,14 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 
 from app.core.database import engine
-from app.core.deps import require_api_key, require_shop
+from app.core.deps import require_merchant_session
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
 
 @router.get("/actions")
 def ai_actions(
-    shop: str = Depends(require_shop),
-    _: None = Depends(require_api_key),
+    shop: str = Depends(require_merchant_session),
 ):
     q = text("""
     WITH visitor_stats AS (

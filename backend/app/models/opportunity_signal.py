@@ -15,6 +15,7 @@ class OpportunitySignal(Base):
     signal_type = Column(String, nullable=False)
 
     signal_strength = Column(Float, nullable=False, default=0.0)
+    signal_confidence = Column(String(16), nullable=False, default="high", server_default="high")
     explanation = Column(String, nullable=True)
 
     detected_at = Column(DateTime, nullable=False, default=datetime.utcnow)

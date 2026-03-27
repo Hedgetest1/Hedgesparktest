@@ -38,7 +38,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
-from app.core.deps import require_pro_plan
+from app.core.deps import require_pro_session
 
 log = logging.getLogger(__name__)
 
@@ -167,7 +167,7 @@ def _empty_scroll_buckets() -> dict:
 def get_heatmap(
     product_url: str,
     hours: int = 72,
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -194,7 +194,7 @@ def get_heatmap(
 @router.get("/top")
 def get_top_heatmaps(
     hours: int = 72,
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """

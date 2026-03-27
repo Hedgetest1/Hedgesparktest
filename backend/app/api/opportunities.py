@@ -72,7 +72,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
-from app.core.deps import require_api_key, require_pro_plan, require_shop
+from app.core.deps import require_merchant_session, require_pro_session
 from app.models.product_opportunity import ProductOpportunity
 from app.services.opportunity_engine import get_or_refresh_signals
 
@@ -86,6 +86,7 @@ _LITE_SIGNAL_FIELDS = {
     "product_url",
     "signal_type",
     "signal_strength",
+    "signal_confidence",
     "explanation",
     "detected_at",
     "human_label",
@@ -108,8 +109,7 @@ def get_db():
 # ---------------------------------------------------------------------------
 @router.get("/opportunities")
 def opportunities(
-    shop: str = Depends(require_shop),
-    _: None = Depends(require_api_key),
+    shop: str = Depends(require_merchant_session),
 ):
     """
     Lite opportunity signals — diagnostic fields only.
@@ -141,7 +141,7 @@ def opportunities(
 # ---------------------------------------------------------------------------
 @router.get("/opportunities/pro")
 def opportunities_pro(
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
 ):
     """
     Pro opportunity signals — full response including human_action per signal.
@@ -167,7 +167,7 @@ def opportunities_pro(
 # ---------------------------------------------------------------------------
 @router.get("/opportunities/top")
 def top_opportunities(
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """

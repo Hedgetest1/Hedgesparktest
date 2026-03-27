@@ -54,12 +54,12 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
-from app.core.deps import require_pro_plan
+from app.core.deps import require_pro_session
 from app.services.action_executor import (
     STATUS_EXECUTING,
     claim_task,
@@ -129,7 +129,7 @@ def _task_to_dict(task) -> dict:
 @router.post("/execute")
 def execute_action(
     body: ExecuteRequest,
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -177,7 +177,7 @@ def list_action_tasks(
     status: Optional[str] = None,
     claimed_by: Optional[str] = None,
     limit: int = 50,
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -214,7 +214,7 @@ def list_action_tasks(
 def transition_action_task(
     task_id: int,
     body: TransitionRequest,
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -282,7 +282,7 @@ def transition_action_task(
 def release_action_task(
     task_id: int,
     body: ReleaseRequest,
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -326,7 +326,7 @@ def release_action_task(
 @router.get("/tasks/{task_id}")
 def get_action_task(
     task_id: int,
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -339,3 +339,19 @@ def get_action_task(
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found.")
     return _task_to_dict(task)
+
+
+@router.get("/proof")
+def get_action_proof(
+    shop: str = Depends(require_pro_session),
+    db: Session = Depends(get_db),
+    days: int = Query(default=30, ge=7, le=90),
+):
+    """
+    Return the closed-loop proof-of-impact summary for the shop.
+
+    Shows which actions produced measurable improvements in conversion
+    rate and revenue, measured with before/after comparison over 7 days.
+    """
+    from app.services.action_proof import get_proof_summary
+    return get_proof_summary(db, shop, days)

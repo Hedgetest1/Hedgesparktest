@@ -77,11 +77,16 @@ Discounting is a merchant decision requiring explicit approval.
 """
 from __future__ import annotations
 
+import logging
 import sys
 import time
 from datetime import datetime, timedelta, timezone
 
 sys.path.append("/opt/wishspark/backend")
+
+from app.core.logging_config import configure_logging, set_worker_context
+configure_logging()
+set_worker_context(worker_name="segment_monitor_worker")
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
@@ -131,9 +136,10 @@ LOW_STOCK_THRESHOLD = 10
 # Logging
 # ---------------------------------------------------------------------------
 
+_log = logging.getLogger("worker.segment_monitor")
+
 def log(msg: str) -> None:
-    ts = datetime.now(timezone.utc).isoformat()
-    print(f"[SEGMENT_MONITOR] {ts} | {msg}", flush=True)
+    _log.info(msg)
 
 
 # ---------------------------------------------------------------------------

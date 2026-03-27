@@ -25,7 +25,7 @@ Public interface
 Install-time helpers (async — called from OAuth callback)
 ---------------------------------------------------------
     ensure_orders_webhook(shop, token, app_url) -> (webhook_id, created)
-        Idempotently register the orders/paid webhook.
+        Idempotently register the orders/updated webhook.
         Checks existing webhooks before creating.
         Replaces mismatched URL webhooks.
 
@@ -356,106 +356,104 @@ def get_shop_products(
 # Install-time helpers — async, called from OAuth callback
 # ---------------------------------------------------------------------------
 
-_ORDERS_PAID_TOPIC  = "orders/paid"
 _WEBHOOK_API_FORMAT = "json"
 
 
-async def ensure_orders_webhook(
-    shop:    str,
-    token:   str,
-    app_url: str,
+async def _ensure_webhook(
+    shop: str,
+    token: str,
+    topic: str,
+    target_address: str,
 ) -> tuple[Optional[str], bool]:
     """
-    Idempotently register the orders/paid webhook for a shop.
+    Idempotently register a single webhook for a shop.
 
-    Behaviour:
-    - Lists all existing webhooks for the shop.
-    - If a webhook already exists with the correct address → returns its ID,
-      was_created=False.
-    - If a webhook exists for the correct topic but wrong address (e.g. old
-      deployment URL) → deletes it and creates a new one.
-    - If no matching webhook → creates one.
-
-    Parameters
-    ----------
-    shop     Shop domain (e.g. example.myshopify.com)
-    token    Plaintext Shopify access token (decrypt before passing)
-    app_url  Backend base URL, no trailing slash (e.g. https://api.hedgesparkhq.com)
-
-    Returns
-    -------
-    (webhook_id: str | None, was_created: bool)
-    webhook_id is None on failure.
+    Returns (webhook_id, was_created).  webhook_id is None on failure.
     """
-    target_address = f"{app_url}/webhooks/shopify/orders-paid"
     headers = {
         "X-Shopify-Access-Token": token,
         "Content-Type": "application/json",
     }
-    list_url   = _shopify_url(shop, "webhooks.json")
-    create_url = _shopify_url(shop, "webhooks.json")
+    list_url = _shopify_url(shop, "webhooks.json")
 
     try:
         async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT) as client:
-
-            # List existing webhooks for this topic
             resp = await client.get(
-                list_url,
-                headers=headers,
-                params={"topic": _ORDERS_PAID_TOPIC, "limit": 50},
+                list_url, headers=headers,
+                params={"topic": topic, "limit": 50},
             )
             resp.raise_for_status()
             existing = resp.json().get("webhooks", [])
 
             for wh in existing:
                 if wh.get("address") == target_address:
-                    # Already registered at the correct URL — idempotent
                     log.info(
-                        "shopify_admin: orders/paid webhook already exists "
-                        "shop=%s id=%s", shop, wh["id"],
+                        "shopify_admin: webhook already exists shop=%s topic=%s id=%s",
+                        shop, topic, wh["id"],
                     )
                     return str(wh["id"]), False
 
-                # Wrong URL — stale deployment or URL change → delete and recreate
+                # Wrong URL → delete and recreate
                 log.info(
-                    "shopify_admin: deleting stale orders/paid webhook "
-                    "shop=%s id=%s old_url=%s",
-                    shop, wh["id"], wh.get("address", "?"),
+                    "shopify_admin: deleting stale webhook shop=%s topic=%s id=%s",
+                    shop, topic, wh["id"],
                 )
                 await client.delete(
                     _shopify_url(shop, f"webhooks/{wh['id']}.json"),
                     headers=headers,
                 )
 
-            # Create the webhook
             payload = {
                 "webhook": {
-                    "topic":   _ORDERS_PAID_TOPIC,
+                    "topic": topic,
                     "address": target_address,
-                    "format":  _WEBHOOK_API_FORMAT,
+                    "format": _WEBHOOK_API_FORMAT,
                 }
             }
-            create_resp = await client.post(create_url, headers=headers, json=payload)
+            create_resp = await client.post(list_url, headers=headers, json=payload)
             create_resp.raise_for_status()
             wh_id = str(create_resp.json()["webhook"]["id"])
             log.info(
-                "shopify_admin: registered orders/paid webhook shop=%s id=%s url=%s",
-                shop, wh_id, target_address,
+                "shopify_admin: registered webhook shop=%s topic=%s id=%s url=%s",
+                shop, topic, wh_id, target_address,
             )
             return wh_id, True
 
     except httpx.HTTPStatusError as exc:
         log.error(
             "shopify_admin: HTTP %d registering webhook shop=%s topic=%s: %s",
-            exc.response.status_code, shop, _ORDERS_PAID_TOPIC,
+            exc.response.status_code, shop, topic,
             exc.response.text[:200],
         )
     except Exception as exc:
         log.error(
             "shopify_admin: exception registering webhook shop=%s topic=%s: %s",
-            shop, _ORDERS_PAID_TOPIC, exc,
+            shop, topic, exc,
         )
     return None, False
+
+
+async def ensure_orders_webhook(
+    shop: str, token: str, app_url: str,
+) -> tuple[Optional[str], bool]:
+    """
+    Register the app/uninstalled webhook (the only lifecycle webhook
+    available without Protected Customer Data approval).
+
+    NOTE: Order webhooks (orders/create, orders/updated, orders/paid)
+    ALL require Protected Customer Data approval from Shopify.
+    Until approved, revenue tracking is handled by the Shopify Custom Pixel
+    (spark-pixel.js) which captures checkout_completed client-side.
+
+    This function name is kept for backward compatibility with the OAuth
+    callback and setup/repair endpoints.
+    """
+    return await _ensure_webhook(
+        shop=shop,
+        token=token,
+        topic="app/uninstalled",
+        target_address=f"{app_url}/webhooks/shopify/app-uninstalled",
+    )
 
 
 async def ensure_tracker_script_tag(

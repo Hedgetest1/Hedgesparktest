@@ -6,6 +6,7 @@ export type OpportunitySignal = {
   product_url?: string;
   signal_type?: string;
   signal_strength?: number;
+  signal_confidence?: string;
   explanation?: string;
   detected_at?: string | null;
   human_label?: string;
@@ -80,6 +81,125 @@ const SIGNAL_META: Record<
     bar: "bg-orange-400",
     glow: "shadow-[0_0_8px_rgba(251,146,60,0.35)]",
   },
+  MOBILE_CONVERSION_GAP: {
+    label: "Device Conversion Gap",
+    bg: "bg-pink-500/15",
+    text: "text-pink-300",
+    ring: "ring-pink-400/30",
+    bar: "bg-pink-400",
+    glow: "shadow-[0_0_8px_rgba(244,114,182,0.35)]",
+  },
+  CART_RATE_DECLINING: {
+    label: "Cart Rate Declining",
+    bg: "bg-red-500/15",
+    text: "text-red-300",
+    ring: "ring-red-400/30",
+    bar: "bg-red-400",
+    glow: "shadow-[0_0_8px_rgba(248,113,113,0.35)]",
+  },
+  PAID_TRAFFIC_NOT_CONVERTING: {
+    label: "Paid Traffic Not Converting",
+    bg: "bg-yellow-500/15",
+    text: "text-yellow-300",
+    ring: "ring-yellow-400/30",
+    bar: "bg-yellow-400",
+    glow: "shadow-[0_0_8px_rgba(250,204,21,0.35)]",
+  },
+  DEVICE_PURCHASE_GAP: {
+    label: "Device Purchase Gap",
+    bg: "bg-fuchsia-500/15",
+    text: "text-fuchsia-300",
+    ring: "ring-fuchsia-400/30",
+    bar: "bg-fuchsia-400",
+    glow: "shadow-[0_0_8px_rgba(217,70,239,0.35)]",
+  },
+  SOURCE_REVENUE_GAP: {
+    label: "Paid Traffic, No Revenue",
+    bg: "bg-yellow-600/15",
+    text: "text-yellow-200",
+    ring: "ring-yellow-500/30",
+    bar: "bg-yellow-500",
+    glow: "shadow-[0_0_8px_rgba(234,179,8,0.35)]",
+  },
+  TIME_WINDOW_MISALIGNMENT: {
+    label: "Timing Mismatch",
+    bg: "bg-indigo-500/15",
+    text: "text-indigo-300",
+    ring: "ring-indigo-400/30",
+    bar: "bg-indigo-400",
+    glow: "shadow-[0_0_8px_rgba(129,140,248,0.35)]",
+  },
+  LANDING_PAGE_FAILURE: {
+    label: "Landing Page Issue",
+    bg: "bg-orange-600/15",
+    text: "text-orange-200",
+    ring: "ring-orange-500/30",
+    bar: "bg-orange-500",
+    glow: "shadow-[0_0_8px_rgba(249,115,22,0.35)]",
+  },
+  REVENUE_CONCENTRATION: {
+    label: "Revenue Concentrated",
+    bg: "bg-amber-600/15",
+    text: "text-amber-200",
+    ring: "ring-amber-500/30",
+    bar: "bg-amber-500",
+    glow: "shadow-[0_0_8px_rgba(217,119,6,0.35)]",
+  },
+  STORE_MOBILE_GAP: {
+    label: "Store-Wide Mobile Gap",
+    bg: "bg-pink-600/15",
+    text: "text-pink-200",
+    ring: "ring-pink-500/30",
+    bar: "bg-pink-500",
+    glow: "shadow-[0_0_8px_rgba(219,39,119,0.35)]",
+  },
+  STORE_PAID_GAP: {
+    label: "Store-Wide Paid Gap",
+    bg: "bg-yellow-600/20",
+    text: "text-yellow-100",
+    ring: "ring-yellow-400/30",
+    bar: "bg-yellow-400",
+    glow: "shadow-[0_0_8px_rgba(250,204,21,0.35)]",
+  },
+};
+
+// Early signal visual meta — deliberately muted
+const EARLY_SIGNAL_META: Record<
+  string,
+  { label: string; bg: string; text: string; ring: string; bar: string; glow: string }
+> = {
+  EARLY_BROWSING_NO_CART: {
+    label: "Browsing, No Carts",
+    bg: "bg-slate-500/10",
+    text: "text-slate-400",
+    ring: "ring-slate-400/20",
+    bar: "bg-slate-500",
+    glow: "",
+  },
+  FIRST_VISITOR_ENGAGEMENT: {
+    label: "First Engagement",
+    bg: "bg-violet-500/10",
+    text: "text-violet-400/70",
+    ring: "ring-violet-400/15",
+    bar: "bg-violet-500/60",
+    glow: "",
+  },
+  EARLY_DROP_OFF: {
+    label: "Quick Exit",
+    bg: "bg-amber-500/10",
+    text: "text-amber-400/70",
+    ring: "ring-amber-400/15",
+    bar: "bg-amber-500/50",
+    glow: "",
+  },
+  SINGLE_PRODUCT_FOCUS: {
+    label: "All Eyes Here",
+    bg: "bg-cyan-500/10",
+    text: "text-cyan-400/70",
+    ring: "ring-cyan-400/15",
+    bar: "bg-cyan-500/60",
+    glow: "",
+  },
 };
 
 const FALLBACK_META = {
@@ -107,31 +227,45 @@ type Props = {
 };
 
 export function SignalCard({ signal, tier, onUpgradeClick }: Props) {
-  const meta = SIGNAL_META[signal.signal_type || ""] ?? {
-    ...FALLBACK_META,
-    label: signal.signal_type ?? "Unknown Signal",
-  };
+  const isEarly = signal.signal_confidence === "low";
+  const meta = isEarly
+    ? (EARLY_SIGNAL_META[signal.signal_type || ""] ?? { ...FALLBACK_META, label: signal.signal_type ?? "Signal" })
+    : (SIGNAL_META[signal.signal_type || ""] ?? { ...FALLBACK_META, label: signal.signal_type ?? "Unknown Signal" });
   const strength = signal.signal_strength ?? 0;
   const strengthPct = Math.round(strength * 100);
 
   return (
-    <div className="hs-fade-up group rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4 transition-all duration-150 hover:border-violet-400/25 hover:bg-white/[0.05] hover:shadow-[0_4px_20px_rgba(124,58,237,0.07)]">
-      {/* Header row — signal type badge + relative time */}
+    <div className={`hs-fade-up group rounded-2xl border p-4 transition-all duration-150 ${
+      isEarly
+        ? "border-white/[0.05] bg-white/[0.015] opacity-85"
+        : "border-white/[0.07] bg-white/[0.03] hover:border-violet-400/25 hover:bg-white/[0.05] hover:shadow-[0_4px_20px_rgba(124,58,237,0.07)]"
+    }`}>
+      {/* Header row — signal type badge + early tag + relative time */}
       <div className="mb-3 flex items-start justify-between gap-2">
-        <span
-          className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ring-1 ${meta.bg} ${meta.text} ${meta.ring}`}
-        >
-          {meta.label}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span
+            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ring-1 ${meta.bg} ${meta.text} ${meta.ring}`}
+          >
+            {meta.label}
+          </span>
+          {isEarly && (
+            <span className="rounded-full bg-white/[0.04] px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] text-slate-500 ring-1 ring-white/[0.06]">
+              Early
+            </span>
+          )}
+        </div>
         <span className="flex-shrink-0 text-[11px] text-slate-600">
           {relativeTime(signal.detected_at)}
         </span>
       </div>
 
       {/* Primary text — human_label if available, else product_url */}
-      <div className="mb-2 text-sm font-medium leading-snug text-slate-100">
+      <div className={`mb-1 text-sm font-medium leading-snug ${isEarly ? "text-slate-300" : "text-slate-100"}`}>
         {signal.human_label || signal.product_url || "—"}
       </div>
+      {isEarly && (
+        <div className="mb-2 text-[10px] text-slate-600">Based on limited data</div>
+      )}
 
       {/* Product URL as secondary meta when human_label is present */}
       {signal.human_label && signal.product_url && (

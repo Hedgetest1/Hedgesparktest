@@ -1,8 +1,13 @@
+import logging
 import sys
 sys.path.append("/opt/wishspark/backend")
 
 import time
 from datetime import datetime
+
+from app.core.logging_config import configure_logging, set_worker_context
+configure_logging()
+set_worker_context(worker_name="intelligence_worker")
 
 from sqlalchemy.orm import sessionmaker
 
@@ -26,8 +31,10 @@ SLEEP_SECONDS = 600     # 10 minutes between cycles
 # Logging
 # ---------------------------------------------------------------------------
 
+_log = logging.getLogger("worker.intelligence")
+
 def log(msg):
-    print(f"[WORKER] {datetime.utcnow().isoformat()} | {msg}", flush=True)
+    _log.info(msg)
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +144,19 @@ def run_cycle():
                 errors += 1
                 last_error = f"{shop_domain} | {product_url} | {e}"
                 log(f"error on {shop_domain} | {product_url}: {e}")
+
+        # ---------------------------------------------------------------
+        # Klaviyo intent events — push fresh signals to connected merchants
+        # ---------------------------------------------------------------
+        for shop_domain in shops_seen:
+            try:
+                from app.services.klaviyo_export import push_intent_signals_to_klaviyo
+                result = push_intent_signals_to_klaviyo(db=db, shop_domain=shop_domain)
+                if result.get("pushed", 0) > 0:
+                    log(f"klaviyo: pushed {result['pushed']} intent events for {shop_domain}")
+                    db.commit()
+            except Exception as exc:
+                log(f"klaviyo: intent push failed for {shop_domain}: {exc}")
 
         _save_state(db, state)
         log(

@@ -79,24 +79,18 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _SCHEME_V1 = "enc:v1:"
+_SCHEME_V2 = "enc:v2:"
 
 
 # ---------------------------------------------------------------------------
 # Key loading
 # ---------------------------------------------------------------------------
 
-def _load_key() -> Optional[bytes]:
-    """
-    Load the encryption key from MERCHANT_TOKEN_ENCRYPTION_KEY env var.
-
-    Returns 32 bytes on success, None if the env var is absent or malformed.
-    Logs clearly on misconfiguration.
-    """
-    raw = os.getenv("MERCHANT_TOKEN_ENCRYPTION_KEY", "").strip()
+def _parse_key(raw: str) -> Optional[bytes]:
+    """Parse a key string (hex or base64) into 32 bytes, or None."""
+    raw = raw.strip()
     if not raw:
         return None
-
-    # Try hex (64 chars)
     if len(raw) == 64:
         try:
             key = bytes.fromhex(raw)
@@ -104,26 +98,38 @@ def _load_key() -> Optional[bytes]:
                 return key
         except ValueError:
             pass
-
-    # Try standard base64 (44 chars for 32 bytes)
     try:
-        key = base64.b64decode(raw + "==")   # pad for safety
+        key = base64.b64decode(raw + "==")
         if len(key) == 32:
             return key
     except Exception:
         pass
-
-    log.error(
-        "token_crypto: MERCHANT_TOKEN_ENCRYPTION_KEY is set but has unexpected "
-        "format or length.  Expected: 64 hex chars or 44 base64 chars (32 bytes).  "
-        "Token encryption is DISABLED until this is corrected."
-    )
     return None
 
 
-# Module-level key — read once at import.
-# Changing the env var requires a process restart.
+def _load_key() -> Optional[bytes]:
+    """Load the active encryption key from MERCHANT_TOKEN_ENCRYPTION_KEY."""
+    raw = os.getenv("MERCHANT_TOKEN_ENCRYPTION_KEY", "")
+    key = _parse_key(raw)
+    if raw.strip() and key is None:
+        log.error(
+            "token_crypto: MERCHANT_TOKEN_ENCRYPTION_KEY is set but has unexpected "
+            "format or length.  Expected: 64 hex chars or 44 base64 chars (32 bytes).  "
+            "Token encryption is DISABLED until this is corrected."
+        )
+    return key
+
+
+def _load_prev_key() -> Optional[bytes]:
+    """Load the previous encryption key for rotation window decryption."""
+    raw = os.getenv("MERCHANT_TOKEN_ENCRYPTION_KEY_PREV", "")
+    return _parse_key(raw)
+
+
+# Module-level keys — read once at import.
+# Changing env vars requires a process restart.
 _KEY: Optional[bytes] = _load_key()
+_KEY_PREV: Optional[bytes] = _load_prev_key()
 
 if _KEY is None:
     log.warning(
@@ -134,6 +140,8 @@ if _KEY is None:
     )
 else:
     log.info("token_crypto: encryption key loaded — merchant tokens will be encrypted at rest.")
+    if _KEY_PREV:
+        log.info("token_crypto: previous key loaded — rotation window active.")
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +186,7 @@ def encrypt_token(plaintext: str) -> str:
         ciphertext_and_tag = aesgcm.encrypt(iv, plaintext.encode("utf-8"), None)
         # AESGCM.encrypt returns ciphertext + 16-byte tag concatenated
         payload = base64.b64encode(iv + ciphertext_and_tag).decode("ascii")
-        return f"{_SCHEME_V1}{payload}"
+        return f"{_SCHEME_V2}{payload}"
 
     except Exception as exc:
         # Encryption failure is a hard security issue — log it clearly.
@@ -194,61 +202,84 @@ def decrypt_token(stored: str) -> Optional[str]:
     """
     Decrypt a stored access token value.
 
-    Handles both encrypted ("enc:v1:...") and legacy plaintext values
-    transparently.
-
-    Parameters
-    ----------
-    stored  Value read from merchants.access_token.
+    Handles enc:v1, enc:v2, and legacy plaintext transparently.
+    During key rotation, tries the active key first, then falls back
+    to _KEY_PREV for v1-encrypted values that used the old key.
 
     Returns
     -------
     str  — plaintext access token on success.
     None — when decryption fails (wrong key, corrupted data).
            Returns the value as-is when stored is plaintext (no prefix).
-           Callers receiving None must treat the token as unavailable.
     """
     if not stored:
         return None
 
-    # Legacy plaintext — return directly
-    if not stored.startswith(_SCHEME_V1):
+    # Identify scheme
+    if stored.startswith(_SCHEME_V2):
+        prefix = _SCHEME_V2
+    elif stored.startswith(_SCHEME_V1):
+        prefix = _SCHEME_V1
+    else:
+        # Legacy plaintext — return directly
         return stored
 
-    if _KEY is None:
+    if _KEY is None and _KEY_PREV is None:
         log.error(
-            "token_crypto: cannot decrypt stored token — "
-            "MERCHANT_TOKEN_ENCRYPTION_KEY is not set.  "
-            "Set the key that was used to encrypt these tokens."
+            "token_crypto: cannot decrypt — no encryption key configured."
         )
         return None
 
+    payload_b64 = stored[len(prefix):]
     try:
-        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
-        payload_b64 = stored[len(_SCHEME_V1):]
         payload = base64.b64decode(payload_b64)
-
-        if len(payload) < 28:   # 12 (iv) + 16 (tag minimum)
-            log.error("token_crypto: decryption failed — payload too short")
-            return None
-
-        iv             = payload[:12]
-        ciphertext_tag = payload[12:]
-
-        aesgcm    = AESGCM(_KEY)
-        plaintext = aesgcm.decrypt(iv, ciphertext_tag, None)
-        return plaintext.decode("utf-8")
-
-    except Exception as exc:
-        # Do NOT include the stored value or key in logs
-        log.error(
-            "token_crypto: decryption failed — wrong key, corrupted data, or "
-            "key rotation in progress: %s", type(exc).__name__
-        )
+    except Exception:
+        log.error("token_crypto: decryption failed — invalid base64 payload")
         return None
+
+    if len(payload) < 28:
+        log.error("token_crypto: decryption failed — payload too short")
+        return None
+
+    iv = payload[:12]
+    ciphertext_tag = payload[12:]
+
+    # Try active key first, then previous key (rotation window)
+    keys_to_try = [k for k in (_KEY, _KEY_PREV) if k is not None]
+    for key in keys_to_try:
+        try:
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+            aesgcm = AESGCM(key)
+            plaintext = aesgcm.decrypt(iv, ciphertext_tag, None)
+            return plaintext.decode("utf-8")
+        except Exception:
+            continue
+
+    log.error(
+        "token_crypto: decryption failed — neither active nor previous key worked. "
+        "Key rotation may be incomplete."
+    )
+    return None
+
+
+def re_encrypt(stored: str) -> Optional[str]:
+    """
+    Re-encrypt a stored value with the current active key (v2 scheme).
+
+    Used during key rotation to upgrade v1 ciphertext to v2.
+    Returns None if decryption fails. Returns the input unchanged if
+    already on the current scheme with the active key.
+    """
+    if not stored or not is_encrypted(stored):
+        return stored  # plaintext or empty — encrypt_token handles these
+
+    plaintext = decrypt_token(stored)
+    if plaintext is None:
+        return None  # can't decrypt — rotation failed for this row
+
+    return encrypt_token(plaintext)
 
 
 def is_encrypted(stored: str) -> bool:
-    """Return True if the stored value is in encrypted format."""
-    return bool(stored and stored.startswith(_SCHEME_V1))
+    """Return True if the stored value is in encrypted format (v1 or v2)."""
+    return bool(stored and (stored.startswith(_SCHEME_V1) or stored.startswith(_SCHEME_V2)))

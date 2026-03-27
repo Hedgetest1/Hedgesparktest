@@ -49,14 +49,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from dotenv import load_dotenv
 load_dotenv()
 
+from app.core.logging_config import configure_logging, set_worker_context
+configure_logging()
+set_worker_context(worker_name="nudge_optimization_worker")
+
 from app.core.database import SessionLocal
 from app.services.nudge_optimizer import run_optimization_cycle
 
-log = logging.getLogger("nudge_optimization_worker")
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
-)
+log = logging.getLogger("worker.nudge_optimizer")
 
 _INTERVAL_HOURS: float = float(os.getenv("NUDGE_OPTIMIZER_INTERVAL_HOURS", "6"))
 _INTERVAL_SECS: float = _INTERVAL_HOURS * 3600

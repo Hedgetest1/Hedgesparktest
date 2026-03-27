@@ -107,15 +107,41 @@ _METRICS_FRESHNESS_MS = 7 * 24 * 3_600 * 1_000
 # Priority bonuses for rank_score = signal_strength × 100 + priority_bonus.
 # Used by brief_engine to pick the top product.
 PRIORITY_BONUS: dict[str, int] = {
+    # Store-level strategic signals
+    "REVENUE_CONCENTRATION":      45,
+    "STORE_MOBILE_GAP":           42,
+    "STORE_PAID_GAP":             41,
+    # Product-level signals
     "TRAFFIC_SPIKE":              40,
     "DEAD_TRAFFIC":               35,
     "HIGH_TRAFFIC_NO_CART":       30,
     "HIGH_ENGAGEMENT_NO_ACTION":  28,
+    "DEVICE_PURCHASE_GAP":        27,
+    "MOBILE_CONVERSION_GAP":      25,
+    "SOURCE_REVENUE_GAP":         24,
+    "LANDING_PAGE_FAILURE":       23,
+    "CART_RATE_DECLINING":        22,
     "LOW_CONVERSION_ATTENTION":   20,
+    "TIME_WINDOW_MISALIGNMENT":   19,
     "HIGH_RETURN_LOW_CONVERSION": 18,
+    "PAID_TRAFFIC_NOT_CONVERTING": 16,
     "SCROLL_HIGH_NO_CLICK":       15,
     "RETURN_VISITOR_INTEREST":    10,
+    # Early signals (low confidence — ranked below all strong signals)
+    "SINGLE_PRODUCT_FOCUS":        5,
+    "EARLY_BROWSING_NO_CART":      4,
+    "FIRST_VISITOR_ENGAGEMENT":    3,
+    "EARLY_DROP_OFF":              2,
 }
+
+# Signal types that are low-confidence early signals.
+# These must NOT trigger Klaviyo automation.
+EARLY_SIGNAL_TYPES = frozenset({
+    "EARLY_BROWSING_NO_CART",
+    "FIRST_VISITOR_ENGAGEMENT",
+    "EARLY_DROP_OFF",
+    "SINGLE_PRODUCT_FOCUS",
+})
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +230,155 @@ def _strength_traffic_spike(spike_ratio: float) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Early signal evaluation — fires with 1-5 visitors (low confidence)
+# ---------------------------------------------------------------------------
+
+def _evaluate_early_signals(
+    product_url: str,
+    views_24h: int,
+    unique_visitors_24h: int,
+    cart_conversions_24h: int,
+    avg_dwell_24h: float | None,
+    avg_scroll_24h: float | None,
+    detected_at: str,
+) -> list[dict]:
+    """
+    Produce low-confidence early signals from minimal data (1-5 visitors).
+
+    These fire ONLY when the standard signal thresholds are not met
+    (views_24h < 20). They give merchants immediate time-to-value
+    instead of an empty dashboard.
+
+    All early signals carry:
+        signal_confidence = "low"
+        signal_strength   = 0.10 - 0.25 (deliberately low)
+
+    They are excluded from Klaviyo automation and marked clearly in the UI.
+    """
+    # Don't fire early signals if we have enough data for real signals
+    if views_24h >= 20:
+        return []
+
+    signals: list[dict] = []
+    label = _label_from_url(product_url)
+    dwell = avg_dwell_24h if avg_dwell_24h is not None else None
+    scroll = avg_scroll_24h if avg_scroll_24h is not None else None
+
+    m = {
+        "views_24h": views_24h,
+        "unique_visitors_24h": unique_visitors_24h,
+        "avg_dwell_24h": dwell,
+        "avg_scroll_24h": scroll,
+    }
+
+    # EARLY_BROWSING_NO_CART — any views, zero carts
+    if views_24h >= 1 and cart_conversions_24h == 0:
+        signals.append({
+            "product_url": product_url,
+            "signal_type": "EARLY_BROWSING_NO_CART",
+            "signal_strength": round(min(0.25, views_24h / 20.0), 2),
+            "signal_confidence": "low",
+            "explanation": (
+                f"Early signal: {views_24h} views, 0 add-to-carts. "
+                "Based on limited data — monitor as traffic grows."
+            ),
+            "detected_at": detected_at,
+            "human_label": humanize_signal("EARLY_BROWSING_NO_CART", label, m),
+            "human_action": humanize_action("EARLY_BROWSING_NO_CART"),
+        })
+
+    # FIRST_VISITOR_ENGAGEMENT — decent dwell on very first visits
+    if views_24h >= 1 and dwell is not None and dwell >= 8:
+        signals.append({
+            "product_url": product_url,
+            "signal_type": "FIRST_VISITOR_ENGAGEMENT",
+            "signal_strength": round(min(0.20, dwell / 60.0), 2),
+            "signal_confidence": "low",
+            "explanation": (
+                f"First engagement: visitors averaging {dwell:.0f}s dwell time. "
+                "Early positive signal — still building data."
+            ),
+            "detected_at": detected_at,
+            "human_label": humanize_signal("FIRST_VISITOR_ENGAGEMENT", label, m),
+            "human_action": humanize_action("FIRST_VISITOR_ENGAGEMENT"),
+        })
+
+    # EARLY_DROP_OFF — visitors leaving very quickly
+    if views_24h >= 2 and dwell is not None and dwell < 5:
+        signals.append({
+            "product_url": product_url,
+            "signal_type": "EARLY_DROP_OFF",
+            "signal_strength": 0.15,
+            "signal_confidence": "low",
+            "explanation": (
+                f"Early drop-off: visitors leaving in under {dwell:.0f}s. "
+                "Limited data, but above-the-fold content may need review."
+            ),
+            "detected_at": detected_at,
+            "human_label": humanize_signal("EARLY_DROP_OFF", label, m),
+            "human_action": humanize_action("EARLY_DROP_OFF"),
+        })
+    elif views_24h >= 2 and scroll is not None and scroll < 20:
+        signals.append({
+            "product_url": product_url,
+            "signal_type": "EARLY_DROP_OFF",
+            "signal_strength": 0.12,
+            "signal_confidence": "low",
+            "explanation": (
+                f"Early drop-off: visitors only scrolling {scroll:.0f}% of the page. "
+                "Limited data, but first impressions may not be engaging."
+            ),
+            "detected_at": detected_at,
+            "human_label": humanize_signal("EARLY_DROP_OFF", label, m),
+            "human_action": humanize_action("EARLY_DROP_OFF"),
+        })
+
+    return signals
+
+
+def _evaluate_single_product_focus(
+    all_product_signals: list[dict],
+    product_views: dict[str, int],
+    detected_at: str,
+) -> list[dict]:
+    """
+    SINGLE_PRODUCT_FOCUS — one product receives all or nearly all traffic.
+
+    Fires when total store views are 1-19 and one product has >= 80% share.
+    """
+    total = sum(product_views.values())
+    if total < 1 or total >= 20:
+        return []
+
+    top_url = max(product_views, key=product_views.get)
+    top_views = product_views[top_url]
+    share = top_views / total
+
+    if share < 0.80 or len(product_views) < 1:
+        return []
+
+    # Don't duplicate if this product already has early signals
+    existing_products = {s["product_url"] for s in all_product_signals if s.get("signal_type") == "SINGLE_PRODUCT_FOCUS"}
+    if top_url in existing_products:
+        return []
+
+    label = _label_from_url(top_url)
+    return [{
+        "product_url": top_url,
+        "signal_type": "SINGLE_PRODUCT_FOCUS",
+        "signal_strength": round(min(0.25, share * 0.25), 2),
+        "signal_confidence": "low",
+        "explanation": (
+            f"All visitor attention ({top_views} of {total} views) is on this product. "
+            "Early signal — this is your most interesting product right now."
+        ),
+        "detected_at": detected_at,
+        "human_label": humanize_signal("SINGLE_PRODUCT_FOCUS", label, {"views_24h": top_views}),
+        "human_action": humanize_action("SINGLE_PRODUCT_FOCUS"),
+    }]
+
+
+# ---------------------------------------------------------------------------
 # Core signal evaluation — applied identically by BOTH detection paths
 # ---------------------------------------------------------------------------
 
@@ -217,6 +392,37 @@ def _evaluate_product_signals(
     avg_dwell_24h: float | None,
     avg_scroll_24h: float | None,
     detected_at: str,
+    # New segmentation fields (optional for backward compat with bootstrap path)
+    views_mobile: int = 0,
+    views_desktop: int = 0,
+    carts_mobile: int = 0,
+    carts_desktop: int = 0,
+    cart_conversions_7d: int = 0,
+    views_7d: int = 0,
+    views_paid: int = 0,
+    views_organic: int = 0,
+    views_direct: int = 0,
+    carts_paid: int = 0,
+    carts_organic: int = 0,
+    carts_direct: int = 0,
+    # Purchase attribution
+    purchases_24h: int = 0,
+    purchases_mobile: int = 0,
+    purchases_desktop: int = 0,
+    purchases_paid: int = 0,
+    purchases_organic: int = 0,
+    purchases_direct: int = 0,
+    revenue_24h: float = 0,
+    # Time-of-day
+    peak_hour_views: int = 0,
+    peak_hour_carts: int = 0,
+    off_peak_hour_views: int = 0,
+    off_peak_hour_carts: int = 0,
+    # Session context
+    landing_views_24h: int = 0,
+    browsing_views_24h: int = 0,
+    landing_carts_24h: int = 0,
+    browsing_carts_24h: int = 0,
 ) -> list[dict]:
     """
     Apply all 8 signal rules to a single product's data and return a list
@@ -340,11 +546,11 @@ def _evaluate_product_signals(
     elif (
         scroll is not None
         and dwell is not None
-        and scroll >= 80
-        and dwell >= 10
+        and scroll >= 85
+        and dwell >= 15
         and cart_conversions_24h == 0
     ):
-        # SCROLL_HIGH_NO_CLICK: readers not converting (lower engagement bar)
+        # SCROLL_HIGH_NO_CLICK: deep readers not converting (tightened thresholds)
         strength = _strength_scroll_high_no_click(scroll, dwell)
         m = {
             "avg_scroll_24h": scroll,
@@ -389,8 +595,8 @@ def _evaluate_product_signals(
             "human_action": humanize_action("HIGH_RETURN_LOW_CONVERSION"),
         })
 
-    elif return_visitor_count_7d > 3:
-        # RETURN_VISITOR_INTEREST: healthy repeat engagement
+    elif return_visitor_count_7d >= 8 and cart_conversions_24h == 0:
+        # RETURN_VISITOR_INTEREST: strong repeat engagement with no conversion
         strength = _strength_return_visitor_interest(return_visitor_count_7d)
         m = {"return_visitor_count_7d": return_visitor_count_7d}
         signals.append({
@@ -413,7 +619,7 @@ def _evaluate_product_signals(
     prior_23h = views_24h - views_1h
     if prior_23h > 0:
         avg_prior_hourly = prior_23h / 23.0
-        if views_1h > 1.5 * avg_prior_hourly and avg_prior_hourly > 0:
+        if views_1h >= 10 and views_1h > 3.0 * avg_prior_hourly and avg_prior_hourly > 0:
             spike_ratio = round(views_1h / avg_prior_hourly, 2)
             strength = _strength_traffic_spike(spike_ratio)
             m = {"views_1h": views_1h, "spike_ratio": spike_ratio}
@@ -429,6 +635,253 @@ def _evaluate_product_signals(
                 "human_label": humanize_signal("TRAFFIC_SPIKE", label, m),
                 "human_action": humanize_action("TRAFFIC_SPIKE"),
             })
+
+    # ------------------------------------------------------------------ #
+    # Group E — Device conversion gap (independent)                        #
+    # ------------------------------------------------------------------ #
+
+    if views_mobile >= 10 and views_desktop >= 5:
+        mobile_rate = carts_mobile / views_mobile if views_mobile > 0 else 0.0
+        desktop_rate = carts_desktop / views_desktop if views_desktop > 0 else 0.0
+
+        if desktop_rate > 0 and mobile_rate < desktop_rate * 0.4:
+            gap_pct = round((1.0 - mobile_rate / max(desktop_rate, 0.001)) * 100)
+            strength = round(min(1.0, views_mobile / 80.0 + 0.30), 2)
+            signals.append({
+                "product_url": product_url,
+                "signal_type": "MOBILE_CONVERSION_GAP",
+                "signal_strength": strength,
+                "explanation": (
+                    f"Mobile visitors ({views_mobile} views) convert {gap_pct}% worse "
+                    f"than desktop ({views_desktop} views). "
+                    f"Mobile cart rate: {mobile_rate:.1%}, desktop: {desktop_rate:.1%}."
+                ),
+                "detected_at": detected_at,
+                "human_label": humanize_signal(
+                    "MOBILE_CONVERSION_GAP", label,
+                    {"views_mobile": views_mobile, "views_desktop": views_desktop},
+                ),
+                "human_action": humanize_action("MOBILE_CONVERSION_GAP"),
+            })
+        elif mobile_rate > 0 and desktop_rate < mobile_rate * 0.4 and views_desktop >= 10:
+            gap_pct = round((1.0 - desktop_rate / max(mobile_rate, 0.001)) * 100)
+            strength = round(min(1.0, views_desktop / 80.0 + 0.30), 2)
+            signals.append({
+                "product_url": product_url,
+                "signal_type": "MOBILE_CONVERSION_GAP",
+                "signal_strength": strength,
+                "explanation": (
+                    f"Desktop visitors ({views_desktop} views) convert {gap_pct}% worse "
+                    f"than mobile ({views_mobile} views). "
+                    f"Desktop cart rate: {desktop_rate:.1%}, mobile: {mobile_rate:.1%}."
+                ),
+                "detected_at": detected_at,
+                "human_label": humanize_signal(
+                    "MOBILE_CONVERSION_GAP", label,
+                    {"views_mobile": views_mobile, "views_desktop": views_desktop},
+                ),
+                "human_action": humanize_action("MOBILE_CONVERSION_GAP"),
+            })
+
+    # ------------------------------------------------------------------ #
+    # Group F — Cart rate trend (independent)                              #
+    # ------------------------------------------------------------------ #
+
+    if views_24h >= 10 and views_7d >= 30 and cart_conversions_7d > 0:
+        rate_24h = cart_conversions_24h / views_24h
+        rate_7d = cart_conversions_7d / views_7d
+        if rate_7d >= 0.005 and rate_24h < rate_7d * 0.6:
+            drop_pct = round((1.0 - rate_24h / rate_7d) * 100)
+            strength = round(min(1.0, drop_pct / 70.0 + 0.30), 2)
+            signals.append({
+                "product_url": product_url,
+                "signal_type": "CART_RATE_DECLINING",
+                "signal_strength": strength,
+                "explanation": (
+                    f"Cart conversion rate dropped {drop_pct}% — "
+                    f"today {rate_24h:.1%} vs 7-day average {rate_7d:.1%}."
+                ),
+                "detected_at": detected_at,
+                "human_label": humanize_signal(
+                    "CART_RATE_DECLINING", label,
+                    {"rate_24h": rate_24h, "rate_7d": rate_7d},
+                ),
+                "human_action": humanize_action("CART_RATE_DECLINING"),
+            })
+
+    # ------------------------------------------------------------------ #
+    # Group G — Paid traffic not converting (independent)                  #
+    # ------------------------------------------------------------------ #
+
+    if views_paid >= 10 and carts_paid == 0:
+        organic_carts = carts_organic + carts_direct
+        has_organic_proof = organic_carts > 0
+        strength = round(min(1.0, views_paid / 60.0 + 0.30), 2)
+        if has_organic_proof:
+            explanation = (
+                f"{views_paid} paid views with zero carts, but organic/direct traffic "
+                f"generated {organic_carts} cart(s). The product page works — "
+                f"the paid traffic may be poorly targeted."
+            )
+        else:
+            explanation = (
+                f"{views_paid} paid views with zero carts. No traffic source "
+                f"is converting — check the product page first, then ad targeting."
+            )
+        signals.append({
+            "product_url": product_url,
+            "signal_type": "PAID_TRAFFIC_NOT_CONVERTING",
+            "signal_strength": strength,
+            "explanation": explanation,
+            "detected_at": detected_at,
+            "human_label": humanize_signal(
+                "PAID_TRAFFIC_NOT_CONVERTING", label,
+                {"views_paid": views_paid, "carts_paid": carts_paid},
+            ),
+            "human_action": humanize_action("PAID_TRAFFIC_NOT_CONVERTING"),
+        })
+
+    # ------------------------------------------------------------------ #
+    # Group H — Device purchase gap (independent)                          #
+    # ------------------------------------------------------------------ #
+
+    if purchases_24h >= 2 and purchases_mobile + purchases_desktop >= 2:
+        pm = purchases_mobile
+        pd = purchases_desktop
+        if pd > 0 and pm == 0 and views_mobile >= 10:
+            strength = round(min(1.0, views_mobile / 50.0 + 0.35), 2)
+            signals.append({
+                "product_url": product_url,
+                "signal_type": "DEVICE_PURCHASE_GAP",
+                "signal_strength": strength,
+                "explanation": (
+                    f"{views_mobile} mobile views but zero mobile purchases — "
+                    f"desktop generated {pd} purchase(s). Mobile checkout may be broken."
+                ),
+                "detected_at": detected_at,
+                "human_label": humanize_signal("DEVICE_PURCHASE_GAP", label, {"views_mobile": views_mobile, "purchases_desktop": pd}),
+                "human_action": humanize_action("DEVICE_PURCHASE_GAP"),
+            })
+        elif pm > 0 and pd == 0 and views_desktop >= 10:
+            strength = round(min(1.0, views_desktop / 50.0 + 0.35), 2)
+            signals.append({
+                "product_url": product_url,
+                "signal_type": "DEVICE_PURCHASE_GAP",
+                "signal_strength": strength,
+                "explanation": (
+                    f"{views_desktop} desktop views but zero desktop purchases — "
+                    f"mobile generated {pm} purchase(s). Desktop checkout may have issues."
+                ),
+                "detected_at": detected_at,
+                "human_label": humanize_signal("DEVICE_PURCHASE_GAP", label, {"views_desktop": views_desktop, "purchases_mobile": pm}),
+                "human_action": humanize_action("DEVICE_PURCHASE_GAP"),
+            })
+
+    # ------------------------------------------------------------------ #
+    # Group I — Source revenue gap (independent)                           #
+    # ------------------------------------------------------------------ #
+
+    if purchases_24h >= 1 and views_paid >= 10:
+        if purchases_paid == 0 and (purchases_organic + purchases_direct) >= 1:
+            organic_purchases = purchases_organic + purchases_direct
+            strength = round(min(1.0, views_paid / 40.0 + 0.35), 2)
+            signals.append({
+                "product_url": product_url,
+                "signal_type": "SOURCE_REVENUE_GAP",
+                "signal_strength": strength,
+                "explanation": (
+                    f"Paid traffic ({views_paid} views) generated zero purchases, "
+                    f"while organic/direct traffic generated {organic_purchases}. "
+                    f"Ad spend is not converting to revenue."
+                ),
+                "detected_at": detected_at,
+                "human_label": humanize_signal("SOURCE_REVENUE_GAP", label, {"views_paid": views_paid}),
+                "human_action": humanize_action("SOURCE_REVENUE_GAP"),
+            })
+
+    # ------------------------------------------------------------------ #
+    # Group J — Time window misalignment (independent)                     #
+    # ------------------------------------------------------------------ #
+
+    if peak_hour_views >= 8 and off_peak_hour_views >= 8:
+        peak_rate = peak_hour_carts / peak_hour_views if peak_hour_views > 0 else 0
+        off_peak_rate = off_peak_hour_carts / off_peak_hour_views if off_peak_hour_views > 0 else 0
+
+        if peak_rate > 0 and off_peak_rate > 0:
+            if off_peak_rate > peak_rate * 2.0:
+                strength = round(min(1.0, 0.35 + (off_peak_rate / peak_rate - 2.0) * 0.15), 2)
+                signals.append({
+                    "product_url": product_url,
+                    "signal_type": "TIME_WINDOW_MISALIGNMENT",
+                    "signal_strength": strength,
+                    "explanation": (
+                        f"Peak traffic hours have {peak_hour_views} views but only "
+                        f"{peak_rate:.1%} cart rate. Off-peak converts at {off_peak_rate:.1%} "
+                        f"— traffic volume and conversion quality are misaligned."
+                    ),
+                    "detected_at": detected_at,
+                    "human_label": humanize_signal("TIME_WINDOW_MISALIGNMENT", label, {}),
+                    "human_action": humanize_action("TIME_WINDOW_MISALIGNMENT"),
+                })
+            elif peak_rate > off_peak_rate * 2.0:
+                strength = round(min(1.0, 0.35 + (peak_rate / off_peak_rate - 2.0) * 0.15), 2)
+                signals.append({
+                    "product_url": product_url,
+                    "signal_type": "TIME_WINDOW_MISALIGNMENT",
+                    "signal_strength": strength,
+                    "explanation": (
+                        f"Off-peak hours have {off_peak_hour_views} views but only "
+                        f"{off_peak_rate:.1%} cart rate. Peak hours convert at {peak_rate:.1%} "
+                        f"— consider shifting promotional timing."
+                    ),
+                    "detected_at": detected_at,
+                    "human_label": humanize_signal("TIME_WINDOW_MISALIGNMENT", label, {}),
+                    "human_action": humanize_action("TIME_WINDOW_MISALIGNMENT"),
+                })
+        elif peak_rate == 0 and off_peak_rate > 0 and peak_hour_views >= 15:
+            strength = round(min(1.0, peak_hour_views / 40.0 + 0.30), 2)
+            signals.append({
+                "product_url": product_url,
+                "signal_type": "TIME_WINDOW_MISALIGNMENT",
+                "signal_strength": strength,
+                "explanation": (
+                    f"Peak hours drive {peak_hour_views} views but zero carts. "
+                    f"Off-peak hours convert at {off_peak_rate:.1%} — "
+                    f"peak traffic quality differs from off-peak."
+                ),
+                "detected_at": detected_at,
+                "human_label": humanize_signal("TIME_WINDOW_MISALIGNMENT", label, {}),
+                "human_action": humanize_action("TIME_WINDOW_MISALIGNMENT"),
+            })
+
+    # ------------------------------------------------------------------ #
+    # Group K — Landing page failure (independent)                         #
+    # ------------------------------------------------------------------ #
+
+    if landing_views_24h >= 10 and browsing_views_24h >= 5:
+        landing_rate = landing_carts_24h / landing_views_24h if landing_views_24h > 0 else 0
+        browsing_rate = browsing_carts_24h / browsing_views_24h if browsing_views_24h > 0 else 0
+
+        if browsing_rate > 0 and landing_rate < browsing_rate * 0.3:
+            strength = round(min(1.0, landing_views_24h / 40.0 + 0.30), 2)
+            signals.append({
+                "product_url": product_url,
+                "signal_type": "LANDING_PAGE_FAILURE",
+                "signal_strength": strength,
+                "explanation": (
+                    f"{landing_views_24h} visitors landed directly on this product page "
+                    f"but only {landing_rate:.1%} added to cart. Visitors who browsed to it "
+                    f"convert at {browsing_rate:.1%} — the landing experience needs work."
+                ),
+                "detected_at": detected_at,
+                "human_label": humanize_signal("LANDING_PAGE_FAILURE", label, {"landing_views_24h": landing_views_24h}),
+                "human_action": humanize_action("LANDING_PAGE_FAILURE"),
+            })
+
+    # Tag all standard signals with high confidence
+    for s in signals:
+        if "signal_confidence" not in s:
+            s["signal_confidence"] = "high"
 
     return signals
 
@@ -874,11 +1327,153 @@ def detect_opportunities_from_metrics(shop_domain: str) -> list[dict]:
             avg_dwell_24h=float(row.avg_dwell_24h) if row.avg_dwell_24h is not None else None,
             avg_scroll_24h=float(row.avg_scroll_24h) if row.avg_scroll_24h is not None else None,
             detected_at=detected_at,
+            views_mobile=int(row.views_mobile or 0),
+            views_desktop=int(row.views_desktop or 0),
+            carts_mobile=int(row.carts_mobile or 0),
+            carts_desktop=int(row.carts_desktop or 0),
+            cart_conversions_7d=int(row.cart_conversions_7d or 0),
+            views_7d=int(row.views_7d or 0),
+            views_paid=int(row.views_paid or 0),
+            views_organic=int(row.views_organic or 0),
+            views_direct=int(row.views_direct or 0),
+            carts_paid=int(row.carts_paid or 0),
+            carts_organic=int(row.carts_organic or 0),
+            carts_direct=int(row.carts_direct or 0),
+            purchases_24h=int(row.purchases_24h or 0),
+            purchases_mobile=int(row.purchases_mobile or 0),
+            purchases_desktop=int(row.purchases_desktop or 0),
+            purchases_paid=int(row.purchases_paid or 0),
+            purchases_organic=int(row.purchases_organic or 0),
+            purchases_direct=int(row.purchases_direct or 0),
+            revenue_24h=float(row.revenue_24h or 0),
+            peak_hour_views=int(row.peak_hour_views or 0),
+            peak_hour_carts=int(row.peak_hour_carts or 0),
+            off_peak_hour_views=int(row.off_peak_hour_views or 0),
+            off_peak_hour_carts=int(row.off_peak_hour_carts or 0),
+            landing_views_24h=int(row.landing_views_24h or 0),
+            browsing_views_24h=int(row.browsing_views_24h or 0),
+            landing_carts_24h=int(row.landing_carts_24h or 0),
+            browsing_carts_24h=int(row.browsing_carts_24h or 0),
         )
         all_signals.extend(product_signals)
 
+        # Early signals for low-traffic products (views < 20)
+        early = _evaluate_early_signals(
+            product_url=row.product_url,
+            views_24h=int(row.views_24h or 0),
+            unique_visitors_24h=int(row.unique_visitors_24h or 0),
+            cart_conversions_24h=int(row.cart_conversions_24h or 0),
+            avg_dwell_24h=float(row.avg_dwell_24h) if row.avg_dwell_24h is not None else None,
+            avg_scroll_24h=float(row.avg_scroll_24h) if row.avg_scroll_24h is not None else None,
+            detected_at=detected_at,
+        )
+        all_signals.extend(early)
+
+    # Store-level strategic signals (aggregate across all products)
+    store_signals = _evaluate_store_signals(rows, now.isoformat())
+    all_signals.extend(store_signals)
+
+    # Single product focus (cross-product, low-traffic only)
+    product_views = {row.product_url: int(row.views_24h or 0) for row in rows}
+    focus = _evaluate_single_product_focus(all_signals, product_views, detected_at)
+    all_signals.extend(focus)
+
     all_signals.sort(key=lambda s: s["signal_strength"], reverse=True)
     return all_signals
+
+
+def _evaluate_store_signals(rows: list, detected_at: str) -> list[dict]:
+    """
+    Store-level signals derived from aggregate product_metrics.
+    These fire once per shop (not per product) and have the highest priority.
+    """
+    signals: list[dict] = []
+    if not rows:
+        return signals
+
+    # Aggregate store-wide metrics
+    total_views = sum(int(r.views_24h or 0) for r in rows)
+    total_rev = sum(float(r.revenue_24h or 0) for r in rows)
+    total_vm = sum(int(r.views_mobile or 0) for r in rows)
+    total_vd = sum(int(r.views_desktop or 0) for r in rows)
+    total_pm = sum(int(r.purchases_mobile or 0) for r in rows)
+    total_pd = sum(int(r.purchases_desktop or 0) for r in rows)
+    total_vp = sum(int(r.views_paid or 0) for r in rows)
+    total_vo = sum(int(r.views_organic or 0) for r in rows)
+    total_vdi = sum(int(r.views_direct or 0) for r in rows)
+    total_pp = sum(int(r.purchases_paid or 0) for r in rows)
+    total_po = sum(int(r.purchases_organic or 0) for r in rows)
+    total_pdi = sum(int(r.purchases_direct or 0) for r in rows)
+    total_purchases = total_pm + total_pd
+
+    # REVENUE_CONCENTRATION — top product > 50% of total revenue
+    if total_rev > 0:
+        revenues = sorted(
+            [(float(r.revenue_24h or 0), r.product_url) for r in rows],
+            reverse=True,
+        )
+        top_rev, top_url = revenues[0]
+        top_pct = top_rev / total_rev
+        if top_pct > 0.5 and len(revenues) >= 3:
+            label = _label_from_url(top_url)
+            signals.append({
+                "product_url": top_url,
+                "signal_type": "REVENUE_CONCENTRATION",
+                "signal_strength": round(min(1.0, top_pct), 2),
+                "explanation": (
+                    f"{label} generates {top_pct:.0%} of your store's revenue. "
+                    f"If this product's traffic drops, your entire business is affected."
+                ),
+                "detected_at": detected_at,
+                "human_label": humanize_signal("REVENUE_CONCENTRATION", label, {}),
+                "human_action": humanize_action("REVENUE_CONCENTRATION"),
+            })
+
+    # STORE_MOBILE_GAP — mobile > 50% of views but < 30% of purchases
+    vt = total_vm + total_vd
+    pt = total_pm + total_pd
+    if vt >= 20 and pt >= 2:
+        m_view_pct = total_vm / vt
+        m_purchase_pct = total_pm / pt if pt > 0 else 0
+        if m_view_pct > 0.5 and m_purchase_pct < 0.3:
+            signals.append({
+                "product_url": None,
+                "signal_type": "STORE_MOBILE_GAP",
+                "signal_strength": round(min(1.0, m_view_pct - m_purchase_pct + 0.3), 2),
+                "explanation": (
+                    f"Mobile visitors are {m_view_pct:.0%} of your traffic but only "
+                    f"{m_purchase_pct:.0%} of purchases. This is a store-wide checkout issue."
+                ),
+                "detected_at": detected_at,
+                "human_label": humanize_signal("STORE_MOBILE_GAP", "your store", {}),
+                "human_action": humanize_action("STORE_MOBILE_GAP"),
+            })
+
+    # STORE_PAID_GAP — paid > 40% of views but < 15% of purchases
+    vs = total_vp + total_vo + total_vdi
+    ps = total_pp + total_po + total_pdi
+    if vs >= 20 and ps >= 2:
+        paid_view_pct = total_vp / vs
+        paid_purchase_pct = total_pp / ps if ps > 0 else 0
+        if paid_view_pct > 0.4 and paid_purchase_pct < 0.15:
+            signals.append({
+                "product_url": None,
+                "signal_type": "STORE_PAID_GAP",
+                "signal_strength": round(min(1.0, paid_view_pct - paid_purchase_pct + 0.3), 2),
+                "explanation": (
+                    f"Paid traffic is {paid_view_pct:.0%} of your visits but only "
+                    f"{paid_purchase_pct:.0%} of purchases. Your ad spend is not converting to revenue."
+                ),
+                "detected_at": detected_at,
+                "human_label": humanize_signal("STORE_PAID_GAP", "your store", {}),
+                "human_action": humanize_action("STORE_PAID_GAP"),
+            })
+
+    for s in signals:
+        if "signal_confidence" not in s:
+            s["signal_confidence"] = "high"
+
+    return signals
 
 
 # ---------------------------------------------------------------------------
@@ -908,6 +1503,7 @@ def _persist_signals(signals: list[dict], shop_domain: str) -> None:
                 )
                 .first()
             )
+            confidence = signal.get("signal_confidence", "high")
             if existing is None:
                 db.add(
                     OpportunitySignal(
@@ -915,6 +1511,7 @@ def _persist_signals(signals: list[dict], shop_domain: str) -> None:
                         product_url=signal["product_url"],
                         signal_type=signal["signal_type"],
                         signal_strength=signal["signal_strength"],
+                        signal_confidence=confidence,
                         explanation=signal["explanation"],
                         detected_at=now,
                         refreshed_at=now,
@@ -923,6 +1520,7 @@ def _persist_signals(signals: list[dict], shop_domain: str) -> None:
                 )
             else:
                 existing.signal_strength = signal["signal_strength"]
+                existing.signal_confidence = confidence
                 existing.explanation = signal["explanation"]
                 existing.detected_at = now
                 existing.refreshed_at = now
@@ -954,6 +1552,7 @@ def _read_fresh_signals_from_db(shop_domain: str) -> list[dict]:
                 "product_url": r.product_url,
                 "signal_type": r.signal_type,
                 "signal_strength": r.signal_strength,
+                "signal_confidence": getattr(r, "signal_confidence", None) or "high",
                 "explanation": r.explanation,
                 "detected_at": r.detected_at.isoformat() if r.detected_at else None,
                 "human_label": humanize_signal(

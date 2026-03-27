@@ -1,34 +1,18 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 
-from app.core.database import engine
-from app.core.deps import require_api_key, require_pro_plan, require_shop
-from app.services.external_lookup_service import infer_external_lookup
-from app.api.decision_engine import compute_decision
-
-try:
-    from app.core.database import SessionLocal  # type: ignore
-except Exception:
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+from app.core.database import get_db
+from app.core.deps import require_merchant_session, require_pro_session
 
 SANDBOX_PATH = Path("/opt/wishspark/sandbox")
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -139,11 +123,23 @@ def _sql_value(column_name: str | None, alias: str, default_sql: str = "NULL") -
 # ---------------------------------------------------------------------------
 
 def _build_summary(db: Session, shop_domain: str) -> dict[str, Any]:
+    """
+    Build the KPI summary for a shop.
+
+    Time windows:
+    - total_visitors_24h / total_events_24h — last 24 hours (truthful recency)
+    - total_visitors_all / total_events_all — all-time (labeled separately)
+    - hot/warm/cold — COUNT DISTINCT visitor_id (unique people, not pairs)
+
+    Removed:
+    - total_sessions — events table has no session_id column; was always 0
+    """
     p = {"shop_domain": shop_domain}
 
-    total_visitors = 0
-    total_sessions = 0
-    total_events = 0
+    total_visitors_24h = 0
+    total_visitors_all = 0
+    total_events_24h = 0
+    total_events_all = 0
     hot_visitors = 0
     warm_visitors = 0
     cold_visitors = 0
@@ -152,59 +148,38 @@ def _build_summary(db: Session, shop_domain: str) -> dict[str, Any]:
     conversion_ready_products = 0
 
     if _table_exists(db, "events"):
-        event_cols = _columns(db, "events")
-        visitor_col = _pick(event_cols, "visitor_id")
-        session_col = _pick(event_cols, "session_id")
-        event_type_col = _pick(event_cols, "event_type")
-
-        if visitor_col:
-            total_visitors = int(
-                _safe_number(
-                    _row(
-                        f"SELECT COUNT(DISTINCT {visitor_col}) AS value FROM events WHERE shop_domain = :shop_domain",
-                        db, p,
-                    ).get("value"),
-                    0,
-                )
-            )
-
-        if session_col:
-            total_sessions = int(
-                _safe_number(
-                    _row(
-                        f"SELECT COUNT(DISTINCT {session_col}) AS value FROM events WHERE shop_domain = :shop_domain",
-                        db, p,
-                    ).get("value"),
-                    0,
-                )
-            )
-
-        total_events = int(
-            _safe_number(
-                _row(
-                    "SELECT COUNT(*) AS value FROM events WHERE shop_domain = :shop_domain",
-                    db, p,
-                ).get("value"),
-                0,
-            )
+        # 24h window: epoch ms cutoff
+        result_24h = _row(
+            """
+            SELECT
+                COUNT(DISTINCT visitor_id)  AS visitors,
+                COUNT(*)                    AS events
+            FROM events
+            WHERE shop_domain = :shop_domain
+              AND timestamp > (EXTRACT(EPOCH FROM NOW()) * 1000 - 86400000)
+            """,
+            db, p,
         )
+        total_visitors_24h = int(_safe_number(result_24h.get("visitors"), 0))
+        total_events_24h = int(_safe_number(result_24h.get("events"), 0))
 
-        if event_type_col:
-            wishlist_adds = int(
-                _safe_number(
-                    _row(
-                        f"""
-                        SELECT COUNT(*) AS value
-                        FROM events
-                        WHERE {event_type_col} = 'wishlist_add'
-                          AND shop_domain = :shop_domain
-                        """,
-                        db, p,
-                    ).get("value"),
-                    0,
-                )
-            )
+        # All-time (for context)
+        result_all = _row(
+            """
+            SELECT
+                COUNT(DISTINCT visitor_id)  AS visitors,
+                COUNT(*)                    AS events,
+                COALESCE(SUM(CASE WHEN event_type = 'wishlist_add' THEN 1 ELSE 0 END), 0) AS wishlist
+            FROM events
+            WHERE shop_domain = :shop_domain
+            """,
+            db, p,
+        )
+        total_visitors_all = int(_safe_number(result_all.get("visitors"), 0))
+        total_events_all = int(_safe_number(result_all.get("events"), 0))
+        wishlist_adds = int(_safe_number(result_all.get("wishlist"), 0))
 
+    # Hot/warm/cold: COUNT DISTINCT visitor_id (unique people, not pairs)
     if _table_exists(db, "visitor_product_state"):
         cols = _columns(db, "visitor_product_state")
         intent_level_col = _pick(cols, "intent_level")
@@ -214,9 +189,9 @@ def _build_summary(db: Session, shop_domain: str) -> dict[str, Any]:
             counts = _row(
                 f"""
                 SELECT
-                    COALESCE(SUM(CASE WHEN UPPER({intent_level_col}) = 'HOT'  THEN 1 ELSE 0 END), 0) AS hot,
-                    COALESCE(SUM(CASE WHEN UPPER({intent_level_col}) = 'WARM' THEN 1 ELSE 0 END), 0) AS warm,
-                    COALESCE(SUM(CASE WHEN UPPER({intent_level_col}) = 'COLD' THEN 1 ELSE 0 END), 0) AS cold
+                    COUNT(DISTINCT CASE WHEN UPPER({intent_level_col}) = 'HOT'  THEN visitor_id END) AS hot,
+                    COUNT(DISTINCT CASE WHEN UPPER({intent_level_col}) = 'WARM' THEN visitor_id END) AS warm,
+                    COUNT(DISTINCT CASE WHEN UPPER({intent_level_col}) = 'COLD' THEN visitor_id END) AS cold
                 FROM visitor_product_state
                 WHERE shop_domain = :shop_domain
                 """,
@@ -258,15 +233,19 @@ def _build_summary(db: Session, shop_domain: str) -> dict[str, Any]:
             )
 
     return {
-        "total_visitors": total_visitors,
-        "total_sessions": total_sessions,
-        "total_events": total_events,
+        "total_visitors": total_visitors_24h,
+        "total_visitors_24h": total_visitors_24h,
+        "total_visitors_all": total_visitors_all,
+        "total_events": total_events_24h,
+        "total_events_24h": total_events_24h,
+        "total_events_all": total_events_all,
         "hot_visitors": hot_visitors,
         "warm_visitors": warm_visitors,
         "cold_visitors": cold_visitors,
         "wishlist_adds": wishlist_adds,
         "avg_intent_score": avg_intent_score,
         "conversion_ready_products": conversion_ready_products,
+        "visitor_metric_note": "hot/warm/cold counts are unique visitors with any product in that intent tier",
     }
 
 
@@ -720,11 +699,69 @@ def _build_revenue_windows(db: Session, shop_domain: str) -> dict:
                 "expires_at":        str(row.get("expires_at")) if row.get("expires_at") else None,
             })
 
+    # Resolve real currency from shop_orders — never hardcode
+    shop_currency = None
+    try:
+        from app.services.revenue_metrics import get_shop_currency
+        shop_currency = get_shop_currency(db, shop_domain)
+    except Exception:
+        pass
+
     return {
         "total_revenue_at_risk": round(total_window, 2),
         "opportunities":         opportunities,
-        "currency":              "USD",
+        "currency":              shop_currency or "USD",
+        "currency_is_real":      shop_currency is not None,
     }
+
+
+def _get_calibration_summary(db: Session, shop_domain: str) -> dict[str, Any]:
+    """
+    Return calibration quality summary for the shop.
+
+    Tells the frontend whether conversion estimates are empirical
+    (based on real data) or fallback (industry defaults).
+    """
+    try:
+        if not _table_exists(db, "shop_conversion_calibrations"):
+            return {"state": "no_data", "is_empirical": False, "label": "Estimated (no order data)"}
+
+        row = _row(
+            """
+            SELECT is_empirical, sample_size, converter_count, base_cvr, trained_at
+            FROM shop_conversion_calibrations
+            WHERE shop_domain = :shop
+            ORDER BY trained_at DESC NULLS LAST
+            LIMIT 1
+            """,
+            db,
+            {"shop": shop_domain},
+        )
+        if not row:
+            return {"state": "no_data", "is_empirical": False, "label": "Estimated (no order data)"}
+
+        is_empirical = _safe_bool(row.get("is_empirical"), False)
+        sample_size = int(_safe_number(row.get("sample_size"), 0))
+        converter_count = int(_safe_number(row.get("converter_count"), 0))
+
+        if is_empirical:
+            return {
+                "state": "empirical",
+                "is_empirical": True,
+                "sample_size": sample_size,
+                "converter_count": converter_count,
+                "label": f"Based on your data ({converter_count} orders)",
+            }
+        else:
+            return {
+                "state": "fallback",
+                "is_empirical": False,
+                "sample_size": sample_size,
+                "converter_count": converter_count,
+                "label": "Estimated (low data)" if sample_size > 0 else "Estimated (no order data)",
+            }
+    except Exception:
+        return {"state": "error", "is_empirical": False, "label": "Estimated"}
 
 
 def _build_sandbox_runs() -> list[dict]:
@@ -784,71 +821,79 @@ def _build_sandbox_runs() -> list[dict]:
 
 @router.get("/overview")
 def get_dashboard_overview(
-    shop: str = Depends(require_shop),
-    _: None = Depends(require_api_key),
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
 ):
     """
-    Lite dashboard overview — summary and top_products only.
+    Lite dashboard overview — summary, top_products, real AOV/currency.
 
-    Pro-only sections (price_intelligence, market_lookup, product_opportunities,
-    top_hot_visitors, ai_recommended_actions) are not computed or returned.
-    Pro subscribers call /dashboard/overview/pro to receive them.
-
-    Lite boundary: summary (aggregate counts + intent segmentation)
-                   top_products (product behavioral observations)
-    Pro boundary:  all other sections (served by /dashboard/overview/pro)
+    Cached in Redis for 60 seconds.  Dashboard data changes on aggregation
+    worker cycles (5 min), so 60s staleness is imperceptible to merchants.
     """
-    db = SessionLocal()
-    try:
-        return {
-            "summary":              _build_summary(db, shop),
-            "top_products":         _build_top_products(db, shop),
-            "revenue_window_tease": _build_revenue_window_tease(db, shop),
-        }
-    finally:
-        db.close()
+    from app.core.redis_client import cache_get, cache_set, KEY_DASHBOARD, TTL_DASHBOARD
+    cache_key = KEY_DASHBOARD.format(shop=shop) + ":lite"
+
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    # Resolve real AOV and currency for truthful revenue estimates
+    from app.services.revenue_metrics import get_shop_aov, get_shop_currency, FALLBACK_AOV
+    shop_currency = get_shop_currency(db, shop)
+    real_aov = get_shop_aov(db, shop, currency=shop_currency)
+    aov_is_real = real_aov != FALLBACK_AOV
+
+    result = {
+        "summary":              _build_summary(db, shop),
+        "top_products":         _build_top_products(db, shop),
+        "revenue_window_tease": _build_revenue_window_tease(db, shop),
+        "shop_aov":             round(real_aov, 2),
+        "shop_currency":        shop_currency or "USD",
+        "aov_is_real":          aov_is_real,
+        "calibration":          _get_calibration_summary(db, shop),
+    }
+    cache_set(cache_key, result, TTL_DASHBOARD)
+    return result
 
 
 @router.get("/overview/pro")
 def get_dashboard_overview_pro(
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
+    db: Session = Depends(get_db),
 ):
     """
-    Pro dashboard overview — full payload including all Pro-only sections.
+    Pro dashboard overview — Lite data + price intelligence + market lookup +
+    revenue windows.
 
-    Backend-enforced: require_pro_plan raises HTTP 403 if the shop does not
-    have an active Pro plan (merchants.plan != "pro" or billing_active == False).
-    API key and shop-domain validation are composed inside require_pro_plan.
+    Removed from Pro computation (audit fix — frontend ignores these):
+    - top_hot_visitors (dead data, never rendered)
+    - product_opportunities (fetched separately via /opportunities/pro)
+    - ai_recommended_actions (fetched separately via /ai/actions, expensive)
 
-    Returns the same base as /dashboard/overview plus:
-      price_intelligence     — pricing analysis with recommended actions
-      market_lookup          — competitor analysis and market position
-      product_opportunities  — opportunity signals with recommended_action
-      top_hot_visitors       — individual high-intent visitor records
-      ai_recommended_actions — cross-signal AI-computed prescriptive actions
-
-    Lite boundary: summary + top_products (served by /dashboard/overview)
-    Pro boundary:  full payload           (served here — plan-enforced)
+    Cached in Redis for 60 seconds.
     """
-    db = SessionLocal()
-    try:
-        top_products = _build_top_products(db, shop)
-        price_intelligence = _build_price_intelligence(db, shop)
-        market_lookup = _build_market_lookup(db, shop)
-        ai_recommended_actions = _build_ai_recommended_actions(
-            top_products=top_products,
-            price_intelligence=price_intelligence,
-            market_lookup=market_lookup,
-        )
-        return {
-            "summary":                _build_summary(db, shop),
-            "top_hot_visitors":       _build_top_hot_visitors(db, shop),
-            "top_products":           top_products,
-            "product_opportunities":  _build_product_opportunities(db, shop),
-            "price_intelligence":     price_intelligence,
-            "market_lookup":          market_lookup,
-            "ai_recommended_actions": ai_recommended_actions,
-            "revenue_windows":        _build_revenue_windows(db, shop),
-        }
-    finally:
-        db.close()
+    from app.core.redis_client import cache_get, cache_set, KEY_DASHBOARD, TTL_DASHBOARD
+    cache_key = KEY_DASHBOARD.format(shop=shop) + ":pro"
+
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    from app.services.revenue_metrics import get_shop_aov, get_shop_currency, FALLBACK_AOV
+    shop_currency = get_shop_currency(db, shop)
+    real_aov = get_shop_aov(db, shop, currency=shop_currency)
+    aov_is_real = real_aov != FALLBACK_AOV
+
+    result = {
+        "summary":            _build_summary(db, shop),
+        "top_products":       _build_top_products(db, shop),
+        "price_intelligence": _build_price_intelligence(db, shop),
+        "market_lookup":      _build_market_lookup(db, shop),
+        "revenue_windows":    _build_revenue_windows(db, shop),
+        "shop_aov":           round(real_aov, 2),
+        "shop_currency":      shop_currency or "USD",
+        "aov_is_real":        aov_is_real,
+        "calibration":        _get_calibration_summary(db, shop),
+    }
+    cache_set(cache_key, result, TTL_DASHBOARD)
+    return result

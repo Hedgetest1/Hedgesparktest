@@ -53,7 +53,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
-from app.core.deps import require_api_key, require_shop
+from app.core.deps import require_merchant_session
 from app.models.product_metrics import ProductMetrics
 from app.schemas.product_metrics import ProductMetricsResponse, ProductMetricsRow
 
@@ -110,6 +110,61 @@ def _return_visitor_rate(
     return round(min(1.0, return_visitor_count_7d / unique_visitors_7d), 4)
 
 
+def _cart_rate(conversions: int, views: int) -> float | None:
+    """Cart conversion rate. None when views == 0."""
+    if views == 0:
+        return None
+    return round(min(1.0, max(0.0, conversions / views)), 4)
+
+
+def _cart_rate_trend(
+    rate_24h: float | None,
+    rate_7d: float | None,
+) -> str | None:
+    """
+    Compare 24h cart rate to 7d average.
+    Returns 'improving', 'declining', or 'stable'.
+    None when either rate is undefined.
+    """
+    if rate_24h is None or rate_7d is None:
+        return None
+    if rate_7d < 0.005:
+        # Not enough signal in 7d rate to compare meaningfully
+        return None
+    ratio = rate_24h / rate_7d if rate_7d > 0 else 0
+    if ratio >= 1.3:
+        return "improving"
+    if ratio <= 0.7:
+        return "declining"
+    return "stable"
+
+
+def _peak_conversion_label(
+    peak_views: int,
+    peak_carts: int,
+    off_peak_views: int,
+    off_peak_carts: int,
+) -> str | None:
+    """
+    Determine if the peak time block converts significantly better or worse.
+    Returns 'peak_converts_better', 'off_peak_converts_better', or None.
+    """
+    if peak_views < 5 or off_peak_views < 5:
+        return None
+    peak_rate = peak_carts / peak_views
+    off_peak_rate = off_peak_carts / off_peak_views
+    if peak_rate > 0 and off_peak_rate > 0:
+        if peak_rate > off_peak_rate * 1.5:
+            return "peak_converts_better"
+        if off_peak_rate > peak_rate * 1.5:
+            return "off_peak_converts_better"
+    elif peak_rate > 0 and off_peak_rate == 0:
+        return "peak_converts_better"
+    elif off_peak_rate > 0 and peak_rate == 0:
+        return "off_peak_converts_better"
+    return None
+
+
 def _engagement_score(
     avg_dwell_24h: float | None,
     avg_scroll_24h: float | None,
@@ -143,8 +198,7 @@ def _engagement_score(
 
 @router.get("/metrics", response_model=ProductMetricsResponse)
 def get_product_metrics(
-    shop: str = Depends(require_shop),
-    _: None = Depends(require_api_key),
+    shop: str = Depends(require_merchant_session),
     db: Session = Depends(_get_db),
 ) -> ProductMetricsResponse:
     """
@@ -171,8 +225,26 @@ def get_product_metrics(
         unique_7d = int(row.unique_visitors_7d or 0)
         return_7d = int(row.return_visitor_count_7d or 0)
         cart_24h = int(row.cart_conversions_24h or 0)
+        cart_7d = int(row.cart_conversions_7d or 0)
         dwell = float(row.avg_dwell_24h) if row.avg_dwell_24h is not None else None
         scroll = float(row.avg_scroll_24h) if row.avg_scroll_24h is not None else None
+
+        cart_rate_24h = _cart_rate(cart_24h, views_24h)
+        cart_rate_7d = _cart_rate(cart_7d, views_7d)
+        cart_rate_trend = _cart_rate_trend(cart_rate_24h, cart_rate_7d)
+
+        # Time-of-day
+        phv = int(row.peak_hour_views or 0)
+        phc = int(row.peak_hour_carts or 0)
+        ophv = int(row.off_peak_hour_views or 0)
+        ophc = int(row.off_peak_hour_carts or 0)
+        peak_conversion_label = _peak_conversion_label(phv, phc, ophv, ophc)
+
+        # Session context
+        lv = int(row.landing_views_24h or 0)
+        bv = int(row.browsing_views_24h or 0)
+        lc = int(row.landing_carts_24h or 0)
+        bc = int(row.browsing_carts_24h or 0)
 
         products.append(
             ProductMetricsRow(
@@ -183,11 +255,44 @@ def get_product_metrics(
                 unique_visitors_7d=unique_7d,
                 return_visitor_count_7d=return_7d,
                 cart_conversions_24h=cart_24h,
+                cart_conversions_7d=cart_7d,
                 avg_dwell_24h=dwell,
                 avg_scroll_24h=scroll,
+                views_mobile=int(row.views_mobile or 0),
+                views_desktop=int(row.views_desktop or 0),
+                carts_mobile=int(row.carts_mobile or 0),
+                carts_desktop=int(row.carts_desktop or 0),
+                views_paid=int(row.views_paid or 0),
+                views_organic=int(row.views_organic or 0),
+                views_direct=int(row.views_direct or 0),
+                carts_paid=int(row.carts_paid or 0),
+                carts_organic=int(row.carts_organic or 0),
+                carts_direct=int(row.carts_direct or 0),
+                purchases_24h=int(row.purchases_24h or 0),
+                purchases_7d=int(row.purchases_7d or 0),
+                revenue_24h=float(row.revenue_24h or 0),
+                purchases_mobile=int(row.purchases_mobile or 0),
+                purchases_desktop=int(row.purchases_desktop or 0),
+                purchases_paid=int(row.purchases_paid or 0),
+                purchases_organic=int(row.purchases_organic or 0),
+                purchases_direct=int(row.purchases_direct or 0),
+                peak_hour_views=phv,
+                peak_hour_carts=phc,
+                off_peak_hour_views=ophv,
+                off_peak_hour_carts=ophc,
+                landing_views_24h=lv,
+                browsing_views_24h=bv,
+                landing_carts_24h=lc,
+                browsing_carts_24h=bc,
                 cart_abandonment_rate=_cart_abandonment_rate(views_24h, cart_24h),
                 return_visitor_rate=_return_visitor_rate(return_7d, unique_7d),
                 engagement_score=_engagement_score(dwell, scroll),
+                cart_rate_24h=cart_rate_24h,
+                cart_rate_7d=cart_rate_7d,
+                cart_rate_trend=cart_rate_trend,
+                peak_conversion_label=peak_conversion_label,
+                landing_cart_rate=_cart_rate(lc, lv),
+                browsing_cart_rate=_cart_rate(bc, bv),
             )
         )
 

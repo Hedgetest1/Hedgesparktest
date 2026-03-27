@@ -296,6 +296,37 @@ async def compose_nudge_variants(
             fallback_used=True, rejection_reason="OPENAI_API_KEY not configured"
         )
 
+    # ── Cache check — serve cached AI response for identical inputs ──────
+    # Hash the meaningful input payload to create a deterministic cache key.
+    # Only product_url + signals + data_window_hours matter — product_title
+    # is only used in the prompt, but similar titles produce similar copy,
+    # so we include it for correctness.
+    import hashlib as _hashlib
+    _cache_payload = json.dumps({
+        "p": product_url,
+        "t": product_title,
+        "s": signals,
+        "w": data_window_hours,
+    }, sort_keys=True)
+    _cache_hash = _hashlib.sha256(_cache_payload.encode()).hexdigest()[:24]
+
+    from app.core.redis_client import cache_get, cache_set, KEY_AI_COMPOSE, TTL_AI_COMPOSE
+    _cache_key = KEY_AI_COMPOSE.format(hash=_cache_hash)
+
+    cached = cache_get(_cache_key)
+    if cached is not None and isinstance(cached, dict):
+        cached_variants = cached.get("variants")
+        if cached_variants and isinstance(cached_variants, list):
+            log.info(
+                "nudge_composer: cache HIT for product=%s (key=%s)",
+                product_url, _cache_hash[:12],
+            )
+            return cached_variants, _meta(
+                fallback_used=False,
+                variant_count=len(cached_variants),
+                cache_hit=True,
+            )
+
     # Budget guard — checked before the API call to prevent cost overruns.
     # Counts the call even before it is made so concurrent requests are
     # counted conservatively (we'd rather refuse one extra than over-spend).
@@ -362,6 +393,13 @@ async def compose_nudge_variants(
         "nudge_composer: AI variants generated for product=%s strategies=%s",
         product_url, [s["variant_name"] for s in strategy_pair],
     )
+
+    # Cache the validated AI response for identical future requests
+    try:
+        cache_set(_cache_key, {"variants": variants}, TTL_AI_COMPOSE)
+    except Exception:
+        pass  # cache write failure is non-fatal
+
     return variants, _meta(
         strategy_pair    = strategy_pair,
         signal_basis     = signal_basis,
@@ -741,6 +779,7 @@ def _meta(
     fallback_used:    bool          = False,
     variant_count:    int           = 2,
     rejection_reason: Optional[str] = None,
+    cache_hit:        bool          = False,
 ) -> dict:
     return {
         "model":            model if not fallback_used else "rule_based_fallback",
@@ -749,4 +788,5 @@ def _meta(
         "fallback_used":    fallback_used,
         "variant_count":    variant_count,
         "rejection_reason": rejection_reason,
+        "cache_hit":        cache_hit,
     }

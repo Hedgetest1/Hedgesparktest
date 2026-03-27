@@ -10,15 +10,14 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 
 from app.core.database import engine
-from app.core.deps import require_api_key, require_shop
+from app.core.deps import require_merchant_session
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
 @router.get("/clicks")
 def click_insights(
-    shop: str = Depends(require_shop),
-    _: None = Depends(require_api_key),
+    shop: str = Depends(require_merchant_session),
 ):
     query = text("""
         SELECT

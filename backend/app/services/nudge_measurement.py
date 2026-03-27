@@ -982,7 +982,7 @@ def _compute_revenue_lift(
         currency = "unknown"
         currency_note = (
             "No order data available for either group. "
-            "Ensure the Shopify orders/paid webhook is configured."
+            "Ensure the Shopify orders/updated webhook is configured."
         )
     else:
         currency = "mixed"
@@ -1054,7 +1054,7 @@ def _compute_revenue_lift(
         revenue_note_parts.append(
             "WARNING: has_order_data=False — shop_orders is empty or no orders matched "
             "the attribution join. Revenue figures are zero. "
-            "Verify that the Shopify orders/paid webhook (POST /webhooks/shopify/orders-paid) "
+            "Verify that the Shopify orders/updated webhook (POST /webhooks/shopify/orders) "
             "is active and delivering."
         )
     if sample_state == "insufficient":

@@ -69,7 +69,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_api_key, require_pro_plan, require_shop
+from app.core.deps import require_merchant_session, require_pro_session
 from app.core.redis_client import KEY_BRIEF, TTL_BRIEF, cache_get, cache_set
 from app.models.daily_brief import DailyBrief
 from app.services.brief_engine import generate_brief
@@ -269,8 +269,7 @@ def _get_full_brief(shop: str, db: Session) -> dict:
 # ---------------------------------------------------------------------------
 @router.get("/today")
 def get_today_brief(
-    shop: str         = Depends(require_shop),
-    _:    None        = Depends(require_api_key),
+    shop: str         = Depends(require_merchant_session),
     db:   Session     = Depends(get_db),
 ):
     """
@@ -299,7 +298,7 @@ def get_today_brief(
 # ---------------------------------------------------------------------------
 @router.get("/today/pro")
 def get_today_brief_pro(
-    shop: str         = Depends(require_pro_plan),
+    shop: str         = Depends(require_pro_session),
     db:   Session     = Depends(get_db),
 ):
     """

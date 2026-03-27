@@ -244,5 +244,32 @@ module.exports = {
       },
     },
 
+    // -------------------------------------------------------------------------
+    // GDPR worker — processes GDPR deletion/redaction requests
+    // Cycle: 5 minutes.  Picks up pending GdprRequest rows created by
+    // Shopify GDPR webhook endpoints and executes data deletion/redaction.
+    // Singleton — duplicate instances would process the same request twice.
+    // -------------------------------------------------------------------------
+    {
+      name:                "wishspark-gdpr-worker",
+      script:              "/opt/wishspark/backend/venv/bin/python",
+      args:                "app/workers/gdpr_worker.py",
+      cwd:                 "/opt/wishspark/backend",
+      interpreter:         "none",
+      exec_mode:           "fork",
+      instances:           1,
+      autorestart:         true,
+      min_uptime:          "10s",
+      max_restarts:        10,
+      restart_delay:       5000,
+      max_memory_restart:  "200M",
+      out_file:            "/opt/wishspark/logs/gdpr-worker-out.log",
+      error_file:          "/opt/wishspark/logs/gdpr-worker-error.log",
+      merge_logs:          false,
+      env: {
+        PYTHONPATH: "/opt/wishspark/backend",
+      },
+    },
+
   ],
 };

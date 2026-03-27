@@ -77,6 +77,10 @@
 
   // ---------------------------------------------------------------------------
   // Visitor identity — persisted in localStorage across sessions
+  //
+  // Also written to a first-party cookie (_hs_vid) so the Shopify Custom
+  // Pixel sandbox can read it at checkout via browser.cookie.get("_hs_vid").
+  // This bridges storefront browsing identity → checkout purchase identity.
   // ---------------------------------------------------------------------------
   var visitorId;
   try {
@@ -91,6 +95,14 @@
   } catch (_) {
     visitorId = Math.random().toString(36).slice(2) + Date.now().toString(36);
   }
+
+  // Write to first-party cookie for pixel bridge.
+  // max-age=63072000 = 2 years.  SameSite=Lax ensures it's sent on
+  // same-site navigations (checkout is same-site on Shopify storefronts).
+  try {
+    document.cookie = "_hs_vid=" + encodeURIComponent(visitorId)
+      + ";path=/;max-age=63072000;SameSite=Lax";
+  } catch (_) {}
 
   // ---------------------------------------------------------------------------
   // Source attribution — multi-signal, priority-ordered
@@ -110,6 +122,16 @@
       return parts.length >= 2 ? parts.slice(-2).join(".") : hostname.toLowerCase();
     } catch (_) {
       return hostname.toLowerCase();
+    }
+  }
+
+  function _utmMedium() {
+    try {
+      var params = new URL(window.location.href).searchParams;
+      var med = params.get("utm_medium");
+      return med ? med.toLowerCase().trim() : null;
+    } catch (_) {
+      return null;
     }
   }
 
@@ -314,6 +336,8 @@
       timestamp:   Date.now(),
       source_type: detectSourceType(),
       referrer:    document.referrer || "",
+      utm_medium:  _utmMedium() || undefined,
+      device_type: /Mobi|Android/i.test(navigator.userAgent) ? "mobile" : "desktop",
     };
     if (extra) {
       for (var k in extra) {
@@ -448,12 +472,66 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 1. page_view — fired immediately on script load (fetch)
+  // Batch buffer — queues events and flushes to /track/batch every 2 seconds.
+  //
+  // Reduces network requests by ~80% on high-event sessions.  The batch
+  // endpoint accepts { events: [...] } and inserts all rows in a single
+  // transaction.
+  //
+  // Immediate sends (page_view, product_view) still go through sendEvent()
+  // because they establish the visitor session and must arrive before any
+  // batched events.  Batching is used for dwell_time, scroll, click, and
+  // other mid-session events.
+  // ---------------------------------------------------------------------------
+  var _BATCH_URL   = API_URL + "/batch";
+  var _batchQueue  = [];
+  var _batchTimer  = null;
+  var _BATCH_DELAY = 2000;  // flush every 2 seconds
+  var _BATCH_MAX   = 20;    // or when 20 events accumulate
+
+  function _flushBatch() {
+    if (!_batchQueue.length) return;
+    var events = _batchQueue.splice(0);
+    _batchTimer = null;
+    try {
+      var body = JSON.stringify({ events: events });
+      fetch(_BATCH_URL, {
+        method:      "POST",
+        headers:     { "Content-Type": "application/json" },
+        body:        body,
+        keepalive:   true,
+        credentials: "omit",
+      }).catch(function () {
+        // On failure, re-enqueue individual events to the offline buffer
+        for (var i = 0; i < events.length; i++) {
+          _enqueue(JSON.stringify(events[i]));
+        }
+      });
+    } catch (_) {}
+  }
+
+  function sendEventBatched(eventType, extra) {
+    try {
+      var payload = buildPayload(eventType, extra);
+      _batchQueue.push(payload);
+      if (_batchQueue.length >= _BATCH_MAX) {
+        if (_batchTimer) { clearTimeout(_batchTimer); _batchTimer = null; }
+        _flushBatch();
+      } else if (!_batchTimer) {
+        _batchTimer = setTimeout(_flushBatch, _BATCH_DELAY);
+      }
+    } catch (_) {}
+  }
+
+  // ---------------------------------------------------------------------------
+  // 1. page_view — fired immediately on script load (fetch, NOT batched)
+  //    Must arrive first to establish the visitor session server-side.
   // ---------------------------------------------------------------------------
   sendEvent("page_view");
 
   // ---------------------------------------------------------------------------
-  // 2. product_view — fired on Shopify product pages (fetch)
+  // 2. product_view — fired on Shopify product pages (fetch, NOT batched)
+  //    Must arrive immediately for real-time signal detection.
   // ---------------------------------------------------------------------------
   if (detectProductUrl()) {
     sendEvent("product_view");
@@ -539,6 +617,11 @@
     if (dwellSent) return;
     dwellSent = true;
 
+    // Flush pending batch buffer before exit — ensures mid-session events
+    // (clicks, etc.) are not lost when the page unloads.
+    if (_batchTimer) { clearTimeout(_batchTimer); _batchTimer = null; }
+    _flushBatch();
+
     // Flush any pending throttle so the very last scroll position is captured.
     if (scrollThrottleId !== null) {
       clearTimeout(scrollThrottleId);
@@ -584,6 +667,198 @@
 
     window.addEventListener("beforeunload", onPageLeave);
   } catch (_) {}
+
+  // ---------------------------------------------------------------------------
+  // 5. Add-to-cart tracking
+  //
+  // Three detection patterns, all non-blocking:
+  //   A. Form submit to /cart/add — traditional Shopify product forms
+  //   B. fetch() to /cart/add.js — modern AJAX themes (Dawn, etc.)
+  //   C. XMLHttpRequest to /cart/add — legacy jQuery themes
+  //
+  // Dedup: sessionStorage per (product_url, session) + 500ms cooldown.
+  // Max 1 add_to_cart event per product per session.
+  //
+  // CRITICAL: fetch/XHR patches use __hs_patched sentinel to prevent
+  // double-patching if the script evaluates twice (hot reload, CSP retry).
+  // Original functions are preserved exactly — return values, promises,
+  // error propagation are all pass-through.
+  // ---------------------------------------------------------------------------
+  var _atcSentKey  = "hs_atc_sent";
+  var _atcCooldown = 0;  // monotonic timestamp of last fire
+
+  function _atcSent(productUrl) {
+    try {
+      var sent = JSON.parse(sessionStorage.getItem(_atcSentKey) || "{}");
+      return !!sent[productUrl];
+    } catch (_) { return false; }
+  }
+
+  function _markAtcSent(productUrl) {
+    try {
+      var sent = JSON.parse(sessionStorage.getItem(_atcSentKey) || "{}");
+      sent[productUrl] = 1;
+      sessionStorage.setItem(_atcSentKey, JSON.stringify(sent));
+    } catch (_) {}
+  }
+
+  function _fireAddToCart(source) {
+    try {
+      var now = Date.now();
+      // 500ms cooldown prevents click + form submit double-fire on same action
+      if (now - _atcCooldown < 500) return;
+      var productUrl = detectProductUrl();
+      if (!productUrl) return;
+      if (_atcSent(productUrl)) return;
+      _atcCooldown = now;
+      _markAtcSent(productUrl);
+      sendEventBatched("add_to_cart", { product_url: productUrl });
+    } catch (_) {}
+  }
+
+  // Pattern A: form submit — only forms posting to /cart/add (NOT /cart alone)
+  try {
+    document.addEventListener("submit", function (e) {
+      try {
+        var form = e.target;
+        if (!form) return;
+        var action = form.getAttribute("action") || "";
+        // Strict match: must contain /cart/add — not just /cart (which catches
+        // coupon forms, cart update forms, etc.)
+        if (action.indexOf("/cart/add") !== -1) {
+          _fireAddToCart("form");
+        }
+      } catch (_) {}
+    }, true);
+  } catch (_) {}
+
+  // Pattern B: fetch() interception — idempotent, preserves original exactly
+  try {
+    if (window.fetch && !window.fetch.__hs_patched) {
+      var _origFetch = window.fetch;
+      window.fetch = function (input) {
+        try {
+          // Handle both string URLs and Request objects
+          var urlStr = typeof input === "string"
+            ? input
+            : (input && typeof input.url === "string" ? input.url : "");
+          if (urlStr.indexOf("/cart/add") !== -1) {
+            _fireAddToCart("fetch");
+          }
+        } catch (_) {}
+        // CRITICAL: pass through ALL arguments unchanged, preserve `this`
+        return _origFetch.apply(this, arguments);
+      };
+      window.fetch.__hs_patched = true;
+    }
+  } catch (_) {}
+
+  // Pattern C: XHR interception — idempotent, preserves original exactly
+  try {
+    var xhrProto = XMLHttpRequest.prototype;
+    if (xhrProto.open && !xhrProto.open.__hs_patched) {
+      var _origOpen = xhrProto.open;
+      xhrProto.open = function (method, url) {
+        try {
+          if (typeof url === "string" && url.indexOf("/cart/add") !== -1) {
+            _fireAddToCart("xhr");
+          }
+        } catch (_) {}
+        return _origOpen.apply(this, arguments);
+      };
+      xhrProto.open.__hs_patched = true;
+    }
+  } catch (_) {}
+
+  // ---------------------------------------------------------------------------
+  // 6. Product-page CTA click tracking
+  //
+  // Captures clicks on high-signal interactive elements on product pages.
+  // Uses event delegation — ONE listener on document, capture phase.
+  //
+  // Dedup: the click listener DOES NOT fire add_to_cart — that's handled
+  // by section 5 via form/fetch/XHR interception.  The click event records
+  // "visitor interacted with a CTA" which is a separate behavioral signal
+  // from "item was successfully added to cart."
+  //
+  // Max 3 click events per page load (tightened from 5 — 3 unique CTA
+  // interactions is the useful signal ceiling per page).
+  // ---------------------------------------------------------------------------
+  var _clickCount = 0;
+  var _MAX_CLICKS = 3;
+
+  // Tight selector set — only elements that indicate purchase intent.
+  // Intentionally excludes generic <a> tags, nav links, accordion toggles.
+  var _CLICK_SELECTORS = [
+    "[type='submit'][name='add']",           // Shopify default ATC button
+    ".product-form__submit",                 // Dawn / Shopify 2.0 themes
+    ".shopify-payment-button__button",       // Dynamic checkout (Buy with Shop Pay)
+    ".shopify-payment-button button",        // Dynamic checkout nested button
+    "[data-add-to-cart]",                    // Common theme convention
+    "button[name='add']",                    // Generic Shopify add button
+  ];
+
+  function _matchesClickSelector(el) {
+    if (!el || el.nodeType !== 1) return false;
+    try {
+      for (var i = 0; i < _CLICK_SELECTORS.length; i++) {
+        try { if (el.matches(_CLICK_SELECTORS[i])) return true; } catch (_) {}
+      }
+      // Walk up max 2 parent levels for clicks on inner <span>/<svg> icons
+      var parent = el.parentElement;
+      for (var depth = 0; parent && depth < 2; depth++) {
+        for (var j = 0; j < _CLICK_SELECTORS.length; j++) {
+          try { if (parent.matches(_CLICK_SELECTORS[j])) return true; } catch (_) {}
+        }
+        parent = parent.parentElement;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  if (detectProductUrl()) {
+    try {
+      document.addEventListener("click", function (e) {
+        try {
+          if (_clickCount >= _MAX_CLICKS) return;
+          if (!_matchesClickSelector(e.target)) return;
+          _clickCount++;
+          sendEventBatched("click", {
+            product_url: detectProductUrl(),
+          });
+        } catch (_) {}
+      }, true);
+    } catch (_) {}
+  }
+
+  // ---------------------------------------------------------------------------
+  // 7. Cart and checkout page detection
+  //
+  // Two distinct events with clean semantics:
+  //   view_cart       — visitor is on /cart (browsing cart, not yet committed)
+  //   begin_checkout  — visitor is on /checkout (committed to purchase flow)
+  //
+  // Naturally deduplicated: one event per page load.
+  // Fires via sendEventBatched — mid-session intent signal.
+  // ---------------------------------------------------------------------------
+  try {
+    var _pathname = window.location.pathname;
+    // /checkouts/... or /checkout (Shopify uses both)
+    if (/^\/checkout/.test(_pathname)) {
+      sendEventBatched("begin_checkout");
+    } else if (/^\/cart\b/.test(_pathname)) {
+      sendEventBatched("view_cart");
+    }
+  } catch (_) {}
+
+  // ---------------------------------------------------------------------------
+  // 8. Purchase tracking
+  //
+  // Script tags do NOT run on Shopify checkout/thank-you pages.
+  // Purchase tracking is handled by the Shopify Web Pixel (Custom Pixel)
+  // installed in Shopify Admin > Settings > Customer events.
+  // See: tracker/spark-pixel.js
+  // ---------------------------------------------------------------------------
 
   } // end _wishsparkBoot
 

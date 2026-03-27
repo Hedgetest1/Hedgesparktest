@@ -71,7 +71,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
-from app.core.deps import require_pro_plan
+from app.core.deps import require_pro_session
 from app.services.action_candidates_engine import generate_action_candidates
 
 router = APIRouter(prefix="/actions", tags=["actions"])
@@ -93,7 +93,7 @@ def get_db():
 
 @router.get("/candidates/pro")
 def action_candidates_pro(
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, case
 
 from app.core.database import SessionLocal
-from app.core.deps import require_api_key, require_shop
+from app.core.deps import require_merchant_session
 from app.models.visitor_product_state import VisitorProductState
 
 router = APIRouter()
@@ -19,8 +19,7 @@ def get_db():
 
 @router.get("/intent/top-hot")
 def top_hot_visitors(
-    shop: str = Depends(require_shop),
-    _: None = Depends(require_api_key),
+    shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ):
     results = (
@@ -50,8 +49,7 @@ def top_hot_visitors(
 @router.get("/intent/visitor/{visitor_id}")
 def visitor_intent(
     visitor_id: str,
-    shop: str = Depends(require_shop),
-    _: None = Depends(require_api_key),
+    shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ):
     results = (
@@ -83,8 +81,7 @@ def visitor_intent(
 
 @router.get("/intent/summary")
 def intent_summary(
-    shop: str = Depends(require_shop),
-    _: None = Depends(require_api_key),
+    shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ):
     base = db.query(VisitorProductState).filter(VisitorProductState.shop_domain == shop)
@@ -108,8 +105,7 @@ def intent_summary(
 
 @router.get("/intent/products/top")
 def top_products(
-    shop: str = Depends(require_shop),
-    _: None = Depends(require_api_key),
+    shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ):
     rows = (
@@ -145,8 +141,7 @@ def top_products(
 
 @router.get("/intent/products/opportunities")
 def product_opportunities(
-    shop: str = Depends(require_shop),
-    _: None = Depends(require_api_key),
+    shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ):
     rows = (

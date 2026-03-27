@@ -23,11 +23,14 @@ Key design choices
     enables O(n) retention cleanup:
     DELETE FROM nudge_impression_daily WHERE shop_domain=? AND impression_date < ?
 
-- CONCURRENTLY not used here (no existing large table to lock):
-    The table is new; index creation is immediate.
+Idempotency
+-----------
+Uses IF NOT EXISTS / inspection guards so the migration is safe to run even
+when Base.metadata.create_all has already created the table.
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect as sa_inspect
 
 
 # revision identifiers, used by Alembic.
@@ -38,29 +41,37 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "nudge_impression_daily",
-        sa.Column("id",              sa.Integer(),  primary_key=True, autoincrement=True),
-        sa.Column("shop_domain",     sa.String(),   nullable=False),
-        sa.Column("nudge_id",        sa.Integer(),  nullable=False),
-        sa.Column("visitor_id",      sa.String(),   nullable=False),
-        sa.Column("impression_date", sa.Date(),     nullable=False),
-        sa.Column("created_at",      sa.DateTime(), nullable=False, server_default=sa.func.now()),
-    )
+    conn = op.get_bind()
+    inspector = sa_inspect(conn)
+    existing_tables = inspector.get_table_names()
 
-    # Dedup unique constraint
-    op.create_unique_constraint(
-        "uq_nudge_impression_daily",
-        "nudge_impression_daily",
-        ["nudge_id", "visitor_id", "impression_date"],
-    )
+    if "nudge_impression_daily" not in existing_tables:
+        op.create_table(
+            "nudge_impression_daily",
+            sa.Column("id",              sa.Integer(),  primary_key=True, autoincrement=True),
+            sa.Column("shop_domain",     sa.String(),   nullable=False),
+            sa.Column("nudge_id",        sa.Integer(),  nullable=False),
+            sa.Column("visitor_id",      sa.String(),   nullable=False),
+            sa.Column("impression_date", sa.Date(),     nullable=False),
+            sa.Column("created_at",      sa.DateTime(), nullable=False, server_default=sa.func.now()),
+        )
 
-    # Retention / cleanup index
-    op.create_index(
-        "ix_nudge_impression_shop_date",
-        "nudge_impression_daily",
-        ["shop_domain", "impression_date"],
-    )
+    # Add constraints/indexes idempotently
+    existing_constraints = [c["name"] for c in inspector.get_unique_constraints("nudge_impression_daily")]
+    if "uq_nudge_impression_daily" not in existing_constraints:
+        op.create_unique_constraint(
+            "uq_nudge_impression_daily",
+            "nudge_impression_daily",
+            ["nudge_id", "visitor_id", "impression_date"],
+        )
+
+    existing_indexes = [i["name"] for i in inspector.get_indexes("nudge_impression_daily")]
+    if "ix_nudge_impression_shop_date" not in existing_indexes:
+        op.create_index(
+            "ix_nudge_impression_shop_date",
+            "nudge_impression_daily",
+            ["shop_domain", "impression_date"],
+        )
 
 
 def downgrade() -> None:

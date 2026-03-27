@@ -107,7 +107,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
-from app.core.deps import require_pro_plan
+from app.core.deps import require_pro_session
 from app.models.active_nudge import ActiveNudge
 from app.services.nudge_engine import (
     deactivate_nudge,
@@ -461,7 +461,7 @@ def list_pro_nudges(
         description="Filter by status: active | expired | deactivated | all",
     ),
     limit: int     = Query(default=50, ge=1, le=100),
-    shop:  str     = Depends(require_pro_plan),
+    shop:  str     = Depends(require_pro_session),
     db:    Session = Depends(get_db),
 ):
     """
@@ -527,7 +527,7 @@ class NudgeComposeRequest(BaseModel):
 @router.post("/pro/nudges")
 async def compose_pro_nudge(
     payload: NudgeComposeRequest,
-    shop:    str     = Depends(require_pro_plan),
+    shop:    str     = Depends(require_pro_session),
     db:      Session = Depends(get_db),
 ):
     """
@@ -694,7 +694,7 @@ def get_nudge_rank(
         description="Filter by nudge status: active | expired | deactivated | all",
     ),
     limit: int            = Query(default=50, ge=1, le=100),
-    shop:  str            = Depends(require_pro_plan),
+    shop:  str            = Depends(require_pro_session),
     db:    Session        = Depends(get_db),
 ):
     """
@@ -792,7 +792,7 @@ def get_nudge_stats_pro(
         le=168,
         description="Attribution window in hours (1–168).",
     ),
-    shop:         str     = Depends(require_pro_plan),
+    shop:         str     = Depends(require_pro_session),
     db:           Session = Depends(get_db),
 ):
     """
@@ -871,7 +871,7 @@ class HoldoutUpdatePayload(BaseModel):
 def update_nudge_holdout(
     nudge_id: int,
     payload:  HoldoutUpdatePayload,
-    shop:     str     = Depends(require_pro_plan),
+    shop:     str     = Depends(require_pro_session),
     db:       Session = Depends(get_db),
 ):
     """
@@ -939,7 +939,7 @@ def update_nudge_holdout(
 @router.delete("/pro/nudges/{nudge_id}")
 def deactivate_pro_nudge(
     nudge_id: int,
-    shop:     str     = Depends(require_pro_plan),
+    shop:     str     = Depends(require_pro_session),
     db:       Session = Depends(get_db),
 ):
     """

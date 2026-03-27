@@ -74,7 +74,7 @@ from __future__ import annotations
 
 # TODO: REPLACE WITH REAL ORDER DATA
 # This fallback is used when no real AOV is available for the merchant.
-# Once shop_orders is populated via POST /webhooks/shopify/orders-paid,
+# Once shop_orders is populated via POST /webhooks/shopify/orders,
 # replace this constant with a per-shop query:
 #   SELECT AVG(total_price) FROM shop_orders WHERE shop_domain = :shop
 # See app/services/order_ingestion.py and app/models/shop_order.py.

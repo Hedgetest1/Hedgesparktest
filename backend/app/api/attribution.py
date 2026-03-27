@@ -26,7 +26,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
-from app.core.deps import require_api_key, require_pro_plan, require_shop
+from app.core.deps import require_merchant_session, require_pro_session
 from app.services.utm_attribution import (
     get_utm_attribution,
     get_utm_top_products_by_source,
@@ -48,8 +48,7 @@ def get_db():
 @router.get("/sources")
 def get_source_attribution_lite(
     days: int = 30,
-    shop: str = Depends(require_shop),
-    _: None = Depends(require_api_key),
+    shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -84,7 +83,7 @@ def get_source_attribution_lite(
 @router.get("/sources/pro")
 def get_source_attribution_pro(
     days: int = 30,
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -108,7 +107,7 @@ def get_source_attribution_pro(
 @router.get("/products")
 def get_product_source_attribution(
     days: int = 30,
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """

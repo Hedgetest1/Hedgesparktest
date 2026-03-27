@@ -5,7 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import engine
-from app.core.deps import require_api_key, require_shop
+from app.core.deps import require_merchant_session
 from app.services.conversion_service import infer_conversion_outcome
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -24,8 +24,7 @@ def _rows(query: str, params: dict) -> list[dict]:
 
 @router.get("/top")
 def top_conversion_candidates(
-    shop: str = Depends(require_shop),
-    _: None = Depends(require_api_key),
+    shop: str = Depends(require_merchant_session),
 ):
     params = {"shop_domain": shop}
 

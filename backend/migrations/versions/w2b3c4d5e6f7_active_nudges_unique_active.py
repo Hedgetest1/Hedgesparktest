@@ -30,17 +30,32 @@ Downgrade safety
 ----------------
 Dropping the index reverts to service-layer-only enforcement.  No data is
 lost — the constraint is additive only.
+
+Note on CONCURRENTLY
+--------------------
+The original version used CREATE INDEX CONCURRENTLY, which cannot run inside
+a transaction block.  Alembic's env.py wraps all migrations in a transaction
+(context.begin_transaction()), making CONCURRENTLY impossible without either:
+  a) Modifying env.py to detect and skip the transaction for specific revisions
+  b) Using raw connection autocommit escape hatches
+
+Neither is worth the complexity for active_nudges, which holds dozens to low
+hundreds of rows.  A regular CREATE INDEX completes in <1ms and the brief
+exclusive lock is irrelevant at this data volume.  The CONCURRENTLY keyword
+is dropped intentionally.
 """
 from alembic import op
 
+# revision identifiers, used by Alembic.
+revision = "w2b3c4d5e6f7"
+down_revision = "v1a2b3c4d5e6"
+branch_labels = None
+depends_on = None
+
 
 def upgrade() -> None:
-    # CREATE UNIQUE INDEX CONCURRENTLY cannot run inside a transaction.
-    # Alembic wraps upgrades in a transaction by default — we execute raw
-    # DDL outside that transaction using op.execute() with CONCURRENTLY.
-    # This is safe for PostgreSQL 9.6+ and does not lock the table.
     op.execute("""
-        CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS
+        CREATE UNIQUE INDEX IF NOT EXISTS
             ix_active_nudges_unique_active
         ON active_nudges (shop_domain, product_url, action_type)
         WHERE status = 'active'
@@ -48,4 +63,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS ix_active_nudges_unique_active")
+    op.execute("DROP INDEX IF EXISTS ix_active_nudges_unique_active")

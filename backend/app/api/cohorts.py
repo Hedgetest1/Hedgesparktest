@@ -26,7 +26,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
-from app.core.deps import require_pro_plan
+from app.core.deps import require_pro_session
 from app.services.cohort_engine import get_cohort_retention, get_cohort_summary
 
 log = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ def get_db():
 @router.get("")
 def get_cohorts(
     weeks: int = 12,
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -82,7 +82,7 @@ def get_cohorts(
 
 @router.get("/summary")
 def get_cohort_summary_endpoint(
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """

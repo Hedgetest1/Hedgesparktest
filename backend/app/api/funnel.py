@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 
 from app.core.database import engine
-from app.core.deps import require_api_key, require_shop
+from app.core.deps import require_merchant_session
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -28,8 +28,7 @@ def _pct(numerator: int, denominator: int) -> float | None:
 
 @router.get("/funnel")
 def conversion_funnel(
-    shop: str = Depends(require_shop),
-    _: None = Depends(require_api_key),
+    shop: str = Depends(require_merchant_session),
 ):
     query = text("""
         SELECT

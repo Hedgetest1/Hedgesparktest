@@ -3,7 +3,7 @@ visitor_purchase_session.py — Visitor-to-order attribution bridge.
 
 Each row records that a specific WishSpark visitor (identified by the
 persistent localStorage UUID from spark-tracker.js) generated a specific
-Shopify order (identified by shopify_order_id from the orders/paid webhook).
+Shopify order (identified by shopify_order_id from the orders/updated webhook).
 
 The attribution event is fired by spark-attribution.js on the Shopify Order
 Status (thank-you) page.

@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 
 from app.core.database import engine
-from app.core.deps import require_api_key, require_shop
+from app.core.deps import require_merchant_session
 from app.schemas.product_trend import ProductTrendResponse, ProductTrendRow
 
 router = APIRouter(prefix="/products", tags=["products"])
@@ -27,8 +27,7 @@ router = APIRouter(prefix="/products", tags=["products"])
 
 @router.get("/trend", response_model=ProductTrendResponse)
 def get_product_trend(
-    shop: str = Depends(require_shop),
-    _: None = Depends(require_api_key),
+    shop: str = Depends(require_merchant_session),
 ):
     """
     Return the 7-day view timeseries for each product in the shop.

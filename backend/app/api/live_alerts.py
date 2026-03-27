@@ -43,7 +43,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 
 from app.core.database import engine
-from app.core.deps import require_api_key, require_pro_plan, require_shop
+from app.core.deps import require_merchant_session, require_pro_session
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -165,8 +165,7 @@ def _build_alerts(shop: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 @router.get("/alerts")
 def alerts(
-    shop: str = Depends(require_shop),
-    _: None = Depends(require_api_key),
+    shop: str = Depends(require_merchant_session),
 ):
     """
     Lite alert list — diagnostic fields only (type, priority, message).
@@ -192,7 +191,7 @@ def alerts(
 # ---------------------------------------------------------------------------
 @router.get("/alerts/pro")
 def alerts_pro(
-    shop: str = Depends(require_pro_plan),
+    shop: str = Depends(require_pro_session),
 ):
     """
     Pro alert list — full response including `action` per alert.

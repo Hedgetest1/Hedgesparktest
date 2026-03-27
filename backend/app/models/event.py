@@ -26,6 +26,11 @@ class Event(Base):
     # Nullable: rows ingested before that migration have no source data.
     source_type = Column(String, nullable=True)   # direct | google | facebook | …
     referrer = Column(String, nullable=True)       # raw document.referrer value
+    utm_medium = Column(String(128), nullable=True)  # raw utm_medium for paid/organic classification
+
+    # Device type — "mobile" or "desktop", sent by tracker since v3.
+    # Nullable: rows before this addition have no device data.
+    device_type = Column(String(16), nullable=True)
 
     # Shopify numeric product ID — captured from window.ShopifyAnalytics.meta.product.id
     # on product pages since migration o1a2b3c4d5e6.  Used to bridge product_id → product_url
