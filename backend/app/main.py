@@ -115,6 +115,14 @@ from app.models.action_approval import ActionApproval # noqa: F401 — ensures t
 from app.models.autofix_promotion import AutoFixPromotion # noqa: F401 — ensures table is created
 from app.models.merge_outcome import MergeOutcome       # noqa: F401 — ensures table is created
 from app.models.bugfix_candidate import BugFixCandidate # noqa: F401 — ensures table is created
+from app.models.gdpr_request import GdprRequest                   # noqa: F401 — ensures table is created
+from app.models.merchant import Merchant                           # noqa: F401 — ensures table is created
+from app.models.action_task import ActionTask                      # noqa: F401 — ensures table is created
+from app.models.store_metrics import StoreMetrics                  # noqa: F401 — ensures table is created
+from app.models.unique_product_detection import UniqueProductDetection  # noqa: F401 — ensures table is created
+from app.models.execution import (                                 # noqa: F401 — ensures execution tables created
+    ExecutionOpportunity, ExecutionAudience, ExecutionTracking, ExecutionBaseline,
+)
 from app.api.nudges import router as nudges_router
 from app.api.nudge_script import router as nudge_script_router
 from app.api.nudge_events import router as nudge_events_router
