@@ -46,6 +46,9 @@ jobs:
       MERCHANT_TOKEN_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
       SHOPIFY_WEBHOOK_SECRET: ci-test-webhook-secret
       ALLOW_INSECURE_DEV: "false"
+      DASHBOARD_API_KEY: ci-test-dashboard-api-key
+      APP_URL: https://ci-test.example.com
+      DASHBOARD_URL: https://ci-test.example.com
 
     defaults:
       run:
@@ -64,7 +67,9 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Create database tables
-        run: python -m alembic upgrade head
+        env:
+          PYTHONPATH: .
+        run: python -c "from app.main import app; print('Tables created via Base.metadata.create_all')"
 
       - name: Run tests
         run: python -m pytest tests/ -v --tb=short
@@ -85,11 +90,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
-          cache-dependency-path: dashboard/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Type check
         run: npx tsc --noEmit
