@@ -543,11 +543,33 @@ def _run_brain_refresh():
         db.close()
 
 
-# Daily health digest — calendar-day dedup (Europe/Rome), Redis-persistent
-_DIGEST_REDIS_KEY = "hs:digest:last_sent_date"
-_DIGEST_TTL = 172800  # 48h — auto-cleanup, covers timezone edge cases
-# In-process fallback if Redis is down
-_digest_fallback_date: str | None = None
+# ---------------------------------------------------------------------------
+# Daily health digest — race-safe, distributed-safe, calendar-day dedup
+#
+# Two Redis keys per day (Europe/Rome timezone):
+#   hs:digest:sent:2026-03-30   — permanent marker: digest was delivered
+#                                  SET after successful Telegram send
+#                                  TTL 172800s (48h, auto-cleanup)
+#
+#   hs:digest:lock:2026-03-30   — in-flight lock: a process is currently
+#                                  building + sending the digest
+#                                  SET NX EX 300 (5 min TTL, auto-expire
+#                                  if process crashes mid-send)
+#
+# Flow:
+#   1. Check sent key → exists → skip (already delivered today)
+#   2. Try SET NX on lock key → fails → skip (another process owns it)
+#   3. Build + send digest
+#   4. On success → SET sent key → DELETE lock key
+#   5. On failure → DELETE lock key (allow retry by any process next cycle)
+#
+# In-process fallback if Redis is unavailable: single _fallback_sent_date
+# variable. Not race-safe across processes (impossible without shared state),
+# but prevents duplicate sends within a single process.
+# ---------------------------------------------------------------------------
+_DIGEST_SENT_TTL = 172800     # 48h — permanent marker auto-cleanup
+_DIGEST_LOCK_TTL = 300        # 5 min — in-flight lock auto-expire on crash
+_digest_fallback_sent: str | None = None  # in-process fallback
 
 
 def _today_rome() -> str:
@@ -556,66 +578,92 @@ def _today_rome() -> str:
     return datetime.now(ZoneInfo("Europe/Rome")).strftime("%Y-%m-%d")
 
 
-def _digest_already_sent_today() -> bool:
-    """Check if digest was already sent for today (Europe/Rome calendar day)."""
-    global _digest_fallback_date
-    today = _today_rome()
-
-    # Try Redis first (persistent across restarts)
-    try:
-        from app.core.redis_client import _client
-        rc = _client()
-        if rc is not None:
-            last = rc.get(_DIGEST_REDIS_KEY)
-            if last and last == today:
-                return True
-            return False
-    except Exception:
-        pass
-
-    # Fallback: in-process (reset on restart — acceptable as secondary guard)
-    return _digest_fallback_date == today
+def _digest_sent_key(date: str) -> str:
+    return f"hs:digest:sent:{date}"
 
 
-def _mark_digest_sent():
-    """Mark today's digest as sent (Redis + in-process fallback)."""
-    global _digest_fallback_date
-    today = _today_rome()
-    _digest_fallback_date = today
-
-    try:
-        from app.core.redis_client import _client
-        rc = _client()
-        if rc is not None:
-            rc.set(_DIGEST_REDIS_KEY, today, ex=_DIGEST_TTL)
-    except Exception:
-        pass
+def _digest_lock_key(date: str) -> str:
+    return f"hs:digest:lock:{date}"
 
 
 def _run_daily_digest():
     """
     Send daily health digest to Telegram — at most once per calendar day
-    (Europe/Rome timezone). Persistent across worker restarts via Redis.
+    (Europe/Rome). Distributed-safe via Redis SET NX atomic lock.
     """
+    global _digest_fallback_sent
+
     from app.services.telegram_agent import send_daily_digest, is_configured
     if not is_configured():
         return
 
-    if _digest_already_sent_today():
+    today = _today_rome()
+
+    # --- Phase 1: Check permanent sent marker ---
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+    except Exception:
+        rc = None
+
+    if rc is not None:
+        try:
+            if rc.get(_digest_sent_key(today)):
+                return  # already delivered today
+        except Exception:
+            pass
+    elif _digest_fallback_sent == today:
+        return  # in-process fallback: already sent
+
+    # --- Phase 2: Acquire atomic lock (SET NX) ---
+    lock_acquired_redis = False
+    if rc is not None:
+        try:
+            lock_acquired_redis = bool(rc.set(
+                _digest_lock_key(today), "1", nx=True, ex=_DIGEST_LOCK_TTL,
+            ))
+            if not lock_acquired_redis:
+                log("daily_digest: lock held by another process — skipping")
+                return
+            log(f"daily_digest: lock acquired for {today}")
+        except Exception:
+            pass  # Redis error — fall through to in-process attempt
+
+    # If Redis unavailable and fallback already set, skip
+    if not lock_acquired_redis and _digest_fallback_sent == today:
         return
 
+    # --- Phase 3: Build and send ---
     db = SessionLocal()
+    sent = False
     try:
         sent = send_daily_digest(db)
-        if sent:
-            _mark_digest_sent()
-            log(f"daily_digest: sent for {_today_rome()}")
-        else:
-            log("daily_digest: send failed — will retry next cycle")
     except Exception as exc:
         log(f"daily_digest error (non-fatal): {exc}")
     finally:
         db.close()
+
+    # --- Phase 4: Record result ---
+    if sent:
+        _digest_fallback_sent = today
+        if rc is not None:
+            try:
+                rc.set(_digest_sent_key(today), "1", ex=_DIGEST_SENT_TTL)
+            except Exception:
+                pass
+            try:
+                rc.delete(_digest_lock_key(today))
+            except Exception:
+                pass
+        log(f"daily_digest: sent for {today}")
+    else:
+        # Release lock so another cycle/process can retry
+        if rc is not None and lock_acquired_redis:
+            try:
+                rc.delete(_digest_lock_key(today))
+            except Exception:
+                pass
+        log("daily_digest: send failed — lock released, will retry next cycle")
 
 
 def run_cycle():
