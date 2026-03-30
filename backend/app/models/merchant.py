@@ -114,6 +114,17 @@ class Merchant(Base):
     onboarding_error  = Column(String(512), nullable=True)
 
     # ---------------------------------------------------------------------------
+    # Tracker delivery method
+    #
+    # "script_tag"       — delivered via Shopify Script Tags API (current default)
+    # "theme_extension"  — delivered via Shopify Theme App Extension (future)
+    # "manual"           — manually injected by merchant (rare)
+    #
+    # Used for migration tracking from Script Tags → Theme App Extensions.
+    # ---------------------------------------------------------------------------
+    tracker_delivery_method = Column(String(32), nullable=False, default="script_tag", server_default="script_tag")
+
+    # ---------------------------------------------------------------------------
     # GDPR consent tracking
     #
     # Set at OAuth install/reinstall time — records when the merchant consented

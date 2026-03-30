@@ -1383,6 +1383,54 @@ def get_meta_review(
 # Webhook fleet status
 # ---------------------------------------------------------------------------
 
+@router.get("/tracker/status")
+def get_tracker_fleet_status(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Fleet-wide tracker delivery status."""
+    from sqlalchemy import func
+    from app.models.merchant import Merchant
+
+    rows = (
+        db.query(
+            Merchant.tracker_delivery_method,
+            func.count().label("count"),
+            func.count(Merchant.script_tag_id).label("with_tag"),
+        )
+        .filter(Merchant.install_status == "active")
+        .group_by(Merchant.tracker_delivery_method)
+        .all()
+    )
+
+    methods = {}
+    total = 0
+    total_with_tag = 0
+    for r in rows:
+        methods[r[0]] = {"count": r[1], "with_script_tag": r[2]}
+        total += r[1]
+        total_with_tag += r[2]
+
+    # Merchants with no script_tag_id (potentially broken)
+    missing_tag = (
+        db.query(Merchant.shop_domain)
+        .filter(
+            Merchant.install_status == "active",
+            Merchant.script_tag_id.is_(None),
+            Merchant.access_token.isnot(None),
+        )
+        .all()
+    )
+
+    return {
+        "total_active": total,
+        "with_script_tag": total_with_tag,
+        "missing_script_tag": [r[0] for r in missing_tag],
+        "by_delivery_method": methods,
+        "tracker_version": __import__("app.core.tracker_version", fromlist=["TRACKER_VERSION"]).TRACKER_VERSION,
+    }
+
+
 @router.get("/webhooks/status")
 def get_webhook_fleet_status(
     _auth: bool = Depends(require_operator),
