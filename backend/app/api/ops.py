@@ -1377,3 +1377,27 @@ def get_meta_review(
     if not review:
         return {"status": "no_review_available"}
     return review
+
+
+# ---------------------------------------------------------------------------
+# Sentry verification (operator-only)
+# ---------------------------------------------------------------------------
+
+@router.post("/sentry-test")
+def sentry_test_error(
+    _auth: bool = Depends(require_operator),
+):
+    """
+    Intentionally raise an exception to verify Sentry is capturing errors
+    with correct tags (request_id, shop_domain, route).
+
+    Operator-only. Returns 500 if Sentry is active (exception propagates).
+    Returns 200 with status if Sentry is not configured.
+    """
+    try:
+        import sentry_sdk
+        if sentry_sdk.is_initialized():
+            raise RuntimeError("Sentry verification test — this error is intentional")
+        return {"status": "sentry_not_initialized", "detail": "Set SENTRY_DSN in .env and restart"}
+    except ImportError:
+        return {"status": "sentry_not_installed", "detail": "pip install sentry-sdk[fastapi]"}
