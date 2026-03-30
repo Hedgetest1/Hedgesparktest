@@ -1667,12 +1667,13 @@ export default function Page() {
           }
         }
 
-        // 3. No valid session — fall back to ?shop= from URL
-        // This covers the OAuth redirect landing and dev usage
+        // 3. No valid session — check for ?shop= param
         const urlShop = params.get("shop") || "";
-        if (urlShop) {
+        const justInstalled = params.get("installed") === "1";
+
+        if (urlShop && justInstalled) {
+          // Just came from OAuth callback — shop param is trusted, proceed
           setShop(urlShop);
-          // Try to fetch plan for this shop (will work if cookie exists for it)
           try {
             const planRes = await fetch(
               `${API_BASE}/merchant/plan?shop=${encodeURIComponent(urlShop)}`,
@@ -1687,6 +1688,11 @@ export default function Page() {
               setBillingConfirmedAt(planJson.billing_confirmed_at ?? null);
             }
           } catch { /* tier stays lite */ }
+        } else if (urlShop) {
+          // Has shop param but no session — redirect to bootstrap endpoint
+          // This creates a session cookie and redirects back here
+          window.location.href = `${API_BASE}/auth/session?shop=${encodeURIComponent(urlShop)}`;
+          return;  // stop processing — page will reload after redirect
         }
       })
       .catch(() => {

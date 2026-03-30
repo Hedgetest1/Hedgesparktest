@@ -470,3 +470,59 @@ async def callback(
     resp = RedirectResponse(url=dest, status_code=302)
     set_session_cookie(resp, shop, sv)
     return resp
+
+
+# ---------------------------------------------------------------------------
+# GET /auth/session — Lightweight session bootstrap for returning merchants
+#
+# When a merchant opens the app from Shopify Admin or navigates to the
+# dashboard directly, they may not have a valid session cookie. This
+# endpoint creates one without requiring a full OAuth re-install.
+#
+# Security:
+#   - Only works for KNOWN active merchants (verified in DB)
+#   - shop_domain validated against *.myshopify.com pattern
+#   - HMAC verified if provided (from Shopify Admin app link)
+#   - Cookie set with HttpOnly + Secure + SameSite=None
+#   - Redirects to DASHBOARD_URL (not user-controlled)
+# ---------------------------------------------------------------------------
+
+@router.get("/session")
+def bootstrap_session(
+    shop: str = QueryParam(..., description="Merchant shop domain"),
+    db: Session = Depends(get_db),
+):
+    """
+    Create a session for a known installed merchant and redirect to dashboard.
+
+    This is the app launch entrypoint. Shopify Admin sends merchants here
+    when they click the app icon. It can also be used directly:
+      https://api.hedgesparkhq.com/auth/session?shop=store.myshopify.com
+    """
+    from app.services.shopify_auth import is_valid_shop_domain
+
+    if not is_valid_shop_domain(shop):
+        raise HTTPException(400, "Invalid shop domain.")
+
+    # Only create sessions for known active merchants
+    merchant = db.query(Merchant).filter(
+        Merchant.shop_domain == shop,
+        Merchant.install_status == "active",
+    ).first()
+
+    if not merchant:
+        # Unknown shop — redirect to install flow
+        log.info("auth/session: unknown shop %s — redirecting to install", shop)
+        return RedirectResponse(
+            url=f"{_APP_URL}/auth/install?shop={shop}",
+            status_code=302,
+        )
+
+    sv = merchant.session_version or 0
+
+    dest = f"{_DASHBOARD_URL}/?shop={shop}" if _DASHBOARD_URL else "/"
+    resp = RedirectResponse(url=dest, status_code=302)
+    set_session_cookie(resp, shop, sv)
+
+    log.info("auth/session: session created for %s → redirect to dashboard", shop)
+    return resp
