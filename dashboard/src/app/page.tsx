@@ -1581,6 +1581,11 @@ export default function Page() {
   const hasExecutingRef = useRef(false);
   const [expandedTaskKey, setExpandedTaskKey] = useState<string | null>(null);
 
+  // Pro intelligence modules
+  const [attrSummary, setAttrSummary] = useState<Record<string, unknown> | null>(null);
+  const [ltvData, setLtvData] = useState<Record<string, unknown> | null>(null);
+  const [forecastData, setForecastData] = useState<Record<string, unknown> | null>(null);
+
   // Session expiry detection — set when any fetch returns 401/403 mid-session
   const [sessionExpired, setSessionExpired] = useState(false);
 
@@ -2119,6 +2124,42 @@ export default function Page() {
 
     const id = setInterval(pollActionTasks, 30_000);
     return () => { active = false; clearInterval(id); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shop, tier]);
+
+  // ---------------------------------------------------------------------------
+  // Pro intelligence: attribution summary, LTV cohorts, revenue forecast
+  // Loaded once when Pro tier is confirmed (not polled — these are snapshots)
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!shop || tier !== "pro") return;
+    let active = true;
+
+    async function loadProIntelligence() {
+      const enc = encodeURIComponent(shop);
+      const opts = { headers: apiHeaders(), credentials: "include" as const, cache: "no-store" as const };
+
+      const [attrRes, ltvRes, fcRes] = await Promise.allSettled([
+        fetch(`${API_BASE}/attribution/summary/pro?shop=${enc}&days=30`, opts),
+        fetch(`${API_BASE}/pro/cohorts/monthly?shop=${enc}&months=6`, opts),
+        fetch(`${API_BASE}/orders/forecast/pro?shop=${enc}`, opts),
+      ]);
+
+      if (!active) return;
+
+      if (attrRes.status === "fulfilled" && attrRes.value.ok) {
+        try { setAttrSummary(await attrRes.value.json()); } catch {}
+      }
+      if (ltvRes.status === "fulfilled" && ltvRes.value.ok) {
+        try { setLtvData(await ltvRes.value.json()); } catch {}
+      }
+      if (fcRes.status === "fulfilled" && fcRes.value.ok) {
+        try { setForecastData(await fcRes.value.json()); } catch {}
+      }
+    }
+
+    loadProIntelligence().catch(() => {});
+    return () => { active = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shop, tier]);
 
@@ -3961,6 +4002,196 @@ export default function Page() {
                       />
                       <CohortTable apiBase={API_BASE} shop={shop} apiHeaders={apiHeaders} />
                     </div>
+                  </div>
+                </section>
+              )}
+
+              {/* Pro — Revenue Forecast + Attribution + LTV Intelligence */}
+              {isProUser && (
+                <section id="section-pro-intelligence">
+                  {/* Revenue Forecast */}
+                  <SectionHeading
+                    eyebrow="Forecast"
+                    title="Revenue outlook"
+                    description="Where your revenue is heading based on real order history."
+                    pro
+                  />
+                  {forecastData ? (
+                    <div className="mb-8 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
+                      {(forecastData as any).confidence ? (
+                        <div className="grid gap-4 sm:grid-cols-3">
+                          <div>
+                            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">7-day forecast</div>
+                            <div className="mt-1 text-2xl font-bold text-white">
+                              {(forecastData as any).currency === "EUR" ? "€" : "$"}{((forecastData as any).forecast_7d?.revenue ?? 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
+                            </div>
+                            <div className="mt-0.5 text-[11px] text-slate-500">
+                              range {(forecastData as any).currency === "EUR" ? "€" : "$"}{((forecastData as any).forecast_7d?.revenue_low ?? 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
+                              {" — "}
+                              {(forecastData as any).currency === "EUR" ? "€" : "$"}{((forecastData as any).forecast_7d?.revenue_high ?? 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">30-day forecast</div>
+                            <div className="mt-1 text-2xl font-bold text-white">
+                              {(forecastData as any).currency === "EUR" ? "€" : "$"}{((forecastData as any).forecast_30d?.revenue ?? 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
+                            </div>
+                            <div className="mt-0.5 text-[11px] text-slate-500">
+                              range {(forecastData as any).currency === "EUR" ? "€" : "$"}{((forecastData as any).forecast_30d?.revenue_low ?? 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
+                              {" — "}
+                              {(forecastData as any).currency === "EUR" ? "€" : "$"}{((forecastData as any).forecast_30d?.revenue_high ?? 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Trend</div>
+                            <div className={`mt-1 text-2xl font-bold ${
+                              (forecastData as any).trend?.direction === "up" ? "text-emerald-400" :
+                              (forecastData as any).trend?.direction === "down" ? "text-rose-400" :
+                              "text-slate-300"
+                            }`}>
+                              {(forecastData as any).trend?.direction === "up" ? "↑" :
+                               (forecastData as any).trend?.direction === "down" ? "↓" : "→"}{" "}
+                              {Math.abs((forecastData as any).trend?.weekly_change_pct ?? 0).toFixed(1)}% / week
+                            </div>
+                            <div className="mt-0.5 text-[11px] text-slate-500">
+                              Confidence: {(forecastData as any).confidence}
+                              {(forecastData as any).seasonality_available ? " · seasonality detected" : ""}
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-[12px] text-slate-500">
+                          {(forecastData as any).confidence_reason === "no_order_history"
+                            ? "Revenue forecasting activates once you have order history. Keep selling — your forecast will build automatically."
+                            : `Building forecast — need more order data. ${(forecastData as any).confidence_reason || ""}`}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mb-8 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
+                      <div className="h-4 w-48 animate-pulse rounded bg-white/[0.05]" />
+                    </div>
+                  )}
+
+                  {/* Attribution + LTV side by side */}
+                  <div className="grid gap-6 xl:grid-cols-2">
+
+                    {/* Attribution Intelligence */}
+                    <div>
+                      <SectionHeading
+                        eyebrow="Attribution"
+                        title="Where revenue comes from"
+                        description="First-touch and last-touch source attribution on real orders."
+                        pro
+                      />
+                      {attrSummary ? (
+                        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
+                          <div className="grid grid-cols-3 gap-3 mb-4">
+                            <div>
+                              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Orders tracked</div>
+                              <div className="mt-0.5 text-xl font-bold text-white">{(attrSummary as any).orders_total ?? 0}</div>
+                            </div>
+                            <div>
+                              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Attributed</div>
+                              <div className="mt-0.5 text-xl font-bold text-emerald-400">{(attrSummary as any).orders_attributed ?? 0}</div>
+                            </div>
+                            <div>
+                              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Attribution rate</div>
+                              <div className="mt-0.5 text-xl font-bold text-white">{((attrSummary as any).attribution_rate * 100).toFixed(0)}%</div>
+                            </div>
+                          </div>
+                          {((attrSummary as any).top_sources_first_touch?.length > 0) ? (
+                            <div>
+                              <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Top sources (first touch)</div>
+                              {(attrSummary as any).top_sources_first_touch.slice(0, 5).map((s: any, i: number) => (
+                                <div key={i} className="flex items-center justify-between border-t border-white/[0.04] py-1.5 text-[12px]">
+                                  <span className="text-slate-300">{s.label || s.source}</span>
+                                  <span className="text-white font-medium">{s.orders} orders · ${s.revenue?.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-[12px] text-slate-500">Attribution data builds as visitors convert. Keep the tracker active.</p>
+                          )}
+                          {(attrSummary as any).first_vs_last_match_rate != null && (attrSummary as any).orders_attributed > 0 && (
+                            <div className="mt-3 rounded-lg bg-white/[0.03] px-3 py-2 text-[11px] text-slate-400">
+                              {((attrSummary as any).first_vs_last_match_rate * 100).toFixed(0)}% of conversions had the same first and last touch source —{" "}
+                              {(attrSummary as any).first_vs_last_match_rate > 0.8
+                                ? "most customers convert from the channel that brought them."
+                                : "customers are discovering you on one channel and converting on another."}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
+                          <div className="h-4 w-40 animate-pulse rounded bg-white/[0.05]" />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Customer LTV */}
+                    <div>
+                      <SectionHeading
+                        eyebrow="Lifetime Value"
+                        title="Customer economics"
+                        description="Monthly cohort analysis — how much each acquisition group is worth."
+                        pro
+                      />
+                      {ltvData ? (
+                        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
+                          <div className="grid grid-cols-3 gap-3 mb-4">
+                            <div>
+                              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Customers</div>
+                              <div className="mt-0.5 text-xl font-bold text-white">{(ltvData as any).overall?.total_customers ?? 0}</div>
+                            </div>
+                            <div>
+                              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Repeat rate</div>
+                              <div className={`mt-0.5 text-xl font-bold ${
+                                ((ltvData as any).overall?.repeat_rate ?? 0) > 0.2 ? "text-emerald-400" :
+                                ((ltvData as any).overall?.repeat_rate ?? 0) > 0 ? "text-amber-400" :
+                                "text-slate-400"
+                              }`}>
+                                {(((ltvData as any).overall?.repeat_rate ?? 0) * 100).toFixed(1)}%
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Revenue / customer</div>
+                              <div className="mt-0.5 text-xl font-bold text-white">
+                                ${((ltvData as any).overall?.avg_revenue_per_customer ?? 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
+                              </div>
+                            </div>
+                          </div>
+                          {((ltvData as any).cohorts?.length > 0) ? (
+                            <div>
+                              <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Monthly cohorts</div>
+                              {(ltvData as any).cohorts.slice(0, 4).map((c: any, i: number) => (
+                                <div key={i} className="flex items-center justify-between border-t border-white/[0.04] py-1.5 text-[12px]">
+                                  <span className="text-slate-400">{c.cohort_month}</span>
+                                  <span className="text-slate-300">{c.size} customers</span>
+                                  <span className="text-white font-medium">${c.revenue_total?.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
+                                  <span className="text-slate-500">{c.orders_per_customer?.toFixed(1)} orders/cust</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-[12px] text-slate-500">Cohort data builds from real orders with customer identifiers.</p>
+                          )}
+                          {(ltvData as any).customer_coverage?.coverage_rate != null && (ltvData as any).overall?.total_customers > 0 && (
+                            <div className="mt-3 rounded-lg bg-white/[0.03] px-3 py-2 text-[11px] text-slate-400">
+                              {((ltvData as any).customer_coverage.coverage_rate * 100).toFixed(0)}% of orders have customer identity —{" "}
+                              {(ltvData as any).customer_coverage.coverage_rate > 0.7
+                                ? "strong coverage for LTV analysis."
+                                : "connect Shopify webhooks to improve coverage."}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
+                          <div className="h-4 w-40 animate-pulse rounded bg-white/[0.05]" />
+                        </div>
+                      )}
+                    </div>
+
                   </div>
                 </section>
               )}
