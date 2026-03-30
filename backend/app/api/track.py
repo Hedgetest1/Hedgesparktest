@@ -337,13 +337,21 @@ def _persist_visitor_bridge(db: Session, payload: TrackPayload) -> None:
     Create a visitor_purchase_sessions row linking the storefront tracker
     identity to the purchase order.  This is the identity bridge.
 
+    Resolves first-touch and last-touch attribution from the visitor's
+    event history (same logic as /track/purchase-confirmed endpoint).
+
     Only fires when tracker_visitor_id is present (pixel read the _hs_vid cookie).
     Idempotent: UNIQUE constraint on shopify_order_id prevents duplicates.
     """
     if not payload.tracker_visitor_id or not payload.order_id:
         return
 
+    import json as _json
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    # Resolve attribution from visitor's event history
+    attr = _resolve_visitor_attribution(db, payload.shop_domain, payload.tracker_visitor_id)
+
     try:
         nested = db.begin_nested()
         db.add(VisitorPurchaseSession(
@@ -352,11 +360,17 @@ def _persist_visitor_bridge(db: Session, payload: TrackPayload) -> None:
             shopify_order_id=str(payload.order_id),
             confirmed_at=now,
             ingested_at=now,
+            first_source=attr.get("first_source"),
+            first_campaign=attr.get("first_campaign"),
+            last_source=attr.get("last_source"),
+            last_campaign=attr.get("last_campaign"),
+            attribution_evidence=_json.dumps(attr.get("evidence", {}), default=str) if attr.get("evidence") else None,
         ))
         db.flush()
         log.info(
-            "track/bridge: linked tracker_vid=%s → order_id=%s shop=%s",
+            "track/bridge: linked tracker_vid=%s → order_id=%s shop=%s first=%s last=%s",
             payload.tracker_visitor_id, payload.order_id, payload.shop_domain,
+            attr.get("first_source"), attr.get("last_source"),
         )
     except IntegrityError:
         nested.rollback()
@@ -370,6 +384,59 @@ def _persist_visitor_bridge(db: Session, payload: TrackPayload) -> None:
             "track/bridge: unexpected error order_id=%s shop=%s: %s",
             payload.order_id, payload.shop_domain, exc,
         )
+
+
+def _resolve_visitor_attribution(db: Session, shop_domain: str, visitor_id: str) -> dict:
+    """
+    Resolve first-touch and last-touch attribution from visitor's event history.
+    Reuses the same query logic as track_purchase._resolve_attribution.
+    """
+    result = {"first_source": None, "first_campaign": None, "last_source": None, "last_campaign": None, "evidence": {}}
+    try:
+        from sqlalchemy import text as sql_text
+
+        first = db.execute(sql_text("""
+            SELECT source_type, utm_campaign, utm_source, referrer, landing_page, click_id, timestamp
+            FROM events
+            WHERE shop_domain = :shop AND visitor_id = :vid AND source_type IS NOT NULL
+            ORDER BY timestamp ASC LIMIT 1
+        """), {"shop": shop_domain, "vid": visitor_id}).fetchone()
+
+        last = db.execute(sql_text("""
+            SELECT source_type, utm_campaign, utm_source, referrer, click_id, timestamp
+            FROM events
+            WHERE shop_domain = :shop AND visitor_id = :vid AND source_type IS NOT NULL
+            ORDER BY timestamp DESC LIMIT 1
+        """), {"shop": shop_domain, "vid": visitor_id}).fetchone()
+
+        stats = db.execute(sql_text("""
+            SELECT COUNT(*), ARRAY_AGG(DISTINCT source_type) FILTER (WHERE source_type IS NOT NULL)
+            FROM events WHERE shop_domain = :shop AND visitor_id = :vid
+        """), {"shop": shop_domain, "vid": visitor_id}).fetchone()
+
+        if first:
+            result["first_source"] = first[0]
+            result["first_campaign"] = first[1] or first[2]
+            result["evidence"]["first_event_ts"] = first[6]
+            result["evidence"]["first_referrer"] = first[3]
+            result["evidence"]["first_landing_page"] = first[4]
+            result["evidence"]["first_click_id"] = first[5]
+
+        if last:
+            result["last_source"] = last[0]
+            result["last_campaign"] = last[1] or last[2]
+            result["evidence"]["last_event_ts"] = last[5]
+            result["evidence"]["last_referrer"] = last[3]
+            result["evidence"]["last_click_id"] = last[4]
+
+        if stats:
+            result["evidence"]["total_events"] = stats[0] or 0
+            result["evidence"]["distinct_sources"] = list(stats[1] or [])
+
+    except Exception as exc:
+        log.warning("track/bridge: attribution resolution failed %s:%s: %s", shop_domain, visitor_id, exc)
+
+    return result
 
 
 @router.post("/track")

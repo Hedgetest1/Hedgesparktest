@@ -1383,6 +1383,47 @@ def get_meta_review(
 # Webhook fleet status
 # ---------------------------------------------------------------------------
 
+@router.get("/attribution/health")
+def get_attribution_pipeline_health(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Attribution pipeline health — shows whether the data flow is working."""
+    from sqlalchemy import func
+    from app.models.shop_order import ShopOrder
+    from app.models.visitor_purchase_session import VisitorPurchaseSession
+
+    orders_total = db.query(func.count(ShopOrder.id)).scalar() or 0
+    orders_by_source = db.execute(text(
+        "SELECT source, COUNT(*) FROM shop_orders GROUP BY source"
+    )).fetchall()
+
+    vps_total = db.query(func.count(VisitorPurchaseSession.id)).scalar() or 0
+    vps_attributed = db.execute(text(
+        "SELECT COUNT(*) FROM visitor_purchase_sessions WHERE first_source IS NOT NULL"
+    )).fetchone()
+
+    return {
+        "orders_total": orders_total,
+        "orders_by_source": {r[0]: r[1] for r in orders_by_source},
+        "visitor_purchase_sessions": vps_total,
+        "attributed_sessions": vps_attributed[0] if vps_attributed else 0,
+        "attribution_rate": round(
+            (vps_attributed[0] if vps_attributed else 0) / max(orders_total, 1), 3
+        ),
+        "pipeline_status": "healthy" if vps_total > 0 else (
+            "no_bridges" if orders_total > 0 else "no_data"
+        ),
+        "diagnosis": (
+            "Orders exist but no visitor-purchase bridges. "
+            "The Custom Pixel may not be reading the _hs_vid cookie (ITP, cross-origin). "
+            "Consider asking the merchant to add spark-attribution.js to the checkout page."
+        ) if orders_total > 0 and vps_total == 0 else (
+            "No orders yet." if orders_total == 0 else "Pipeline is flowing."
+        ),
+    }
+
+
 @router.get("/tracker/status")
 def get_tracker_fleet_status(
     _auth: bool = Depends(require_operator),
