@@ -46,7 +46,7 @@ _INLINE_COMMANDS = frozenset({
     "/merchants", "/evolution",
     "/approvals", "/bugfixes", "/promotions",
     "/review",
-    "/incidents", "/meta_review",
+    "/incidents", "/meta_review", "/digest",
 })
 
 # Time budget for inline commands.  If the handler exceeds this,

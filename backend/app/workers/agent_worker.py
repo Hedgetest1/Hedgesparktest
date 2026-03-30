@@ -543,6 +543,34 @@ def _run_brain_refresh():
         db.close()
 
 
+# Daily health digest cooldown (24 hours, in-process)
+_last_digest_run: float | None = None
+_DIGEST_COOLDOWN_SECONDS = 24 * 3600
+
+
+def _run_daily_digest():
+    """Send daily health digest to Telegram if cooldown expired."""
+    import time as _time
+    global _last_digest_run
+    if _last_digest_run is not None and (_time.monotonic() - _last_digest_run) < _DIGEST_COOLDOWN_SECONDS:
+        return
+
+    from app.services.telegram_agent import send_daily_digest, is_configured
+    if not is_configured():
+        return
+
+    db = SessionLocal()
+    try:
+        sent = send_daily_digest(db)
+        if sent:
+            _last_digest_run = _time.monotonic()
+            log("daily_digest: sent to Telegram")
+    except Exception as exc:
+        log(f"daily_digest error (non-fatal): {exc}")
+    finally:
+        db.close()
+
+
 def run_cycle():
     started_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -578,6 +606,9 @@ def run_cycle():
 
     # Phase 7b: Project brain refresh (daily)
     _run_brain_refresh()
+
+    # Phase 7c: Daily health digest to Telegram (24h cooldown)
+    _run_daily_digest()
 
     # Phase 8: Sandbox analysis (original agent_worker logic)
     # This worker has no per-shop dimension — it selects the top-N

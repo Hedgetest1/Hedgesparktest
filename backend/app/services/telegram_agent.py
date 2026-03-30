@@ -394,7 +394,7 @@ _ALL_COMMANDS = {
     "/bugfixes", "/bugfix_approve", "/bugfix_apply",
     "/promotions", "/merge",
     "/review",
-    "/incidents", "/meta_review",
+    "/incidents", "/meta_review", "/digest",
     "/help",
 }
 
@@ -437,6 +437,7 @@ def handle_command(command: str, db=None, chat_id: str | None = None) -> str:
         "/review": lambda: _cmd_review(db, args),
         "/incidents": lambda: _cmd_incidents(db),
         "/meta_review": lambda: _cmd_meta_review(db),
+        "/digest": lambda: _cmd_digest(db),
         "/help": lambda: _cmd_help(db),
     }
 
@@ -1213,6 +1214,11 @@ def _cmd_meta_review(db) -> str:
         return f"Error loading meta-review: {exc}"
 
 
+def _cmd_digest(db) -> str:
+    """Build and return the daily health digest (manual trigger)."""
+    return build_daily_digest(db)
+
+
 def _cmd_help(db) -> str:
     """Full command list."""
     return (
@@ -1224,7 +1230,8 @@ def _cmd_help(db) -> str:
         "/merchants \u2014 merchant summary\n"
         "/scaling \u2014 scaling forecast + recommendations\n"
         "/incidents \u2014 active support incidents\n"
-        "/meta\\_review \u2014 latest strategic meta-review\n\n"
+        "/meta\\_review \u2014 latest strategic meta-review\n"
+        "/digest \u2014 daily health digest\n\n"
         "*Approvals:*\n"
         "/approvals \u2014 list pending action approvals\n"
         "/approve <id> \u2014 approve and execute\n"
@@ -1374,3 +1381,148 @@ def send_scaling_alert(recommendation: dict, forecast: dict) -> bool:
     ])
 
     return send_message("\n".join(lines))
+
+
+# ---------------------------------------------------------------------------
+# Daily health digest
+# ---------------------------------------------------------------------------
+
+def build_daily_digest(db) -> str:
+    """
+    Build a concise daily health digest message.
+    Uses existing data sources. Resilient to individual source failures.
+    Returns the formatted message string (not sent — caller decides).
+    """
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    lines = [
+        f"*Daily Health Digest* \u2014 Hedge Spark",
+        f"{now.strftime('%Y-%m-%d %H:%M')} UTC",
+        "",
+    ]
+
+    # 1. System health
+    overall_status = "OK"
+    try:
+        from app.services.system_summary import build_system_summary
+        s = build_system_summary(db)
+        ram = s.get("infra", {}).get("ram", {})
+        workers = s.get("infra", {}).get("workers", {})
+        warnings = s.get("warnings", [])
+
+        ram_pct = ram.get("usage_pct", 0)
+        error_rate = workers.get("error_rate_pct", 0)
+        cycles = workers.get("cycles_24h", 0)
+
+        lines.append(f"*System:*")
+        lines.append(f"  RAM: {ram_pct}% | Workers: {cycles} cycles/24h, {error_rate}% errors")
+
+        if error_rate > 20:
+            overall_status = "CRITICAL"
+        elif error_rate > 10 or ram_pct > 85:
+            overall_status = "WARNING"
+
+        if warnings:
+            for w in warnings[:3]:
+                lines.append(f"  \u26a0\ufe0f {w}")
+    except Exception:
+        lines.append("*System:* unavailable")
+        overall_status = "WARNING"
+
+    # 2. Alerts + incidents
+    try:
+        from sqlalchemy import text
+        alert_row = db.execute(text(
+            "SELECT COUNT(*) FROM ops_alerts WHERE resolved = false"
+        )).fetchone()
+        active_alerts = alert_row[0] if alert_row else 0
+
+        incident_row = db.execute(text(
+            "SELECT COUNT(*) FROM support_incidents WHERE status IN ('open', 'triaged', 'investigating')"
+        )).fetchone()
+        active_incidents = incident_row[0] if incident_row else 0
+
+        lines.append("")
+        lines.append(f"*Alerts:* {active_alerts} unresolved")
+        lines.append(f"*Incidents:* {active_incidents} active")
+
+        if active_alerts > 5 or active_incidents > 3:
+            if overall_status == "OK":
+                overall_status = "WARNING"
+    except Exception:
+        lines.append("")
+        lines.append("*Alerts/Incidents:* unavailable")
+
+    # 3. LLM budget
+    try:
+        from app.core.llm_budget import get_usage_summary
+        budget = get_usage_summary()
+        spent = budget.get("monthly_cost_eur", 0)
+        cap = budget.get("monthly_cap_eur", 5.0)
+        remaining = budget.get("monthly_remaining_eur", cap)
+        cap_reached = budget.get("monthly_cap_reached", False)
+        blocked = budget.get("blocked_today", 0)
+
+        lines.append("")
+        lines.append(f"*LLM Budget:*")
+        lines.append(f"  Spent: \u20ac{spent:.3f} / \u20ac{cap:.2f} ({remaining:.3f} remaining)")
+        if cap_reached:
+            lines.append(f"  \u26a0\ufe0f *CAP REACHED* \u2014 LLM calls blocked")
+            if overall_status == "OK":
+                overall_status = "WARNING"
+        if blocked > 0:
+            lines.append(f"  Blocked today: {blocked}")
+
+        # 429 state
+        for provider, state in budget.get("provider_429_state", {}).items():
+            if state.get("total_429s", 0) > 0:
+                lines.append(f"  {provider}: {state['total_429s']} rate limits today")
+    except Exception:
+        lines.append("")
+        lines.append("*LLM Budget:* unavailable")
+
+    # 4. Bugfix pipeline
+    try:
+        from sqlalchemy import text as sql_text
+        pipeline = db.execute(sql_text("""
+            SELECT status, COUNT(*) FROM bugfix_candidates
+            WHERE created_at >= NOW() - INTERVAL '7 days'
+            GROUP BY status
+        """)).fetchall()
+        if pipeline:
+            parts = [f"{r[0]}={r[1]}" for r in pipeline]
+            lines.append("")
+            lines.append(f"*Bugfixes (7d):* {', '.join(parts)}")
+    except Exception:
+        pass
+
+    # 5. Merchants
+    try:
+        from sqlalchemy import text as sql_text2
+        merch_row = db.execute(sql_text2(
+            "SELECT COUNT(*), COUNT(*) FILTER (WHERE billing_active = true) FROM merchants"
+        )).fetchone()
+        if merch_row:
+            lines.append("")
+            lines.append(f"*Merchants:* {merch_row[0]} total, {merch_row[1]} billing active")
+    except Exception:
+        pass
+
+    # Status badge
+    emoji = "\u2705" if overall_status == "OK" else ("\u26a0\ufe0f" if overall_status == "WARNING" else "\U0001f534")
+    lines.insert(2, f"{emoji} *Status: {overall_status}*")
+
+    lines.append("")
+    lines.append("Commands: /status /costs /incidents /bugfixes")
+
+    return "\n".join(lines)
+
+
+def send_daily_digest(db) -> bool:
+    """Build and send the daily health digest via Telegram."""
+    try:
+        message = build_daily_digest(db)
+        return send_message(message)
+    except Exception as exc:
+        log.warning("telegram_agent: daily digest failed: %s", exc)
+        return False
