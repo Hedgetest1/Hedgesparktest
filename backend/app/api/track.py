@@ -352,15 +352,34 @@ def _persist_visitor_bridge(db: Session, payload: TrackPayload) -> None:
     if not payload.order_id:
         return
 
-    # Resolve the tracker visitor_id — three strategies:
+    # Resolve the tracker visitor_id — four strategies:
     # 1. Direct: pixel read _hs_vid cookie → tracker_visitor_id is set
-    # 2. Mapping: pixel sent event.clientId as visitor_id → look up via shopify_y mapping
-    # 3. None: neither available → bridge cannot be created
+    # 2. Identity match: pixel's visitor_id already exists in our events table
+    #    (happens when Shopify's event.clientId resolves to our hedgespark ID)
+    # 3. Mapping: pixel sent Shopify clientId → look up via shopify_y Redis mapping
+    # 4. None: no resolution possible → bridge cannot be created
     bridge_vid = payload.tracker_visitor_id
     if not bridge_vid:
-        # Try resolving from shopify_y mapping: pixel's visitor_id IS the Shopify clientId
+        # Strategy 2: check if payload.visitor_id is a known hedgespark visitor
+        if payload.visitor_id:
+            try:
+                from sqlalchemy import text as _text
+                known = db.execute(
+                    _text("SELECT 1 FROM events WHERE shop_domain = :shop AND visitor_id = :vid LIMIT 1"),
+                    {"shop": payload.shop_domain, "vid": payload.visitor_id},
+                ).fetchone()
+                if known:
+                    bridge_vid = payload.visitor_id
+                    log.info("track/bridge: visitor_id %s is known tracker identity — using directly",
+                             payload.visitor_id[:12])
+            except Exception:
+                pass
+    if not bridge_vid:
+        # Strategy 3: shopify_y mapping lookup
         bridge_vid = _resolve_visitor_from_shopify_y(payload.shop_domain, payload.visitor_id)
     if not bridge_vid:
+        log.info("track/bridge: no visitor resolution for order=%s shop=%s vid=%s",
+                 payload.order_id, payload.shop_domain, (payload.visitor_id or "?")[:12])
         return
 
     import json as _json
