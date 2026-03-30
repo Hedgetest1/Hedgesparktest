@@ -157,6 +157,12 @@ class TrackPayload(BaseModel):
     order_total: Optional[float] = None  # total_price as float
     currency: Optional[str] = None       # ISO 4217 currency code (e.g. "EUR", "USD")
 
+    # Shopify _shopify_y cookie value — Shopify's persistent visitor ID.
+    # Sent by spark-tracker.js from the storefront. Also available as event.clientId
+    # in the Custom Pixel sandbox. Enables identity bridging when the pixel can't
+    # read our _hs_vid cookie or localStorage.
+    shopify_y: Optional[str] = None
+
     # Identity bridge — sent by the pixel when it reads the _hs_vid cookie.
     # This is the storefront tracker's visitor_id, bridging browsing → purchase.
     tracker_visitor_id: Optional[str] = None
@@ -343,20 +349,31 @@ def _persist_visitor_bridge(db: Session, payload: TrackPayload) -> None:
     Only fires when tracker_visitor_id is present (pixel read the _hs_vid cookie).
     Idempotent: UNIQUE constraint on shopify_order_id prevents duplicates.
     """
-    if not payload.tracker_visitor_id or not payload.order_id:
+    if not payload.order_id:
+        return
+
+    # Resolve the tracker visitor_id — three strategies:
+    # 1. Direct: pixel read _hs_vid cookie → tracker_visitor_id is set
+    # 2. Mapping: pixel sent event.clientId as visitor_id → look up via shopify_y mapping
+    # 3. None: neither available → bridge cannot be created
+    bridge_vid = payload.tracker_visitor_id
+    if not bridge_vid:
+        # Try resolving from shopify_y mapping: pixel's visitor_id IS the Shopify clientId
+        bridge_vid = _resolve_visitor_from_shopify_y(payload.shop_domain, payload.visitor_id)
+    if not bridge_vid:
         return
 
     import json as _json
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # Resolve attribution from visitor's event history
-    attr = _resolve_visitor_attribution(db, payload.shop_domain, payload.tracker_visitor_id)
+    attr = _resolve_visitor_attribution(db, payload.shop_domain, bridge_vid)
 
     try:
         nested = db.begin_nested()
         db.add(VisitorPurchaseSession(
             shop_domain=payload.shop_domain,
-            visitor_id=payload.tracker_visitor_id,
+            visitor_id=bridge_vid,
             shopify_order_id=str(payload.order_id),
             confirmed_at=now,
             ingested_at=now,
@@ -369,7 +386,7 @@ def _persist_visitor_bridge(db: Session, payload: TrackPayload) -> None:
         db.flush()
         log.info(
             "track/bridge: linked tracker_vid=%s → order_id=%s shop=%s first=%s last=%s",
-            payload.tracker_visitor_id, payload.order_id, payload.shop_domain,
+            bridge_vid, payload.order_id, payload.shop_domain,
             attr.get("first_source"), attr.get("last_source"),
         )
     except IntegrityError:
@@ -437,6 +454,53 @@ def _resolve_visitor_attribution(db: Session, shop_domain: str, visitor_id: str)
         log.warning("track/bridge: attribution resolution failed %s:%s: %s", shop_domain, visitor_id, exc)
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Shopify _shopify_y → hedgespark visitor_id mapping
+#
+# The storefront tracker (spark-tracker.js) sends both our visitor_id and
+# the Shopify _shopify_y cookie value. The Custom Pixel sends event.clientId
+# (which equals _shopify_y) but CANNOT read our visitor_id.
+#
+# This mapping bridges the identity gap: when a pixel purchase arrives with
+# only a Shopify clientId, we look up the matching hedgespark visitor_id.
+# ---------------------------------------------------------------------------
+_SHOPIFY_Y_PREFIX = "hs:symap:"
+_SHOPIFY_Y_TTL = 7776000  # 90 days — matches Shopify's _shopify_y cookie lifetime
+
+
+def _store_shopify_y_mapping(payload: TrackPayload) -> None:
+    """Store shopify_y → visitor_id mapping in Redis."""
+    if not payload.shopify_y or not payload.visitor_id:
+        return
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            key = f"{_SHOPIFY_Y_PREFIX}{payload.shop_domain}:{payload.shopify_y}"
+            rc.set(key, payload.visitor_id, ex=_SHOPIFY_Y_TTL)
+    except Exception:
+        pass
+
+
+def _resolve_visitor_from_shopify_y(shop_domain: str, shopify_client_id: str) -> str | None:
+    """Look up hedgespark visitor_id from a Shopify clientId/shopify_y value."""
+    if not shopify_client_id:
+        return None
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            key = f"{_SHOPIFY_Y_PREFIX}{shop_domain}:{shopify_client_id}"
+            val = rc.get(key)
+            if val:
+                log.info("track/bridge: resolved shopify_y=%s → vid=%s shop=%s",
+                         shopify_client_id[:12], val[:12], shop_domain)
+                return val
+    except Exception:
+        pass
+    return None
 
 
 @router.post("/track")
@@ -513,6 +577,12 @@ def track_event(request: Request, payload: TrackPayload, db: Session = Depends(g
 
     db.add(event)
 
+    # Store shopify_y → visitor_id mapping for pixel identity bridging.
+    # When the Custom Pixel fires checkout_completed, it sends event.clientId
+    # (derived from _shopify_y) but can't read our localStorage. This mapping
+    # lets the backend resolve our visitor_id from the pixel's identity.
+    _store_shopify_y_mapping(payload)
+
     # Purchase events also persist to shop_orders for revenue analytics
     _persist_purchase(db, payload)
 
@@ -584,6 +654,9 @@ def track_event_batch(payload: BatchTrackPayload, db: Session = Depends(get_db))
             product_id=item.product_id or None,
             device_type=item.device_type if item.device_type in ("mobile", "desktop") else None,
         ))
+
+        # Store shopify_y mapping for identity bridging
+        _store_shopify_y_mapping(item)
 
         # Purchase events also persist to shop_orders
         _persist_purchase(db, item)

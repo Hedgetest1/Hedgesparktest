@@ -240,6 +240,26 @@
     }
   } catch (_) {}
 
+  // Shopify client ID — read from _shopify_y cookie.
+  // This is Shopify's persistent visitor identifier, also available as
+  // event.clientId in the Custom Pixel sandbox. By sending it from the
+  // tracker, the backend can build a mapping from Shopify's ID to our
+  // hedgespark_visitor_id. When the pixel fires checkout_completed with
+  // event.clientId, the backend resolves it back to our visitor_id.
+  // This bridges the identity gap caused by the pixel sandbox not being
+  // able to read our _hs_vid cookie or localStorage.
+  var _shopifyY = undefined;
+  try {
+    var _cookies = document.cookie.split(";");
+    for (var _ci2 = 0; _ci2 < _cookies.length; _ci2++) {
+      var _parts = _cookies[_ci2].trim().split("=");
+      if (_parts[0] === "_shopify_y") {
+        _shopifyY = decodeURIComponent(_parts[1]);
+        break;
+      }
+    }
+  } catch (_) {}
+
   // Landing page — FIRST page URL of this browser session.
   // Persisted in sessionStorage so it doesn't change on later navigations.
   var _landingPage = undefined;
@@ -391,6 +411,7 @@
       utm_term:      _utmTermVal,
       click_id:      _clickIdVal,
       landing_page:  _landingPage,
+      shopify_y:     _shopifyY,
       device_type:   /Mobi|Android/i.test(navigator.userAgent) ? "mobile" : "desktop",
     };
     if (extra) {
