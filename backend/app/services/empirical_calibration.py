@@ -61,7 +61,7 @@ from __future__ import annotations
 
 import logging
 import math
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -327,7 +327,7 @@ def train_shop_model(
 
     Never raises — catches all errors and returns a safe fallback calibration.
     """
-    since_dt = datetime.utcnow() - timedelta(days=lookback_days)
+    since_dt = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=lookback_days)
     since_ms = int(since_dt.timestamp() * 1000)
 
     log.info(
@@ -506,7 +506,7 @@ def get_or_train_model(
         )
 
         if existing is not None:
-            age_hours = (datetime.utcnow() - existing.trained_at).total_seconds() / 3600.0
+            age_hours = (datetime.now(timezone.utc).replace(tzinfo=None) - existing.trained_at).total_seconds() / 3600.0
             if age_hours < max_age_hours:
                 log.debug(
                     "empirical_calibration: using cached model for shop=%s "
@@ -555,7 +555,7 @@ def _upsert_calibration(
         .first()
     )
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     if existing:
         existing.model_version                 = (existing.model_version or 0) + 1
@@ -649,5 +649,5 @@ def _in_memory_fallback(shop_domain: str) -> ShopConversionCalibration:
     row.non_converter_behavioral_mean = 0.25
     row.discriminability              = 0.0
     row.is_empirical                  = False
-    row.trained_at                    = datetime.utcnow()
+    row.trained_at                    = datetime.now(timezone.utc).replace(tzinfo=None)
     return row

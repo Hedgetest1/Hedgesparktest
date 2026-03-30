@@ -28,6 +28,22 @@ class Event(Base):
     referrer = Column(String, nullable=True)       # raw document.referrer value
     utm_medium = Column(String(128), nullable=True)  # raw utm_medium for paid/organic classification
 
+    # Full UTM parameters — captured from URL query string by tracker.
+    # These enable campaign-level attribution (which ad/email drove this visit).
+    utm_source = Column(String(128), nullable=True)    # e.g., google, facebook, newsletter
+    utm_campaign = Column(String(256), nullable=True)  # campaign name
+    utm_content = Column(String(256), nullable=True)   # ad variant / creative
+    utm_term = Column(String(256), nullable=True)      # search keyword
+
+    # Click ID — ad platform click identifiers for server-side attribution.
+    # Stored as "type:value" e.g. "gclid:abc123" or "fbclid:xyz789".
+    # Only one click ID per event (they're mutually exclusive per visit).
+    click_id = Column(String(256), nullable=True)
+
+    # Landing page — first page URL of this session/visit.
+    # Populated by tracker on the first page_view event of a session.
+    landing_page = Column(String(512), nullable=True)
+
     # Device type — "mobile" or "desktop", sent by tracker since v3.
     # Nullable: rows before this addition have no device data.
     device_type = Column(String(16), nullable=True)

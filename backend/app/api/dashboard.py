@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import require_merchant_session, require_pro_session
+from app.services.external_lookup_service import infer_external_lookup
 
 SANDBOX_PATH = Path("/opt/wishspark/sandbox")
 

@@ -296,6 +296,23 @@ async def compose_nudge_variants(
             fallback_used=True, rejection_reason="OPENAI_API_KEY not configured"
         )
 
+    # ── Budget guard — respect monthly €5 cap + provider backoff ──────
+    from app.core.llm_budget import check_budget, record_blocked, is_provider_backed_off
+    allowed, reason = check_budget("nudge_composer")
+    if not allowed:
+        record_blocked("nudge_composer", reason)
+        log.info("nudge_composer: budget blocked (%s) — using rule-based fallback", reason)
+        return _rule_based_fallback(signals, data_window_hours), _meta(
+            fallback_used=True, rejection_reason=f"budget_blocked: {reason}"
+        )
+
+    if is_provider_backed_off("openai"):
+        record_blocked("nudge_composer", "openai_429_backoff")
+        log.info("nudge_composer: OpenAI backed off (429) — using rule-based fallback")
+        return _rule_based_fallback(signals, data_window_hours), _meta(
+            fallback_used=True, rejection_reason="openai_429_backoff"
+        )
+
     # ── Cache check — serve cached AI response for identical inputs ──────
     # Hash the meaningful input payload to create a deterministic cache key.
     # Only product_url + signals + data_window_hours matter — product_title
@@ -593,6 +610,10 @@ async def _call_openai_with_retry(messages: list[dict]) -> str:
                     },
                 )
 
+                if resp.status_code == 429:
+                    from app.core.llm_budget import record_429
+                    record_429("openai")
+
                 if resp.status_code in _RETRYABLE_STATUS and attempt <= len(_RETRY_DELAYS):
                     log.warning(
                         "nudge_composer: OpenAI returned %d (transient) — will retry",
@@ -607,6 +628,12 @@ async def _call_openai_with_retry(messages: list[dict]) -> str:
 
                 resp.raise_for_status()   # permanent errors raise immediately
                 data = resp.json()
+
+                # Record successful usage for budget tracking
+                from app.core.llm_budget import record_usage
+                tokens = data.get("usage", {}).get("total_tokens", _OPENAI_MAX_TOKENS)
+                record_usage("nudge_composer", tokens_used=tokens, provider="openai", model=_OPENAI_MODEL)
+
                 return data["choices"][0]["message"]["content"]
 
         except (httpx.TimeoutException, httpx.NetworkError) as exc:

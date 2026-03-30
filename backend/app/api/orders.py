@@ -22,7 +22,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_merchant_session
+from app.core.deps import require_merchant_session, require_pro_session
 
 log = logging.getLogger(__name__)
 
@@ -368,3 +368,52 @@ def get_product_conversions(
     }
     cache_set(cache_key, result, 120)  # 2 min TTL
     return result
+
+
+# ---------------------------------------------------------------------------
+# GET /orders/forecast/pro — Revenue forecast (Pro only)
+# ---------------------------------------------------------------------------
+
+@router.get("/forecast/pro")
+def get_revenue_forecast_endpoint(
+    shop: str = Depends(require_pro_session),
+    db: Session = Depends(get_db),
+    history_days: int = Query(default=90, ge=7, le=365),
+):
+    """
+    Deterministic revenue forecast based on historical daily order revenue.
+
+    Uses linear regression on daily revenue series + volatility for range.
+    Supports optional day-of-week seasonality when 3+ weeks of data available.
+
+    If insufficient history: returns None for forecast fields with honest reason.
+
+    Returns:
+        {
+            "currency": str,
+            "history": {
+                "days_available": int,
+                "days_with_revenue": int,
+                "daily_series": [{"day": str, "revenue": float, "orders": int}, ...],
+                "total_revenue": float,
+                "avg_daily_revenue": float,
+            },
+            "forecast_7d": {
+                "revenue": float,
+                "revenue_low": float,
+                "revenue_high": float,
+                "avg_daily": float,
+            } | null,
+            "forecast_30d": { ... } | null,
+            "trend": {
+                "direction": "up" | "flat" | "down",
+                "slope_per_day": float,
+                "weekly_change_pct": float,
+            } | null,
+            "confidence": "high" | "medium" | "low" | null,
+            "confidence_reason": str,
+            "seasonality_available": bool,
+        }
+    """
+    from app.services.revenue_forecast import get_revenue_forecast
+    return get_revenue_forecast(db, shop, history_days=history_days)

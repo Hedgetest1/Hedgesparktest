@@ -36,8 +36,14 @@ def clear_request_context():
 
 
 def set_worker_context(*, worker_name: str):
-    """Set worker name for background job processes."""
+    """Set worker name for background job processes. Also tags Sentry scope."""
     _context.worker_name = worker_name
+    try:
+        import sentry_sdk
+        scope = sentry_sdk.get_current_scope()
+        scope.set_tag("worker", worker_name)
+    except Exception:
+        pass
 
 
 class JSONFormatter(logging.Formatter):

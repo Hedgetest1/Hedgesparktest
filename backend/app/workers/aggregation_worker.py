@@ -1104,7 +1104,12 @@ def _run_webhook_health_check() -> None:
         )
         log(f"webhook health: checking {len(merchants)} active merchant(s)")
 
+        from app.services.onboarding import _ONBOARDING_BLOCKLIST
+
         for m in merchants:
+            if m.shop_domain in _ONBOARDING_BLOCKLIST:
+                continue
+
             try:
                 report = check_webhook_health(db, m.shop_domain)
                 if report.healthy:

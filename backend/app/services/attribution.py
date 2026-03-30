@@ -41,7 +41,7 @@ v3 (future): action agents use get_converted_visitors() to build retargeting
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -77,7 +77,7 @@ def get_converted_visitors(
     list[str]  — visitor_ids; empty list if no converted visitors found.
                  Never raises.
     """
-    since = datetime.utcnow() - timedelta(days=days)
+    since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
     try:
         rows = db.execute(
             text(
@@ -264,7 +264,7 @@ def get_product_conversion_profile(
         "behavioral_gap":      {"avg_scroll_depth": None, "avg_dwell_secs": None, "avg_visit_count": None},
     }
 
-    since = datetime.utcnow() - timedelta(days=days)
+    since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
 
     try:
         # Converter profile: visitors who purchased and had events on this product_url

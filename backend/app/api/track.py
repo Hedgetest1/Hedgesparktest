@@ -130,6 +130,19 @@ class TrackPayload(BaseModel):
     referrer: Optional[str] = None       # raw document.referrer (may be empty str)
     utm_medium: Optional[str] = None     # raw utm_medium for paid/organic classification
 
+    # Full UTM parameters — captured from URL query string by tracker.
+    utm_source: Optional[str] = None     # e.g., google, facebook, newsletter
+    utm_campaign: Optional[str] = None   # campaign name
+    utm_content: Optional[str] = None    # ad variant / creative
+    utm_term: Optional[str] = None       # search keyword
+
+    # Click ID — ad platform identifiers. Stored as "type:value".
+    # Tracker sends whichever is present: gclid, fbclid, ttclid, msclkid.
+    click_id: Optional[str] = None
+
+    # Landing page — first page URL of the visit (set by tracker on first page_view).
+    landing_page: Optional[str] = None
+
     # Device type — "mobile" or "desktop", sent by tracker since v3.
     device_type: Optional[str] = None
 
@@ -416,6 +429,15 @@ def track_event(request: Request, payload: TrackPayload, db: Session = Depends(g
         source_type=payload.source_type or None,
         referrer=payload.referrer or None,
         utm_medium=payload.utm_medium or None,
+        # Full UTM parameters — None when not provided by tracker.
+        utm_source=payload.utm_source[:128] if payload.utm_source else None,
+        utm_campaign=payload.utm_campaign[:256] if payload.utm_campaign else None,
+        utm_content=payload.utm_content[:256] if payload.utm_content else None,
+        utm_term=payload.utm_term[:256] if payload.utm_term else None,
+        # Click ID — ad platform identifier (gclid:xxx, fbclid:yyy)
+        click_id=payload.click_id[:256] if payload.click_id else None,
+        # Landing page — first page URL of the visit
+        landing_page=payload.landing_page[:512] if payload.landing_page else None,
         # product_id: None on non-product pages; Shopify integer ID (as string) on product pages.
         product_id=payload.product_id or None,
         # device_type: "mobile" or "desktop", nullable for older events

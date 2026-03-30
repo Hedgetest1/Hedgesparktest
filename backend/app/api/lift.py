@@ -30,7 +30,7 @@ If no holdout data exists, returns a clear explanation with a setup guide.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
@@ -204,7 +204,7 @@ def get_store_lift_summary(
         "verdict":             verdict,
         "nudge_breakdown":     nudge_breakdown,
         "window_hours":        window_hours,
-        "generated_at":        datetime.utcnow().isoformat() + "Z",
+        "generated_at":        datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
     }
 
 
@@ -261,5 +261,5 @@ def _no_data_response() -> dict:
         ),
         "nudge_breakdown": [],
         "window_hours":    DEFAULT_ATTRIBUTION_WINDOW_HOURS,
-        "generated_at":    datetime.utcnow().isoformat() + "Z",
+        "generated_at":    datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
     }

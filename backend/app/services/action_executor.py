@@ -110,7 +110,7 @@ Public interface
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -996,8 +996,8 @@ def create_task(
         expected_loss    = candidate.get("expected_loss"),
         confidence       = candidate.get("confidence"),
         urgency          = candidate.get("urgency"),
-        created_at       = datetime.utcnow(),
-        updated_at       = datetime.utcnow(),
+        created_at       = datetime.now(timezone.utc).replace(tzinfo=None),
+        updated_at       = datetime.now(timezone.utc).replace(tzinfo=None),
     )
     db.add(task)
     db.commit()
@@ -1061,7 +1061,7 @@ def claim_task(
     if task.status != STATUS_PENDING or task.claimed_by is not None:
         return task, "conflict"
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     task.status      = STATUS_EXECUTING
     task.claimed_by  = claimed_by
     task.executed_at = now
@@ -1129,7 +1129,7 @@ def release_task(
     if task.status != STATUS_EXECUTING:
         return task, "conflict"
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     release_reason = reason or "manual_release"
     previous_claimant = task.claimed_by or "unknown"
 
@@ -1194,7 +1194,7 @@ def transition_task(
 
     _validate_result_detail(result_detail, new_status)
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     task.status       = new_status
     task.updated_at   = now
     task.completed_at = now

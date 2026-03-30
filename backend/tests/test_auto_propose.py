@@ -26,6 +26,13 @@ def _now():
 
 
 def _make_open(db, title="Test bug"):
+    # Clear pre-existing open candidates so they don't interfere with test
+    db.query(BugFixCandidate).filter(
+        BugFixCandidate.status.in_(["open", "analyzed"]),
+        BugFixCandidate.proposal_attempted_at.is_(None),
+    ).update({"proposal_attempted_at": _now()}, synchronize_session="fetch")
+    db.flush()
+
     c = BugFixCandidate(
         source_type="manual", source_ref=f"auto_{title}",
         title=title, summary="something broke", status="open",

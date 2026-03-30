@@ -1,8 +1,11 @@
-from datetime import datetime
+import logging
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from app.services.unique_product_engine import update_unique_product_detection
 from app.models.product_opportunity import ProductOpportunity
 from app.models.price_intelligence import PriceIntelligence
+
+log = logging.getLogger("price_intelligence_engine")
 
 
 def classify_price_intelligence(opportunity: ProductOpportunity):
@@ -111,7 +114,7 @@ def update_price_intelligence(db: Session, product_url: str, shop_domain: str) -
     existing.intelligence_explanation = explanation
     existing.confidence_score = confidence_score
     existing.plan_required = "pro"
-    existing.updated_at = datetime.utcnow()
+    existing.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     db.commit()
 

@@ -78,22 +78,23 @@ def select_model(
 
     sel.provider = provider
 
-    # --- Model selection (provider is now resolved) ---
+    # --- Read base model from persistent config ---
+    base_model = _get_persistent_model(module, provider)
 
-    # Orchestrator: always Sonnet
+    # Orchestrator: use configured model (no escalation)
     if module == "orchestrator":
-        sel.model = SONNET if provider == "anthropic" else SONNET_OPENAI
-        sel.reason = "orchestrator_always_sonnet"
+        sel.model = base_model
+        sel.reason = "orchestrator_configured"
         sel.max_tokens = 512
         return sel
 
-    # Escalation: Sonnet failed → try Opus once
+    # Escalation: configured model failed → try Opus once
     if previous_failed:
         sel.model = OPUS if provider == "anthropic" else SONNET_OPENAI
-        sel.reason = "escalation_from_sonnet_failure"
+        sel.reason = "escalation_from_failure"
         sel.escalation = True
         sel.max_tokens = 2048
-        log.info("llm_router: escalating to Opus — previous Sonnet call failed")
+        log.info("llm_router: escalating to Opus — previous call failed")
         return sel
 
     # High complexity → Opus
@@ -118,9 +119,9 @@ def select_model(
         sel.max_tokens = 2048
         return sel
 
-    # Default: Sonnet
-    sel.model = SONNET if provider == "anthropic" else SONNET_OPENAI
-    sel.reason = "default_sonnet"
+    # Default: use configured base model
+    sel.model = base_model
+    sel.reason = "configured_default"
     sel.max_tokens = 2048 if module == "bugfix_proposal" else 512
     return sel
 
@@ -163,3 +164,16 @@ def _resolve_provider(anthropic_available: bool, openai_available: bool) -> str:
     # Neither available
     _last_blocked_reason = "no_provider_available"
     return "none"
+
+
+def _get_persistent_model(module: str, provider: str) -> str:
+    """Read active model from persistent DB config. Falls back to constants."""
+    try:
+        from app.services.model_config import get_active_model
+        config = get_active_model(module)
+        if config.get("provider") == provider and config.get("model"):
+            return config["model"]
+    except Exception:
+        pass
+    # Fallback to constants if DB unavailable or provider mismatch
+    return SONNET if provider == "anthropic" else SONNET_OPENAI

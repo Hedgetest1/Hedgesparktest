@@ -24,6 +24,15 @@ def _now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def _clear_pending_outcomes(db):
+    """Mark all pre-existing pending outcomes as evaluated so they don't interfere."""
+    db.query(ActionOutcome).filter(ActionOutcome.outcome_status == "pending").update(
+        {"outcome_status": "unknown", "evaluated_at": _now()},
+        synchronize_session="fetch",
+    )
+    db.flush()
+
+
 # ---------------------------------------------------------------------------
 # Outcome recording
 # ---------------------------------------------------------------------------
@@ -48,6 +57,7 @@ def test_record_pending_outcome(db):
 
 def test_evaluate_resolve_alert_success(db):
     """Resolved alert that stays resolved → success."""
+    _clear_pending_outcomes(db)
     # Create and resolve an alert
     alert = OpsAlert(
         severity="info", source="test", alert_type="test_eval",
@@ -80,6 +90,7 @@ def test_evaluate_resolve_alert_success(db):
 
 def test_evaluate_resolve_alert_no_effect(db):
     """Alert not actually resolved → no_effect."""
+    _clear_pending_outcomes(db)
     alert = OpsAlert(
         severity="info", source="test", alert_type="test_no_effect",
         summary="still broken", created_at=_now(),
@@ -107,6 +118,7 @@ def test_evaluate_resolve_alert_no_effect(db):
 
 def test_too_recent_not_evaluated(db):
     """Outcome executed just now → not evaluated yet."""
+    _clear_pending_outcomes(db)
     outcome = ActionOutcome(
         audit_log_id=3,
         action_type="orch_resolve_alert",

@@ -3,6 +3,10 @@ Bug fix candidate — tracks bug triage → patch proposal → human-gated apply
 
 Status transitions: open → analyzed → patch_proposed → approved | rejected
                                                         → applied | failed
+
+Outcome tracking (post-apply):
+    outcome_status: pending → effective | ineffective | inconclusive
+    Measured 48h after applied_at by checking if the original alert pattern recurred.
 """
 from datetime import datetime, timezone
 
@@ -55,8 +59,16 @@ class BugFixCandidate(Base):
     # Apply metadata
     git_commit_sha = Column(String(64), nullable=True)
 
+    # Reviewer link
+    reviewer_assessment_id = Column(Integer, nullable=True)
+
     # Slack dedup
     notified_at = Column(DateTime, nullable=True)
+
+    # Post-apply outcome tracking (closed-loop learning)
+    outcome_status = Column(String(32), nullable=True)     # pending | effective | ineffective | inconclusive
+    outcome_measured_at = Column(DateTime, nullable=True)
+    outcome_evidence = Column(Text, nullable=True)         # JSON: {alerts_before, alerts_after, ...}
 
     __table_args__ = (
         Index("ix_bugfix_candidates_status", "status", "created_at"),

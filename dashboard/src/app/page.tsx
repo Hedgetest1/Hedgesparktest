@@ -30,6 +30,7 @@ import { updateReputation } from "./lib/sparkReputation";
 import { generateNotifications, loadSettings, type SparkNotification } from "./lib/sparkNotifications";
 import { SparkToast } from "./components/NotificationBell";
 import { SparkInline } from "./components/SparkCompanion";
+import { SupportChat } from "./components/SupportChat";
 
 // ---------------------------------------------------------------------------
 // Environment
@@ -52,6 +53,13 @@ function apiFetch(url: string, init?: RequestInit): Promise<Response> {
     credentials: "include",
     cache: "no-store",
   });
+}
+
+// Session-expired event: dispatched when any fetch returns 401/403 mid-session.
+// Listened by a single handler that sets sessionExpired state.
+const SESSION_EXPIRED_EVENT = "hedgespark:session-expired";
+function dispatchSessionExpired() {
+  window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
 }
 
 // ---------------------------------------------------------------------------
@@ -1573,6 +1581,15 @@ export default function Page() {
   const hasExecutingRef = useRef(false);
   const [expandedTaskKey, setExpandedTaskKey] = useState<string | null>(null);
 
+  // Session expiry detection — set when any fetch returns 401/403 mid-session
+  const [sessionExpired, setSessionExpired] = useState(false);
+
+  // Analytics error surfacing — non-empty when analytics fetch fails
+  const [analyticsError, setAnalyticsError] = useState("");
+
+  // Data freshness — timestamp of last successful analytics load
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
   // System health — light warning when backend is degraded
   const [systemHealthIssues, setSystemHealthIssues] = useState<string[]>([]);
 
@@ -1673,6 +1690,13 @@ export default function Page() {
       })
       .finally(() => setSessionResolved(true));
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Listen for session-expired events from any fetch
+  useEffect(() => {
+    const handler = () => setSessionExpired(true);
+    window.addEventListener(SESSION_EXPIRED_EVENT, handler);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, handler);
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -1826,6 +1850,10 @@ export default function Page() {
           { headers: apiHeaders(), credentials: "include", cache: "no-store" }
         );
 
+        if (res.status === 401 || res.status === 403) {
+          dispatchSessionExpired();
+          return;
+        }
         if (!res.ok) throw new Error(`Overview failed: ${res.status}`);
         const json = (await res.json()) as OverviewResponse;
 
@@ -2125,12 +2153,20 @@ export default function Page() {
           fetch(`${API_BASE}/analytics/weekly-trend?shop=${encodeURIComponent(shop)}`, { headers: apiHeaders(), credentials: "include", cache: "no-store" }),
         ]);
 
+        // Detect session expiry on core analytics (most reliable signal)
+        if ([alertsRes.status, trendRes.status].some((s) => s === 401 || s === 403)) {
+          dispatchSessionExpired();
+          return;
+        }
+
         const alertsJson = alertsRes.ok ? await alertsRes.json() : { alerts: [] };
         const trendJson  = trendRes.ok  ? await trendRes.json()  : { trend: [] };
 
         if (!active) return;
         setAlerts(Array.isArray(alertsJson.alerts) ? alertsJson.alerts : []);
         setTrend(Array.isArray(trendJson.trend) ? trendJson.trend : []);
+        setAnalyticsError("");
+        setLastUpdated(new Date());
 
         // Extended analytics: sessions, funnel, clicks, top pages — Pro only.
         // Lite users see empty/placeholder UI for these sections, so fetching
@@ -2140,7 +2176,7 @@ export default function Page() {
           const pagesRes = await fetch(`${API_BASE}/analytics/top-pages?shop=${encodeURIComponent(shop)}`, { headers: apiHeaders(), credentials: "include", cache: "no-store" });
           const pagesJson = pagesRes.ok ? await pagesRes.json() : { pages: [] };
           if (active) setTopPages(Array.isArray(pagesJson.pages) ? pagesJson.pages : []);
-        } catch { /* silent */ }
+        } catch { /* top pages is supplementary — degrade silently */ }
 
         // Funnel, sessions, clicks — Pro only
         if (tier === "pro") {
@@ -2159,7 +2195,9 @@ export default function Page() {
           setFunnelSteps(Array.isArray(funnelJson.steps) ? funnelJson.steps : []);
           setClicks(Array.isArray(clicksJson.clicks) ? clicksJson.clicks : []);
         }
-      } catch { /* silent */ }
+      } catch {
+        if (active) setAnalyticsError("Unable to load analytics — retrying…");
+      }
     }
 
     loadAnalytics();
@@ -2251,9 +2289,12 @@ export default function Page() {
   useEffect(() => {
     if (!shop) return;
     apiFetch(`${API_BASE}/merchant/integrations`)
-      .then((r) => r.ok ? r.json() : null)
+      .then((r) => {
+        if (r.status === 401 || r.status === 403) { dispatchSessionExpired(); return null; }
+        return r.ok ? r.json() : null;
+      })
       .then((d) => { if (d?.klaviyo) setKlaviyoStatus(d.klaviyo); })
-      .catch(() => {});
+      .catch(() => { /* integrations status is supplementary */ });
   }, [shop]);
 
   const klaviyoIsConnected = klaviyoStatus?.status === "connected";
@@ -2764,6 +2805,35 @@ export default function Page() {
             </div>
           ) : (
             <div className="space-y-8 px-6 py-5 pb-[70vh]">
+
+              {/* Session expired banner — shown when any fetch returns 401/403 */}
+              {sessionExpired && (
+                <div className="rounded-2xl border border-amber-400/20 bg-amber-500/[0.07] px-4 py-3">
+                  <div className="flex items-center gap-2 text-sm font-medium text-amber-200">
+                    <span>Your session has expired.</span>
+                    <button
+                      onClick={() => window.location.reload()}
+                      className="rounded-lg bg-amber-500/20 px-3 py-1 text-xs font-semibold text-amber-100 hover:bg-amber-500/30 transition"
+                    >
+                      Refresh to reconnect
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Analytics error banner — shown when analytics polling fails */}
+              {analyticsError && !sessionExpired && (
+                <div className="rounded-2xl border border-rose-400/10 bg-rose-500/[0.05] px-4 py-2 text-xs text-rose-300/80">
+                  {analyticsError}
+                </div>
+              )}
+
+              {/* Data freshness — subtle timestamp below header */}
+              {lastUpdated && !sessionExpired && (
+                <div className="text-[10px] tracking-wide text-slate-600 -mt-5">
+                  Updated {lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </div>
+              )}
 
               {/* Billing callback toast — shown once after Shopify redirect */}
               {billingToast?.visible && (
@@ -4261,6 +4331,9 @@ export default function Page() {
         shopCurrency={data?.shop_currency ?? "USD"}
         aovIsReal={data?.aov_is_real ?? false}
       />
+
+      {/* Support chat — floating, always accessible */}
+      {shop && <SupportChat />}
     </div>
   );
 }

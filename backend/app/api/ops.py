@@ -34,6 +34,7 @@ router = APIRouter(prefix="/ops", tags=["ops"])
 @router.get("/readiness/orchestrator")
 def orchestrator_readiness(
     _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
 ):
     """Check orchestrator activation readiness for supervised hybrid mode."""
     import os
@@ -82,12 +83,26 @@ def orchestrator_readiness(
         "missing_requirements": missing,
         "warnings": warnings,
         "promotion": _get_promotion_readiness(),
+        "model_config": _get_model_config_summary(db),
     }
 
 
 def _get_provider_policy() -> dict:
     from app.core.llm_router import get_provider_policy
     return get_provider_policy()
+
+
+def _get_model_config_summary(db: Session) -> dict:
+    """Model config visibility for readiness endpoint."""
+    try:
+        from app.services.model_config import get_all_active_configs
+        configs = get_all_active_configs(db)
+        return {
+            "persistent": True,
+            "modules": {c["module"]: {"provider": c["provider"], "model": c["model"], "activated_at": c["activated_at"], "activated_by": c["activated_by"]} for c in configs},
+        }
+    except Exception:
+        return {"persistent": False, "modules": {}}
 
 
 def _get_promotion_readiness() -> dict:
@@ -520,6 +535,7 @@ def get_bugfix(
         "proposal_error": getattr(c, "proposal_error", None),
         "proposal_provider": getattr(c, "proposal_provider", None),
         "git_commit_sha": getattr(c, "git_commit_sha", None),
+        "reviewer_assessment_id": getattr(c, "reviewer_assessment_id", None),
     }
 
 
@@ -854,8 +870,8 @@ def list_evolution_proposals(
     _auth: bool = Depends(require_operator),
     db: Session = Depends(get_db),
 ):
-    """List evolution proposals."""
-    from app.models.evolution_proposal import EvolutionProposal
+    """List evolution proposals. Supports GC statuses: obsolete, resolved_indirectly, needs_revalidation."""
+    from app.models.evolution_proposal import EvolutionProposal, ENGINE_DEDUP_STATUSES
     q = db.query(EvolutionProposal)
     if status:
         q = q.filter(EvolutionProposal.status == status)
@@ -873,7 +889,16 @@ def list_evolution_proposals(
             "expected_impact": r.expected_impact,
             "auto_applicable": r.auto_applicable,
             "status": r.status,
+            "decided_by": r.decided_by,
+            "decided_at": r.decided_at.isoformat() + "Z" if r.decided_at else None,
             "audit_cycle": r.audit_cycle,
+            "converted_to_bugfix": r.status == "accepted" and r.decided_by == "evolution_converter",
+            "gc_reason": r.gc_reason,
+            "gc_updated_at": r.gc_updated_at.isoformat() + "Z" if r.gc_updated_at else None,
+            # True while the engine considers this proposal "live" and will
+            # not recreate a duplicate.  False means the engine may recreate
+            # a fresh proposal with the same dedup_key on next audit.
+            "active_for_engine": r.status in ENGINE_DEDUP_STATUSES,
         }
         for r in rows
     ]
@@ -919,3 +944,436 @@ def reject_evolution(
     p.decided_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.commit()
     return {"status": "rejected", "proposal_id": proposal_id}
+
+
+@router.post("/evolution/{proposal_id}/revalidate")
+def revalidate_evolution(
+    proposal_id: int,
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Re-open a proposal that was marked needs_revalidation, obsolete, or resolved_indirectly by the GC."""
+    from app.models.evolution_proposal import EvolutionProposal, GC_STATUSES
+    from app.services.audit import write_audit_log
+    from datetime import datetime, timezone
+    p = db.query(EvolutionProposal).get(proposal_id)
+    if not p:
+        raise HTTPException(404, "Not found")
+    if p.status not in GC_STATUSES:
+        raise HTTPException(409, f"Cannot revalidate — status is '{p.status}', expected one of {sorted(GC_STATUSES)}")
+    old_status = p.status
+    p.status = "open"
+    p.gc_reason = None
+    p.gc_updated_at = None
+    p.decided_by = "operator_revalidate"
+    p.decided_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    write_audit_log(
+        db,
+        actor_type="admin",
+        actor_name="operator",
+        action_type="evolution_revalidate",
+        target_type="evolution_proposal",
+        target_id=str(proposal_id),
+        before_state={"status": old_status},
+        after_state={"status": "open"},
+        status="completed",
+        approval_mode="human_approved",
+    )
+    db.commit()
+    return {"status": "open", "proposal_id": proposal_id, "revalidated_from": old_status}
+
+
+# ---------------------------------------------------------------------------
+# Model Upgrade Proposals
+# ---------------------------------------------------------------------------
+
+@router.get("/model-upgrades")
+def list_model_upgrades(
+    status: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """List model upgrade proposals."""
+    from app.models.model_upgrade import ModelUpgradeProposal
+    q = db.query(ModelUpgradeProposal)
+    if status:
+        q = q.filter(ModelUpgradeProposal.status == status)
+    rows = q.order_by(ModelUpgradeProposal.created_at.desc()).limit(limit).all()
+    return [
+        {
+            "id": r.id,
+            "current_model": r.current_model,
+            "candidate_model": r.candidate_model,
+            "target_module": r.target_module,
+            "reason": r.reason,
+            "status": r.status,
+            "eval_result": r.eval_result,
+            "risk_level": r.risk_level,
+        }
+        for r in rows
+    ]
+
+
+@router.get("/model-upgrades/{upgrade_id}")
+def get_model_upgrade(
+    upgrade_id: int,
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Get model upgrade detail."""
+    from app.models.model_upgrade import ModelUpgradeProposal
+    p = db.query(ModelUpgradeProposal).get(upgrade_id)
+    if not p:
+        raise HTTPException(404, "Not found")
+    return {
+        "id": p.id,
+        "current_provider": p.current_provider,
+        "current_model": p.current_model,
+        "candidate_provider": p.candidate_provider,
+        "candidate_model": p.candidate_model,
+        "target_module": p.target_module,
+        "reason": p.reason,
+        "expected_benefit": p.expected_benefit,
+        "risk_level": p.risk_level,
+        "status": p.status,
+        "eval_result": p.eval_result,
+        "eval_detail": p.eval_detail,
+        "decided_by": p.decided_by,
+        "activated_at": p.activated_at.isoformat() + "Z" if p.activated_at else None,
+    }
+
+
+@router.post("/model-upgrades/{upgrade_id}/evaluate")
+def trigger_model_eval(
+    upgrade_id: int,
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Run benchmark evaluation for a model upgrade candidate."""
+    from app.services.model_upgrade_agent import evaluate_upgrade
+    result = evaluate_upgrade(db, upgrade_id)
+    db.commit()
+    return {"status": result, "upgrade_id": upgrade_id}
+
+
+@router.post("/model-upgrades/{upgrade_id}/approve")
+def approve_model_upgrade(
+    upgrade_id: int,
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Approve a model upgrade (does NOT activate — separate step)."""
+    from app.models.model_upgrade import ModelUpgradeProposal
+    from app.services.model_upgrade_agent import generate_upgrade_evolution_proposals
+    from datetime import datetime, timezone
+
+    p = db.query(ModelUpgradeProposal).get(upgrade_id)
+    if not p:
+        raise HTTPException(404, "Not found")
+    if p.status != "evaluated":
+        raise HTTPException(409, f"Cannot approve — status is {p.status}")
+
+    p.status = "approved"
+    p.decided_by = "operator"
+    p.decided_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    # Generate evolution proposals for approved upgrade
+    evo_count = generate_upgrade_evolution_proposals(db, upgrade_id)
+    db.commit()
+    return {"status": "approved", "upgrade_id": upgrade_id, "evolution_proposals_created": evo_count}
+
+
+@router.post("/model-upgrades/{upgrade_id}/reject")
+def reject_model_upgrade(
+    upgrade_id: int,
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Reject a model upgrade proposal."""
+    from app.models.model_upgrade import ModelUpgradeProposal
+    from datetime import datetime, timezone
+    p = db.query(ModelUpgradeProposal).get(upgrade_id)
+    if not p:
+        raise HTTPException(404, "Not found")
+    if p.status in ("rejected", "activated"):
+        raise HTTPException(409, f"Already {p.status}")
+    p.status = "rejected"
+    p.decided_by = "operator"
+    p.decided_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.commit()
+    return {"status": "rejected", "upgrade_id": upgrade_id}
+
+
+@router.post("/model-upgrades/{upgrade_id}/activate")
+def activate_model_upgrade(
+    upgrade_id: int,
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """
+    Activate a model upgrade — persists to DB via model_config.
+    Requires prior approval. Separate from approve for safety.
+    """
+    from app.models.model_upgrade import ModelUpgradeProposal
+    from app.services.model_config import activate_model
+    from datetime import datetime, timezone
+
+    p = db.query(ModelUpgradeProposal).get(upgrade_id)
+    if not p:
+        raise HTTPException(404, "Not found")
+    if p.status != "approved":
+        raise HTTPException(409, f"Cannot activate — status is {p.status}, must be approved")
+
+    # Persist activation to DB (deactivates previous config)
+    activate_model(
+        db,
+        module=p.target_module,
+        provider=p.candidate_provider,
+        model_name=p.candidate_model,
+        activated_by="operator",
+    )
+
+    p.status = "activated"
+    p.activated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    from app.services.audit import write_audit_log
+    write_audit_log(
+        db, actor_type="human", actor_name="operator",
+        action_type="model_activated", target_type="model",
+        target_id=f"{p.candidate_provider}:{p.candidate_model}",
+        after_state={"module": p.target_module, "previous": p.current_model},
+        status="completed", approval_mode="human_approved",
+    )
+    db.commit()
+    return {"status": "activated", "module": p.target_module, "model": p.candidate_model}
+
+
+@router.post("/model-config/{module}/rollback")
+def rollback_model_config(
+    module: str,
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """
+    Rollback a module's model config to the previous active model.
+    """
+    from app.services.model_config import rollback_model
+
+    result = rollback_model(db, module=module, rolled_back_by="operator")
+
+    if result["status"] in ("no_active_config", "no_previous_config"):
+        raise HTTPException(404, result["status"])
+
+    from app.services.audit import write_audit_log
+    write_audit_log(
+        db, actor_type="human", actor_name="operator",
+        action_type="model_rolled_back", target_type="model",
+        target_id=f"{result['restored_provider']}:{result['restored_model']}",
+        after_state={"module": module},
+        status="completed", approval_mode="human_approved",
+    )
+    db.commit()
+    return result
+
+
+@router.get("/model-config")
+def get_model_config(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Return all active model configs per module."""
+    from app.services.model_config import get_all_active_configs
+    return {"configs": get_all_active_configs(db)}
+
+
+# ---------------------------------------------------------------------------
+# Scaling Intelligence
+# ---------------------------------------------------------------------------
+
+@router.get("/scaling/snapshots")
+def get_scaling_snapshots(
+    limit: int = Query(default=14, le=90),
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Return recent daily system snapshots."""
+    from app.services.scaling_intelligence import get_recent_snapshots
+    return {"snapshots": get_recent_snapshots(db, limit)}
+
+
+@router.get("/scaling/forecast")
+def get_scaling_forecast(
+    horizon: int = Query(default=30, le=90),
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Return scaling forecast projections."""
+    from app.services.scaling_intelligence import build_forecast
+    return build_forecast(db, horizon)
+
+
+@router.get("/scaling/recommendations")
+def get_scaling_recommendations(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Return active scaling recommendations."""
+    from app.services.scaling_intelligence import get_active_recommendations
+    return {"recommendations": get_active_recommendations(db)}
+
+
+# ---------------------------------------------------------------------------
+# Project Brain
+# ---------------------------------------------------------------------------
+
+@router.get("/project-brain/summary")
+def project_brain_summary(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Return current project brain state — what the reviewer knows."""
+    from app.services.project_brain import get_brain_summary
+    return get_brain_summary(db)
+
+
+@router.post("/project-brain/refresh")
+def project_brain_refresh(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Force a brain snapshot refresh (operator-triggered)."""
+    from app.services.project_brain import build_full_snapshot
+    snapshot = build_full_snapshot(db)
+    db.commit()
+    return {
+        "status": "refreshed",
+        "snapshot_id": snapshot.id,
+        "total_files": snapshot.total_files,
+        "critical_files": snapshot.critical_files,
+    }
+
+
+@router.get("/project-brain/constitution")
+def project_brain_constitution(
+    _auth: bool = Depends(require_operator),
+):
+    """Return the strategic constitution the reviewer uses."""
+    from app.services.project_brain import get_constitution
+    return get_constitution()
+
+
+# ---------------------------------------------------------------------------
+# Reviewer
+# ---------------------------------------------------------------------------
+
+@router.post("/reviewer/assess")
+def reviewer_assess(
+    entity_type: str = Query(...),
+    entity_id: int = Query(...),
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Run the reviewer on a specific entity. Returns structured assessment."""
+    from app.services.reviewer_layer import review_entity, format_for_operator
+
+    valid_types = {
+        "bugfix_candidate", "evolution_proposal", "action_approval",
+        "model_upgrade", "scaling_recommendation",
+    }
+    if entity_type not in valid_types:
+        raise HTTPException(400, f"Invalid entity_type. Must be one of: {sorted(valid_types)}")
+
+    assessment = review_entity(db, entity_type, entity_id)
+    if not assessment:
+        raise HTTPException(404, f"{entity_type} #{entity_id} not found")
+
+    db.commit()
+
+    notes = json.loads(assessment.notes_json) if assessment.notes_json else []
+    blocking = json.loads(assessment.blocking_concerns_json) if assessment.blocking_concerns_json else []
+    domains = json.loads(assessment.affected_domains_json) if assessment.affected_domains_json else []
+
+    return {
+        "assessment_id": assessment.id,
+        "entity_type": assessment.entity_type,
+        "entity_id": assessment.entity_id,
+        "verdict": assessment.verdict,
+        "risk_level": assessment.risk_level,
+        "strategic_alignment": assessment.strategic_alignment,
+        "confidence": assessment.confidence,
+        "auto_approvable": assessment.auto_approvable,
+        "summary": assessment.summary,
+        "notes": notes,
+        "blocking_concerns": blocking,
+        "affected_domains": domains,
+        "reviewer_mode": assessment.reviewer_mode,
+        "brain_snapshot_id": assessment.brain_snapshot_id,
+        "operator_message": format_for_operator(assessment),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Support incidents
+# ---------------------------------------------------------------------------
+
+@router.get("/incidents")
+def list_support_incidents(
+    status: str = Query(default="active"),
+    limit: int = Query(default=20, ge=1, le=100),
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """
+    List support incidents. status=active returns open/triaged/investigating.
+    status=all returns all. status=resolved returns resolved only.
+    """
+    from app.models.support_incident import SupportIncident
+    from sqlalchemy import desc
+
+    q = db.query(SupportIncident)
+    if status == "active":
+        q = q.filter(SupportIncident.status.in_(["open", "triaged", "investigating"]))
+    elif status == "resolved":
+        q = q.filter(SupportIncident.status == "resolved")
+    # status=all → no filter
+
+    incidents = q.order_by(desc(SupportIncident.created_at)).limit(limit).all()
+
+    return {
+        "count": len(incidents),
+        "incidents": [
+            {
+                "id": i.id,
+                "created_at": i.created_at.isoformat() + "Z" if i.created_at else None,
+                "shop_domain": i.shop_domain,
+                "classification": i.classification,
+                "severity": i.severity,
+                "affected_area": i.affected_area,
+                "status": i.status,
+                "linked_bugfix_candidate_id": i.linked_bugfix_candidate_id,
+                "linked_ops_alert_id": i.linked_ops_alert_id,
+                "resolved_by": i.resolved_by,
+                "message_preview": (i.original_message or "")[:120],
+            }
+            for i in incidents
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Meta-review
+# ---------------------------------------------------------------------------
+
+@router.get("/meta-review")
+def get_meta_review(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Return the latest completed meta-review."""
+    from app.services.meta_reviewer import get_latest_meta_review
+
+    review = get_latest_meta_review(db)
+    if not review:
+        return {"status": "no_review_available"}
+    return review

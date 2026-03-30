@@ -43,6 +43,7 @@ def build_orchestrator_context(db: Session) -> str:
     sections.append(_build_workers_section(db, now))
     sections.append(_build_outcomes_section(db, now))
     sections.append(_build_merge_summary_section(db))
+    sections.append(_build_evolution_section(db))
     sections.append(_build_vitals_section(db, now))
 
     context = "\n\n".join(sections)
@@ -185,3 +186,21 @@ def _build_merge_summary_section(db: Session) -> str:
         return f"## Merge Outcomes\n{get_merge_outcome_summary(db)}"
     except Exception:
         return "## Merge Outcomes\nUnavailable."
+
+
+def _build_evolution_section(db: Session) -> str:
+    """Compact summary of open evolution proposals."""
+    try:
+        rows = db.execute(text("""
+            SELECT risk_level, COUNT(*) FROM evolution_proposals
+            WHERE status = 'open'
+            GROUP BY risk_level
+            ORDER BY risk_level
+        """)).fetchall()
+        if not rows:
+            return "## Evolution\nNo open proposals."
+        total = sum(r[1] for r in rows)
+        parts = ", ".join(f"{r[1]} {r[0]}" for r in rows)
+        return f"## Evolution\nOpen proposals: {total} ({parts})"
+    except Exception:
+        return "## Evolution\nUnavailable."

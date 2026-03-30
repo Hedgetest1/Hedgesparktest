@@ -143,7 +143,14 @@ def repair_missing_webhooks(db: Session, shop_domain: str) -> WebhookRepairResul
 
     Only touches webhooks that are in EXPECTED_WEBHOOKS.
     Does NOT delete unrecognized webhooks.
+
+    Skips blocklisted shops (legacy/dev placeholders with no real credentials).
     """
+    # Skip blocklisted shops — they have no valid Shopify credentials
+    from app.services.onboarding import _ONBOARDING_BLOCKLIST
+    if shop_domain in _ONBOARDING_BLOCKLIST:
+        log.info("webhook_health: skipping blocklisted shop=%s", shop_domain)
+        return WebhookRepairResult(shop_domain=shop_domain, already_ok=["blocklisted"])
     import asyncio
     from app.services.shopify_admin import _ensure_webhook
 

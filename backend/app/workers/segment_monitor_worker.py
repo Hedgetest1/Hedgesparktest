@@ -207,7 +207,7 @@ def _has_cooldown_task(
     cooldown window block re-creation.  Active tasks (pending / executing)
     are handled separately by create_task() dedup — not checked here.
     """
-    cooldown_cutoff = datetime.utcnow() - timedelta(hours=COOLDOWN_HOURS)
+    cooldown_cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=COOLDOWN_HOURS)
     existing = (
         db.query(ActionTask)
         .filter(
@@ -391,7 +391,7 @@ def _process_product(
 # ---------------------------------------------------------------------------
 
 def run_cycle() -> None:
-    started_at = datetime.utcnow()
+    started_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     tasks_created    = 0
     tasks_refreshed  = 0
@@ -454,7 +454,7 @@ def run_cycle() -> None:
 
     finally:
         try:
-            finished_at = datetime.utcnow()
+            finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
             duration_ms = int((finished_at - started_at).total_seconds() * 1000)
             entry = WorkerLog(
                 worker_name=WORKER_NAME,

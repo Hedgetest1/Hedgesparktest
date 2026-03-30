@@ -15,7 +15,7 @@ Flow:
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -127,7 +127,7 @@ def auth_callback(
             shop_domain=shop,
             access_token=access_token,
             plan="starter",
-            installed_at=datetime.utcnow(),
+            installed_at=datetime.now(timezone.utc).replace(tzinfo=None),
             billing_active=False,
         )
         db.add(merchant)

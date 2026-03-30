@@ -81,7 +81,7 @@ Public interface
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case, text
 from app.services.price_intelligence_engine import update_price_intelligence
@@ -998,7 +998,7 @@ def update_product_opportunity(db: Session, product_url: str, shop_domain: str) 
     existing.recommended_action = recommended_action
     existing.opportunity_explanation = explanation
     existing.plan_required = "pro"
-    existing.updated_at = datetime.utcnow()
+    existing.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     db.commit()
     update_price_intelligence(db, product_url, shop_domain)
@@ -1182,7 +1182,7 @@ def detect_opportunities(shop_domain: str) -> list[dict]:
     same function used by the metrics path — to guarantee identical behaviour
     between the two paths.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     cutoff_24h_ms = int((now - timedelta(hours=24)).timestamp() * 1000)
     cutoff_7d_ms = int((now - timedelta(days=7)).timestamp() * 1000)
     detected_at = now.isoformat()
@@ -1295,7 +1295,7 @@ def detect_opportunities_from_metrics(shop_domain: str) -> list[dict]:
     Delegates to _evaluate_product_signals() so detection logic is defined
     exactly once and shared with the raw-events bootstrap path.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     cutoff_7d_ms = int(
         (now - timedelta(milliseconds=_METRICS_FRESHNESS_MS)).timestamp() * 1000
     )
@@ -1489,7 +1489,7 @@ def _persist_signals(signals: list[dict], shop_domain: str) -> None:
     Cleanup is owned by aggregation_worker._cleanup_expired_signals().
     Errors are swallowed so a DB hiccup never breaks the API response.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     new_expires_at = now + timedelta(hours=SIGNAL_TTL_HOURS)
     db = SessionLocal()
     try:
@@ -1535,7 +1535,7 @@ def _persist_signals(signals: list[dict], shop_domain: str) -> None:
 
 def _read_fresh_signals_from_db(shop_domain: str) -> list[dict]:
     """Read non-expired signals (expires_at >= now) for this shop."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     db = SessionLocal()
     try:
         rows = (

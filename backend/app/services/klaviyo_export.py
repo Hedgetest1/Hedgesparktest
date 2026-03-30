@@ -47,7 +47,7 @@ Public interface
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -226,7 +226,7 @@ def push_segment_to_klaviyo(
                         "shop_domain":       shop_domain,
                         "source":            "wishspark",
                     },
-                    "time": datetime.utcnow().isoformat() + "Z",
+                    "time": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
                 },
             }
         }
@@ -558,7 +558,7 @@ def push_intent_signals_to_klaviyo(
 
     # Find fresh intent signals (detected in last 15 min)
     from datetime import timedelta
-    cutoff = datetime.utcnow() - timedelta(minutes=15)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=15)
 
     rows = db.execute(
         text("""
@@ -689,7 +689,7 @@ def push_intent_signals_to_klaviyo(
                             "shop_domain":      shop_domain,
                             "source":           "hedgespark",
                         },
-                        "time": datetime.utcnow().isoformat() + "Z",
+                        "time": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
                     },
                 }
             }

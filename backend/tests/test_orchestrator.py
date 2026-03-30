@@ -105,6 +105,15 @@ def test_stale_info_alert_auto_resolved(db):
 
 def test_no_actions_when_no_alerts(db):
     """Clean state → zero actions."""
+    # Resolve all pre-existing unresolved alerts so orchestrator sees a clean slate
+    from app.models.ops_alert import OpsAlert
+    from datetime import datetime, timezone
+    db.query(OpsAlert).filter(OpsAlert.resolved == False).update(
+        {"resolved": True, "resolved_at": datetime.now(timezone.utc).replace(tzinfo=None)},
+        synchronize_session="fetch",
+    )
+    db.flush()
+
     _clear_cooldowns()
     result = run_orchestrator_cycle(db)
     assert result.actions_executed == 0

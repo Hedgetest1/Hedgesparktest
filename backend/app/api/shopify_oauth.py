@@ -268,6 +268,7 @@ async def _fetch_shop_email(shop: str, token: str) -> Optional[str]:
 
 def _upsert_merchant(db: Session, shop: str, encrypted_token: str, contact_email: Optional[str] = None) -> Merchant:
     row = db.query(Merchant).filter(Merchant.shop_domain == shop).first()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     if row is None:
         row = Merchant(
             shop_domain=shop,
@@ -276,6 +277,7 @@ def _upsert_merchant(db: Session, shop: str, encrypted_token: str, contact_email
             billing_active=False,
             contact_email=contact_email,
             pixel_secret=secrets.token_hex(16),
+            gdpr_consent_at=now,
         )
         db.add(row)
         log.info("shopify_oauth: new merchant created shop=%s", shop)
@@ -287,6 +289,8 @@ def _upsert_merchant(db: Session, shop: str, encrypted_token: str, contact_email
             row.contact_email = contact_email
         if not row.pixel_secret:
             row.pixel_secret = secrets.token_hex(16)
+        # Re-consent on reinstall
+        row.gdpr_consent_at = now
         log.info("shopify_oauth: merchant token refreshed shop=%s plan=%s", shop, row.plan)
 
     db.commit()

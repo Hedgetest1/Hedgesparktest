@@ -1,5 +1,5 @@
 # WishSpark Auto Context
-Auto-generated: 2026-03-27T18:00:01.728739 UTC
+Auto-generated: 2026-03-30T12:00:02.049307 UTC
 
 ## Project Root
 /opt/wishspark
@@ -22,6 +22,7 @@ Auto-generated: 2026-03-27T18:00:01.728739 UTC
 /backend/app/api/auth.py
 /backend/app/api/billing.py
 /backend/app/api/brief.py
+/backend/app/api/chat_support.py
 /backend/app/api/click_insights.py
 /backend/app/api/cohorts.py
 /backend/app/api/conversion_probability.py
@@ -59,6 +60,7 @@ Auto-generated: 2026-03-27T18:00:01.728739 UTC
 /backend/app/api/shopify_oauth.py
 /backend/app/api/source_quality.py
 /backend/app/api/store_intelligence.py
+/backend/app/api/telegram_webhook.py
 /backend/app/api/top_pages.py
 /backend/app/api/track.py
 /backend/app/api/track_purchase.py
@@ -84,13 +86,24 @@ Auto-generated: 2026-03-27T18:00:01.728739 UTC
 /backend/app/services/conversion_service.py
 /backend/app/services/digest_formatter.py
 /backend/app/services/empirical_calibration.py
+/backend/app/services/evolution_converter.py
+/backend/app/services/evolution_engine.py
+/backend/app/services/evolution_gc.py
+/backend/app/services/evolution_outcomes.py
 /backend/app/services/execution_engine.py
 /backend/app/services/external_lookup_service.py
 /backend/app/services/gdpr_processor.py
 /backend/app/services/intent_engine.py
 /backend/app/services/klaviyo_connection.py
 /backend/app/services/klaviyo_export.py
+/backend/app/services/ltv_engine.py
 /backend/app/services/market_lookup_engine.py
+/backend/app/services/merchant_chatbot.py
+/backend/app/services/merge_intelligence.py
+/backend/app/services/meta_reviewer.py
+/backend/app/services/model_config.py
+/backend/app/services/model_upgrade_agent.py
+/backend/app/services/monthly_evolution_audit.py
 /backend/app/services/nudge_composer.py
 /backend/app/services/nudge_engine.py
 /backend/app/services/nudge_gating.py
@@ -107,14 +120,20 @@ Auto-generated: 2026-03-27T18:00:01.728739 UTC
 /backend/app/services/price_intelligence_engine.py
 /backend/app/services/price_radar_service.py
 /backend/app/services/product_intelligence_engine.py
+/backend/app/services/project_brain.py
 /backend/app/services/promotion_pipeline.py
+/backend/app/services/revenue_forecast.py
 /backend/app/services/revenue_loss.py
 /backend/app/services/revenue_metrics.py
 /backend/app/services/revenue_recovery_engine.py
+/backend/app/services/reviewer_layer.py
+/backend/app/services/scaling_intelligence.py
 /backend/app/services/setup_audit.py
 /backend/app/services/shopify_admin.py
 /backend/app/services/shopify_auth.py
 /backend/app/services/signal_text.py
+/backend/app/services/system_summary.py
+/backend/app/services/telegram_agent.py
 /backend/app/services/unique_product_engine.py
 /backend/app/services/utm_attribution.py
 /backend/app/services/webhook_health.py
@@ -126,16 +145,21 @@ Auto-generated: 2026-03-27T18:00:01.728739 UTC
 /backend/app/models/action_outcome.py
 /backend/app/models/action_snapshot.py
 /backend/app/models/action_task.py
+/backend/app/models/active_model_config.py
 /backend/app/models/active_nudge.py
 /backend/app/models/audit_log.py
 /backend/app/models/autofix_promotion.py
 /backend/app/models/bugfix_candidate.py
 /backend/app/models/daily_brief.py
 /backend/app/models/event.py
+/backend/app/models/evolution_proposal.py
 /backend/app/models/execution.py
 /backend/app/models/gdpr_request.py
 /backend/app/models/market_lookup.py
 /backend/app/models/merchant.py
+/backend/app/models/merge_outcome.py
+/backend/app/models/meta_review.py
+/backend/app/models/model_upgrade.py
 /backend/app/models/nudge_event.py
 /backend/app/models/nudge_impression_daily.py
 /backend/app/models/opportunity_signal.py
@@ -145,9 +169,14 @@ Auto-generated: 2026-03-27T18:00:01.728739 UTC
 /backend/app/models/product.py
 /backend/app/models/product_metrics.py
 /backend/app/models/product_opportunity.py
+/backend/app/models/project_brain_snapshot.py
+/backend/app/models/reviewer_assessment.py
+/backend/app/models/scaling_recommendation.py
 /backend/app/models/shop_conversion_calibration.py
 /backend/app/models/shop_order.py
 /backend/app/models/store_metrics.py
+/backend/app/models/support_incident.py
+/backend/app/models/system_snapshot.py
 /backend/app/models/unique_product_detection.py
 /backend/app/models/visitor.py
 /backend/app/models/visitor_product_state.py

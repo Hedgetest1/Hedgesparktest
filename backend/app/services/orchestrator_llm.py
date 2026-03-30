@@ -109,6 +109,13 @@ def claude_decision(
     Returns LLMDecisionResult with validated proposals.
     Returns empty proposals (no error) if no API key is configured.
     """
+    # Budget guard
+    from app.core.llm_budget import check_budget, record_usage, record_blocked, get_max_tokens
+    allowed, reason = check_budget("orchestrator")
+    if not allowed:
+        record_blocked("orchestrator", reason)
+        return LLMDecisionResult(assessment=f"Budget blocked: {reason}", error=f"budget:{reason}")
+
     if not _ANTHROPIC_KEY and not _OPENAI_KEY:
         return LLMDecisionResult(
             assessment="No LLM API key configured — skipping AI decision layer",
@@ -132,14 +139,24 @@ def claude_decision(
 
 Analyze the system state and propose actions if needed. Return strict JSON."""
 
-    # Try Claude first, then OpenAI
-    raw = ""
-    model = ""
+    # Route model selection
+    from app.core.llm_router import select_model
+    sel = select_model(
+        module="orchestrator",
+        anthropic_available=bool(_ANTHROPIC_KEY),
+        openai_available=bool(_OPENAI_KEY),
+    )
 
-    if _ANTHROPIC_KEY:
-        raw, model = _call_anthropic(user_message)
+    raw = ""
+    model = sel.model
+
+    if sel.provider == "anthropic" and _ANTHROPIC_KEY:
+        raw, model = _call_anthropic(user_message, model=sel.model, max_tokens=sel.max_tokens)
     if not raw and _OPENAI_KEY:
-        raw, model = _call_openai(user_message)
+        raw, model = _call_openai(user_message, model=sel.model if sel.provider == "openai" else "gpt-4o-mini", max_tokens=sel.max_tokens)
+
+    if raw:
+        record_usage("orchestrator", tokens_used=len(raw) // 4, provider=sel.provider, model=model)
 
     if not raw:
         return LLMDecisionResult(
@@ -156,9 +173,14 @@ Analyze the system state and propose actions if needed. Return strict JSON."""
 # API callers
 # ---------------------------------------------------------------------------
 
-def _call_anthropic(user_message: str) -> tuple[str, str]:
-    """Call Anthropic Claude API. Returns (response_text, model_name)."""
-    model = "claude-sonnet-4-20250514"
+def _call_anthropic(user_message: str, model: str = "claude-sonnet-4-20250514", max_tokens: int = 512) -> tuple[str, str]:
+    """Call Anthropic Claude API. Handles 429 with backoff. Returns (response_text, model_name)."""
+    from app.core.llm_budget import is_provider_backed_off, record_429
+
+    if is_provider_backed_off("anthropic"):
+        log.info("orchestrator_llm: Anthropic backed off (429 cooldown)")
+        return "", model
+
     try:
         resp = httpx.post(
             "https://api.anthropic.com/v1/messages",
@@ -169,7 +191,7 @@ def _call_anthropic(user_message: str) -> tuple[str, str]:
             },
             json={
                 "model": model,
-                "max_tokens": 512,
+                "max_tokens": max_tokens,
                 "temperature": 0.1,
                 "system": _SYSTEM_PROMPT,
                 "messages": [{"role": "user", "content": user_message}],
@@ -180,6 +202,9 @@ def _call_anthropic(user_message: str) -> tuple[str, str]:
             data = resp.json()
             text = data.get("content", [{}])[0].get("text", "")
             return text, model
+        if resp.status_code == 429:
+            record_429("anthropic")
+            return "", model
         log.warning("orchestrator_llm: Anthropic returned %d", resp.status_code)
         return "", model
     except Exception as exc:
@@ -187,9 +212,14 @@ def _call_anthropic(user_message: str) -> tuple[str, str]:
         return "", model
 
 
-def _call_openai(user_message: str) -> tuple[str, str]:
-    """Call OpenAI API as fallback. Returns (response_text, model_name)."""
-    model = "gpt-4o-mini"
+def _call_openai(user_message: str, model: str = "gpt-4o-mini", max_tokens: int = 512) -> tuple[str, str]:
+    """Call OpenAI API as fallback. Handles 429 with backoff. Returns (response_text, model_name)."""
+    from app.core.llm_budget import is_provider_backed_off, record_429
+
+    if is_provider_backed_off("openai"):
+        log.info("orchestrator_llm: OpenAI backed off (429 cooldown)")
+        return "", model
+
     try:
         resp = httpx.post(
             "https://api.openai.com/v1/chat/completions",
@@ -199,7 +229,7 @@ def _call_openai(user_message: str) -> tuple[str, str]:
             },
             json={
                 "model": model,
-                "max_tokens": 512,
+                "max_tokens": max_tokens,
                 "temperature": 0.1,
                 "response_format": {"type": "json_object"},
                 "messages": [
@@ -213,6 +243,9 @@ def _call_openai(user_message: str) -> tuple[str, str]:
             data = resp.json()
             text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
             return text, model
+        if resp.status_code == 429:
+            record_429("openai")
+            return "", model
         log.warning("orchestrator_llm: OpenAI returned %d", resp.status_code)
         return "", model
     except Exception as exc:

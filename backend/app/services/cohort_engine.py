@@ -27,7 +27,7 @@ Public interface
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -68,7 +68,7 @@ def get_cohort_retention(
         }
     """
     weeks = max(4, min(weeks, 26))
-    since_date = datetime.utcnow() - timedelta(weeks=weeks + 1)
+    since_date = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(weeks=weeks + 1)
 
     try:
         # Step 1: Get all orders with customer email in the window
@@ -121,7 +121,7 @@ def get_cohort_retention(
         cohort_customers[week_key].append(email)
 
     # Step 4: Build retention matrix per cohort
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     cohorts = []
 
     for week_key, emails in sorted(cohort_customers.items(), reverse=True):
@@ -200,7 +200,7 @@ def get_cohort_retention(
 
     return {
         "window_weeks":          weeks,
-        "generated_at":          datetime.utcnow().isoformat() + "Z",
+        "generated_at":          datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
         "cohorts":               cohorts[:weeks],
         "avg_week_1_retention":  avg_week1,
         "avg_week_4_retention":  avg_week4,
@@ -248,7 +248,7 @@ def get_cohort_summary(
 def _empty_response(weeks: int) -> dict:
     return {
         "window_weeks":          weeks,
-        "generated_at":          datetime.utcnow().isoformat() + "Z",
+        "generated_at":          datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
         "cohorts":               [],
         "avg_week_1_retention":  0.0,
         "avg_week_4_retention":  0.0,

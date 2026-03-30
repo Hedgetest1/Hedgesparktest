@@ -41,4 +41,5 @@ class WorkerLog(Base):
 
     __table_args__ = (
         Index("ix_worker_log_worker_name", "worker_name"),
+        Index("ix_worker_log_started_at", "started_at"),
     )

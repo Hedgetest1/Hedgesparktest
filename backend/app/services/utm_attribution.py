@@ -1,28 +1,32 @@
 """
 utm_attribution.py — UTM / source-to-revenue attribution analytics.
 
-Uses existing data in the events table (source_type, referrer) and
+Uses existing data in the events table (source_type, referrer, utm_*) and
 shop_orders + visitor_purchase_sessions to build a full attribution picture:
 
     Traffic source → Product views → HOT visitors → Conversions → Revenue
 
-This is behavioral attribution: we know which source brought HOT visitors
-who then converted, not just which source drove click volume.
+Supports both first-touch and last-touch attribution models via the
+first_source / last_source columns on visitor_purchase_sessions.
 
 Public interface
 ----------------
-    get_utm_attribution(db, shop_domain, days=30) -> dict
+    get_utm_attribution(db, shop_domain, days=30, model="first_touch") -> dict
         Returns a per-source breakdown with:
         - visitors, page_views, hot_visitors, conversions, revenue
         - cvr (conversion rate), revenue_per_visitor, quality_score
 
     get_utm_top_products_by_source(db, shop_domain, days=30) -> list[dict]
         Returns top product+source combinations by revenue.
+
+    get_attribution_summary(db, shop_domain, days=30) -> dict
+        Returns attribution overview with attributed/unattributed order counts,
+        top sources, top campaigns, first-touch vs last-touch breakdown.
 """
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -59,19 +63,19 @@ def get_utm_attribution(
     db: Session,
     shop_domain: str,
     days: int = 30,
+    model: str = "first_touch",
 ) -> dict:
     """
     Compute source-level attribution: traffic → behavior → conversions → revenue.
 
-    Attribution model:
-        A conversion is attributed to the source that brought the visitor's
-        FIRST tracked event.  Last-click or multi-touch attribution requires
-        additional data not currently stored — this is first-touch behavioral
-        attribution (conservative, non-inflationary).
+    Attribution models:
+        "first_touch" — conversion attributed to source of visitor's FIRST event (default)
+        "last_touch" — conversion attributed to source of visitor's LAST event before purchase
 
     Returns:
         {
             "window_days": int,
+            "model": str,
             "generated_at": str,
             "sources": [
                 {
@@ -94,13 +98,16 @@ def get_utm_attribution(
         }
     """
     days = max(1, min(days, 90))
-    since_ms = int((datetime.utcnow() - timedelta(days=days)).timestamp() * 1000)
+    since_ms = int((datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)).timestamp() * 1000)
+
+    # Choose source ordering: ASC for first-touch, DESC for last-touch
+    source_order = "ASC" if model == "first_touch" else "DESC"
 
     try:
         rows = db.execute(
-            text("""
+            text(f"""
                 WITH visitor_sources AS (
-                    -- First source per visitor (first-touch attribution)
+                    -- Source per visitor (first-touch or last-touch)
                     SELECT DISTINCT ON (shop_domain, visitor_id)
                            shop_domain,
                            visitor_id,
@@ -109,7 +116,7 @@ def get_utm_attribution(
                     WHERE shop_domain = :shop
                       AND timestamp   >= :since_ms
                       AND visitor_id  IS NOT NULL
-                    ORDER BY shop_domain, visitor_id, timestamp ASC
+                    ORDER BY shop_domain, visitor_id, timestamp {source_order}
                 ),
                 visitor_activity AS (
                     -- Page views and HOT scoring per visitor
@@ -117,7 +124,6 @@ def get_utm_attribution(
                         shop_domain,
                         visitor_id,
                         COUNT(*) FILTER (WHERE event_type = 'page_view') AS page_views,
-                        -- HOT proxy: scroll > 60% or dwell > 45s or visit_count > 2
                         CASE WHEN
                             MAX(COALESCE(max_scroll_depth, 0)) > 60 OR
                             MAX(COALESCE(dwell_seconds, 0))    > 45 OR
@@ -165,7 +171,8 @@ def get_utm_attribution(
         log.error("utm_attribution: query failed shop=%s: %s", shop_domain, exc)
         return {
             "window_days":  days,
-            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "model":        model,
+            "generated_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
             "sources":      [],
             "totals":       {"visitors": 0, "conversions": 0, "revenue": 0.0},
         }
@@ -213,7 +220,8 @@ def get_utm_attribution(
 
     return {
         "window_days":  days,
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "model":        model,
+        "generated_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
         "sources":      sources,
         "totals": {
             "visitors":    total_visitors,
@@ -238,7 +246,7 @@ def get_utm_top_products_by_source(
         {"source_type", "source_label", "product_url", "visitors", "hot_visitors", "conversions"}
     """
     days = max(1, min(days, 90))
-    since_ms = int((datetime.utcnow() - timedelta(days=days)).timestamp() * 1000)
+    since_ms = int((datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)).timestamp() * 1000)
 
     try:
         rows = db.execute(
@@ -279,3 +287,156 @@ def get_utm_top_products_by_source(
             shop_domain, exc,
         )
         return []
+
+
+def get_attribution_summary(
+    db: Session,
+    shop_domain: str,
+    days: int = 30,
+) -> dict:
+    """
+    Return attribution overview: attributed vs unattributed orders,
+    top sources, top campaigns, first-touch vs last-touch breakdown.
+
+    This is the evidence-based attribution summary for merchants.
+    Every number is backed by real data — no modeled/probabilistic attribution.
+
+    Returns:
+        {
+            "window_days": int,
+            "generated_at": str,
+            "orders_total": int,
+            "orders_attributed": int,
+            "orders_unattributed": int,
+            "attribution_rate": float,
+            "top_sources_first_touch": [...],
+            "top_sources_last_touch": [...],
+            "top_campaigns": [...],
+            "first_vs_last_match_rate": float,
+        }
+    """
+    days = max(1, min(days, 90))
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
+    result = {
+        "window_days": days,
+        "generated_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
+        "orders_total": 0,
+        "orders_attributed": 0,
+        "orders_unattributed": 0,
+        "attribution_rate": 0.0,
+        "top_sources_first_touch": [],
+        "top_sources_last_touch": [],
+        "top_campaigns": [],
+        "first_vs_last_match_rate": 0.0,
+    }
+
+    try:
+        # Total orders in window
+        total_row = db.execute(text("""
+            SELECT COUNT(*) FROM shop_orders
+            WHERE shop_domain = :shop AND created_at >= :cutoff
+        """), {"shop": shop_domain, "cutoff": cutoff}).fetchone()
+        result["orders_total"] = total_row[0] if total_row else 0
+
+        # Attributed orders (have a visitor_purchase_session with first_source)
+        attr_row = db.execute(text("""
+            SELECT COUNT(DISTINCT vps.shopify_order_id)
+            FROM visitor_purchase_sessions vps
+            WHERE vps.shop_domain = :shop
+              AND vps.confirmed_at >= :cutoff
+              AND vps.first_source IS NOT NULL
+        """), {"shop": shop_domain, "cutoff": cutoff}).fetchone()
+        result["orders_attributed"] = attr_row[0] if attr_row else 0
+
+        # Orders with VPS but no source (visitor tracked but no source_type on events)
+        partial_row = db.execute(text("""
+            SELECT COUNT(DISTINCT vps.shopify_order_id)
+            FROM visitor_purchase_sessions vps
+            WHERE vps.shop_domain = :shop
+              AND vps.confirmed_at >= :cutoff
+              AND vps.first_source IS NULL
+        """), {"shop": shop_domain, "cutoff": cutoff}).fetchone()
+        partial = partial_row[0] if partial_row else 0
+
+        result["orders_unattributed"] = result["orders_total"] - result["orders_attributed"] - partial
+        if result["orders_unattributed"] < 0:
+            result["orders_unattributed"] = result["orders_total"] - result["orders_attributed"]
+
+        if result["orders_total"] > 0:
+            result["attribution_rate"] = round(result["orders_attributed"] / result["orders_total"], 3)
+
+        # Top sources by first-touch
+        ft_rows = db.execute(text("""
+            SELECT vps.first_source, COUNT(*) AS cnt,
+                   COALESCE(SUM(so.total_price), 0) AS revenue
+            FROM visitor_purchase_sessions vps
+            JOIN shop_orders so ON so.shopify_order_id = vps.shopify_order_id
+                               AND so.shop_domain = vps.shop_domain
+            WHERE vps.shop_domain = :shop
+              AND vps.confirmed_at >= :cutoff
+              AND vps.first_source IS NOT NULL
+            GROUP BY vps.first_source
+            ORDER BY cnt DESC
+            LIMIT 10
+        """), {"shop": shop_domain, "cutoff": cutoff}).fetchall()
+        result["top_sources_first_touch"] = [
+            {"source": r[0], "label": _source_label(r[0]), "orders": r[1], "revenue": round(float(r[2]), 2)}
+            for r in ft_rows
+        ]
+
+        # Top sources by last-touch
+        lt_rows = db.execute(text("""
+            SELECT vps.last_source, COUNT(*) AS cnt,
+                   COALESCE(SUM(so.total_price), 0) AS revenue
+            FROM visitor_purchase_sessions vps
+            JOIN shop_orders so ON so.shopify_order_id = vps.shopify_order_id
+                               AND so.shop_domain = vps.shop_domain
+            WHERE vps.shop_domain = :shop
+              AND vps.confirmed_at >= :cutoff
+              AND vps.last_source IS NOT NULL
+            GROUP BY vps.last_source
+            ORDER BY cnt DESC
+            LIMIT 10
+        """), {"shop": shop_domain, "cutoff": cutoff}).fetchall()
+        result["top_sources_last_touch"] = [
+            {"source": r[0], "label": _source_label(r[0]), "orders": r[1], "revenue": round(float(r[2]), 2)}
+            for r in lt_rows
+        ]
+
+        # Top campaigns (from first_campaign — most actionable for merchants)
+        camp_rows = db.execute(text("""
+            SELECT vps.first_campaign, COUNT(*) AS cnt,
+                   COALESCE(SUM(so.total_price), 0) AS revenue
+            FROM visitor_purchase_sessions vps
+            JOIN shop_orders so ON so.shopify_order_id = vps.shopify_order_id
+                               AND so.shop_domain = vps.shop_domain
+            WHERE vps.shop_domain = :shop
+              AND vps.confirmed_at >= :cutoff
+              AND vps.first_campaign IS NOT NULL
+            GROUP BY vps.first_campaign
+            ORDER BY revenue DESC
+            LIMIT 10
+        """), {"shop": shop_domain, "cutoff": cutoff}).fetchall()
+        result["top_campaigns"] = [
+            {"campaign": r[0], "orders": r[1], "revenue": round(float(r[2]), 2)}
+            for r in camp_rows
+        ]
+
+        # First vs last touch match rate: how often do they agree?
+        match_row = db.execute(text("""
+            SELECT
+                COUNT(*) FILTER (WHERE first_source = last_source) AS matched,
+                COUNT(*) AS total
+            FROM visitor_purchase_sessions
+            WHERE shop_domain = :shop
+              AND confirmed_at >= :cutoff
+              AND first_source IS NOT NULL
+              AND last_source IS NOT NULL
+        """), {"shop": shop_domain, "cutoff": cutoff}).fetchone()
+        if match_row and match_row[1] > 0:
+            result["first_vs_last_match_rate"] = round(match_row[0] / match_row[1], 3)
+
+    except Exception as exc:
+        log.error("attribution_summary: query failed shop=%s: %s", shop_domain, exc)
+
+    return result

@@ -13,6 +13,7 @@ Design principles:
     - Per-action cooldown prevents repeated execution
     - All decisions are logged with reasoning
     - Claude proposals are strictly validated against ACTION_REGISTRY
+    - Repair claims prevent concurrent repairs with chatbot
 
 Public interface:
     run_orchestrator_cycle(db) -> OrchestratorResult
@@ -106,16 +107,27 @@ TIER_2 = 2  # High risk: never auto-executed, always requires human approval
 # ---------------------------------------------------------------------------
 
 def _action_webhook_repair(db: Session, target: str) -> str:
-    """Re-register missing webhooks for a merchant."""
-    from app.services.webhook_health import repair_missing_webhooks
-    result = repair_missing_webhooks(db, target)
-    if result.error:
-        return f"error: {result.error}"
-    if result.repaired:
-        return f"repaired: {result.repaired}"
-    if result.already_ok:
-        return "already_ok"
-    return "no_action"
+    """
+    Re-register missing webhooks for a merchant.
+    Gated by repair claim to prevent concurrent repairs with chatbot.
+    """
+    from app.core.repair_claim import try_claim_repair, release_repair_claim
+    if not try_claim_repair(target, "webhooks"):
+        log.info("orchestrator: webhook_repair skipped for %s — repair claim held (chatbot or prior cycle)", target)
+        return "skipped_repair_in_progress"
+
+    try:
+        from app.services.webhook_health import repair_missing_webhooks
+        result = repair_missing_webhooks(db, target)
+        if result.error:
+            return f"error: {result.error}"
+        if result.repaired:
+            return f"repaired: {result.repaired}"
+        if result.already_ok:
+            return "already_ok"
+        return "no_action"
+    finally:
+        release_repair_claim(target, "webhooks")
 
 
 def _action_resolve_alert(db: Session, target: str) -> str:
@@ -370,7 +382,15 @@ def _evaluate_decisions(db: Session) -> list[ActionRecord]:
             reason="Auto-resolve onboarding_failed alert (>2h old, batch runner retries automatically)",
         ))
 
-    return candidates
+    # Dedup within this cycle: same (action, target) → keep first only
+    seen: set[str] = set()
+    deduped: list[ActionRecord] = []
+    for c in candidates:
+        key = f"{c.action}::{c.target}"
+        if key not in seen:
+            seen.add(key)
+            deduped.append(c)
+    return deduped
 
 
 # ---------------------------------------------------------------------------

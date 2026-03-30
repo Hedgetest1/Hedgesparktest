@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Index
 from app.core.database import Base
 
 
@@ -27,3 +27,8 @@ class VisitorProductState(Base):
     intent_explanation = Column(String)
 
     shop_domain = Column(String, nullable=False)
+
+    __table_args__ = (
+        Index("ix_vps_shop_product", "shop_domain", "product_url"),
+        Index("ix_vps_shop_visitor", "shop_domain", "visitor_id"),
+    )

@@ -3,7 +3,7 @@ import sys
 sys.path.append("/opt/wishspark/backend")
 
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.core.logging_config import configure_logging, set_worker_context
 configure_logging()
@@ -66,7 +66,7 @@ def _load_state(db) -> WorkerState:
 
 
 def _save_state(db, state: WorkerState) -> None:
-    state.last_run_at = datetime.utcnow()
+    state.last_run_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.commit()
 
 
@@ -82,7 +82,7 @@ def _write_log(
     errors: int,
     error_detail: str | None,
 ) -> None:
-    finished_at = datetime.utcnow()
+    finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
     duration_ms = int((finished_at - started_at).total_seconds() * 1000)
     entry = WorkerLog(
         worker_name=WORKER_NAME,
@@ -103,7 +103,7 @@ def _write_log(
 # ---------------------------------------------------------------------------
 
 def run_cycle():
-    started_at = datetime.utcnow()
+    started_at = datetime.now(timezone.utc).replace(tzinfo=None)
     rows_written = 0
     errors = 0
     last_error: str | None = None

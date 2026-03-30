@@ -233,3 +233,44 @@ def get_proof_summary(db: Session, shop_domain: str, days: int = 30) -> dict:
         "improvements": improvements,
         "total_revenue_delta": round(total_rev_delta, 2),
     }
+
+
+# ---------------------------------------------------------------------------
+# Action effectiveness — closed-loop learning for action ranking
+# ---------------------------------------------------------------------------
+
+def get_action_effectiveness(db: Session, days: int = 90) -> dict[str, dict]:
+    """
+    Aggregate action_snapshot outcomes by action_type over the last N days.
+    Returns: {"ACTION_TYPE": {"total": N, "improved": N, "declined": N, "stable": N, "effectiveness": 0.0-1.0}}
+
+    Used by action_candidates_engine to boost/penalize action types based on
+    historical performance. effectiveness = improved / total (0 if no data).
+    """
+    cutoff = _now() - timedelta(days=days)
+    try:
+        snapshots = (
+            db.query(ActionSnapshot)
+            .filter(
+                ActionSnapshot.delta_computed == True,  # noqa: E712
+                ActionSnapshot.delta_computed_at >= cutoff,
+            )
+            .all()
+        )
+    except Exception:
+        return {}
+
+    by_type: dict[str, dict] = {}
+    for s in snapshots:
+        at = s.action_type or "unknown"
+        if at not in by_type:
+            by_type[at] = {"total": 0, "improved": 0, "declined": 0, "stable": 0}
+        by_type[at]["total"] += 1
+        outcome = s.outcome or "stable"
+        by_type[at][outcome] = by_type[at].get(outcome, 0) + 1
+
+    # Compute effectiveness ratio per action type
+    for at, stats in by_type.items():
+        stats["effectiveness"] = round(stats["improved"] / stats["total"], 3) if stats["total"] > 0 else 0.0
+
+    return by_type

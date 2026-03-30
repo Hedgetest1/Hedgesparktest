@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -39,7 +39,7 @@ def build_product_intelligence(goal: str, payload: dict[str, Any] | None = None)
     ]
 
     return {
-        "generated_at_utc": datetime.utcnow().isoformat(),
+        "generated_at_utc": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
         "goal": goal,
         "product_name": product_name,
         "product_url": product_url,

@@ -1,8 +1,11 @@
-from datetime import datetime
+import logging
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.models.unique_product_detection import UniqueProductDetection
 from app.models.market_lookup import MarketLookup
+
+log = logging.getLogger("market_lookup_engine")
 
 
 def classify_market_lookup(unique_signal):
@@ -66,6 +69,7 @@ def update_market_lookup(db: Session, product_url: str, shop_domain: str) -> Non
     )
 
     if not unique_signal:
+        log.info("market_lookup: no unique_product_detection for %s:%s — skipped", shop_domain, product_url)
         return
 
     (
@@ -98,6 +102,6 @@ def update_market_lookup(db: Session, product_url: str, shop_domain: str) -> Non
     existing.market_summary = market_summary
     existing.recommended_next_step = recommended_next_step
     existing.plan_required = "pro"
-    existing.updated_at = datetime.utcnow()
+    existing.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     db.commit()

@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 BASE_PATH = "/opt/wishspark"
 BACKEND_PATH = f"{BASE_PATH}/backend/app"
@@ -83,7 +83,7 @@ def build_server_context():
     docs_files = extract_docs()
 
     context = f"""# WishSpark Server Context
-Auto-generated: {datetime.utcnow().isoformat()} UTC
+Auto-generated: {datetime.now(timezone.utc).replace(tzinfo=None).isoformat()} UTC
 
 ## Base Path
 /opt/wishspark
@@ -129,7 +129,7 @@ def build_auto_context():
     dashboard_routes = extract_dashboard_routes()
 
     context = f"""# WishSpark Auto Context
-Auto-generated: {datetime.utcnow().isoformat()} UTC
+Auto-generated: {datetime.now(timezone.utc).replace(tzinfo=None).isoformat()} UTC
 
 ## Project Root
 /opt/wishspark

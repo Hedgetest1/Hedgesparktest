@@ -112,3 +112,12 @@ class Merchant(Base):
     # ---------------------------------------------------------------------------
     onboarding_status = Column(String(32), nullable=False, default="pending", server_default="pending")
     onboarding_error  = Column(String(512), nullable=True)
+
+    # ---------------------------------------------------------------------------
+    # GDPR consent tracking
+    #
+    # Set at OAuth install/reinstall time — records when the merchant consented
+    # to data processing by installing the app from the Shopify App Store.
+    # NULL for merchants installed before this field was added.
+    # ---------------------------------------------------------------------------
+    gdpr_consent_at = Column(DateTime, nullable=True)

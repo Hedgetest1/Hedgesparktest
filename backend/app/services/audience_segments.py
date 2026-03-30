@@ -59,7 +59,7 @@ Maximum 500 visitors per query to bound response size.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -129,7 +129,7 @@ def segment_product_visitors(
     Never raises — all errors degrade gracefully with appropriate labels.
     """
     hours = max(1, min(hours, 168))
-    since_dt = datetime.utcnow() - timedelta(hours=hours)
+    since_dt = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=hours)
     since_ms = int(since_dt.timestamp() * 1000)
 
     log.info(
@@ -279,7 +279,7 @@ def segment_product_visitors(
             "warm_threshold":                 round(warm_thresh, 4),
             "aov_used":                       round(aov, 2),
             "aov_source":                     aov_source,
-            "generated_at":                   datetime.utcnow().isoformat() + "Z",
+            "generated_at":                   datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
         },
     }
 
@@ -441,6 +441,6 @@ def _empty_response(
             "warm_threshold":                 None,
             "aov_used":                       round(aov, 2),
             "aov_source":                     aov_source,
-            "generated_at":                   datetime.utcnow().isoformat() + "Z",
+            "generated_at":                   datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
         },
     }

@@ -194,11 +194,20 @@ def _ensure_tracker(merchant: Merchant, token: str) -> bool:
 # Batch runner for worker integration
 # ---------------------------------------------------------------------------
 
+# Shops that should never be onboarded — dead/dev/legacy placeholders.
+# These have no valid Shopify credentials and will always fail, polluting
+# logs and alerts on every 15-minute worker cycle.
+_ONBOARDING_BLOCKLIST = frozenset({
+    "legacy.myshopify.com",
+})
+
+
 def run_pending_onboarding(db: Session) -> dict:
     """
     Find and onboard all merchants with onboarding_status in (pending, failed).
 
     Failed merchants are retried — the onboarding flow is idempotent.
+    Blocklisted shops (legacy/dev stubs) are permanently skipped.
     Returns summary: {"processed": N, "ready": N, "failed": N, "skipped": N}
     """
     merchants = (
@@ -213,6 +222,16 @@ def run_pending_onboarding(db: Session) -> dict:
     summary = {"processed": 0, "ready": 0, "failed": 0, "skipped": 0}
 
     for m in merchants:
+        # Skip blocklisted shops — they have no credentials and always fail
+        if m.shop_domain in _ONBOARDING_BLOCKLIST:
+            summary["skipped"] += 1
+            continue
+
+        # Skip merchants with no access token — cannot call Shopify APIs
+        if not m.access_token:
+            summary["skipped"] += 1
+            continue
+
         result = run_onboarding(db, m)
         summary["processed"] += 1
         if result.status == "ready":

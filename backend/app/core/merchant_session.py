@@ -41,19 +41,33 @@ log = logging.getLogger(__name__)
 
 SESSION_COOKIE_NAME = "hs_session"
 
-_SECRET: str = (
-    os.getenv("MERCHANT_SESSION_SECRET", "")
-    or os.getenv("SHOPIFY_API_SECRET", "")
-)
+_EXPLICIT_SECRET = os.getenv("MERCHANT_SESSION_SECRET", "").strip()
+_FALLBACK_SECRET = os.getenv("SHOPIFY_API_SECRET", "").strip()
+_ALLOW_INSECURE_DEV = os.getenv("ALLOW_INSECURE_DEV", "").lower() == "true"
+
+if _EXPLICIT_SECRET:
+    _SECRET = _EXPLICIT_SECRET
+elif _ALLOW_INSECURE_DEV and _FALLBACK_SECRET:
+    # Dev only: fallback to SHOPIFY_API_SECRET with warning
+    _SECRET = _FALLBACK_SECRET
+    log.warning(
+        "merchant_session: MERCHANT_SESSION_SECRET not set — falling back to "
+        "SHOPIFY_API_SECRET (dev mode only). Set MERCHANT_SESSION_SECRET for production."
+    )
+elif _ALLOW_INSECURE_DEV:
+    _SECRET = ""
+    log.warning(
+        "merchant_session: No signing secret available (dev mode). "
+        "All session operations will fail until MERCHANT_SESSION_SECRET is set."
+    )
+else:
+    # Production: no fallback, no silent degradation.
+    # _SECRET is left empty — create_session_token / verify will fail.
+    # The hard RuntimeError in main.py _startup_env_audit() prevents boot.
+    _SECRET = ""
+
 _TTL_DAYS: int = int(os.getenv("MERCHANT_SESSION_TTL_DAYS", "7"))
 _TTL_SECONDS: int = _TTL_DAYS * 86_400
-
-if not _SECRET:
-    log.error(
-        "merchant_session: No signing secret available — "
-        "set MERCHANT_SESSION_SECRET or SHOPIFY_API_SECRET. "
-        "All session operations will fail."
-    )
 
 
 def create_session_token(shop_domain: str, session_version: int = 0) -> Optional[str]:

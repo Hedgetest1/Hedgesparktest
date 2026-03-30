@@ -370,7 +370,7 @@ def upsert_order(db: Session, order_data: dict) -> tuple[ShopOrder, bool]:
         customer_email   = order_data.get("customer_email"),
         line_items       = enriched_line_items,
         created_at       = order_data["created_at"],
-        ingested_at      = datetime.utcnow(),
+        ingested_at      = datetime.now(timezone.utc).replace(tzinfo=None),
         source           = "webhook",
     )
 

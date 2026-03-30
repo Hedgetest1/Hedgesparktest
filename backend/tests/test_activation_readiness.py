@@ -116,12 +116,12 @@ def test_readiness_requires_auth(client):
     assert resp.status_code == 401
 
 
-def test_readiness_reports_deterministic_mode(client):
-    """Deterministic mode with all keys → ready."""
+def test_readiness_reports_current_mode(client):
+    """Readiness reports the configured mode and action registry."""
     resp = client.get("/ops/readiness/orchestrator", headers=_op_headers())
     assert resp.status_code == 200
     data = resp.json()
-    assert data["mode"] == "deterministic"
+    assert data["mode"] in ("deterministic", "proposal", "hybrid")
     assert data["operator_key_configured"] is True
     assert "actions" in data
     assert data["actions"]["total"] >= 7

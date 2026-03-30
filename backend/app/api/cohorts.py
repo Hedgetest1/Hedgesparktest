@@ -1,22 +1,24 @@
 """
-cohorts.py — Cohort retention analytics (Pro only).
+cohorts.py — Cohort retention and LTV analytics (Pro only).
 
-GET /pro/cohorts?shop=&weeks=
-    Full weekly cohort retention matrix.
+Weekly retention:
+    GET /pro/cohorts?shop=&weeks=          — weekly cohort retention matrix
+    GET /pro/cohorts/summary?shop=         — high-level retention stats
 
-GET /pro/cohorts/summary?shop=
-    High-level retention stats for the dashboard banner.
+Monthly LTV:
+    GET /pro/cohorts/monthly?shop=&months= — monthly acquisition cohorts with
+                                              cumulative revenue, repeat rate,
+                                              orders/customer, ARPC
+    GET /pro/cohorts/ltv?shop=             — high-level LTV metrics
 
 This is the feature that directly attacks Lifetimely / Peel on their core
 territory.  The key advantage WishSpark will eventually have:
 
-    "Cohorts with high behavioral engagement in week 0 have 2x retention
-    at week 8 compared to low-engagement cohorts."
+    "Cohorts with high behavioral engagement in month 0 have 2x LTV
+    at month 6 compared to low-engagement cohorts."
 
 Lifetimely structurally cannot show that because they have no behavioral data.
 We do.  This is the foundation for that future positioning.
-
-For now: honest weekly cohort retention from real shop_orders data.
 """
 from __future__ import annotations
 
@@ -28,6 +30,7 @@ from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.core.deps import require_pro_session
 from app.services.cohort_engine import get_cohort_retention, get_cohort_summary
+from app.services.ltv_engine import get_monthly_cohorts, get_ltv_summary
 
 log = logging.getLogger(__name__)
 
@@ -98,3 +101,77 @@ def get_cohort_summary_endpoint(
         }
     """
     return get_cohort_summary(db, shop)
+
+
+@router.get("/monthly")
+def get_monthly_cohorts_endpoint(
+    months: int = 6,
+    shop: str = Depends(require_pro_session),
+    db: Session = Depends(get_db),
+):
+    """
+    Monthly acquisition cohort analysis.
+
+    Each cohort = customers who made their FIRST order in that month.
+    Tracks cumulative revenue, repeat rate, and orders/customer by cohort age.
+
+    Customer identity: uses customer_id (preferred) or customer_email.
+    Orders without either are excluded — coverage rate is surfaced honestly.
+
+    Returns:
+        {
+            "window_months": int,
+            "customer_coverage": {
+                "total_orders": int,
+                "identifiable_orders": int,
+                "unidentifiable_orders": int,
+                "coverage_rate": float,
+            },
+            "cohorts": [
+                {
+                    "cohort_month": str,              # "2026-03"
+                    "size": int,                       # unique customers
+                    "revenue_total": float,
+                    "orders_total": int,
+                    "orders_per_customer": float,
+                    "revenue_per_customer": float,
+                    "repeat_rate": float,              # fraction with 2+ orders
+                    "cumulative_revenue": [
+                        {"month_age": 0, "revenue": float, "month_revenue": float, "customers_active": int},
+                        {"month_age": 1, "revenue": float, "month_revenue": float, "customers_active": int},
+                        ...
+                    ]
+                }
+            ],
+            "overall": {
+                "total_customers": int,
+                "repeat_customers": int,
+                "repeat_rate": float,
+                "avg_orders_per_customer": float,
+                "avg_revenue_per_customer": float,
+            }
+        }
+    """
+    months = max(1, min(months, 12))
+    return get_monthly_cohorts(db, shop, months=months)
+
+
+@router.get("/ltv")
+def get_ltv_summary_endpoint(
+    shop: str = Depends(require_pro_session),
+    db: Session = Depends(get_db),
+):
+    """
+    High-level LTV metrics for the Pro dashboard.
+
+    Returns:
+        {
+            "total_customers": int,
+            "repeat_rate": float,
+            "avg_orders_per_customer": float,
+            "avg_revenue_per_customer": float,
+            "top_cohort_month": str | None,
+            "customer_coverage_rate": float,
+        }
+    """
+    return get_ltv_summary(db, shop)

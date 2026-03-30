@@ -125,27 +125,27 @@
     }
   }
 
-  function _utmMedium() {
+  function _getParam(name) {
     try {
       var params = new URL(window.location.href).searchParams;
-      var med = params.get("utm_medium");
-      return med ? med.toLowerCase().trim() : null;
+      var val = params.get(name);
+      return val ? val.trim() : null;
     } catch (_) {
       return null;
     }
   }
 
+  function _utmMedium() {
+    var med = _getParam("utm_medium");
+    return med ? med.toLowerCase() : null;
+  }
+
   function _utmSource() {
-    try {
-      var params = new URL(window.location.href).searchParams;
-      var src = params.get("utm_source");
-      if (!src) return null;
-      src = src.toLowerCase().trim();
-      if (src === "newsletter" || src === "e-mail") src = "email";
-      return src || null;
-    } catch (_) {
-      return null;
-    }
+    var src = _getParam("utm_source");
+    if (!src) return null;
+    src = src.toLowerCase();
+    if (src === "newsletter" || src === "e-mail") src = "email";
+    return src || null;
   }
 
   var _REFERRER_MAP = [
@@ -207,6 +207,54 @@
     } catch (_) {
       return "direct";
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Attribution data — UTM params, click IDs, landing page
+  //
+  // Captured ONCE at boot from URL query params.
+  // landing_page is persisted in sessionStorage so it remains the FIRST page
+  // of the session across subsequent navigations.
+  //
+  // Click ID priority: gclid > fbclid > ttclid > msclkid
+  // Stored as "type:value" string to match backend expectation.
+  //
+  // These are campaign metadata (not PII). GDPR-safe.
+  // ---------------------------------------------------------------------------
+  var _utmSourceVal   = _getParam("utm_source")   || undefined;
+  var _utmMediumVal   = _utmMedium()              || undefined;
+  var _utmCampaignVal = _getParam("utm_campaign") || undefined;
+  var _utmContentVal  = _getParam("utm_content")  || undefined;
+  var _utmTermVal     = _getParam("utm_term")     || undefined;
+
+  // Click ID — deterministic priority order
+  var _clickIdVal = undefined;
+  try {
+    var _CID_TYPES = ["gclid", "fbclid", "ttclid", "msclkid"];
+    for (var ci = 0; ci < _CID_TYPES.length; ci++) {
+      var cidVal = _getParam(_CID_TYPES[ci]);
+      if (cidVal) {
+        _clickIdVal = _CID_TYPES[ci] + ":" + cidVal;
+        break;
+      }
+    }
+  } catch (_) {}
+
+  // Landing page — FIRST page URL of this browser session.
+  // Persisted in sessionStorage so it doesn't change on later navigations.
+  var _landingPage = undefined;
+  try {
+    var _LP_KEY = "hs_landing_page";
+    var stored = sessionStorage.getItem(_LP_KEY);
+    if (stored) {
+      _landingPage = stored;
+    } else {
+      // Strip query params and fragment for cleanliness
+      _landingPage = window.location.pathname + window.location.search;
+      sessionStorage.setItem(_LP_KEY, _landingPage);
+    }
+  } catch (_) {
+    _landingPage = window.location.pathname;
   }
 
   // ---------------------------------------------------------------------------
@@ -327,17 +375,23 @@
     // non-product pages where ShopifyAnalytics.meta.product may be stale.
     var productId  = productUrl ? detectProductId() : null;
     var payload = {
-      shop_domain: SHOP_DOMAIN,
-      visitor_id:  visitorId,
-      event_type:  eventType,
-      page_url:    currentPageUrl(),
-      product_url: productUrl || undefined,
-      product_id:  productId  || undefined,
-      timestamp:   Date.now(),
-      source_type: detectSourceType(),
-      referrer:    document.referrer || "",
-      utm_medium:  _utmMedium() || undefined,
-      device_type: /Mobi|Android/i.test(navigator.userAgent) ? "mobile" : "desktop",
+      shop_domain:   SHOP_DOMAIN,
+      visitor_id:    visitorId,
+      event_type:    eventType,
+      page_url:      currentPageUrl(),
+      product_url:   productUrl || undefined,
+      product_id:    productId  || undefined,
+      timestamp:     Date.now(),
+      source_type:   detectSourceType(),
+      referrer:      document.referrer || "",
+      utm_medium:    _utmMediumVal,
+      utm_source:    _utmSourceVal,
+      utm_campaign:  _utmCampaignVal,
+      utm_content:   _utmContentVal,
+      utm_term:      _utmTermVal,
+      click_id:      _clickIdVal,
+      landing_page:  _landingPage,
+      device_type:   /Mobi|Android/i.test(navigator.userAgent) ? "mobile" : "desktop",
     };
     if (extra) {
       for (var k in extra) {

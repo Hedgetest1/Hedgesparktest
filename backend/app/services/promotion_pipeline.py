@@ -553,14 +553,20 @@ def run_auto_promotion(db: Session, max_per_cycle: int = 1) -> dict:
             ci_result = check_remote_ci_status(db, promo.id)
             summary["ci_polled"] += 1
 
-            # Auto-create PR if CI passed and no PR yet
+            # Auto-create PR if CI passed and no PR yet (max 3 attempts tracked via failure_reason)
             if ci_result == "passed" and not promo.pr_url:
-                try:
-                    pr_result = create_promotion_pr(db, promo.id)
-                    if pr_result.startswith("http"):
-                        summary["prs_created"] += 1
-                except Exception as exc:
-                    log.warning("auto_promotion: PR create error id=%d: %s", promo.id, exc)
+                pr_attempts = (promo.failure_reason or "").count("pr_attempt")
+                if pr_attempts < 3:
+                    try:
+                        pr_result = create_promotion_pr(db, promo.id)
+                        if pr_result.startswith("http"):
+                            summary["prs_created"] += 1
+                            promo.failure_reason = None  # clear on success
+                        else:
+                            promo.failure_reason = f"{promo.failure_reason or ''}; pr_attempt_{pr_attempts+1}: {pr_result[:100]}"
+                    except Exception as exc:
+                        promo.failure_reason = f"{promo.failure_reason or ''}; pr_attempt_{pr_attempts+1}: {exc}"
+                        log.warning("auto_promotion: PR create error id=%d: %s", promo.id, exc)
 
             # Alert on CI failure
             if ci_result == "failed":

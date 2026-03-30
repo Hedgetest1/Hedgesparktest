@@ -188,6 +188,8 @@ def _evaluate_single(db: Session, outcome: MergeOutcome) -> tuple[str, str]:
     # Check 1: Did the same bug source reappear?
     from app.models.bugfix_candidate import BugFixCandidate
     original = db.query(BugFixCandidate).get(outcome.bugfix_candidate_id)
+    if not original:
+        return "unknown", "original_candidate_deleted — cannot verify regression"
     if original:
         new_candidates = (
             db.query(BugFixCandidate)

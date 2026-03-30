@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from app.services.market_lookup_engine import update_market_lookup
 from app.models.product_opportunity import ProductOpportunity
@@ -111,7 +111,7 @@ def update_unique_product_detection(db: Session, product_url: str, shop_domain: 
     existing.evidence_summary = evidence_summary
     existing.recommended_strategy = recommended_strategy
     existing.plan_required = "pro"
-    existing.updated_at = datetime.utcnow()
+    existing.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     db.commit()
     update_market_lookup(db, product_url, shop_domain)

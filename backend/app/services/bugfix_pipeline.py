@@ -3,11 +3,19 @@ bugfix_pipeline.py — Bug triage, patch proposal, and human-gated fix pipeline.
 
 Triage: reads ops_alerts + outcome data → creates BugFixCandidate rows
 Proposal: builds context → calls LLM → stores patch on candidate row
-Apply: placeholder only — no auto-apply
+Apply: safe apply with test verification and rollback
 
 Public interface:
     run_bug_triage(db) -> dict          — scan for new bugs, create candidates
     propose_patch(db, candidate_id) -> bool  — LLM proposes patch for a candidate
+    run_auto_propose(db) -> dict        — auto-propose for open candidates
+    run_auto_apply(db) -> dict          — auto-apply TIER_0 candidates
+    apply_bugfix_candidate(db, id) -> ApplyResult
+
+Unified pipeline integration:
+    - Rule 4 in triage scans merchant_reported_bug alerts (from chatbot)
+    - Back-links support incidents when candidates are created from chatbot alerts
+    - Propagates resolution to linked support incidents after successful apply
 """
 from __future__ import annotations
 
@@ -117,6 +125,39 @@ def run_bug_triage(db: Session) -> dict:
         )
         summary["created"] += 1
 
+    # Rule 4: Merchant-reported bugs → chatbot-originated alerts
+    # Consumes alerts created by merchant_chatbot._route_to_pipeline()
+    merchant_bugs = db.execute(text("""
+        SELECT id, shop_domain, summary, detail
+        FROM ops_alerts
+        WHERE alert_type = 'merchant_reported_bug'
+          AND resolved = false
+          AND created_at >= :cutoff
+        ORDER BY created_at DESC LIMIT 5
+    """), {"cutoff": cutoff}).fetchall()
+
+    for alert in merchant_bugs:
+        summary["scanned"] += 1
+        ref = f"merchant_bug_alert_{alert[0]}"
+        if _has_open_candidate(db, "support_incident", ref):
+            summary["deduped"] += 1
+            continue
+        candidate = _create_candidate(
+            db,
+            source_type="support_incident",
+            source_ref=ref,
+            title=f"Merchant reported: {(alert[2] or '')[:150]}",
+            summary_text=alert[2],
+            context={"alert_id": alert[0], "shop": alert[1], "detail": alert[3]},
+        )
+        summary["created"] += 1
+
+        # Back-link: update any support incidents linked to this alert
+        _backlink_incidents_to_candidate(db, alert_id=alert[0], candidate_id=candidate.id)
+
+    # Recover stuck candidates (applying for >10 min)
+    _recover_stuck_candidates(db)
+
     if summary["created"] > 0:
         db.flush()
         log.info("bugfix_triage: scanned=%d created=%d deduped=%d", summary["scanned"], summary["created"], summary["deduped"])
@@ -172,11 +213,11 @@ def run_auto_propose(db: Session, max_per_cycle: int = 2) -> dict:
 
 
 def _has_open_candidate(db: Session, source_type: str, source_ref: str) -> bool:
-    """Check if an open/analyzed/patch_proposed candidate already exists for this source."""
+    """Check if an active candidate already exists for this source (any non-terminal status)."""
     return db.query(BugFixCandidate).filter(
         BugFixCandidate.source_type == source_type,
         BugFixCandidate.source_ref == source_ref,
-        BugFixCandidate.status.in_(["open", "analyzed", "patch_proposed"]),
+        BugFixCandidate.status.in_(["open", "analyzed", "patch_proposed", "approved", "applying"]),
     ).first() is not None
 
 
@@ -193,7 +234,78 @@ def _create_candidate(
         status="open",
     )
     db.add(c)
+    db.flush()
     return c
+
+
+def _backlink_incidents_to_candidate(db: Session, alert_id: int, candidate_id: int):
+    """
+    Find support incidents linked to this ops_alert and set their
+    linked_bugfix_candidate_id + transition status to 'investigating'.
+    """
+    from app.models.support_incident import SupportIncident
+    incidents = (
+        db.query(SupportIncident)
+        .filter(
+            SupportIncident.linked_ops_alert_id == alert_id,
+            SupportIncident.status.in_(["open", "triaged"]),
+        )
+        .all()
+    )
+    for inc in incidents:
+        inc.linked_bugfix_candidate_id = candidate_id
+        inc.status = "investigating"
+        log.info("bugfix_triage: linked incident=%d → candidate=%d, status→investigating",
+                 inc.id, candidate_id)
+    if incidents:
+        db.flush()
+
+
+def _recover_stuck_candidates(db: Session):
+    """
+    Reset candidates stuck in 'applying' for >10 minutes.
+    Prevents permanent stuck state if worker crashes during apply.
+    """
+    stuck_cutoff = _now() - timedelta(minutes=10)
+    stuck = (
+        db.query(BugFixCandidate)
+        .filter(
+            BugFixCandidate.status == "applying",
+            BugFixCandidate.decided_at.isnot(None),
+            BugFixCandidate.decided_at <= stuck_cutoff,
+        )
+        .all()
+    )
+    for c in stuck:
+        c.status = "patch_proposed"
+        c.failure_reason = "stuck_in_applying_recovered"
+        log.warning("bugfix_triage: recovered stuck candidate id=%d", c.id)
+    if stuck:
+        db.flush()
+
+
+def _propagate_resolution(db: Session, candidate: BugFixCandidate):
+    """
+    When a bugfix candidate is applied, resolve all linked support incidents.
+    Transitions: investigating/triaged/open → resolved (by auto_bugfix).
+    """
+    from app.models.support_incident import SupportIncident
+    incidents = (
+        db.query(SupportIncident)
+        .filter(
+            SupportIncident.linked_bugfix_candidate_id == candidate.id,
+            SupportIncident.status.in_(["open", "triaged", "investigating"]),
+        )
+        .all()
+    )
+    for inc in incidents:
+        inc.status = "resolved"
+        inc.resolved_by = "auto_bugfix"
+        inc.resolved_at = _now()
+        inc.resolution_summary = f"Resolved by auto-fix #{candidate.id}: {candidate.title}"
+        log.info("bugfix_pipeline: auto-resolved incident=%d via candidate=%d", inc.id, candidate.id)
+    if incidents:
+        db.flush()
 
 
 # ---------------------------------------------------------------------------
@@ -239,8 +351,15 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
             context_parts.append(f"Context: {candidate.context_json[:500]}")
     user_message = "\n\n".join(context_parts)
 
-    # Call LLM
-    raw = _call_llm(user_message)
+    # Call LLM with routing context
+    file_count = 1
+    if candidate.context_json:
+        try:
+            ctx = json.loads(candidate.context_json)
+            file_count = len(ctx.get("files", [])) or 1
+        except Exception:
+            pass
+    raw = _call_llm(user_message, patch_risk_tier=None, file_count=file_count)
     if not raw:
         candidate.failure_reason = "llm_call_failed"
         db.flush()
@@ -262,6 +381,13 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
     candidate.patch_diff = data.get("diff", "")
     candidate.patch_files = json.dumps(data.get("files", []))
     candidate.test_command = data.get("test_command", "")
+
+    # Reject empty/whitespace-only diffs — LLM sometimes returns valid JSON with no actual patch
+    if not candidate.patch_diff or not candidate.patch_diff.strip():
+        candidate.failure_reason = "llm_returned_empty_diff"
+        db.flush()
+        return False
+
     candidate.status = "patch_proposed"
 
     # Classify risk tier
@@ -288,48 +414,114 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
     except Exception:
         pass
 
+    # Telegram: send reviewer pre-assessment for non-TIER_0 patches
+    if tier != PATCH_TIER_0:
+        try:
+            from app.services.reviewer_layer import review_entity
+            from app.services.telegram_agent import send_reviewer_verdict, is_configured
+            assessment = review_entity(db, "bugfix_candidate", candidate.id)
+            if assessment:
+                candidate.reviewer_assessment_id = assessment.id
+                db.flush()
+                if is_configured():
+                    send_reviewer_verdict(assessment, entity_title=candidate.title)
+        except Exception:
+            pass
+
     log.info("bugfix_pipeline: patch proposed id=%d title=%s", candidate.id, candidate.title)
     return True
 
 
-def _call_llm(user_message: str) -> str:
-    """Call LLM for patch proposal. Returns raw response text or empty string."""
+def _call_llm(
+    user_message: str,
+    patch_risk_tier: int | None = None,
+    file_count: int = 1,
+    previous_failed: bool = False,
+) -> str:
+    """
+    Call LLM for patch proposal. Budget-guarded + model-routed.
+    Returns raw response text or empty string.
+    If Sonnet fails, retries once with Opus (escalation).
+    """
+    from app.core.llm_budget import check_budget, record_usage, record_blocked
+    allowed, reason = check_budget("bugfix_proposal")
+    if not allowed:
+        record_blocked("bugfix_proposal", reason)
+        log.info("bugfix_pipeline: LLM call blocked by budget: %s", reason)
+        return ""
+
+    from app.core.llm_router import select_model
     import httpx
 
     anthropic_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     openai_key = os.getenv("OPENAI_API_KEY", "").strip()
 
-    if anthropic_key:
-        try:
-            resp = httpx.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": anthropic_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": "claude-sonnet-4-20250514",
-                    "max_tokens": 2048,
-                    "temperature": 0.1,
-                    "system": _PATCH_SYSTEM_PROMPT,
-                    "messages": [{"role": "user", "content": user_message}],
-                },
-                timeout=30.0,
-            )
-            if resp.status_code == 200:
-                return resp.json().get("content", [{}])[0].get("text", "")
-        except Exception as exc:
-            log.warning("bugfix_pipeline: Anthropic call failed: %s", type(exc).__name__)
+    sel = select_model(
+        module="bugfix_proposal",
+        patch_risk_tier=patch_risk_tier,
+        file_count=file_count,
+        previous_failed=previous_failed,
+        anthropic_available=bool(anthropic_key),
+        openai_available=bool(openai_key),
+    )
+
+    text = _call_provider(sel, user_message, anthropic_key, openai_key)
+
+    if text:
+        record_usage("bugfix_proposal", tokens_used=len(text) // 4, provider=sel.provider, model=sel.model)
+        return text
+
+    # Escalation: if Sonnet failed and not already escalated, try Opus once
+    if not previous_failed and not sel.escalation:
+        log.info("bugfix_pipeline: Sonnet failed, escalating to Opus")
+        return _call_llm(user_message, patch_risk_tier=patch_risk_tier, file_count=file_count, previous_failed=True)
+
+    return ""
+
+
+def _call_provider(sel, user_message: str, anthropic_key: str, openai_key: str) -> str:
+    """Make the actual API call based on model selection. Handles 429 with backoff."""
+    import httpx
+    from app.core.llm_budget import is_provider_backed_off, record_429
+
+    if sel.provider == "anthropic" and anthropic_key:
+        if is_provider_backed_off("anthropic"):
+            log.info("bugfix_pipeline: Anthropic backed off (429 cooldown)")
+        else:
+            try:
+                resp = httpx.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={"x-api-key": anthropic_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                    json={
+                        "model": sel.model,
+                        "max_tokens": sel.max_tokens,
+                        "temperature": 0.1,
+                        "system": _PATCH_SYSTEM_PROMPT,
+                        "messages": [{"role": "user", "content": user_message}],
+                    },
+                    timeout=30.0,
+                )
+                if resp.status_code == 200:
+                    return resp.json().get("content", [{}])[0].get("text", "")
+                if resp.status_code == 429:
+                    record_429("anthropic")
+                else:
+                    log.warning("bugfix_pipeline: Anthropic %s returned %d", sel.model, resp.status_code)
+            except Exception as exc:
+                log.warning("bugfix_pipeline: Anthropic %s failed: %s", sel.model, type(exc).__name__)
 
     if openai_key:
+        if is_provider_backed_off("openai"):
+            log.info("bugfix_pipeline: OpenAI backed off (429 cooldown)")
+            return ""
+        model = sel.model if sel.provider == "openai" else "gpt-4o-mini"
         try:
             resp = httpx.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"},
                 json={
-                    "model": "gpt-4o-mini",
-                    "max_tokens": 2048,
+                    "model": model,
+                    "max_tokens": sel.max_tokens,
                     "temperature": 0.1,
                     "response_format": {"type": "json_object"},
                     "messages": [
@@ -341,8 +533,12 @@ def _call_llm(user_message: str) -> str:
             )
             if resp.status_code == 200:
                 return resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+            if resp.status_code == 429:
+                record_429("openai")
+            else:
+                log.warning("bugfix_pipeline: OpenAI %s returned %d", model, resp.status_code)
         except Exception as exc:
-            log.warning("bugfix_pipeline: OpenAI call failed: %s", type(exc).__name__)
+            log.warning("bugfix_pipeline: OpenAI %s failed: %s", model, type(exc).__name__)
 
     return ""
 
@@ -438,6 +634,16 @@ def classify_patch_risk(patch_files_json: str | None, patch_diff: str | None) ->
     return PATCH_TIER_1, reasons or ["default_tier_1"]
 
 
+def _notify_reviewer_block(candidate, assessment):
+    """Send Telegram notification when reviewer blocks auto-apply."""
+    try:
+        from app.services.telegram_agent import send_reviewer_verdict, is_configured
+        if is_configured():
+            send_reviewer_verdict(assessment, entity_title=candidate.title)
+    except Exception:
+        pass
+
+
 def run_auto_apply(db: Session, max_per_cycle: int = 1) -> dict:
     """
     Auto-approve + auto-apply PATCH_TIER_0 candidates.
@@ -467,6 +673,31 @@ def run_auto_apply(db: Session, max_per_cycle: int = 1) -> dict:
             db.flush()
             continue
 
+        # Reviewer gate — deterministic assessment before auto-apply
+        try:
+            from app.services.reviewer_layer import review_entity
+            assessment = review_entity(db, "bugfix_candidate", c.id)
+            if assessment:
+                c.reviewer_assessment_id = assessment.id
+                db.flush()
+                if assessment.verdict == "reject":
+                    log.info("auto_apply: REVIEWER BLOCKED id=%d verdict=reject", c.id)
+                    summary["skipped"] += 1
+                    _notify_reviewer_block(c, assessment)
+                    continue
+                if assessment.verdict == "refine":
+                    log.info("auto_apply: REVIEWER HELD id=%d verdict=refine", c.id)
+                    summary["skipped"] += 1
+                    _notify_reviewer_block(c, assessment)
+                    continue
+                if not assessment.auto_approvable:
+                    log.info("auto_apply: REVIEWER NOT AUTO-APPROVABLE id=%d", c.id)
+                    summary["skipped"] += 1
+                    _notify_reviewer_block(c, assessment)
+                    continue
+        except Exception as exc:
+            log.warning("auto_apply: reviewer error (non-fatal, proceeding): %s", exc)
+
         summary["attempted"] += 1
 
         # Auto-approve
@@ -480,7 +711,8 @@ def run_auto_apply(db: Session, max_per_cycle: int = 1) -> dict:
             db, actor_type="system", actor_name="auto_apply",
             action_type="bugfix_auto_approved", target_type="bugfix",
             target_id=str(c.id), status="completed", approval_mode="autonomous",
-            metadata={"tier": 0, "reasons": reasons},
+            metadata={"tier": 0, "reasons": reasons,
+                      "reviewer_assessment_id": c.reviewer_assessment_id},
         )
         db.flush()
 
@@ -569,6 +801,8 @@ def apply_bugfix_candidate(db: Session, candidate_id: int) -> ApplyResult:
 
     Sequence: preconditions → clean check → apply --check → apply →
     tests → restart → health → success or rollback.
+
+    On success: propagates resolution to linked support incidents.
     """
     import subprocess
     import tempfile
@@ -684,6 +918,7 @@ def apply_bugfix_candidate(db: Session, candidate_id: int) -> ApplyResult:
         candidate.applied_at = _now()
         candidate.git_commit_sha = commit_sha
         candidate.failure_reason = None
+        candidate.outcome_status = None  # will be measured 48h later by evolution_outcomes
         db.flush()
 
         from app.services.audit import write_audit_log
@@ -695,6 +930,9 @@ def apply_bugfix_candidate(db: Session, candidate_id: int) -> ApplyResult:
             status="completed", approval_mode="human_approved",
         )
         db.flush()
+
+        # Propagate resolution to linked support incidents
+        _propagate_resolution(db, candidate)
 
         # Create promotion for remote push
         try:

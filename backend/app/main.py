@@ -114,6 +114,13 @@ from app.models.action_outcome import ActionOutcome   # noqa: F401 — ensures t
 from app.models.action_approval import ActionApproval # noqa: F401 — ensures table is created
 from app.models.autofix_promotion import AutoFixPromotion # noqa: F401 — ensures table is created
 from app.models.merge_outcome import MergeOutcome       # noqa: F401 — ensures table is created
+from app.models.evolution_proposal import EvolutionProposal # noqa: F401 — ensures table is created
+from app.models.model_upgrade import ModelUpgradeProposal  # noqa: F401 — ensures table is created
+from app.models.active_model_config import ActiveModelConfig  # noqa: F401 — ensures table is created
+from app.models.support_incident import SupportIncident       # noqa: F401 — ensures table is created
+from app.models.meta_review import MetaReview                 # noqa: F401 — ensures table is created
+from app.models.system_snapshot import SystemSnapshot         # noqa: F401 — ensures table is created
+from app.models.scaling_recommendation import ScalingRecommendation  # noqa: F401 — ensures table is created
 from app.models.bugfix_candidate import BugFixCandidate # noqa: F401 — ensures table is created
 from app.models.gdpr_request import GdprRequest                   # noqa: F401 — ensures table is created
 from app.models.merchant import Merchant                           # noqa: F401 — ensures table is created
@@ -139,6 +146,8 @@ from app.api.ops import router as ops_router
 from app.api.health import router as health_router
 from app.api.orders import router as orders_router
 from app.api.integrations import router as integrations_router
+from app.api.telegram_webhook import router as telegram_webhook_router
+from app.api.chat_support import router as chat_support_router
 
 _startup_log = logging.getLogger("wishspark.startup")
 
@@ -177,6 +186,7 @@ app.add_middleware(
         ("POST", "/webhooks/shopify/orders-created"):  (20, 60),   # compat alias
         ("POST", "/webhooks/shopify/orders-paid"):     (20, 60),   # compat alias
         ("POST", "/pro/nudges"):                       (10, 60),   # 10 req / 60 s  (AI cost guard)
+        ("POST", "/chat/support"):                     (30, 3600), # 30 req / 3600 s (merchant chat: 30/hour)
     },
 )
 
@@ -242,6 +252,32 @@ async def csrf_guard_middleware(request: Request, call_next):
     return await call_next(request)
 
 
+# ---------------------------------------------------------------------------
+# Security headers — applied to every response.
+#
+# Omitted: Content-Security-Policy (requires careful audit of all inline
+# styles/scripts in Shopify embedded context before enabling).
+#
+# X-Frame-Options is SAMEORIGIN — safe because the dashboard runs on our
+# own domain.  Shopify embeds use their own App Bridge framing; the API
+# responses going to the embedded iframe don't need to be frameable.
+# ---------------------------------------------------------------------------
+_SECURITY_HEADERS_EXEMPT = frozenset({"/track", "/track/batch", "/nudge/event"})
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    # HSTS — only on non-storefront paths (storefront scripts load over merchant's domain)
+    if not any(request.url.path.startswith(p) for p in _SECURITY_HEADERS_EXEMPT):
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+
 app.add_middleware(RequestIDMiddleware)
 
 Base.metadata.create_all(bind=engine)
@@ -297,6 +333,8 @@ app.include_router(setup_router)
 app.include_router(health_router)
 app.include_router(orders_router)
 app.include_router(integrations_router)
+app.include_router(telegram_webhook_router)
+app.include_router(chat_support_router)
 app.include_router(ops_router)
 
 
@@ -356,6 +394,18 @@ def _startup_env_audit() -> None:
             "and add it to backend/.env"
         )
 
+    # Hard enforcement: MERCHANT_SESSION_SECRET must be set in production.
+    # Without it, session JWTs cannot be signed and all merchant auth fails.
+    # NO fallback to SHOPIFY_API_SECRET — that would silently share the webhook
+    # verification key with the session signing key, a security isolation failure.
+    if not os.getenv("MERCHANT_SESSION_SECRET", "").strip() and not allow_insecure_dev:
+        raise RuntimeError(
+            "FATAL: MERCHANT_SESSION_SECRET is not set and ALLOW_INSECURE_DEV is not enabled. "
+            "Refusing to start — merchant sessions cannot be signed securely. "
+            "Generate a key: python3 -c \"import os; print(os.urandom(32).hex())\" "
+            "and add MERCHANT_SESSION_SECRET=<key> to backend/.env"
+        )
+
     if missing_required:
         if allow_insecure_dev:
             _startup_log.warning(
@@ -383,6 +433,19 @@ def _startup_env_audit() -> None:
             "OBSERVABILITY: Sentry NOT enabled — set SENTRY_DSN in backend/.env and "
             "install sentry-sdk[fastapi] to enable production error tracking."
         )
+
+
+@app.on_event("startup")
+def _startup_telegram_warmup() -> None:
+    """Pre-establish Telegram TLS connection in a background thread so the
+    first operator command doesn't pay the 5-10s handshake cost."""
+    import threading
+    try:
+        from app.services.telegram_agent import is_configured, warmup_connection
+        if is_configured():
+            threading.Thread(target=warmup_connection, daemon=True).start()
+    except Exception:
+        pass  # Non-fatal — connection will be established on first use
 
 
 @app.get("/")

@@ -19,7 +19,7 @@ def calculate_intent_score(events):
     return score
 
 from app.services.opportunity_engine import update_product_opportunity
-from datetime import datetime
+from datetime import datetime, timezone
 from app.models.visitor_product_state import VisitorProductState
 from app.core.url_utils import normalize_product_url
 
@@ -113,7 +113,7 @@ def update_visitor_product_state(db, event):
         VisitorProductState.product_url == product_url
     ).first()
 
-    now = event.occurred_at or datetime.utcnow()
+    now = event.occurred_at or datetime.now(timezone.utc).replace(tzinfo=None)
 
     if not state:
         state = VisitorProductState(

@@ -173,10 +173,22 @@ def _rows(db: Session, query: str, params: dict) -> list[dict]:
     return [dict(row._mapping) for row in result.fetchall()]
 
 
-def _rank_score(urgency: float, confidence: float, expected_loss: float) -> float:
-    """Composite rank score — higher is more urgent / valuable."""
+def _rank_score(
+    urgency: float, confidence: float, expected_loss: float,
+    effectiveness_boost: float = 0.0,
+) -> float:
+    """
+    Composite rank score — higher is more urgent / valuable.
+
+    effectiveness_boost: 0.0-1.0 multiplier from historical action outcomes.
+    When data exists, effective action types get up to +10 rank points;
+    ineffective types get -10. When no data exists, boost is 0 (neutral).
+    """
     loss_norm = _clamp(expected_loss / 2_000.0, 0.0, 1.0)
-    return urgency * 0.5 + confidence * 100.0 * 0.3 + loss_norm * 100.0 * 0.2
+    base = urgency * 0.5 + confidence * 100.0 * 0.3 + loss_norm * 100.0 * 0.2
+    # effectiveness_boost ranges from -1.0 (all declined) to +1.0 (all improved)
+    # Scale to ±10 rank points (significant but not dominant)
+    return base + effectiveness_boost * 10.0
 
 
 def _source_systems(action_type: str, has_vps: bool, has_ml: bool) -> list[str]:
@@ -637,18 +649,39 @@ def generate_action_candidates(shop_domain: str, db: Session) -> list[dict]:
         })
 
     # ------------------------------------------------------------------ #
-    # 7. Sort, rank, return                                               #
+    # 7. Sort, rank, return — boosted by historical effectiveness          #
     # ------------------------------------------------------------------ #
+
+    # Load historical action effectiveness (closed-loop learning signal)
+    effectiveness_map: dict[str, float] = {}
+    try:
+        from app.services.action_proof import get_action_effectiveness
+        eff_stats = get_action_effectiveness(db)
+        for at, stats in eff_stats.items():
+            if stats["total"] >= 3:  # only trust signal with 3+ measurements
+                # effectiveness is 0.0–1.0 (fraction improved)
+                # Convert to -1.0 to +1.0 scale: all improved = +1, all declined = -1
+                improved_ratio = stats["effectiveness"]
+                declined_ratio = stats["declined"] / stats["total"] if stats["total"] > 0 else 0
+                effectiveness_map[at] = improved_ratio - declined_ratio
+    except Exception:
+        pass  # no historical data — all boosts are 0
+
     final.sort(
         key=lambda c: _rank_score(
             urgency=float(c["urgency"]),
             confidence=float(c["confidence"]),
             expected_loss=float(c["expected_loss"] or 0),
+            effectiveness_boost=effectiveness_map.get(c["action_type"], 0.0),
         ),
         reverse=True,
     )
 
     for i, candidate in enumerate(final, start=1):
         candidate["rank"] = i
+        # Include effectiveness data in response for dashboard transparency
+        at = candidate["action_type"]
+        if at in effectiveness_map:
+            candidate["historical_effectiveness"] = round(effectiveness_map[at], 2)
 
     return final

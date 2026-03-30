@@ -73,7 +73,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import text
@@ -251,7 +251,7 @@ def create_or_refresh_nudge(
 
     On any error: logs the exception and re-raises.
     """
-    now     = datetime.utcnow()
+    now     = datetime.now(timezone.utc).replace(tzinfo=None)
     new_ttl = now + timedelta(hours=NUDGE_TTL_HOURS)
 
     # Use pre-built variants when provided (AI composer path);
@@ -354,7 +354,7 @@ def get_active_nudge(
             ActiveNudge.shop_domain == shop_domain,
             ActiveNudge.product_url == product_url,
             ActiveNudge.status      == "active",
-            ActiveNudge.expires_at  >  datetime.utcnow(),
+            ActiveNudge.expires_at  >  datetime.now(timezone.utc).replace(tzinfo=None),
         )
         .order_by(ActiveNudge.created_at.desc())
         .first()
@@ -410,7 +410,7 @@ def deactivate_nudge(
     if nudge is None:
         return None, "not_found"
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     nudge.status         = "deactivated"
     nudge.deactivated_at = now
     nudge.updated_at     = now
@@ -445,7 +445,7 @@ def list_active_nudges(
         if status == "active":
             q = q.filter(
                 ActiveNudge.status     == "active",
-                ActiveNudge.expires_at >  datetime.utcnow(),
+                ActiveNudge.expires_at >  datetime.now(timezone.utc).replace(tzinfo=None),
             )
         else:
             q = q.filter(ActiveNudge.status == status)

@@ -17,8 +17,15 @@ def _now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def _clear_outcomes(db):
+    """Remove pre-existing outcomes so tests start with a clean slate."""
+    db.query(ActionOutcome).delete(synchronize_session="fetch")
+    db.flush()
+
+
 def _seed_outcomes(db, action_type, successes, no_effects, unknowns):
     """Seed evaluated outcomes for testing."""
+    _clear_outcomes(db)
     base_time = _now() - timedelta(hours=2)
     audit_id = 1000
     for i in range(successes):
@@ -73,12 +80,14 @@ def test_success_rate_calculation(db):
 
 def test_zero_executions_safe(db):
     """No outcomes → clean 'no evaluated outcomes' message."""
+    _clear_outcomes(db)
     section = _build_outcomes_section(db, _now())
     assert "No evaluated outcomes" in section
 
 
 def test_pending_excluded(db):
     """Pending outcomes are NOT counted in aggregation."""
+    _clear_outcomes(db)
     db.add(ActionOutcome(
         audit_log_id=2000, action_type="orch_webhook_repair", target_id="t",
         executed_at=_now(), outcome_status="pending",

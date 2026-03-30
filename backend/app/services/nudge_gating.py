@@ -156,8 +156,8 @@ def _get_visitor_product_profile(
     visitor has actually viewed the product page — not just had a scroll event
     on another page that happened to have the same product_url set.
     """
-    from datetime import datetime, timedelta
-    since_ms = int((datetime.utcnow() - timedelta(hours=hours)).timestamp() * 1000)
+    from datetime import datetime, timedelta, timezone
+    since_ms = int((datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=hours)).timestamp() * 1000)
 
     try:
         result = db.execute(

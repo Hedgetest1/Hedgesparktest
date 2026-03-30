@@ -33,6 +33,18 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         shop = _peek_shop_from_cookie(request)
 
         set_request_context(request_id=request_id, shop_domain=shop)
+
+        # Enrich Sentry scope with request context (no-op if Sentry not active)
+        try:
+            import sentry_sdk
+            scope = sentry_sdk.get_current_scope()
+            scope.set_tag("request_id", request_id)
+            if shop:
+                scope.set_tag("shop_domain", shop)
+            scope.set_tag("route", request.url.path)
+        except Exception:
+            pass
+
         try:
             response = await call_next(request)
             response.headers[_HEADER] = request_id

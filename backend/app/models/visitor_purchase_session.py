@@ -8,6 +8,11 @@ Shopify order (identified by shopify_order_id from the orders/updated webhook).
 The attribution event is fired by spark-attribution.js on the Shopify Order
 Status (thank-you) page.
 
+Attribution columns:
+    first_source, first_campaign — snapshot of first-touch attribution at conversion time
+    last_source, last_campaign — snapshot of last-touch attribution at conversion time
+    attribution_evidence — JSON audit trail of the full attribution chain
+
 Joins
 -----
 To behavioral events (what did this visitor do before buying?):
@@ -23,19 +28,6 @@ To order revenue and line items:
     FROM shop_orders
     WHERE shopify_order_id = :shopify_order_id
 
-To product behavior for conversion profiling:
-    SELECT e.product_url,
-           AVG(e.max_scroll_depth)  AS avg_scroll,
-           AVG(e.dwell_seconds)     AS avg_dwell,
-           COUNT(*)                 AS visit_count
-    FROM events e
-    JOIN visitor_purchase_sessions vps
-      ON e.visitor_id = vps.visitor_id AND e.shop_domain = vps.shop_domain
-    WHERE vps.shop_domain  = :shop
-      AND e.product_url    = :product_url
-      AND e.event_type     IN ('product_view', 'dwell_time')
-    GROUP BY e.product_url
-
 Idempotency
 -----------
 shopify_order_id has a UNIQUE constraint.  Duplicate attributions from page
@@ -46,7 +38,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Index, Integer, String, UniqueConstraint
+from sqlalchemy import Column, DateTime, Index, Integer, String, Text, UniqueConstraint
 
 from app.core.database import Base
 
@@ -75,6 +67,17 @@ class VisitorPurchaseSession(Base):
 
     # Server receipt time — for audit and lag measurement.
     ingested_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # First-touch attribution snapshot (resolved at conversion time)
+    first_source = Column(String(64), nullable=True)       # first event's source_type
+    first_campaign = Column(String(256), nullable=True)     # first event's utm_campaign
+
+    # Last-touch attribution snapshot (resolved at conversion time)
+    last_source = Column(String(64), nullable=True)         # last event's source_type before purchase
+    last_campaign = Column(String(256), nullable=True)      # last event's utm_campaign before purchase
+
+    # Full attribution audit trail — JSON with first/last touch details
+    attribution_evidence = Column(Text, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("shopify_order_id", name="uq_vps_shopify_order_id"),
