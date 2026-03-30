@@ -1111,12 +1111,17 @@ def _run_webhook_health_check() -> None:
                 continue
 
             try:
+                from app.services.webhook_monitor import record_check_result
+
                 report = check_webhook_health(db, m.shop_domain)
                 if report.healthy:
-                    _log.debug("webhook health: OK shop=%s", m.shop_domain)
+                    record_check_result(m.shop_domain, healthy=True)
                     continue
 
                 if report.error:
+                    record_check_result(
+                        m.shop_domain, healthy=False, error=report.error,
+                    )
                     log(f"webhook health: skip shop={m.shop_domain} error={report.error}")
                     continue
 
@@ -1124,6 +1129,13 @@ def _run_webhook_health_check() -> None:
                 log(f"webhook health: drift detected shop={m.shop_domain} missing={report.missing} stale={report.stale}")
                 result = repair_missing_webhooks(db, m.shop_domain)
                 db.commit()
+
+                repair_succeeded = bool(result.repaired) and not result.failed
+                record_check_result(
+                    m.shop_domain, healthy=repair_succeeded,
+                    missing=report.missing, stale=report.stale,
+                    repair_attempted=True, repair_succeeded=repair_succeeded,
+                )
 
                 write_audit_log(
                     db,

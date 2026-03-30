@@ -1380,6 +1380,33 @@ def get_meta_review(
 
 
 # ---------------------------------------------------------------------------
+# Webhook fleet status
+# ---------------------------------------------------------------------------
+
+@router.get("/webhooks/status")
+def get_webhook_fleet_status(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Fleet-wide webhook health summary."""
+    from app.services.webhook_monitor import get_fleet_webhook_summary
+    return get_fleet_webhook_summary(db)
+
+
+@router.get("/webhooks/status/{shop_domain}")
+def get_merchant_webhook_status(
+    shop_domain: str,
+    _auth: bool = Depends(require_operator),
+):
+    """Single merchant webhook status."""
+    from app.services.webhook_monitor import get_merchant_webhook_status as get_status
+    status = get_status(shop_domain)
+    if not status:
+        return {"status": "not_checked", "shop": shop_domain}
+    return status
+
+
+# ---------------------------------------------------------------------------
 # Sentry verification (operator-only)
 # ---------------------------------------------------------------------------
 

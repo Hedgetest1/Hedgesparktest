@@ -394,7 +394,7 @@ _ALL_COMMANDS = {
     "/bugfixes", "/bugfix_approve", "/bugfix_apply",
     "/promotions", "/merge",
     "/review",
-    "/incidents", "/meta_review", "/digest",
+    "/incidents", "/meta_review", "/digest", "/webhooks",
     "/help",
 }
 
@@ -438,6 +438,7 @@ def handle_command(command: str, db=None, chat_id: str | None = None) -> str:
         "/incidents": lambda: _cmd_incidents(db),
         "/meta_review": lambda: _cmd_meta_review(db),
         "/digest": lambda: _cmd_digest(db),
+        "/webhooks": lambda: _cmd_webhooks(db),
         "/help": lambda: _cmd_help(db),
     }
 
@@ -1219,6 +1220,40 @@ def _cmd_digest(db) -> str:
     return build_daily_digest(db)
 
 
+def _cmd_webhooks(db) -> str:
+    """Fleet-wide webhook status summary."""
+    try:
+        from app.services.webhook_monitor import get_fleet_webhook_summary
+        summary = get_fleet_webhook_summary(db)
+
+        sev = summary.get("by_severity", {})
+        healthy = sev.get("healthy", 0)
+        broken = sev.get("broken", 0)
+        unreachable = sev.get("unreachable", 0)
+        drifted = sev.get("drifted", 0)
+        total = summary.get("total_merchants", 0)
+        checked = summary.get("checked_merchants", 0)
+
+        emoji = "\u2705" if broken == 0 and unreachable == 0 else ("\u26a0\ufe0f" if broken > 0 else "\U0001f534")
+        lines = [
+            f"{emoji} *Webhook Fleet Status*",
+            f"Merchants: {total} total, {checked} checked",
+            f"Healthy: {healthy} | Drifted: {drifted} | Broken: {broken} | Unreachable: {unreachable}",
+        ]
+
+        for shop_info in summary.get("broken_shops", [])[:5]:
+            lines.append(f"  \U0001f534 {shop_info['shop']} — missing: {shop_info.get('missing', [])}")
+        for shop_info in summary.get("unreachable_shops", [])[:3]:
+            lines.append(f"  \u26a0\ufe0f {shop_info['shop']} — {shop_info.get('error', '?')[:60]}")
+
+        if not summary.get("broken_shops") and not summary.get("unreachable_shops"):
+            lines.append("All checked merchants are healthy.")
+
+        return "\n".join(lines)
+    except Exception as exc:
+        return f"Webhook status unavailable: {exc}"
+
+
 def _cmd_help(db) -> str:
     """Full command list."""
     return (
@@ -1231,7 +1266,8 @@ def _cmd_help(db) -> str:
         "/scaling \u2014 scaling forecast + recommendations\n"
         "/incidents \u2014 active support incidents\n"
         "/meta\\_review \u2014 latest strategic meta-review\n"
-        "/digest \u2014 daily health digest\n\n"
+        "/digest \u2014 daily health digest\n"
+        "/webhooks \u2014 webhook fleet status\n\n"
         "*Approvals:*\n"
         "/approvals \u2014 list pending action approvals\n"
         "/approve <id> \u2014 approve and execute\n"
