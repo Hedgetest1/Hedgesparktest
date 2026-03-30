@@ -268,11 +268,12 @@ def _run_deep_shopify_check(db: Session, merchant: Merchant, result: DiagnosticR
 
     try:
         from app.core.token_crypto import decrypt_token
+        from app.core.tracker_version import get_tracker_url
         import os
 
         token = decrypt_token(merchant.access_token)
         app_url = os.getenv("SHOPIFY_APP_URL", "https://api.hedgesparkhq.com")
-        tracker_url = os.getenv("TRACKER_URL", f"{app_url}/tracker/spark-tracker.js")
+        tracker_url = get_tracker_url() or f"{app_url}/tracker.js"
 
         # Check webhook live state
         if not result.webhook_ok:

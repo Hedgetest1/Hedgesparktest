@@ -111,8 +111,8 @@ def _now_naive() -> datetime:
 
 
 def _tracker_url() -> str:
-    override = os.getenv("TRACKER_SCRIPT_URL", "").strip()
-    return override if override else (f"{_APP_URL}/tracker.js" if _APP_URL else "")
+    from app.core.tracker_version import get_tracker_url
+    return get_tracker_url()
 
 
 # ---------------------------------------------------------------------------

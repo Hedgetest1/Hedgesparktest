@@ -87,8 +87,8 @@ _SHOPIFY_API_VERSION: str = "2024-01"
 
 def _tracker_url() -> str:
     """Return the tracker script URL to register as a Shopify Script Tag."""
-    override = os.getenv("TRACKER_SCRIPT_URL", "").strip()
-    return override if override else f"{_APP_URL}/tracker.js"
+    from app.core.tracker_version import get_tracker_url
+    return get_tracker_url()
 
 
 # ---------------------------------------------------------------------------

@@ -171,11 +171,17 @@ def _ensure_tracker(merchant: Merchant, token: str) -> bool:
     """Ensure the tracker script tag is installed. Returns True on success."""
     import asyncio
     from app.services.shopify_admin import ensure_tracker_script_tag
+    from app.core.tracker_version import get_tracker_url
+
+    tracker_url = get_tracker_url()
+    if not tracker_url:
+        log.warning("onboarding: tracker URL not configured (APP_URL missing)")
+        return False
 
     try:
         loop = asyncio.new_event_loop()
         tag_id, created = loop.run_until_complete(
-            ensure_tracker_script_tag(merchant.shop_domain, token, _APP_URL)
+            ensure_tracker_script_tag(merchant.shop_domain, token, tracker_url)
         )
         loop.close()
 
