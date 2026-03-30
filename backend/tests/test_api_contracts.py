@@ -285,6 +285,45 @@ class TestRevenueForecast:
         assert resp.status_code == 403
 
 
+class TestBehavioralCohorts:
+    """GET /pro/cohorts/behavioral — behavioral LTV segmentation."""
+
+    def test_response_shape(self, client, merchant_a, auth_a):
+        resp = client.get(f"/pro/cohorts/behavioral?shop={SHOP_A}&days=90", cookies=auth_a)
+        assert resp.status_code == 200
+        data = resp.json()
+        _assert_keys(data, {"window_days", "generated_at", "data_coverage", "segments", "insights"})
+        _assert_type(data["data_coverage"], dict)
+        _assert_type(data["segments"], dict)
+        _assert_type(data["insights"], list)
+
+    def test_segments_structure(self, client, merchant_a, auth_a):
+        resp = client.get(f"/pro/cohorts/behavioral?shop={SHOP_A}&days=90", cookies=auth_a)
+        data = resp.json()
+        segments = data["segments"]
+        _assert_keys(segments, {"by_engagement", "by_visit_pattern", "by_source"}, "segments")
+        _assert_type(segments["by_engagement"], list)
+        _assert_type(segments["by_visit_pattern"], list)
+        _assert_type(segments["by_source"], list)
+
+    def test_coverage_keys(self, client, merchant_a, auth_a):
+        resp = client.get(f"/pro/cohorts/behavioral?shop={SHOP_A}&days=90", cookies=auth_a)
+        data = resp.json()
+        _assert_keys(data["data_coverage"], {
+            "total_customers", "segmentable_customers", "coverage_rate",
+        }, "data_coverage")
+
+    def test_empty_state(self, client, merchant_a, auth_a):
+        resp = client.get(f"/pro/cohorts/behavioral?shop={SHOP_A}&days=90", cookies=auth_a)
+        data = resp.json()
+        assert data["data_coverage"]["total_customers"] >= 0
+        assert len(data["insights"]) >= 1  # always has at least one insight
+
+    def test_auth_required(self, client, merchant_b, auth_b):
+        resp = client.get(f"/pro/cohorts/behavioral?shop={SHOP_B}&days=90", cookies=auth_b)
+        assert resp.status_code == 403
+
+
 # ===========================================================================
 # Operator / AI self-management
 # ===========================================================================

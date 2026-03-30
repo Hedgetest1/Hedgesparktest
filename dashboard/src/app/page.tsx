@@ -1585,6 +1585,7 @@ export default function Page() {
   const [attrSummary, setAttrSummary] = useState<Record<string, unknown> | null>(null);
   const [ltvData, setLtvData] = useState<Record<string, unknown> | null>(null);
   const [forecastData, setForecastData] = useState<Record<string, unknown> | null>(null);
+  const [behavioralData, setBehavioralData] = useState<Record<string, unknown> | null>(null);
 
   // Session expiry detection — set when any fetch returns 401/403 mid-session
   const [sessionExpired, setSessionExpired] = useState(false);
@@ -2139,10 +2140,11 @@ export default function Page() {
       const enc = encodeURIComponent(shop);
       const opts = { headers: apiHeaders(), credentials: "include" as const, cache: "no-store" as const };
 
-      const [attrRes, ltvRes, fcRes] = await Promise.allSettled([
+      const [attrRes, ltvRes, fcRes, behRes] = await Promise.allSettled([
         fetch(`${API_BASE}/attribution/summary/pro?shop=${enc}&days=30`, opts),
         fetch(`${API_BASE}/pro/cohorts/monthly?shop=${enc}&months=6`, opts),
         fetch(`${API_BASE}/orders/forecast/pro?shop=${enc}`, opts),
+        fetch(`${API_BASE}/pro/cohorts/behavioral?shop=${enc}&days=90`, opts),
       ]);
 
       if (!active) return;
@@ -2155,6 +2157,9 @@ export default function Page() {
       }
       if (fcRes.status === "fulfilled" && fcRes.value.ok) {
         try { setForecastData(await fcRes.value.json()); } catch {}
+      }
+      if (behRes.status === "fulfilled" && behRes.value.ok) {
+        try { setBehavioralData(await behRes.value.json()); } catch {}
       }
     }
 
@@ -4192,6 +4197,112 @@ export default function Page() {
                       )}
                     </div>
 
+                  </div>
+                </section>
+              )}
+
+              {/* Pro — Behavioral Customer Intelligence */}
+              {isProUser && behavioralData && (
+                <section id="section-behavioral-intelligence">
+                  <SectionHeading
+                    eyebrow="Behavioral Intelligence"
+                    title="Which visitors become your best customers?"
+                    description="Segments customers by pre-purchase behavior — scroll depth, dwell time, visit frequency, and traffic source."
+                    pro
+                  />
+                  <div className="space-y-4">
+                    {/* Insights banner */}
+                    {((behavioralData as any).insights?.length > 0) && (
+                      <div className="rounded-2xl border border-violet-400/10 bg-violet-500/[0.04] p-4">
+                        <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-violet-300/70">Key Insights</div>
+                        {(behavioralData as any).insights.map((insight: string, i: number) => (
+                          <p key={i} className="text-[12px] leading-relaxed text-slate-300 mb-1.5 last:mb-0">
+                            {insight}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Segment tables */}
+                    <div className="grid gap-4 xl:grid-cols-3">
+                      {/* By Engagement */}
+                      <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+                        <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">By Engagement Level</div>
+                        {((behavioralData as any).segments?.by_engagement?.length > 0) ? (
+                          (behavioralData as any).segments.by_engagement.map((s: any, i: number) => (
+                            <div key={i} className="flex items-center justify-between border-t border-white/[0.04] py-2 text-[12px]">
+                              <div>
+                                <span className={`font-medium ${
+                                  s.segment === "HIGH" ? "text-emerald-400" :
+                                  s.segment === "MEDIUM" ? "text-amber-400" :
+                                  s.segment === "LOW" ? "text-rose-400" : "text-slate-500"
+                                }`}>{s.segment}</span>
+                                <span className="ml-2 text-slate-600">{s.customers} cust</span>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-white font-medium">${s.avg_revenue?.toFixed(0)}/cust</span>
+                                <span className="ml-2 text-slate-500">{(s.repeat_rate * 100).toFixed(0)}% repeat</span>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-[11px] text-slate-600">Needs visitor behavior data</p>
+                        )}
+                      </div>
+
+                      {/* By Visit Pattern */}
+                      <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+                        <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">By Visit Pattern</div>
+                        {((behavioralData as any).segments?.by_visit_pattern?.length > 0) ? (
+                          (behavioralData as any).segments.by_visit_pattern.map((s: any, i: number) => (
+                            <div key={i} className="flex items-center justify-between border-t border-white/[0.04] py-2 text-[12px]">
+                              <div>
+                                <span className={`font-medium ${
+                                  s.segment === "REPEAT_VISITOR" ? "text-emerald-400" : "text-amber-400"
+                                }`}>{s.segment === "REPEAT_VISITOR" ? "Repeat visitors" : "Single visit"}</span>
+                                <span className="ml-2 text-slate-600">{s.customers} cust</span>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-white font-medium">${s.avg_revenue?.toFixed(0)}/cust</span>
+                                <span className="ml-2 text-slate-500">{(s.repeat_rate * 100).toFixed(0)}% repeat</span>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-[11px] text-slate-600">Needs visitor behavior data</p>
+                        )}
+                      </div>
+
+                      {/* By Source */}
+                      <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+                        <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">By Traffic Source</div>
+                        {((behavioralData as any).segments?.by_source?.length > 0) ? (
+                          (behavioralData as any).segments.by_source.map((s: any, i: number) => (
+                            <div key={i} className="flex items-center justify-between border-t border-white/[0.04] py-2 text-[12px]">
+                              <div>
+                                <span className="font-medium text-slate-300">{s.segment}</span>
+                                <span className="ml-2 text-slate-600">{s.customers} cust</span>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-white font-medium">${s.avg_revenue?.toFixed(0)}/cust</span>
+                                <span className="ml-2 text-slate-500">{(s.repeat_rate * 100).toFixed(0)}% repeat</span>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-[11px] text-slate-600">Needs order attribution data</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Coverage indicator */}
+                    {(behavioralData as any).data_coverage?.total_customers > 0 && (
+                      <div className="text-[10px] text-slate-600">
+                        {(behavioralData as any).data_coverage.segmentable_customers} of{" "}
+                        {(behavioralData as any).data_coverage.total_customers} customers have behavioral data
+                        ({((behavioralData as any).data_coverage.coverage_rate * 100).toFixed(0)}% coverage)
+                      </div>
+                    )}
                   </div>
                 </section>
               )}

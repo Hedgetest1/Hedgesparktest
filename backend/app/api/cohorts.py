@@ -175,3 +175,30 @@ def get_ltv_summary_endpoint(
         }
     """
     return get_ltv_summary(db, shop)
+
+
+@router.get("/behavioral")
+def get_behavioral_cohorts_endpoint(
+    days: int = 90,
+    shop: str = Depends(require_pro_session),
+    db: Session = Depends(get_db),
+):
+    """
+    Behavioral LTV segmentation — segments customers by pre-purchase behavior.
+
+    Three segmentation dimensions:
+      by_engagement: HIGH / MEDIUM / LOW (scroll + dwell + visit frequency)
+      by_visit_pattern: REPEAT_VISITOR / SINGLE_VISIT (browsed before purchase)
+      by_source: SEARCH / SOCIAL / DIRECT / EMAIL_SMS / REFERRAL / OTHER
+
+    Each segment shows: customers, repeat_rate, avg_revenue, avg_orders.
+    Includes AI-generated interpretive insights.
+
+    This endpoint answers:
+      "Which behavior patterns create high-LTV customers?"
+      "Which acquisition sources bring low-quality buyers?"
+      "Should I invest more in retargeting repeat browsers?"
+    """
+    from app.services.behavioral_cohorts import get_behavioral_cohort_analysis
+    days = max(7, min(days, 180))
+    return get_behavioral_cohort_analysis(db, shop, days=days)
