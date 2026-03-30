@@ -1,5 +1,5 @@
 # WishSpark Auto Context
-Auto-generated: 2026-03-30T12:00:02.049307 UTC
+Auto-generated: 2026-03-30T21:00:02.044077 UTC
 
 ## Project Root
 /opt/wishspark
@@ -79,6 +79,7 @@ Auto-generated: 2026-03-30T12:00:02.049307 UTC
 /backend/app/services/attribution.py
 /backend/app/services/audience_segments.py
 /backend/app/services/audit.py
+/backend/app/services/behavioral_cohorts.py
 /backend/app/services/brief_engine.py
 /backend/app/services/bugfix_pipeline.py
 /backend/app/services/cohort_engine.py
@@ -99,6 +100,7 @@ Auto-generated: 2026-03-30T12:00:02.049307 UTC
 /backend/app/services/ltv_engine.py
 /backend/app/services/market_lookup_engine.py
 /backend/app/services/merchant_chatbot.py
+/backend/app/services/merchant_digest.py
 /backend/app/services/merge_intelligence.py
 /backend/app/services/meta_reviewer.py
 /backend/app/services/model_config.py
@@ -137,6 +139,7 @@ Auto-generated: 2026-03-30T12:00:02.049307 UTC
 /backend/app/services/unique_product_engine.py
 /backend/app/services/utm_attribution.py
 /backend/app/services/webhook_health.py
+/backend/app/services/webhook_monitor.py
 /backend/app/services/weekly_digest.py
 
 ## Backend Models
