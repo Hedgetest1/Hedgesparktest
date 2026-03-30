@@ -1383,6 +1383,25 @@ def get_meta_review(
 # Webhook fleet status
 # ---------------------------------------------------------------------------
 
+@router.get("/diagnostic")
+def get_system_diagnostic(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """
+    Unified system diagnostic — single-call comprehensive health assessment.
+
+    Returns ALL operational signals in one response:
+    vitals, LLM budget, attribution pipeline, alerts, onboarding funnel,
+    webhook fleet, evolution pipeline, merchant data health.
+
+    Each section is independently resilient — one subsystem failure
+    doesn't block the others.
+    """
+    from app.services.system_diagnostic import build_system_diagnostic
+    return build_system_diagnostic(db)
+
+
 @router.get("/attribution/health")
 def get_attribution_pipeline_health(
     _auth: bool = Depends(require_operator),
