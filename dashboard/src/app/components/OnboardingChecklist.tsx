@@ -3,21 +3,20 @@
 /**
  * OnboardingChecklist — truthful activation progress for new installs.
  *
- * Derives all step states from data the page already fetches:
- *   - Steps 1-3 (install, tracker, webhook) from SetupStatus.checks
- *   - Step 4 (first visitor) from dashboard overview summary.total_visitors
- *   - Step 5 (first signal) from opportunity signals array length
- *   - Step 6 (Pro active) from SetupStatus.checks.billing_active
+ * Steps:
+ *   1. App installed (from SetupStatus.checks)
+ *   2. Storefront tracker active (from SetupStatus.checks)
+ *   3. Store connected / webhook (from SetupStatus.checks)
+ *   4. Purchase tracking pixel (from pixel_status fetch — CRITICAL)
+ *   5. First visitor tracked (from dashboard overview)
+ *   6. First insight generated (from signals)
+ *   7. First weekly digest (computed from step 6)
+ *   8. Pro plan active (optional)
  *
- * No new backend endpoints. No fake progress.
- *
- * Visibility rules:
- *   - Hidden when all core steps (1-5) are complete — merchant is activated
- *   - Hidden when setup is degraded — SetupStatusPanel handles that
- *   - Auto-collapses after 4+ steps done so it's not in the way
+ * Visibility: hidden when all core steps (1-6) are complete.
  */
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,10 +29,10 @@ type ChecklistStep = {
   label:       string;
   state:       StepState;
   detail:      string;
+  action?:     { label: string; onClick: () => void };
 };
 
 export type OnboardingData = {
-  /** From SetupStatus.checks — null if setup status hasn't loaded yet */
   setupChecks: {
     merchant_exists:  boolean;
     install_active:   boolean;
@@ -44,21 +43,28 @@ export type OnboardingData = {
     billing_plan:     string;
     billing_charge_pending: boolean;
   } | null;
-  /** From SetupStatus.readiness */
   readiness:      string | null;
-  /** From dashboard overview — null if overview hasn't loaded yet */
   totalVisitors:  number | null;
-  /** From signals array — null if signals haven't loaded yet */
   signalCount:    number | null;
-  /** True while dashboard overview is still loading */
   overviewLoading: boolean;
 };
 
+type PixelStatus = {
+  pixel_active: boolean;
+  orders_from_pixel: number;
+  pixel_code: string;
+  instructions: string[];
+};
+
 // ---------------------------------------------------------------------------
-// Step derivation — pure function, no API calls
+// Step derivation
 // ---------------------------------------------------------------------------
 
-function deriveSteps(d: OnboardingData): ChecklistStep[] {
+function deriveSteps(
+  d: OnboardingData,
+  pixelStatus: PixelStatus | null,
+  onShowPixel: () => void,
+): ChecklistStep[] {
   const c = d.setupChecks;
   const steps: ChecklistStep[] = [];
 
@@ -83,103 +89,83 @@ function deriveSteps(d: OnboardingData): ChecklistStep[] {
     steps.push({ key: "tracker", label: "Storefront tracker active", state: "complete", detail: "Tracking visitor behavior on your storefront." });
   }
 
-  // 3. Lifecycle webhook (app/uninstalled) + revenue tracking
+  // 3. Lifecycle webhook
   if (!c) {
     steps.push({ key: "webhook", label: "Store connected", state: "waiting", detail: "Checking connection…" });
   } else if (!installOk) {
     steps.push({ key: "webhook", label: "Store connected", state: "blocked", detail: "Requires a working app installation first." });
   } else if (!c.webhook_ok) {
-    steps.push({ key: "webhook", label: "Store connected", state: "in_progress", detail: "Lifecycle webhook not registered — use the repair button above to fix it." });
+    steps.push({ key: "webhook", label: "Store connected", state: "in_progress", detail: "Lifecycle webhook not registered — use the repair button above." });
   } else {
-    steps.push({ key: "webhook", label: "Store connected", state: "complete", detail: "Lifecycle webhook active. Revenue tracked via checkout pixel." });
+    steps.push({ key: "webhook", label: "Store connected", state: "complete", detail: "Store lifecycle connected." });
   }
 
-  // 4. First visitor tracked
+  // 4. Purchase tracking pixel — CRITICAL for revenue + attribution
+  if (!pixelStatus) {
+    steps.push({ key: "pixel", label: "Purchase tracking", state: "waiting", detail: "Checking purchase pixel…" });
+  } else if (pixelStatus.pixel_active) {
+    steps.push({ key: "pixel", label: "Purchase tracking", state: "complete", detail: `Active — ${pixelStatus.orders_from_pixel} order${pixelStatus.orders_from_pixel === 1 ? "" : "s"} captured.` });
+  } else {
+    steps.push({
+      key: "pixel",
+      label: "Purchase tracking",
+      state: "in_progress",
+      detail: "Add the checkout pixel so Hedge Spark can track revenue and attribute purchases.",
+      action: { label: "Show setup guide", onClick: onShowPixel },
+    });
+  }
+
+  // 5. First visitor tracked
   const trackingReady = c?.tracker_ok;
   if (d.totalVisitors === null && d.overviewLoading) {
     steps.push({ key: "visitor", label: "First visitor tracked", state: "waiting", detail: "Loading visitor data…" });
   } else if (!trackingReady) {
-    steps.push({ key: "visitor", label: "First visitor tracked", state: "blocked", detail: "The storefront tracker needs to be active before visitors can be tracked." });
+    steps.push({ key: "visitor", label: "First visitor tracked", state: "blocked", detail: "The tracker needs to be active first." });
   } else if ((d.totalVisitors ?? 0) === 0) {
-    steps.push({ key: "visitor", label: "First visitor tracked", state: "in_progress", detail: "Tracker is live — waiting for your first storefront visitor. This usually happens within minutes." });
+    steps.push({ key: "visitor", label: "First visitor tracked", state: "in_progress", detail: "Tracker is live — waiting for your first visitor." });
   } else {
-    steps.push({ key: "visitor", label: "First visitor tracked", state: "complete", detail: `${d.totalVisitors!.toLocaleString()} visitor${d.totalVisitors === 1 ? "" : "s"} tracked so far.` });
+    steps.push({ key: "visitor", label: "First visitor tracked", state: "complete", detail: `${d.totalVisitors!.toLocaleString()} visitor${d.totalVisitors === 1 ? "" : "s"} tracked.` });
   }
 
-  // 5. First signal generated
+  // 6. First signal
   if (d.signalCount === null) {
     steps.push({ key: "signal", label: "First insight generated", state: "waiting", detail: "Loading signals…" });
   } else if ((d.totalVisitors ?? 0) === 0) {
-    steps.push({ key: "signal", label: "First insight generated", state: "blocked", detail: "Insights require visitor data. Once visitors arrive, signals follow." });
+    steps.push({ key: "signal", label: "First insight generated", state: "blocked", detail: "Insights require visitor data." });
   } else if (d.signalCount === 0) {
-    steps.push({ key: "signal", label: "First insight generated", state: "in_progress", detail: "Analyzing visitor behavior — your first actionable signal will appear once there's enough data." });
+    steps.push({ key: "signal", label: "First insight generated", state: "in_progress", detail: "Analyzing behavior — signals appear once there's enough data." });
   } else {
-    steps.push({ key: "signal", label: "First insight generated", state: "complete", detail: `${d.signalCount} active signal${d.signalCount === 1 ? "" : "s"} detected.` });
+    steps.push({ key: "signal", label: "First insight generated", state: "complete", detail: `${d.signalCount} active signal${d.signalCount === 1 ? "" : "s"}.` });
   }
 
-  // 6. First weekly digest
-  const signalsDone = d.signalCount !== null && d.signalCount > 0;
-  if (signalsDone) {
-    // Compute next Monday at 8AM UTC
-    const now = new Date();
-    const dayOfWeek = now.getUTCDay(); // 0=Sun
-    const daysUntilMonday = dayOfWeek === 0 ? 1 : dayOfWeek === 1 ? 7 : 8 - dayOfWeek;
-    const nextMonday = new Date(now);
-    nextMonday.setUTCDate(now.getUTCDate() + daysUntilMonday);
-    nextMonday.setUTCHours(8, 0, 0, 0);
-    // If it's Monday before 8AM UTC, use today
-    if (dayOfWeek === 1 && now.getUTCHours() < 8) {
-      nextMonday.setUTCDate(now.getUTCDate());
+  // 7. Pro (optional)
+  if (c) {
+    if (c.billing_active && c.billing_plan === "pro") {
+      steps.push({ key: "pro", label: "Pro plan active", state: "complete", detail: "Full AI intelligence unlocked." });
+    } else if (c.billing_charge_pending) {
+      steps.push({ key: "pro", label: "Pro plan active", state: "in_progress", detail: "Upgrade pending — waiting for Shopify confirmation." });
+    } else {
+      steps.push({ key: "pro", label: "Pro plan active", state: "waiting", detail: "Optional — upgrade to unlock AI-driven actions." });
     }
-    const dateStr = nextMonday.toLocaleDateString("en-US", {
-      weekday: "long", month: "short", day: "numeric",
-    });
-    steps.push({
-      key: "digest",
-      label: "First weekly digest",
-      state: "in_progress",
-      detail: `Your first revenue intelligence report arrives ${dateStr} at 8:00 AM UTC.`,
-    });
-  } else if ((d.totalVisitors ?? 0) > 0) {
-    steps.push({
-      key: "digest",
-      label: "First weekly digest",
-      state: "waiting",
-      detail: "After your first signals are generated, your weekly digest will be scheduled.",
-    });
-  }
-
-  // 7. Pro active (optional milestone — never blocks anything)
-  if (!c) {
-    // skip if setup not loaded
-  } else if (c.billing_active && c.billing_plan === "pro") {
-    steps.push({ key: "pro", label: "Pro plan active", state: "complete", detail: "Full AI actions, daily briefs, and market intelligence unlocked." });
-  } else if (c.billing_charge_pending) {
-    steps.push({ key: "pro", label: "Pro plan active", state: "in_progress", detail: "Upgrade pending — waiting for Shopify billing confirmation." });
-  } else {
-    steps.push({ key: "pro", label: "Pro plan active", state: "waiting", detail: "Optional — upgrade anytime to unlock AI-driven actions per product." });
   }
 
   return steps;
 }
 
 // ---------------------------------------------------------------------------
-// Visibility logic
+// Visibility
 // ---------------------------------------------------------------------------
 
 function shouldShow(steps: ChecklistStep[], readiness: string | null): boolean {
-  // Don't show if setup is degraded — SetupStatusPanel handles that
   if (readiness === "degraded") return false;
-  // Count core steps (exclude "pro" which is optional)
-  const coreSteps = steps.filter((s) => s.key !== "pro" && s.key !== "digest");
+  const coreSteps = steps.filter((s) => s.key !== "pro");
   const coreComplete = coreSteps.filter((s) => s.state === "complete").length;
-  // Hide when all core steps are done — merchant is fully activated
   if (coreComplete === coreSteps.length) return false;
   return true;
 }
 
 // ---------------------------------------------------------------------------
-// Sub-components
+// Step row
 // ---------------------------------------------------------------------------
 
 const STATE_STYLES: Record<StepState, { dot: string; text: string; detail: string }> = {
@@ -189,22 +175,15 @@ const STATE_STYLES: Record<StepState, { dot: string; text: string; detail: strin
   blocked:     { dot: "bg-rose-400/60",          text: "text-rose-300/80",   detail: "text-rose-300/60" },
 };
 
-function StepRow({ step, index, isLast }: { step: ChecklistStep; index: number; isLast: boolean }) {
+function StepRow({ step, isLast }: { step: ChecklistStep; isLast: boolean }) {
   const style = STATE_STYLES[step.state];
-
   return (
     <div className="flex items-start gap-3">
-      {/* Vertical timeline connector + dot */}
       <div className="flex flex-col items-center">
         <div className={`mt-1 h-2 w-2 flex-shrink-0 rounded-full ${style.dot}`} />
-        {!isLast && (
-          <div className={`mt-1 w-px flex-1 min-h-[20px] ${
-            step.state === "complete" ? "bg-emerald-400/20" : "bg-white/[0.06]"
-          }`} />
-        )}
+        {!isLast && <div className={`mt-1 w-px flex-1 min-h-[20px] ${step.state === "complete" ? "bg-emerald-400/20" : "bg-white/[0.06]"}`} />}
       </div>
-      {/* Content */}
-      <div className={`pb-3 ${isLast ? "" : ""}`}>
+      <div className="pb-3">
         <div className="flex items-center gap-2">
           <span className={`text-[12px] font-medium ${style.text}`}>
             {step.state === "complete" && (
@@ -215,15 +194,72 @@ function StepRow({ step, index, isLast }: { step: ChecklistStep; index: number; 
             {step.label}
           </span>
           {step.key === "pro" && step.state !== "complete" && (
-            <span className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] bg-violet-500/15 text-violet-400/70">
-              Optional
-            </span>
+            <span className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] bg-violet-500/15 text-violet-400/70">Optional</span>
           )}
         </div>
-        <p className={`mt-0.5 text-[11px] leading-[1.5] ${style.detail}`}>
-          {step.detail}
-        </p>
+        <p className={`mt-0.5 text-[11px] leading-[1.5] ${style.detail}`}>{step.detail}</p>
+        {step.action && (
+          <button
+            onClick={step.action.onClick}
+            className="mt-1.5 rounded-lg bg-amber-500/20 px-3 py-1 text-[11px] font-semibold text-amber-200 transition hover:bg-amber-500/30"
+          >
+            {step.action.label}
+          </button>
+        )}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Pixel setup modal
+// ---------------------------------------------------------------------------
+
+function PixelSetupGuide({ pixelStatus, onClose }: { pixelStatus: PixelStatus; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(pixelStatus.pixel_code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [pixelStatus.pixel_code]);
+
+  return (
+    <div className="mt-3 rounded-xl border border-amber-400/20 bg-amber-500/[0.05] p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-[12px] font-semibold text-amber-200">Setup: Purchase Tracking Pixel</div>
+        <button onClick={onClose} className="text-slate-500 hover:text-slate-300 text-[11px]">Close</button>
+      </div>
+
+      <div className="space-y-2 mb-3">
+        {pixelStatus.instructions.map((step, i) => (
+          <div key={i} className="flex items-start gap-2 text-[11px] text-slate-300">
+            <span className="flex-shrink-0 mt-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500/20 text-[9px] font-bold text-amber-300">{i + 1}</span>
+            <span>{step}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="relative">
+        <pre className="max-h-32 overflow-auto rounded-lg bg-black/40 p-3 text-[10px] leading-relaxed text-slate-400 font-mono">
+          {pixelStatus.pixel_code}
+        </pre>
+        <button
+          onClick={handleCopy}
+          className={`absolute top-2 right-2 rounded px-2 py-1 text-[10px] font-semibold transition ${
+            copied
+              ? "bg-emerald-500/30 text-emerald-300"
+              : "bg-white/10 text-slate-400 hover:bg-white/20 hover:text-slate-200"
+          }`}
+        >
+          {copied ? "Copied!" : "Copy code"}
+        </button>
+      </div>
+
+      <p className="mt-2 text-[10px] text-slate-600">
+        After saving, make a test purchase to verify. The status above will update automatically.
+      </p>
     </div>
   );
 }
@@ -232,19 +268,48 @@ function StepRow({ step, index, isLast }: { step: ChecklistStep; index: number; 
 // Main component
 // ---------------------------------------------------------------------------
 
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
+
 export function OnboardingChecklist({ data }: { data: OnboardingData }) {
-  const steps = deriveSteps(data);
   const [collapsed, setCollapsed] = useState(false);
+  const [showPixelGuide, setShowPixelGuide] = useState(false);
+  const [pixelStatus, setPixelStatus] = useState<PixelStatus | null>(null);
+
+  // Fetch pixel status
+  useEffect(() => {
+    if (!API_BASE) return;
+    let active = true;
+
+    async function checkPixel() {
+      try {
+        const res = await fetch(`${API_BASE}/setup/pixel-status`, {
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (res.ok && active) {
+          setPixelStatus(await res.json());
+        }
+      } catch { /* silent */ }
+    }
+
+    checkPixel();
+    // Poll every 10 seconds until pixel is active
+    const id = setInterval(() => {
+      if (!pixelStatus?.pixel_active) checkPixel();
+    }, 10000);
+    return () => { active = false; clearInterval(id); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const steps = deriveSteps(data, pixelStatus, () => setShowPixelGuide(true));
 
   if (!shouldShow(steps, data.readiness)) return null;
 
-  const coreSteps = steps.filter((s) => s.key !== "pro" && s.key !== "digest");
+  const coreSteps = steps.filter((s) => s.key !== "pro");
   const completedCore = coreSteps.filter((s) => s.state === "complete").length;
   const totalCore = coreSteps.length;
   const pct = totalCore > 0 ? Math.round((completedCore / totalCore) * 100) : 0;
-
-  // Auto-suggest collapse once most steps are done
-  const mostlyDone = completedCore >= 4;
 
   return (
     <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
@@ -257,54 +322,37 @@ export function OnboardingChecklist({ data }: { data: OnboardingData }) {
             </svg>
           </div>
           <div>
-            <div className="text-[12px] font-semibold text-slate-300">
-              Getting started
-            </div>
-            <div className="mt-0.5 text-[11px] text-slate-600">
-              {completedCore}/{totalCore} steps complete
-            </div>
+            <div className="text-[12px] font-semibold text-slate-300">Getting started</div>
+            <div className="mt-0.5 text-[11px] text-slate-600">{completedCore}/{totalCore} steps complete</div>
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {/* Progress bar */}
           <div className="hidden sm:flex items-center gap-2">
             <div className="h-1.5 w-24 overflow-hidden rounded-full bg-white/[0.06]">
-              <div
-                className="h-full rounded-full bg-emerald-400/70 transition-all duration-500"
-                style={{ width: `${pct}%` }}
-              />
+              <div className="h-full rounded-full bg-emerald-400/70 transition-all duration-500" style={{ width: `${pct}%` }} />
             </div>
             <span className="text-[10px] text-slate-600">{pct}%</span>
           </div>
-          {/* Collapse toggle */}
           <button
             onClick={() => setCollapsed(!collapsed)}
             className="rounded p-1 text-slate-600 transition hover:text-slate-400"
-            aria-label={collapsed ? "Expand checklist" : "Collapse checklist"}
           >
-            <svg
-              className={`h-3.5 w-3.5 transition-transform ${collapsed ? "" : "rotate-180"}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
+            <svg className={`h-3.5 w-3.5 transition-transform ${collapsed ? "" : "rotate-180"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
             </svg>
           </button>
         </div>
       </div>
 
-      {/* Step list */}
+      {/* Steps */}
       {!collapsed && (
         <div className="mt-4">
           {steps.map((step, i) => (
-            <StepRow key={step.key} step={step} index={i} isLast={i === steps.length - 1} />
+            <StepRow key={step.key} step={step} isLast={i === steps.length - 1} />
           ))}
-          {mostlyDone && (
-            <p className="mt-2 text-[11px] text-slate-600">
-              Almost there — your store is nearly fully activated.
-            </p>
+          {/* Pixel setup guide (expandable) */}
+          {showPixelGuide && pixelStatus && !pixelStatus.pixel_active && (
+            <PixelSetupGuide pixelStatus={pixelStatus} onClose={() => setShowPixelGuide(false)} />
           )}
         </div>
       )}

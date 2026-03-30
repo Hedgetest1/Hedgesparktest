@@ -181,6 +181,98 @@ def get_attribution_snippet(
 
 
 # ---------------------------------------------------------------------------
+# GET /setup/pixel-status — check if Custom Pixel is active
+# ---------------------------------------------------------------------------
+
+@router.get("/pixel-status")
+def get_pixel_status(
+    shop: str = Depends(require_merchant_session),
+    db:   Session = Depends(get_db),
+):
+    """
+    Check whether the Shopify Custom Pixel is sending purchase events.
+
+    Returns pixel_active=true if at least one purchase event has been
+    received from the pixel in the last 30 days. Also returns the pixel
+    code snippet the merchant needs to install.
+    """
+    from sqlalchemy import text
+    import os
+
+    # Check for any purchase events from this shop
+    row = db.execute(text(
+        "SELECT COUNT(*) FROM shop_orders WHERE shop_domain = :shop AND source = 'pixel'"
+    ), {"shop": shop}).fetchone()
+    pixel_active = (row[0] or 0) > 0
+
+    # Also check for recent events (in case orders haven't happened yet but events flow)
+    event_row = db.execute(text(
+        "SELECT COUNT(*) FROM events WHERE shop_domain = :shop AND event_type = 'purchase'"
+    ), {"shop": shop}).fetchone()
+    has_purchase_events = (event_row[0] or 0) > 0
+
+    # Get the pixel code
+    app_url = os.getenv("APP_URL", "")
+    from app.models.merchant import Merchant
+    merchant = db.query(Merchant).filter(Merchant.shop_domain == shop).first()
+    pixel_secret = merchant.pixel_secret if merchant else ""
+
+    pixel_code = ""
+    if app_url and pixel_secret:
+        pixel_code = f'''var API_URL      = "{app_url}/track";
+var SHOP_DOMAIN  = "{shop}";
+var PIXEL_SECRET = "{pixel_secret}";
+
+analytics.subscribe("checkout_completed", function (event) {{
+  try {{
+    var checkout = event.data.checkout;
+    if (!checkout) return;
+    var orderId = "";
+    if (checkout.order && checkout.order.id) orderId = String(checkout.order.id);
+    else if (checkout.orderId) orderId = String(checkout.orderId);
+    else if (checkout.token) orderId = "tok_" + String(checkout.token);
+    if (!orderId) return;
+    var gidMatch = orderId.match(/\\/(\\d+)$/);
+    if (gidMatch) orderId = gidMatch[1];
+    var orderTotal = 0;
+    var currency = "EUR";
+    if (checkout.totalPrice && typeof checkout.totalPrice === "object") {{
+      orderTotal = parseFloat(checkout.totalPrice.amount);
+      currency = (checkout.totalPrice.currencyCode || "EUR").toUpperCase();
+    }} else if (checkout.totalPrice) orderTotal = parseFloat(checkout.totalPrice);
+    if (isNaN(orderTotal) || orderTotal <= 0) return;
+    var dedupKey = "hs_purchase_" + orderId;
+    try {{ if (browser && browser.localStorage) {{ var already = browser.localStorage.getItem(dedupKey); if (already) return; browser.localStorage.setItem(dedupKey, "1"); }} }} catch (_) {{}}
+    var visitorId = event.clientId ? String(event.clientId) : "pixel_" + orderId;
+    var trackerVisitorId = "";
+    try {{ if (typeof browser !== "undefined" && browser.cookie) {{ var cookieVal = browser.cookie.get("_hs_vid"); if (cookieVal) trackerVisitorId = decodeURIComponent(String(cookieVal)); }} }} catch (_) {{}}
+    var pageUrl = "";
+    try {{ if (event.context && event.context.document && event.context.document.location) pageUrl = event.context.document.location.href || ""; }} catch (_) {{}}
+    fetch(API_URL, {{
+      method: "POST",
+      headers: {{ "Content-Type": "application/json" }},
+      body: JSON.stringify({{ shop_domain: SHOP_DOMAIN, visitor_id: visitorId, event_type: "purchase", page_url: pageUrl, timestamp: Date.now(), order_id: orderId, order_total: orderTotal, currency: currency, tracker_visitor_id: trackerVisitorId || undefined, pixel_secret: PIXEL_SECRET }}),
+      mode: "cors"
+    }}).catch(function () {{}});
+  }} catch (_) {{}}
+}});'''
+
+    return {
+        "pixel_active": pixel_active or has_purchase_events,
+        "orders_from_pixel": row[0] or 0,
+        "purchase_events": event_row[0] or 0,
+        "pixel_code": pixel_code,
+        "instructions": [
+            "Go to Shopify Admin → Settings → Customer events",
+            "Click 'Add custom pixel'",
+            "Name it 'Hedge Spark'",
+            "Paste the code below",
+            "Click Save, then Connect",
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
 # POST /setup/repair/webhook
 # ---------------------------------------------------------------------------
 
