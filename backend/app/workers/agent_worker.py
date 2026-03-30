@@ -543,28 +543,75 @@ def _run_brain_refresh():
         db.close()
 
 
-# Daily health digest cooldown (24 hours, in-process)
-_last_digest_run: float | None = None
-_DIGEST_COOLDOWN_SECONDS = 24 * 3600
+# Daily health digest — calendar-day dedup (Europe/Rome), Redis-persistent
+_DIGEST_REDIS_KEY = "hs:digest:last_sent_date"
+_DIGEST_TTL = 172800  # 48h — auto-cleanup, covers timezone edge cases
+# In-process fallback if Redis is down
+_digest_fallback_date: str | None = None
+
+
+def _today_rome() -> str:
+    """Return today's date string in Europe/Rome timezone."""
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("Europe/Rome")).strftime("%Y-%m-%d")
+
+
+def _digest_already_sent_today() -> bool:
+    """Check if digest was already sent for today (Europe/Rome calendar day)."""
+    global _digest_fallback_date
+    today = _today_rome()
+
+    # Try Redis first (persistent across restarts)
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            last = rc.get(_DIGEST_REDIS_KEY)
+            if last and last == today:
+                return True
+            return False
+    except Exception:
+        pass
+
+    # Fallback: in-process (reset on restart — acceptable as secondary guard)
+    return _digest_fallback_date == today
+
+
+def _mark_digest_sent():
+    """Mark today's digest as sent (Redis + in-process fallback)."""
+    global _digest_fallback_date
+    today = _today_rome()
+    _digest_fallback_date = today
+
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            rc.set(_DIGEST_REDIS_KEY, today, ex=_DIGEST_TTL)
+    except Exception:
+        pass
 
 
 def _run_daily_digest():
-    """Send daily health digest to Telegram if cooldown expired."""
-    import time as _time
-    global _last_digest_run
-    if _last_digest_run is not None and (_time.monotonic() - _last_digest_run) < _DIGEST_COOLDOWN_SECONDS:
-        return
-
+    """
+    Send daily health digest to Telegram — at most once per calendar day
+    (Europe/Rome timezone). Persistent across worker restarts via Redis.
+    """
     from app.services.telegram_agent import send_daily_digest, is_configured
     if not is_configured():
+        return
+
+    if _digest_already_sent_today():
         return
 
     db = SessionLocal()
     try:
         sent = send_daily_digest(db)
         if sent:
-            _last_digest_run = _time.monotonic()
-            log("daily_digest: sent to Telegram")
+            _mark_digest_sent()
+            log(f"daily_digest: sent for {_today_rome()}")
+        else:
+            log("daily_digest: send failed — will retry next cycle")
     except Exception as exc:
         log(f"daily_digest error (non-fatal): {exc}")
     finally:

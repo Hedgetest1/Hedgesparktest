@@ -1394,10 +1394,11 @@ def build_daily_digest(db) -> str:
     Returns the formatted message string (not sent — caller decides).
     """
     from datetime import datetime, timezone
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    from zoneinfo import ZoneInfo
+    now_rome = datetime.now(ZoneInfo("Europe/Rome"))
     lines = [
         f"*Daily Health Digest* \u2014 Hedge Spark",
-        f"{now.strftime('%Y-%m-%d %H:%M')} UTC",
+        f"{now_rome.strftime('%Y-%m-%d %H:%M')} (Rome)",
         "",
     ]
 
