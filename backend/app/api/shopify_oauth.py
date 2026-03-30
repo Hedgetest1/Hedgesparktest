@@ -518,6 +518,8 @@ def bootstrap_session(
             status_code=302,
         )
 
+    from app.core.merchant_session import set_session_cookie
+
     sv = merchant.session_version or 0
 
     dest = f"{_DASHBOARD_URL}/?shop={shop}" if _DASHBOARD_URL else "/"
