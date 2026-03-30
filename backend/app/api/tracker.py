@@ -1,15 +1,13 @@
 """
-Serves the canonical tracker script: /opt/wishspark/tracker/spark-tracker.js
-
-This is the ONLY tracker delivery path.  All Shopify Script Tag registrations
-point to {APP_URL}/tracker.js?v={TRACKER_VERSION}.
+Serves storefront JavaScript files:
+  /tracker.js       — spark-tracker.js (auto-injected via Script Tag)
+  /attribution.js   — spark-attribution.js (merchant pastes in checkout settings)
 
 Cache-Control strategy:
-  - When ?v= param is present (versioned URL from script tag):
-    Cache for 7 days.  Browser will re-fetch only when version bumps
-    (new script tag URL) — zero stale cache risk.
-  - When ?v= param is absent (direct/legacy access):
-    Cache for 5 minutes.  Short enough to pick up changes quickly.
+  - tracker.js with ?v= param (versioned URL from script tag):
+    Cache for 7 days.  Version bump changes URL → instant refresh.
+  - tracker.js without ?v=: Cache 5 minutes (backward compat).
+  - attribution.js: Cache 1 hour. Not versioned — changes are rare.
 """
 from fastapi import APIRouter, Query
 from fastapi.responses import FileResponse
@@ -17,15 +15,18 @@ from fastapi.responses import FileResponse
 router = APIRouter()
 
 _TRACKER_PATH = "/opt/wishspark/tracker/spark-tracker.js"
+_ATTRIBUTION_PATH = "/opt/wishspark/tracker/spark-attribution.js"
 
-# Versioned URL → long cache (7 days). Version bump changes the URL entirely.
 _VERSIONED_HEADERS = {
     "Cache-Control": "public, max-age=604800, immutable",
 }
 
-# Unversioned URL → short cache (5 minutes). Backward compat for old tags.
 _UNVERSIONED_HEADERS = {
     "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
+}
+
+_ATTRIBUTION_HEADERS = {
+    "Cache-Control": "public, max-age=3600, stale-while-revalidate=300",
 }
 
 
@@ -37,4 +38,24 @@ def tracker(v: str | None = Query(default=None)):
         media_type="application/javascript",
         filename="tracker.js",
         headers=headers,
+    )
+
+
+@router.get("/attribution.js")
+def attribution(shop: str | None = Query(default=None)):
+    """
+    Serve spark-attribution.js for the checkout thank-you page.
+
+    The ?shop= param is read CLIENT-SIDE by the script itself (not by this
+    endpoint) to scope the attribution event to the correct merchant.
+
+    Install instructions for merchants:
+      Settings → Checkout → Order status page → Additional scripts
+      Add: <script src="https://api.hedgesparkhq.com/attribution.js?shop={{ shop.permanent_domain }}"></script>
+    """
+    return FileResponse(
+        _ATTRIBUTION_PATH,
+        media_type="application/javascript",
+        filename="attribution.js",
+        headers=_ATTRIBUTION_HEADERS,
     )

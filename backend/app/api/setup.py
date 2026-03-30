@@ -140,6 +140,47 @@ async def get_setup_status(
 
 
 # ---------------------------------------------------------------------------
+# GET /setup/attribution-snippet — merchant-facing install snippet
+# ---------------------------------------------------------------------------
+
+@router.get("/attribution-snippet")
+def get_attribution_snippet(
+    shop: str = Depends(require_merchant_session),
+):
+    """
+    Return the exact script tag the merchant must paste into
+    Settings → Checkout → Order status page → Additional scripts.
+
+    This enables visitor-to-order attribution linking so HedgeSpark
+    can track which browsing behavior led to each purchase.
+    """
+    import os
+    app_url = os.getenv("APP_URL", "")
+    if not app_url:
+        return {"snippet": None, "error": "Server APP_URL not configured"}
+
+    snippet = (
+        f'<script src="{app_url}/attribution.js'
+        f'?shop={{{{ shop.permanent_domain }}}}" async></script>'
+    )
+
+    return {
+        "snippet": snippet,
+        "instructions": [
+            "Go to Shopify Admin → Settings → Checkout",
+            "Scroll to 'Order status page' → 'Additional scripts'",
+            "Paste the snippet below into the text box",
+            "Click Save",
+        ],
+        "why": (
+            "This connects browsing behavior to purchases, enabling "
+            "attribution intelligence, behavioral cohort analysis, and "
+            "customer lifetime value tracking."
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
 # POST /setup/repair/webhook
 # ---------------------------------------------------------------------------
 
