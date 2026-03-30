@@ -1431,6 +1431,16 @@ def get_tracker_fleet_status(
     }
 
 
+@router.get("/digest/status")
+def get_digest_delivery_status(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Merchant digest delivery status for current week."""
+    from app.services.merchant_digest import get_digest_delivery_status
+    return get_digest_delivery_status(db)
+
+
 @router.get("/webhooks/status")
 def get_webhook_fleet_status(
     _auth: bool = Depends(require_operator),

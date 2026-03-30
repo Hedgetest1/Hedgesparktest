@@ -666,6 +666,26 @@ def _run_daily_digest():
         log("daily_digest: send failed — lock released, will retry next cycle")
 
 
+def _run_merchant_digest():
+    """Send weekly email digests to eligible merchants (Monday only, Europe/Rome)."""
+    from app.services.merchant_digest import _is_monday_rome, run_merchant_digest_cycle
+
+    if not _is_monday_rome():
+        return
+
+    db = SessionLocal()
+    try:
+        summary = run_merchant_digest_cycle(db)
+        db.commit()
+        if summary["sent"] > 0 or summary["failed"] > 0:
+            log(f"merchant_digest: sent={summary['sent']} failed={summary['failed']} no_data={summary['no_data']}")
+    except Exception as exc:
+        log(f"merchant_digest error (non-fatal): {exc}")
+        db.rollback()
+    finally:
+        db.close()
+
+
 def run_cycle():
     started_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -704,6 +724,9 @@ def run_cycle():
 
     # Phase 7c: Daily health digest to Telegram (24h cooldown)
     _run_daily_digest()
+
+    # Phase 7d: Weekly merchant email digest (Monday, Europe/Rome)
+    _run_merchant_digest()
 
     # Phase 8: Sandbox analysis (original agent_worker logic)
     # This worker has no per-shop dimension — it selects the top-N
