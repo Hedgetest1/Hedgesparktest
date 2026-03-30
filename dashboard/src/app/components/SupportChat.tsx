@@ -20,16 +20,28 @@ function apiHeaders(): HeadersInit {
   return { "Content-Type": "application/json" };
 }
 
-export function SupportChat() {
+export function SupportChat({ onboardingHint }: { onboardingHint?: string }) {
   const [open, setOpen] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([
+
+  // Build initial messages with optional onboarding context
+  const initialMessages: ChatMessage[] = [
     {
       id: "welcome",
       role: "assistant",
       text: "Hi! I\u2019m the Hedge Spark support assistant. I can help with setup, features, signals, billing, or any issues you\u2019re seeing.",
-      timestamp: Date.now(),
+      timestamp: Date.now() - 1000,
     },
-  ]);
+  ];
+  if (onboardingHint) {
+    initialMessages.push({
+      id: "onboarding-hint",
+      role: "assistant",
+      text: onboardingHint,
+      timestamp: Date.now(),
+    });
+  }
+
+  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);

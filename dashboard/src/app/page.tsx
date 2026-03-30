@@ -4674,8 +4674,13 @@ export default function Page() {
         aovIsReal={data?.aov_is_real ?? false}
       />
 
-      {/* Support chat — floating, always accessible */}
-      {shop && <SupportChat />}
+      {/* Support chat — floating, with onboarding context */}
+      {shop && <SupportChat onboardingHint={
+        // Contextual hint based on data pipeline state
+        data && (data.summary?.total_visitors ?? 0) > 0 && !heroRevenue
+          ? "\ud83d\udca1 You\u2019re one step away from tracking revenue. Open the setup checklist above and complete the Purchase Tracking step."
+          : undefined
+      } />}
     </div>
   );
 }
