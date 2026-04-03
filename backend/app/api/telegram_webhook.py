@@ -58,26 +58,18 @@ _INLINE_BUDGET_MS = 500
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="tg")
 
 
-def _safe_markdown(text: str) -> tuple[str, str]:
+def _safe_html(text: str) -> tuple[str, str]:
     """
-    Escape text for Telegram Markdown V1 and validate.
-    Returns (formatted_text, parse_mode).
-    If the escaped text is still likely to break Telegram parsing,
-    returns (plain_text, "") — no parse_mode = plain text.
+    Convert text to Telegram HTML format.
+    Returns (formatted_text, "HTML").
+    Falls back to plain text if HTML conversion fails.
     """
-    from app.services.telegram_agent import _escape_markdown, _strip_markdown
-
-    escaped = _escape_markdown(text)
-
-    # Validate: count unescaped asterisks — odd = will break
-    unescaped_stars = len(re.findall(r'(?<!\\)\*', escaped))
-    unescaped_backticks = len(re.findall(r'(?<!\\)`', escaped))
-
-    if unescaped_stars % 2 != 0 or unescaped_backticks % 2 != 0:
-        log.warning("telegram_webhook: Markdown still has unmatched entities after escaping — using plain text")
+    try:
+        from app.services.telegram_agent import _to_html
+        return _to_html(text), "HTML"
+    except Exception:
+        from app.services.telegram_agent import _strip_markdown
         return _strip_markdown(text), ""
-
-    return escaped, "Markdown"
 
 
 @router.post("/webhook")
@@ -105,16 +97,26 @@ async def telegram_webhook(request: Request):
         cb_chat_id = str(callback.get("message", {}).get("chat", {}).get("id", ""))
         cb_id = callback.get("id", "")
         if cb_data and cb_chat_id and cb_data.startswith("/"):
-            # Answer the callback to remove the loading spinner
+            # Contextual instant feedback based on command
+            feedback = "Processing..."
+            cmd_lower = cb_data.split()[0].lower()
+            if "approve" in cmd_lower and "apply" not in cmd_lower:
+                feedback = "✅ Approved!"
+            elif "apply" in cmd_lower:
+                feedback = "⏳ Applying patch... running tests"
+            elif "rollback" in cmd_lower:
+                feedback = "⏳ Rolling back..."
+            elif "cleanup" in cmd_lower:
+                feedback = "🧹 Cleaning up..."
+
             try:
                 from app.services.telegram_agent import _get_http_client, _BOT_TOKEN
                 _get_http_client().post(
                     f"https://api.telegram.org/bot{_BOT_TOKEN}/answerCallbackQuery",
-                    json={"callback_query_id": cb_id, "text": "Processing..."},
+                    json={"callback_query_id": cb_id, "text": feedback, "show_alert": False},
                 )
             except Exception:
                 pass
-            # Process the command from button tap
             _background_response(cb_data, cb_chat_id)
             return {"ok": True}
 
@@ -172,7 +174,7 @@ async def _inline_response(text: str, chat_id: str) -> JSONResponse:
     if is_dry_run():
         response_text = f"[DRY RUN] {response_text}"
 
-    formatted_text, parse_mode = _safe_markdown(response_text)
+    formatted_text, parse_mode = _safe_html(response_text)
 
     # Telegram inline webhook response: return a sendMessage payload
     # directly.  Telegram processes this without a separate API call.

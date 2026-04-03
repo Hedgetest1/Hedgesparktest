@@ -23,9 +23,12 @@ UNAUTHORIZED_CHAT = "999999999"
 
 @pytest.fixture(autouse=True)
 def _set_telegram_env(monkeypatch):
-    """Set TELEGRAM_CHAT_ID for auth tests."""
+    """Set TELEGRAM_CHAT_ID for auth tests and reset rate limits."""
     monkeypatch.setattr("app.services.telegram_agent._CHAT_ID", AUTHORIZED_CHAT)
     monkeypatch.setattr("app.services.telegram_agent._BOT_TOKEN", "test-token")
+    # Reset rate limiter between tests
+    from app.services.telegram_agent import reset_rate_limits
+    reset_rate_limits()
 
 
 @pytest.fixture(autouse=True)

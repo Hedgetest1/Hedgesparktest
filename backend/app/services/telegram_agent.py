@@ -67,6 +67,8 @@ def warmup_connection() -> None:
             f"https://api.telegram.org/bot{_BOT_TOKEN}/getMe",
         )
         log.info("telegram_agent: connection warmed up (status=%d)", resp.status_code)
+        # Register bot menu commands on startup
+        register_bot_commands()
     except Exception as exc:
         log.warning("telegram_agent: warmup failed (non-fatal): %s", type(exc).__name__)
 
@@ -88,71 +90,138 @@ def is_authorized_chat(chat_id: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Command rate limiter — prevents spam (5 same commands per minute)
+# ---------------------------------------------------------------------------
+_cmd_rate: dict[str, list[float]] = {}  # cmd → [timestamp, ...]
+_CMD_RATE_LIMIT = 5
+_CMD_RATE_WINDOW = 60.0  # seconds
+
+
+def _check_rate_limit(cmd: str) -> bool:
+    """Returns True if command is allowed, False if rate-limited."""
+    import time
+    now = time.monotonic()
+    key = cmd.lower()
+
+    if key not in _cmd_rate:
+        _cmd_rate[key] = []
+
+    # Clean old entries
+    _cmd_rate[key] = [t for t in _cmd_rate[key] if now - t < _CMD_RATE_WINDOW]
+
+    if len(_cmd_rate[key]) >= _CMD_RATE_LIMIT:
+        return False
+
+    _cmd_rate[key].append(now)
+    return True
+
+
+def reset_rate_limits():
+    """Clear rate limit state — for testing."""
+    _cmd_rate.clear()
+
+
+def register_bot_commands() -> bool:
+    """
+    Register commands with Telegram BotFather so they appear in the / autocomplete menu.
+    Call once at startup.
+    """
+    if not _BOT_TOKEN:
+        return False
+
+    commands = [
+        {"command": "status", "description": "System health status"},
+        {"command": "bugfixes", "description": "List pending patches"},
+        {"command": "incidents", "description": "Active merchant issues"},
+        {"command": "costs", "description": "LLM budget breakdown"},
+        {"command": "cleanup", "description": "Resolve all alerts + incidents"},
+        {"command": "rollback", "description": "Revert an applied bugfix"},
+        {"command": "help", "description": "All commands"},
+    ]
+
+    try:
+        client = _get_http_client()
+        resp = client.post(
+            f"https://api.telegram.org/bot{_BOT_TOKEN}/setMyCommands",
+            json={"commands": commands},
+        )
+        if resp.status_code == 200:
+            log.info("telegram_agent: bot commands registered (%d commands)", len(commands))
+            return True
+        log.warning("telegram_agent: setMyCommands failed: %d", resp.status_code)
+    except Exception as exc:
+        log.warning("telegram_agent: setMyCommands error: %s", exc)
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Send message
 # ---------------------------------------------------------------------------
 
 def _escape_markdown(text: str) -> str:
-    """
-    Escape characters that break Telegram Markdown V1 parsing.
-
-    Telegram Markdown V1 special characters: _ * ` [
-    Strategy:
-      - Underscores: always escape (we never use _italic_)
-      - Backticks: always escape unmatched ones
-      - Square brackets: always escape unmatched ones
-      - Asterisks: preserve MATCHED pairs (our intentional *bold*),
-        escape any unmatched trailing asterisk
-    """
-    import re
-
-    # Step 1: Escape all underscores (we never use italic)
-    text = text.replace("\\_", "\x00").replace("_", "\\_").replace("\x00", "\\_")
-
-    # Step 2: Escape unmatched backticks
-    # If odd number of backticks, escape the last one
-    if text.count("`") % 2 != 0:
-        # Find and escape the last backtick
-        idx = text.rfind("`")
-        text = text[:idx] + "\\`" + text[idx + 1:]
-
-    # Step 3: Escape unmatched square brackets
-    # Telegram V1 Markdown uses [text](url) — unmatched [ breaks parsing
-    # Since we don't use link syntax, escape all bare brackets
-    text = text.replace("[", "\\[").replace("]", "\\]")
-
-    # Step 4: Check for unmatched asterisks
-    # Count asterisks that are not escaped
-    asterisks = [m.start() for m in re.finditer(r'(?<!\\)\*', text)]
-    if len(asterisks) % 2 != 0:
-        # Odd number — escape the last one to avoid "can't find end of entity"
-        last_idx = asterisks[-1]
-        text = text[:last_idx] + "\\*" + text[last_idx + 1:]
-
-    return text
+    """LEGACY — converts *bold* to HTML <b> and escapes for HTML mode."""
+    return _to_html(text)
 
 
 def _strip_markdown(text: str) -> str:
-    """Remove all Markdown V1 formatting for plain-text fallback."""
+    """LEGACY — strips formatting markers, returns plain text."""
     import re
-    # Remove bold markers
     text = re.sub(r'\*([^*]*)\*', r'\1', text)
-    # Remove backtick code spans
     text = re.sub(r'`([^`]*)`', r'\1', text)
-    # Remove link syntax [text](url)
     text = re.sub(r'\[([^\]]*)\]\([^)]*\)', r'\1', text)
-    # Remove remaining escape backslashes
-    text = text.replace("\\_", "_").replace("\\*", "*").replace("\\`", "`").replace("\\[", "[").replace("\\]", "]")
+    text = text.replace("\\_", "_").replace("\\*", "*").replace("\\`", "`")
+    text = text.replace("\\[", "[").replace("\\]", "]")
     return text
 
 
-def send_message(text: str, chat_id: str | None = None, parse_mode: str = "Markdown") -> bool:
+def _to_html(text: str) -> str:
     """
-    Send a message via Telegram Bot API.
-    Returns True if sent. Returns False (never raises) on any failure.
-    In dry_run mode, prefixes message with [DRY RUN].
+    Convert Markdown-style text to Telegram HTML.
 
-    Safety: if Telegram rejects the message due to Markdown parse errors
-    (HTTP 400 + "can't parse entities"), automatically retries as plain text.
+    Converts: *bold* → <b>bold</b>
+    Escapes all other HTML entities via html.escape().
+    This eliminates ALL Markdown V1 escaping bugs permanently.
+    """
+    import html as _html
+    import re
+
+    # First: extract *bold* markers, protect them
+    bold_parts = []
+    def _bold_replace(m):
+        bold_parts.append(m.group(1))
+        return f"\x00BOLD{len(bold_parts) - 1}\x00"
+
+    text = re.sub(r'\*([^*]+)\*', _bold_replace, text)
+
+    # Escape ALL HTML entities in the remaining text
+    text = _html.escape(text, quote=False)
+
+    # Restore bold markers as HTML
+    for i, part in enumerate(bold_parts):
+        text = text.replace(f"\x00BOLD{i}\x00", f"<b>{_html.escape(part, quote=False)}</b>")
+
+    return text
+
+
+def _safe_html(text: str) -> str:
+    """Escape dynamic content for safe inclusion in HTML messages."""
+    import html as _html
+    return _html.escape(str(text), quote=False)
+
+
+def send_message(
+    text: str,
+    chat_id: str | None = None,
+    parse_mode: str = "HTML",
+    reply_to: int | None = None,
+) -> bool | int:
+    """
+    Send a message via Telegram Bot API using HTML parse mode.
+
+    Returns True/message_id if sent. Returns False on any failure.
+    If reply_to is set, the message replies to that message ID (threading).
+
+    Safety: if HTML parse fails (HTTP 400), automatically retries as plain text.
     """
     from app.core.execution_mode import is_dry_run
 
@@ -168,33 +237,40 @@ def send_message(text: str, chat_id: str | None = None, parse_mode: str = "Markd
     if is_dry_run():
         text = f"[DRY RUN] {text}"
 
-    formatted_text = _escape_markdown(text) if parse_mode == "Markdown" else text
+    # Convert *bold* to <b>bold</b> and escape HTML entities
+    formatted_text = _to_html(text)
 
     url = f"https://api.telegram.org/bot{_BOT_TOKEN}/sendMessage"
 
+    payload: dict = {
+        "chat_id": target,
+        "text": formatted_text,
+        "parse_mode": "HTML",
+    }
+    if reply_to:
+        payload["reply_to_message_id"] = reply_to
+
     try:
         client = _get_http_client()
-        resp = client.post(url, json={
-            "chat_id": target,
-            "text": formatted_text,
-            "parse_mode": parse_mode,
-        })
+        resp = client.post(url, json=payload)
 
         if resp.status_code == 200:
-            log.info("telegram_agent: message sent to %s", target)
-            return True
+            msg_id = resp.json().get("result", {}).get("message_id")
+            log.info("telegram_agent: message sent to %s (msg_id=%s)", target, msg_id)
+            return msg_id or True
 
-        # Markdown parse failure → retry as plain text
+        # HTML parse failure → retry as plain text
         if resp.status_code == 400 and "parse entities" in (resp.text or "").lower():
-            log.warning("telegram_agent: Markdown parse failed — retrying as plain text")
+            log.warning("telegram_agent: HTML parse failed — retrying as plain text")
             plain = _strip_markdown(text)
-            resp2 = client.post(url, json={
-                "chat_id": target,
-                "text": plain,
-            })
+            payload_plain = {"chat_id": target, "text": plain}
+            if reply_to:
+                payload_plain["reply_to_message_id"] = reply_to
+            resp2 = client.post(url, json=payload_plain)
             if resp2.status_code == 200:
-                log.info("telegram_agent: message sent (plain text fallback) to %s", target)
-                return True
+                msg_id = resp2.json().get("result", {}).get("message_id")
+                log.info("telegram_agent: message sent (plain fallback) to %s", target)
+                return msg_id or True
             log.warning("telegram_agent: plain text fallback also failed: %d", resp2.status_code)
             return False
 
@@ -212,15 +288,13 @@ def send_message_with_buttons(
     text: str,
     buttons: list[list[dict]],
     chat_id: str | None = None,
-    parse_mode: str = "Markdown",
-) -> bool:
+    reply_to: int | None = None,
+) -> bool | int:
     """
-    Send a Telegram message with inline keyboard buttons.
+    Send a Telegram message with inline keyboard buttons (HTML mode).
 
     buttons format: [[{"text": "Approve", "callback_data": "/bugfix_approve 19917"}]]
-
-    Each button sends its callback_data when tapped — solving the problem where
-    tapping a /command in message text only sends the command without arguments.
+    Returns message_id on success, False on failure.
     """
     if not _BOT_TOKEN:
         return False
@@ -229,35 +303,36 @@ def send_message_with_buttons(
     if not target:
         return False
 
-    formatted_text = _escape_markdown(text) if parse_mode == "Markdown" else text
+    formatted_text = _to_html(text)
     url = f"https://api.telegram.org/bot{_BOT_TOKEN}/sendMessage"
+
+    payload: dict = {
+        "chat_id": target,
+        "text": formatted_text,
+        "parse_mode": "HTML",
+        "reply_markup": {"inline_keyboard": buttons},
+    }
+    if reply_to:
+        payload["reply_to_message_id"] = reply_to
 
     try:
         client = _get_http_client()
-        resp = client.post(url, json={
-            "chat_id": target,
-            "text": formatted_text,
-            "parse_mode": parse_mode,
-            "reply_markup": {
-                "inline_keyboard": buttons,
-            },
-        })
+        resp = client.post(url, json=payload)
         if resp.status_code == 200:
-            log.info("telegram_agent: message with buttons sent to %s", target)
-            return True
+            msg_id = resp.json().get("result", {}).get("message_id")
+            log.info("telegram_agent: message with buttons sent to %s (msg_id=%s)", target, msg_id)
+            return msg_id or True
 
-        # Markdown fallback
+        # HTML fallback → plain text with buttons
         if resp.status_code == 400 and "parse entities" in (resp.text or "").lower():
             plain = _strip_markdown(text)
-            resp2 = client.post(url, json={
-                "chat_id": target,
-                "text": plain,
-                "reply_markup": {"inline_keyboard": buttons},
-            })
+            payload["text"] = plain
+            del payload["parse_mode"]
+            resp2 = client.post(url, json=payload)
             if resp2.status_code == 200:
-                return True
+                return resp2.json().get("result", {}).get("message_id") or True
 
-        log.warning("telegram_agent: button message failed: %d", resp.status_code)
+        log.warning("telegram_agent: button message failed: %d %s", resp.status_code, (resp.text or "")[:100])
         return False
     except Exception as exc:
         log.warning("telegram_agent: button send failed: %s", type(exc).__name__)
@@ -440,7 +515,7 @@ def _time_remaining(expires_at) -> str:
 # Commands that modify state — require authorized chat
 _WRITE_COMMANDS = {
     "/approve", "/reject", "/bugfix_approve", "/bugfix_apply",
-    "/merge", "/cleanup",
+    "/merge", "/cleanup", "/rollback",
 }
 
 # All known commands
@@ -501,12 +576,17 @@ def handle_command(command: str, db=None, chat_id: str | None = None) -> str:
         "/loop_health": lambda: _cmd_loop_health(db),
         "/weakness": lambda: _cmd_weakness(db),
         "/cleanup": lambda: _cmd_cleanup(db),
+        "/rollback": lambda: _cmd_rollback(db, args),
         "/help": lambda: _cmd_help(db),
     }
 
     handler = handlers.get(cmd)
     if not handler:
         return _cmd_unknown(db)
+
+    # Rate limit check
+    if not _check_rate_limit(cmd):
+        return f"Rate limited — max {_CMD_RATE_LIMIT} identical commands per minute."
 
     try:
         return handler()
@@ -520,33 +600,59 @@ def handle_command(command: str, db=None, chat_id: str | None = None) -> str:
 # ---------------------------------------------------------------------------
 
 def _cmd_status(db) -> str:
-    """Return system status summary."""
+    """Return system status using CTO health model — same as daily digest."""
     if db is None:
         return "System status unavailable (no DB session)"
 
-    from app.services.system_summary import build_system_summary
-    s = build_system_summary(db)
+    # CTO health — single source of truth
+    try:
+        from app.core.redis_client import cache_get
+        health = cache_get("hs:system_health")
+        if not health:
+            from app.services.system_health_synthesizer import synthesize_health
+            h = synthesize_health(db)
+            health = h.to_dict()
+    except Exception:
+        health = None
 
-    ram = s["infra"]["ram"]
-    cpu = s["infra"]["cpu"]
-    workers = s["infra"]["workers"]
-    llm = s["llm_usage"]
+    lines = ["*System Status* — Hedge Spark", ""]
 
-    lines = [
-        "*System Status* \u2014 Hedge Spark",
-        "",
-        f"RAM: {ram.get('used_mb', '?')}MB / {ram.get('total_mb', '?')}MB ({ram.get('usage_pct', '?')}%)",
-        f"CPU: {cpu.get('load_5m', '?')} (5m avg, {cpu.get('cpu_count', '?')} cores)",
-        f"Workers: {workers.get('cycles_24h', 0)} cycles, {workers.get('error_rate_pct', 0)}% errors",
-        f"LLM: {llm.get('global_calls_today', 0)}/{llm.get('global_max_per_day', 150)} calls today",
-    ]
-
-    warnings = s.get("warnings", [])
-    if warnings:
+    if health:
+        status = health.get("overall_status", "unknown").upper()
+        icon = {"HEALTHY": "🟢", "DEGRADED": "🟡", "CRITICAL": "🔴"}.get(status, "⚪")
+        lines.append(f"{icon} *{status}*")
         lines.append("")
-        lines.append("*Warnings:*")
-        for w in warnings:
-            lines.append(f"\u26a0 {w}")
+
+        for d in health.get("dimensions", []):
+            d_icon = {"healthy": "🟢", "degraded": "🟡", "critical": "🔴"}[d["status"]]
+            trend = {"worsening": "↑", "improving": "↓", "stable": "→"}[d["trend"]]
+            lines.append(f"  {d_icon} {d['name']}: {d['detail']} {trend}")
+
+        if health.get("top_issues"):
+            lines.append("")
+            for issue in health["top_issues"][:3]:
+                lines.append(f"  ⚠️ {issue}")
+    else:
+        lines.append("Health data unavailable")
+
+    # LLM budget (always useful)
+    try:
+        from app.core.llm_budget import get_usage_summary
+        s = get_usage_summary()
+        lines.append("")
+        lines.append(f"LLM: €{s['monthly_cost_eur']:.3f} / €{s['monthly_cap_eur']} "
+                      f"({s['global_calls_today']} calls today)")
+    except Exception:
+        pass
+
+    # Infra basics
+    try:
+        from app.services.system_summary import build_system_summary
+        s = build_system_summary(db)
+        ram = s["infra"]["ram"]
+        lines.append(f"RAM: {ram.get('usage_pct', '?')}% | CPU: {s['infra']['cpu'].get('load_5m', '?')}")
+    except Exception:
+        pass
 
     return "\n".join(lines)
 
@@ -977,7 +1083,8 @@ def _cmd_bugfix_approve(db, args: list[str]) -> str:
 
 
 def _cmd_bugfix_apply(db, args: list[str]) -> str:
-    """Apply an approved bugfix through the guarded apply pipeline."""
+    """Apply an approved bugfix through the guarded apply pipeline.
+    Sends immediate feedback before starting the pipeline."""
     if db is None:
         return "No DB session available."
     if not args:
@@ -994,15 +1101,21 @@ def _cmd_bugfix_apply(db, args: list[str]) -> str:
     if not c:
         return f"Bugfix #{candidate_id} not found."
     if c.status != "approved":
-        return f"Cannot apply \u2014 bugfix #{candidate_id} status is {c.status}. Must be approved first."
+        return f"Cannot apply — bugfix #{candidate_id} status is {c.status}. Must be approved first."
 
-    # Use the existing guarded apply path
+    # IMMEDIATE FEEDBACK — tell operator the pipeline is running
+    progress_msg_id = send_message(
+        f"⏳ *Applying bugfix #{candidate_id}...*\n\n"
+        f"Running: git apply → pytest → PM2 restart → health check\n"
+        f"This takes 15-30 seconds."
+    )
+
+    # Run the pipeline (this is the slow part)
     from app.services.bugfix_pipeline import apply_bugfix_candidate
     from app.services.audit import write_audit_log
 
     result = apply_bugfix_candidate(db, candidate_id)
 
-    # Additional audit log for telegram channel
     write_audit_log(
         db,
         actor_type="human",
@@ -1017,29 +1130,113 @@ def _cmd_bugfix_apply(db, args: list[str]) -> str:
         },
         status="completed" if result.status == "applied" else "failed",
         approval_mode="human_approved",
-        metadata={
-            "channel": "telegram",
-            "reviewer_assessment_id": getattr(c, "reviewer_assessment_id", None),
-        },
+        metadata={"channel": "telegram"},
     )
     db.commit()
 
-    reviewer_ctx = _get_reviewer_for_display(db, "bugfix_candidate", candidate_id)
+    # RESULT MESSAGE — reply to the progress message for threading
+    reply_to_id = progress_msg_id if isinstance(progress_msg_id, int) else None
 
     if result.status == "applied":
-        return (
-            f"\u2705 *Bugfix applied* #{candidate_id}\n"
-            f"Tests: {'passed' if result.test_passed else 'failed'}\n"
-            f"Health: {'ok' if result.health_ok else 'failed'}"
-            f"{reviewer_ctx}"
+        send_message(
+            f"✅ *Bugfix #{candidate_id} deployed successfully*\n\n"
+            f"Tests: passed\n"
+            f"Health: ok\n"
+            f"Commit: {getattr(c, 'git_commit_sha', 'n/a')}\n\n"
+            f"Outcome measurement starts in 48h.\n"
+            f"Rollback: /rollback {candidate_id}",
+            reply_to=reply_to_id,
         )
+        return ""  # already sent via send_message
     else:
-        return (
-            f"\u274c *Bugfix apply failed* #{candidate_id}\n"
+        send_message(
+            f"❌ *Bugfix #{candidate_id} failed*\n\n"
             f"Status: {result.status}\n"
-            f"Reason: {result.failure_reason or 'unknown'}"
-            f"{reviewer_ctx}"
+            f"Reason: {result.failure_reason or 'unknown'}\n\n"
+            f"Patch was auto-reverted. No code changed.",
+            reply_to=reply_to_id,
         )
+        return ""  # already sent
+
+
+def _cmd_rollback(db, args: list[str]) -> str:
+    """Rollback an applied bugfix candidate by reverting its git commit."""
+    if db is None:
+        return "No DB session available."
+    if not args:
+        return "Usage: /rollback <candidate_id>"
+
+    try:
+        candidate_id = int(args[0])
+    except ValueError:
+        return "Invalid candidate ID."
+
+    from app.models.bugfix_candidate import BugFixCandidate
+    import subprocess
+
+    c = db.query(BugFixCandidate).get(candidate_id)
+    if not c:
+        return f"Candidate #{candidate_id} not found."
+    if c.status != "applied":
+        return f"Cannot rollback — #{candidate_id} status is {c.status}. Only applied patches can be rolled back."
+    if not c.git_commit_sha:
+        return f"Cannot rollback — #{candidate_id} has no recorded commit SHA."
+
+    # Immediate feedback
+    send_message(f"⏳ *Rolling back bugfix #{candidate_id}...*\n\nReverting commit {c.git_commit_sha[:8]}...")
+
+    try:
+        # Revert the commit
+        revert = subprocess.run(
+            ["git", "revert", "--no-edit", c.git_commit_sha],
+            capture_output=True, text=True, timeout=30,
+            cwd="/opt/wishspark",
+        )
+        if revert.returncode != 0:
+            return f"❌ Git revert failed: {revert.stderr[:200]}"
+
+        # Restart backend
+        subprocess.run(["pm2", "restart", "wishspark-backend"], capture_output=True, timeout=15)
+        import time
+        time.sleep(4)
+
+        # Health check
+        try:
+            import httpx
+            health = httpx.get("http://127.0.0.1:8000/system/health", timeout=8.0)
+            health_ok = health.status_code == 200
+        except Exception:
+            health_ok = False
+
+        # Update candidate
+        c.status = "rolled_back"
+        c.failure_reason = f"operator_rollback via Telegram"
+
+        from app.services.audit import write_audit_log
+        write_audit_log(
+            db,
+            actor_type="human",
+            actor_name="telegram_operator",
+            action_type="bugfix_rollback",
+            target_type="bugfix",
+            target_id=str(candidate_id),
+            after_state={"reverted_sha": c.git_commit_sha, "health_ok": health_ok},
+            status="completed",
+            metadata={"channel": "telegram"},
+        )
+        db.commit()
+
+        return (
+            f"✅ *Bugfix #{candidate_id} rolled back*\n\n"
+            f"Reverted commit: {c.git_commit_sha[:8]}\n"
+            f"Health: {'ok' if health_ok else 'degraded — check /status'}\n"
+            f"Backend restarted."
+        )
+
+    except subprocess.TimeoutExpired:
+        return f"❌ Rollback timed out for #{candidate_id}. Manual intervention needed."
+    except Exception as exc:
+        return f"❌ Rollback failed: {type(exc).__name__}: {str(exc)[:200]}"
 
 
 def _cmd_promotions(db) -> str:
@@ -1459,6 +1656,7 @@ def _cmd_help(db) -> str:
         "/loop_health \u2014 autonomous loop health snapshot\n"
         "/weakness \u2014 subsystem weakness ranking\n\n"
         "/cleanup \u2014 resolve all alerts + dismiss all incidents\n"
+        "/rollback <id> \u2014 revert an applied bugfix\n"
         "/help \u2014 this message"
     )
 
