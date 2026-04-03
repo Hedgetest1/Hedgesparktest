@@ -25,12 +25,14 @@ log = logging.getLogger("telegram_safety")
 _IDEMPOTENCY_TTL = 300  # 5 minutes — covers Telegram's 60s retry window
 
 
-def check_idempotency(command: str, entity_id: str) -> bool:
+def check_idempotency(command: str, entity_id: str, critical: bool = False) -> bool:
     """
     Check if this exact command was already executed recently.
     Returns True if safe to proceed, False if duplicate.
+
+    critical=True: FAIL-CLOSED (block if Redis unavailable).
+    critical=False: FAIL-OPEN (allow if Redis unavailable).
     """
-    # Key: command + entity_id bucketed to 5-min window
     bucket = int(time.time()) // _IDEMPOTENCY_TTL
     raw = f"{command}:{entity_id}:{bucket}"
     key = f"hs:tg_idem:{hashlib.md5(raw.encode()).hexdigest()[:16]}"
@@ -39,16 +41,21 @@ def check_idempotency(command: str, entity_id: str) -> bool:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
-            return True  # Redis down — allow (fail-open for operator)
+            if critical:
+                log.warning("telegram_safety: Redis unavailable — BLOCKING critical command %s", command)
+                return False
+            return True  # non-critical: fail-open
 
-        # SET NX — returns True only if key didn't exist (first execution)
         result = rc.set(key, "1", nx=True, ex=_IDEMPOTENCY_TTL)
         if not result:
             log.warning("telegram_safety: DUPLICATE blocked %s entity=%s", command, entity_id)
             return False
         return True
     except Exception:
-        return True  # Redis error — fail-open
+        if critical:
+            log.warning("telegram_safety: Redis error — BLOCKING critical command %s", command)
+            return False
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -58,23 +65,31 @@ def check_idempotency(command: str, entity_id: str) -> bool:
 _LOCK_TTL = 120  # 2 minutes — long enough for apply pipeline
 
 
-def acquire_execution_lock(entity_type: str, entity_id: str) -> bool:
+def acquire_execution_lock(entity_type: str, entity_id: str, critical: bool = True) -> bool:
     """
     Acquire exclusive lock for a dangerous operation on an entity.
-    Returns True if lock acquired, False if already locked.
+    Returns True if lock acquired, False if already locked or Redis unavailable.
+
+    FAIL-CLOSED by default for critical operations (apply, rollback).
+    If Redis is down, these operations are BLOCKED.
     """
     key = f"hs:tg_lock:{entity_type}:{entity_id}"
     try:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
-            return True  # Redis down — allow
+            if critical:
+                log.warning("telegram_safety: Redis unavailable — BLOCKING lock for %s:%s", entity_type, entity_id)
+                return False
+            return True
         result = rc.set(key, str(int(time.time())), nx=True, ex=_LOCK_TTL)
         if not result:
             log.warning("telegram_safety: LOCKED %s:%s — another operation in progress", entity_type, entity_id)
             return False
         return True
     except Exception:
+        if critical:
+            return False
         return True
 
 

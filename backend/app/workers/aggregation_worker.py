@@ -269,6 +269,58 @@ def _sweep_stale_tasks(db: Session) -> int:
     return released
 
 
+def _sweep_stuck_candidates(db: Session) -> int:
+    """
+    Find bugfix_candidates stuck in 'applying' status for > 10 minutes.
+    These are candidates where the apply pipeline crashed or timed out
+    without completing. Mark them as 'apply_failed' and release any locks.
+    """
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=10)
+
+    from app.models.bugfix_candidate import BugFixCandidate
+    stuck = (
+        db.query(BugFixCandidate)
+        .filter(
+            BugFixCandidate.status == "applying",
+            BugFixCandidate.decided_at < cutoff,
+        )
+        .all()
+    )
+
+    if not stuck:
+        return 0
+
+    recovered = 0
+    for c in stuck:
+        c.status = "apply_failed"
+        c.failure_reason = "stuck_in_applying: process crash or timeout — recovered by watchdog"
+        recovered += 1
+
+        # Release any execution lock
+        try:
+            from app.core.telegram_safety import release_execution_lock
+            release_execution_lock("bugfix", str(c.id))
+        except Exception:
+            pass
+
+        # Alert operator
+        try:
+            from app.services.alerting import write_alert
+            write_alert(
+                db, severity="warning", source="watchdog",
+                alert_type="stuck_candidate_recovered",
+                summary=f"Bugfix #{c.id} stuck in 'applying' for >10min — recovered to 'apply_failed'",
+                detail={"candidate_id": c.id, "title": c.title},
+            )
+        except Exception:
+            pass
+
+        log(f"stuck-candidate sweep: recovered #{c.id} from 'applying' → 'apply_failed'")
+
+    db.flush()
+    return recovered
+
+
 # ---------------------------------------------------------------------------
 # Step A — find active products since watermark
 # ---------------------------------------------------------------------------
@@ -1528,10 +1580,18 @@ def _run_cycle_inner() -> None:
             released = _sweep_stale_tasks(db)
             if released > 0:
                 log(f"stale-task sweep: released {released} stale tasks")
-            else:
-                log("stale-task sweep: 0 stale tasks found")
         except Exception as exc:
             log(f"stale-task sweep error (non-fatal): {exc}")
+
+        # Stuck candidate sweep — recover candidates stuck in 'applying'
+        try:
+            recovered = _sweep_stuck_candidates(db)
+            if recovered > 0:
+                db.commit()
+                log(f"stuck-candidate sweep: recovered {recovered} candidates")
+        except Exception as exc:
+            db.rollback()
+            log(f"stuck-candidate sweep error (non-fatal): {exc}")
 
         # ------------------------------------------------------------------ #
         # Nudge expiry sweep — mark expired active_nudges as 'expired'        #

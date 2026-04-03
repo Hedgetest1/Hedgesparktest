@@ -1111,9 +1111,9 @@ def _cmd_bugfix_apply(db, args: list[str]) -> str:
     )
     from app.models.bugfix_candidate import BugFixCandidate
 
-    # 1. Idempotency — blocks double-taps and Telegram retries
-    if not check_idempotency("bugfix_apply", str(candidate_id)):
-        return f"⏳ Already processing — bugfix #{candidate_id} apply is in progress."
+    # 1. Idempotency — FAIL-CLOSED: blocks if Redis down (critical operation)
+    if not check_idempotency("bugfix_apply", str(candidate_id), critical=True):
+        return f"⏳ Already processing — bugfix #{candidate_id} apply is in progress. (If Redis is down, critical actions are blocked for safety.)"
 
     c = db.query(BugFixCandidate).get(candidate_id)
     if not c:
