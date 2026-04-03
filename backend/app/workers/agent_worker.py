@@ -1098,11 +1098,75 @@ def _run_cto_health_check():
         log(f"[CTO] error (non-fatal): {exc}")
 
 
+def _run_approved_reminders():
+    """
+    Send Telegram reminders for candidates that are approved but not yet applied.
+
+    Runs every cycle (15 min). Sends reminder every 30 min per candidate
+    via Redis cooldown key. Includes tappable Apply button.
+
+    Stops reminding when candidate is applied, discarded, or rolled back.
+    """
+    try:
+        from app.core.redis_client import cache_get, cache_set
+        db = SessionLocal()
+        try:
+            from sqlalchemy import text as sql_text
+            approved = db.execute(sql_text("""
+                SELECT id, title, decided_at::text
+                FROM bugfix_candidates
+                WHERE status = 'approved'
+                ORDER BY decided_at ASC
+            """)).fetchall()
+
+            if not approved:
+                return
+
+            from app.services.telegram_agent import send_message_with_buttons, is_configured
+            if not is_configured():
+                return
+
+            for cand in approved:
+                cooldown_key = f"hs:approved_reminder:{cand.id}"
+                if cache_get(cooldown_key) is not None:
+                    continue  # already reminded within 30 min
+
+                # Send reminder with Apply button
+                age = ""
+                if cand.decided_at:
+                    from datetime import datetime, timezone
+                    try:
+                        approved_at = datetime.fromisoformat(cand.decided_at)
+                        mins = int((datetime.now(timezone.utc).replace(tzinfo=None) - approved_at).total_seconds() / 60)
+                        age = f" (approved {mins}m ago)"
+                    except Exception:
+                        pass
+
+                send_message_with_buttons(
+                    f"*Reminder — Bugfix #{cand.id} approved, waiting for apply*{age}\n\n"
+                    f"{(cand.title or '')[:100]}\n\n"
+                    f"Tap to deploy:",
+                    [[{"text": f"Apply #{cand.id}", "callback_data": f"/bugfix_apply {cand.id}"}]],
+                )
+
+                # Set 30-min cooldown
+                cache_set(cooldown_key, True, 1800)
+                log(f"approved_reminder: sent for #{cand.id}")
+
+        finally:
+            db.close()
+    except Exception as exc:
+        log(f"approved_reminder error (non-fatal): {exc}")
+
+
 def run_cycle():
     started_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # Phase 0: CTO-level health synthesis (runs first, sets context)
     _run_cto_health_check()
+
+    # Phase 0b: Remind operator about approved-but-not-applied candidates
+    _run_approved_reminders()
 
     # Phase 1: Orchestrator — reads alerts/state, executes safe actions
     _run_orchestrator()
