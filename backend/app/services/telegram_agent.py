@@ -1563,48 +1563,59 @@ def send_scaling_alert(recommendation: dict, forecast: dict) -> bool:
 
 def build_daily_digest(db) -> str:
     """
-    Build a concise daily health digest message.
-    Uses existing data sources. Resilient to individual source failures.
-    Returns the formatted message string (not sent — caller decides).
+    Build the ONE daily message that tells the operator everything they need to know.
+    Includes: CTO health, issues, pending actions, budget, pipeline state, commands.
     """
     from datetime import datetime, timezone
     from zoneinfo import ZoneInfo
     now_rome = datetime.now(ZoneInfo("Europe/Rome"))
+
+    # --- CTO Health (from Redis cache or live) ---
+    overall_status = "OK"
+    health_lines = []
+    try:
+        from app.core.redis_client import cache_get
+        health = cache_get("hs:system_health")
+        if not health:
+            from app.services.system_health_synthesizer import synthesize_health
+            h = synthesize_health(db)
+            health = h.to_dict()
+
+        cto_status = health.get("overall_status", "unknown")
+        if cto_status == "critical":
+            overall_status = "CRITICAL"
+        elif cto_status == "degraded":
+            overall_status = "WARNING"
+
+        for d in health.get("dimensions", []):
+            if d["status"] != "healthy" or d["trend"] == "worsening":
+                icon = {"critical": "\U0001f534", "degraded": "\U0001f7e1"}.get(d["status"], "\U0001f7e2")
+                trend = {"worsening": "\u2191", "improving": "\u2193", "stable": "\u2192"}[d["trend"]]
+                health_lines.append(f"  {icon} {d['name']}: {d['detail']} {trend}")
+
+        if health.get("top_issues"):
+            for issue in health["top_issues"][:3]:
+                health_lines.append(f"  \u26a0\ufe0f {issue}")
+    except Exception:
+        overall_status = "WARNING"
+        health_lines.append("  Health data unavailable")
+
+    # --- Build message ---
+    status_emoji = "\u2705" if overall_status == "OK" else ("\u26a0\ufe0f" if overall_status == "WARNING" else "\U0001f534")
     lines = [
-        f"*Daily Health Digest* \u2014 Hedge Spark",
-        f"{now_rome.strftime('%Y-%m-%d %H:%M')} (Rome)",
+        f"*Daily Digest* \u2014 Hedge Spark",
+        f"{now_rome.strftime('%A %d %B, %H:%M')} (Rome)",
+        f"{status_emoji} *Status: {overall_status}*",
         "",
     ]
 
-    # 1. System health
-    overall_status = "OK"
-    try:
-        from app.services.system_summary import build_system_summary
-        s = build_system_summary(db)
-        ram = s.get("infra", {}).get("ram", {})
-        workers = s.get("infra", {}).get("workers", {})
-        warnings = s.get("warnings", [])
+    # Health dimensions (only non-healthy)
+    if health_lines:
+        lines.append("*Health:*")
+        lines.extend(health_lines)
+        lines.append("")
 
-        ram_pct = ram.get("usage_pct", 0)
-        error_rate = workers.get("error_rate_pct", 0)
-        cycles = workers.get("cycles_24h", 0)
-
-        lines.append(f"*System:*")
-        lines.append(f"  RAM: {ram_pct}% | Workers: {cycles} cycles/24h, {error_rate}% errors")
-
-        if error_rate > 20:
-            overall_status = "CRITICAL"
-        elif error_rate > 10 or ram_pct > 85:
-            overall_status = "WARNING"
-
-        if warnings:
-            for w in warnings[:3]:
-                lines.append(f"  \u26a0\ufe0f {w}")
-    except Exception:
-        lines.append("*System:* unavailable")
-        overall_status = "WARNING"
-
-    # 2. Alerts + incidents
+    # --- Alerts + incidents ---
     try:
         from sqlalchemy import text
         alert_row = db.execute(text(
@@ -1617,16 +1628,10 @@ def build_daily_digest(db) -> str:
         )).fetchone()
         active_incidents = incident_row[0] if incident_row else 0
 
-        lines.append("")
-        lines.append(f"*Alerts:* {active_alerts} unresolved")
-        lines.append(f"*Incidents:* {active_incidents} active")
-
-        if active_alerts > 5 or active_incidents > 3:
-            if overall_status == "OK":
-                overall_status = "WARNING"
+        if active_alerts > 0 or active_incidents > 0:
+            lines.append(f"*Open:* {active_alerts} alerts, {active_incidents} incidents")
     except Exception:
-        lines.append("")
-        lines.append("*Alerts/Incidents:* unavailable")
+        lines.append("*Alerts:* unavailable")
 
     # 3. LLM budget
     try:
@@ -1661,42 +1666,83 @@ def build_daily_digest(db) -> str:
         from sqlalchemy import text as sql_text
         pipeline = db.execute(sql_text("""
             SELECT status, COUNT(*) FROM bugfix_candidates
-            WHERE created_at >= NOW() - INTERVAL '7 days'
-            GROUP BY status
+            WHERE status NOT IN ('discarded', 'closed')
+            GROUP BY status ORDER BY COUNT(*) DESC
         """)).fetchall()
         if pipeline:
             parts = [f"{r[0]}={r[1]}" for r in pipeline]
-            lines.append("")
-            lines.append(f"*Bugfixes (7d):* {', '.join(parts)}")
+            lines.append(f"*Pipeline:* {', '.join(parts)}")
     except Exception:
         pass
 
-    # 5. Merchants
+    # 5. Pending actions — things that need operator attention
+    action_buttons = []
+    try:
+        from sqlalchemy import text as sql_text3
+        # Bugfixes awaiting approval
+        proposed = db.execute(sql_text3(
+            "SELECT id, title FROM bugfix_candidates WHERE status = 'patch_proposed' ORDER BY created_at LIMIT 3"
+        )).fetchall()
+        for p in proposed:
+            lines.append(f"\U0001f449 Bugfix #{p.id} needs approval: {(p.title or '')[:60]}")
+            action_buttons.append([
+                {"text": f"Approve #{p.id}", "callback_data": f"/bugfix_approve {p.id}"},
+                {"text": f"Apply #{p.id}", "callback_data": f"/bugfix_apply {p.id}"},
+            ])
+
+        # Bugfixes approved but not applied
+        approved = db.execute(sql_text3(
+            "SELECT id, title FROM bugfix_candidates WHERE status = 'approved' ORDER BY created_at LIMIT 3"
+        )).fetchall()
+        for a in approved:
+            lines.append(f"\u23f3 Bugfix #{a.id} approved, waiting to apply: {(a.title or '')[:60]}")
+            action_buttons.append([
+                {"text": f"Apply #{a.id}", "callback_data": f"/bugfix_apply {a.id}"},
+            ])
+
+        # Pending action approvals
+        pending = db.execute(sql_text3(
+            "SELECT id, action_type, target_id FROM action_approvals WHERE status = 'pending' ORDER BY created_at LIMIT 3"
+        )).fetchall()
+        for pa in pending:
+            lines.append(f"\U0001f6a8 Action #{pa.id} pending: {pa.action_type} on {pa.target_id or 'system'}")
+            action_buttons.append([
+                {"text": f"Approve #{pa.id}", "callback_data": f"/approve {pa.id}"},
+            ])
+    except Exception:
+        pass
+
+    # 6. Merchants
     try:
         from sqlalchemy import text as sql_text2
         merch_row = db.execute(sql_text2(
-            "SELECT COUNT(*), COUNT(*) FILTER (WHERE billing_active = true) FROM merchants"
+            "SELECT COUNT(*), COUNT(*) FILTER (WHERE billing_active = true) FROM merchants WHERE install_status = 'active'"
         )).fetchone()
         if merch_row:
-            lines.append("")
-            lines.append(f"*Merchants:* {merch_row[0]} total, {merch_row[1]} billing active")
+            lines.append(f"*Merchants:* {merch_row[0]} active, {merch_row[1]} paying")
     except Exception:
         pass
 
-    # Status badge
-    emoji = "\u2705" if overall_status == "OK" else ("\u26a0\ufe0f" if overall_status == "WARNING" else "\U0001f534")
-    lines.insert(2, f"{emoji} *Status: {overall_status}*")
-
     lines.append("")
-    lines.append("Commands: /status /costs /incidents /bugfixes")
+    lines.append("/status /costs /bugfixes /incidents")
+
+    # Store buttons for caller to use
+    _digest_buttons_cache.clear()
+    _digest_buttons_cache.extend(action_buttons)
 
     return "\n".join(lines)
 
 
+# Cache for digest buttons (consumed by send_daily_digest)
+_digest_buttons_cache: list[list[dict]] = []
+
+
 def send_daily_digest(db) -> bool:
-    """Build and send the daily health digest via Telegram."""
+    """Build and send the daily digest. Includes action buttons if items need attention."""
     try:
         message = build_daily_digest(db)
+        if _digest_buttons_cache:
+            return send_message_with_buttons(message, _digest_buttons_cache)
         return send_message(message)
     except Exception as exc:
         log.warning("telegram_agent: daily digest failed: %s", exc)

@@ -1060,19 +1060,18 @@ def _run_cto_health_check():
     Phase 0: CTO Signal Layer.
 
     Runs FIRST every cycle. Pure operational intelligence:
-    - Synthesizes 6 health dimensions with trend detection
-    - Stores state in Redis for ops/dashboard consumption
-    - Sends Telegram signal ONLY on state transitions or critical status
+    - Synthesizes health dimensions with trend detection
+    - Stores state in Redis for /ops/system-health + circuit breaker + daily digest
     - Logs one-line summary for PM2 visibility
+    - Telegram: ONLY for CRITICAL (system on fire). Everything else goes in daily digest.
 
     Strict boundaries:
     - OBSERVES only. Never prescribes, never patches, never overrides.
     - No LLM calls. No heavy queries. No side effects.
-    - Interacts with other layers via Redis read-only state.
     """
     try:
         from app.services.system_health_synthesizer import (
-            synthesize_health, send_telegram_signal,
+            synthesize_health, format_telegram_signal, send_telegram_signal,
         )
         db = SessionLocal()
         try:
@@ -1085,12 +1084,13 @@ def _run_cto_health_check():
             )
             log(f"[CTO] {health.overall_status.upper()} | {dims}")
 
-            # Store in Redis (consumed by /ops/system-health + circuit breaker)
+            # Store in Redis (consumed by /ops/system-health, circuit breaker, daily digest)
             from app.core.redis_client import cache_set
             cache_set("hs:system_health", health.to_dict(), 900)
 
-            # Telegram signal — only on state change or critical (dedup inside)
-            send_telegram_signal(health)
+            # Telegram: ONLY for CRITICAL. Degraded/healthy goes in daily digest.
+            if health.overall_status == "critical":
+                send_telegram_signal(health)
 
         finally:
             db.close()
