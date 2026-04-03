@@ -87,34 +87,56 @@ def notify_approval_pending(
     expires_at: str | None = None,
 ) -> bool:
     """
-    Send a Slack notification for a new pending TIER_1 approval.
+    Send Telegram notification (with button) for a pending TIER_1 approval.
+    Falls back to Slack if Telegram not configured.
 
-    Returns True if sent. Returns False (never raises) on any failure
-    or when Slack is not configured.
+    Returns True if sent via any channel.
     """
-    if not _SLACK_URL:
-        return False
+    sent = False
 
-    shop_line = f"\n*Shop:* `{shop_domain}`" if shop_domain else ""
-    reason_line = f"\n*Reason:* {reason}" if reason else ""
-    expires_line = f"\n*Expires:* {expires_at}" if expires_at else ""
-
-    payload = {
-        "text": (
-            f":hourglass: *APPROVAL NEEDED* — `{action_type}`\n"
-            f"*Target:* `{target_id or 'N/A'}`{shop_line}{reason_line}{expires_line}\n"
-            f"*Approval ID:* {approval_id}\n"
-            f"_Approve via: POST /ops/approvals/{approval_id}/approve_"
-        ),
-    }
-
+    # Primary: Telegram with tappable Approve button
     try:
-        resp = httpx.post(_SLACK_URL, json=payload, timeout=_TIMEOUT)
-        if resp.status_code == 200:
-            log.info("alert_delivery: approval notification sent id=%d", approval_id)
-            return True
-        log.warning("alert_delivery: Slack returned %d for approval id=%d", resp.status_code, approval_id)
-        return False
+        from app.services.telegram_agent import send_message_with_buttons, is_configured
+        if is_configured():
+            shop_line = f"\nShop: {shop_domain}" if shop_domain else ""
+            reason_line = f"\nReason: {reason}" if reason else ""
+            expires_line = f"\nExpires: {expires_at[:16]}" if expires_at else ""
+
+            msg = (
+                f"*APPROVAL NEEDED — {action_type}*\n\n"
+                f"Target: {target_id or 'N/A'}{shop_line}{reason_line}{expires_line}\n"
+                f"Approval ID: {approval_id}\n\n"
+                f"Tap to approve and execute:"
+            )
+            buttons = [
+                [{"text": f"Approve & Execute #{approval_id}", "callback_data": f"/approve {approval_id}"}],
+            ]
+            sent = send_message_with_buttons(msg, buttons)
+            if sent:
+                log.info("alert_delivery: approval Telegram sent id=%d", approval_id)
     except Exception as exc:
-        log.warning("alert_delivery: approval Slack failed id=%d: %s", approval_id, type(exc).__name__)
-        return False
+        log.debug("alert_delivery: Telegram approval failed id=%d: %s", approval_id, exc)
+
+    # Fallback: Slack (if configured and Telegram didn't work)
+    if not sent and _SLACK_URL:
+        try:
+            shop_line = f"\n*Shop:* `{shop_domain}`" if shop_domain else ""
+            reason_line = f"\n*Reason:* {reason}" if reason else ""
+            expires_line = f"\n*Expires:* {expires_at}" if expires_at else ""
+
+            payload = {
+                "text": (
+                    f":hourglass: *APPROVAL NEEDED* — `{action_type}`\n"
+                    f"*Target:* `{target_id or 'N/A'}`{shop_line}{reason_line}{expires_line}\n"
+                    f"*Approval ID:* {approval_id}\n"
+                    f"_Approve via Telegram: /approve {approval_id}_"
+                ),
+            }
+            resp = httpx.post(_SLACK_URL, json=payload, timeout=_TIMEOUT)
+            if resp.status_code == 200:
+                log.info("alert_delivery: approval Slack sent id=%d", approval_id)
+                sent = True
+        except Exception as exc:
+            log.warning("alert_delivery: approval Slack failed id=%d: %s", approval_id, type(exc).__name__)
+
+    return sent

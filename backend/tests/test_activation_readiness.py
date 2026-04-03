@@ -24,11 +24,10 @@ def _now():
 # Approval Slack notification
 # ---------------------------------------------------------------------------
 
-def test_approval_notification_sends_when_configured():
-    """Slack notification sent when OPS_SLACK_WEBHOOK_URL configured."""
-    mock_resp = MagicMock(status_code=200)
-    with patch("app.core.alert_delivery._SLACK_URL", "https://hooks.slack.com/test"), \
-         patch("app.core.alert_delivery.httpx.post", return_value=mock_resp) as mock_post:
+def test_approval_notification_sends_via_telegram():
+    """Telegram notification sent with buttons when configured."""
+    with patch("app.services.telegram_agent.is_configured", return_value=True), \
+         patch("app.services.telegram_agent.send_message_with_buttons", return_value=True) as mock_tg:
         result = notify_approval_pending(
             approval_id=42,
             action_type="restart_worker",
@@ -37,16 +36,31 @@ def test_approval_notification_sends_when_configured():
             expires_at="2026-03-27T19:00:00Z",
         )
     assert result is True
+    mock_tg.assert_called_once()
+    sent_text = mock_tg.call_args[0][0]
+    sent_buttons = mock_tg.call_args[0][1]
+    assert "APPROVAL NEEDED" in sent_text
+    assert "restart_worker" in sent_text
+    assert any("/approve 42" in btn["callback_data"] for row in sent_buttons for btn in row)
+
+
+def test_approval_notification_falls_back_to_slack():
+    """If Telegram not configured, falls back to Slack."""
+    mock_resp = MagicMock(status_code=200)
+    with patch("app.services.telegram_agent.is_configured", return_value=False), \
+         patch("app.core.alert_delivery._SLACK_URL", "https://hooks.slack.com/test"), \
+         patch("app.core.alert_delivery.httpx.post", return_value=mock_resp) as mock_post:
+        result = notify_approval_pending(
+            approval_id=42, action_type="restart_worker", target_id="w",
+        )
+    assert result is True
     mock_post.assert_called_once()
-    payload = mock_post.call_args[1]["json"]
-    assert "APPROVAL NEEDED" in payload["text"]
-    assert "restart_worker" in payload["text"]
-    assert "42" in payload["text"]
 
 
-def test_approval_notification_noop_without_url():
-    """No Slack URL → returns False, no HTTP call."""
-    with patch("app.core.alert_delivery._SLACK_URL", ""):
+def test_approval_notification_noop_without_any_channel():
+    """No Telegram + no Slack → returns False."""
+    with patch("app.services.telegram_agent.is_configured", return_value=False), \
+         patch("app.core.alert_delivery._SLACK_URL", ""):
         result = notify_approval_pending(
             approval_id=1, action_type="test", target_id="t",
         )
@@ -54,8 +68,10 @@ def test_approval_notification_noop_without_url():
 
 
 def test_approval_notification_fails_safely():
-    """Slack error → returns False, no exception."""
-    with patch("app.core.alert_delivery._SLACK_URL", "https://hooks.slack.com/test"), \
+    """All channels fail → returns False, no exception."""
+    with patch("app.services.telegram_agent.is_configured", return_value=True), \
+         patch("app.services.telegram_agent.send_message_with_buttons", side_effect=Exception("fail")), \
+         patch("app.core.alert_delivery._SLACK_URL", "https://hooks.slack.com/test"), \
          patch("app.core.alert_delivery.httpx.post", side_effect=Exception("timeout")):
         result = notify_approval_pending(
             approval_id=1, action_type="test", target_id="t",

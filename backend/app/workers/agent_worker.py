@@ -1151,7 +1151,44 @@ def _run_approved_reminders():
 
                 # Set 30-min cooldown
                 cache_set(cooldown_key, True, 1800)
-                log(f"approved_reminder: sent for #{cand.id}")
+                log(f"approved_reminder: sent for bugfix #{cand.id}")
+
+            # Also check pending action approvals (TIER_1 orchestrator actions)
+            pending_actions = db.execute(sql_text("""
+                SELECT id, action_type, target_id, reason, created_at::text, expires_at::text
+                FROM action_approvals
+                WHERE status = 'pending'
+                ORDER BY created_at ASC
+            """)).fetchall()
+
+            for action in pending_actions:
+                cooldown_key = f"hs:approval_reminder:{action.id}"
+                if cache_get(cooldown_key) is not None:
+                    continue
+
+                expires_note = ""
+                if action.expires_at:
+                    try:
+                        exp = datetime.fromisoformat(action.expires_at)
+                        mins_left = int((exp - datetime.now(timezone.utc).replace(tzinfo=None)).total_seconds() / 60)
+                        if mins_left <= 0:
+                            expires_note = " *EXPIRED*"
+                        else:
+                            expires_note = f" (expires in {mins_left}m)"
+                    except Exception:
+                        pass
+
+                send_message_with_buttons(
+                    f"*Action Approval #{action.id} pending*{expires_note}\n\n"
+                    f"Action: {action.action_type}\n"
+                    f"Target: {action.target_id or 'N/A'}\n"
+                    f"Reason: {(action.reason or '')[:120]}\n\n"
+                    f"Tap to approve and execute:",
+                    [[{"text": f"Approve #{action.id}", "callback_data": f"/approve {action.id}"}]],
+                )
+
+                cache_set(cooldown_key, True, 1800)
+                log(f"approved_reminder: sent for action #{action.id}")
 
         finally:
             db.close()
