@@ -144,13 +144,7 @@ export function TopSignalCard({ signal, isProUser, onUpgrade, onViewSignals, onA
             {productName}
           </h3>
         </div>
-        <Image
-          src="/branding/hedgespark-mascot.png"
-          alt=""
-          width={48}
-          height={48}
-          className="mt-1 flex-shrink-0"
-        />
+        {/* Mascot removed — signal card is data, not Spark commentary */}
       </div>
 
       {/* Row 2: Problem */}
@@ -181,7 +175,7 @@ export function TopSignalCard({ signal, isProUser, onUpgrade, onViewSignals, onA
             <div className="mt-3 rounded-xl border border-emerald-400/15 bg-emerald-500/[0.04] p-4">
               {/* Hedgehog line */}
               <div className="mb-3 flex items-start gap-2.5">
-                <Image src="/branding/hedgespark-mascot.png" alt="" width={18} height={18} className="mt-0.5 flex-shrink-0 opacity-80" />
+                <Image src="/branding/hedgespark/spark.png" alt="" width={18} height={18} className="mt-0.5 flex-shrink-0 opacity-80" />
                 <p className="text-[12px] leading-[1.5] text-emerald-300/80">
                   This is one of the highest-impact fixes right now.
                 </p>

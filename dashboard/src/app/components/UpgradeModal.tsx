@@ -130,16 +130,12 @@ export function UpgradeModal({
           <div className="mb-4 flex justify-center">
             <div className="relative">
               <Image
-                src="/branding/hedgespark-mascot.png"
+                src="/branding/hedgespark/spark.png"
                 alt="Hedge Spark"
-                width={80}
-                height={80}
-                className="hs-bob"
+                width={64}
+                height={64}
                 priority
               />
-              <span className="hs-sparkle absolute -right-2 -top-2 text-lg leading-none text-amber-300">
-                ✦
-              </span>
             </div>
           </div>
 

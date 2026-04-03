@@ -268,15 +268,19 @@ def _persist_purchase(db: Session, payload: TrackPayload) -> None:
         return
 
     # Validate pixel_secret against the merchant's stored secret.
-    # If the merchant has a pixel_secret set, the pixel MUST send the matching value.
-    # This prevents spoofed purchase events from poisoning revenue data.
-    # Merchants without pixel_secret (installed before this field) are allowed through.
-    from app.models.merchant import Merchant
-    merchant = db.query(Merchant).filter(
-        Merchant.shop_domain == payload.shop_domain
-    ).first()
-    if merchant and merchant.pixel_secret:
-        if not payload.pixel_secret or payload.pixel_secret != merchant.pixel_secret:
+    # Uses Redis cache to avoid redundant DB query (shop was already validated).
+    from app.core.redis_client import cache_get, cache_set
+    _ps_key = f"hs:pixel_secret:{payload.shop_domain}"
+    _cached_ps = cache_get(_ps_key)
+    if _cached_ps is None:
+        from app.models.merchant import Merchant
+        merchant = db.query(Merchant).filter(
+            Merchant.shop_domain == payload.shop_domain
+        ).first()
+        _cached_ps = (merchant.pixel_secret or "") if merchant else ""
+        cache_set(_ps_key, _cached_ps, 300)  # 5 min TTL
+    if _cached_ps:
+        if not payload.pixel_secret or payload.pixel_secret != _cached_ps:
             log.warning(
                 "track/purchase: pixel_secret mismatch shop=%s order_id=%s — rejected",
                 payload.shop_domain, payload.order_id,

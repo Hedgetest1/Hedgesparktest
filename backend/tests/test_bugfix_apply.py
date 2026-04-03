@@ -1,6 +1,7 @@
 """Tests for bugfix apply pipeline — safety checks, apply, rollback."""
 import json
 import os
+import subprocess
 from datetime import datetime, timezone
 from unittest.mock import patch, MagicMock
 
@@ -68,11 +69,11 @@ def test_safe_path_allowed():
 
 
 def test_forbidden_paths_in_apply(db):
-    """apply_bugfix_candidate rejects forbidden paths."""
+    """apply_bugfix_candidate rejects forbidden paths (via guard or legacy check)."""
     c = _make_approved(db, files=["app/core/token_crypto.py"])
     result = apply_bugfix_candidate(db, c.id)
     assert result.status == "apply_failed"
-    assert "forbidden" in result.failure_reason
+    assert "forbidden" in result.failure_reason or "TIER_2" in result.failure_reason
 
 
 # ---------------------------------------------------------------------------
@@ -254,3 +255,123 @@ def test_agent_worker_has_triage_phase():
     """agent_worker has _run_bug_triage function."""
     from app.workers.agent_worker import _run_bug_triage
     assert callable(_run_bug_triage)
+
+
+# ---------------------------------------------------------------------------
+# Frontend build enforcement
+# ---------------------------------------------------------------------------
+
+def test_frontend_change_requires_build(db):
+    """Patch touching dashboard fails if frontend build fails."""
+    c = _make_approved(db, files=["dashboard/src/App.tsx"])
+
+    call_count = [0]
+    def _mock_run(cmd, **kwargs):
+        m = MagicMock()
+        call_count[0] += 1
+        cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+        if "diff" in cmd_str and "--quiet" in cmd_str:
+            m.returncode = 0
+        elif "--check" in cmd_str:
+            m.returncode = 0
+        elif "apply" in cmd_str and "-R" not in cmd_str:
+            m.returncode = 0
+        elif "pytest" in cmd_str:
+            m.returncode = 0
+            m.stdout = "10 passed"
+            m.stderr = ""
+        elif "-R" in cmd_str:
+            m.returncode = 0
+        elif "next" in cmd_str and "build" in cmd_str:
+            m.returncode = 1  # build fails
+            m.stdout = "Build error"
+            m.stderr = "Module not found"
+        else:
+            m.returncode = 0
+            m.stdout = ""
+            m.stderr = ""
+        return m
+
+    with patch("subprocess.run", side_effect=_mock_run):
+        result = apply_bugfix_candidate(db, c.id)
+    assert result.status == "rolled_back"
+    assert "frontend_build" in result.failure_reason
+
+
+# ---------------------------------------------------------------------------
+# Tracker version bump enforcement
+# ---------------------------------------------------------------------------
+
+def test_tracker_change_without_version_bump_fails(db):
+    """Patch touching tracker JS without TRACKER_VERSION bump → rolled_back."""
+    c = _make_approved(
+        db,
+        files=["tracker/spark-tracker.js"],
+        diff="--- a/tracker/spark-tracker.js\n+++ b/tracker/spark-tracker.js\n@@ -1 +1 @@\n-old\n+new",
+    )
+
+    call_count = [0]
+    def _mock_run(cmd, **kwargs):
+        m = MagicMock()
+        cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+        if "diff" in cmd_str and "--quiet" in cmd_str:
+            m.returncode = 0
+        elif "--check" in cmd_str:
+            m.returncode = 0
+        elif "apply" in cmd_str and "-R" not in cmd_str:
+            m.returncode = 0
+        elif "pytest" in cmd_str:
+            m.returncode = 0
+            m.stdout = "10 passed"
+            m.stderr = ""
+        elif "-R" in cmd_str:
+            m.returncode = 0
+        else:
+            m.returncode = 0
+            m.stdout = ""
+            m.stderr = ""
+        return m
+
+    with patch("subprocess.run", side_effect=_mock_run):
+        result = apply_bugfix_candidate(db, c.id)
+    assert result.status == "rolled_back"
+    assert "tracker_version" in result.failure_reason.lower()
+
+
+# ---------------------------------------------------------------------------
+# Subprocess timeout rollback
+# ---------------------------------------------------------------------------
+
+def test_test_timeout_triggers_rollback(db):
+    """TimeoutExpired during test run must trigger rollback, not leave corrupted state."""
+    c = _make_approved(db)
+
+    call_count = {"n": 0}
+
+    def _mock_run(cmd, **kwargs):
+        call_count["n"] += 1
+        m = MagicMock()
+        m.stdout = ""
+        m.stderr = ""
+        cmd_str = " ".join(cmd) if isinstance(cmd, list) else cmd
+        if "diff" in cmd_str and "--quiet" in cmd_str:
+            m.returncode = 0
+        elif "--check" in cmd_str:
+            m.returncode = 0
+        elif "apply" in cmd_str and "-R" not in cmd_str and "--check" not in cmd_str:
+            m.returncode = 0
+        elif "pytest" in cmd_str:
+            raise subprocess.TimeoutExpired(cmd, 120)
+        elif "-R" in cmd_str:
+            m.returncode = 0
+        else:
+            m.returncode = 0
+        return m
+
+    with patch("subprocess.run", side_effect=_mock_run):
+        result = apply_bugfix_candidate(db, c.id)
+
+    assert result.status == "rolled_back"
+    assert "test_timeout" in result.failure_reason
+    db.refresh(c)
+    assert c.status == "rolled_back"

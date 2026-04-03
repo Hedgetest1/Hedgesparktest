@@ -547,7 +547,14 @@ def trigger_patch_proposal(
 ):
     """Trigger LLM patch proposal for an open bug fix candidate."""
     from app.services.bugfix_pipeline import propose_patch
+    from app.services.audit import write_audit_log
     success = propose_patch(db, candidate_id)
+    write_audit_log(
+        db, actor_type="human", actor_name="operator",
+        action_type="bugfix_propose_triggered", target_type="bugfix",
+        target_id=str(candidate_id), status="completed" if success else "failed",
+        approval_mode="human_approved",
+    )
     db.commit()
     if success:
         return {"status": "patch_proposed", "candidate_id": candidate_id}
@@ -629,7 +636,16 @@ def apply_bugfix(
     or health check fail, the patch is automatically rolled back.
     """
     from app.services.bugfix_pipeline import apply_bugfix_candidate
+    from app.services.audit import write_audit_log
     result = apply_bugfix_candidate(db, candidate_id)
+    write_audit_log(
+        db, actor_type="human", actor_name="operator",
+        action_type="bugfix_apply_triggered", target_type="bugfix",
+        target_id=str(candidate_id), status=result.status,
+        approval_mode="human_approved",
+        metadata={"test_passed": result.test_passed, "health_ok": result.health_ok,
+                  "failure_reason": result.failure_reason},
+    )
     db.commit()
     return {
         "status": result.status,
@@ -738,7 +754,14 @@ def create_branch(
 ):
     """Create a local git branch for the promotion."""
     from app.services.promotion_pipeline import create_promotion_branch
+    from app.services.audit import write_audit_log
     result = create_promotion_branch(db, promo_id)
+    write_audit_log(
+        db, actor_type="human", actor_name="operator",
+        action_type="promotion_branch_created", target_type="promotion",
+        target_id=str(promo_id), status="completed" if not result.startswith("error") else "failed",
+        approval_mode="human_approved", metadata={"branch": result},
+    )
     db.commit()
     if result.startswith("error") or result.startswith("not_found") or result.startswith("wrong_status"):
         raise HTTPException(400, result)
@@ -753,7 +776,14 @@ def trigger_ci(
 ):
     """Run CI verification for the promotion."""
     from app.services.promotion_pipeline import run_promotion_ci_check
+    from app.services.audit import write_audit_log
     result = run_promotion_ci_check(db, promo_id)
+    write_audit_log(
+        db, actor_type="human", actor_name="operator",
+        action_type="promotion_ci_triggered", target_type="promotion",
+        target_id=str(promo_id), status=result,
+        approval_mode="human_approved",
+    )
     db.commit()
     return {"status": result, "promotion_id": promo_id}
 
@@ -766,6 +796,7 @@ def approve_promotion(
 ):
     """Approve a promotion for push."""
     from app.models.autofix_promotion import AutoFixPromotion
+    from app.services.audit import write_audit_log
     from datetime import datetime, timezone
     p = db.query(AutoFixPromotion).get(promo_id)
     if not p:
@@ -775,6 +806,12 @@ def approve_promotion(
     p.status = "approved"
     p.decided_by = "operator"
     p.decided_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    write_audit_log(
+        db, actor_type="human", actor_name="operator",
+        action_type="promotion_approved", target_type="promotion",
+        target_id=str(promo_id), status="completed",
+        approval_mode="human_approved",
+    )
     db.commit()
     return {"status": "approved", "promotion_id": promo_id}
 
@@ -787,6 +824,7 @@ def reject_promotion(
 ):
     """Reject a promotion."""
     from app.models.autofix_promotion import AutoFixPromotion
+    from app.services.audit import write_audit_log
     from datetime import datetime, timezone
     p = db.query(AutoFixPromotion).get(promo_id)
     if not p:
@@ -796,6 +834,12 @@ def reject_promotion(
     p.status = "rejected"
     p.decided_by = "operator"
     p.decided_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    write_audit_log(
+        db, actor_type="human", actor_name="operator",
+        action_type="promotion_rejected", target_type="promotion",
+        target_id=str(promo_id), status="rejected",
+        approval_mode="human_approved",
+    )
     db.commit()
     return {"status": "rejected", "promotion_id": promo_id}
 
@@ -808,7 +852,14 @@ def push_promotion_endpoint(
 ):
     """Push the promotion branch to origin. Human-gated."""
     from app.services.promotion_pipeline import push_promotion
+    from app.services.audit import write_audit_log
     result = push_promotion(db, promo_id)
+    write_audit_log(
+        db, actor_type="human", actor_name="operator",
+        action_type="promotion_pushed", target_type="promotion",
+        target_id=str(promo_id), status="completed" if result == "pushed" else "failed",
+        approval_mode="human_approved", metadata={"result": result},
+    )
     db.commit()
     if result == "pushed":
         return {"status": "pushed", "promotion_id": promo_id}
@@ -1380,6 +1431,115 @@ def get_meta_review(
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Adaptive governance observability
+# ---------------------------------------------------------------------------
+
+@router.get("/governance")
+def get_governance_state(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """
+    Inspect current adaptive governance thresholds.
+
+    Returns:
+    - global thresholds with current value, default, bounds, reason, evidence
+    - per-domain profiles with budget, effectiveness, operator feedback
+    """
+    from app.services.adaptive_governance import get_adaptive_thresholds, get_domain_profiles
+    thresholds = get_adaptive_thresholds(db)
+    result = thresholds.to_dict()
+
+    # Add per-domain profiles
+    try:
+        profiles = get_domain_profiles(db)
+        result["domain_profiles"] = {
+            domain: profile.to_dict() for domain, profile in profiles.items()
+        }
+        result["domain_count"] = len(profiles)
+        adapted_domains = [d for d, p in profiles.items() if p.adapted]
+        result["adapted_domains"] = adapted_domains
+    except Exception:
+        result["domain_profiles"] = {}
+        result["domain_count"] = 0
+        result["adapted_domains"] = []
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Lesson management — human validation for promoted lessons
+# ---------------------------------------------------------------------------
+
+@router.post("/lessons/{lesson_id}/promote")
+def approve_lesson_promotion(
+    lesson_id: int,
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Approve a pending lesson promotion to regression_warning."""
+    from app.models.system_lesson import SystemLesson
+    from app.services.audit import write_audit_log
+    from datetime import datetime, timezone
+
+    lesson = db.query(SystemLesson).get(lesson_id)
+    if not lesson:
+        raise HTTPException(404, "Lesson not found")
+    if lesson.promotion_status != "pending_promotion":
+        raise HTTPException(409, f"Lesson is not pending promotion (status: {lesson.promotion_status})")
+
+    lesson.lesson_type = "regression_warning"
+    lesson.promotion_status = "promoted"
+    lesson.promoted_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    lesson.promotion_decided_by = "operator"
+
+    write_audit_log(
+        db, actor_type="human", actor_name="operator",
+        action_type="lesson_promotion_approved", target_type="system_lesson",
+        target_id=str(lesson_id), status="completed",
+        approval_mode="human_approved",
+        metadata={"domain": lesson.domain, "summary": lesson.summary[:200]},
+    )
+    db.commit()
+    return {"status": "promoted", "lesson_id": lesson_id, "domain": lesson.domain}
+
+
+@router.post("/lessons/{lesson_id}/reject")
+def reject_lesson_promotion(
+    lesson_id: int,
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Reject a pending lesson promotion. Lesson remains active but not promoted."""
+    from app.models.system_lesson import SystemLesson
+    from app.services.audit import write_audit_log
+    from datetime import datetime, timezone
+
+    lesson = db.query(SystemLesson).get(lesson_id)
+    if not lesson:
+        raise HTTPException(404, "Lesson not found")
+    if lesson.promotion_status not in ("pending_promotion", "promoted"):
+        raise HTTPException(409, f"Cannot reject — promotion_status is {lesson.promotion_status}")
+
+    # If already promoted, demote back
+    if lesson.lesson_type == "regression_warning":
+        lesson.lesson_type = "ineffective_pattern"
+
+    lesson.promotion_status = "rejected_promotion"
+    lesson.promotion_decided_by = "operator"
+
+    write_audit_log(
+        db, actor_type="human", actor_name="operator",
+        action_type="lesson_promotion_rejected", target_type="system_lesson",
+        target_id=str(lesson_id), status="rejected",
+        approval_mode="human_approved",
+        metadata={"domain": lesson.domain, "summary": lesson.summary[:200]},
+    )
+    db.commit()
+    return {"status": "rejected", "lesson_id": lesson_id, "domain": lesson.domain}
+
+
 # Webhook fleet status
 # ---------------------------------------------------------------------------
 
@@ -1400,6 +1560,32 @@ def get_system_diagnostic(
     """
     from app.services.system_diagnostic import build_system_diagnostic
     return build_system_diagnostic(db)
+
+
+@router.get("/system-health")
+def get_system_health(
+    _auth: bool = Depends(require_operator),
+):
+    """
+    Unified CTO-level system health state.
+
+    Returns the latest synthesized health assessment from the agent worker's
+    Phase 0 CTO check.  Includes all dimensions, trends, urgent items, and
+    recommendations.  Updated every 15 minutes (agent_worker cycle).
+    """
+    from app.core.redis_client import cache_get
+    cached = cache_get("hs:system_health")
+    if cached is not None:
+        return cached
+
+    # Fallback: compute live
+    from app.core.database import SessionLocal
+    from app.services.system_health_synthesizer import synthesize_health
+    db = SessionLocal()
+    try:
+        return synthesize_health(db).to_dict()
+    finally:
+        db.close()
 
 
 @router.get("/attribution/health")
@@ -1528,6 +1714,237 @@ def get_merchant_webhook_status(
 # Sentry verification (operator-only)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Loop health (operator-only)
+# ---------------------------------------------------------------------------
+
+@router.get("/loop-health")
+def ops_loop_health(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """
+    Full autonomous loop health snapshot: queue depths, stuck items,
+    throughput, failure rates, thrashing sources, recurrences,
+    and top 5 weakest subsystems.
+    """
+    from app.services.loop_health import get_loop_health
+    return get_loop_health(db)
+
+
+@router.get("/onboarding-health")
+def ops_onboarding_health(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """
+    Onboarding pipeline health: stuck merchants, pixel abandonment,
+    slow activation, and overall onboarding funnel metrics.
+    """
+    from app.services.onboarding_health import check_onboarding_health
+    return check_onboarding_health(db)
+
+
+@router.get("/onboarding-funnel")
+def ops_onboarding_funnel(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+    days: int = Query(default=30, ge=1, le=365),
+):
+    """
+    Aggregate onboarding funnel: step-by-step conversion rates,
+    drop-off points, median times, and session counts.
+    """
+    from app.services.onboarding_funnel import get_aggregate_funnel
+    return get_aggregate_funnel(db, days)
+
+
+@router.get("/onboarding-funnel/{shop_domain}")
+def ops_onboarding_funnel_shop(
+    shop_domain: str,
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Per-shop onboarding funnel state with milestones and interaction counts."""
+    from app.services.onboarding_funnel import get_shop_funnel
+    return get_shop_funnel(db, shop_domain)
+
+
+@router.get("/onboarding-friction")
+def ops_onboarding_friction(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """
+    Active friction signals: merchants exhibiting stall, confusion,
+    or drop-off patterns. Includes improvement insights.
+    """
+    from app.services.onboarding_funnel import detect_friction, generate_insights
+    return {
+        "friction_signals": detect_friction(db),
+        "insights": generate_insights(db),
+    }
+
+
+@router.get("/weakness")
+def ops_weakness(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+    days: int = 30,
+):
+    """
+    Ranked subsystem weakness scores based on failure patterns.
+    Weakest subsystem first. Each entry includes domain, score,
+    criticality, signal breakdown, and human-readable reasons.
+    """
+    from app.services.loop_health import score_subsystem_weakness
+    ranking = score_subsystem_weakness(db, lookback_days=days)
+    return {
+        "lookback_days": days,
+        "weakest_first": ranking,
+        "count": len(ranking),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Governance observability (operator-only)
+# ---------------------------------------------------------------------------
+
+@router.get("/tier-check")
+def ops_tier_check(
+    files: str,
+    _auth: bool = Depends(require_operator),
+):
+    """
+    Check execution tier for a comma-separated list of file paths.
+    Returns tier classification, reasons, and whether agent modification is allowed.
+    """
+    from app.core.tier_check import check_tier
+    file_list = [f.strip() for f in files.split(",") if f.strip()]
+    if not file_list:
+        return {"error": "No files provided. Use ?files=path1,path2"}
+    result = check_tier(file_list)
+    return {
+        "tier": result.tier,
+        "label": result.label,
+        "blocked": result.blocked,
+        "block_reason": result.block_reason,
+        "affected_domains": result.affected_domains,
+        "reasons": result.reasons,
+    }
+
+
+@router.get("/file-locks")
+def ops_file_locks(
+    _auth: bool = Depends(require_operator),
+):
+    """List all currently held file locks. Returns empty list when no locks active."""
+    from app.core.file_lock import list_active_locks
+    locks = list_active_locks()
+    return {"active_locks": locks, "count": len(locks)}
+
+
+@router.get("/sentry-intake/health")
+def ops_sentry_intake_health(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+    hours: int = Query(default=24, ge=1, le=168),
+):
+    """
+    Sentry intake health dashboard — migration readiness visibility.
+
+    Shows:
+    - webhook vs email counts in the last N hours
+    - last webhook/email timestamps
+    - parse error count
+    - webhook health status (healthy / degraded / dark)
+    - migration readiness assessment
+    """
+    from app.models.sentry_incident import SentryIncident
+    from datetime import datetime, timezone, timedelta
+    from sqlalchemy import func
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    cutoff = now - timedelta(hours=hours)
+
+    # Count by source_type in window
+    source_counts = dict(
+        db.query(SentryIncident.source_type, func.count(SentryIncident.id))
+        .filter(SentryIncident.created_at >= cutoff)
+        .group_by(SentryIncident.source_type)
+        .all()
+    )
+
+    webhook_count = source_counts.get("sentry_webhook", 0)
+    email_count = source_counts.get("email", 0)
+    total = webhook_count + email_count
+
+    # Last timestamp per source
+    last_webhook = (
+        db.query(func.max(SentryIncident.created_at))
+        .filter(SentryIncident.source_type == "sentry_webhook")
+        .scalar()
+    )
+    last_email = (
+        db.query(func.max(SentryIncident.created_at))
+        .filter(SentryIncident.source_type == "email")
+        .scalar()
+    )
+
+    # Parse errors in window
+    parse_errors = (
+        db.query(func.count(SentryIncident.id))
+        .filter(
+            SentryIncident.status == "parse_error",
+            SentryIncident.created_at >= cutoff,
+        )
+        .scalar() or 0
+    )
+
+    # Webhook health assessment
+    if webhook_count > 0 and email_count == 0:
+        webhook_status = "healthy"
+        migration_ready = True
+    elif webhook_count > 0 and email_count > 0:
+        webhook_status = "active_with_email_fallback"
+        migration_ready = True  # webhook is working, email can be disabled
+    elif webhook_count == 0 and email_count > 0:
+        webhook_status = "dark"
+        migration_ready = False
+    elif total == 0:
+        webhook_status = "no_incidents"
+        migration_ready = None  # can't assess with no data
+    else:
+        webhook_status = "unknown"
+        migration_ready = False
+
+    # Hours since last webhook (for staleness detection)
+    hours_since_webhook = None
+    if last_webhook:
+        hours_since_webhook = round((now - last_webhook).total_seconds() / 3600, 1)
+
+    return {
+        "window_hours": hours,
+        "webhook_count": webhook_count,
+        "email_fallback_count": email_count,
+        "total_incidents": total,
+        "parse_errors": parse_errors,
+        "webhook_pct": round(webhook_count / total * 100, 1) if total > 0 else None,
+        "last_webhook_at": last_webhook.isoformat() + "Z" if last_webhook else None,
+        "last_email_at": last_email.isoformat() + "Z" if last_email else None,
+        "hours_since_last_webhook": hours_since_webhook,
+        "webhook_status": webhook_status,
+        "migration_ready": migration_ready,
+        "migration_note": (
+            "Safe to disable Sentry email alerts"
+            if migration_ready
+            else "Webhook not receiving — keep email alerts active"
+            if migration_ready is False
+            else "No incidents in window — configure Sentry webhook first"
+        ),
+    }
+
+
 @router.post("/sentry-test")
 def sentry_test_error(
     _auth: bool = Depends(require_operator),
@@ -1546,3 +1963,271 @@ def sentry_test_error(
         return {"status": "sentry_not_initialized", "detail": "Set SENTRY_DSN in .env and restart"}
     except ImportError:
         return {"status": "sentry_not_installed", "detail": "pip install sentry-sdk[fastapi]"}
+
+
+# ---------------------------------------------------------------------------
+# Merchant lifecycle email visibility
+# ---------------------------------------------------------------------------
+
+@router.get("/emails")
+def ops_email_history(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+    shop: str | None = Query(default=None),
+    email_type: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+):
+    """
+    Email delivery history — what was sent, when, to whom, and why
+    it was suppressed. Filterable by shop and email type.
+    """
+    from app.services.merchant_email_service import get_email_history
+    return get_email_history(db, shop_domain=shop, email_type=email_type, limit=limit)
+
+
+# ---------------------------------------------------------------------------
+# Sentry incident triage visibility
+# ---------------------------------------------------------------------------
+
+@router.get("/incidents")
+def ops_incidents(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+    status: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    """
+    List Sentry incident families — grouped by fingerprint.
+    Each entry is a family head with recurrence count.
+    Filter by status: received, parsed, parse_error, triaged, linked, resolved, ignored.
+    """
+    from app.services.sentry_triage import get_incident_families
+    return get_incident_families(db, status=status, limit=limit)
+
+
+@router.get("/incidents/{incident_id}")
+def ops_incident_detail(
+    incident_id: int,
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """
+    Full detail for a single incident, including parsed fields,
+    raw email snapshot, and triage packet if generated.
+    """
+    from app.models.sentry_incident import SentryIncident
+
+    inc = db.query(SentryIncident).get(incident_id)
+    if not inc:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    packet = None
+    if inc.triage_packet:
+        try:
+            packet = json.loads(inc.triage_packet)
+        except (json.JSONDecodeError, ValueError):
+            packet = inc.triage_packet
+
+    return {
+        "id": inc.id,
+        "created_at": inc.created_at.isoformat() + "Z" if inc.created_at else None,
+        "source_message_id": inc.source_message_id,
+        "source_type": inc.source_type,
+        "status": inc.status,
+        "parse_error": inc.parse_error,
+
+        # Parsed
+        "error_type": inc.error_type,
+        "error_title": inc.error_title,
+        "project": inc.project,
+        "environment": inc.environment,
+        "severity": inc.severity,
+        "culprit": inc.culprit,
+        "stack_trace": inc.stack_trace,
+        "sentry_issue_url": inc.sentry_issue_url,
+
+        # Fingerprint
+        "fingerprint": inc.fingerprint,
+        "fingerprint_input": inc.fingerprint_input,
+        "family_head_id": inc.family_head_id,
+        "recurrence_count": inc.recurrence_count,
+
+        # Classification
+        "subsystem_class": inc.subsystem_class,
+        "merchant_impact": inc.merchant_impact,
+        "affected_shop": inc.affected_shop,
+
+        # AI triage
+        "ai_triage_status": inc.ai_triage_status,
+        "triage_packet": packet,
+
+        # Integration
+        "linked_bugfix_candidate_id": inc.linked_bugfix_candidate_id,
+        "linked_ops_alert_id": inc.linked_ops_alert_id,
+        "lesson_candidate_status": inc.lesson_candidate_status,
+
+        # Raw (truncated for API response)
+        "raw_subject": inc.raw_subject,
+        "raw_from": inc.raw_from,
+        "raw_body_length": len(inc.raw_body) if inc.raw_body else 0,
+    }
+
+
+@router.get("/incidents/{incident_id}/family")
+def ops_incident_family(
+    incident_id: int,
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """
+    List all incidents in the same family (same fingerprint).
+    Shows recurrence timeline for a specific error pattern.
+    """
+    from app.models.sentry_incident import SentryIncident
+
+    head = db.query(SentryIncident).get(incident_id)
+    if not head:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    fp = head.fingerprint
+    if not fp:
+        return {"family_head_id": incident_id, "members": [], "total": 0}
+
+    members = (
+        db.query(SentryIncident)
+        .filter(SentryIncident.fingerprint == fp)
+        .order_by(SentryIncident.created_at.desc())
+        .limit(100)
+        .all()
+    )
+
+    return {
+        "family_head_id": incident_id,
+        "fingerprint": fp,
+        "fingerprint_input": head.fingerprint_input,
+        "total": len(members),
+        "members": [
+            {
+                "id": m.id,
+                "created_at": m.created_at.isoformat() + "Z" if m.created_at else None,
+                "status": m.status,
+                "error_title": m.error_title,
+                "source_message_id": m.source_message_id,
+            }
+            for m in members
+        ],
+    }
+
+
+@router.get("/incidents/triage/queue")
+def ops_triage_queue(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    """
+    Incidents with generated triage packets ready for AI consumption.
+    This is the handoff point for future Claude/OpenClaw integration.
+    """
+    from app.services.sentry_triage import get_triage_queue
+    return get_triage_queue(db, limit=limit)
+
+
+@router.get("/incidents/parse-errors")
+def ops_parse_errors(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    """
+    Incidents that failed parsing — for debugging the parser.
+    """
+    from app.models.sentry_incident import SentryIncident
+
+    errors = (
+        db.query(SentryIncident)
+        .filter(SentryIncident.status == "parse_error")
+        .order_by(SentryIncident.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    return [
+        {
+            "id": e.id,
+            "created_at": e.created_at.isoformat() + "Z" if e.created_at else None,
+            "parse_error": e.parse_error,
+            "raw_subject": e.raw_subject,
+            "raw_from": e.raw_from,
+            "raw_body_preview": (e.raw_body or "")[:500],
+        }
+        for e in errors
+    ]
+
+
+@router.get("/incidents/consumer/stats")
+def ops_consumer_stats(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """
+    Triage consumer pipeline statistics — how many incidents at each stage,
+    how many candidates were created, how many were suppressed/deduped.
+    """
+    from app.models.sentry_incident import SentryIncident
+    from sqlalchemy import func
+
+    # Count by ai_triage_status
+    status_counts = dict(
+        db.query(SentryIncident.ai_triage_status, func.count(SentryIncident.id))
+        .group_by(SentryIncident.ai_triage_status)
+        .all()
+    )
+
+    # Count by incident status
+    incident_status_counts = dict(
+        db.query(SentryIncident.status, func.count(SentryIncident.id))
+        .group_by(SentryIncident.status)
+        .all()
+    )
+
+    # Count linked candidates
+    linked = (
+        db.query(func.count(SentryIncident.id))
+        .filter(SentryIncident.linked_bugfix_candidate_id.isnot(None))
+        .scalar() or 0
+    )
+
+    # Total incidents
+    total = db.query(func.count(SentryIncident.id)).scalar() or 0
+
+    # Family count (distinct fingerprints)
+    families = (
+        db.query(func.count(func.distinct(SentryIncident.fingerprint)))
+        .filter(SentryIncident.fingerprint.isnot(None))
+        .scalar() or 0
+    )
+
+    # Count by source_type (email / sentry_webhook / manual)
+    source_counts = dict(
+        db.query(SentryIncident.source_type, func.count(SentryIncident.id))
+        .group_by(SentryIncident.source_type)
+        .all()
+    )
+
+    # Parse error count
+    parse_errors = (
+        db.query(func.count(SentryIncident.id))
+        .filter(SentryIncident.status == "parse_error")
+        .scalar() or 0
+    )
+
+    return {
+        "total_incidents": total,
+        "unique_families": families,
+        "linked_to_candidates": linked,
+        "by_triage_status": status_counts,
+        "by_incident_status": incident_status_counts,
+        "by_source_type": source_counts,
+        "parse_errors": parse_errors,
+    }

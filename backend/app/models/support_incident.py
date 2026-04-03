@@ -6,7 +6,7 @@ Incidents link to the autonomous pipeline (bugfix, ops alerts, evolution).
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, Index
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, Index
 
 from app.core.database import Base
 
@@ -50,6 +50,17 @@ class SupportIncident(Base):
 
     # Response given to merchant
     response_text = Column(Text, nullable=True)
+
+    # Resolution verification — blocks premature "fixed" messages
+    # NULL = not verified, True = confirmed working, False = fix failed
+    resolution_verified = Column(Boolean, nullable=True)
+
+    # Outcome linkage — connects to bugfix effectiveness measurement
+    # effective | ineffective | inconclusive | NULL
+    fix_outcome = Column(String(32), nullable=True)
+
+    # Resolution delivery tracking — NULL = not yet delivered to merchant chat
+    resolution_delivered_at = Column(DateTime, nullable=True)
 
     __table_args__ = (
         Index("ix_support_incidents_status_created", "status", "created_at"),

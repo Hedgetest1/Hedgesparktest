@@ -56,7 +56,7 @@ from typing import Optional
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Depends, Query as QueryParam, Request
+from fastapi import APIRouter, Depends, HTTPException, Query as QueryParam, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
@@ -447,6 +447,14 @@ async def callback(
         "ok" if webhook_ok else "failed",
         "ok" if tracker_ok else "failed",
     )
+
+    # Record onboarding funnel event (server-side, non-blocking)
+    try:
+        from app.services.onboarding_funnel import record_event
+        record_event(db, shop, "install_completed", context={"webhook_ok": webhook_ok, "tracker_ok": tracker_ok})
+        db.commit()
+    except Exception:
+        db.rollback()  # non-fatal
 
     if not _DASHBOARD_URL:
         resp = JSONResponse(

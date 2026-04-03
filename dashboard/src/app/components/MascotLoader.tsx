@@ -1,57 +1,90 @@
 import Image from "next/image";
 
+type SparkState = "loading" | "success" | "idle";
+
+const GLOW: Record<SparkState, string> = {
+  loading: "rgba(99, 102, 241, 0.14)",
+  success: "rgba(251, 191, 36, 0.10)",
+  idle:    "rgba(148, 163, 184, 0.06)",
+};
+
+/**
+ * MascotLoader — full-screen centered state.
+ *
+ * Spark at 180px, single soft glow, gentle float.
+ * Spark → caption → optional card as one tight block.
+ */
 export function MascotLoader({
-  caption = "Reading the signals…",
+  caption = "Loading your store data\u2026",
+  state = "loading",
+  children,
 }: {
   caption?: string;
+  state?: SparkState;
+  children?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-5 py-20">
-      <div className="relative">
-        <Image
-          src="/branding/hedgespark-mascot.png"
-          alt="Loading"
-          width={128}
-          height={128}
-          className="hs-bob"
-          priority
-        />
-        <span className="hs-sparkle absolute -right-1 -top-1 text-xl leading-none text-amber-300">
-          ✦
-        </span>
-        <span className="hs-sparkle absolute -left-2 top-6 text-sm leading-none text-violet-300" style={{ animationDelay: "0.8s" }}>
-          ✦
-        </span>
-      </div>
-      {/* Speech bubble */}
-      <div className="relative rounded-2xl border border-white/[0.08] bg-white/[0.03] px-5 py-3">
-        <div className="absolute -top-2 left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 border-l border-t border-white/[0.08] bg-white/[0.03]" />
-        <p className="text-[13px] text-slate-400">{caption}</p>
+    <div className="flex min-h-[70vh] flex-col items-center justify-center px-6">
+      <div className="flex flex-col items-center">
+        {/* Spark + single glow */}
+        <div className="relative">
+          <div
+            className="absolute inset-[-40px] rounded-full"
+            style={{
+              background: `radial-gradient(circle, ${GLOW[state]} 0%, transparent 70%)`,
+            }}
+          />
+          <Image
+            src="/branding/hedgespark/spark.png"
+            alt=""
+            width={180}
+            height={180}
+            className="hs-float relative"
+            priority
+          />
+        </div>
+
+        {/* Caption — tight to Spark */}
+        <p className="mt-3 text-[15px] text-slate-400">{caption}</p>
+
+        {/* Optional card — tight to caption */}
+        {children && <div className="mt-3 w-full max-w-sm">{children}</div>}
       </div>
     </div>
   );
 }
 
+/**
+ * MascotEmpty — section empty state.
+ * Spark at 72px, static, single soft glow.
+ */
 export function MascotEmpty({
-  message = "No sparks yet — check back soon.",
+  message = "Collecting data \u2014 this section fills up as visitors arrive.",
+  subtext,
 }: {
   message?: string;
+  subtext?: string;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-white/[0.08] bg-white/[0.02] py-12">
+    <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-white/[0.06] bg-white/[0.015] py-14">
       <div className="relative">
-        <Image
-          src="/branding/hedgespark-mascot.png"
-          alt="Empty state"
-          width={96}
-          height={96}
-          className="opacity-70"
+        <div
+          className="absolute inset-[-12px] rounded-full"
+          style={{
+            background: `radial-gradient(circle, ${GLOW.idle} 0%, transparent 70%)`,
+          }}
         />
-        <span className="absolute -right-1 bottom-0 text-[12px] text-slate-600">💤</span>
+        <Image
+          src="/branding/hedgespark/spark.png"
+          alt=""
+          width={72}
+          height={72}
+          className="relative opacity-60"
+        />
       </div>
       <div className="text-center">
         <p className="text-[13px] text-slate-500">{message}</p>
-        <p className="mt-1 text-[11px] text-slate-600">I&apos;ll notify you when something appears.</p>
+        {subtext && <p className="mt-1 text-[11px] text-slate-600">{subtext}</p>}
       </div>
     </div>
   );

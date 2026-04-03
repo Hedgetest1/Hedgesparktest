@@ -78,15 +78,16 @@ def _row(query: str, db: Session, params: dict[str, Any] | None = None) -> dict[
 
 def _table_exists(db: Session, table_name: str) -> bool:
     result = _row(
-        f"""
+        """
         SELECT EXISTS (
             SELECT 1
             FROM information_schema.tables
             WHERE table_schema = 'public'
-              AND table_name = '{table_name}'
+              AND table_name = :table_name
         ) AS exists
         """,
         db,
+        {"table_name": table_name},
     )
     return _safe_bool(result.get("exists"), False)
 
@@ -95,13 +96,14 @@ def _columns(db: Session, table_name: str) -> set[str]:
     if not _table_exists(db, table_name):
         return set()
     rows = _rows(
-        f"""
+        """
         SELECT column_name
         FROM information_schema.columns
         WHERE table_schema = 'public'
-          AND table_name = '{table_name}'
+          AND table_name = :table_name
         """,
         db,
+        {"table_name": table_name},
     )
     return {str(row.get("column_name")) for row in rows if row.get("column_name")}
 
@@ -844,6 +846,23 @@ def get_dashboard_overview(
     real_aov = get_shop_aov(db, shop, currency=shop_currency)
     aov_is_real = real_aov != FALLBACK_AOV
 
+    # Generate intelligence brief (cached separately with 5-min TTL)
+    store_brief = None
+    try:
+        from app.core.redis_client import cache_get, cache_set as cs
+        brief_key = f"hs:brief:{shop}"
+        cached_brief = cache_get(brief_key)
+        if cached_brief is not None:
+            store_brief = cached_brief
+        else:
+            from app.services.store_insight_engine import generate_store_brief
+            brief = generate_store_brief(db, shop)
+            if brief:
+                store_brief = brief.to_dict()
+                cs(brief_key, store_brief, 300)  # 5-min cache
+    except Exception:
+        pass
+
     result = {
         "summary":              _build_summary(db, shop),
         "top_products":         _build_top_products(db, shop),
@@ -852,8 +871,37 @@ def get_dashboard_overview(
         "shop_currency":        shop_currency or "USD",
         "aov_is_real":          aov_is_real,
         "calibration":          _get_calibration_summary(db, shop),
+        "intelligence":         store_brief,
     }
     cache_set(cache_key, result, TTL_DASHBOARD)
+    return result
+
+
+@router.get("/intelligence")
+def get_dashboard_intelligence(
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+):
+    """
+    Store intelligence brief — multi-signal synthesis with priority action.
+
+    Returns the StoreBrief: signal trends, diagnosis, priority insight, raw data.
+    Cached for 5 minutes. This is the "decision-first" data for the dashboard hero.
+    """
+    from app.core.redis_client import cache_get, cache_set
+    brief_key = f"hs:brief:{shop}"
+
+    cached = cache_get(brief_key)
+    if cached is not None:
+        return cached
+
+    from app.services.store_insight_engine import generate_store_brief
+    brief = generate_store_brief(db, shop)
+    if not brief:
+        return {"status": "insufficient_data", "message": "Not enough data yet for intelligence analysis."}
+
+    result = brief.to_dict()
+    cache_set(brief_key, result, 300)
     return result
 
 

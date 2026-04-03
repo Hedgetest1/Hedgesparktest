@@ -41,13 +41,20 @@ _BACKEND_DIR = Path("/opt/wishspark/backend")
 _AUDIT_COOLDOWN_SECONDS = 6 * 86400
 _last_audit_run: float | None = None
 
-# Forbidden: never propose changes to these areas
-_FORBIDDEN_TARGETS = [
-    "dashboard/", "app/api/billing", "app/api/shopify_oauth",
-    "app/core/token_crypto", "app/core/merchant_session", "app/core/deps.py",
-    "app/services/orchestrator.py", "app/models/action_approval",
-    "migrations/",
-]
+# Forbidden: never propose changes to these areas.
+# Imported from tier_check — single source of truth for protected paths.
+try:
+    from app.core.tier_check import SCAN_FORBIDDEN_PATTERNS as _FORBIDDEN_TARGETS
+    from app.core.tier_check import is_forbidden_path as _is_forbidden_path
+except ImportError:
+    # Fallback if tier_check not available (should not happen in production)
+    _FORBIDDEN_TARGETS = [
+        "dashboard/", "app/api/billing", "app/api/shopify_oauth",
+        "app/core/token_crypto", "app/core/merchant_session", "app/core/deps.py",
+        "app/services/orchestrator.py", "app/models/action_approval",
+        "migrations/",
+    ]
+    _is_forbidden_path = lambda path: any(f in path for f in _FORBIDDEN_TARGETS)  # noqa: E731
 
 
 def _now():
@@ -59,16 +66,31 @@ def _audit_cycle_id() -> str:
     return _now().strftime("%G-W%V")
 
 
+_REDIS_COOLDOWN_KEY = "hs:cooldown:evolution_audit"
+
+
 def should_run_audit() -> bool:
     global _last_audit_run
-    if _last_audit_run is None:
-        return True
-    return (time.monotonic() - _last_audit_run) >= _AUDIT_COOLDOWN_SECONDS
+    if _last_audit_run is not None:
+        if (time.monotonic() - _last_audit_run) < _AUDIT_COOLDOWN_SECONDS:
+            return False
+    try:
+        from app.core.redis_client import cache_get
+        if cache_get(_REDIS_COOLDOWN_KEY) is not None:
+            return False
+    except Exception:
+        pass
+    return True
 
 
 def mark_audit_run():
     global _last_audit_run
     _last_audit_run = time.monotonic()
+    try:
+        from app.core.redis_client import cache_set
+        cache_set(_REDIS_COOLDOWN_KEY, True, _AUDIT_COOLDOWN_SECONDS)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +104,7 @@ def _scan_large_files() -> list[dict]:
         if any(f in str(py) for f in ["venv/", "node_modules/", "__pycache__", ".next/"]):
             continue
         rel = str(py.relative_to(_BACKEND_DIR))
-        if any(f in rel for f in _FORBIDDEN_TARGETS):
+        if _is_forbidden_path(rel):
             continue
         try:
             lines = len(py.read_text().splitlines())
@@ -115,7 +137,7 @@ def _scan_missing_tests() -> list[dict]:
         if svc.name.startswith("__"):
             continue
         rel = str(svc.relative_to(_BACKEND_DIR))
-        if any(f in rel for f in _FORBIDDEN_TARGETS):
+        if _is_forbidden_path(rel):
             continue
         expected_test = f"test_{svc.stem}.py"
         if expected_test not in test_files:
@@ -138,7 +160,7 @@ def _scan_todo_fixme() -> list[dict]:
         if any(f in str(py) for f in ["venv/", "node_modules/", "__pycache__"]):
             continue
         rel = str(py.relative_to(_BACKEND_DIR))
-        if any(f in rel for f in _FORBIDDEN_TARGETS):
+        if _is_forbidden_path(rel):
             continue
         if "evolution_engine" in rel:
             continue  # don't scan self
@@ -306,11 +328,47 @@ def _scan_feature_requests(db: Session) -> list[dict]:
 # Main audit runner
 # ---------------------------------------------------------------------------
 
+def _sort_by_weakness(proposals: list[dict]) -> list[dict]:
+    """
+    Sort proposals so weak-domain proposals come first.
+    Proposals targeting domains with higher weakness scores are prioritized
+    for DB insertion (they pass dedup first and "win" the slot).
+    Proposals without a target_file or with no weakness signal sort last.
+    """
+    try:
+        from app.services.loop_health import score_subsystem_weakness
+        from app.services.project_brain import classify_file
+        from app.core.database import engine
+        from sqlalchemy.orm import Session as _Sess
+        # Use a read-only session for weakness query (no writes)
+        with _Sess(engine) as tmp_db:
+            ranking = score_subsystem_weakness(tmp_db, lookback_days=30)
+        weakness_map = {w["domain"]: w["score"] for w in ranking}
+    except Exception:
+        return proposals  # fallback: keep original order
+
+    if not weakness_map:
+        return proposals
+
+    def _score(p: dict) -> float:
+        target = p.get("target_file")
+        if not target:
+            return 0
+        try:
+            domain = classify_file(target.split(":")[0])["domain"]
+            return weakness_map.get(domain, 0)
+        except Exception:
+            return 0
+
+    return sorted(proposals, key=_score, reverse=True)
+
+
 def run_evolution_audit(db: Session) -> dict:
     """
     Run all evolution scanners. Deduplicate against existing proposals
     that are open, accepted, or needs_revalidation (still under review).
-    Store new proposals in DB. Returns summary.
+    Store new proposals in DB. Weak-domain proposals are prioritized.
+    Returns summary.
     """
     cycle = _audit_cycle_id()
     summary = {"scanned": 0, "new": 0, "deduped": 0}
@@ -323,6 +381,9 @@ def run_evolution_audit(db: Session) -> dict:
     all_proposals.extend(_scan_unpinned_deps())
     all_proposals.extend(_scan_support_patterns(db))
     all_proposals.extend(_scan_feature_requests(db))
+
+    # Sort: weak-domain proposals first so they win dedup slots
+    all_proposals = _sort_by_weakness(all_proposals)
 
     summary["scanned"] = len(all_proposals)
 
@@ -353,5 +414,73 @@ def run_evolution_audit(db: Session) -> dict:
     if summary["new"] > 0:
         db.flush()
         log.info("evolution: cycle=%s scanned=%d new=%d deduped=%d", cycle, summary["scanned"], summary["new"], summary["deduped"])
+
+    return summary
+
+
+# ---------------------------------------------------------------------------
+# LEVEL_2 proposal auto-escalation
+# ---------------------------------------------------------------------------
+
+_LEVEL2_ESCALATION_DAYS = 14  # escalate after 14 days of inaction
+
+
+def escalate_stale_proposals(db: Session) -> dict:
+    """
+    Auto-escalate LEVEL_2 proposals that have been in 'open' status for >14 days
+    without human action. Creates an ops_alert to surface them for operator review.
+
+    This prevents detected intelligence from becoming dead letters.
+    """
+    from datetime import timedelta
+    from sqlalchemy import text
+
+    cutoff = _now() - timedelta(days=_LEVEL2_ESCALATION_DAYS)
+    summary = {"checked": 0, "escalated": 0}
+
+    stale = (
+        db.query(EvolutionProposal)
+        .filter(
+            EvolutionProposal.status == "open",
+            EvolutionProposal.risk_level.in_(["LEVEL_2", "LEVEL_3"]),
+            EvolutionProposal.created_at <= cutoff,
+        )
+        .order_by(EvolutionProposal.created_at)
+        .limit(5)
+        .all()
+    )
+
+    for p in stale:
+        summary["checked"] += 1
+
+        # Check if we already escalated this one (avoid spam)
+        from app.services.alerting import _check_dedup
+        existing = _check_dedup(
+            db, source="evolution_escalation",
+            alert_type="stale_level2_proposal",
+            shop_domain=None,
+        )
+        if existing:
+            continue  # already escalated recently
+
+        from app.services.alerting import write_alert
+        age_days = (_now() - p.created_at).days
+        write_alert(
+            db, severity="info", source="evolution_escalation",
+            alert_type="stale_level2_proposal",
+            summary=f"Evolution proposal #{p.id} ({p.risk_level}) unreviewed for {age_days}d: {p.reason[:120]}",
+            detail={
+                "proposal_id": p.id,
+                "risk_level": p.risk_level,
+                "proposal_type": p.proposal_type,
+                "target_file": p.target_file,
+                "age_days": age_days,
+            },
+        )
+        summary["escalated"] += 1
+
+    if summary["escalated"] > 0:
+        db.flush()
+        log.info("evolution_escalation: escalated=%d stale LEVEL_2/3 proposals", summary["escalated"])
 
     return summary

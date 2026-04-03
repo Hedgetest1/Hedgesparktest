@@ -125,14 +125,12 @@ class TestMonthlyAuditNoFalseSuccess:
             # send_monthly_report must NOT be called (that's the "completed" message)
             mock_report.assert_not_called()
 
-            # mark_monthly_audit_run must NOT be called (skipped means no cooldown burn)
-            mock_mark.assert_not_called()
+            # mark_monthly_audit_run MUST be called even on skip (prevents
+            # infinite retry loop when LLM keys aren't configured)
+            mock_mark.assert_called_once()
 
-            # A "skipped" notification should be sent instead
-            mock_msg.assert_called_once()
-            sent_text = mock_msg.call_args[0][0]
-            assert "skipped" in sent_text.lower()
-            assert "llm_unavailable" in sent_text
+            # "Skipped" audit must NOT send Telegram (noise suppression)
+            mock_msg.assert_not_called()
 
     def test_real_audit_sends_completed_message(self):
         """When audit actually runs with proposals, Telegram sends the report."""

@@ -25,18 +25,25 @@ log = logging.getLogger(__name__)
 RuleMap = Dict[Tuple[str, str], Tuple[int, int]]
 
 
-def _redis_check(bucket_key: str, max_requests: int, window: int) -> Tuple[bool, int]:
+# Sentinel indicating Redis check was inconclusive (exception/unavailable).
+# Caller MUST fall through to in-process fallback.
+_REDIS_UNAVAILABLE = "redis_unavailable"
+
+
+def _redis_check(bucket_key: str, max_requests: int, window: int) -> Tuple[bool | str, int]:
     """
     Check rate limit via Redis INCR + EXPIRE.
-    Returns (allowed: bool, retry_after: int).
+    Returns (allowed: bool | _REDIS_UNAVAILABLE, retry_after: int).
+
+    On Redis errors, returns (_REDIS_UNAVAILABLE, 0) so the caller
+    MUST fall through to the in-process fallback. Never fails open.
     """
     try:
         from app.core.redis_client import _client
         client = _client()
         if client is None:
-            return True, 0  # Redis unavailable — allow (fallback handles it)
+            return _REDIS_UNAVAILABLE, 0
 
-        import redis as _redis
         key = f"hs:rl:{bucket_key}"
         pipe = client.pipeline(transaction=True)
         pipe.incr(key)
@@ -57,8 +64,8 @@ def _redis_check(bucket_key: str, max_requests: int, window: int) -> Tuple[bool,
         return True, 0
 
     except Exception as exc:
-        log.debug("rate_limit: Redis check failed, allowing request: %s", exc)
-        return True, 0  # Fail open on Redis errors
+        log.debug("rate_limit: Redis check failed, falling back to in-process: %s", exc)
+        return _REDIS_UNAVAILABLE, 0
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -111,30 +118,27 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         bucket_key = f"{ip}|{key[0]}|{key[1]}"
 
         # Try Redis first
-        allowed, retry_after = _redis_check(bucket_key, max_requests, window)
+        redis_result, retry_after = _redis_check(bucket_key, max_requests, window)
 
-        if not allowed:
+        if redis_result is False:
+            # Redis definitively said "rate exceeded"
             return JSONResponse(
                 {"detail": "Too many requests — slow down"},
                 status_code=429,
                 headers={"Retry-After": str(retry_after)},
             )
 
-        # If Redis succeeded (allowed=True), we're done.
-        # If Redis was unavailable (allowed=True, retry_after=0 from exception),
-        # also check in-process as backup.
-        try:
-            from app.core.redis_client import _client
-            if _client() is None:
-                # Redis not available — use in-process fallback
-                allowed, retry_after = self._check_in_process(bucket_key, max_requests, window)
-                if not allowed:
-                    return JSONResponse(
-                        {"detail": "Too many requests — slow down"},
-                        status_code=429,
-                        headers={"Retry-After": str(retry_after)},
-                    )
-        except Exception:
-            pass
+        if redis_result is True:
+            # Redis definitively said "allowed"
+            return await call_next(request)
+
+        # Redis unavailable — ALWAYS fall back to in-process limiter (never fail open)
+        allowed, retry_after = self._check_in_process(bucket_key, max_requests, window)
+        if not allowed:
+            return JSONResponse(
+                {"detail": "Too many requests — slow down"},
+                status_code=429,
+                headers={"Retry-After": str(retry_after)},
+            )
 
         return await call_next(request)

@@ -46,7 +46,7 @@ export function SparkToast({
       onClick={notification.target && onNavigate ? () => onNavigate(notification.target!) : undefined}
     >
       <Image
-        src="/branding/hedgespark-mascot.png"
+        src="/branding/hedgespark/spark.png"
         alt=""
         width={20}
         height={20}

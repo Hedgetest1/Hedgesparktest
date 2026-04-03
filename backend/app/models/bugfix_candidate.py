@@ -70,6 +70,23 @@ class BugFixCandidate(Base):
     outcome_measured_at = Column(DateTime, nullable=True)
     outcome_evidence = Column(Text, nullable=True)         # JSON: {alerts_before, alerts_after, ...}
 
+    # Domain classification (from project_brain) — enables per-domain effectiveness
+    affected_domain = Column(String(64), nullable=True)
+
+    # Priority scoring — deterministic, explainable, drives queue order
+    priority_score = Column(Integer, nullable=True)       # 0-100, higher = fix first
+    priority_detail = Column(Text, nullable=True)         # JSON: breakdown of score components
+
+    # Fix confidence — how trustworthy is this proposed fix?
+    fix_confidence = Column(Integer, nullable=True)       # 0-100, gates auto-apply
+    confidence_detail = Column(Text, nullable=True)       # JSON: breakdown of confidence components
+
+    # Remediation class — deterministic classification of the type of fix
+    remediation_class = Column(String(32), nullable=True)
+
+    # Lesson effectiveness tracking — JSON list of SystemLesson IDs injected into proposal context
+    lesson_ids_used = Column(Text, nullable=True)
+
     __table_args__ = (
         Index("ix_bugfix_candidates_status", "status", "created_at"),
         Index("ix_bugfix_candidates_source", "source_type", "source_ref"),

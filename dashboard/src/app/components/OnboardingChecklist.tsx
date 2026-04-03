@@ -195,10 +195,26 @@ function PixelWalkthrough({ pixelStatus, onClose }: { pixelStatus: PixelStatus; 
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(pixelStatus.pixel_code).then(() => {
+    const code = pixelStatus.pixel_code;
+    const onSuccess = () => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
-    });
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(code).then(onSuccess).catch(() => {
+        try {
+          const ta = document.createElement("textarea");
+          ta.value = code;
+          ta.style.position = "fixed";
+          ta.style.opacity = "0";
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          document.body.removeChild(ta);
+          onSuccess();
+        } catch { /* clipboard unavailable */ }
+      });
+    }
   }, [pixelStatus.pixel_code]);
 
   const STEPS = [

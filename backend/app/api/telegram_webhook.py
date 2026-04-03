@@ -98,6 +98,26 @@ async def telegram_webhook(request: Request):
     except Exception:
         return {"ok": True}
 
+    # Handle inline keyboard button taps (callback_query)
+    callback = body.get("callback_query")
+    if callback:
+        cb_data = callback.get("data", "")
+        cb_chat_id = str(callback.get("message", {}).get("chat", {}).get("id", ""))
+        cb_id = callback.get("id", "")
+        if cb_data and cb_chat_id and cb_data.startswith("/"):
+            # Answer the callback to remove the loading spinner
+            try:
+                from app.services.telegram_agent import _get_http_client, _BOT_TOKEN
+                _get_http_client().post(
+                    f"https://api.telegram.org/bot{_BOT_TOKEN}/answerCallbackQuery",
+                    json={"callback_query_id": cb_id, "text": "Processing..."},
+                )
+            except Exception:
+                pass
+            # Process the command from button tap
+            _background_response(cb_data, cb_chat_id)
+            return {"ok": True}
+
     message = body.get("message", {})
     text = message.get("text", "")
     chat_id = str(message.get("chat", {}).get("id", ""))

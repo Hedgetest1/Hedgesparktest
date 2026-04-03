@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Image from "next/image";
+
 
 type Improvement = {
   product_url: string;
@@ -70,15 +70,8 @@ export function ProofHeroCard({
 
   return (
     <div className="hs-fade-up relative overflow-hidden rounded-2xl border border-emerald-400/25 bg-gradient-to-br from-emerald-500/[0.08] via-emerald-500/[0.03] to-transparent p-5 shadow-[0_0_40px_rgba(52,211,153,0.06)]">
-      {/* Header: hedgehog + title */}
+      {/* Header */}
       <div className="flex items-center gap-3">
-        <Image
-          src="/branding/hedgespark-mascot.png"
-          alt=""
-          width={48}
-          height={48}
-          className="flex-shrink-0"
-        />
         <div>
           <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-300/80">
             Proven Impact

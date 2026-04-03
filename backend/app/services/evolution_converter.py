@@ -118,6 +118,23 @@ def convert_eligible_proposals(db: Session, max_per_cycle: int = 2) -> dict:
             summary["skipped_ineligible"] += 1
             continue
 
+        # === EXECUTION POLICY ENFORCEMENT ===
+        # Tier-check the target file BEFORE conversion to avoid wasting
+        # LLM proposal calls on files the guard will block at apply time.
+        if proposal.target_file:
+            try:
+                from app.core.tier_check import check_tier, TIER_2
+                tier_result = check_tier([proposal.target_file])
+                if tier_result.tier == TIER_2:
+                    log.info(
+                        "evolution_converter: TIER_2 BLOCKED proposal=%d file=%s",
+                        proposal.id, proposal.target_file,
+                    )
+                    summary["skipped_ineligible"] += 1
+                    continue
+            except ImportError:
+                pass
+
         # Reviewer gate — assess proposal before conversion
         try:
             from app.services.reviewer_layer import review_entity

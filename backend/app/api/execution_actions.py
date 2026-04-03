@@ -83,12 +83,13 @@ def confirm_execution(
     """
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
-    # Verify opportunity exists and belongs to this shop
+    # Verify opportunity exists and belongs to this shop (locked for update)
     opp = db.execute(
         text("""
             SELECT id, execution_status, product_b
             FROM execution_opportunities
             WHERE shop_domain = :shop AND execution_id = :eid
+            FOR UPDATE
         """),
         {"shop": shop, "eid": execution_id},
     ).fetchone()

@@ -24,7 +24,7 @@ body {
   font-family: var(--font-geist-sans, Arial, Helvetica, sans-serif);
 }
 
-/* ── Hedge Spark brand animations ── */
+/* ── Brand animations ── */
 
 @keyframes hs-bob {
   0%, 100% { transform: translateY(0px); }
@@ -51,7 +51,16 @@ body {
 .hs-sparkle { animation: hs-sparkle 2.5s ease-in-out infinite; }
 .hs-pulse   { animation: hs-pulse-dot 1.6s ease-in-out infinite; }
 
-/* Pro gate shimmer border effect */
+/* ── Spark ── */
+
+/* Float: gentle vertical drift */
+@keyframes hs-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+.hs-float { animation: hs-float 3.5s ease-in-out infinite; }
+
+/* Pro gate shimmer border */
 @keyframes hs-shimmer {
   0%   { opacity: 0.3; }
   50%  { opacity: 0.7; }
@@ -59,7 +68,7 @@ body {
 }
 .hs-shimmer { animation: hs-shimmer 3s ease-in-out infinite; }
 
-/* Gradient text utility for brand emphasis */
+/* Gradient text */
 .hs-gradient-text {
   background: linear-gradient(135deg, #a78bfa 0%, #7c3aed 50%, #c4b5fd 100%);
   -webkit-background-clip: text;
@@ -67,5 +76,4 @@ body {
   background-clip: text;
 }
 
-/* Smooth scroll for main content area */
 .hs-scroll-smooth { scroll-behavior: smooth; }

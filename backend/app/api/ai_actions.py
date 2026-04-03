@@ -31,6 +31,7 @@ def ai_actions(
         clicks
     FROM visitor_stats
     ORDER BY dwell DESC, scroll DESC, clicks DESC
+    LIMIT 500
     """)
 
     actions = []

@@ -39,6 +39,7 @@ log = logging.getLogger("meta_reviewer")
 # Cooldown: 7 days between meta-reviews
 _REVIEW_COOLDOWN_SECONDS = 7 * 86400
 _last_review_run: float | None = None
+_REDIS_COOLDOWN_KEY = "hs:cooldown:meta_review"
 
 # Meta-review is stale after 10 days (gives 3-day grace past 7-day cycle)
 _STALENESS_DAYS = 10
@@ -57,14 +58,26 @@ def _review_window() -> str:
 
 def should_run_meta_review() -> bool:
     global _last_review_run
-    if _last_review_run is None:
-        return True
-    return (time.monotonic() - _last_review_run) >= _REVIEW_COOLDOWN_SECONDS
+    if _last_review_run is not None:
+        if (time.monotonic() - _last_review_run) < _REVIEW_COOLDOWN_SECONDS:
+            return False
+    try:
+        from app.core.redis_client import cache_get
+        if cache_get(_REDIS_COOLDOWN_KEY) is not None:
+            return False
+    except Exception:
+        pass
+    return True
 
 
 def mark_meta_review_run():
     global _last_review_run
     _last_review_run = time.monotonic()
+    try:
+        from app.core.redis_client import cache_set
+        cache_set(_REDIS_COOLDOWN_KEY, True, _REVIEW_COOLDOWN_SECONDS)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +138,57 @@ def _gather_outcome_stats(db: Session) -> dict:
         return {"total_measured": 0, "by_source": {}}
 
 
+def _gather_lesson_summary(db: Session) -> dict:
+    """
+    Compact summary of institutional lessons for Opus context.
+    Returns per-domain lesson counts and key warnings.
+    """
+    try:
+        from app.models.system_lesson import SystemLesson
+        from sqlalchemy import func
+
+        rows = (
+            db.query(
+                SystemLesson.domain,
+                SystemLesson.lesson_type,
+                func.count(SystemLesson.id),
+                func.avg(SystemLesson.confidence),
+            )
+            .filter(SystemLesson.status == "active", SystemLesson.confidence >= 0.3)
+            .group_by(SystemLesson.domain, SystemLesson.lesson_type)
+            .all()
+        )
+
+        if not rows:
+            return {"total_lessons": 0, "by_domain": {}}
+
+        by_domain: dict[str, dict] = {}
+        total = 0
+        for domain, lesson_type, count, avg_conf in rows:
+            if domain not in by_domain:
+                by_domain[domain] = {"effective": 0, "ineffective": 0, "avg_confidence": 0}
+            if lesson_type == "effective_pattern":
+                by_domain[domain]["effective"] = count
+            elif lesson_type == "ineffective_pattern":
+                by_domain[domain]["ineffective"] = count
+            by_domain[domain]["avg_confidence"] = round(float(avg_conf), 2)
+            total += count
+
+        # Add top warnings (domains with most ineffective lessons)
+        warnings = sorted(
+            [(d, v["ineffective"]) for d, v in by_domain.items() if v["ineffective"] > 0],
+            key=lambda x: -x[1],
+        )[:5]
+
+        return {
+            "total_lessons": total,
+            "by_domain": by_domain,
+            "top_warning_domains": [d for d, _ in warnings],
+        }
+    except Exception:
+        return {"total_lessons": 0, "by_domain": {}}
+
+
 def _gather_support_trends(db: Session) -> dict:
     """Support incident clusters."""
     cutoff = _now() - timedelta(days=30)
@@ -179,6 +243,20 @@ def _gather_brain_summary(db: Session) -> str:
         return "Project brain unavailable."
 
 
+def _gather_weakness_ranking(db: Session) -> list[dict]:
+    """Subsystem weakness ranking for prioritization context."""
+    try:
+        from app.services.loop_health import score_subsystem_weakness
+        return score_subsystem_weakness(db, lookback_days=30)
+    except Exception:
+        return []
+
+
+def _build_weakness_map(weakness_ranking: list[dict]) -> dict[str, float]:
+    """Build domain → weakness_score map for fast lookup."""
+    return {w["domain"]: w["score"] for w in weakness_ranking}
+
+
 def _detect_conflicts(proposals: list[dict]) -> list[dict]:
     """
     Deterministic conflict detection: find proposals targeting the same file.
@@ -228,6 +306,7 @@ You receive:
 - Active bugfix candidates
 - Historical outcome data (which fix sources are effective)
 - Merchant support trends (pain points by area)
+- Subsystem weakness ranking (which domains have the most failures/recurrences)
 - Budget/cost constraints
 - Project brain summary
 
@@ -251,6 +330,7 @@ Rules:
 - priority_score: 0-100 (higher = more urgent)
 - Include ALL open proposals in priorities list
 - Rank by: merchant impact > reliability > performance > cosmetic
+- Boost proposals targeting weak subsystems (high weakness score = needs attention)
 - If a proposal source type has 0% effectiveness, deprioritize to score < 20
 - If proposals conflict (same target file), note the higher-priority one
 - If budget is tight, recommend deferring low-priority items
@@ -311,7 +391,45 @@ def _call_opus(context: str) -> str:
     return ""
 
 
-def _parse_review(raw: str, proposals: list[dict], conflicts: list[dict], deprioritized: list[dict]) -> dict:
+def _weakness_boost_for_proposal(proposal: dict, weakness_map: dict[str, float]) -> int:
+    """
+    Calculate a bounded priority boost for a proposal based on subsystem weakness.
+
+    Returns 0-20 points. The boost is:
+        - 0 if the target domain has no weakness signal
+        - 5-20 proportional to the domain's weakness score (capped at 20)
+
+    The boost is bounded to avoid overwhelming other factors (age, type, effectiveness).
+    A proposal targeting the weakest subsystem gets +20; one targeting a mildly weak
+    subsystem gets +5-10.
+    """
+    if not weakness_map:
+        return 0
+
+    target_file = proposal.get("target_file")
+    if not target_file:
+        return 0
+
+    try:
+        from app.services.project_brain import classify_file
+        domain = classify_file(target_file.split(":")[0])["domain"]
+    except ImportError:
+        return 0
+
+    weakness_score = weakness_map.get(domain, 0)
+    if weakness_score <= 0:
+        return 0
+
+    # Map weakness score to 5-20 boost range
+    # weakness_score can range widely (e.g., 1.5 to 50+)
+    # Use a simple bounded mapping: min(20, max(5, score))
+    return min(20, max(5, int(weakness_score)))
+
+
+def _parse_review(
+    raw: str, proposals: list[dict], conflicts: list[dict],
+    deprioritized: list[dict], weakness_map: dict[str, float] | None = None,
+) -> dict:
     """Parse LLM output and merge with deterministic data."""
     review = {
         "weekly_focus_area": "reliability",
@@ -331,14 +449,22 @@ def _parse_review(raw: str, proposals: list[dict], conflicts: list[dict], deprio
         data = json.loads(clean)
     except (json.JSONDecodeError, TypeError):
         log.warning("meta_reviewer: invalid JSON from Opus — using deterministic fallback")
-        # Fallback: assign scores based on age and type
+        # Fallback: assign scores based on age + type + subsystem weakness
+        wmap = weakness_map or {}
         for p in proposals:
-            score = min(90, p["age_days"] * 2 + (30 if p["type"] == "reliability" else 10))
-            review["priorities"].append({
+            base = min(90, p["age_days"] * 2 + (30 if p["type"] == "reliability" else 10))
+            # Weakness boost: if this proposal targets a weak subsystem, boost priority
+            weakness_boost = _weakness_boost_for_proposal(p, wmap)
+            score = min(100, base + weakness_boost)
+            entry = {
                 "proposal_id": p["id"],
                 "priority_score": score,
                 "recommendation": "convert_next" if p["auto_applicable"] and score > 50 else "defer",
-            })
+            }
+            if weakness_boost > 0:
+                entry["weakness_boosted"] = True
+                entry["weakness_boost"] = weakness_boost
+            review["priorities"].append(entry)
         review["summary"] = "Deterministic fallback — Opus response was not valid JSON."
         return review
 
@@ -377,6 +503,20 @@ def _parse_review(raw: str, proposals: list[dict], conflicts: list[dict], deprio
             entry["priority_score"] = min(entry["priority_score"], 15)
             entry["recommendation"] = "defer"
 
+    # Apply weakness boost (after deprioritization — weakness doesn't override ineffective suppression)
+    wmap = weakness_map or {}
+    if wmap:
+        proposal_map = {p["id"]: p for p in proposals}
+        for entry in review["priorities"]:
+            p = proposal_map.get(entry["proposal_id"])
+            if not p:
+                continue
+            boost = _weakness_boost_for_proposal(p, wmap)
+            if boost > 0:
+                entry["priority_score"] = min(100, entry["priority_score"] + boost)
+                entry["weakness_boosted"] = True
+                entry["weakness_boost"] = boost
+
     # Sort by priority_score descending
     review["priorities"].sort(key=lambda x: x["priority_score"], reverse=True)
 
@@ -407,6 +547,9 @@ def run_meta_review(db: Session) -> dict:
     support = _gather_support_trends(db)
     budget = _gather_budget_state(db)
     brain = _gather_brain_summary(db)
+    weakness_ranking = _gather_weakness_ranking(db)
+    weakness_map = _build_weakness_map(weakness_ranking)
+    lesson_summary = _gather_lesson_summary(db)
 
     # Deterministic analysis (always runs, even without LLM)
     conflicts = _detect_conflicts(proposals)
@@ -449,6 +592,12 @@ def run_meta_review(db: Session) -> dict:
         f"DEPRIORITIZED CLASSES (0% effectiveness):",
         json.dumps(deprioritized, indent=2, default=str),
         "",
+        f"SUBSYSTEM WEAKNESS RANKING (weakest first, 30d signals):",
+        json.dumps(weakness_ranking[:10], indent=2, default=str) if weakness_ranking else "No weakness data.",
+        "",
+        f"INSTITUTIONAL MEMORY — LESSONS ({lesson_summary.get('total_lessons', 0)} active):",
+        json.dumps(lesson_summary, indent=2, default=str) if lesson_summary.get("total_lessons", 0) > 0 else "No lessons recorded yet.",
+        "",
         f"LLM BUDGET:",
         json.dumps(budget, indent=2, default=str),
         "",
@@ -464,10 +613,10 @@ def run_meta_review(db: Session) -> dict:
     if raw:
         from app.core.llm_router import OPUS
         model_used = OPUS
-        review = _parse_review(raw, proposals, conflicts, deprioritized)
+        review = _parse_review(raw, proposals, conflicts, deprioritized, weakness_map)
     else:
         # Deterministic fallback when Opus is unavailable
-        review = _parse_review("", proposals, conflicts, deprioritized)
+        review = _parse_review("", proposals, conflicts, deprioritized, weakness_map)
         review["summary"] = "LLM unavailable — using deterministic priority (age + type)."
 
     # Add window dates
@@ -479,7 +628,7 @@ def run_meta_review(db: Session) -> dict:
     review["review_window_start"] = week_start.isoformat()
     review["review_window_end"] = week_end.isoformat()
 
-    # Store
+    # Store (handle concurrent insert race via IntegrityError)
     row = MetaReview(
         created_at=now,
         review_window=window,
@@ -489,7 +638,14 @@ def run_meta_review(db: Session) -> dict:
         model_used=model_used,
     )
     db.add(row)
-    db.flush()
+    try:
+        db.flush()
+    except Exception as exc:
+        if "unique" in str(exc).lower() or "duplicate" in str(exc).lower() or "integrity" in str(exc).lower():
+            db.rollback()
+            log.info("meta_reviewer: concurrent insert for window %s — skipping (race handled)", window)
+            return {"status": "skipped", "reason": "concurrent_insert_race"}
+        raise
 
     # Audit log
     try:

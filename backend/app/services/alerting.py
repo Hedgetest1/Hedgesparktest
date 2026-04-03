@@ -26,6 +26,37 @@ from app.models.ops_alert import OpsAlert
 log = logging.getLogger(__name__)
 
 
+# Dedup window — suppress duplicate alerts within this many seconds
+_DEDUP_WINDOW_SECONDS = 300  # 5 minutes
+
+
+def _check_dedup(
+    db: Session,
+    source: str,
+    alert_type: str,
+    shop_domain: str | None,
+) -> OpsAlert | None:
+    """
+    Check if a similar unresolved alert was already created within the dedup window.
+    Returns the existing alert if found, None otherwise.
+    """
+    from datetime import timedelta
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=_DEDUP_WINDOW_SECONDS)
+
+    q = db.query(OpsAlert).filter(
+        OpsAlert.source == source,
+        OpsAlert.alert_type == alert_type,
+        OpsAlert.resolved == False,
+        OpsAlert.created_at >= cutoff,
+    )
+    if shop_domain:
+        q = q.filter(OpsAlert.shop_domain == shop_domain)
+    else:
+        q = q.filter(OpsAlert.shop_domain.is_(None))
+
+    return q.first()
+
+
 def write_alert(
     db: Session,
     *,
@@ -39,9 +70,21 @@ def write_alert(
     """
     Write an operational alert and attempt external delivery.
 
+    Dedup: suppresses duplicate alerts with the same (source, alert_type,
+    shop_domain) within a 5-minute window to prevent alert storms.
+
     DB persist happens FIRST — the alert exists regardless of delivery outcome.
     External delivery is attempted SECOND — failure is logged but never raised.
     """
+    # Step 0: Dedup check — suppress identical alerts within window
+    existing = _check_dedup(db, source, alert_type, shop_domain)
+    if existing:
+        log.debug(
+            "alert: dedup suppressed [%s] %s shop=%s — existing alert_id=%d",
+            alert_type, source, shop_domain or "global", existing.id,
+        )
+        return existing
+
     # Step 1: Persist to DB (always)
     alert = OpsAlert(
         severity=severity,

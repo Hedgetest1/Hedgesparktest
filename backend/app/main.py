@@ -142,27 +142,32 @@ from app.api.cohorts import router as cohorts_router
 from app.api.shopify_oauth import router as shopify_oauth_router
 from app.api.billing import router as billing_router
 from app.api.setup import router as setup_router
+from app.api.onboarding import router as onboarding_router
 from app.api.ops import router as ops_router
 from app.api.health import router as health_router
 from app.api.orders import router as orders_router
 from app.api.integrations import router as integrations_router
 from app.api.telegram_webhook import router as telegram_webhook_router
 from app.api.chat_support import router as chat_support_router
+from app.api.resend_webhooks import router as resend_webhooks_router
+from app.api.sentry_webhooks import router as sentry_webhooks_router
 
 _startup_log = logging.getLogger("wishspark.startup")
 
 app = FastAPI(title="WishSpark API", docs_url=None, redoc_url=None)
 
 # CORS — must allow:
-#   1. https://app.hedgesparkhq.com       — direct dashboard access
-#   2. https://admin.shopify.com           — Shopify new admin (embedded app iframe)
-#   3. https://*.myshopify.com             — Shopify classic admin (embedded app iframe)
+#   1. https://app.hedgesparkhq.com       — dashboard (subdomain)
+#   2. https://hedgesparkhq.com           — dashboard (root domain, same Next.js app)
+#   3. https://admin.shopify.com           — Shopify new admin (embedded app iframe)
+#   4. https://*.myshopify.com             — Shopify classic admin (embedded app iframe)
 # allow_credentials=True is required because the dashboard sends the
 # hs_session httpOnly cookie with every fetch (credentials: "include").
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://app.hedgesparkhq.com",
+        "https://hedgesparkhq.com",
         "https://admin.shopify.com",
     ],
     allow_origin_regex=r"https://[a-zA-Z0-9\-]+\.myshopify\.com",
@@ -330,12 +335,43 @@ app.include_router(cohorts_router)
 app.include_router(shopify_oauth_router)
 app.include_router(billing_router)
 app.include_router(setup_router)
+app.include_router(onboarding_router)
 app.include_router(health_router)
 app.include_router(orders_router)
 app.include_router(integrations_router)
 app.include_router(telegram_webhook_router)
 app.include_router(chat_support_router)
+app.include_router(resend_webhooks_router)
+app.include_router(sentry_webhooks_router)
 app.include_router(ops_router)
+
+
+# ---------------------------------------------------------------------------
+# Prometheus metrics endpoint + request tracking middleware
+# ---------------------------------------------------------------------------
+
+from fastapi.responses import PlainTextResponse
+from app.core.metrics import track_request, render_metrics
+
+
+@app.get("/metrics", include_in_schema=False)
+def prometheus_metrics():
+    """Prometheus-compatible metrics endpoint."""
+    return PlainTextResponse(render_metrics(), media_type="text/plain; version=0.0.4")
+
+
+@app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    """Track request latency and status for Prometheus."""
+    path = request.url.path
+    # Skip metrics endpoint itself and health checks
+    if path in ("/metrics", "/health", "/system/health"):
+        return await call_next(request)
+    ctx: dict = {}
+    with track_request(request.method, path) as ctx:
+        response = await call_next(request)
+        ctx["status"] = response.status_code
+        return response
 
 
 @app.on_event("startup")

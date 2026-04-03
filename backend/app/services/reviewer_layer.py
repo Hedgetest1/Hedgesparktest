@@ -331,7 +331,19 @@ def _is_auto_approvable(entity: dict, domains: list[str], risk: str, verdict: st
 
     # Entity-specific
     if entity["type"] == "bugfix_candidate":
-        return entity.get("risk_tier") == 0 and risk == "low"
+        if entity.get("risk_tier") != 0 or risk != "low":
+            return False
+        # Enforce via tier_check: verify files are actually TIER_0
+        files = entity.get("files", [])
+        if files:
+            try:
+                from app.core.tier_check import check_tier, TIER_0
+                tier_result = check_tier(files)
+                if tier_result.tier != TIER_0:
+                    return False
+            except ImportError:
+                pass
+        return True
     if entity["type"] == "evolution_proposal":
         return entity.get("risk_level") == "LEVEL_1" and entity.get("auto_applicable", False)
 
@@ -350,6 +362,96 @@ def _build_summary(entity: dict, verdict: str, risk: str, domains: list[str]) ->
     desc = entity_desc.get(entity["type"], f"{entity['type']} #{entity['id']}")
     domain_str = ", ".join(domains)
     return f"{verdict.upper()} [{risk}] — {desc}. Domains: {domain_str}."
+
+
+# ---------------------------------------------------------------------------
+# Lesson-aware review — institutional memory integration
+# ---------------------------------------------------------------------------
+
+def _lookup_domain_lessons(db: Session, domains: list[str]) -> dict:
+    """
+    Look up active lessons for the affected domains.
+    Returns structured summary for use in risk scoring, notes, and auto-approval.
+
+    Returns:
+        {
+            "negative_count": int,      # ineffective_pattern lessons
+            "positive_count": int,      # effective_pattern lessons
+            "high_confidence_negatives": list[str],  # summaries of strong warnings
+            "domain_risk_boost": str | None,  # "high" if domain is lesson-flagged
+            "auto_approve_blocked": bool,  # True if strong negative lessons exist
+            "notes": list[str],
+        }
+    """
+    result = {
+        "negative_count": 0,
+        "positive_count": 0,
+        "high_confidence_negatives": [],
+        "domain_risk_boost": None,
+        "auto_approve_blocked": False,
+        "notes": [],
+    }
+
+    try:
+        from app.models.system_lesson import SystemLesson
+
+        lessons = (
+            db.query(SystemLesson)
+            .filter(
+                SystemLesson.status == "active",
+                SystemLesson.domain.in_(domains),
+                SystemLesson.confidence >= 0.3,
+            )
+            .order_by(SystemLesson.confidence.desc())
+            .limit(10)
+            .all()
+        )
+
+        if not lessons:
+            return result
+
+        for l in lessons:
+            if l.lesson_type in ("ineffective_pattern", "regression_warning"):
+                result["negative_count"] += 1
+                if l.confidence >= 0.7 and l.evidence_count >= 2:
+                    result["high_confidence_negatives"].append(l.summary[:150])
+                # Only CONFIRMED regression warnings are hard blockers
+                if l.lesson_type == "regression_warning" and getattr(l, "promotion_status", None) in ("promoted", None):
+                    result["auto_approve_blocked"] = True
+                    result["notes"].append(
+                        f"REGRESSION WARNING (confirmed lesson #{l.id}): {l.summary[:120]}"
+                    )
+                # Pending promotions are advisory — notes but not hard blocks
+                elif getattr(l, "promotion_status", None) == "pending_promotion":
+                    result["notes"].append(
+                        f"PENDING REVIEW: lesson #{l.id} may become a regression warning: {l.summary[:100]}"
+                    )
+            elif l.lesson_type == "effective_pattern":
+                result["positive_count"] += 1
+
+        # Risk boost: if domain has 3+ negative lessons or 2+ high-confidence negatives
+        if result["negative_count"] >= 3 or len(result["high_confidence_negatives"]) >= 2:
+            result["domain_risk_boost"] = "high"
+            result["notes"].append(
+                f"LESSON WARNING: domain has {result['negative_count']} ineffective fix pattern(s) "
+                f"({len(result['high_confidence_negatives'])} high-confidence)"
+            )
+
+        # Block auto-approve if high-confidence negatives exist for this domain
+        if result["high_confidence_negatives"]:
+            result["auto_approve_blocked"] = True
+            result["notes"].append("Auto-approve blocked: domain has high-confidence negative lessons")
+
+        # Positive reinforcement note (informational only — never relaxes scrutiny)
+        if result["positive_count"] >= 2 and result["negative_count"] == 0:
+            result["notes"].append(
+                f"Lesson context: domain has {result['positive_count']} effective pattern(s) on record"
+            )
+
+    except Exception as exc:
+        log.debug("reviewer_lessons: lookup failed (non-fatal): %s", exc)
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -383,11 +485,23 @@ def review_entity(
     # Step 1: Classify affected domains
     domains = _classify_affected_domains(entity)
 
-    # Step 2: Compute risk
+    # Step 1b: Lookup domain lessons (institutional memory)
+    lesson_context = _lookup_domain_lessons(db, domains)
+
+    # Step 2: Compute risk (lesson-aware)
     risk = _compute_risk_level(entity, domains)
+    # Escalate risk if domain has strong negative lesson history
+    if lesson_context["domain_risk_boost"] and risk == "low":
+        risk = "medium"
+    elif lesson_context["domain_risk_boost"] and risk == "medium":
+        risk = "high"
 
     # Step 3: Check constitution
     concerns = _check_constitution(entity, domains, risk)
+    # Add lesson-based concerns
+    for note in lesson_context["notes"]:
+        if "WARNING" in note:
+            concerns.append(note)
 
     # Step 4: Compute blocking concerns (hard blockers)
     blocking = []
@@ -410,8 +524,11 @@ def review_entity(
     # Step 7: Confidence
     confidence = _compute_confidence(entity, snapshot)
 
-    # Step 8: Auto-approvable
+    # Step 8: Auto-approvable (lesson-aware)
     auto_ok = _is_auto_approvable(entity, domains, risk, verdict, concerns)
+    # Lessons can block auto-approval but never grant it
+    if auto_ok and lesson_context["auto_approve_blocked"]:
+        auto_ok = False
 
     # Step 9: Summary + notes
     summary = _build_summary(entity, verdict, risk, domains)
@@ -423,6 +540,10 @@ def review_entity(
         notes.append("LEVEL_3: architecture-level change — requires deep review")
     for c in concerns:
         notes.append(c)
+    # Add informational lesson notes (non-warning ones)
+    for note in lesson_context["notes"]:
+        if note not in notes:  # avoid duplicates from concerns
+            notes.append(note)
 
     # Persist assessment
     assessment = ReviewerAssessment(

@@ -198,3 +198,60 @@ def test_converted_candidate_is_standard_bugfix(db):
     # These are set by auto-propose later
     assert candidate.patch_diff is None
     assert candidate.patch_risk_tier is None
+
+
+# ---------------------------------------------------------------------------
+# Execution policy enforcement
+# ---------------------------------------------------------------------------
+
+def test_tier2_target_blocked(db):
+    """Proposals targeting TIER_2 files are rejected at conversion time."""
+    p = _make_proposal(db, reason="Fix token_crypto issue")
+    p.target_file = "app/core/token_crypto.py"
+    db.flush()
+
+    summary = convert_eligible_proposals(db)
+    assert summary["skipped_ineligible"] >= 1
+    assert summary["converted"] == 0
+
+
+def test_tier2_billing_blocked(db):
+    """Proposals targeting billing are rejected at conversion time."""
+    p = _make_proposal(db, reason="Fix billing edge case")
+    p.target_file = "app/api/billing.py"
+    db.flush()
+
+    summary = convert_eligible_proposals(db)
+    assert summary["skipped_ineligible"] >= 1
+    assert summary["converted"] == 0
+
+
+def test_tier2_migration_blocked(db):
+    """Proposals targeting migrations are rejected at conversion time."""
+    p = _make_proposal(db, reason="Add migration index")
+    p.target_file = "migrations/versions/abc_new.py"
+    db.flush()
+
+    summary = convert_eligible_proposals(db)
+    assert summary["skipped_ineligible"] >= 1
+    assert summary["converted"] == 0
+
+
+def test_tier0_target_allowed(db):
+    """Proposals targeting safe service files are converted normally."""
+    p = _make_proposal(db, reason="Fix revenue calc")
+    p.target_file = "app/services/revenue_metrics.py"
+    db.flush()
+
+    summary = convert_eligible_proposals(db)
+    assert summary["converted"] >= 1
+
+
+def test_none_target_allowed(db):
+    """Proposals without a target_file (e.g., area-level proposals) are not blocked."""
+    p = _make_proposal(db, reason="General reliability improvement")
+    p.target_file = None
+    db.flush()
+
+    summary = convert_eligible_proposals(db)
+    assert summary["converted"] >= 1

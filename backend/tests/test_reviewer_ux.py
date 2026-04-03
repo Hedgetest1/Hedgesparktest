@@ -321,7 +321,7 @@ class TestActionSuggestionPresent:
         assert f"bugfix_approve {c.id}" in result or f"bugfix\\_approve {c.id}" in result
 
     def test_send_reviewer_verdict_has_action(self):
-        """Push notification includes action suggestion."""
+        """Push notification includes action buttons for bugfix candidates."""
         from app.services.telegram_agent import send_reviewer_verdict
 
         a = _make_assessment(
@@ -332,18 +332,21 @@ class TestActionSuggestionPresent:
         a.entity_id = 42
         a.id = 999
 
-        with MagicMock() as mock_send:
+        with MagicMock() as mock_send_buttons:
             import app.services.telegram_agent as ta
-            orig = ta.send_message
-            ta.send_message = mock_send
-            mock_send.return_value = True
+            orig = ta.send_message_with_buttons
+            ta.send_message_with_buttons = mock_send_buttons
+            mock_send_buttons.return_value = True
             try:
                 send_reviewer_verdict(a, entity_title="Fix parser")
             finally:
-                ta.send_message = orig
+                ta.send_message_with_buttons = orig
 
-            sent_text = mock_send.call_args[0][0]
-            assert "bugfix_approve 42" in sent_text or "bugfix\\_approve 42" in sent_text
+            # Verify buttons contain the approval commands
+            sent_text = mock_send_buttons.call_args[0][0]
+            sent_buttons = mock_send_buttons.call_args[0][1]
+            assert any("bugfix_approve 42" in btn["callback_data"]
+                       for row in sent_buttons for btn in row)
 
     def test_reject_verdict_suggests_do_not_apply(self):
         """Reject push notification tells operator not to apply."""

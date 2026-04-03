@@ -150,16 +150,41 @@ def run_promotion_ci_check(db: Session, promotion_id: int) -> str:
         promo.ci_result = ci_output[:2000]
         promo.ci_url = "local://pytest"
 
-        if result.returncode == 0:
-            promo.status = "ci_passed"
-            log.info("promotion: CI passed id=%d", promo.id)
-            return "ci_passed"
-        else:
+        if result.returncode != 0:
             promo.status = "ci_failed"
             promo.failure_reason = f"tests_failed (exit {result.returncode})"
             _notify_promotion(promo, "ci_failed")
             log.warning("promotion: CI failed id=%d", promo.id)
             return "ci_failed"
+
+        # Frontend build verification — check if the promoted patch touches dashboard
+        try:
+            from app.models.bugfix_candidate import BugFixCandidate
+            import json as _json
+            candidate = db.query(BugFixCandidate).get(promo.bugfix_candidate_id)
+            if candidate and candidate.patch_files:
+                from app.core.tier_check import require_frontend_build
+                files = _json.loads(candidate.patch_files)
+                if require_frontend_build(files):
+                    log.info("promotion: running frontend build check (dashboard files in patch)")
+                    from app.core.pre_apply_guard import verify_frontend_build
+                    build_ok, build_output = verify_frontend_build()
+                    if not build_ok:
+                        promo.status = "ci_failed"
+                        promo.failure_reason = f"frontend_build_failed: {build_output[:300]}"
+                        promo.ci_result = f"{ci_output[:1500]}\n\n--- FRONTEND BUILD ---\n{build_output[:400]}"
+                        _notify_promotion(promo, "ci_failed")
+                        log.warning("promotion: frontend build failed id=%d", promo.id)
+                        db.flush()
+                        return "ci_failed"
+        except ImportError:
+            pass  # tier_check/pre_apply_guard not available, skip frontend check
+        except Exception as exc:
+            log.warning("promotion: frontend build check error (non-fatal): %s", exc)
+
+        promo.status = "ci_passed"
+        log.info("promotion: CI passed id=%d", promo.id)
+        return "ci_passed"
     except Exception as exc:
         promo.status = "ci_failed"
         promo.failure_reason = f"ci_error: {str(exc)[:200]}"

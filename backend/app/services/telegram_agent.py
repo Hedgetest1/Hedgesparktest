@@ -208,6 +208,62 @@ def send_message(text: str, chat_id: str | None = None, parse_mode: str = "Markd
         return False
 
 
+def send_message_with_buttons(
+    text: str,
+    buttons: list[list[dict]],
+    chat_id: str | None = None,
+    parse_mode: str = "Markdown",
+) -> bool:
+    """
+    Send a Telegram message with inline keyboard buttons.
+
+    buttons format: [[{"text": "Approve", "callback_data": "/bugfix_approve 19917"}]]
+
+    Each button sends its callback_data when tapped — solving the problem where
+    tapping a /command in message text only sends the command without arguments.
+    """
+    if not _BOT_TOKEN:
+        return False
+
+    target = chat_id or _CHAT_ID
+    if not target:
+        return False
+
+    formatted_text = _escape_markdown(text) if parse_mode == "Markdown" else text
+    url = f"https://api.telegram.org/bot{_BOT_TOKEN}/sendMessage"
+
+    try:
+        client = _get_http_client()
+        resp = client.post(url, json={
+            "chat_id": target,
+            "text": formatted_text,
+            "parse_mode": parse_mode,
+            "reply_markup": {
+                "inline_keyboard": buttons,
+            },
+        })
+        if resp.status_code == 200:
+            log.info("telegram_agent: message with buttons sent to %s", target)
+            return True
+
+        # Markdown fallback
+        if resp.status_code == 400 and "parse entities" in (resp.text or "").lower():
+            plain = _strip_markdown(text)
+            resp2 = client.post(url, json={
+                "chat_id": target,
+                "text": plain,
+                "reply_markup": {"inline_keyboard": buttons},
+            })
+            if resp2.status_code == 200:
+                return True
+
+        log.warning("telegram_agent: button message failed: %d", resp.status_code)
+        return False
+    except Exception as exc:
+        log.warning("telegram_agent: button send failed: %s", type(exc).__name__)
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Reviewer context — decision-first formatting
 # ---------------------------------------------------------------------------
@@ -406,7 +462,10 @@ def handle_command(command: str, db=None, chat_id: str | None = None) -> str:
     Read-only commands work for authorized chat.
     Write commands require chat_id == TELEGRAM_CHAT_ID.
     """
-    parts = command.strip().split()
+    # Normalize: strip Markdown escape backslashes that Telegram may send
+    # when user taps a command from a formatted message (e.g. /bugfix\_approve → /bugfix_approve)
+    cleaned = command.strip().replace("\\_", "_").replace("\\*", "*")
+    parts = cleaned.split()
     cmd = parts[0].lower() if parts else ""
     args = parts[1:] if len(parts) > 1 else []
 
@@ -439,6 +498,8 @@ def handle_command(command: str, db=None, chat_id: str | None = None) -> str:
         "/meta_review": lambda: _cmd_meta_review(db),
         "/digest": lambda: _cmd_digest(db),
         "/webhooks": lambda: _cmd_webhooks(db),
+        "/loop_health": lambda: _cmd_loop_health(db),
+        "/weakness": lambda: _cmd_weakness(db),
         "/help": lambda: _cmd_help(db),
     }
 
@@ -851,9 +912,9 @@ def _cmd_bugfixes(db) -> str:
         if r_inline:
             lines.append(f"  {r_inline}")
         if c.status == "patch_proposed":
-            lines.append(f"  \U0001f449 /bugfix\\_approve {c.id}")
+            lines.append(f"  \U0001f449 /bugfix_approve {c.id}")
         elif c.status == "approved":
-            lines.append(f"  \U0001f449 /bugfix\\_apply {c.id}")
+            lines.append(f"  \U0001f449 /bugfix_apply {c.id}")
         lines.append("")
 
     return "\n".join(lines)
@@ -864,7 +925,7 @@ def _cmd_bugfix_approve(db, args: list[str]) -> str:
     if db is None:
         return "No DB session available."
     if not args:
-        return "Usage: /bugfix\\_approve <id>"
+        return "Usage: /bugfix_approve <id>"
 
     try:
         candidate_id = int(args[0])
@@ -909,7 +970,7 @@ def _cmd_bugfix_approve(db, args: list[str]) -> str:
     return (
         f"\u2705 *Bugfix approved* #{candidate_id}\n"
         f"Title: {c.title[:80]}\n"
-        f"Next: /bugfix\\_apply {candidate_id}"
+        f"Next: /bugfix_apply {candidate_id}"
         f"{reviewer_ctx}"
     )
 
@@ -919,7 +980,7 @@ def _cmd_bugfix_apply(db, args: list[str]) -> str:
     if db is None:
         return "No DB session available."
     if not args:
-        return "Usage: /bugfix\\_apply <id>"
+        return "Usage: /bugfix_apply <id>"
 
     try:
         candidate_id = int(args[0])
@@ -1254,6 +1315,66 @@ def _cmd_webhooks(db) -> str:
         return f"Webhook status unavailable: {exc}"
 
 
+def _cmd_loop_health(db) -> str:
+    """Autonomous loop health snapshot."""
+    from app.services.loop_health import get_loop_health
+    h = get_loop_health(db)
+
+    healthy = "healthy" if h["is_healthy"] else "NEEDS ATTENTION"
+    lines = [
+        f"*Loop Health* — {healthy}",
+        "",
+        f"*Throughput (7d):*",
+        f"  Applied: {h['throughput_7d'].get('bugfixes_applied_7d', 0)}",
+        f"  Proposed: {h['throughput_7d'].get('patches_proposed_7d', 0)}",
+        f"  Evolutions: {h['throughput_7d'].get('evolutions_converted_7d', 0)}",
+        f"  Failure rate: {h['failure_rate_30d_pct']}%",
+    ]
+
+    outcomes = h.get("outcomes_30d", {})
+    if outcomes:
+        lines.append(f"\n*Outcomes (30d):*")
+        for k, v in outcomes.items():
+            lines.append(f"  {k}: {v}")
+
+    stuck = h.get("stuck_items", [])
+    if stuck:
+        lines.append(f"\n*Stuck ({len(stuck)}):*")
+        for s in stuck[:5]:
+            lines.append(f"  {s['count']}x {s['status']} (>{s['threshold_hours']}h)")
+
+    thrashing = h.get("thrashing_sources", [])
+    if thrashing:
+        lines.append(f"\n*Thrashing ({len(thrashing)}):*")
+        for t in thrashing[:3]:
+            lines.append(f"  {t['source_ref']} ({t['failure_count']}x fails)")
+
+    weak = h.get("weakest_subsystems", [])
+    if weak:
+        lines.append(f"\n*Weakest:*")
+        for w in weak[:3]:
+            lines.append(f"  {w['domain']} — score {w['score']} [{w['criticality']}]")
+
+    return "\n".join(lines)
+
+
+def _cmd_weakness(db) -> str:
+    """Subsystem weakness ranking."""
+    from app.services.loop_health import score_subsystem_weakness
+    ranking = score_subsystem_weakness(db, lookback_days=30)
+
+    if not ranking:
+        return "*Subsystem Weakness* — No weakness signals detected. All systems healthy."
+
+    lines = ["*Subsystem Weakness* (30d, weakest first)", ""]
+    for i, w in enumerate(ranking[:10], 1):
+        reasons = ", ".join(w["reasons"][:3])
+        lines.append(f"{i}. *{w['domain']}* — score {w['score']} [{w['criticality']}]")
+        lines.append(f"   {reasons}")
+
+    return "\n".join(lines)
+
+
 def _cmd_help(db) -> str:
     """Full command list."""
     return (
@@ -1265,7 +1386,7 @@ def _cmd_help(db) -> str:
         "/merchants \u2014 merchant summary\n"
         "/scaling \u2014 scaling forecast + recommendations\n"
         "/incidents \u2014 active support incidents\n"
-        "/meta\\_review \u2014 latest strategic meta-review\n"
+        "/meta_review \u2014 latest strategic meta-review\n"
         "/digest \u2014 daily health digest\n"
         "/webhooks \u2014 webhook fleet status\n\n"
         "*Approvals:*\n"
@@ -1274,14 +1395,17 @@ def _cmd_help(db) -> str:
         "/reject <id> [reason] \u2014 reject with optional reason\n\n"
         "*Bugfixes:*\n"
         "/bugfixes \u2014 list bugfixes needing action\n"
-        "/bugfix\\_approve <id> \u2014 approve a proposed patch\n"
-        "/bugfix\\_apply <id> \u2014 apply approved patch\n\n"
+        "/bugfix_approve <id> \u2014 approve a proposed patch\n"
+        "/bugfix_apply <id> \u2014 apply approved patch\n\n"
         "*Promotions:*\n"
         "/promotions \u2014 list active promotions\n"
         "/merge <id> \u2014 merge eligible promotion PR\n\n"
         "*Review:*\n"
         "/review <type> <id> \u2014 reviewer verdict\n"
         "  types: bugfix, approval, promotion, evolution, model\\_upgrade, scaling\n\n"
+        "*Loop Intelligence:*\n"
+        "/loop_health \u2014 autonomous loop health snapshot\n"
+        "/weakness \u2014 subsystem weakness ranking\n\n"
         "/help \u2014 this message"
     )
 
@@ -1349,23 +1473,35 @@ def send_monthly_report(proposals: list[dict], system_summary: dict) -> bool:
 
 def send_reviewer_verdict(assessment, entity_title: str | None = None) -> bool:
     """
-    Send a decision-first reviewer verdict to Telegram.
-    Called when the reviewer blocks or gates an action.
+    Send a decision-first reviewer verdict to Telegram WITH action buttons.
+
+    Buttons solve the Telegram limitation where tapping a /command in text
+    only sends the command without arguments. Inline keyboard buttons carry
+    the full command as callback_data.
     """
     title = entity_title or f"{assessment.entity_type} #{assessment.entity_id}"
-
-    # Build action hint based on entity type
-    action_hint = None
     etype = assessment.entity_type
     eid = assessment.entity_id
+
+    # Build text
+    action_hint = None
+    buttons = []
+
     if assessment.verdict == "reject" or assessment.risk_level in ("high", "critical"):
         action_hint = "Do not apply this change."
     elif etype == "bugfix_candidate":
-        action_hint = f"/bugfix\\_approve {eid}"
+        action_hint = f"Step 1: Approve | Step 2: Apply"
+        buttons = [
+            [
+                {"text": f"Approve #{eid}", "callback_data": f"/bugfix_approve {eid}"},
+                {"text": f"Apply #{eid}", "callback_data": f"/bugfix_apply {eid}"},
+            ],
+        ]
     elif etype == "action_approval":
-        action_hint = f"/approve {eid}"
-    elif etype == "scaling_recommendation":
-        action_hint = f"/review scaling {eid}"
+        action_hint = f"Tap to approve:"
+        buttons = [
+            [{"text": f"Approve #{eid}", "callback_data": f"/approve {eid}"}],
+        ]
 
     decision_block = _format_reviewer_decision(assessment, action_hint=action_hint)
 
@@ -1375,6 +1511,8 @@ def send_reviewer_verdict(assessment, entity_title: str | None = None) -> bool:
         decision_block,
     ]
 
+    if buttons:
+        return send_message_with_buttons("\n".join(lines), buttons)
     return send_message("\n".join(lines))
 
 

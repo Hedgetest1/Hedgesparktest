@@ -144,7 +144,7 @@ export default function PricingPage() {
       });
   }, []);
 
-  const dashboardHref = "/";
+  const dashboardHref = "/app";
   const isProUser = tier === "pro";
   const hasTrial = trialDays > 0;
   const priceStr = price % 1 === 0 ? `$${price}` : `$${price.toFixed(2)}`;

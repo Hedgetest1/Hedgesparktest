@@ -183,3 +183,45 @@ def test_get_export_failed_status(client, db):
     assert resp.status_code == 200
     assert resp.json()["status"] == "failed"
     assert "error" in resp.json()
+
+
+# ---------------------------------------------------------------------------
+# Governance observability
+# ---------------------------------------------------------------------------
+
+def test_tier_check_endpoint(client):
+    """GET /ops/tier-check classifies files correctly."""
+    resp = client.get("/ops/tier-check?files=app/core/token_crypto.py", headers=_op_headers())
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["tier"] == 2
+    assert data["label"] == "TIER_2"
+    assert data["blocked"] is True
+
+
+def test_tier_check_safe_file(client):
+    """Safe file returns TIER_0."""
+    resp = client.get("/ops/tier-check?files=app/services/revenue_metrics.py", headers=_op_headers())
+    assert resp.status_code == 200
+    assert resp.json()["tier"] == 0
+    assert resp.json()["blocked"] is False
+
+
+def test_tier_check_multiple_files(client):
+    """Multiple files — highest tier wins."""
+    resp = client.get(
+        "/ops/tier-check?files=app/services/foo.py,app/core/token_crypto.py",
+        headers=_op_headers(),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["tier"] == 2
+
+
+def test_file_locks_endpoint(client):
+    """GET /ops/file-locks returns lock list."""
+    resp = client.get("/ops/file-locks", headers=_op_headers())
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "active_locks" in data
+    assert "count" in data
+    assert isinstance(data["active_locks"], list)

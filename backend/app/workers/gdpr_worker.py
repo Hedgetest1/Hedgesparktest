@@ -32,6 +32,10 @@ WORKER_NAME = "gdpr_worker"
 SLEEP_SECONDS = 300       # 5 minutes between cycles
 BATCH_SIZE = 10           # max requests per cycle
 
+# Requests stuck in "processing" for longer than this are considered crashed
+# and will be reset to "pending" for retry.
+_STUCK_PROCESSING_MINUTES = 30
+
 
 _log = logging.getLogger("worker.gdpr")
 
@@ -50,11 +54,60 @@ def _load_state(db) -> WorkerState:
     return state
 
 
+def _recover_stuck_processing(db) -> int:
+    """
+    Reset GDPR requests stuck in "processing" status back to "pending".
+
+    This handles the crash scenario where the worker dies mid-operation.
+    Requests stuck for >30 minutes are assumed to be from a crashed process.
+    """
+    from datetime import timedelta
+    from sqlalchemy import text
+
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=_STUCK_PROCESSING_MINUTES)
+    # Use created_at as proxy — processed_at is NULL for stuck requests.
+    # A request set to "processing" >30 min ago with no processed_at is stuck.
+    stuck = (
+        db.query(GdprRequest)
+        .filter(
+            GdprRequest.status == "processing",
+            GdprRequest.processed_at.is_(None),
+            GdprRequest.created_at < cutoff,
+        )
+        .all()
+    )
+
+    recovered = 0
+    for req in stuck:
+        log(f"RECOVERY: resetting stuck request_id={req.id} (processing since {req.updated_at})")
+        req.status = "pending"
+        recovered += 1
+
+    if recovered:
+        try:
+            from app.services.alerting import write_alert
+            write_alert(
+                db, severity="warning", source="gdpr_worker",
+                alert_type="gdpr_stuck_recovery",
+                summary=f"Recovered {recovered} stuck GDPR request(s) from crashed processing",
+                detail={"recovered_count": recovered},
+            )
+        except Exception:
+            pass
+        db.commit()
+        log(f"RECOVERY: reset {recovered} stuck request(s) to pending")
+
+    return recovered
+
+
 def run_cycle() -> dict:
     """Process pending GDPR requests.  Returns cycle stats."""
     db = SessionLocal()
-    stats = {"processed": 0, "errors": 0}
+    stats = {"processed": 0, "errors": 0, "recovered": 0}
     try:
+        # Recovery: reset requests stuck in "processing" from crashed workers
+        stats["recovered"] = _recover_stuck_processing(db)
+
         # Pick up pending requests, oldest first
         pending = (
             db.query(GdprRequest)
@@ -97,33 +150,43 @@ def run_cycle() -> dict:
 def main() -> None:
     log(f"starting — cycle every {SLEEP_SECONDS}s, batch size {BATCH_SIZE}")
     while True:
-        t0 = time.monotonic()
-        try:
-            stats = run_cycle()
-            duration_ms = int((time.monotonic() - t0) * 1000)
+        from app.core.distributed_lock import worker_lock
+        from app.core.metrics import track_worker_cycle
 
-            # Write worker log
-            db = SessionLocal()
+        with worker_lock(WORKER_NAME, ttl_seconds=SLEEP_SECONDS + 60) as acquired:
+            if not acquired:
+                log("another instance holds the lock — skipping cycle")
+                time.sleep(SLEEP_SECONDS)
+                continue
+
+            t0 = time.monotonic()
             try:
-                db.add(WorkerLog(
-                    worker_name=WORKER_NAME,
-                    started_at=datetime.now(timezone.utc).replace(tzinfo=None),
-                    finished_at=datetime.now(timezone.utc).replace(tzinfo=None),
-                    shops_processed=stats["processed"],
-                    rows_written=stats["processed"],
-                    errors=stats["errors"],
-                    duration_ms=duration_ms,
-                ))
-                db.commit()
-            except Exception:
-                db.rollback()
-            finally:
-                db.close()
+                with track_worker_cycle(WORKER_NAME):
+                    stats = run_cycle()
+                duration_ms = int((time.monotonic() - t0) * 1000)
 
-            log(f"cycle complete — processed={stats['processed']} errors={stats['errors']} duration={duration_ms}ms")
-        except Exception as exc:
-            log(f"FATAL: {exc}")
-            raise  # PM2 will restart
+                # Write worker log
+                db = SessionLocal()
+                try:
+                    db.add(WorkerLog(
+                        worker_name=WORKER_NAME,
+                        started_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                        finished_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                        shops_processed=stats["processed"],
+                        rows_written=stats["processed"],
+                        errors=stats["errors"],
+                        duration_ms=duration_ms,
+                    ))
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                finally:
+                    db.close()
+
+                log(f"cycle complete — processed={stats['processed']} errors={stats['errors']} duration={duration_ms}ms")
+            except Exception as exc:
+                log(f"FATAL: {exc}")
+                raise  # PM2 will restart
 
         time.sleep(SLEEP_SECONDS)
 

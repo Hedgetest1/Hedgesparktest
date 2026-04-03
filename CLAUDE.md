@@ -67,22 +67,36 @@ Budget state: `app/core/llm_budget.py`. Operator view: GET /ops/llm-budget
 
 ## Safety Rules
 
-Never modify without explicit approval:
+See `EXECUTION_POLICY.md` for the full tiered execution model. Summary:
+
+**TIER_2 — Never modify without explicit human approval:**
 - `app/core/token_crypto.py` — merchant token encryption
 - `app/core/merchant_session.py` — session JWT signing
 - `app/api/shopify_oauth.py` — OAuth flow
 - `app/api/billing.py` — billing logic
 - `app/core/deps.py` — auth middleware
+- `app/api/webhooks.py` — webhook handlers
+- `app/services/order_ingestion.py` — revenue data pipeline
+- `app/services/gdpr_processor.py` — GDPR compliance
 - `migrations/` — database schema
 - `ecosystem.config.js` — PM2 config
 - `.env` — production secrets
+- `deploy.sh` — deployment script
 
-Safe to modify:
-- `app/services/*` — business logic services
-- `app/api/*` (except oauth/billing) — API endpoints
+**TIER_1 — Propose only, human approves:**
+- `tracker/*.js` — storefront scripts (runs in merchant browsers)
+- `app/services/orchestrator*.py` — action execution logic
+- `app/services/bugfix_pipeline.py`, `app/services/promotion_pipeline.py` — self-modification
+- `app/services/reviewer_layer.py`, `app/services/project_brain.py` — governance logic
+- `app/core/llm_budget.py`, `app/core/llm_router.py` — LLM infrastructure
+- `app/models/*` — SQLAlchemy model definitions
+- Multi-file refactors touching 6+ files
+
+**TIER_0 — Safe to modify (with tests passing):**
+- `app/services/*` — business logic services (except those listed above)
+- `app/api/*` — API endpoints (except oauth, billing, webhooks)
 - `app/workers/*` — background workers
 - `dashboard/src/*` — frontend components
-- `tracker/*.js` — storefront scripts (bump TRACKER_VERSION after changes)
 - `tests/*` — test files
 
 ## Verification After Changes

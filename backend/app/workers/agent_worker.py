@@ -219,20 +219,54 @@ def _run_onboarding():
         db.close()
 
 
-def _run_bug_triage():
+def _run_onboarding_health():
+    """Check onboarding pipeline health + funnel friction detection."""
+    db = SessionLocal()
+    try:
+        from app.services.onboarding_health import write_onboarding_alerts
+        result = write_onboarding_alerts(db)
+        if result["alerts_written"] > 0:
+            log(f"onboarding_health: alerts={result['alerts_written']} stuck={result['stuck']} pixel_abandon={result['pixel_abandon']}")
+    except Exception as exc:
+        log(f"onboarding_health error (non-fatal): {exc}")
+        db.rollback()
+    finally:
+        db.close()
+
+    # Funnel friction detection (separate session for isolation)
+    db2 = SessionLocal()
+    try:
+        from app.services.onboarding_funnel import run_friction_detection
+        friction = run_friction_detection(db2)
+        if friction["friction_signals"] > 0 or friction["alerts_written"] > 0:
+            log(f"onboarding_funnel: signals={friction['friction_signals']} alerts={friction['alerts_written']} insights={friction['insights']}")
+    except Exception as exc:
+        log(f"onboarding_funnel error (non-fatal): {exc}")
+        db2.rollback()
+    finally:
+        db2.close()
+
+
+def _run_bug_triage(auto_apply_paused: bool = False):
     """Scan for new bug-worthy events, create candidates, auto-propose, auto-apply, auto-promote."""
     db = SessionLocal()
     try:
         from app.services.bugfix_pipeline import run_bug_triage, run_auto_propose, run_auto_apply
         from app.services.promotion_pipeline import run_auto_promotion
 
-        # Each phase is isolated — one failure does not kill the others
-        for phase_name, phase_fn in [
+        # Build phase list — skip auto_apply and auto_promotion when circuit breaker is tripped
+        phases = [
             ("triage", lambda: run_bug_triage(db)),
             ("auto_propose", lambda: run_auto_propose(db)),
-            ("auto_apply", lambda: run_auto_apply(db)),
-            ("auto_promotion", lambda: run_auto_promotion(db)),
-        ]:
+        ]
+        if not auto_apply_paused:
+            phases.append(("auto_apply", lambda: run_auto_apply(db)))
+            phases.append(("auto_promotion", lambda: run_auto_promotion(db)))
+        else:
+            log("bug_triage: auto_apply PAUSED by circuit breaker — triage and propose continue")
+
+        # Each phase is isolated — one failure does not kill the others
+        for phase_name, phase_fn in phases:
             try:
                 result = phase_fn()
                 db.commit()
@@ -258,6 +292,27 @@ def _run_bugfix_outcome_eval():
         db.commit()
         if summary["evaluated"] > 0:
             log(f"bugfix_outcomes: evaluated={summary['evaluated']} effective={summary['effective']} ineffective={summary['ineffective']}")
+
+        # Closed-loop: reopen ineffective fixes as new candidates
+        from app.services.loop_health import reopen_from_ineffective
+        reopen = reopen_from_ineffective(db)
+        db.commit()
+        if reopen["reopened"] > 0:
+            log(f"loop_reopen: reopened={reopen['reopened']} suppressed={reopen['suppressed']}")
+
+        # Self-caused regression detection
+        from app.services.evolution_outcomes import detect_self_caused_regressions
+        regression = detect_self_caused_regressions(db)
+        db.commit()
+        if regression["flagged"] > 0:
+            log(f"self_regression: flagged={regression['flagged']} checked={regression['checked']}")
+
+        # Auto-resolve thrash alerts for stabilized sources
+        from app.services.loop_health import auto_resolve_thrash_alerts
+        resolved = auto_resolve_thrash_alerts(db)
+        db.commit()
+        if resolved["resolved"] > 0:
+            log(f"thrash_resolve: resolved={resolved['resolved']} checked={resolved['checked']}")
     except Exception as exc:
         log(f"bugfix_outcomes error (non-fatal): {exc}")
         db.rollback()
@@ -366,39 +421,35 @@ def _run_monthly_evolution_audit():
     from app.services.monthly_evolution_audit import should_run_monthly_audit, run_monthly_opus_audit, mark_monthly_audit_run
     if not should_run_monthly_audit():
         return
+
+    # ALWAYS mark cooldown regardless of outcome — prevents infinite retry
+    # when LLM keys aren't configured (the "skipped every 15 min" bug).
+    mark_monthly_audit_run()
+
     db = SessionLocal()
     try:
         result = run_monthly_opus_audit(db)
         db.commit()
 
         status = result.get("status", "skipped")
-        actually_ran = status == "completed" and result["proposals_created"] > 0
-
-        # Only mark cooldown if audit actually executed (LLM was called)
-        if status != "skipped":
-            mark_monthly_audit_run()
+        actually_ran = status == "completed" and result.get("proposals_created", 0) > 0
 
         if actually_ran:
             log(f"monthly_opus_audit: created={result['proposals_created']} cycle={result.get('cycle')}")
         elif status == "skipped":
             log(f"monthly_opus_audit: skipped — {result.get('reason', 'unknown')}")
 
-        # Send Telegram summary ONLY after real execution
-        try:
-            from app.services.telegram_agent import send_monthly_report, send_message, is_configured
-            if is_configured():
-                if actually_ran:
+        # Send Telegram ONLY when audit actually produced proposals.
+        # "Skipped" is a non-event — log it, don't spam Telegram.
+        if actually_ran:
+            try:
+                from app.services.telegram_agent import send_monthly_report, is_configured
+                if is_configured():
                     from app.services.system_summary import build_system_summary
                     summary = build_system_summary(db)
                     send_monthly_report(result.get("proposals", []), summary)
-                elif status == "skipped":
-                    send_message(
-                        f"*Monthly Opus Audit* \u2014 skipped\n\n"
-                        f"Reason: {result.get('reason', 'unknown')}\n"
-                        f"No proposals generated. No LLM call was made."
-                    )
-        except Exception as exc:
-            log(f"telegram report error (non-fatal): {exc}")
+            except Exception as exc:
+                log(f"telegram report error (non-fatal): {exc}")
 
     except Exception as exc:
         log(f"monthly_opus_audit error (non-fatal): {exc}")
@@ -599,7 +650,7 @@ def _run_daily_digest():
 
     today = _today_rome()
 
-    # --- Phase 1: Check permanent sent marker ---
+    # --- Phase 1: Fast-path check (avoid lock contention for common case) ---
     try:
         from app.core.redis_client import _client
         rc = _client()
@@ -632,6 +683,15 @@ def _run_daily_digest():
     # If Redis unavailable and fallback already set, skip
     if not lock_acquired_redis and _digest_fallback_sent == today:
         return
+
+    # --- Phase 2b: Re-check sent marker INSIDE lock (prevents race) ---
+    if rc is not None and lock_acquired_redis:
+        try:
+            if rc.get(_digest_sent_key(today)):
+                rc.delete(_digest_lock_key(today))
+                return  # another process sent between our check and lock
+        except Exception:
+            pass
 
     # --- Phase 3: Build and send ---
     db = SessionLocal()
@@ -686,8 +746,363 @@ def _run_merchant_digest():
         db.close()
 
 
+def _run_lifecycle_emails():
+    """
+    Send lifecycle emails for merchants needing attention.
+
+    Three trigger types, each with its own dedup/cooldown:
+      1. setup_incomplete — merchant installed >24h ago, still not ready
+      2. first_insight    — first opportunity_signal appeared (once per shop)
+      3. connection_issue — merchant stuck in degraded/failed state >2h
+
+    All dedup is handled inside send_lifecycle_email — safe to call every cycle.
+    """
+    db = SessionLocal()
+    try:
+        from app.services.merchant_email_service import send_lifecycle_email
+        from app.models.merchant import Merchant
+        from datetime import timedelta
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        emails_sent = 0
+
+        # --- 1. Setup incomplete: installed >24h ago, not ready ---
+        install_cutoff = now - timedelta(hours=24)
+        stuck_merchants = (
+            db.query(Merchant)
+            .filter(
+                Merchant.install_status == "active",
+                Merchant.onboarding_status.in_(["pending", "failed"]),
+                Merchant.installed_at < install_cutoff,
+                Merchant.contact_email.isnot(None),
+                Merchant.contact_email != "",
+            )
+            .limit(10)
+            .all()
+        )
+        for m in stuck_merchants:
+            hours = int((now - m.installed_at).total_seconds() / 3600) if m.installed_at else 24
+            result = send_lifecycle_email(db, m.shop_domain, "setup_incomplete", {
+                "issue": m.onboarding_error or "setup is incomplete",
+                "hours_since_install": hours,
+            })
+            if result["status"] == "sent":
+                emails_sent += 1
+            db.commit()
+
+        # --- 2. First insight: shops with signals that haven't received this email ---
+        from sqlalchemy import text
+        first_insight_shops = db.execute(text("""
+            SELECT DISTINCT os.shop_domain
+            FROM opportunity_signals os
+            JOIN merchants m ON m.shop_domain = os.shop_domain
+            WHERE m.install_status = 'active'
+              AND m.contact_email IS NOT NULL
+              AND m.contact_email != ''
+              AND os.expires_at > now()
+              AND os.shop_domain NOT IN (
+                  SELECT me.shop_domain FROM merchant_emails me
+                  WHERE me.email_type = 'first_insight' AND me.status = 'sent'
+              )
+            LIMIT 10
+        """)).fetchall()
+
+        for row in first_insight_shops:
+            shop = row[0]
+            # Get signal details for context
+            top = db.execute(text("""
+                SELECT signal_type, explanation, product_url
+                FROM opportunity_signals
+                WHERE shop_domain = :shop AND expires_at > now()
+                ORDER BY signal_strength DESC NULLS LAST
+                LIMIT 1
+            """), {"shop": shop}).fetchone()
+
+            signal_count = db.execute(text("""
+                SELECT COUNT(*) FROM opportunity_signals
+                WHERE shop_domain = :shop AND expires_at > now()
+            """), {"shop": shop}).scalar() or 1
+
+            ctx = {"signal_count": signal_count}
+            if top:
+                ctx["top_signal"] = top[1] or top[0] or "a product showing unusual visitor behavior"
+
+            result = send_lifecycle_email(db, shop, "first_insight", ctx)
+            if result["status"] == "sent":
+                emails_sent += 1
+            db.commit()
+
+        # --- 3. Connection issue: stuck merchants (degraded/failed >2h) ---
+        stuck_cutoff = now - timedelta(hours=2)
+        degraded_merchants = (
+            db.query(Merchant)
+            .filter(
+                Merchant.install_status == "active",
+                Merchant.onboarding_status.in_(["failed"]),
+                Merchant.contact_email.isnot(None),
+                Merchant.contact_email != "",
+            )
+            .limit(5)
+            .all()
+        )
+        for m in degraded_merchants:
+            # Only send if they've been stuck for a while (check updated_at or installed_at)
+            result = send_lifecycle_email(db, m.shop_domain, "connection_issue", {
+                "issue": m.onboarding_error or "the connection to your store was lost",
+            })
+            if result["status"] == "sent":
+                emails_sent += 1
+            db.commit()
+
+        if emails_sent > 0:
+            log(f"lifecycle_emails: sent={emails_sent}")
+
+    except Exception as exc:
+        log(f"lifecycle_emails error (non-fatal): {exc}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _run_scoring_self_eval():
+    """Run scoring intelligence self-evaluation. Lightweight — no LLM calls."""
+    db = SessionLocal()
+    try:
+        from app.services.scoring_calibration import run_self_evaluation
+        report = run_self_evaluation(db)
+        db.commit()
+        if report.degradation_detected:
+            log(f"scoring_self_eval: DEGRADATION — {'; '.join(report.degradation_reasons)}")
+        elif report.total_outcomes > 0:
+            log(f"scoring_self_eval: healthy eff={report.effectiveness_pct}% accuracy={report.avg_confidence_accuracy}% outcomes={report.total_outcomes}")
+    except Exception as exc:
+        log(f"scoring_self_eval error (non-fatal): {exc}")
+        db.rollback()
+    finally:
+        db.close()
+
+    # Check Sentry webhook health — alert if webhook goes dark
+    db2 = SessionLocal()
+    try:
+        _check_sentry_webhook_health(db2)
+        db2.commit()
+    except Exception as exc:
+        log(f"sentry_webhook_health error (non-fatal): {exc}")
+        db2.rollback()
+    finally:
+        db2.close()
+
+
+def _check_sentry_webhook_health(db):
+    """Alert if Sentry webhook intake has gone dark while email is still receiving."""
+    from datetime import datetime, timezone, timedelta
+    from sqlalchemy import func
+    from app.models.sentry_incident import SentryIncident
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    cutoff_6h = now - timedelta(hours=6)
+
+    # Count recent incidents by source
+    source_counts = dict(
+        db.query(SentryIncident.source_type, func.count(SentryIncident.id))
+        .filter(SentryIncident.created_at >= cutoff_6h)
+        .group_by(SentryIncident.source_type)
+        .all()
+    )
+
+    webhook_count = source_counts.get("sentry_webhook", 0)
+    email_count = source_counts.get("email", 0)
+
+    # Alert condition: email is receiving but webhook is not
+    # This means Sentry is sending alerts but webhook integration is broken/misconfigured
+    if email_count > 0 and webhook_count == 0:
+        from app.services.alerting import write_alert
+        write_alert(
+            db,
+            severity="warning",
+            source="agent_worker",
+            alert_type="sentry_webhook_dark",
+            summary=(
+                f"Sentry webhook intake is DARK — {email_count} incidents via email fallback "
+                f"in last 6h but 0 via webhook. Check Sentry webhook configuration."
+            ),
+            detail={
+                "email_count_6h": email_count,
+                "webhook_count_6h": webhook_count,
+                "window_hours": 6,
+            },
+        )
+
+
+def _run_sentry_triage():
+    """Generate AI triage packets, consume into candidates, re-evaluate skipped."""
+    # Phase A: Generate triage packets for newly parsed incidents
+    db = SessionLocal()
+    try:
+        from app.services.sentry_triage import run_triage_generation
+        result = run_triage_generation(db)
+        db.commit()
+        if result["generated"] > 0 or result["errors"] > 0:
+            log(f"sentry_triage: generated={result['generated']} errors={result['errors']}")
+    except Exception as exc:
+        log(f"sentry_triage generation error (non-fatal): {exc}")
+        db.rollback()
+    finally:
+        db.close()
+
+    # Phase B: Consume ready triage packets into bugfix candidates
+    db2 = SessionLocal()
+    try:
+        from app.services.sentry_triage import consume_triage_queue
+        result = consume_triage_queue(db2)
+        db2.commit()
+        if result["consumed"] > 0 or result["errors"] > 0:
+            log(
+                f"sentry_consume: consumed={result['consumed']} "
+                f"deduped={result['deduped']} skipped={result['skipped']} "
+                f"suppressed={result['suppressed']} errors={result['errors']}"
+            )
+    except Exception as exc:
+        log(f"sentry_consume error (non-fatal): {exc}")
+        db2.rollback()
+    finally:
+        db2.close()
+
+    # Phase C: Re-evaluate previously skipped incidents that gained recurrences
+    db3 = SessionLocal()
+    try:
+        from app.services.sentry_triage import reevaluate_skipped_families
+        result = reevaluate_skipped_families(db3)
+        db3.commit()
+        if result["promoted"] > 0:
+            log(f"sentry_reevaluate: promoted={result['promoted']}")
+    except Exception as exc:
+        log(f"sentry_reevaluate error (non-fatal): {exc}")
+        db3.rollback()
+    finally:
+        db3.close()
+
+
+# ---------------------------------------------------------------------------
+# Circuit breaker — pause auto-apply when system is unhealthy
+# ---------------------------------------------------------------------------
+
+_consecutive_unhealthy_cycles = 0
+_CIRCUIT_BREAKER_THRESHOLD = 3  # pause auto-apply after 3 consecutive unhealthy cycles
+
+
+def _check_circuit_breaker() -> bool:
+    """
+    Check loop health before proceeding with auto-apply.
+    Returns True if auto-apply should be PAUSED.
+
+    Circuit breaker trips after 3 consecutive unhealthy cycles.
+    Resets when system returns to healthy.
+    """
+    global _consecutive_unhealthy_cycles
+
+    db = SessionLocal()
+    try:
+        from app.services.loop_health import get_loop_health
+        health = get_loop_health(db)
+
+        # Get adaptive circuit breaker threshold (bounded, evidence-aware)
+        try:
+            from app.services.adaptive_governance import get_adaptive_thresholds
+            cb_threshold = get_adaptive_thresholds(db).circuit_breaker_threshold
+        except Exception:
+            cb_threshold = _CIRCUIT_BREAKER_THRESHOLD
+
+        if health["is_healthy"]:
+            if _consecutive_unhealthy_cycles > 0:
+                log(f"circuit_breaker: system healthy again — resetting after {_consecutive_unhealthy_cycles} unhealthy cycles")
+            _consecutive_unhealthy_cycles = 0
+            return False
+
+        _consecutive_unhealthy_cycles += 1
+        log(
+            f"circuit_breaker: UNHEALTHY cycle {_consecutive_unhealthy_cycles}/{cb_threshold} — "
+            f"stuck={len(health.get('stuck_items', []))} thrashing={len(health.get('thrashing_sources', []))} "
+            f"failure_rate={health.get('failure_rate_30d_pct', 0)}% "
+            f"trend={health.get('trend', {}).get('direction', 'unknown')}"
+        )
+
+        if _consecutive_unhealthy_cycles >= cb_threshold:
+            log("circuit_breaker: TRIPPED — pausing auto-apply until system stabilizes")
+            try:
+                from app.services.alerting import write_alert
+                write_alert(
+                    db, severity="critical", source="agent_worker",
+                    alert_type="circuit_breaker_tripped",
+                    summary=f"Auto-apply paused: system unhealthy for {_consecutive_unhealthy_cycles} consecutive cycles",
+                    detail={
+                        "consecutive_unhealthy": _consecutive_unhealthy_cycles,
+                        "failure_rate": health.get("failure_rate_30d_pct"),
+                        "stuck_items": len(health.get("stuck_items", [])),
+                        "thrashing_sources": len(health.get("thrashing_sources", [])),
+                        "trend": health.get("trend", {}).get("direction"),
+                    },
+                )
+                db.commit()
+            except Exception:
+                db.rollback()
+            return True
+
+        return False
+    except Exception as exc:
+        log(f"circuit_breaker: health check failed (non-fatal): {exc}")
+        return False  # don't block on health check failure
+    finally:
+        db.close()
+
+
+def _run_cto_health_check():
+    """
+    Phase 0: CTO Signal Layer.
+
+    Runs FIRST every cycle. Pure operational intelligence:
+    - Synthesizes 6 health dimensions with trend detection
+    - Stores state in Redis for ops/dashboard consumption
+    - Sends Telegram signal ONLY on state transitions or critical status
+    - Logs one-line summary for PM2 visibility
+
+    Strict boundaries:
+    - OBSERVES only. Never prescribes, never patches, never overrides.
+    - No LLM calls. No heavy queries. No side effects.
+    - Interacts with other layers via Redis read-only state.
+    """
+    try:
+        from app.services.system_health_synthesizer import (
+            synthesize_health, send_telegram_signal,
+        )
+        db = SessionLocal()
+        try:
+            health = synthesize_health(db)
+
+            # One-line structured log (always)
+            dims = " ".join(
+                f"{d.name}={'OK' if d.status == 'healthy' else d.status.upper()}"
+                for d in health.dimensions
+            )
+            log(f"[CTO] {health.overall_status.upper()} | {dims}")
+
+            # Store in Redis (consumed by /ops/system-health + circuit breaker)
+            from app.core.redis_client import cache_set
+            cache_set("hs:system_health", health.to_dict(), 900)
+
+            # Telegram signal — only on state change or critical (dedup inside)
+            send_telegram_signal(health)
+
+        finally:
+            db.close()
+    except Exception as exc:
+        log(f"[CTO] error (non-fatal): {exc}")
+
+
 def run_cycle():
     started_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    # Phase 0: CTO-level health synthesis (runs first, sets context)
+    _run_cto_health_check()
 
     # Phase 1: Orchestrator — reads alerts/state, executes safe actions
     _run_orchestrator()
@@ -695,8 +1110,16 @@ def run_cycle():
     # Phase 2: Onboarding — ensure new merchants reach "ready" state
     _run_onboarding()
 
+    # Phase 2b: Onboarding health — detect stuck merchants, pixel abandonment, slow activation
+    _run_onboarding_health()
+
+    # === CIRCUIT BREAKER CHECK ===
+    # If system is unhealthy for 3+ cycles, pause auto-apply but continue
+    # triage/outcome evaluation (detection must continue even when action pauses).
+    auto_apply_paused = _check_circuit_breaker()
+
     # Phase 3: Bug triage — scan alerts/outcomes for code-fix candidates
-    _run_bug_triage()
+    _run_bug_triage(auto_apply_paused=auto_apply_paused)
 
     # Phase 3b: Bugfix outcome evaluation (closed-loop learning)
     _run_bugfix_outcome_eval()
@@ -709,6 +1132,41 @@ def run_cycle():
 
     # Phase 4b: Evolution GC (daily) — clean stale/duplicate/resolved proposals
     _run_evolution_gc()
+
+    # Phase 4c: Escalate stale LEVEL_2/3 proposals (prevent dead letters)
+    try:
+        db = SessionLocal()
+        from app.services.evolution_engine import escalate_stale_proposals
+        esc = escalate_stale_proposals(db)
+        db.commit()
+        if esc.get("escalated", 0) > 0:
+            log(f"evolution_escalation: escalated={esc['escalated']}")
+    except Exception as exc:
+        log(f"evolution_escalation error (non-fatal): {exc}")
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
+    # Phase 4d: Lesson GC — decay, retirement, contradiction detection, promotion
+    try:
+        from app.services.lesson_gc import should_run_gc, run_lesson_gc, mark_gc_run
+        if should_run_gc():
+            db = SessionLocal()
+            try:
+                gc_result = run_lesson_gc(db)
+                db.commit()
+                mark_gc_run()
+                if any(v > 0 for v in gc_result.values()):
+                    log(f"lesson_gc: {gc_result}")
+            except Exception as exc:
+                log(f"lesson_gc error (non-fatal): {exc}")
+                db.rollback()
+            finally:
+                db.close()
+    except Exception as exc:
+        log(f"lesson_gc import error (non-fatal): {exc}")
 
     # Phase 5: Monthly Opus evolution audit (30-day cooldown)
     _run_monthly_evolution_audit()
@@ -727,6 +1185,15 @@ def run_cycle():
 
     # Phase 7d: Weekly merchant email digest (Monday, Europe/Rome)
     _run_merchant_digest()
+
+    # Phase 7e: Lifecycle emails (setup_incomplete, first_insight, connection_issue)
+    _run_lifecycle_emails()
+
+    # Phase 7f: Sentry incident triage — generate AI debugging packets
+    _run_sentry_triage()
+
+    # Phase 7g: Scoring intelligence self-evaluation (every cycle, lightweight)
+    _run_scoring_self_eval()
 
     # Phase 8: Sandbox analysis (original agent_worker logic)
     # This worker has no per-shop dimension — it selects the top-N
@@ -810,12 +1277,19 @@ def main():
     log("agent worker started")
 
     while True:
-        try:
-            run_cycle()
-        except Exception as exc:
-            # Unhandled exception — log and let PM2 restart the process.
-            log(f"unhandled exception: {exc}")
-            raise
+        from app.core.distributed_lock import worker_lock
+        from app.core.metrics import track_worker_cycle
+
+        with worker_lock(WORKER_NAME, ttl_seconds=SLEEP_SECONDS + 60) as acquired:
+            if not acquired:
+                log("another instance holds the lock — skipping cycle")
+            else:
+                try:
+                    with track_worker_cycle(WORKER_NAME):
+                        run_cycle()
+                except Exception as exc:
+                    log(f"unhandled exception: {exc}")
+                    raise
 
         log(f"sleeping {SLEEP_SECONDS}s")
         time.sleep(SLEEP_SECONDS)

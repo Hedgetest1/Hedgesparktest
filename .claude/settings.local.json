@@ -185,7 +185,12 @@
       "Bash(./venv/bin/python3 -c \"\nimport ast, sys, glob\n\nerrors = []\nfor f in glob.glob\\('app/**/*.py', recursive=True\\):\n    try:\n        with open\\(f\\) as fh:\n            ast.parse\\(fh.read\\(\\)\\)\n    except SyntaxError as e:\n        errors.append\\(f'{f}: {e}'\\)\n\nif errors:\n    for e in errors:\n        print\\(f'ERR {e}'\\)\n    sys.exit\\(1\\)\nelse:\n    print\\(f'ALL {len\\(glob.glob\\(\\\\\"app/**/*.py\\\\\", recursive=True\\)\\)} Python files parse OK'\\)\n\")",
       "Bash(./venv/bin/python3 -c \"\nimport ast, sys, glob\n\nerrors = []\nfor f in glob.glob\\('app/**/*.py', recursive=True\\):\n    try:\n        with open\\(f\\) as fh:\n            ast.parse\\(fh.read\\(\\)\\)\n    except SyntaxError as e:\n        errors.append\\(f'{f}: {e}'\\)\n\nif errors:\n    for e in errors:\n        print\\(f'ERR {e}'\\)\n    sys.exit\\(1\\)\nelse:\n    print\\(f'ALL {len\\(glob.glob\\(\\\\\"app/**/*.py\\\\\", recursive=True\\)\\)} files OK'\\)\n\")",
       "Bash(echo \"TS exit: $?\")",
-      "Bash(./venv/bin/python3 -c \"\nimport ast, glob\nerrors = []\nfor f in glob.glob\\('app/**/*.py', recursive=True\\):\n    try:\n        with open\\(f\\) as fh: ast.parse\\(fh.read\\(\\)\\)\n    except SyntaxError as e: errors.append\\(f'{f}: {e}'\\)\nif errors:\n    for e in errors: print\\(e\\)\nelse:\n    print\\(f'ALL {len\\(glob.glob\\(\\\\\"app/**/*.py\\\\\", recursive=True\\)\\)} Python files: syntax OK'\\)\n\")"
+      "Bash(./venv/bin/python3 -c \"\nimport ast, glob\nerrors = []\nfor f in glob.glob\\('app/**/*.py', recursive=True\\):\n    try:\n        with open\\(f\\) as fh: ast.parse\\(fh.read\\(\\)\\)\n    except SyntaxError as e: errors.append\\(f'{f}: {e}'\\)\nif errors:\n    for e in errors: print\\(e\\)\nelse:\n    print\\(f'ALL {len\\(glob.glob\\(\\\\\"app/**/*.py\\\\\", recursive=True\\)\\)} Python files: syntax OK'\\)\n\")",
+      "Bash(./venv/bin/python -m pytest tests/ --ignore=tests/test_scaling_intelligence.py -q --tb=short)",
+      "Bash(./venv/bin/python -m pytest tests/test_merge_intelligence.py tests/test_orchestrator_llm.py::test_context_includes_alert_details -q --tb=line)",
+      "Bash(./venv/bin/python -m pytest tests/ --ignore=tests/test_scaling_intelligence.py -q --tb=line)",
+      "Bash(./venv/bin/python:*)",
+      "Bash(pm2 jlist:*)"
     ]
   }
 }

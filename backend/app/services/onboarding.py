@@ -113,6 +113,14 @@ def run_onboarding(db: Session, merchant: Merchant) -> OnboardingResult:
 
         result.status = "ready"
         log.info("onboarding: complete shop=%s steps=%s", merchant.shop_domain, result.steps_completed)
+
+        # Send welcome email (fire-and-forget, never blocks onboarding)
+        try:
+            from app.services.merchant_email_service import send_lifecycle_email
+            send_lifecycle_email(db, merchant.shop_domain, "welcome")
+        except Exception as exc:
+            log.warning("onboarding: welcome email failed (non-fatal): %s", exc)
+
         return result
 
     except Exception as exc:

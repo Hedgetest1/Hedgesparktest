@@ -42,12 +42,21 @@ import logging
 import time
 from datetime import datetime, timezone
 
+import os as _os
+
 log = logging.getLogger("llm_budget")
 
 # ---------------------------------------------------------------------------
-# Monthly EUR hard cap
+# Monthly EUR hard caps — env-configurable for operator control
 # ---------------------------------------------------------------------------
-MONTHLY_EUR_CAP = 5.0
+MONTHLY_EUR_CAP = float(_os.getenv("LLM_MONTHLY_BUDGET_EUR", "10.0"))
+
+# Per-provider caps (independent of global cap)
+ANTHROPIC_MONTHLY_CAP = float(_os.getenv("ANTHROPIC_MONTHLY_BUDGET_EUR", "10.0"))
+OPENAI_MONTHLY_CAP = float(_os.getenv("OPENAI_MONTHLY_BUDGET_EUR", "10.0"))
+
+# Budget alert threshold (fraction 0-1)
+_BUDGET_ALERT_THRESHOLD = 0.9  # alert at 90% usage
 
 # Conservative cost-per-1k-token estimates (output tokens, which dominate cost)
 # These are UPPER BOUNDS — we'd rather block slightly early than overspend.
@@ -118,7 +127,11 @@ _day_key: str = ""
 
 # Monthly cost tracking (in-process, reset on month change)
 _monthly_cost_eur: float = 0.0
+_provider_cost_eur: dict[str, float] = {}  # per-provider cost tracking
 _month_key: str = ""
+
+# Budget alert dedup (one alert per provider per month at 90%)
+_budget_alert_sent: dict[str, bool] = {}  # "anthropic:2026-04" → True
 
 # 429 backoff tracking per provider
 _provider_429: dict[str, dict] = {}   # provider → {last_429: float, backoff_secs: int, count: int}
@@ -148,10 +161,12 @@ def _ensure_day():
 
 def _ensure_month():
     """Reset monthly cost if month changed."""
-    global _monthly_cost_eur, _month_key
+    global _monthly_cost_eur, _provider_cost_eur, _month_key, _budget_alert_sent
     month = _this_month()
     if _month_key != month:
         _monthly_cost_eur = 0.0
+        _provider_cost_eur = {}
+        _budget_alert_sent = {}
         _month_key = month
 
 
@@ -280,12 +295,20 @@ def check_budget(module: str) -> tuple[bool, str]:
     limits = _get_limits(module)
     today = _today()
 
-    # Check monthly EUR cap
+    # Check monthly EUR cap (global)
     month = _this_month()
     redis_cost = _redis_get_float(f"llm:monthly_cost:{month}")
     monthly_cost = max(redis_cost, _monthly_cost_eur)
     if monthly_cost >= MONTHLY_EUR_CAP:
         return False, f"monthly_eur_cap_reached: €{monthly_cost:.3f}/€{MONTHLY_EUR_CAP:.2f}"
+
+    # Check per-provider caps
+    for provider, cap in [("anthropic", ANTHROPIC_MONTHLY_CAP), ("openai", OPENAI_MONTHLY_CAP)]:
+        prov_redis = _redis_get_float(f"llm:monthly_cost:{provider}:{month}")
+        prov_local = _provider_cost_eur.get(provider, 0.0)
+        prov_cost = max(prov_redis, prov_local)
+        if prov_cost >= cap:
+            return False, f"provider_cap_reached: {provider} €{prov_cost:.3f}/€{cap:.2f}"
 
     # Check cooldown
     last = _last_call.get(module, 0)
@@ -314,7 +337,7 @@ def check_budget(module: str) -> tuple[bool, str]:
 
 
 def record_usage(module: str, tokens_used: int = 0, provider: str = "", model: str = ""):
-    """Record a successful LLM call with cost tracking."""
+    """Record a successful LLM call with cost tracking + budget threshold alerts."""
     global _monthly_cost_eur
     _ensure_day()
     _ensure_month()
@@ -326,10 +349,15 @@ def record_usage(module: str, tokens_used: int = 0, provider: str = "", model: s
     _total_tokens[module] = _total_tokens.get(module, 0) + tokens_used
     _last_call[module] = time.monotonic()
 
-    # Cost tracking
+    # Cost tracking (global)
     cost = _estimate_cost(tokens_used, model)
     _monthly_cost_eur += cost
     _redis_incrbyfloat(f"llm:monthly_cost:{month}", cost)
+
+    # Cost tracking (per-provider)
+    if provider:
+        _provider_cost_eur[provider] = _provider_cost_eur.get(provider, 0.0) + cost
+        _redis_incrbyfloat(f"llm:monthly_cost:{provider}:{month}", cost)
 
     # Redis persistence
     _redis_incr(f"llm:daily:{module}:{today}")
@@ -339,6 +367,56 @@ def record_usage(module: str, tokens_used: int = 0, provider: str = "", model: s
         "llm_budget: call module=%s provider=%s model=%s tokens=%d cost=€%.4f daily=%d monthly=€%.3f",
         module, provider, model, tokens_used, cost, _daily_counts.get(module, 0), _monthly_cost_eur,
     )
+
+    # Budget threshold alert (90%) — deduped, one per provider per month
+    if provider:
+        _check_budget_threshold_alert(provider, month)
+
+
+def _check_budget_threshold_alert(provider: str, month: str):
+    """
+    Send Telegram alert when a provider reaches 90% of its monthly budget.
+    Deduped: fires once per provider per month.
+    """
+    dedup_key = f"{provider}:{month}"
+    if _budget_alert_sent.get(dedup_key):
+        return  # already sent this month
+
+    cap = ANTHROPIC_MONTHLY_CAP if provider == "anthropic" else OPENAI_MONTHLY_CAP
+    prov_redis = _redis_get_float(f"llm:monthly_cost:{provider}:{month}")
+    prov_local = _provider_cost_eur.get(provider, 0.0)
+    prov_cost = max(prov_redis, prov_local)
+
+    pct = prov_cost / cap if cap > 0 else 0
+    if pct < _BUDGET_ALERT_THRESHOLD:
+        return  # below threshold
+
+    # Mark as sent BEFORE sending (prevent race)
+    _budget_alert_sent[dedup_key] = True
+
+    # Calculate remaining calls estimate
+    avg_cost_per_call = prov_cost / max(sum(_daily_counts.values()), 1)
+    remaining_eur = cap - prov_cost
+    remaining_calls = int(remaining_eur / avg_cost_per_call) if avg_cost_per_call > 0 else 0
+
+    log.warning(
+        "llm_budget: THRESHOLD ALERT %s at %.0f%% (€%.3f/€%.2f) — ~%d calls remaining",
+        provider, pct * 100, prov_cost, cap, remaining_calls,
+    )
+
+    # Send Telegram alert (non-blocking, non-fatal)
+    try:
+        from app.services.telegram_agent import send_message, is_configured
+        if is_configured():
+            send_message(
+                f"🔔 *BUDGET ALERT* — {provider.upper()} usage at {pct:.0%} "
+                f"of monthly €{cap:.0f} cap\n\n"
+                f"Spent: €{prov_cost:.3f} / €{cap:.2f}\n"
+                f"Remaining: €{remaining_eur:.3f} (~{remaining_calls} calls)\n"
+                f"Global: €{_monthly_cost_eur:.3f} / €{MONTHLY_EUR_CAP:.2f}"
+            )
+    except Exception as exc:
+        log.debug("llm_budget: telegram alert failed (non-fatal): %s", exc)
 
 
 def record_blocked(module: str, reason: str):
@@ -385,6 +463,20 @@ def get_usage_summary() -> dict:
                 "total_429s": state["count"],
             }
 
+    # Per-provider costs
+    provider_costs = {}
+    for prov, cap in [("anthropic", ANTHROPIC_MONTHLY_CAP), ("openai", OPENAI_MONTHLY_CAP)]:
+        prov_redis = _redis_get_float(f"llm:monthly_cost:{prov}:{month}")
+        prov_local = _provider_cost_eur.get(prov, 0.0)
+        prov_cost = max(prov_redis, prov_local)
+        provider_costs[prov] = {
+            "cost_eur": round(prov_cost, 4),
+            "cap_eur": cap,
+            "remaining_eur": round(max(0, cap - prov_cost), 4),
+            "usage_pct": round(prov_cost / cap * 100, 1) if cap > 0 else 0,
+            "cap_reached": prov_cost >= cap,
+        }
+
     return {
         "date": _today(),
         "month": month,
@@ -395,6 +487,7 @@ def get_usage_summary() -> dict:
         "monthly_cap_eur": MONTHLY_EUR_CAP,
         "monthly_remaining_eur": round(max(0, MONTHLY_EUR_CAP - monthly_cost), 4),
         "monthly_cap_reached": monthly_cost >= MONTHLY_EUR_CAP,
+        "provider_costs": provider_costs,
         "provider_429_state": backoff_state,
         "modules": modules,
     }

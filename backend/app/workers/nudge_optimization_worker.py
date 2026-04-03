@@ -126,7 +126,15 @@ def main() -> None:
         _INTERVAL_HOURS,
     )
     while True:
-        _run_cycle()
+        from app.core.distributed_lock import worker_lock
+        from app.core.metrics import track_worker_cycle
+
+        with worker_lock("nudge_optimization_worker", ttl_seconds=int(_INTERVAL_SECS) + 120) as acquired:
+            if not acquired:
+                log.info("nudge_optimization_worker: another instance holds the lock — skipping")
+            else:
+                with track_worker_cycle("nudge_optimization_worker"):
+                    _run_cycle()
         log.info(
             "nudge_optimization_worker: sleeping %.1fh until next cycle",
             _INTERVAL_HOURS,

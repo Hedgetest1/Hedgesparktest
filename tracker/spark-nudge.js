@@ -323,6 +323,10 @@
     }
     inner += "</div>";
     inner += '<button class="ws-nudge__close" aria-label="Dismiss">&times;</button>';
+    inner += '<a class="ws-nudge__powered" href="https://hedgesparkhq.com?ref=nudge"'
+           + ' target="_blank" rel="noopener" style="display:block;text-align:right;'
+           + 'font-size:9px;color:rgba(255,255,255,0.3);text-decoration:none;'
+           + 'margin-top:4px;font-family:sans-serif;">Powered by Hedge Spark</a>';
     el.innerHTML = inner;
 
     // Dismiss handler — passes copyVariant to measurement event

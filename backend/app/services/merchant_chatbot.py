@@ -42,6 +42,7 @@ log = logging.getLogger("merchant_chatbot")
 VALID_CLASSIFICATIONS = (
     "product_question", "setup_help", "bug_report", "billing_access_issue",
     "integration_issue", "data_quality_issue", "feature_request", "out_of_scope",
+    "unclassified",
 )
 
 VALID_SEVERITIES = ("low", "medium", "high", "critical")
@@ -159,10 +160,19 @@ def classify_message(message: str) -> MessageClassification:
             affected_area="unknown",
         )
 
+    # Short messages with no pattern match: likely greeting or vague
     if len(text) < 15:
         return MessageClassification(classification="product_question", confidence="low")
 
-    return MessageClassification(classification="product_question", confidence="low")
+    # Substantive unclassified messages (15+ chars, no pattern match):
+    # These are real merchant input that didn't match any known pattern.
+    # Route as "unclassified" — still creates incident, gets operator attention.
+    return MessageClassification(
+        classification="unclassified",
+        confidence="low",
+        affected_area="unknown",
+        severity="low",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -362,26 +372,32 @@ def attempt_safe_repair(db: Session, shop_domain: str, diagnostic: DiagnosticRes
 
 
 # ---------------------------------------------------------------------------
-# Response engine
+# Response engine — uses chat_voice for variation + personality
 # ---------------------------------------------------------------------------
+
+from app.services.chat_voice import _pick, closing
 
 # Product knowledge base (deterministic — no LLM needed for known topics)
 _PRODUCT_ANSWERS: dict[str, str] = {
-    "signal": "Signals are automated insights Hedge Spark detects from your store data — like high-intent visitors, cart abandonment patterns, or pricing opportunities. Each signal includes confidence level and recommended action.",
-    "nudge": "Nudges are smart on-site messages shown to visitors based on their behavior — like social proof, urgency cues, or return visitor recognition. You can configure them in the Nudges section.",
-    "tracker": "The Hedge Spark tracker is a lightweight JavaScript snippet installed on your store. It captures visitor behavior (page views, cart actions, purchase intent) to power all insights and signals.",
-    "klaviyo": "Klaviyo integration lets Hedge Spark push high-intent visitor events directly to your Klaviyo account for email/SMS targeting. Connect it in Settings → Integrations.",
-    "plan": "Hedge Spark offers a Starter (free) tier with core signals and a Pro tier with advanced analytics, AI nudges, live radar, and funnel analysis. You can upgrade anytime from the dashboard.",
-    "pro": "Pro features include: Funnel & Session analysis, AI Nudges, Advanced Attribution, Cohort Analysis, Click Heatmaps, and more. Upgrade from the dashboard to unlock them.",
+    "signal": "Signals are automated insights Hedge Spark detects from your store data \u2014 like high-intent visitors, cart abandonment patterns, or pricing opportunities. Each signal includes a confidence level and a recommended action.",
+    "nudge": "Nudges are smart on-site messages shown to visitors based on their behavior \u2014 social proof, urgency cues, return visitor recognition. You configure them in the Nudges section.",
+    "tracker": "The Hedge Spark tracker is a lightweight JavaScript snippet on your store. It captures visitor behavior \u2014 page views, cart actions, purchase intent \u2014 and powers all insights and signals.",
+    "klaviyo": "Klaviyo integration pushes high-intent visitor events from Hedge Spark directly to your Klaviyo account for email/SMS targeting. Connect it in Settings \u2192 Integrations.",
+    "plan": "Hedge Spark offers Starter (free) with core signals and Pro with advanced analytics, AI nudges, live radar, and funnel analysis. You can upgrade anytime from the dashboard.",
+    "pro": "Pro unlocks: Funnel & Session analysis, AI Nudges, Advanced Attribution, Cohort Analysis, Click Heatmaps, and more. Upgrade from the dashboard.",
     "attribution": "Attribution tracks which traffic sources and campaigns drive the most valuable visitors and conversions in your store.",
-    "funnel": "Funnel analysis shows where visitors drop off in your purchase flow — from landing to checkout — so you can identify and fix conversion bottlenecks.",
+    "funnel": "Funnel analysis shows where visitors drop off in your purchase flow \u2014 from landing to checkout \u2014 so you can identify and fix conversion bottlenecks.",
     "heatmap": "Heatmaps show where visitors click most on your store pages, helping you optimize layout and product placement.",
-    "live": "Live Radar shows real-time visitor activity on your store — who's browsing, what they're looking at, and their intent score.",
-    "brief": "The Daily Brief is an AI-generated summary of your store's performance, key signals, and recommended actions for the day.",
-    "revenue": "Revenue Radar tracks your store's revenue trends, identifies at-risk products, and surfaces pricing opportunities.",
-    "webhook": "Webhooks are automated notifications from Shopify to Hedge Spark when events happen (like orders or app uninstalls). They're set up automatically during installation.",
-    "script_tag": "Script tags are how the Hedge Spark tracker gets loaded on your store pages. This is installed automatically — if it's missing, the system can repair it.",
-    "setup": "After installing Hedge Spark, the system automatically: 1) registers webhooks, 2) installs the tracker script, and 3) starts collecting data. Your first insights appear within hours of your first visitors.",
+    "live": "Live Radar shows real-time visitor activity on your store \u2014 who\u2019s browsing, what they\u2019re looking at, and their intent score.",
+    "brief": "The Daily Brief is an AI-generated summary of your store\u2019s performance, key signals, and recommended actions for the day.",
+    "revenue": "Revenue Radar tracks your store\u2019s revenue trends, identifies at-risk products, and surfaces pricing opportunities.",
+    "webhook": "Webhooks are automated notifications from Shopify to Hedge Spark when events happen (orders, uninstalls). They\u2019re set up automatically during installation.",
+    "script_tag": "Script tags are how the tracker gets loaded on your store pages. Installed automatically \u2014 if missing, the system can repair it.",
+    "setup": "After installing Hedge Spark, the system automatically registers webhooks, installs the tracker script, and starts collecting data. First insights appear within hours of your first visitors.",
+    "pixel": "The Hedge Spark pixel tracks purchase events on your checkout confirmation page. It powers revenue attribution and conversion measurement.",
+    "purchase": "Purchase tracking connects Shopify orders to visitor behavior. This enables revenue attribution, conversion measurement, and ROI analysis for your traffic sources.",
+    "session": "Session Replay shows how individual visitors navigate your store \u2014 pages viewed, time spent, scroll depth, and cart interactions.",
+    "cohort": "Cohort Analysis groups visitors by behavior (new vs. returning) and shows how each group converts over time.",
 }
 
 
@@ -406,21 +422,55 @@ def _now():
 def process_message(db: Session, shop_domain: str, message: str) -> ChatResponse:
     """
     Process a merchant chat message end-to-end.
-    Classify → diagnose → respond → create incident if needed.
+    Classify → load context → diagnose → respond → create incident if needed.
     """
+    import app.services.chat_voice as voice
+
     # 1. Classify
     cls = classify_message(message)
 
     # 2. Handle out-of-scope immediately
     if cls.classification == "out_of_scope":
         return ChatResponse(
-            message="I'm the Hedge Spark support assistant — I can help with your store setup, features, signals, billing, and any issues you're seeing in the dashboard. What can I help you with?",
+            message=_pick(voice.OUT_OF_SCOPE, message, shop_domain),
             classification=cls.classification,
             severity=cls.severity,
             affected_area=cls.affected_area,
         )
 
-    # 3. Run diagnostics for non-trivial issues
+    # 3. Load store context (powers contextualized responses)
+    from app.services.store_context import get_store_context
+    store = get_store_context(db, shop_domain)
+
+    # 4. Detect follow-up to recent incident (conversation memory)
+    is_followup = False
+    recent_incident = None
+    followup_patterns = re.search(
+        r"(still (broken|not working|same|down|failing|dead|off))|"
+        r"(same (issue|problem|bug|error))|"
+        r"(didn.?t (work|fix|help|change|resolve))|"
+        r"(happening again|not fixed|still see|still have)",
+        message.lower(),
+    )
+    if followup_patterns:
+        recent_incident = _find_active_incident(db, shop_domain, cls.affected_area)
+        if not recent_incident:
+            # Try with broader search (any active incident for this shop in last 2h)
+            cutoff = _now() - timedelta(hours=2)
+            recent_incident = (
+                db.query(SupportIncident)
+                .filter(
+                    SupportIncident.shop_domain == shop_domain,
+                    SupportIncident.status.in_(["open", "triaged", "investigating"]),
+                    SupportIncident.created_at >= cutoff,
+                )
+                .order_by(SupportIncident.created_at.desc())
+                .first()
+            )
+        if recent_incident:
+            is_followup = True
+
+    # 5. Run diagnostics for non-trivial issues
     diagnostic = None
     needs_diagnostics = cls.classification in (
         "bug_report", "setup_help", "billing_access_issue",
@@ -430,33 +480,61 @@ def process_message(db: Session, shop_domain: str, message: str) -> ChatResponse
     if needs_diagnostics:
         diagnostic = run_diagnostics(db, shop_domain, cls.affected_area, cls.severity)
 
-    # 4. Check if there's already an active bugfix candidate for this area
+    # 6. Check if there's already an active bugfix candidate for this area
     existing_candidate = _find_active_candidate_for_area(db, cls.affected_area)
     already_being_fixed = existing_candidate is not None
 
-    # 5. Generate response based on classification
-    if cls.classification == "product_question":
-        response_text = _answer_product_question(message)
+    # 6b. Check for performance questions (insight engine)
+    # Runs for product_question AND unclassified — catches "how is my store doing" etc.
+    from app.services.store_insight_engine import answer_performance_question
+    perf_answer = None
+    if cls.classification in ("product_question", "unclassified"):
+        try:
+            perf_answer = answer_performance_question(db, shop_domain, message)
+        except Exception:
+            pass
+
+    # 7. Generate response (store-aware, context-driven)
+    if perf_answer:
+        response_text = perf_answer
+    elif is_followup and recent_incident:
+        # Conversation memory: acknowledge the follow-up
+        area = recent_incident.affected_area or cls.affected_area
+        response_text = (
+            f"I see this is still happening \u2014 I\u2019m looking at it again. "
+            f"Your earlier report (incident #{recent_incident.id}, area: {area}) is still active."
+        )
+        if diagnostic and diagnostic.setup_status in ("degraded", "needs_repair"):
+            response_text += " I\u2019m re-running diagnostics now."
+        elif already_being_fixed:
+            response_text += " A fix is already in the pipeline for this."
+        else:
+            response_text += " I\u2019ll escalate this for a deeper look."
+        cls.severity = "high"  # follow-ups are escalated
+    elif cls.classification == "product_question":
+        response_text = _answer_product_question(message, shop_domain, db, store)
     elif cls.classification == "setup_help":
-        response_text = _respond_setup_help(message, diagnostic, shop_domain)
+        response_text = _respond_setup_help(message, diagnostic, shop_domain, store)
     elif cls.classification == "bug_report":
-        response_text = _respond_bug_report(message, diagnostic, cls.affected_area)
+        response_text = _respond_bug_report(message, diagnostic, cls.affected_area, shop_domain, store)
     elif cls.classification == "billing_access_issue":
-        response_text = _respond_billing_issue(message, diagnostic)
+        response_text = _respond_billing_issue(message, diagnostic, shop_domain)
     elif cls.classification == "integration_issue":
-        response_text = _respond_integration_issue(message, diagnostic, cls.affected_area)
+        response_text = _respond_integration_issue(message, diagnostic, cls.affected_area, shop_domain)
     elif cls.classification == "data_quality_issue":
-        response_text = _respond_data_quality(message, diagnostic)
+        response_text = _respond_data_quality(message, diagnostic, shop_domain, store)
     elif cls.classification == "feature_request":
-        response_text = "Thanks for the suggestion! Feature requests are tracked and reviewed regularly. Is there anything else I can help with?"
+        response_text = _pick(voice.FEATURE_REQUEST, message, shop_domain)
+    elif cls.classification == "unclassified":
+        response_text = _pick(voice.UNCLASSIFIED, message, shop_domain)
     else:
-        response_text = "I've noted your message. Is there a specific Hedge Spark feature or issue I can help you with?"
+        response_text = _pick(voice.GENERIC_FALLBACK, message, shop_domain)
 
-    # 6. If already being fixed, inform merchant
-    if already_being_fixed and cls.classification in ("bug_report", "integration_issue"):
-        response_text += "\n\nWe're already aware of this issue and a fix is in progress."
+    # 8. If already being fixed, inform merchant
+    if already_being_fixed and cls.classification in ("bug_report", "integration_issue") and not is_followup:
+        response_text += "\n\n" + _pick(voice.ALREADY_BEING_FIXED, message, shop_domain)
 
-    # 7. Attempt safe repair for fixable issues (only if NOT already being fixed)
+    # 9. Attempt safe repair for fixable issues (only if NOT already being fixed)
     repair_attempted = False
     repair_result = None
     deep_check_skipped = diagnostic.repair_result == "repair_in_progress_by_other" if diagnostic else False
@@ -466,16 +544,21 @@ def process_message(db: Session, shop_domain: str, message: str) -> ChatResponse
             repair_attempted = diagnostic.repair_attempted
             repair_result = diagnostic.repair_result
             if repair_attempted and diagnostic.repair_result and "completed" in diagnostic.repair_result:
-                response_text += "\n\nI've also triggered an automatic repair for your setup. This should resolve within a few minutes."
+                response_text += "\n\n" + _pick(voice.REPAIR_TRIGGERED, message, shop_domain)
         if diagnostic.repair_result == "repair_in_progress_by_other" or deep_check_skipped:
-            response_text += "\n\nAn automatic repair is already in progress for your store."
+            response_text += "\n\n" + voice.REPAIR_IN_PROGRESS
+
+    # 10. Append soft closing (deterministic, not on every message)
+    # Use closing on diagnostic/bug/integration responses, not on product questions
+    if cls.classification in ("bug_report", "integration_issue", "data_quality_issue", "unclassified"):
+        response_text += "\n\n" + closing(message, shop_domain)
 
     # 8. Create incident for non-trivial issues (with dedup)
     incident_created = False
     incident_id = None
     should_create_incident = cls.classification in (
         "bug_report", "billing_access_issue", "integration_issue",
-        "data_quality_issue",
+        "data_quality_issue", "feature_request", "unclassified",
     ) or cls.severity in ("high", "critical")
 
     if should_create_incident:
@@ -499,7 +582,8 @@ def process_message(db: Session, shop_domain: str, message: str) -> ChatResponse
             _route_to_pipeline(db, incident, cls, diagnostic, existing_candidate)
 
         if cls.severity in ("high", "critical"):
-            response_text += f"\n\nThis has been logged as incident #{incident_id} and is being tracked."
+            tracked_msg = _pick(voice.INCIDENT_TRACKED, message, shop_domain).replace("{id}", str(incident_id))
+            response_text += f"\n\n{tracked_msg}"
 
     # 9. Audit log
     try:
@@ -540,163 +624,201 @@ def process_message(db: Session, shop_domain: str, message: str) -> ChatResponse
 # Response generators (per classification)
 # ---------------------------------------------------------------------------
 
-def _answer_product_question(message: str) -> str:
-    """Answer known product questions from the knowledge base."""
+def _answer_product_question(message: str, shop_domain: str = "", db: Session | None = None, store=None) -> str:
+    """Answer product questions with store-specific context when available."""
+    import app.services.chat_voice as voice
     text = message.lower()
-    for keyword, answer in _PRODUCT_ANSWERS.items():
-        if keyword in text:
-            return answer
 
-    # Generic fallback for product questions
-    return (
-        "Hedge Spark monitors your Shopify store to surface signals like high-intent visitors, "
-        "cart abandonment patterns, and pricing opportunities. You can view everything in the dashboard. "
-        "Could you be more specific about what you'd like to know?"
-    )
+    # Try store-contextualized answer first
+    for keyword, base_answer in _PRODUCT_ANSWERS.items():
+        if keyword not in text:
+            continue
+
+        if not store or not store.has_data:
+            return base_answer
+
+        # Contextualize based on keyword + store state
+        if keyword == "signal" and store.active_signals_count > 0:
+            ctx = f"Your store currently has {store.active_signals_count} products with active signals."
+            if store.top_signal_summary:
+                ctx += f" Top right now: {store.top_signal_summary}."
+            return f"{base_answer}\n\n{ctx}"
+
+        if keyword in ("revenue", "brief") and store.has_revenue:
+            return f"{base_answer}\n\nYour store did {store.orders_7d} orders in the last 7 days."
+
+        if keyword in ("tracker", "pixel") and store.visitors_7d > 0:
+            return f"{base_answer}\n\nYour tracker is active \u2014 {store.visitors_7d} visitors tracked in the last 7 days."
+
+        if keyword == "nudge" and store.plan != "pro":
+            return f"{base_answer}\n\nNudges are a Pro feature. You\u2019re currently on {store.plan.title()}."
+
+        if keyword in ("funnel", "heatmap", "session", "cohort", "attribution") and store.plan != "pro":
+            return f"{base_answer}\n\nThis is a Pro feature. Upgrade from the dashboard to unlock it."
+
+        if keyword == "plan":
+            return f"{base_answer}\n\nYou\u2019re currently on the {store.plan.title()} plan."
+
+        return base_answer
+
+    # Fallback with store awareness
+    if store and store.has_data:
+        return (
+            f"I can explain any part of Hedge Spark. Your store has "
+            f"{store.visitors_7d} visitors this week"
+            f"{f' and {store.orders_7d} orders' if store.has_revenue else ''}. "
+            f"What are you curious about?"
+        )
+    return _pick(voice.PRODUCT_QUESTION_FALLBACK, message, shop_domain)
 
 
-def _respond_setup_help(message: str, diagnostic: DiagnosticResult | None, shop_domain: str) -> str:
-    """Respond to setup/onboarding issues with concrete status."""
+def _respond_setup_help(message: str, diagnostic: DiagnosticResult | None, shop_domain: str, store=None) -> str:
+    """Respond to setup/onboarding issues with concrete status + store context."""
+    import app.services.chat_voice as voice
+
     if not diagnostic:
-        return "Let me check your setup status. Could you try refreshing the dashboard? If the issue persists, describe exactly what you see."
+        return _pick(voice.SETUP_CHECKING, message, shop_domain)
 
     if diagnostic.setup_status == "pro_active":
-        return "Your store setup looks fully operational — webhooks, tracker, and Pro billing are all active. What specifically isn't working as expected?"
+        base = _pick(voice.SETUP_ALL_GOOD_PRO, message, shop_domain)
+        if store and store.has_data:
+            base += f"\n\nYour store is tracking {store.visitors_7d} visitors this week."
+        return base
 
     if diagnostic.setup_status == "lite_ready":
-        return "Your store is set up and tracking visitors. All core systems are operational. What issue are you experiencing?"
+        base = _pick(voice.SETUP_ALL_GOOD_LITE, message, shop_domain)
+        if store and store.has_data:
+            base += f"\n\n{store.visitors_7d} visitors tracked in the last 7 days."
+        elif store and not store.has_data:
+            base += "\n\nNo visitor data yet \u2014 data starts flowing once your first visitors arrive."
+        return base
 
-    parts = ["I've checked your store setup and found some issues:"]
+    parts = ["I\u2019ve checked your store setup and found some issues:"]
 
     if "merchant_not_found" in diagnostic.degraded_reasons:
-        parts.append("• Your store doesn't appear to be registered yet. Try reinstalling the app from the Shopify App Store.")
+        parts.append("\u2022 Your store doesn\u2019t appear to be registered yet. Try reinstalling the app from the Shopify App Store.")
         return "\n".join(parts)
 
     if "install_inactive" in diagnostic.degraded_reasons:
-        parts.append("• The app appears to be uninstalled. You'll need to reinstall from the Shopify App Store.")
+        parts.append("\u2022 The app appears to be uninstalled. You\u2019ll need to reinstall from the Shopify App Store.")
         return "\n".join(parts)
 
     if "token_missing" in diagnostic.degraded_reasons or "token_decrypt_failed" in diagnostic.degraded_reasons:
-        parts.append("• There's an authentication issue with your Shopify connection. Try reinstalling the app — this will refresh the connection.")
+        parts.append("\u2022 There\u2019s an authentication issue with your Shopify connection. Try reinstalling the app \u2014 this will refresh the connection.")
         return "\n".join(parts)
 
     if not diagnostic.webhook_ok:
-        parts.append("• Webhook registration is missing — the system will attempt to repair this automatically.")
+        parts.append("\u2022 Webhook registration is missing \u2014 I\u2019m triggering an automatic repair.")
     if not diagnostic.tracker_ok:
-        parts.append("• Tracker script is missing from your store — the system will attempt to reinstall it.")
+        parts.append("\u2022 Tracker script is missing \u2014 I\u2019m triggering a reinstall.")
 
     if diagnostic.onboarding_status == "failed" and diagnostic.onboarding_error:
-        parts.append(f"• Onboarding encountered an issue: {diagnostic.onboarding_error}")
+        parts.append(f"\u2022 Onboarding hit an issue: {diagnostic.onboarding_error}")
 
-    parts.append("\nThe system is checking if it can repair these automatically.")
+    parts.append("\nI\u2019m checking if I can repair these automatically.")
     return "\n".join(parts)
 
 
-def _respond_bug_report(message: str, diagnostic: DiagnosticResult | None, affected_area: str) -> str:
+def _respond_bug_report(message: str, diagnostic: DiagnosticResult | None, affected_area: str, shop_domain: str = "", store=None) -> str:
     """Respond to bug reports with relevant diagnostic context."""
-    if diagnostic and diagnostic.setup_status in ("degraded", "needs_repair"):
-        return _respond_setup_help(message, diagnostic, "")
+    import app.services.chat_voice as voice
 
-    parts = ["I've noted the issue."]
+    if diagnostic and diagnostic.setup_status in ("degraded", "needs_repair"):
+        return _respond_setup_help(message, diagnostic, shop_domain, store)
 
     if affected_area == "tracker":
         if diagnostic and not diagnostic.tracker_ok:
-            parts.append("The tracker script appears to be missing from your store. The system will attempt to reinstall it.")
-        else:
-            parts.append("The tracker appears to be installed correctly. It can take up to a few hours for data to appear after installation. If you've waited longer than that, please describe what you see in the dashboard.")
+            return _pick(voice.BUG_REPORT_TRACKER_MISSING, message, shop_domain)
+        return _pick(voice.BUG_REPORT_TRACKER_OK, message, shop_domain)
 
-    elif affected_area == "dashboard":
-        parts.append("Try refreshing the page. If the issue persists, please describe what you see (blank sections, error messages, etc.).")
+    if affected_area == "dashboard":
+        return _pick(voice.BUG_REPORT_DASHBOARD, message, shop_domain)
 
-    elif affected_area == "nudges":
+    if affected_area == "nudges":
         if diagnostic and diagnostic.plan != "pro":
-            parts.append("Nudges are a Pro feature. You'll need to upgrade to access them.")
-        else:
-            parts.append("I'll log this for investigation. Please describe which nudge and what behavior you expected vs. what happened.")
+            return voice.BUG_REPORT_NUDGES_NOT_PRO
+        return _pick(voice.BUG_REPORT_NUDGES_PRO, message, shop_domain)
 
-    else:
-        parts.append("I'll log this for investigation. The more detail you can provide about what you expected vs. what happened, the faster we can resolve it.")
-
-    return "\n".join(parts)
+    return _pick(voice.BUG_REPORT_GENERIC, message, shop_domain)
 
 
-def _respond_billing_issue(message: str, diagnostic: DiagnosticResult | None) -> str:
+def _respond_billing_issue(message: str, diagnostic: DiagnosticResult | None, shop_domain: str = "") -> str:
     """Respond to billing/access issues with concrete plan status."""
-    if not diagnostic:
-        return "I'm checking your billing status. Please describe the exact issue you're seeing."
+    import app.services.chat_voice as voice
 
-    parts = []
+    if not diagnostic:
+        return _pick(voice.BILLING_CHECKING, message, shop_domain)
 
     if diagnostic.entitlement_mismatch:
         if "plan_pro_but_billing_inactive" in diagnostic.degraded_reasons:
-            parts.append(
-                "I've detected an inconsistency: your account shows Pro plan but billing isn't active. "
-                "This has been flagged for investigation. In the meantime, try the upgrade flow again from the dashboard."
-            )
-        elif "billing_active_but_plan_not_pro" in diagnostic.degraded_reasons:
-            parts.append(
-                "I've detected an inconsistency: billing is active but your plan hasn't been updated to Pro. "
-                "This has been flagged for immediate resolution."
-            )
-        return "\n".join(parts)
+            return voice.ENTITLEMENT_PRO_NO_BILLING
+        if "billing_active_but_plan_not_pro" in diagnostic.degraded_reasons:
+            return voice.ENTITLEMENT_BILLING_NOT_PRO
+        return voice.ENTITLEMENT_PRO_NO_BILLING
 
     if diagnostic.billing_active and diagnostic.plan == "pro":
-        parts.append(f"Your billing looks correct — you're on the Pro plan and billing is active.")
         text = message.lower()
         if re.search(r"(locked|blocked|can.?t access|not.*show)", text):
-            parts.append("If you're seeing locked features despite having Pro, try refreshing the page or logging out and back in. If it persists, this may be a caching issue that I'll escalate.")
-        return "\n".join(parts)
+            return _pick(voice.BILLING_PRO_LOCKED, message, shop_domain)
+        return _pick(voice.BILLING_PRO_HEALTHY, message, shop_domain)
 
     if not diagnostic.billing_active and diagnostic.plan == "starter":
-        parts.append("You're currently on the Starter (free) plan. Pro features require an upgrade — you can start from the Upgrade button in the dashboard.")
-        return "\n".join(parts)
+        return _pick(voice.BILLING_STARTER, message, shop_domain)
 
-    parts.append(f"Your current plan: {diagnostic.plan}, billing active: {diagnostic.billing_active}.")
-    parts.append("If this doesn't match what you expect, I've logged this for investigation.")
-    return "\n".join(parts)
+    return f"Your current plan: {diagnostic.plan}, billing active: {diagnostic.billing_active}. If this doesn\u2019t match what you expect, I\u2019ve logged it for investigation."
 
 
-def _respond_integration_issue(message: str, diagnostic: DiagnosticResult | None, affected_area: str) -> str:
+def _respond_integration_issue(message: str, diagnostic: DiagnosticResult | None, affected_area: str, shop_domain: str = "") -> str:
     """Respond to integration issues (Klaviyo, webhooks, etc.)."""
+    import app.services.chat_voice as voice
+
     if affected_area == "klaviyo":
         if diagnostic and diagnostic.klaviyo_status == "not_connected":
-            return "Klaviyo isn't connected yet. Go to Settings → Integrations to add your Klaviyo API key."
+            return _pick(voice.INTEGRATION_KLAVIYO_NOT_CONNECTED, message, shop_domain)
         if diagnostic and diagnostic.klaviyo_status == "invalid_key":
-            return "Your Klaviyo API key appears to be invalid. Please update it in Settings → Integrations with a fresh key from Klaviyo."
+            return voice.INTEGRATION_KLAVIYO_INVALID
         if diagnostic and diagnostic.klaviyo_status == "connected":
-            return "Klaviyo shows as connected. Events should be flowing. If specific events aren't appearing, please describe which ones and I'll investigate."
-        return "I'll check your Klaviyo integration status. Could you describe which events aren't appearing in Klaviyo?"
+            return _pick(voice.INTEGRATION_KLAVIYO_CONNECTED, message, shop_domain)
+        return _pick(voice.INTEGRATION_KLAVIYO_GENERIC, message, shop_domain)
 
     if affected_area == "webhooks":
         if diagnostic and not diagnostic.webhook_ok:
-            return "Webhook registration appears to be missing. The system will attempt to repair this automatically. This usually resolves within a few minutes."
-        return "Webhooks appear to be registered correctly. Could you describe the specific issue?"
+            return _pick(voice.INTEGRATION_WEBHOOK_MISSING, message, shop_domain)
+        return _pick(voice.INTEGRATION_WEBHOOK_OK, message, shop_domain)
 
     if affected_area == "script_tags":
         if diagnostic and not diagnostic.tracker_ok:
-            return "The tracker script tag appears to be missing. The system will attempt to reinstall it automatically."
-        return "Script tags appear to be installed. Could you describe what you're seeing?"
+            return _pick(voice.INTEGRATION_SCRIPT_MISSING, message, shop_domain)
+        return _pick(voice.INTEGRATION_SCRIPT_OK, message, shop_domain)
 
     if affected_area == "resend":
-        return "Email delivery issues can have multiple causes. Please check: 1) Is your contact email set correctly? 2) Check your spam folder. I'll log this for investigation."
+        return _pick(voice.INTEGRATION_EMAIL, message, shop_domain)
 
-    return "I've noted the integration issue and will investigate. Could you provide more details about what you expected vs. what happened?"
+    return _pick(voice.INTEGRATION_GENERIC, message, shop_domain)
 
 
-def _respond_data_quality(message: str, diagnostic: DiagnosticResult | None) -> str:
-    """Respond to data quality concerns."""
-    parts = ["Data accuracy is important to us."]
+def _respond_data_quality(message: str, diagnostic: DiagnosticResult | None, shop_domain: str = "", store=None) -> str:
+    """Respond to data quality concerns with store-specific context."""
+    import app.services.chat_voice as voice
 
     if diagnostic and diagnostic.setup_status in ("degraded", "needs_repair"):
-        parts.append("I've detected that your store setup has issues which may affect data quality. Let me address that first.")
-        return "\n".join(parts)
+        return _pick(voice.DATA_QUALITY_DEGRADED, message, shop_domain)
 
-    parts.append("A few things to check:")
-    parts.append("• Signals update based on visitor activity — low traffic may cause slower updates")
-    parts.append("• Revenue data syncs from Shopify orders — there can be a short delay")
-    parts.append("• If specific numbers look wrong, please share what you see vs. what you expect")
-    parts.append("\nI've logged this for investigation.")
-    return "\n".join(parts)
+    base = _pick(voice.DATA_QUALITY_HEALTHY, message, shop_domain)
+
+    # Add store-specific data context
+    if store and store.has_data:
+        context_parts = []
+        if store.visitors_7d > 0:
+            context_parts.append(f"I\u2019m seeing {store.visitors_7d} visitors in the last 7 days")
+        if store.has_revenue:
+            context_parts.append(f"{store.orders_7d} orders tracked")
+        if store.cart_rate is not None:
+            context_parts.append(f"cart rate at {store.cart_rate:.1%}")
+        if context_parts:
+            base += f"\n\nFor reference, your current numbers: {', '.join(context_parts)}."
+
+    return base
 
 
 # ---------------------------------------------------------------------------

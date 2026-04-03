@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+
 import { RevenueTrendChart } from "./RevenueTrendChart";
 import { SparkInline } from "./SparkCompanion";
 
@@ -53,19 +53,8 @@ export function RevenueHero({
     ];
     return (
       <div className="relative overflow-hidden rounded-2xl border border-violet-400/[0.12] bg-gradient-to-br from-violet-500/[0.06] via-transparent to-transparent p-6">
-        <div className="flex items-center gap-4">
-          <Image
-            src="/branding/hedgespark-mascot.png"
-            alt="Hedge Spark"
-            width={96}
-            height={96}
-            className="hs-bob flex-shrink-0"
-          />
-          <div>
-            <div className="text-[13px] font-medium text-slate-300">
-              {messages[coldStartPhase] ?? messages[0]}
-            </div>
-          </div>
+        <div className="text-[13px] font-medium text-slate-300">
+          {messages[coldStartPhase] ?? messages[0]}
         </div>
       </div>
     );
@@ -103,15 +92,7 @@ export function RevenueHero({
           </div>
         </div>
 
-        {/* Mascot — always present */}
-        <div className="flex-shrink-0">
-          <Image
-            src="/branding/hedgespark-mascot.png"
-            alt="Hedge Spark"
-            width={96}
-            height={96}
-          />
-        </div>
+        {/* Signal count badge already present above — mascot removed for cleaner data display */}
       </div>
 
       {/* Revenue trend chart — the visual heart of the hero */}

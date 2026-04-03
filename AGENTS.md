@@ -3,9 +3,10 @@
 ## Entry Protocol
 
 1. Read `CLAUDE.md` — system architecture, safety rules, verification commands
-2. Check current health: `curl -s http://127.0.0.1:8000/system/health`
-3. Check git state: `cd /opt/wishspark && git log --oneline -5 && git status --short`
-4. Check test suite: `./venv/bin/python -m pytest tests/ --ignore=tests/test_scaling_intelligence.py -q`
+2. Read `EXECUTION_POLICY.md` — tier model, domain classification, escalation triggers
+3. Check current health: `curl -s http://127.0.0.1:8000/system/health`
+4. Check git state: `cd /opt/wishspark && git log --oneline -5 && git status --short`
+5. Check test suite: `./venv/bin/python -m pytest tests/ --ignore=tests/test_scaling_intelligence.py -q`
 
 ## Module Ownership Map
 
@@ -96,10 +97,25 @@ All require `X-API-Key: DASHBOARD_API_KEY` header.
 
 ## When to Stop and Ask
 
-- Before modifying any file in Danger Zones
-- Before running database migrations
-- Before changing environment variables
-- Before `git push --force` or `git reset --hard`
+See `EXECUTION_POLICY.md` §4 for the complete escalation trigger list. Summary:
+
+- Before modifying any TIER_2 file (auth, billing, OAuth, webhooks, migrations, secrets)
+- Before running database migrations or destructive git operations
+- Before changing environment variables or deploy configuration
 - When test count drops below 631
 - When `/system/health` shows "critical"
 - When unsure about tenant isolation (shop_domain scoping)
+- When a change touches 3+ domains (auto-escalate to TIER_1)
+- When modifying governance logic (orchestrator, reviewer, project_brain, execution policy)
+
+## Execution Policy Reference
+
+All code changes and operational actions are governed by the tiered execution model in `EXECUTION_POLICY.md`:
+
+| Tier | Meaning | Examples |
+|------|---------|----------|
+| TIER_0 | Autonomous — apply with tests passing | Service logic, workers, frontend, tests |
+| TIER_1 | Propose only — human must approve | Tracker JS, orchestrator, LLM infra, models, multi-domain refactors |
+| TIER_2 | Human-only — agent must never modify | Auth, billing, OAuth, webhooks, migrations, secrets, deploy |
+
+**Quick rule:** If unsure which tier, treat it as TIER_1 (propose, don't apply).

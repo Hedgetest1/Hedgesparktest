@@ -79,6 +79,12 @@ def check_webhook_health(db: Session, shop_domain: str) -> WebhookHealthReport:
     """
     report = WebhookHealthReport(shop_domain=shop_domain)
 
+    # Defense-in-depth: skip blocklisted shops even if caller forgot
+    from app.services.onboarding import _ONBOARDING_BLOCKLIST
+    if shop_domain in _ONBOARDING_BLOCKLIST:
+        report.healthy = True
+        return report
+
     merchant = db.query(Merchant).filter(Merchant.shop_domain == shop_domain).first()
     if not merchant or not merchant.access_token:
         report.healthy = False

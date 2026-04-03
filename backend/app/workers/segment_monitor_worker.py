@@ -480,11 +480,19 @@ def run_cycle() -> None:
 def main() -> None:
     log("worker started")
     while True:
-        try:
-            run_cycle()
-        except Exception as exc:
-            log(f"unhandled exception: {exc}")
-            raise
+        from app.core.distributed_lock import worker_lock
+        from app.core.metrics import track_worker_cycle
+
+        with worker_lock(WORKER_NAME, ttl_seconds=SLEEP_SECONDS + 60) as acquired:
+            if not acquired:
+                log("another instance holds the lock — skipping cycle")
+            else:
+                try:
+                    with track_worker_cycle(WORKER_NAME):
+                        run_cycle()
+                except Exception as exc:
+                    log(f"unhandled exception: {exc}")
+                    raise
         log(f"sleeping {SLEEP_SECONDS}s")
         time.sleep(SLEEP_SECONDS)
 

@@ -161,13 +161,14 @@ def resolve_support_incident(
     if not incident:
         raise HTTPException(404, "Incident not found")
 
-    if incident.status == "resolved":
+    if incident.status == "resolved" and incident.resolution_verified:
         raise HTTPException(409, "Incident already resolved")
 
     incident.status = "resolved"
     incident.resolution_summary = body.resolution_summary
     incident.resolved_at = datetime.now(timezone.utc).replace(tzinfo=None)
     incident.resolved_by = "operator"
+    incident.resolution_verified = True  # operator manually confirmed
 
     from app.services.audit import write_audit_log
     write_audit_log(
@@ -186,3 +187,115 @@ def resolve_support_incident(
         "incident_id": incident_id,
         "resolution_summary": body.resolution_summary,
     }
+
+
+@router.get("/support/resolutions")
+def chat_support_resolutions(
+    shop_domain: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+):
+    """
+    Get undelivered resolution messages for this merchant.
+
+    Returns incidents that have been resolved but whose resolution_summary
+    has not yet been delivered to the merchant's chat.
+    Polled by the frontend every 30s.
+    """
+    from app.models.support_incident import SupportIncident
+
+    pending = (
+        db.query(SupportIncident)
+        .filter(
+            SupportIncident.shop_domain == shop_domain,
+            SupportIncident.status == "resolved",
+            SupportIncident.resolution_summary.isnot(None),
+            SupportIncident.resolution_delivered_at.is_(None),
+            # Gate: only deliver messages for verified resolutions.
+            # Operator-resolved incidents must set resolution_verified=True.
+            # Auto-fixes are verified by outcome measurement (48h delay).
+            SupportIncident.resolution_verified == True,
+        )
+        .order_by(SupportIncident.resolved_at.asc())
+        .limit(5)
+        .all()
+    )
+
+    return [
+        {
+            "incident_id": inc.id,
+            "resolution_summary": inc.resolution_summary,
+            "resolved_at": inc.resolved_at.isoformat() + "Z" if inc.resolved_at else None,
+        }
+        for inc in pending
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Proactive messages — system-initiated check-ins
+# ---------------------------------------------------------------------------
+
+@router.get("/support/proactive")
+def chat_support_proactive(
+    shop_domain: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+):
+    """
+    Get undelivered proactive messages for this merchant.
+
+    Proactive messages are system-injected check-ins, triggered by:
+    - Post-onboarding welcome (first connected visit)
+    - Post-fix follow-up (asking if fix worked)
+    - Low activity nudge (merchant seems stuck)
+
+    Polled by the frontend alongside resolution polling.
+    Each message is delivered once, then ack'd.
+    """
+    from app.services.proactive_chat import get_pending_proactive_messages
+    return get_pending_proactive_messages(db, shop_domain)
+
+
+@router.post("/support/proactive/{message_id}/ack")
+def chat_support_ack_proactive(
+    message_id: str,
+    shop_domain: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+):
+    """Acknowledge a proactive message was displayed in the merchant's chat."""
+    from app.services.proactive_chat import ack_proactive_message
+    ack_proactive_message(db, shop_domain, message_id)
+    db.commit()
+    return {"status": "acknowledged", "message_id": message_id}
+
+
+# ---------------------------------------------------------------------------
+# Resolution acknowledgement
+# ---------------------------------------------------------------------------
+
+@router.post("/support/resolutions/{incident_id}/ack")
+def chat_support_ack_resolution(
+    incident_id: int,
+    shop_domain: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+):
+    """
+    Acknowledge that a resolution message was displayed in the merchant's chat.
+    Sets resolution_delivered_at so it won't be returned again.
+    """
+    from datetime import datetime, timezone
+    from app.models.support_incident import SupportIncident
+
+    incident = (
+        db.query(SupportIncident)
+        .filter(
+            SupportIncident.id == incident_id,
+            SupportIncident.shop_domain == shop_domain,
+        )
+        .first()
+    )
+    if not incident:
+        raise HTTPException(404, "Incident not found")
+
+    incident.resolution_delivered_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.commit()
+
+    return {"status": "acknowledged", "incident_id": incident_id}

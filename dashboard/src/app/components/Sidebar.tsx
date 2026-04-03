@@ -2,7 +2,6 @@
 
 import Image from "next/image";
 import { type ReactNode, useEffect, useRef } from "react";
-import { SparkCompanion, type SparkContext } from "./SparkCompanion";
 
 export type NavItem = {
   id: string;
@@ -110,8 +109,6 @@ const NAV_ITEMS: NavItem[] = [
   },
 ];
 
-// Map sections to their nav item — some sections don't have their own nav entry
-// and should highlight their parent nav item instead.
 const SECTION_TO_NAV: Record<string, string> = {
   brief: "brief",
   overview: "overview",
@@ -141,55 +138,41 @@ export function Sidebar({
   activeSection,
   onNavigate,
   tier,
-  sparkContext,
 }: {
   collapsed: boolean;
   onToggle: () => void;
   activeSection: string;
   onNavigate: (id: string) => void;
   tier?: "lite" | "pro";
-  sparkContext?: SparkContext;
 }) {
   const activeRef = useRef<HTMLButtonElement | null>(null);
 
-  // Auto-scroll the active item into view within the sidebar
   useEffect(() => {
     activeRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [activeSection]);
 
-  // Resolve which nav item should be active
   const activeNavId = SECTION_TO_NAV[activeSection] || activeSection;
 
   return (
     <aside
-      className={`sticky top-0 flex h-screen flex-shrink-0 flex-col overflow-y-auto border-r border-white/[0.08] bg-[#06060e] transition-[width] duration-200 ease-in-out ${
+      className={`sticky top-0 flex h-screen flex-shrink-0 flex-col border-r border-white/[0.06] bg-[#060610] transition-[width] duration-200 ease-in-out ${
         collapsed ? "w-16" : "w-56"
       }`}
     >
-      {/* Logo — stronger brand presence */}
-      <div className="flex h-14 flex-shrink-0 items-center gap-3 border-b border-white/[0.08] px-3">
-        <div className="relative flex-shrink-0">
-          <Image
-            src="/branding/hedgespark-mascot.png"
-            alt="Hedge Spark"
-            width={36}
-            height={36}
-            className="hs-bob flex-shrink-0"
-            priority
-          />
-          <span className="hs-sparkle absolute -right-1 -top-1 text-[10px] leading-none text-amber-300">
-            ✦
-          </span>
-        </div>
+      {/* Brand */}
+      <div className="flex h-14 flex-shrink-0 items-center gap-3 border-b border-white/[0.06] px-4">
+        <Image
+          src="/branding/hedgespark/spark.png"
+          alt="HedgeSpark"
+          width={30}
+          height={30}
+          className="flex-shrink-0"
+          priority
+        />
         {!collapsed && (
-          <div className="min-w-0">
-            <span className="block truncate text-[14px] font-bold tracking-tight text-white">
-              Hedge Spark
-            </span>
-            <span className="block text-[9px] font-medium uppercase tracking-[0.16em] text-violet-400/60">
-              Commerce AI
-            </span>
-          </div>
+          <span className="text-[15px] font-bold tracking-tight text-white">
+            Hedge<span className="text-violet-400">Spark</span>
+          </span>
         )}
       </div>
 
@@ -223,7 +206,6 @@ export function Sidebar({
                   )}
                 </span>
               )}
-              {/* Active indicator bar */}
               {isActive && !collapsed && (
                 <span className="ml-auto h-4 w-0.5 flex-shrink-0 rounded-full bg-violet-400/70" />
               )}
@@ -232,16 +214,11 @@ export function Sidebar({
         })}
       </nav>
 
-      {/* Bottom: Spark contextual companion */}
-      {!collapsed && sparkContext && (
-        <SparkCompanion context={sparkContext} onNavigate={onNavigate} />
-      )}
-
       {/* Collapse toggle */}
-      <div className="border-t border-white/[0.08] p-2">
+      <div className="border-t border-white/[0.06] p-2">
         <button
           onClick={onToggle}
-          className="flex w-full items-center justify-center rounded-lg p-2 text-slate-500 transition-colors hover:bg-white/[0.05] hover:text-slate-300"
+          className="flex w-full items-center justify-center rounded-lg p-2 text-slate-600 transition-colors hover:bg-white/[0.04] hover:text-slate-400"
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? (

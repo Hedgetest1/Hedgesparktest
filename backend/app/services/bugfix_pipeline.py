@@ -35,6 +35,227 @@ log = logging.getLogger("bugfix_pipeline")
 _TRIAGE_LOOKBACK_HOURS = 24
 
 
+# ---------------------------------------------------------------------------
+# Patch fingerprinting — prevents retrying identical failed approaches
+# ---------------------------------------------------------------------------
+
+import hashlib
+
+
+def _compute_patch_fingerprint(title: str, files_json: str | None, patch_diff: str | None = None) -> str:
+    """
+    Compute a SHA-256 fingerprint for a patch based on its identity.
+    Normalized: sorted file list + lowercased title keywords.
+    """
+    parts = []
+
+    # Normalize title into sorted keywords
+    if title:
+        words = sorted(set(title.lower().split()))
+        parts.append(" ".join(words))
+
+    # Normalize file list
+    if files_json:
+        try:
+            files = json.loads(files_json)
+            if isinstance(files, list):
+                parts.append("|".join(sorted(files)))
+        except (json.JSONDecodeError, ValueError):
+            parts.append(files_json[:200])
+
+    # Include first 500 chars of diff for diff-level dedup
+    if patch_diff:
+        parts.append(patch_diff[:500])
+
+    raw = "\n".join(parts)
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+import re
+
+# Patterns stripped during diff normalization
+_DIFF_STRIP_PATTERNS = [
+    re.compile(r"^@@\s.*@@.*$", re.MULTILINE),     # hunk headers
+    re.compile(r"^---\s.*$", re.MULTILINE),          # file headers
+    re.compile(r"^\+\+\+\s.*$", re.MULTILINE),      # file headers
+    re.compile(r"^diff\s--git.*$", re.MULTILINE),    # diff command line
+    re.compile(r"^index\s[0-9a-f]+\.\.[0-9a-f]+.*$", re.MULTILINE),  # index line
+]
+
+
+def _compute_diff_fingerprint(patch_diff: str | None) -> str | None:
+    """
+    Compute a normalized diff fingerprint that catches semantically identical patches
+    even when cosmetic details differ (whitespace, comments, context lines, hunk headers).
+
+    Normalization rules:
+    1. Strip all hunk headers (@@...@@), file headers (---/+++), diff/index lines
+    2. Keep only +/- lines (actual changes), strip leading +/-
+    3. Collapse all whitespace to single spaces
+    4. Strip inline comments (# ... at end of line)
+    5. Sort remaining lines (order-independent — same changes in different order = same hash)
+    6. Lowercase everything
+    """
+    if not patch_diff or not patch_diff.strip():
+        return None
+
+    normalized = patch_diff
+
+    # Step 1: Strip headers and metadata
+    for pattern in _DIFF_STRIP_PATTERNS:
+        normalized = pattern.sub("", normalized)
+
+    # Step 2: Keep only change lines (+ or -), strip the prefix
+    change_lines = []
+    for line in normalized.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("+") or stripped.startswith("-"):
+            # Remove the +/- prefix
+            content = stripped[1:].strip()
+            if not content:
+                continue  # skip empty change lines
+
+            # Step 3: Collapse whitespace
+            content = re.sub(r"\s+", " ", content)
+
+            # Step 4: Strip trailing comments
+            content = re.sub(r"\s*#\s*.*$", "", content)
+
+            if content:
+                change_lines.append(content.lower())
+
+    if not change_lines:
+        return None
+
+    # Step 5: Sort for order-independence
+    change_lines.sort()
+
+    raw = "\n".join(change_lines)
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _check_patch_fingerprint(
+    db: Session, fingerprint: str, diff_fp: str | None = None, lookback_days: int = 30,
+) -> dict | None:
+    """
+    Check if a patch with this fingerprint (or diff fingerprint) recently failed.
+    Checks both identity fingerprint and normalized diff fingerprint.
+    Returns dict with candidate_id and outcome if found, None otherwise.
+    """
+    try:
+        from app.models.patch_fingerprint import PatchFingerprint
+        from sqlalchemy import or_
+
+        cutoff = _now() - timedelta(days=lookback_days)
+
+        # Build filter: match identity fingerprint OR diff fingerprint
+        fp_conditions = [PatchFingerprint.fingerprint == fingerprint]
+        if diff_fp:
+            fp_conditions.append(PatchFingerprint.diff_fingerprint == diff_fp)
+
+        fp = (
+            db.query(PatchFingerprint)
+            .filter(
+                or_(*fp_conditions),
+                PatchFingerprint.outcome.in_(["rolled_back", "apply_failed", "tests_failed", "test_timeout"]),
+                PatchFingerprint.created_at >= cutoff,
+            )
+            .order_by(PatchFingerprint.created_at.desc())
+            .first()
+        )
+        if fp:
+            match_type = "diff" if (diff_fp and fp.diff_fingerprint == diff_fp) else "identity"
+            return {
+                "candidate_id": fp.bugfix_candidate_id,
+                "outcome": fp.outcome,
+                "failure_reason": fp.failure_reason,
+                "created_at": fp.created_at,
+                "match_type": match_type,
+            }
+    except Exception as exc:
+        log.debug("patch_fingerprint: check failed (non-fatal): %s", exc)
+    return None
+
+
+def _record_patch_fingerprint(
+    db: Session, candidate: BugFixCandidate, outcome: str,
+    failure_reason: str | None = None,
+) -> None:
+    """Record a patch fingerprint (identity + normalized diff) for future dedup."""
+    try:
+        from app.models.patch_fingerprint import PatchFingerprint
+        fp_hash = _compute_patch_fingerprint(
+            candidate.title, candidate.patch_files, candidate.patch_diff,
+        )
+        diff_fp = _compute_diff_fingerprint(candidate.patch_diff)
+        domain = _classify_candidate_domain(candidate)
+        fp = PatchFingerprint(
+            fingerprint=fp_hash,
+            diff_fingerprint=diff_fp,
+            bugfix_candidate_id=candidate.id,
+            outcome=outcome,
+            failure_reason=failure_reason[:500] if failure_reason else None,
+            source_type=candidate.source_type,
+            source_ref=candidate.source_ref,
+            affected_domain=domain,
+            patch_files=candidate.patch_files,
+        )
+        db.add(fp)
+        db.flush()
+    except Exception as exc:
+        log.debug("patch_fingerprint: record failed (non-fatal): %s", exc)
+
+
+def _lookup_lessons_for_proposal(db: Session, domain: str) -> tuple[str | None, list[int]]:
+    """
+    Look up active lessons for a domain to inject into LLM context.
+    Returns (formatted text block, list of lesson IDs used) or (None, []).
+    """
+    try:
+        from app.models.system_lesson import SystemLesson
+        lessons = (
+            db.query(SystemLesson)
+            .filter(
+                SystemLesson.status == "active",
+                SystemLesson.confidence >= 0.3,
+                SystemLesson.domain.in_([domain, "unknown"]),
+            )
+            .order_by(SystemLesson.confidence.desc())
+            .limit(5)
+            .all()
+        )
+        if not lessons:
+            return None, []
+
+        lesson_ids = [l.id for l in lessons]
+        lines = [f"## Institutional Memory — Lessons for domain '{domain}'"]
+        for l in lessons:
+            marker = "✓" if l.lesson_type == "effective_pattern" else "✗"
+            lines.append(f"- {marker} [{l.lesson_type}] {l.summary} (confidence: {l.confidence:.1f}, evidence: {l.evidence_count})")
+        return "\n".join(lines), lesson_ids
+    except Exception:
+        return None, []
+
+
+def _classify_candidate_domain(candidate: BugFixCandidate) -> str | None:
+    """Classify a candidate into a domain using project_brain."""
+    if candidate.affected_domain:
+        return candidate.affected_domain
+    if not candidate.patch_files:
+        return None
+    try:
+        from app.services.project_brain import classify_file
+        files = json.loads(candidate.patch_files)
+        if files:
+            result = classify_file(files[0])
+            domain = result.get("domain")
+            candidate.affected_domain = domain
+            return domain
+    except Exception:
+        pass
+    return None
+
+
 def _now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -47,8 +268,9 @@ def run_bug_triage(db: Session) -> dict:
     """
     Scan ops_alerts and action_outcomes for patterns that indicate bugs.
     Create BugFixCandidate rows for new findings. Dedup by source_type+source_ref.
+    Suppresses sources that are thrashing (3+ failed attempts in 30 days).
     """
-    summary = {"scanned": 0, "created": 0, "deduped": 0}
+    summary = {"scanned": 0, "created": 0, "deduped": 0, "suppressed": 0}
     cutoff = _now() - timedelta(hours=_TRIAGE_LOOKBACK_HOURS)
 
     # Rule 1: GDPR failures → likely code bug
@@ -62,8 +284,7 @@ def run_bug_triage(db: Session) -> dict:
     for alert in gdpr_alerts:
         summary["scanned"] += 1
         ref = f"alert_{alert[0]}"
-        if _has_open_candidate(db, "ops_alert", ref):
-            summary["deduped"] += 1
+        if _should_skip_source(db, "ops_alert", ref, summary):
             continue
         _create_candidate(
             db,
@@ -86,8 +307,7 @@ def run_bug_triage(db: Session) -> dict:
     for alert in worker_alerts:
         summary["scanned"] += 1
         ref = f"worker_{alert[1]}"
-        if _has_open_candidate(db, "ops_alert", ref):
-            summary["deduped"] += 1
+        if _should_skip_source(db, "ops_alert", ref, summary):
             continue
         _create_candidate(
             db,
@@ -112,8 +332,7 @@ def run_bug_triage(db: Session) -> dict:
     for row in no_effect:
         summary["scanned"] += 1
         ref = f"outcome_{row[0]}_{row[1]}"
-        if _has_open_candidate(db, "outcome", ref):
-            summary["deduped"] += 1
+        if _should_skip_source(db, "outcome", ref, summary):
             continue
         _create_candidate(
             db,
@@ -139,8 +358,7 @@ def run_bug_triage(db: Session) -> dict:
     for alert in merchant_bugs:
         summary["scanned"] += 1
         ref = f"merchant_bug_alert_{alert[0]}"
-        if _has_open_candidate(db, "support_incident", ref):
-            summary["deduped"] += 1
+        if _should_skip_source(db, "support_incident", ref, summary):
             continue
         candidate = _create_candidate(
             db,
@@ -178,7 +396,10 @@ def run_auto_propose(db: Session, max_per_cycle: int = 2) -> dict:
             BugFixCandidate.status.in_(["open", "analyzed"]),
             BugFixCandidate.proposal_attempted_at.is_(None),
         )
-        .order_by(BugFixCandidate.created_at)
+        .order_by(
+            BugFixCandidate.priority_score.desc().nullslast(),
+            BugFixCandidate.created_at,
+        )
         .limit(max_per_cycle)
         .all()
     )
@@ -219,6 +440,63 @@ def _has_open_candidate(db: Session, source_type: str, source_ref: str) -> bool:
         BugFixCandidate.source_ref == source_ref,
         BugFixCandidate.status.in_(["open", "analyzed", "patch_proposed", "approved", "applying"]),
     ).first() is not None
+
+
+def _should_skip_source(db: Session, source_type: str, source_ref: str, summary: dict) -> bool:
+    """Check dedup + thrash suppression + escalation. Returns True if source should be skipped."""
+    if _has_open_candidate(db, source_type, source_ref):
+        summary["deduped"] += 1
+        return True
+    try:
+        from app.services.loop_health import is_source_thrashing
+        if is_source_thrashing(db, source_type, source_ref):
+            summary["suppressed"] = summary.get("suppressed", 0) + 1
+            log.info("triage: suppressed thrashing source=%s ref=%s", source_type, source_ref)
+            _escalate_thrashing(db, source_type, source_ref)
+            return True
+    except ImportError:
+        pass
+    return False
+
+
+def _escalate_thrashing(db: Session, source_type: str, source_ref: str) -> None:
+    """
+    Create a dedup-safe operator alert for a chronically thrashing source.
+    Only creates one unresolved alert per source — won't spam.
+    """
+    try:
+        from app.models.ops_alert import OpsAlert
+        existing = (
+            db.query(OpsAlert)
+            .filter(
+                OpsAlert.alert_type == "chronic_thrashing",
+                OpsAlert.source == f"{source_type}:{source_ref}",
+                OpsAlert.resolved == False,
+            )
+            .first()
+        )
+        if existing:
+            return  # already escalated, not yet resolved
+
+        from app.services.alerting import write_alert
+        write_alert(
+            db,
+            severity="warning",
+            source=f"{source_type}:{source_ref}",
+            alert_type="chronic_thrashing",
+            summary=(
+                f"Bug source '{source_ref}' ({source_type}) has failed 3+ times in 30 days. "
+                f"Auto-fix attempts are now suppressed. Manual investigation required."
+            ),
+            detail={
+                "source_type": source_type,
+                "source_ref": source_ref,
+                "action": "Manual investigation needed — auto-fix pipeline cannot resolve this.",
+            },
+        )
+        log.warning("triage: ESCALATED thrashing source=%s ref=%s → ops_alert created", source_type, source_ref)
+    except Exception as exc:
+        log.debug("triage: thrash escalation failed (non-fatal): %s", exc)
 
 
 def _create_candidate(
@@ -286,8 +564,13 @@ def _recover_stuck_candidates(db: Session):
 
 def _propagate_resolution(db: Session, candidate: BugFixCandidate):
     """
-    When a bugfix candidate is applied, resolve all linked support incidents.
-    Transitions: investigating/triaged/open → resolved (by auto_bugfix).
+    When a bugfix candidate is applied, mark linked support incidents as
+    fix_applied — but do NOT set resolution_summary yet.
+
+    The merchant message is withheld until the fix is verified effective
+    (48h outcome measurement) or an operator manually confirms.
+
+    Status flow: investigating → fix_applied → resolved (after verification)
     """
     from app.models.support_incident import SupportIncident
     incidents = (
@@ -299,13 +582,67 @@ def _propagate_resolution(db: Session, candidate: BugFixCandidate):
         .all()
     )
     for inc in incidents:
-        inc.status = "resolved"
+        inc.status = "fix_applied"
         inc.resolved_by = "auto_bugfix"
         inc.resolved_at = _now()
-        inc.resolution_summary = f"Resolved by auto-fix #{candidate.id}: {candidate.title}"
-        log.info("bugfix_pipeline: auto-resolved incident=%d via candidate=%d", inc.id, candidate.id)
+        # resolution_summary is deliberately NOT set here.
+        # It will be set when the outcome is measured as effective,
+        # or when an operator manually verifies.
+        inc.resolution_verified = False
+        log.info("bugfix_pipeline: fix applied for incident=%d via candidate=%d (awaiting verification)", inc.id, candidate.id)
     if incidents:
         db.flush()
+
+
+# ---------------------------------------------------------------------------
+# Domain effectiveness context for LLM
+# ---------------------------------------------------------------------------
+
+def _get_domain_effectiveness_context(db: Session) -> str | None:
+    """
+    Build a short context block showing per-domain patch effectiveness
+    over the last 90 days. Helps the LLM calibrate its approach.
+
+    Groups by affected_domain (actual domain intelligence, not source_type).
+    Falls back to source_type grouping if no domain data available.
+    """
+    # Try per-domain grouping first (actual domain intelligence)
+    domain_rows = db.execute(text("""
+        SELECT
+            COALESCE(bc.affected_domain, 'unknown') AS domain,
+            bc.outcome_status,
+            COUNT(*) as cnt
+        FROM bugfix_candidates bc
+        WHERE bc.outcome_status IS NOT NULL
+          AND bc.outcome_measured_at >= NOW() - INTERVAL '90 days'
+        GROUP BY COALESCE(bc.affected_domain, 'unknown'), bc.outcome_status
+        ORDER BY domain
+    """)).fetchall()
+
+    if not domain_rows:
+        return None
+
+    # Aggregate by domain
+    stats: dict[str, dict[str, int]] = {}
+    for domain, outcome, cnt in domain_rows:
+        if domain not in stats:
+            stats[domain] = {}
+        stats[domain][outcome] = cnt
+
+    lines = ["## System Learning Context (90-day effectiveness by domain)"]
+    for domain, outcomes in sorted(stats.items()):
+        total = sum(outcomes.values())
+        effective = outcomes.get("effective", 0)
+        pct = round(effective / total * 100) if total > 0 else 0
+        lines.append(f"- {domain}: {effective}/{total} effective ({pct}%)")
+
+    # Add overall
+    all_effective = sum(o.get("effective", 0) for o in stats.values())
+    all_total = sum(sum(o.values()) for o in stats.values())
+    if all_total > 0:
+        lines.append(f"- OVERALL: {all_effective}/{all_total} effective ({round(all_effective/all_total*100)}%)")
+
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -341,14 +678,157 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
 
     candidate.status = "analyzed"
 
+    # Classify domain early (for fingerprinting and context)
+    _classify_candidate_domain(candidate)
+
+    # Fingerprint pre-check: reject if identical patch recently failed
+    pre_fp = _compute_patch_fingerprint(candidate.title, candidate.patch_files)
+    failed_match = _check_patch_fingerprint(db, pre_fp)
+    if failed_match:
+        log.info(
+            "propose_patch: FINGERPRINT REJECT id=%d — matches failed candidate #%d (%s)",
+            candidate.id, failed_match["candidate_id"], failed_match["outcome"],
+        )
+        candidate.failure_reason = (
+            f"fingerprint_dedup: identical approach failed in candidate #{failed_match['candidate_id']} "
+            f"({failed_match['outcome']})"
+        )
+        db.flush()
+        return False
+
     # Build context
     context_parts = [f"## Bug: {candidate.title}", f"Summary: {candidate.summary}"]
-    if candidate.context_json:
+
+    # Recurrence-aware context: if this is a follow-up from an ineffective fix,
+    # tell the LLM explicitly so it tries a different approach.
+    if candidate.source_type == "recurrence" and candidate.context_json:
+        try:
+            ctx = json.loads(candidate.context_json)
+            context_parts.append(
+                "## IMPORTANT — Previous Fix Was Ineffective\n"
+                "A prior attempt to fix this bug did NOT resolve it. "
+                "You MUST try a fundamentally different approach.\n\n"
+                f"Previous patch summary: {ctx.get('previous_patch_summary', 'unknown')}\n"
+                f"Previous files changed: {ctx.get('previous_files', 'unknown')}\n"
+                f"Alerts before previous fix: {ctx.get('alerts_before', '?')}\n"
+                f"Alerts after previous fix: {ctx.get('alerts_after', '?')} (should have decreased)\n"
+                f"Original bug: {ctx.get('original_title', 'unknown')}\n"
+                f"Original source: {ctx.get('original_source_type', '?')}/{ctx.get('original_source_ref', '?')}\n\n"
+                "Do NOT repeat the same fix. Investigate the root cause more deeply."
+            )
+            # Still include remaining context
+            remaining = {k: v for k, v in ctx.items()
+                         if k not in ("previous_patch_summary", "previous_files",
+                                      "alerts_before", "alerts_after",
+                                      "original_title", "original_source_type",
+                                      "original_source_ref", "previous_candidate_id",
+                                      "previous_outcome")}
+            if remaining:
+                context_parts.append(f"Additional context: {json.dumps(remaining, indent=2)}")
+        except Exception:
+            context_parts.append(f"Context: {candidate.context_json[:500]}")
+
+    elif candidate.source_type == "sentry_incident" and candidate.context_json:
+        # Sentry triage packet — structured production error with parsed evidence
+        try:
+            pkt = json.loads(candidate.context_json)
+            sentry_parts: list[str] = ["## Sentry Production Error"]
+
+            # Error identity
+            if pkt.get("error_type"):
+                sentry_parts.append(f"Error type: {pkt['error_type']}")
+            if pkt.get("error_title"):
+                sentry_parts.append(f"Error: {pkt['error_title']}")
+
+            # Location
+            if pkt.get("culprit"):
+                sentry_parts.append(f"File: {pkt['culprit']}")
+            if pkt.get("subsystem") and pkt["subsystem"] != "unknown":
+                sentry_parts.append(f"Subsystem: {pkt['subsystem']} (criticality: {pkt.get('criticality', '?')})")
+
+            # Environment
+            if pkt.get("environment"):
+                sentry_parts.append(f"Environment: {pkt['environment']}")
+
+            # Recurrence
+            recurrence = pkt.get("recurrence_count", 1)
+            if recurrence > 1:
+                sentry_parts.append(f"Recurrences: {recurrence} (this error keeps happening)")
+                if pkt.get("first_seen"):
+                    sentry_parts.append(f"First seen: {pkt['first_seen']}")
+                if pkt.get("last_seen"):
+                    sentry_parts.append(f"Last seen: {pkt['last_seen']}")
+
+            # Stack trace — the most critical evidence
+            if pkt.get("stack_trace"):
+                trace = pkt["stack_trace"]
+                # Cap at 2000 chars to leave room for other context
+                if len(trace) > 2000:
+                    trace = trace[-2000:]
+                sentry_parts.append(f"\n## Stack Trace\n```\n{trace}\n```")
+
+            # Root-cause hints from parser
+            hints = pkt.get("probable_root_cause_hints", [])
+            if hints:
+                sentry_parts.append("\n## Root-Cause Hints")
+                for h in hints:
+                    sentry_parts.append(f"- {h}")
+
+            # Related lessons from system memory
+            lessons = pkt.get("related_lessons", [])
+            if lessons:
+                sentry_parts.append("\n## Related Lessons from System Memory")
+                for lesson in lessons[:3]:
+                    sentry_parts.append(
+                        f"- [{lesson.get('type', '?')}] {lesson.get('summary', '?')} "
+                        f"(confidence: {lesson.get('confidence', '?')})"
+                    )
+
+            # Related past fix attempts
+            past_candidates = pkt.get("related_bugfix_candidates", [])
+            if past_candidates:
+                sentry_parts.append("\n## Previous Fix Attempts")
+                for pc in past_candidates[:3]:
+                    sentry_parts.append(
+                        f"- #{pc.get('id', '?')}: {pc.get('title', '?')} "
+                        f"(status: {pc.get('status', '?')}, outcome: {pc.get('outcome', 'unknown')})"
+                    )
+
+            # Sentry link for reference
+            if pkt.get("sentry_issue_url"):
+                sentry_parts.append(f"\nSentry issue: {pkt['sentry_issue_url']}")
+
+            context_parts.append("\n".join(sentry_parts))
+        except Exception:
+            context_parts.append(f"Context: {candidate.context_json[:500]}")
+
+    elif candidate.context_json:
         try:
             ctx = json.loads(candidate.context_json)
             context_parts.append(f"Context: {json.dumps(ctx, indent=2)}")
         except Exception:
             context_parts.append(f"Context: {candidate.context_json[:500]}")
+
+    # Inject domain effectiveness context — helps LLM understand what works
+    try:
+        domain_context = _get_domain_effectiveness_context(db)
+        if domain_context:
+            context_parts.append(domain_context)
+    except Exception:
+        pass  # non-critical enhancement
+
+    # Inject relevant lessons from persistent memory + track which were used
+    _lesson_ids_used = []
+    try:
+        domain = candidate.affected_domain or "unknown"
+        lesson_context, _lesson_ids_used = _lookup_lessons_for_proposal(db, domain)
+        if lesson_context:
+            context_parts.append(lesson_context)
+        if _lesson_ids_used:
+            candidate.lesson_ids_used = json.dumps(_lesson_ids_used)
+    except Exception:
+        pass  # non-critical enhancement
+
     user_message = "\n\n".join(context_parts)
 
     # Call LLM with routing context
@@ -388,11 +868,62 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
         db.flush()
         return False
 
+    # POST-LLM diff fingerprint check: now that we have the actual diff,
+    # check if a semantically equivalent diff recently failed
+    post_diff_fp = _compute_diff_fingerprint(candidate.patch_diff)
+    if post_diff_fp:
+        post_fp_hash = _compute_patch_fingerprint(candidate.title, candidate.patch_files, candidate.patch_diff)
+        diff_match = _check_patch_fingerprint(db, post_fp_hash, diff_fp=post_diff_fp)
+        if diff_match:
+            log.info(
+                "propose_patch: DIFF FINGERPRINT REJECT id=%d — semantically matches "
+                "failed candidate #%d (%s, match_type=%s)",
+                candidate.id, diff_match["candidate_id"], diff_match["outcome"],
+                diff_match.get("match_type", "unknown"),
+            )
+            candidate.failure_reason = (
+                f"diff_fingerprint_dedup: LLM proposed semantically identical patch to "
+                f"failed candidate #{diff_match['candidate_id']} ({diff_match['outcome']})"
+            )
+            db.flush()
+            return False
+
     candidate.status = "patch_proposed"
 
     # Classify risk tier
     tier, tier_reasons = classify_patch_risk(candidate.patch_files, candidate.patch_diff)
     candidate.patch_risk_tier = tier
+
+    # Classify remediation type from patch metadata
+    try:
+        from app.services.scoring_calibration import classify_remediation
+        candidate.remediation_class = classify_remediation(
+            candidate.patch_files, candidate.patch_summary, candidate.patch_diff,
+        )
+    except Exception:
+        candidate.remediation_class = "unknown"
+
+    # Compute fix confidence — gates auto-apply at TIER_0 (with adaptive calibration)
+    try:
+        from app.services.candidate_scoring import compute_fix_confidence
+        calibration = None
+        try:
+            from app.services.scoring_calibration import get_scoring_calibration
+            calibration = get_scoring_calibration(db)
+        except Exception:
+            pass
+        conf_score, conf_detail = compute_fix_confidence(
+            db, candidate, calibration=calibration,
+        )
+        candidate.fix_confidence = conf_score
+        candidate.confidence_detail = json.dumps(conf_detail, default=str)
+        log.info(
+            "bugfix_pipeline: confidence id=%d score=%d remediation=%s",
+            candidate.id, conf_score, candidate.remediation_class,
+        )
+    except Exception as exc:
+        log.warning("bugfix_pipeline: confidence scoring failed id=%d: %s", candidate.id, exc)
+
     db.flush()
     log.info("bugfix_pipeline: classified id=%d tier=%d reasons=%s", candidate.id, tier, tier_reasons)
 
@@ -644,14 +1175,153 @@ def _notify_reviewer_block(candidate, assessment):
         pass
 
 
+# Maximum auto-applies per calendar day. Hard safety limit.
+_MAX_AUTO_APPLIES_PER_DAY = 5
+
+
+def _get_adaptive_daily_cap(db: Session) -> int:
+    """Get the adaptive daily auto-apply cap (bounded, evidence-aware)."""
+    try:
+        from app.services.adaptive_governance import get_adaptive_thresholds
+        return get_adaptive_thresholds(db).max_auto_applies_per_day
+    except Exception:
+        return _MAX_AUTO_APPLIES_PER_DAY  # fallback to static default
+
+
+def _check_daily_apply_cap(db: Session) -> bool:
+    """
+    Check if daily auto-apply cap has been reached.
+    Uses adaptive cap when evidence is available, falls back to static default.
+    Returns True if cap reached (no more applies allowed today).
+    """
+    cap = _get_adaptive_daily_cap(db)
+    today_start = _now().replace(hour=0, minute=0, second=0, microsecond=0)
+    count = db.execute(text("""
+        SELECT COUNT(*) FROM bugfix_candidates
+        WHERE decided_by = 'auto_tier_0'
+          AND applied_at >= :today
+          AND status = 'applied'
+    """), {"today": today_start}).fetchone()
+    applied_today = count[0] if count else 0
+
+    if applied_today >= cap:
+        log.info("auto_apply: DAILY CAP reached (%d/%d adaptive) — skipping", applied_today, cap)
+        return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Domain-level autonomy budgets
+# ---------------------------------------------------------------------------
+
+# Per-domain daily caps based on domain stability
+_DOMAIN_BUDGET_DEFAULT = 2       # healthy domains: 2 auto-applies per day
+_DOMAIN_BUDGET_UNSTABLE = 1      # unstable domains: 1 per day
+_DOMAIN_BUDGET_QUARANTINE = 0    # quarantined domains: 0 (human-only)
+
+# Weakness score thresholds (from loop_health.score_subsystem_weakness)
+_WEAKNESS_UNSTABLE_THRESHOLD = 15
+_WEAKNESS_QUARANTINE_THRESHOLD = 30
+
+
+def _get_domain_budget(db: Session, domain: str) -> int:
+    """
+    Get the daily auto-apply budget for a domain.
+
+    Uses per-domain adaptive profiles when available:
+    - Per-domain effectiveness history
+    - Per-domain operator feedback (approval/rejection rates)
+    - Weakness score
+    Falls back to global adaptive defaults, then to static defaults.
+
+    Returns max allowed auto-applies per day for this domain.
+    0 = quarantined (no auto-apply allowed).
+    """
+    if not domain or domain == "unknown":
+        return _DOMAIN_BUDGET_DEFAULT
+
+    try:
+        # Try per-domain profile first (highest intelligence)
+        try:
+            from app.services.adaptive_governance import get_domain_profiles
+            profiles = get_domain_profiles(db)
+            if domain in profiles:
+                return profiles[domain].budget
+        except Exception:
+            pass
+
+        # Fallback: global adaptive thresholds + weakness score
+        try:
+            from app.services.adaptive_governance import get_adaptive_thresholds
+            thresholds = get_adaptive_thresholds(db)
+            budget_default = thresholds.domain_budget_default
+            unstable_threshold = thresholds.weakness_unstable_threshold
+            quarantine_threshold = thresholds.weakness_quarantine_threshold
+        except Exception:
+            budget_default = _DOMAIN_BUDGET_DEFAULT
+            unstable_threshold = _WEAKNESS_UNSTABLE_THRESHOLD
+            quarantine_threshold = _WEAKNESS_QUARANTINE_THRESHOLD
+
+        from app.services.loop_health import score_subsystem_weakness
+        weakness_ranking = score_subsystem_weakness(db, lookback_days=30)
+        weakness_map = {w["domain"]: w["score"] for w in weakness_ranking}
+        score = weakness_map.get(domain, 0)
+
+        if score >= quarantine_threshold:
+            return _DOMAIN_BUDGET_QUARANTINE
+        if score >= unstable_threshold:
+            return _DOMAIN_BUDGET_UNSTABLE
+        return budget_default
+    except Exception:
+        return _DOMAIN_BUDGET_DEFAULT
+
+
+def _check_domain_budget(db: Session, domain: str) -> bool:
+    """
+    Check if a domain's daily auto-apply budget is exhausted.
+    Returns True if budget exhausted (no more applies allowed for this domain today).
+    """
+    if not domain or domain == "unknown":
+        return False  # unknown domains fall under global cap only
+
+    budget = _get_domain_budget(db, domain)
+
+    if budget == 0:
+        log.info("auto_apply: DOMAIN QUARANTINED domain=%s — no auto-apply allowed", domain)
+        return True
+
+    today_start = _now().replace(hour=0, minute=0, second=0, microsecond=0)
+    count = db.execute(text("""
+        SELECT COUNT(*) FROM bugfix_candidates
+        WHERE decided_by = 'auto_tier_0'
+          AND applied_at >= :today
+          AND status = 'applied'
+          AND affected_domain = :domain
+    """), {"today": today_start, "domain": domain}).fetchone()
+    applied_today = count[0] if count else 0
+
+    if applied_today >= budget:
+        log.info(
+            "auto_apply: DOMAIN BUDGET exhausted domain=%s (%d/%d) — skipping",
+            domain, applied_today, budget,
+        )
+        return True
+    return False
+
+
 def run_auto_apply(db: Session, max_per_cycle: int = 1) -> dict:
     """
     Auto-approve + auto-apply PATCH_TIER_0 candidates.
-    Max 1 per cycle. Stops on any failure.
+    Max 1 per cycle, max 5 per day. Stops on any failure.
     """
     import time as _time
 
     summary = {"attempted": 0, "applied": 0, "failed": 0, "skipped": 0}
+
+    # Daily aggregate safety cap
+    if _check_daily_apply_cap(db):
+        summary["skipped"] = 1
+        return summary
 
     candidates = (
         db.query(BugFixCandidate)
@@ -659,7 +1329,10 @@ def run_auto_apply(db: Session, max_per_cycle: int = 1) -> dict:
             BugFixCandidate.status == "patch_proposed",
             BugFixCandidate.patch_risk_tier == PATCH_TIER_0,
         )
-        .order_by(BugFixCandidate.created_at)
+        .order_by(
+            BugFixCandidate.priority_score.desc().nullslast(),
+            BugFixCandidate.created_at,
+        )
         .limit(max_per_cycle)
         .all()
     )
@@ -671,6 +1344,24 @@ def run_auto_apply(db: Session, max_per_cycle: int = 1) -> dict:
             c.patch_risk_tier = tier
             summary["skipped"] += 1
             db.flush()
+            continue
+
+        # Confidence gate — TIER_0 auto-apply only if confidence >= 40
+        _MIN_AUTO_APPLY_CONFIDENCE = 40
+        if c.fix_confidence is not None and c.fix_confidence < _MIN_AUTO_APPLY_CONFIDENCE:
+            log.info(
+                "auto_apply: CONFIDENCE GATE blocked id=%d confidence=%d (min=%d)",
+                c.id, c.fix_confidence, _MIN_AUTO_APPLY_CONFIDENCE,
+            )
+            c.patch_risk_tier = 1  # escalate to human-approve
+            summary["skipped"] += 1
+            db.flush()
+            continue
+
+        # Domain-level autonomy budget check
+        _classify_candidate_domain(c)
+        if c.affected_domain and _check_domain_budget(db, c.affected_domain):
+            summary["skipped"] += 1
             continue
 
         # Reviewer gate — deterministic assessment before auto-apply
@@ -752,16 +1443,21 @@ def run_auto_apply(db: Session, max_per_cycle: int = 1) -> dict:
 # Safety blocklist — file paths that must NEVER be auto-patched
 # ---------------------------------------------------------------------------
 
-_FORBIDDEN_PATH_PATTERNS = [
-    "app/core/token_crypto",
-    "app/core/merchant_session",
-    "app/core/deps.py",
-    "app/api/billing",
-    "app/api/shopify_oauth",
-    "app/services/orchestrator.py",
-    "app/models/action_approval",
-    "migrations/",
-]
+# Imported from tier_check — single source of truth for protected paths.
+# Used by legacy _check_forbidden_paths (defense-in-depth behind pre_apply_guard).
+try:
+    from app.core.tier_check import _TIER_2_PATTERNS as _FORBIDDEN_PATH_PATTERNS
+except ImportError:
+    _FORBIDDEN_PATH_PATTERNS = [
+        "app/core/token_crypto",
+        "app/core/merchant_session",
+        "app/core/deps.py",
+        "app/api/billing",
+        "app/api/shopify_oauth",
+        "app/services/orchestrator.py",
+        "app/models/action_approval",
+        "migrations/",
+    ]
 
 _REPO_DIR = "/opt/wishspark"
 _BACKEND_DIR = "/opt/wishspark/backend"
@@ -780,6 +1476,16 @@ def _check_forbidden_paths(patch_files_json: str | None) -> str | None:
             if pattern in str(f):
                 return f"forbidden_path: {f} matches {pattern}"
     return None
+
+
+def _tracker_version_bumped(patch_diff: str | None) -> bool:
+    """Check if a patch that touches tracker JS also bumps TRACKER_VERSION."""
+    if not patch_diff:
+        return False
+    # Look for a change to tracker_version.py in the diff
+    return "tracker_version" in patch_diff.lower() and (
+        "+TRACKER_VERSION" in patch_diff or "+tracker_version" in patch_diff.lower()
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -828,7 +1534,53 @@ def apply_bugfix_candidate(db: Session, candidate_id: int) -> ApplyResult:
         db.flush()
         return result
 
-    # Forbidden path check
+    # === EXECUTION POLICY ENFORCEMENT (tier_check + file_lock) ===
+    _MAX_PATCH_FILES = 8  # hard cap — patches touching >8 files are too risky for auto-apply
+    _apply_files = []
+    if candidate.patch_files:
+        try:
+            _apply_files = json.loads(candidate.patch_files)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    if len(_apply_files) > _MAX_PATCH_FILES:
+        result.status = "apply_failed"
+        result.failure_reason = f"hard_file_cap: patch touches {len(_apply_files)} files (max {_MAX_PATCH_FILES})"
+        candidate.status = "apply_failed"
+        candidate.failure_reason = result.failure_reason
+        db.flush()
+        log.warning("apply: BLOCKED — %d files exceeds hard cap of %d", len(_apply_files), _MAX_PATCH_FILES)
+        return result
+
+    try:
+        from app.core.pre_apply_guard import guard_pre_apply, release_guard
+        guard = guard_pre_apply(
+            files=_apply_files,
+            patch_diff=candidate.patch_diff,
+            owner="bugfix_pipeline",
+        )
+        if guard.blocked:
+            result.status = "apply_failed"
+            result.failure_reason = f"guard_blocked: {guard.block_reason}"
+            candidate.status = "apply_failed"
+            candidate.failure_reason = result.failure_reason
+            db.flush()
+            _write_apply_alert(db, candidate, result)
+            return result
+        if not guard.allowed and candidate.decided_by == "auto_tier_0":
+            # Auto-apply attempted on a patch that the guard escalated beyond TIER_0
+            release_guard(_apply_files, "bugfix_pipeline")
+            result.status = "apply_failed"
+            result.failure_reason = f"tier_escalated: guard returned {guard.label} — auto-apply requires TIER_0"
+            candidate.status = "apply_failed"
+            candidate.failure_reason = result.failure_reason
+            db.flush()
+            _write_apply_alert(db, candidate, result)
+            return result
+    except ImportError:
+        pass  # Fallback to legacy forbidden path check below
+
+    # Legacy forbidden path check (retained as defense-in-depth)
     forbidden = _check_forbidden_paths(candidate.patch_files)
     if forbidden:
         result.status = "apply_failed"
@@ -874,11 +1626,15 @@ def apply_bugfix_candidate(db: Session, candidate_id: int) -> ApplyResult:
 
         # Run tests
         test_cmd = candidate.test_command or f"{_BACKEND_DIR}/venv/bin/python -m pytest tests/ -q"
-        test_run = subprocess.run(
-            test_cmd.split(), cwd=_BACKEND_DIR,
-            capture_output=True, text=True, timeout=120,
-            env={**os.environ, "PYTHONPATH": _BACKEND_DIR},
-        )
+        try:
+            test_run = subprocess.run(
+                test_cmd.split(), cwd=_BACKEND_DIR,
+                capture_output=True, text=True, timeout=120,
+                env={**os.environ, "PYTHONPATH": _BACKEND_DIR},
+            )
+        except subprocess.TimeoutExpired:
+            _rollback_patch(patch_path)
+            return _fail_apply(db, candidate, result, "test_timeout: tests exceeded 120s", rolled_back=True)
         result.test_output = (test_run.stdout[-500:] + "\n" + test_run.stderr[-500:]).strip()
         result.test_passed = test_run.returncode == 0
         candidate.test_result = result.test_output[:2000]
@@ -886,6 +1642,48 @@ def apply_bugfix_candidate(db: Session, candidate_id: int) -> ApplyResult:
         if not result.test_passed:
             _rollback_patch(patch_path)
             return _fail_apply(db, candidate, result, "tests_failed", rolled_back=True)
+
+        # Frontend build verification (if guard flagged it)
+        _needs_frontend = False
+        _needs_tracker_bump = False
+        try:
+            _needs_frontend = guard.requires_frontend_build
+            _needs_tracker_bump = guard.requires_tracker_bump
+        except (NameError, AttributeError):
+            # guard may not exist if ImportError path was taken above
+            from app.core.tier_check import require_frontend_build, require_tracker_bump
+            _needs_frontend = require_frontend_build(_apply_files)
+            _needs_tracker_bump = require_tracker_bump(_apply_files)
+
+        if _needs_frontend:
+            log.info("bugfix_apply: running frontend build verification (dashboard files touched)")
+            try:
+                from app.core.pre_apply_guard import verify_frontend_build
+                build_ok, build_output = verify_frontend_build()
+                if not build_ok:
+                    _rollback_patch(patch_path)
+                    return _fail_apply(
+                        db, candidate, result,
+                        f"frontend_build_failed: {build_output[:300]}",
+                        rolled_back=True,
+                    )
+            except Exception as exc:
+                _rollback_patch(patch_path)
+                return _fail_apply(
+                    db, candidate, result,
+                    f"frontend_build_error: {str(exc)[:200]}",
+                    rolled_back=True,
+                )
+
+        if _needs_tracker_bump:
+            # Verify TRACKER_VERSION was bumped in the patch
+            if not _tracker_version_bumped(candidate.patch_diff):
+                _rollback_patch(patch_path)
+                return _fail_apply(
+                    db, candidate, result,
+                    "tracker_version_not_bumped: patch modifies tracker JS but does not bump TRACKER_VERSION",
+                    rolled_back=True,
+                )
 
         # Restart + health
         subprocess.run(["pm2", "restart", "wishspark-backend"], capture_output=True, timeout=15)
@@ -919,7 +1717,11 @@ def apply_bugfix_candidate(db: Session, candidate_id: int) -> ApplyResult:
         candidate.git_commit_sha = commit_sha
         candidate.failure_reason = None
         candidate.outcome_status = None  # will be measured 48h later by evolution_outcomes
+        _classify_candidate_domain(candidate)
         db.flush()
+
+        # Record successful patch fingerprint (outcome will be updated after 48h measurement)
+        _record_patch_fingerprint(db, candidate, outcome="applied")
 
         from app.services.audit import write_audit_log
         write_audit_log(
@@ -965,6 +1767,13 @@ def apply_bugfix_candidate(db: Session, candidate_id: int) -> ApplyResult:
                 os.unlink(patch_path)
             except Exception:
                 pass
+        # Release file locks acquired by pre_apply_guard
+        if _apply_files:
+            try:
+                from app.core.pre_apply_guard import release_guard
+                release_guard(_apply_files, "bugfix_pipeline")
+            except Exception:
+                pass
 
 
 def _git_commit_patch(candidate: BugFixCandidate) -> str | None:
@@ -1002,6 +1811,10 @@ def _fail_apply(
     candidate.status = result.status
     candidate.failure_reason = reason
     db.flush()
+
+    # Record failed patch fingerprint for future dedup
+    _record_patch_fingerprint(db, candidate, outcome=result.status, failure_reason=reason)
+
     _write_apply_alert(db, candidate, result)
     return result
 

@@ -102,6 +102,8 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 WORKER_NAME = "aggregation_worker"
 SLEEP_SECONDS = 300              # 5 minutes between cycles
 RETENTION_DAYS = 90              # delete events older than this
+NUDGE_EVENT_RETENTION_DAYS = 60  # delete nudge_events older than this
+WORKER_LOG_RETENTION_DAYS = 30   # delete worker_log older than this
 STALE_TASK_THRESHOLD_MINUTES = 10  # release executing tasks older than this
 
 _RETENTION_INTERVAL_S = 86_400   # run event retention at most once per 24 h
@@ -271,6 +273,9 @@ def _sweep_stale_tasks(db: Session) -> int:
 # Step A — find active products since watermark
 # ---------------------------------------------------------------------------
 
+BATCH_SIZE = 100  # products per cycle — prevents cycle overflow at scale
+
+
 def _find_active_products(
     conn, last_watermark: int
 ) -> list[tuple[str, str]]:
@@ -281,6 +286,9 @@ def _find_active_products(
     Uses events.product_url (canonical /products/{handle}) — not events.url.
     NULL product_url rows are non-product pages and are excluded implicitly
     by the IS NOT NULL filter.
+
+    DEPRECATED — use _find_active_products_batch for cursor-based pagination.
+    Kept for backward compatibility; callers should migrate.
     """
     result = conn.execute(
         text("""
@@ -292,6 +300,59 @@ def _find_active_products(
         """),
         {"watermark": last_watermark},
     )
+    return [(row.shop_domain, row.product_url) for row in result.fetchall()]
+
+
+def _find_active_products_batch(
+    conn,
+    last_watermark: int,
+    cursor_shop: str | None = None,
+    cursor_product: str | None = None,
+    batch_size: int = BATCH_SIZE,
+) -> list[tuple[str, str]]:
+    """
+    Cursor-based batch fetch of active products.
+
+    Returns up to batch_size (shop_domain, product_url) pairs starting
+    AFTER the cursor position.  The cursor is the last (shop, product)
+    pair from the previous batch.
+
+    At 10k merchants × 100 products, this ensures each cycle processes
+    at most BATCH_SIZE products, keeping cycle time < 60s.  Remaining
+    products are picked up in subsequent cycles.
+
+    Returns fewer than batch_size rows when the end is reached.
+    """
+    if cursor_shop is not None and cursor_product is not None:
+        result = conn.execute(
+            text("""
+                SELECT DISTINCT shop_domain, product_url
+                FROM events
+                WHERE product_url IS NOT NULL
+                  AND timestamp > :watermark
+                  AND (shop_domain, product_url) > (:cursor_shop, :cursor_product)
+                ORDER BY shop_domain, product_url
+                LIMIT :batch_size
+            """),
+            {
+                "watermark": last_watermark,
+                "cursor_shop": cursor_shop,
+                "cursor_product": cursor_product,
+                "batch_size": batch_size,
+            },
+        )
+    else:
+        result = conn.execute(
+            text("""
+                SELECT DISTINCT shop_domain, product_url
+                FROM events
+                WHERE product_url IS NOT NULL
+                  AND timestamp > :watermark
+                ORDER BY shop_domain, product_url
+                LIMIT :batch_size
+            """),
+            {"watermark": last_watermark, "batch_size": batch_size},
+        )
     return [(row.shop_domain, row.product_url) for row in result.fetchall()]
 
 
@@ -1068,6 +1129,28 @@ def _run_retention(conn, now_ms: int) -> int:
     return total_deleted
 
 
+def _run_nudge_event_retention(conn) -> int:
+    """Delete nudge_events older than NUDGE_EVENT_RETENTION_DAYS."""
+    from datetime import datetime, timezone, timedelta
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=NUDGE_EVENT_RETENTION_DAYS)
+    result = conn.execute(
+        text("DELETE FROM nudge_events WHERE created_at < :cutoff"),
+        {"cutoff": cutoff},
+    )
+    return result.rowcount
+
+
+def _run_worker_log_retention(conn) -> int:
+    """Delete worker_log entries older than WORKER_LOG_RETENTION_DAYS."""
+    from datetime import datetime, timezone, timedelta
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=WORKER_LOG_RETENTION_DAYS)
+    result = conn.execute(
+        text("DELETE FROM worker_log WHERE created_at < :cutoff"),
+        {"cutoff": cutoff},
+    )
+    return result.rowcount
+
+
 # ---------------------------------------------------------------------------
 # Webhook health check (runs at most once per 24 h)
 # ---------------------------------------------------------------------------
@@ -1393,13 +1476,13 @@ def _upsert_store_metrics(conn, metrics: dict) -> None:
                 new_visitor_cart_rate, returning_visitor_cart_rate,
                 updated_at
             ) VALUES (
-                :shop_domain, :co_viewed_pairs::jsonb,
+                :shop_domain, CAST(:co_viewed_pairs AS jsonb),
                 :new_visitors_7d, :returning_visitors_7d,
                 :new_visitor_cart_rate, :returning_visitor_cart_rate,
                 now()
             )
             ON CONFLICT (shop_domain) DO UPDATE SET
-                co_viewed_pairs            = :co_viewed_pairs::jsonb,
+                co_viewed_pairs            = CAST(:co_viewed_pairs AS jsonb),
                 new_visitors_7d            = EXCLUDED.new_visitors_7d,
                 returning_visitors_7d      = EXCLUDED.returning_visitors_7d,
                 new_visitor_cart_rate       = EXCLUDED.new_visitor_cart_rate,
@@ -1418,6 +1501,14 @@ def _upsert_store_metrics(conn, metrics: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def run_cycle() -> None:
+    global _last_retention_run, _last_webhook_check, _last_watchdog_run
+
+    from app.core.metrics import track_worker_cycle
+    with track_worker_cycle(WORKER_NAME):
+        _run_cycle_inner()
+
+
+def _run_cycle_inner() -> None:
     global _last_retention_run, _last_webhook_check, _last_watchdog_run
 
     started_at = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -1490,9 +1581,13 @@ def run_cycle() -> None:
             if _should_run_retention():
                 try:
                     deleted = _run_retention(conn, now_ms)
+                    nudge_deleted = _run_nudge_event_retention(conn)
+                    wlog_deleted = _run_worker_log_retention(conn)
                     conn.commit()
                     _last_retention_run = time.monotonic()
-                    log(f"retention: deleted {deleted} events older than {RETENTION_DAYS} days")
+                    log(f"retention: deleted {deleted} events (>{RETENTION_DAYS}d), "
+                        f"{nudge_deleted} nudge_events (>{NUDGE_EVENT_RETENTION_DAYS}d), "
+                        f"{wlog_deleted} worker_log (>{WORKER_LOG_RETENTION_DAYS}d)")
                 except Exception as exc:
                     conn.rollback()
                     log(f"retention error (non-fatal): {exc}")
@@ -1518,13 +1613,34 @@ def run_cycle() -> None:
                     log(f"watchdog error (non-fatal): {exc}")
 
             # ---------------------------------------------------------- #
-            # Find active products                                         #
+            # Find active products — BATCHED with cursor pagination        #
             # ---------------------------------------------------------- #
-            active_products = _find_active_products(conn, last_watermark)
-            log(f"active products since watermark: {len(active_products)}")
+            # Load cursor from Redis (survives PM2 restarts within cycle)
+            from app.core.redis_client import cache_get as _cget, cache_set as _cset
+            _cursor_key = "hs:agg_cursor"
+            _cursor = _cget(_cursor_key)  # {"shop": str, "product": str} or None
+
+            cursor_shop = _cursor["shop"] if _cursor else None
+            cursor_product = _cursor["product"] if _cursor else None
+
+            active_products = _find_active_products_batch(
+                conn, last_watermark,
+                cursor_shop=cursor_shop,
+                cursor_product=cursor_product,
+                batch_size=BATCH_SIZE,
+            )
+            batch_label = f"batch({BATCH_SIZE})"
+            if _cursor:
+                batch_label += f" cursor=({cursor_shop[:20]}…,{cursor_product[:20]}…)"
+            log(f"active products {batch_label}: {len(active_products)}")
 
             if not active_products:
-                log("no new product events — skipping metric computation")
+                # No more products in this sweep — reset cursor for next sweep
+                if _cursor is not None:
+                    _cset(_cursor_key, None, 1)  # delete cursor
+                    log("batch sweep complete — cursor reset for next full pass")
+                else:
+                    log("no new product events — skipping metric computation")
             else:
                 for shop_domain, product_url in active_products:
                     try:
@@ -1542,142 +1658,165 @@ def run_cycle() -> None:
                         last_error = f"{shop_domain} | {product_url} | {exc}"
                         log(f"error processing {shop_domain} / {product_url}: {exc}")
 
-                # Advance watermark — at-least-once guarantee.
-                # Only advances when at least one row was written successfully.
-                if rows_written > 0:
+                # Save cursor for next cycle (last processed product)
+                last_shop, last_product = active_products[-1]
+                _cset(_cursor_key, {"shop": last_shop, "product": last_product}, 3600)
+
+                # Advance watermark only when full sweep completes
+                # (batch returned fewer than BATCH_SIZE = end of sweep)
+                if len(active_products) < BATCH_SIZE and rows_written > 0:
                     try:
                         new_watermark = _read_new_watermark(conn)
                         _save_state(db, state, new_watermark)
-                        log(f"watermark advanced: {last_watermark} → {new_watermark}")
+                        _cset(_cursor_key, None, 1)  # reset cursor
+                        log(f"watermark advanced: {last_watermark} → {new_watermark} (sweep complete)")
                     except Exception as exc:
                         log(f"watermark update error (non-fatal, will retry next cycle): {exc}")
+                elif rows_written > 0:
+                    log(f"batch processed {rows_written}/{len(active_products)} — continuing next cycle")
 
-        # ---------------------------------------------------------------
-        # Event retention cleanup — GDPR / privacy hygiene
-        #
-        # Delete events older than 180 days.  Runs once per cycle but
-        # the DELETE is bounded (LIMIT 5000) to prevent long-running
-        # transactions.  Repeated cycles will drain the backlog.
-        # ---------------------------------------------------------------
-        try:
-            cutoff_ms = int(
-                (datetime.now(timezone.utc) - timedelta(days=180)).timestamp() * 1000
-            )
-            result = conn.execute(text("""
-                DELETE FROM events
-                WHERE id IN (
-                    SELECT id FROM events
-                    WHERE timestamp < :cutoff AND timestamp IS NOT NULL
-                    LIMIT 5000
-                )
-            """), {"cutoff": cutoff_ms})
-            purged = result.rowcount
-            if purged > 0:
-                conn.commit()
-                log(f"retention: purged {purged} events older than 180 days")
-        except Exception as exc:
-            log(f"retention: cleanup error (non-fatal): {exc}")
+            # ---------------------------------------------------------------
+            # Event retention cleanup — GDPR / privacy hygiene
+            #
+            # Delete events older than 180 days.  Runs once per cycle but
+            # the DELETE is bounded (LIMIT 5000) to prevent long-running
+            # transactions.  Repeated cycles will drain the backlog.
+            # ---------------------------------------------------------------
             try:
-                conn.rollback()
-            except Exception:
-                pass
-
-        # ---------------------------------------------------------------
-        # Closed-loop proof — compute pending action deltas
-        # Runs every cycle; finds snapshots past their compare_after date
-        # and computes before/after metrics.
-        # ---------------------------------------------------------------
-        try:
-            from app.services.action_proof import compute_pending_deltas
-            computed = compute_pending_deltas(db)
-            if computed > 0:
-                log(f"proof: computed {computed} action delta(s)")
-        except Exception as exc:
-            log(f"proof: delta computation error (non-fatal): {exc}")
-
-        # ---------------------------------------------------------------
-        # Store-level intelligence — precompute per-shop store_metrics
-        # Runs every cycle for shops that had product updates.
-        # Non-fatal: errors don't block the cycle.
-        # ---------------------------------------------------------------
-        try:
-            # Process all shops that had activity this cycle, plus any
-            # shop with existing product_metrics (ensures store_metrics
-            # stays fresh even during quiet periods).
-            all_shops = shops_processed_set.copy()
-            if not all_shops:
-                # No active products this cycle — still refresh existing shops
+                cutoff_ms = int(
+                    (datetime.now(timezone.utc) - timedelta(days=180)).timestamp() * 1000
+                )
+                result = conn.execute(text("""
+                    DELETE FROM events
+                    WHERE id IN (
+                        SELECT id FROM events
+                        WHERE timestamp < :cutoff AND timestamp IS NOT NULL
+                        LIMIT 5000
+                    )
+                """), {"cutoff": cutoff_ms})
+                purged = result.rowcount
+                if purged > 0:
+                    conn.commit()
+                    log(f"retention: purged {purged} events older than 180 days")
+            except Exception as exc:
+                log(f"retention: cleanup error (non-fatal): {exc}")
                 try:
-                    shop_rows = conn.execute(
-                        text("SELECT DISTINCT shop_domain FROM product_metrics LIMIT 50")
-                    ).fetchall()
-                    all_shops = {r[0] for r in shop_rows}
+                    conn.rollback()
                 except Exception:
                     pass
 
-            from app.services.execution_engine import (
-                process_execution_opportunities,
-                _update_tracking_outcomes,
-                compute_post_execution_deltas,
-                detect_holdout_leakage,
-            )
+            # ---------------------------------------------------------------
+            # Closed-loop proof — compute pending action deltas
+            # Runs every cycle; finds snapshots past their compare_after date
+            # and computes before/after metrics.
+            # ---------------------------------------------------------------
+            try:
+                from app.services.action_proof import compute_pending_deltas
+                computed = compute_pending_deltas(db)
+                if computed > 0:
+                    log(f"proof: computed {computed} action delta(s)")
+            except Exception as exc:
+                log(f"proof: delta computation error (non-fatal): {exc}")
 
-            store_count = 0
-            exec_count = 0
-            for shop in all_shops:
+            # ---------------------------------------------------------------
+            # Store-level intelligence — precompute per-shop store_metrics
+            # Runs every cycle for shops that had product updates.
+            # Non-fatal: errors don't block the cycle.
+            # ---------------------------------------------------------------
+            try:
+                # Process all shops that had activity this cycle, plus any
+                # shop with existing product_metrics (ensures store_metrics
+                # stays fresh even during quiet periods).
+                all_shops = shops_processed_set.copy()
+                if not all_shops:
+                    # No active products this cycle — still refresh existing shops
+                    try:
+                        shop_rows = conn.execute(
+                            text("SELECT DISTINCT shop_domain FROM product_metrics LIMIT 50")
+                        ).fetchall()
+                        all_shops = {r[0] for r in shop_rows}
+                    except Exception:
+                        pass
+
+                from app.services.execution_engine import (
+                    process_execution_opportunities,
+                    _update_tracking_outcomes,
+                    compute_post_execution_deltas,
+                    detect_holdout_leakage,
+                )
+
+                store_count = 0
+                exec_count = 0
+                for shop in all_shops:
+                    try:
+                        sm = _compute_store_metrics(conn, shop)
+                        _upsert_store_metrics(conn, sm)
+                        conn.commit()
+
+                        # Generate/upsert execution opportunities + audiences
+                        try:
+                            n = process_execution_opportunities(
+                                conn, shop, sm["co_viewed_pairs"]
+                            )
+                            conn.commit()
+                            exec_count += n
+                        except Exception as exc_e:
+                            conn.rollback()
+                            log(f"execution_engine error for {shop} (non-fatal): {exc_e}")
+
+                        # Update outcome tracking for existing audiences
+                        try:
+                            _update_tracking_outcomes(conn, shop)
+                            conn.commit()
+                        except Exception as exc_t:
+                            conn.rollback()
+                            log(f"execution tracking error for {shop} (non-fatal): {exc_t}")
+
+                        # Detect holdout leakage (before computing deltas)
+                        try:
+                            leaked = detect_holdout_leakage(conn, shop)
+                            conn.commit()
+                            if leaked > 0:
+                                log(f"holdout leakage: flagged {leaked} rows for {shop}")
+                        except Exception as exc_l:
+                            conn.rollback()
+                            log(f"leakage detection error for {shop} (non-fatal): {exc_l}")
+
+                        # Compute post-execution deltas for confirmed executions
+                        try:
+                            deltas = compute_post_execution_deltas(conn, shop)
+                            conn.commit()
+                            if deltas > 0:
+                                log(f"execution deltas: computed {deltas} for {shop}")
+                        except Exception as exc_d:
+                            conn.rollback()
+                            log(f"execution delta error for {shop} (non-fatal): {exc_d}")
+
+                        store_count += 1
+                    except Exception as exc:
+                        conn.rollback()
+                        log(f"store_metrics error for {shop} (non-fatal): {exc}")
+
+                if store_count > 0:
+                    log(f"store_metrics: updated {store_count} shop(s), {exec_count} opportunities")
+            except Exception as exc:
+                log(f"store_metrics: top-level error (non-fatal): {exc}")
+
+        # Pre-compute proactive chat messages + intelligence briefs per shop (cached in Redis)
+        try:
+            from app.services.proactive_chat import precompute_proactive_messages
+            from app.services.store_insight_engine import generate_store_brief
+            from app.core.redis_client import cache_set as _cs
+            for shop_d in shops_processed_set:
                 try:
-                    sm = _compute_store_metrics(conn, shop)
-                    _upsert_store_metrics(conn, sm)
-                    conn.commit()
-
-                    # Generate/upsert execution opportunities + audiences
-                    try:
-                        n = process_execution_opportunities(
-                            conn, shop, sm["co_viewed_pairs"]
-                        )
-                        conn.commit()
-                        exec_count += n
-                    except Exception as exc_e:
-                        conn.rollback()
-                        log(f"execution_engine error for {shop} (non-fatal): {exc_e}")
-
-                    # Update outcome tracking for existing audiences
-                    try:
-                        _update_tracking_outcomes(conn, shop)
-                        conn.commit()
-                    except Exception as exc_t:
-                        conn.rollback()
-                        log(f"execution tracking error for {shop} (non-fatal): {exc_t}")
-
-                    # Detect holdout leakage (before computing deltas)
-                    try:
-                        leaked = detect_holdout_leakage(conn, shop)
-                        conn.commit()
-                        if leaked > 0:
-                            log(f"holdout leakage: flagged {leaked} rows for {shop}")
-                    except Exception as exc_l:
-                        conn.rollback()
-                        log(f"leakage detection error for {shop} (non-fatal): {exc_l}")
-
-                    # Compute post-execution deltas for confirmed executions
-                    try:
-                        deltas = compute_post_execution_deltas(conn, shop)
-                        conn.commit()
-                        if deltas > 0:
-                            log(f"execution deltas: computed {deltas} for {shop}")
-                    except Exception as exc_d:
-                        conn.rollback()
-                        log(f"execution delta error for {shop} (non-fatal): {exc_d}")
-
-                    store_count += 1
-                except Exception as exc:
-                    conn.rollback()
-                    log(f"store_metrics error for {shop} (non-fatal): {exc}")
-
-            if store_count > 0:
-                log(f"store_metrics: updated {store_count} shop(s), {exec_count} opportunities")
+                    precompute_proactive_messages(db, shop_d)
+                    brief = generate_store_brief(db, shop_d)
+                    if brief:
+                        _cs(f"hs:brief:{shop_d}", brief.to_dict(), 600)
+                except Exception:
+                    pass
         except Exception as exc:
-            log(f"store_metrics: top-level error (non-fatal): {exc}")
+            log(f"proactive precompute error (non-fatal): {exc}")
 
         # Always update last_run_at on successful cycle completion,
         # even when rows_written == 0 (no new events to process).
@@ -1723,11 +1862,17 @@ def main() -> None:
     log("worker started")
 
     while True:
-        try:
-            run_cycle()
-        except Exception as exc:
-            log(f"unhandled exception: {exc}")
-            raise
+        from app.core.distributed_lock import worker_lock, extend_lock
+
+        with worker_lock(WORKER_NAME, ttl_seconds=SLEEP_SECONDS + 60) as acquired:
+            if not acquired:
+                log("another instance holds the lock — skipping cycle")
+            else:
+                try:
+                    run_cycle()
+                except Exception as exc:
+                    log(f"unhandled exception: {exc}")
+                    raise
 
         log(f"sleeping {SLEEP_SECONDS}s")
         time.sleep(SLEEP_SECONDS)

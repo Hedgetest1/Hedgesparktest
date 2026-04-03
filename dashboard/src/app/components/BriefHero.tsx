@@ -39,14 +39,16 @@ type Props = {
   loading: boolean;
   tier: "lite" | "pro";
   onUpgradeClick: () => void;
-  /** Optional contextual hint for the empty state — overrides generic "No signals yet" copy. */
+  /** Spark-voiced empty state — overrides generic text. */
   emptyHint?: string;
-  /** Spark one-liner for the brief header — data-driven, contextual */
+  /** Spark one-liner insight (data-driven, contextual). */
   sparkInsight?: string;
+  /** Optional second line — supporting data for sparkInsight. */
+  sparkDetail?: string;
 };
 
 // ---------------------------------------------------------------------------
-// Signal type badge colour — all 8 signals covered
+// Signal type badge colour
 // ---------------------------------------------------------------------------
 function signalBadgeClass(signalType?: string | null): string {
   switch (signalType) {
@@ -92,7 +94,7 @@ function signalBadgeClass(signalType?: string | null): string {
 }
 
 function prettySignal(s?: string | null): string {
-  if (!s) return "—";
+  if (!s) return "";
   return s
     .toLowerCase()
     .split("_")
@@ -101,27 +103,7 @@ function prettySignal(s?: string | null): string {
 }
 
 // ---------------------------------------------------------------------------
-// Format generated_at → "06:14 UTC"
-// ---------------------------------------------------------------------------
-function formatGeneratedAt(isoStr?: string): string {
-  if (!isoStr) return "";
-  try {
-    const d = new Date(isoStr);
-    return (
-      d.toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-        timeZone: "UTC",
-      }) + " UTC"
-    );
-  } catch {
-    return "";
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Skeleton shimmer while loading
+// Skeleton
 // ---------------------------------------------------------------------------
 function BriefSkeleton() {
   return (
@@ -134,20 +116,7 @@ function BriefSkeleton() {
 }
 
 // ---------------------------------------------------------------------------
-// Empty state
-// ---------------------------------------------------------------------------
-function BriefEmpty() {
-  return (
-    <div className="rounded-2xl border border-dashed border-white/[0.08] bg-white/[0.02] px-6 py-8 text-center">
-      <div className="text-sm text-slate-500">
-        No signals yet — check back after your first day of traffic.
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Snapshot row — product label · signal badge · human label · strength
+// Snapshot row — product signal with optional action
 // ---------------------------------------------------------------------------
 function SnapshotRow({ item }: { item: BriefSnapshot }) {
   return (
@@ -172,13 +141,8 @@ function SnapshotRow({ item }: { item: BriefSnapshot }) {
           {Math.round((item.signal_strength ?? 0) * 100)}%
         </div>
       </div>
-      {/* human_action — PRO ONLY. Present only when fetched via /brief/today/pro. */}
       {item.human_action && (
         <div className="mt-2 rounded-lg border border-emerald-400/15 bg-emerald-500/[0.05] px-2.5 py-1.5">
-          <div className="mb-0.5 flex items-center gap-1.5">
-            <span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-emerald-300/70">Action</span>
-            <span className="rounded border border-violet-400/20 px-1 py-px text-[9px] font-normal normal-case tracking-normal text-violet-400/70">PRO</span>
-          </div>
           <p className="text-[11px] leading-[1.5] text-slate-300">{item.human_action}</p>
         </div>
       )}
@@ -189,18 +153,31 @@ function SnapshotRow({ item }: { item: BriefSnapshot }) {
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
-export function BriefHero({ brief, loading, tier, onUpgradeClick, emptyHint, sparkInsight }: Props) {
+export function BriefHero({ brief, loading, tier, onUpgradeClick, emptyHint, sparkInsight, sparkDetail }: Props) {
   if (loading) return <BriefSkeleton />;
 
   const isEmpty =
     !brief ||
     (!brief.headline && !brief.signals_count && !brief.top_signal_type);
 
+  // ── EMPTY STATE — Spark voice ──
   if (isEmpty) {
     return (
-      <div className="rounded-2xl border border-dashed border-white/[0.08] bg-white/[0.02] px-6 py-8 text-center">
-        <div className="text-sm text-slate-500">
-          {emptyHint || "No signals yet \u2014 check back after your first day of traffic."}
+      <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-6 py-7">
+        <div className="flex items-start gap-3">
+          <Image
+            src="/branding/hedgespark/spark.png"
+            alt=""
+            width={20}
+            height={20}
+            className="mt-0.5 flex-shrink-0 opacity-60"
+          />
+          <div>
+            <p className="text-[13px] text-slate-400">
+              {emptyHint || "Watching your store. Signals appear within minutes."}
+            </p>
+            <p className="mt-1 text-[11px] text-slate-600">— Spark</p>
+          </div>
         </div>
       </div>
     );
@@ -210,132 +187,119 @@ export function BriefHero({ brief, loading, tier, onUpgradeClick, emptyHint, spa
     ? brief.metrics_snapshot.slice(0, 3)
     : [];
 
-  const generatedAt = formatGeneratedAt(brief.generated_at ?? undefined);
+  const signalCount = brief.signals_count ?? 0;
 
   return (
-    <div className="rounded-2xl border border-violet-400/[0.18] bg-gradient-to-br from-violet-500/[0.06] to-transparent p-6 shadow-[0_0_32px_rgba(124,58,237,0.06)]">
-      {/* Eyebrow */}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-300/80">
-          Daily Brief
-        </span>
-        {brief.brief_date && (
-          <span className="text-[11px] text-slate-600">
-            {brief.brief_date}
-            {generatedAt && (
-              <span className="ml-1.5 text-slate-700">· {generatedAt}</span>
+    <div className="rounded-2xl border border-violet-400/[0.15] bg-gradient-to-br from-violet-500/[0.05] to-transparent shadow-[0_0_32px_rgba(124,58,237,0.06)]">
+      {/* ── Spark insight block ── */}
+      <div className="px-6 pt-6 pb-4">
+        {/* Header row: mascot + date + signal count */}
+        <div className="mb-4 flex items-center gap-3">
+          <Image
+            src="/branding/hedgespark/spark.png"
+            alt=""
+            width={22}
+            height={22}
+            className="flex-shrink-0"
+          />
+          <div className="flex flex-1 flex-wrap items-center gap-2">
+            {brief.brief_date && (
+              <span className="text-[11px] text-slate-600">{brief.brief_date}</span>
             )}
-          </span>
+            {signalCount > 0 && (
+              <span className="rounded-full bg-white/[0.04] px-2 py-0.5 text-[10px] tabular-nums text-slate-500 ring-1 ring-white/[0.06]">
+                {signalCount} signal{signalCount !== 1 ? "s" : ""}
+              </span>
+            )}
+            {brief.top_signal_type && (
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${signalBadgeClass(brief.top_signal_type)}`}>
+                {prettySignal(brief.top_signal_type)}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Spark-voiced headline — the key insight */}
+        {brief.headline && (
+          <p className="text-[15px] font-semibold leading-snug text-white">
+            {brief.headline}
+          </p>
         )}
-        {brief.top_signal_type && (
-          <span
-            className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] ${signalBadgeClass(brief.top_signal_type)}`}
-          >
-            {prettySignal(brief.top_signal_type)}
-          </span>
+
+        {/* Spark insight — data-first supporting line */}
+        {sparkInsight && (
+          <p className="mt-2 text-[13px] leading-relaxed text-slate-400">
+            {sparkInsight}
+          </p>
         )}
-        {typeof brief.signals_count === "number" && brief.signals_count > 0 && (
-          <span className="rounded-full bg-white/5 px-2.5 py-0.5 text-[10px] text-slate-400 ring-1 ring-white/10">
-            {brief.signals_count} signal{brief.signals_count !== 1 ? "s" : ""} detected
-          </span>
+
+        {/* Spark detail — secondary data */}
+        {sparkDetail && (
+          <p className="mt-1 text-[12px] text-slate-500">
+            {sparkDetail}
+          </p>
         )}
+
+        {/* Spark signature */}
+        <p className="mt-3 text-[10px] text-slate-700">— Spark</p>
       </div>
 
-      {/* Spark insight — contextual one-liner */}
-      {sparkInsight && (
-        <div className="mb-3 flex items-start gap-2">
-          <Image
-            src="/branding/hedgespark-mascot.png"
-            alt=""
-            width={18}
-            height={18}
-            className="mt-0.5 flex-shrink-0"
-          />
-          <p className="text-[12px] leading-[1.5] text-violet-300/70">{sparkInsight}</p>
-        </div>
-      )}
-
-      {/* Headline — always visible */}
-      {brief.headline && (
-        <p className="mb-4 text-base font-semibold leading-snug text-white">
-          {brief.headline}
-        </p>
-      )}
-
-      {/* Top action — Pro gated */}
+      {/* ── Action — Pro gated ── */}
       {brief.top_action && (
-        <div className="mb-4">
+        <div className="border-t border-white/[0.04] px-6 py-4">
           <ProGate tier={tier} onUpgradeClick={onUpgradeClick} label="recommended action">
-            <div className="rounded-xl border border-emerald-400/15 bg-emerald-500/5 px-4 py-3">
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-300/80">
-                Recommended action
-              </div>
-              <p className="text-[13px] leading-5 text-slate-200">{brief.top_action}</p>
+            <div className="rounded-xl border border-emerald-400/15 bg-emerald-500/[0.04] px-4 py-3">
+              <p className="text-[13px] leading-[1.55] text-slate-200">{brief.top_action}</p>
             </div>
           </ProGate>
         </div>
       )}
 
-      {/* AI summary — Pro only, or upgrade nudge for Lite */}
+      {/* ── AI summary — Pro only ── */}
       {tier === "pro" && brief.summary_text ? (
-        <div className="mb-4 rounded-xl border border-violet-400/15 bg-violet-500/5 px-4 py-3">
-          <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-violet-300/70">
-            AI Summary
+        <div className="border-t border-white/[0.04] px-6 py-4">
+          <div className="rounded-xl border border-violet-400/10 bg-violet-500/[0.04] px-4 py-3">
+            <p className="text-[13px] leading-[1.6] text-slate-300">{brief.summary_text}</p>
           </div>
-          <p className="text-[13px] leading-5 text-slate-300">{brief.summary_text}</p>
         </div>
       ) : (
         tier === "lite" && (
-          <button
-            onClick={onUpgradeClick}
-            className="mb-4 w-full rounded-xl border border-violet-400/15 bg-violet-500/5 px-4 py-3 text-left transition-colors hover:border-violet-400/30 hover:bg-violet-500/10"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-violet-300/70">
-                  AI Summary
-                </div>
-                <p className="mt-0.5 text-[12px] text-slate-500">
-                  Get a daily AI-written narrative that explains what to do and why.
+          <div className="border-t border-white/[0.04] px-6 py-4">
+            <button
+              onClick={onUpgradeClick}
+              className="w-full rounded-xl border border-violet-400/10 bg-violet-500/[0.04] px-4 py-3 text-left transition-colors hover:border-violet-400/20 hover:bg-violet-500/[0.07]"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[12px] text-slate-500">
+                  I can say more about this on Pro.
                 </p>
+                <span className="flex-shrink-0 rounded-full border border-violet-400/20 bg-violet-500/15 px-2.5 py-0.5 text-[10px] font-semibold text-violet-300">
+                  Pro
+                </span>
               </div>
-              <span className="flex-shrink-0 rounded-full border border-violet-400/30 bg-violet-500/20 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-violet-300">
-                Pro →
-              </span>
-            </div>
-          </button>
+            </button>
+          </div>
         )
       )}
 
-      {/* Metrics snapshot — top 3 products, Pro only */}
+      {/* ── Product snapshot — Pro only ── */}
       {snapshot.length > 0 && (
-        tier === "pro" ? (
-          <div className="space-y-2">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-600">
-              Top products
-              <span className="ml-2 text-[10px] text-violet-400/70 border border-violet-400/20 px-1.5 py-[1px] rounded align-middle">PRO</span>
+        <div className="border-t border-white/[0.04] px-6 py-4">
+          {tier === "pro" ? (
+            <div className="space-y-2">
+              {snapshot.map((item, i) => (
+                <SnapshotRow key={`${item.product_url}-${i}`} item={item} />
+              ))}
             </div>
-            {snapshot.map((item, i) => (
-              <SnapshotRow key={`${item.product_url}-${i}`} item={item} />
-            ))}
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-600">
-              Top products
-              <span className="ml-2 text-[10px] text-violet-400/70 border border-violet-400/20 px-1.5 py-[1px] rounded align-middle">PRO</span>
-            </div>
-            <div className="mt-1 text-sm text-slate-500">
-              Full breakdown available
-              <button
-                className="ml-2 text-violet-400 transition hover:text-violet-300"
-                onClick={onUpgradeClick}
-              >
-                View Pro insights →
+          ) : (
+            <div className="text-[12px] text-slate-500">
+              {snapshot.length} product{snapshot.length !== 1 ? "s" : ""} flagged.{" "}
+              <button className="text-violet-400 transition hover:text-violet-300" onClick={onUpgradeClick}>
+                View details →
               </button>
             </div>
-          </div>
-        )
+          )}
+        </div>
       )}
     </div>
   );

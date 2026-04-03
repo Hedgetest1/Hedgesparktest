@@ -39,6 +39,9 @@ _BACKEND_DIR = Path("/opt/wishspark/backend")
 _AUDIT_COOLDOWN_SECONDS = 30 * 86400
 _last_audit_run: float | None = None
 
+# Redis key for persistent cooldown (survives PM2 restarts)
+_REDIS_COOLDOWN_KEY = "hs:cooldown:monthly_audit"
+
 # Hard limits
 MAX_PROPOSALS_PER_RUN = 10
 MAX_TOKENS = 4096
@@ -54,19 +57,33 @@ def _audit_cycle_id() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Scheduling
+# Scheduling — Redis-persistent cooldown (survives PM2 restarts)
 # ---------------------------------------------------------------------------
 
 def should_run_monthly_audit() -> bool:
     global _last_audit_run
-    if _last_audit_run is None:
-        return True
-    return (time.monotonic() - _last_audit_run) >= _AUDIT_COOLDOWN_SECONDS
+    # In-process check first (fast path)
+    if _last_audit_run is not None:
+        if (time.monotonic() - _last_audit_run) < _AUDIT_COOLDOWN_SECONDS:
+            return False
+    # Redis check (survives restarts)
+    try:
+        from app.core.redis_client import cache_get
+        if cache_get(_REDIS_COOLDOWN_KEY) is not None:
+            return False
+    except Exception:
+        pass
+    return True
 
 
 def mark_monthly_audit_run():
     global _last_audit_run
     _last_audit_run = time.monotonic()
+    try:
+        from app.core.redis_client import cache_set
+        cache_set(_REDIS_COOLDOWN_KEY, True, _AUDIT_COOLDOWN_SECONDS)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------

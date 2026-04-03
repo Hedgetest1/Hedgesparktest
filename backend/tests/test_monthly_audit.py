@@ -47,12 +47,14 @@ def test_cooldown_respected():
 
 
 def test_cooldown_expired():
-    """Audit should run when cooldown has expired."""
+    """Audit should run when cooldown has expired (in-process + Redis)."""
     original = audit_mod._last_audit_run
     try:
         # Set last run to 31 days ago
         audit_mod._last_audit_run = time.monotonic() - (31 * 86400)
-        assert should_run_monthly_audit() is True
+        # Redis cooldown key must also be absent for audit to run
+        with patch("app.core.redis_client.cache_get", return_value=None):
+            assert should_run_monthly_audit() is True
     finally:
         audit_mod._last_audit_run = original
 

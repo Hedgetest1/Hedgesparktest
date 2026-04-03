@@ -312,6 +312,185 @@ def _add_months(dt: datetime, n: int) -> datetime:
     return dt.replace(year=year, month=month, day=day)
 
 
+def get_product_ltv_contribution(
+    db: Session,
+    shop_domain: str,
+    limit: int = 20,
+) -> dict:
+    """
+    Which products drive high-LTV customers?
+
+    For each product: avg customer LTV of buyers, repeat rate, and whether
+    the product is a "gateway" (first purchase) or "repeat" product.
+    """
+    from app.core.redis_client import cache_get, cache_set
+    cache_key = f"hs:ltv:products:{shop_domain}:{limit}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        result = db.execute(
+            text("""
+                WITH customer_stats AS (
+                    SELECT
+                        COALESCE(customer_id, customer_email) AS cust_key,
+                        COUNT(*) AS total_orders,
+                        SUM(total_price) AS total_spend,
+                        MIN(created_at) AS first_order_at
+                    FROM shop_orders
+                    WHERE shop_domain = :shop
+                      AND (customer_id IS NOT NULL OR customer_email IS NOT NULL)
+                    GROUP BY cust_key
+                ),
+                product_buyers AS (
+                    SELECT DISTINCT
+                        COALESCE(so.customer_id, so.customer_email) AS cust_key,
+                        li->>'title' AS product_title,
+                        COALESCE(li->>'product_url', li->>'handle') AS product_key,
+                        so.created_at AS order_date
+                    FROM shop_orders so,
+                         jsonb_array_elements(so.line_items) li
+                    WHERE so.shop_domain = :shop
+                      AND (so.customer_id IS NOT NULL OR so.customer_email IS NOT NULL)
+                )
+                SELECT
+                    pb.product_key,
+                    MAX(pb.product_title) AS product_title,
+                    COUNT(DISTINCT pb.cust_key) AS buyer_count,
+                    AVG(cs.total_spend) AS avg_buyer_ltv,
+                    AVG(cs.total_orders) AS avg_buyer_orders,
+                    COUNT(*) FILTER (WHERE cs.total_orders >= 2)::float
+                        / GREATEST(COUNT(DISTINCT pb.cust_key), 1) AS buyer_repeat_rate,
+                    COUNT(*) FILTER (
+                        WHERE pb.order_date = cs.first_order_at
+                    )::float / GREATEST(COUNT(*), 1) AS gateway_rate
+                FROM product_buyers pb
+                INNER JOIN customer_stats cs ON cs.cust_key = pb.cust_key
+                WHERE pb.product_key IS NOT NULL
+                GROUP BY pb.product_key
+                HAVING COUNT(DISTINCT pb.cust_key) >= 2
+                ORDER BY avg_buyer_ltv DESC
+                LIMIT :limit
+            """),
+            {"shop": shop_domain, "limit": limit},
+        )
+        rows = result.fetchall()
+    except Exception as exc:
+        log.error("ltv_engine: product_ltv failed shop=%s: %s", shop_domain, exc)
+        return {"shop_domain": shop_domain, "products": []}
+
+    products = []
+    for row in rows:
+        products.append({
+            "product": row.product_key,
+            "title": row.product_title,
+            "buyer_count": int(row.buyer_count),
+            "avg_buyer_ltv": round(float(row.avg_buyer_ltv or 0), 2),
+            "avg_buyer_orders": round(float(row.avg_buyer_orders or 0), 1),
+            "buyer_repeat_rate": round(float(row.buyer_repeat_rate or 0), 4),
+            "gateway_rate": round(float(row.gateway_rate or 0), 4),
+            "is_gateway": float(row.gateway_rate or 0) > 0.5,
+        })
+
+    report = {"shop_domain": shop_domain, "products": products}
+    cache_set(cache_key, report, 600)
+    return report
+
+
+def get_predicted_ltv(
+    db: Session,
+    shop_domain: str,
+    limit: int = 50,
+) -> dict:
+    """
+    Top customers with predicted 30-day and 12-month LTV.
+
+    Uses recency-frequency heuristics (not ML) for prediction:
+    - Recent + frequent = high probability of return
+    - High AOV + recent = high predicted value
+    """
+    from app.core.redis_client import cache_get, cache_set
+    cache_key = f"hs:ltv:predicted:{shop_domain}:{limit}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    now = _now()
+    try:
+        result = db.execute(
+            text("""
+                SELECT
+                    COALESCE(customer_id, customer_email) AS cust_key,
+                    customer_email,
+                    COUNT(*) AS total_orders,
+                    SUM(total_price) AS total_spend,
+                    MIN(created_at) AS first_order,
+                    MAX(created_at) AS last_order,
+                    EXTRACT(EPOCH FROM (:now - MAX(created_at))) / 86400.0
+                        AS days_since_last
+                FROM shop_orders
+                WHERE shop_domain = :shop
+                  AND (customer_id IS NOT NULL OR customer_email IS NOT NULL)
+                GROUP BY cust_key, customer_email
+                ORDER BY total_spend DESC
+                LIMIT :limit
+            """),
+            {"shop": shop_domain, "now": now, "limit": limit},
+        )
+        rows = result.fetchall()
+    except Exception as exc:
+        log.error("ltv_engine: predicted_ltv failed shop=%s: %s", shop_domain, exc)
+        return {"shop_domain": shop_domain, "customers": [], "count": 0}
+
+    customers = []
+    for row in rows:
+        days_since = float(row.days_since_last or 365)
+        total_orders = int(row.total_orders)
+        total_spend = float(row.total_spend or 0)
+        aov = total_spend / max(total_orders, 1)
+
+        # Recency-frequency probability model
+        if total_orders >= 3 and days_since < 30:
+            prob_30d = 0.60
+        elif total_orders >= 2 and days_since < 60:
+            prob_30d = 0.40
+        elif total_orders >= 2 and days_since < 90:
+            prob_30d = 0.25
+        elif days_since < 30:
+            prob_30d = 0.15
+        else:
+            prob_30d = 0.05
+
+        predicted_30d = prob_30d * aov
+        # 12-month: extrapolate from current rate
+        months_active = max(1, (now - row.first_order).days / 30) if row.first_order else 1
+        monthly_rate = total_orders / months_active
+        predicted_12m = total_spend + (monthly_rate * aov * max(0, 12 - months_active))
+
+        email = row.customer_email
+        masked = None
+        if email and "@" in email:
+            local, domain = email.split("@", 1)
+            masked = f"{local[0]}***@{domain}" if len(local) > 1 else f"*@{domain}"
+
+        customers.append({
+            "customer_key": row.cust_key,
+            "email_hint": masked,
+            "total_orders": total_orders,
+            "total_spend": round(total_spend, 2),
+            "aov": round(aov, 2),
+            "days_since_last": round(days_since, 0),
+            "repeat_probability_30d": round(prob_30d, 2),
+            "predicted_30d_value": round(predicted_30d, 2),
+            "predicted_12m_ltv": round(predicted_12m, 2),
+        })
+
+    report = {"shop_domain": shop_domain, "customers": customers, "count": len(customers)}
+    cache_set(cache_key, report, 600)
+    return report
+
+
 def _empty_response(months: int, total_orders: int = 0) -> dict:
     return {
         "window_months": months,

@@ -55,6 +55,7 @@ from typing import Optional
 import httpx
 from sqlalchemy.orm import Session
 
+from app.core.shopify_client import shopify_request
 from app.models.merchant import Merchant
 
 log = logging.getLogger(__name__)
@@ -138,53 +139,37 @@ def get_product_inventory(
         log.warning("shopify_admin: cannot extract handle from product_url=%s", product_url)
         return None
 
-    headers = {"X-Shopify-Access-Token": access_token}
+    resp = shopify_request(
+        "GET", shop_domain, "products.json", access_token,
+        params={"handle": handle, "fields": "id,title,variants"},
+    )
+    if resp is None or resp.status_code >= 400:
+        return None
 
-    try:
-        resp = httpx.get(
-            _shopify_url(shop_domain, "products.json"),
-            headers=headers,
-            params={"handle": handle, "fields": "id,title,variants"},
-            timeout=_REQUEST_TIMEOUT,
-        )
-        resp.raise_for_status()
-        products = resp.json().get("products", [])
+    products = resp.json().get("products", [])
+    if not products:
+        log.debug("shopify_admin: product not found handle=%s shop=%s", handle, shop_domain)
+        return None
 
-        if not products:
-            log.debug("shopify_admin: product not found handle=%s shop=%s", handle, shop_domain)
-            return None
+    product = products[0]
+    variants = product.get("variants", [])
+    if not variants:
+        return None
 
-        product = products[0]
-        variants = product.get("variants", [])
-        if not variants:
-            return None
+    total_qty = sum(v.get("inventory_quantity") or 0 for v in variants)
+    first_variant = variants[0]
 
-        total_qty = sum(v.get("inventory_quantity") or 0 for v in variants)
-        first_variant = variants[0]
+    log.info(
+        "shopify_admin: inventory shop=%s handle=%s product_id=%s qty=%d",
+        shop_domain, handle, product["id"], total_qty,
+    )
 
-        log.info(
-            "shopify_admin: inventory shop=%s handle=%s product_id=%s qty=%d",
-            shop_domain, handle, product["id"], total_qty,
-        )
-
-        return {
-            "product_id":         product["id"],
-            "variant_id":         first_variant["id"],
-            "inventory_quantity": total_qty,
-            "title":              product.get("title", handle),
-        }
-
-    except httpx.HTTPStatusError as exc:
-        log.error(
-            "shopify_admin: HTTP %d fetching inventory shop=%s handle=%s",
-            exc.response.status_code, shop_domain, handle,
-        )
-    except Exception as exc:
-        log.error(
-            "shopify_admin: error fetching inventory shop=%s handle=%s: %s",
-            shop_domain, handle, exc,
-        )
-    return None
+    return {
+        "product_id":         product["id"],
+        "variant_id":         first_variant["id"],
+        "inventory_quantity": total_qty,
+        "title":              product.get("title", handle),
+    }
 
 
 def create_discount(
@@ -211,11 +196,6 @@ def create_discount(
     if not access_token:
         return None
 
-    headers = {
-        "X-Shopify-Access-Token": access_token,
-        "Content-Type": "application/json",
-    }
-
     price_rule_body: dict = {
         "price_rule": {
             "title":              title,
@@ -232,43 +212,34 @@ def create_discount(
     if product_ids:
         price_rule_body["price_rule"]["entitled_product_ids"] = product_ids
 
-    try:
-        rule_resp = httpx.post(
-            _shopify_url(shop_domain, "price_rules.json"),
-            headers=headers,
-            json=price_rule_body,
-            timeout=_REQUEST_TIMEOUT,
-        )
-        rule_resp.raise_for_status()
-        price_rule_id = rule_resp.json()["price_rule"]["id"]
+    rule_resp = shopify_request(
+        "POST", shop_domain, "price_rules.json", access_token,
+        json_body=price_rule_body,
+    )
+    if rule_resp is None or rule_resp.status_code >= 400:
+        return None
 
-        code_resp = httpx.post(
-            _shopify_url(shop_domain, f"price_rules/{price_rule_id}/discount_codes.json"),
-            headers=headers,
-            json={"discount_code": {"code": code}},
-            timeout=_REQUEST_TIMEOUT,
-        )
-        code_resp.raise_for_status()
-        discount_code_id = code_resp.json()["discount_code"]["id"]
+    price_rule_id = rule_resp.json()["price_rule"]["id"]
 
-        log.info(
-            "shopify_admin: created discount code=%s rule_id=%d shop=%s",
-            code, price_rule_id, shop_domain,
-        )
-        return {
-            "code":              code,
-            "price_rule_id":     price_rule_id,
-            "discount_code_id":  discount_code_id,
-        }
+    code_resp = shopify_request(
+        "POST", shop_domain,
+        f"price_rules/{price_rule_id}/discount_codes.json", access_token,
+        json_body={"discount_code": {"code": code}},
+    )
+    if code_resp is None or code_resp.status_code >= 400:
+        return None
 
-    except httpx.HTTPStatusError as exc:
-        log.error(
-            "shopify_admin: HTTP %d creating discount shop=%s: %s",
-            exc.response.status_code, shop_domain, exc.response.text[:200],
-        )
-    except Exception as exc:
-        log.error("shopify_admin: error creating discount shop=%s: %s", shop_domain, exc)
-    return None
+    discount_code_id = code_resp.json()["discount_code"]["id"]
+
+    log.info(
+        "shopify_admin: created discount code=%s rule_id=%d shop=%s",
+        code, price_rule_id, shop_domain,
+    )
+    return {
+        "code":              code,
+        "price_rule_id":     price_rule_id,
+        "discount_code_id":  discount_code_id,
+    }
 
 
 def update_product_price(
@@ -288,36 +259,18 @@ def update_product_price(
     if not access_token:
         return False
 
-    headers = {
-        "X-Shopify-Access-Token": access_token,
-        "Content-Type": "application/json",
-    }
+    resp = shopify_request(
+        "PUT", shop_domain, f"variants/{variant_id}.json", access_token,
+        json_body={"variant": {"id": variant_id, "price": new_price}},
+    )
+    if resp is None or resp.status_code >= 400:
+        return False
 
-    try:
-        resp = httpx.put(
-            _shopify_url(shop_domain, f"variants/{variant_id}.json"),
-            headers=headers,
-            json={"variant": {"id": variant_id, "price": new_price}},
-            timeout=_REQUEST_TIMEOUT,
-        )
-        resp.raise_for_status()
-        log.info(
-            "shopify_admin: updated price variant_id=%d price=%s shop=%s",
-            variant_id, new_price, shop_domain,
-        )
-        return True
-
-    except httpx.HTTPStatusError as exc:
-        log.error(
-            "shopify_admin: HTTP %d updating price variant_id=%d shop=%s",
-            exc.response.status_code, variant_id, shop_domain,
-        )
-    except Exception as exc:
-        log.error(
-            "shopify_admin: error updating price variant_id=%d shop=%s: %s",
-            variant_id, shop_domain, exc,
-        )
-    return False
+    log.info(
+        "shopify_admin: updated price variant_id=%d price=%s shop=%s",
+        variant_id, new_price, shop_domain,
+    )
+    return True
 
 
 def get_shop_products(
@@ -335,21 +288,14 @@ def get_shop_products(
     if not access_token:
         return []
 
-    headers = {"X-Shopify-Access-Token": access_token}
+    resp = shopify_request(
+        "GET", shop_domain, "products.json", access_token,
+        params={"limit": limit, "fields": "id,title,handle,variants"},
+    )
+    if resp is None or resp.status_code >= 400:
+        return []
 
-    try:
-        resp = httpx.get(
-            _shopify_url(shop_domain, "products.json"),
-            headers=headers,
-            params={"limit": limit, "fields": "id,title,handle,variants"},
-            timeout=_REQUEST_TIMEOUT,
-        )
-        resp.raise_for_status()
-        return resp.json().get("products", [])
-
-    except Exception as exc:
-        log.error("shopify_admin: error fetching products shop=%s: %s", shop_domain, exc)
-    return []
+    return resp.json().get("products", [])
 
 
 # ---------------------------------------------------------------------------

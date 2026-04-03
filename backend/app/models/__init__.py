@@ -19,6 +19,11 @@ from app.models.daily_brief import DailyBrief
 from app.models.shop_order import ShopOrder
 from app.models.visitor_purchase_session import VisitorPurchaseSession
 from app.models.shop_conversion_calibration import ShopConversionCalibration
+from app.models.patch_fingerprint import PatchFingerprint
+from app.models.system_lesson import SystemLesson
+from app.models.onboarding_event import OnboardingEvent
+from app.models.merchant_email import MerchantEmail
+from app.models.sentry_incident import SentryIncident
 
 __all__ = [
     "ActiveNudge",
@@ -42,4 +47,9 @@ __all__ = [
     "ShopOrder",
     "VisitorPurchaseSession",
     "ShopConversionCalibration",
+    "PatchFingerprint",
+    "SystemLesson",
+    "OnboardingEvent",
+    "MerchantEmail",
+    "SentryIncident",
 ]

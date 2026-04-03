@@ -30,7 +30,12 @@ from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.core.deps import require_pro_session
 from app.services.cohort_engine import get_cohort_retention, get_cohort_summary
-from app.services.ltv_engine import get_monthly_cohorts, get_ltv_summary
+from app.services.ltv_engine import (
+    get_monthly_cohorts,
+    get_ltv_summary,
+    get_product_ltv_contribution,
+    get_predicted_ltv,
+)
 
 log = logging.getLogger(__name__)
 
@@ -175,6 +180,36 @@ def get_ltv_summary_endpoint(
         }
     """
     return get_ltv_summary(db, shop)
+
+
+@router.get("/ltv/products")
+def get_product_ltv_endpoint(
+    limit: int = 20,
+    shop: str = Depends(require_pro_session),
+    db: Session = Depends(get_db),
+):
+    """
+    Product LTV contribution — which products drive high-LTV customers.
+
+    Returns per-product: avg buyer LTV, repeat rate, gateway vs repeat flag.
+    Gateway products = bought as first order > 50% of the time.
+    """
+    return get_product_ltv_contribution(db, shop, limit=min(limit, 50))
+
+
+@router.get("/ltv/customers")
+def get_predicted_ltv_endpoint(
+    limit: int = 50,
+    shop: str = Depends(require_pro_session),
+    db: Session = Depends(get_db),
+):
+    """
+    Top customers with predicted LTV.
+
+    Returns ranked list with: total spend, AOV, repeat probability (30d),
+    predicted 30-day value, predicted 12-month LTV.
+    """
+    return get_predicted_ltv(db, shop, limit=min(limit, 100))
 
 
 @router.get("/behavioral")

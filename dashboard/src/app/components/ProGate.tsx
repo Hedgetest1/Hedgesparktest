@@ -47,7 +47,7 @@ export function ProGate({
         {/* Mascot + badge */}
         <div className="relative">
           <Image
-            src="/branding/hedgespark-mascot.png"
+            src="/branding/hedgespark/spark.png"
             alt=""
             width={48}
             height={48}
