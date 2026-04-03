@@ -584,9 +584,11 @@ def handle_command(command: str, db=None, chat_id: str | None = None) -> str:
     if not handler:
         return _cmd_unknown(db)
 
-    # Rate limit check
-    if not _check_rate_limit(cmd):
-        return f"Rate limited — max {_CMD_RATE_LIMIT} identical commands per minute."
+    # Criticality-based rate limit
+    from app.core.telegram_safety import check_criticality_rate
+    rate_ok, rate_limit = check_criticality_rate(cmd)
+    if not rate_ok:
+        return f"Rate limited — max {rate_limit}/min for this command."
 
     try:
         return handler()
@@ -1028,7 +1030,7 @@ def _cmd_bugfixes(db) -> str:
 
 
 def _cmd_bugfix_approve(db, args: list[str]) -> str:
-    """Approve a proposed bugfix candidate."""
+    """Approve a proposed bugfix candidate. Idempotent + state-guarded."""
     if db is None:
         return "No DB session available."
     if not args:
@@ -1039,16 +1041,24 @@ def _cmd_bugfix_approve(db, args: list[str]) -> str:
     except ValueError:
         return "Invalid bugfix ID."
 
+    from app.core.telegram_safety import check_idempotency, validate_transition
     from app.models.bugfix_candidate import BugFixCandidate
     from app.services.audit import write_audit_log
+
+    # Idempotency check — blocks double-taps
+    if not check_idempotency("bugfix_approve", str(candidate_id)):
+        return f"Already processed — bugfix #{candidate_id} approve is in progress."
 
     now = _now()
 
     c = db.query(BugFixCandidate).get(candidate_id)
     if not c:
         return f"Bugfix #{candidate_id} not found."
-    if c.status != "patch_proposed":
-        return f"Cannot approve \u2014 bugfix #{candidate_id} status is {c.status}."
+
+    # State machine validation
+    allowed, err = validate_transition(c.status, "approved")
+    if not allowed:
+        return f"❌ {err}"
 
     c.status = "approved"
     c.decided_by = "telegram_operator"
@@ -1083,8 +1093,7 @@ def _cmd_bugfix_approve(db, args: list[str]) -> str:
 
 
 def _cmd_bugfix_apply(db, args: list[str]) -> str:
-    """Apply an approved bugfix through the guarded apply pipeline.
-    Sends immediate feedback before starting the pipeline."""
+    """Apply an approved bugfix. Idempotent + locked + state-guarded + traced."""
     if db is None:
         return "No DB session available."
     if not args:
@@ -1095,72 +1104,101 @@ def _cmd_bugfix_apply(db, args: list[str]) -> str:
     except ValueError:
         return "Invalid bugfix ID."
 
+    from app.core.telegram_safety import (
+        check_idempotency, validate_transition,
+        acquire_execution_lock, release_execution_lock,
+        send_progress,
+    )
     from app.models.bugfix_candidate import BugFixCandidate
+
+    # 1. Idempotency — blocks double-taps and Telegram retries
+    if not check_idempotency("bugfix_apply", str(candidate_id)):
+        return f"⏳ Already processing — bugfix #{candidate_id} apply is in progress."
 
     c = db.query(BugFixCandidate).get(candidate_id)
     if not c:
         return f"Bugfix #{candidate_id} not found."
-    if c.status != "approved":
-        return f"Cannot apply — bugfix #{candidate_id} status is {c.status}. Must be approved first."
 
-    # IMMEDIATE FEEDBACK — tell operator the pipeline is running
-    progress_msg_id = send_message(
-        f"⏳ *Applying bugfix #{candidate_id}...*\n\n"
-        f"Running: git apply → pytest → PM2 restart → health check\n"
-        f"This takes 15-30 seconds."
-    )
+    # 2. State machine — only approved → applying is allowed
+    allowed, err = validate_transition(c.status, "applying")
+    if not allowed:
+        return f"❌ {err}"
 
-    # Run the pipeline (this is the slow part)
-    from app.services.bugfix_pipeline import apply_bugfix_candidate
-    from app.services.audit import write_audit_log
+    # 3. Concurrency lock — prevents apply + rollback overlap
+    if not acquire_execution_lock("bugfix", str(candidate_id)):
+        return f"🔒 Another operation on #{candidate_id} is in progress. Wait and retry."
 
-    result = apply_bugfix_candidate(db, candidate_id)
-
-    write_audit_log(
-        db,
-        actor_type="human",
-        actor_name="telegram_operator",
-        action_type="bugfix_apply_triggered",
-        target_type="bugfix",
-        target_id=str(candidate_id),
-        after_state={
-            "status": result.status,
-            "test_passed": result.test_passed,
-            "health_ok": result.health_ok,
-        },
-        status="completed" if result.status == "applied" else "failed",
-        approval_mode="human_approved",
-        metadata={"channel": "telegram"},
-    )
-    db.commit()
-
-    # RESULT MESSAGE — reply to the progress message for threading
-    reply_to_id = progress_msg_id if isinstance(progress_msg_id, int) else None
-
-    if result.status == "applied":
-        send_message(
-            f"✅ *Bugfix #{candidate_id} deployed successfully*\n\n"
-            f"Tests: passed\n"
-            f"Health: ok\n"
-            f"Commit: {getattr(c, 'git_commit_sha', 'n/a')}\n\n"
-            f"Outcome measurement starts in 48h.\n"
-            f"Rollback: /rollback {candidate_id}",
-            reply_to=reply_to_id,
+    try:
+        # 4. Progress trace — immediate feedback
+        progress_id = send_progress(
+            f"⏳ *Applying bugfix #{candidate_id}...*\n\n"
+            f"→ git apply...\n"
+            f"→ pytest (120s timeout)...\n"
+            f"→ PM2 restart + health check\n\n"
+            f"Files: {_safe_html(c.patch_files or '[]')}\n"
+            f"Risk: TIER_{c.patch_risk_tier or '?'}"
         )
-        return ""  # already sent via send_message
-    else:
-        send_message(
-            f"❌ *Bugfix #{candidate_id} failed*\n\n"
-            f"Status: {result.status}\n"
-            f"Reason: {result.failure_reason or 'unknown'}\n\n"
-            f"Patch was auto-reverted. No code changed.",
-            reply_to=reply_to_id,
+
+        # 5. Run pipeline
+        from app.services.bugfix_pipeline import apply_bugfix_candidate
+        from app.services.audit import write_audit_log
+
+        result = apply_bugfix_candidate(db, candidate_id)
+
+        write_audit_log(
+            db,
+            actor_type="human",
+            actor_name="telegram_operator",
+            action_type="bugfix_apply_triggered",
+            target_type="bugfix",
+            target_id=str(candidate_id),
+            after_state={
+                "status": result.status,
+                "test_passed": result.test_passed,
+                "health_ok": result.health_ok,
+            },
+            status="completed" if result.status == "applied" else "failed",
+            approval_mode="human_approved",
+            metadata={"channel": "telegram"},
         )
+        db.commit()
+
+        # 6. Result — threaded reply to progress message
+        reply_to = progress_id
+
+        if result.status == "applied":
+            # Refresh to get commit SHA
+            db.refresh(c)
+            send_message(
+                f"✅ *Bugfix #{candidate_id} deployed*\n\n"
+                f"Tests: passed ✓\n"
+                f"Health: ok ✓\n"
+                f"Commit: {c.git_commit_sha or 'n/a'}\n\n"
+                f"Outcome measurement starts in 48h.",
+                reply_to=reply_to,
+            )
+            # Add rollback button
+            send_message_with_buttons(
+                f"Rollback available:",
+                [[{"text": f"🔄 Rollback #{candidate_id}", "callback_data": f"/rollback {candidate_id}"}]],
+                reply_to=reply_to,
+            )
+        else:
+            send_message(
+                f"❌ *Bugfix #{candidate_id} failed*\n\n"
+                f"Status: {result.status}\n"
+                f"Reason: {result.failure_reason or 'unknown'}\n\n"
+                f"Patch was auto-reverted. No code changed.",
+                reply_to=reply_to,
+            )
         return ""  # already sent
+
+    finally:
+        release_execution_lock("bugfix", str(candidate_id))
 
 
 def _cmd_rollback(db, args: list[str]) -> str:
-    """Rollback an applied bugfix candidate by reverting its git commit."""
+    """Rollback an applied bugfix. Requires confirmation + locked + idempotent."""
     if db is None:
         return "No DB session available."
     if not args:
@@ -1171,36 +1209,65 @@ def _cmd_rollback(db, args: list[str]) -> str:
     except ValueError:
         return "Invalid candidate ID."
 
+    from app.core.telegram_safety import (
+        check_idempotency, validate_transition,
+        acquire_execution_lock, release_execution_lock,
+        request_confirmation, check_confirmation,
+        send_progress,
+    )
     from app.models.bugfix_candidate import BugFixCandidate
     import subprocess
 
     c = db.query(BugFixCandidate).get(candidate_id)
     if not c:
         return f"Candidate #{candidate_id} not found."
-    if c.status != "applied":
-        return f"Cannot rollback — #{candidate_id} status is {c.status}. Only applied patches can be rolled back."
-    if not c.git_commit_sha:
-        return f"Cannot rollback — #{candidate_id} has no recorded commit SHA."
 
-    # Immediate feedback
-    send_message(f"⏳ *Rolling back bugfix #{candidate_id}...*\n\nReverting commit {c.git_commit_sha[:8]}...")
+    # State machine
+    allowed, err = validate_transition(c.status, "rolled_back")
+    if not allowed:
+        return f"❌ {err}"
+
+    if not c.git_commit_sha:
+        return f"❌ #{candidate_id} has no recorded commit SHA."
+
+    # Confirmation flow — first tap asks, second tap executes
+    if not check_confirmation("rollback", str(candidate_id)):
+        request_confirmation("rollback", str(candidate_id))
+        send_message_with_buttons(
+            f"⚠️ *Confirm rollback #{candidate_id}?*\n\n"
+            f"This will revert commit {c.git_commit_sha[:8]} and restart the backend.\n\n"
+            f"Tap again within 2 minutes to confirm:",
+            [[{"text": f"🔄 CONFIRM Rollback #{candidate_id}", "callback_data": f"/rollback {candidate_id}"}]],
+        )
+        return ""  # sent via button message
+
+    # Idempotency
+    if not check_idempotency("rollback", str(candidate_id)):
+        return f"⏳ Rollback #{candidate_id} already in progress."
+
+    # Concurrency lock
+    if not acquire_execution_lock("bugfix", str(candidate_id)):
+        return f"🔒 Another operation on #{candidate_id} in progress."
 
     try:
-        # Revert the commit
+        progress_id = send_progress(
+            f"⏳ *Rolling back #{candidate_id}...*\n→ Reverting commit {c.git_commit_sha[:8]}..."
+        )
+
         revert = subprocess.run(
             ["git", "revert", "--no-edit", c.git_commit_sha],
             capture_output=True, text=True, timeout=30,
             cwd="/opt/wishspark",
         )
         if revert.returncode != 0:
-            return f"❌ Git revert failed: {revert.stderr[:200]}"
+            send_message(f"❌ Git revert failed:\n{_safe_html(revert.stderr[:200])}", reply_to=progress_id)
+            return ""
 
-        # Restart backend
+        send_progress("→ Restarted backend...", reply_to=progress_id)
         subprocess.run(["pm2", "restart", "wishspark-backend"], capture_output=True, timeout=15)
-        import time
-        time.sleep(4)
+        import time as _time
+        _time.sleep(4)
 
-        # Health check
         try:
             import httpx
             health = httpx.get("http://127.0.0.1:8000/system/health", timeout=8.0)
@@ -1208,9 +1275,8 @@ def _cmd_rollback(db, args: list[str]) -> str:
         except Exception:
             health_ok = False
 
-        # Update candidate
         c.status = "rolled_back"
-        c.failure_reason = f"operator_rollback via Telegram"
+        c.failure_reason = "operator_rollback via Telegram"
 
         from app.services.audit import write_audit_log
         write_audit_log(
@@ -1226,17 +1292,21 @@ def _cmd_rollback(db, args: list[str]) -> str:
         )
         db.commit()
 
-        return (
+        send_message(
             f"✅ *Bugfix #{candidate_id} rolled back*\n\n"
-            f"Reverted commit: {c.git_commit_sha[:8]}\n"
-            f"Health: {'ok' if health_ok else 'degraded — check /status'}\n"
-            f"Backend restarted."
+            f"Reverted: {c.git_commit_sha[:8]}\n"
+            f"Health: {'ok ✓' if health_ok else '⚠️ degraded — /status'}\n"
+            f"Backend restarted.",
+            reply_to=progress_id,
         )
+        return ""
 
     except subprocess.TimeoutExpired:
-        return f"❌ Rollback timed out for #{candidate_id}. Manual intervention needed."
+        return f"❌ Rollback timed out. Manual intervention needed."
     except Exception as exc:
-        return f"❌ Rollback failed: {type(exc).__name__}: {str(exc)[:200]}"
+        return f"❌ Rollback failed: {_safe_html(str(exc)[:200])}"
+    finally:
+        release_execution_lock("bugfix", str(candidate_id))
 
 
 def _cmd_promotions(db) -> str:
