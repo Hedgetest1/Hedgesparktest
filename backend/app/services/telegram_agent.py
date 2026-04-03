@@ -440,7 +440,7 @@ def _time_remaining(expires_at) -> str:
 # Commands that modify state — require authorized chat
 _WRITE_COMMANDS = {
     "/approve", "/reject", "/bugfix_approve", "/bugfix_apply",
-    "/merge",
+    "/merge", "/cleanup",
 }
 
 # All known commands
@@ -500,6 +500,7 @@ def handle_command(command: str, db=None, chat_id: str | None = None) -> str:
         "/webhooks": lambda: _cmd_webhooks(db),
         "/loop_health": lambda: _cmd_loop_health(db),
         "/weakness": lambda: _cmd_weakness(db),
+        "/cleanup": lambda: _cmd_cleanup(db),
         "/help": lambda: _cmd_help(db),
     }
 
@@ -1315,6 +1316,57 @@ def _cmd_webhooks(db) -> str:
         return f"Webhook status unavailable: {exc}"
 
 
+def _cmd_cleanup(db) -> str:
+    """
+    Resolve all unresolved alerts and dismiss all active incidents.
+    One-tap operator command to clear the board.
+    """
+    if db is None:
+        return "No DB session available."
+
+    from sqlalchemy import text
+
+    # Resolve all alerts
+    alert_result = db.execute(text("""
+        UPDATE ops_alerts SET resolved = true, resolved_at = now()
+        WHERE resolved = false
+        RETURNING id
+    """))
+    alerts_resolved = len(alert_result.fetchall())
+
+    # Dismiss all active incidents
+    incident_result = db.execute(text("""
+        UPDATE support_incidents SET status = 'dismissed',
+        resolved_at = now(), resolved_by = 'telegram_operator'
+        WHERE status IN ('open', 'triaged', 'investigating')
+        RETURNING id
+    """))
+    incidents_dismissed = len(incident_result.fetchall())
+
+    # Discard stuck bugfix candidates (failed, not applied)
+    candidate_result = db.execute(text("""
+        UPDATE bugfix_candidates SET status = 'discarded',
+        failure_reason = 'operator_cleanup'
+        WHERE status IN ('open', 'analyzed', 'apply_failed')
+        RETURNING id
+    """))
+    candidates_discarded = len(candidate_result.fetchall())
+
+    db.commit()
+
+    total = alerts_resolved + incidents_dismissed + candidates_discarded
+    if total == 0:
+        return "\u2705 Already clean — nothing to resolve."
+
+    return (
+        f"\u2705 *Cleanup complete*\n\n"
+        f"Alerts resolved: {alerts_resolved}\n"
+        f"Incidents dismissed: {incidents_dismissed}\n"
+        f"Candidates discarded: {candidates_discarded}\n\n"
+        f"Board is clear."
+    )
+
+
 def _cmd_loop_health(db) -> str:
     """Autonomous loop health snapshot."""
     from app.services.loop_health import get_loop_health
@@ -1406,6 +1458,7 @@ def _cmd_help(db) -> str:
         "*Loop Intelligence:*\n"
         "/loop_health \u2014 autonomous loop health snapshot\n"
         "/weakness \u2014 subsystem weakness ranking\n\n"
+        "/cleanup \u2014 resolve all alerts + dismiss all incidents\n"
         "/help \u2014 this message"
     )
 
@@ -1630,6 +1683,10 @@ def build_daily_digest(db) -> str:
 
         if active_alerts > 0 or active_incidents > 0:
             lines.append(f"*Open:* {active_alerts} alerts, {active_incidents} incidents")
+            # Add cleanup button
+            action_buttons.append([
+                {"text": f"Cleanup all ({active_alerts + active_incidents} items)", "callback_data": "/cleanup"},
+            ])
     except Exception:
         lines.append("*Alerts:* unavailable")
 
