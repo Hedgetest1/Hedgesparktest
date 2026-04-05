@@ -78,6 +78,9 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.append("/opt/wishspark/backend")
 
+from app.core.env_bootstrap import load_env
+load_env()
+
 from app.core.logging_config import configure_logging, set_worker_context
 configure_logging()
 set_worker_context(worker_name="aggregation_worker")
@@ -1156,6 +1159,107 @@ def _get_distinct_shops(conn) -> list[str]:
     return [row.shop_domain for row in result.fetchall()]
 
 
+def _run_ai_nudge_compose(db: Session) -> int:
+    """
+    Upgrade Pro nudges flagged ai_compose_pending=True with AI-composed
+    variants. Runs once per 5-minute aggregation cycle, bounded to 5 nudges
+    per cycle to protect the LLM budget.
+
+    The merchant's request path NEVER blocks on OpenAI anymore — baseline
+    variants are live immediately, and this loop replaces them with
+    context-specific variants within minutes.
+
+    Returns: count of nudges upgraded this cycle.
+    """
+    import asyncio
+    import json as _json
+    from app.models.active_nudge import ActiveNudge
+    from app.models.product import Product
+    from app.services.nudge_composer import compose_nudge_variants
+    from app.core.protection_state import protection_state
+
+    # SELF-PROTECTION: AI nudge composition is an OPTIONAL LLM call.
+    # When the system is under LLM pressure, we skip entirely (baseline
+    # variants remain live — nudges still serve). When the system is
+    # DEGRADED for other reasons, we halve the batch to 2.
+    state = protection_state()
+    if state["level"] == "CRITICAL" or "skip_all_optional_llm_calls" in state["protective_actions"]:
+        log(f"protection_state: {state['level']} — skipping _run_ai_nudge_compose")
+        return 0
+    if "skip_optional_llm_calls" in state["protective_actions"]:
+        log(f"protection_state: DEGRADED (llm) — skipping _run_ai_nudge_compose")
+        return 0
+    _MAX_PER_CYCLE = 2 if state["level"] == "DEGRADED" else 5
+    if state["level"] == "DEGRADED":
+        log(f"protection_state: DEGRADED — reducing _run_ai_nudge_compose batch from 5 to {_MAX_PER_CYCLE}")
+
+    pending = (
+        db.query(ActiveNudge)
+        .filter(
+            ActiveNudge.ai_compose_pending == True,  # noqa: E712
+            ActiveNudge.status == "active",
+        )
+        .order_by(ActiveNudge.created_at.asc())
+        .limit(_MAX_PER_CYCLE)
+        .all()
+    )
+    if not pending:
+        return 0
+
+    upgraded = 0
+    for nudge in pending:
+        try:
+            # Fetch product title for prompt context
+            product = (
+                db.query(Product)
+                .filter_by(shop_domain=nudge.shop_domain, product_url=nudge.product_url)
+                .first()
+            )
+            product_title = (
+                product.title.strip() if product and product.title
+                else nudge.product_url.replace("/products/", "").replace("-", " ").title()
+            )
+
+            # Reconstruct minimal signals from current nudge context
+            signals = {
+                "unique_visitors_24h": nudge.visitor_count or 0,
+                "action_type": nudge.action_type,
+            }
+
+            # compose_nudge_variants is async — run it to completion here.
+            variants, meta = asyncio.run(
+                compose_nudge_variants(
+                    product_title=product_title,
+                    product_url=nudge.product_url,
+                    signals=signals,
+                    data_window_hours=72,
+                )
+            )
+
+            # Replace nudge copy with AI-composed variants
+            if variants and len(variants) >= 2:
+                primary = variants[0]
+                nudge.copy_variant = primary.get("variant_name", nudge.copy_variant)
+                nudge.copy_config = _json.dumps(primary.get("copy_config", {}))
+                nudge.copy_variants = _json.dumps(variants)
+                nudge.ai_compose_pending = False
+                upgraded += 1
+                log(f"ai_nudge_compose: upgraded nudge_id={nudge.id} shop={nudge.shop_domain} variants={len(variants)} fallback={meta.get('fallback_used')}")
+            else:
+                # Composer returned no usable output — clear the flag anyway
+                # to avoid retrying forever.
+                nudge.ai_compose_pending = False
+                log(f"ai_nudge_compose: composer returned no variants for nudge_id={nudge.id}, flag cleared")
+        except Exception as exc:
+            # One nudge failure must not break the batch.
+            log(f"ai_nudge_compose: failed for nudge_id={nudge.id} err={type(exc).__name__}: {exc}")
+            continue
+
+    # Flush so in-memory mutations are visible to the caller's commit/refresh.
+    db.flush()
+    return upgraded
+
+
 def _run_retention(conn, now_ms: int) -> int:
     """
     Delete events older than RETENTION_DAYS, one shop at a time.
@@ -1592,6 +1696,19 @@ def _run_cycle_inner() -> None:
         except Exception as exc:
             db.rollback()
             log(f"stuck-candidate sweep error (non-fatal): {exc}")
+
+        # AI nudge compose upgrade — merchants' Pro nudges are created with
+        # baseline variants synchronously (request never blocks on OpenAI).
+        # Here we upgrade them with AI-composed variants in the background,
+        # bounded to 5 per cycle to protect the LLM budget.
+        try:
+            upgraded = _run_ai_nudge_compose(db)
+            if upgraded > 0:
+                db.commit()
+                log(f"ai_nudge_compose: upgraded {upgraded} nudge(s)")
+        except Exception as exc:
+            db.rollback()
+            log(f"ai_nudge_compose error (non-fatal): {exc}")
 
         # ------------------------------------------------------------------ #
         # Nudge expiry sweep — mark expired active_nudges as 'expired'        #

@@ -19,7 +19,7 @@ instances: 1 and exec_mode: fork.
 Environment variables
 ---------------------
   NUDGE_OPTIMIZER_INTERVAL_HOURS  — cycle interval (default: 6)
-  DATABASE_URL                    — read by load_dotenv() from backend/.env
+  DATABASE_URL                    — loaded from backend/.env via env_bootstrap
   OPENAI_API_KEY                  — required for challenger generation
   REDIS_URL                       — optional; used by per-shop budget guard
 
@@ -46,8 +46,8 @@ from datetime import datetime, timezone
 # Ensure the backend package root is on sys.path when run as a script.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from dotenv import load_dotenv
-load_dotenv()
+from app.core.env_bootstrap import load_env
+load_env()
 
 from app.core.logging_config import configure_logging, set_worker_context
 configure_logging()
@@ -63,23 +63,48 @@ _INTERVAL_SECS: float = _INTERVAL_HOURS * 3600
 
 
 def _record_cycle(db, result: dict, duration_ms: int) -> None:
-    """Write a WorkerLog row for audit trail."""
+    """Write a WorkerLog row for audit trail.
+
+    WorkerLog columns: worker_name, started_at, finished_at, shops_processed,
+    rows_written, errors, error_detail, duration_ms. No status/notes columns —
+    details are embedded in error_detail when errors > 0.
+    """
     try:
         from app.models.worker_log import WorkerLog
-        row = WorkerLog(
-            worker_name="nudge_optimization_worker",
-            started_at=datetime.now(timezone.utc),
-            shops_processed=result.get("shops_processed", 0),
-            records_processed=result.get("nudges_evaluated", 0),
-            duration_ms=duration_ms,
-            status="ok" if result.get("errors", 0) == 0 else "partial",
-            notes=(
+        now = datetime.now(timezone.utc)
+        err_count = int(result.get("errors", 0))
+        detail = None
+        if err_count > 0 or result.get("winners_promoted") or result.get("challengers_generated"):
+            detail = (
+                f"evaluated={result.get('nudges_evaluated', 0)} "
                 f"promoted={result.get('winners_promoted', 0)} "
                 f"challengers={result.get('challengers_generated', 0)} "
-                f"errors={result.get('errors', 0)}"
-            ),
+                f"errors={err_count}"
+            )
+        row = WorkerLog(
+            worker_name="nudge_optimization_worker",
+            started_at=now,
+            finished_at=now,
+            shops_processed=int(result.get("shops_processed", 0)),
+            rows_written=int(result.get("nudges_evaluated", 0)),
+            errors=err_count,
+            error_detail=detail,
+            duration_ms=duration_ms,
         )
         db.add(row)
+        # Update worker_state so /system/health reports this worker as running.
+        from app.models.worker_state import WorkerState
+        now_naive = now.replace(tzinfo=None)
+        state = (
+            db.query(WorkerState)
+            .filter(WorkerState.worker_name == "nudge_optimization_worker")
+            .first()
+        )
+        if state is None:
+            state = WorkerState(worker_name="nudge_optimization_worker", last_run_at=now_naive)
+            db.add(state)
+        else:
+            state.last_run_at = now_naive
         db.commit()
     except Exception as exc:
         log.warning("nudge_optimization_worker: failed to write worker_log: %s", exc)
@@ -91,6 +116,18 @@ def _record_cycle(db, result: dict, duration_ms: int) -> None:
 
 def _run_cycle() -> None:
     """Run one optimization cycle synchronously (wraps async)."""
+    # SELF-PROTECTION: the optimizer generates LLM challenger variants when
+    # winners are promoted. Under CRITICAL LLM pressure, skip the cycle
+    # entirely — existing A/B tests keep running; challenger generation
+    # resumes at the next cycle once pressure abates.
+    from app.core.protection_state import protection_state
+    ps = protection_state()
+    if ps["level"] == "CRITICAL" or "skip_all_optional_llm_calls" in ps["protective_actions"]:
+        log.info(
+            "protection_state: %s — skipping nudge_optimization_worker cycle (optional LLM path)",
+            ps["level"],
+        )
+        return
     db = SessionLocal()
     t0 = time.monotonic()
     try:

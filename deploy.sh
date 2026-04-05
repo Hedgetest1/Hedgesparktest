@@ -153,7 +153,7 @@ do_rollback() {
 
     git checkout "$PREVIOUS" -- .
     cd "$DASHBOARD" && npx next build
-    pm2 restart ecosystem.config.js
+    pm2 restart /opt/wishspark/ecosystem.config.js
 
     echo "Waiting 10s for processes to stabilize..."
     sleep 10
@@ -183,6 +183,19 @@ esac
 
 echo "═══ HEDGESPARK DEPLOY ═══"
 echo "Commit: $(cd $REPO && git log --oneline -1)"
+echo ""
+
+# --- DEPLOY GATE: Preflight safety check ---
+# Blocks deploy if system already degraded, enforces 60s deploy cooldown,
+# saves last-good commit for rollback. Fails fast before tests run.
+echo "═══ DEPLOY GATE: Preflight ═══"
+if $VENV "$BACKEND/scripts/deploy_gate.py" preflight; then
+    pass "deploy_gate preflight: ok"
+else
+    fail "deploy_gate preflight: BLOCKED"
+    echo -e "${RED}DEPLOY ABORTED — preflight refused (see log above).${NC}"
+    exit 1
+fi
 echo ""
 
 # --- PRE-DEPLOY: Tests ---
@@ -216,10 +229,29 @@ echo ""
 echo "═══ DEPLOY: Restarting PM2 ═══"
 echo "Pre-deploy commit: $PRE_COMMIT"
 
-pm2 restart ecosystem.config.js 2>&1 | tail -1
+pm2 restart /opt/wishspark/ecosystem.config.js 2>&1 | tail -1
 
 echo "Waiting 12s for all processes to start..."
 sleep 12
+
+# --- DEPLOY GATE: Postdeploy verification ---
+# Polls /system/health for up to 60s + compares PM2 restart deltas
+# against the preflight snapshot. Detect-only by default — operator
+# can add --auto-rollback flag to enable automatic git reset on failure.
+echo "═══ DEPLOY GATE: Postdeploy ═══"
+DEPLOY_GATE_FLAGS=""
+if [ "${DEPLOY_AUTO_ROLLBACK:-0}" = "1" ]; then
+    DEPLOY_GATE_FLAGS="--auto-rollback"
+    echo "(auto-rollback enabled via DEPLOY_AUTO_ROLLBACK=1)"
+fi
+if $VENV "$BACKEND/scripts/deploy_gate.py" postdeploy $DEPLOY_GATE_FLAGS; then
+    pass "deploy_gate postdeploy: verified"
+else
+    fail "deploy_gate postdeploy: FAILED"
+    echo -e "${RED}POST-DEPLOY VERIFICATION FAILED — check logs + consider rollback.${NC}"
+    # Continue to run_smoke_checks so operator gets full diagnostic
+fi
+echo ""
 
 # --- POST-DEPLOY: Smoke checks ---
 if run_smoke_checks; then
@@ -237,6 +269,6 @@ else
     echo "Options:"
     echo "  1. Fix the issue and re-deploy"
     echo "  2. Rollback: ./deploy.sh --rollback"
-    echo "  3. Manual: git checkout HEAD~1 -- . && npx next build && pm2 restart ecosystem.config.js"
+    echo "  3. Manual: git checkout HEAD~1 -- . && npx next build && pm2 restart /opt/wishspark/ecosystem.config.js"
     exit 2
 fi

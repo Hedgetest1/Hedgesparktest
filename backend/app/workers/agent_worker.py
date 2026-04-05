@@ -7,6 +7,9 @@ from pathlib import Path
 
 sys.path.append("/opt/wishspark/backend")
 
+from app.core.env_bootstrap import load_env
+load_env()
+
 from app.core.logging_config import configure_logging, set_worker_context
 configure_logging()
 set_worker_context(worker_name="agent_worker")
@@ -313,6 +316,48 @@ def _run_bugfix_outcome_eval():
         db.commit()
         if resolved["resolved"] > 0:
             log(f"thrash_resolve: resolved={resolved['resolved']} checked={resolved['checked']}")
+
+        # Closed-loop learning: propagate bugfix outcomes to linked
+        # EvolutionProposal rows so Monthly Opus can see what worked.
+        from app.services.evolution_proposal_outcomes import propagate_proposal_outcomes
+        prop_summary = propagate_proposal_outcomes(db)
+        db.commit()
+        if prop_summary["updated"] > 0:
+            log(f"proposal_outcomes: updated={prop_summary['updated']} pending={prop_summary['still_pending']}")
+
+        # REVENUE feedback loop: measure business impact of applied proposals
+        # using trend-adjusted pre/post delta on shop_orders + events.
+        from app.services.evolution_business_outcomes import propagate_business_outcomes
+        biz_summary = propagate_business_outcomes(db)
+        db.commit()
+        if biz_summary["measured"] > 0:
+            log(
+                f"business_outcomes: measured={biz_summary['measured']} "
+                f"not_applicable={biz_summary['not_applicable']} pending={biz_summary['pending']}"
+            )
+
+        # DECISION ENGINE: turn measured outcomes into actions. High-confidence
+        # NEITHER outcomes create auto_rollback BugFixCandidates that flow
+        # through standard tier_check + approval gates — we NEVER auto-execute
+        # git revert directly. Bounded by daily + per-cycle caps.
+        from app.services.evolution_decision_engine import run_decision_cycle
+        dec_summary = run_decision_cycle(db)
+        db.commit()
+        if dec_summary["scanned"] > 0 and (
+            dec_summary.get("rollback_proposed", 0) > 0
+            or dec_summary.get("rollback_blocked", 0) > 0
+            or dec_summary.get("reinforce", 0) > 0
+        ):
+            log(f"decision_engine: {dec_summary}")
+
+        # ROLLBACK WATCHDOG: if an auto_rollback candidate fails to apply,
+        # the regression keeps bleeding revenue silently. Detect failures
+        # and escalate via ops_alert (delivered to Telegram by alert_delivery).
+        from app.services.evolution_decision_engine import escalate_failed_rollbacks
+        esc_summary = escalate_failed_rollbacks(db)
+        db.commit()
+        if esc_summary["escalated"] > 0:
+            log(f"rollback_watchdog: escalated={esc_summary['escalated']} checked={esc_summary['checked']}")
     except Exception as exc:
         log(f"bugfix_outcomes error (non-fatal): {exc}")
         db.rollback()
@@ -419,25 +464,48 @@ def _run_evolution_gc():
 def _run_monthly_evolution_audit():
     """Run monthly Opus evolution audit if cooldown expired. Send Telegram summary."""
     from app.services.monthly_evolution_audit import should_run_monthly_audit, run_monthly_opus_audit, mark_monthly_audit_run
-    if not should_run_monthly_audit():
+    # SELF-PROTECTION: monthly audit is the single most expensive optional
+    # LLM call in the system (~€0.08 Opus). If the system is under LLM
+    # pressure, postpone — cooldown is NOT marked so the audit runs on
+    # the next cycle once pressure abates.
+    from app.core.protection_state import should_skip_optional_llm, protection_state
+    if should_skip_optional_llm():
+        state = protection_state()
+        log(f"protection_state: {state['level']} — skipping monthly_evolution_audit (optional Opus call)")
         return
-
-    # ALWAYS mark cooldown regardless of outcome — prevents infinite retry
-    # when LLM keys aren't configured (the "skipped every 15 min" bug).
-    mark_monthly_audit_run()
-
     db = SessionLocal()
     try:
+        # DB-aware cooldown check: the DB is the durable source of truth
+        # (survives Redis loss, process restart). If proposals already exist
+        # for this cycle, no further Opus call — ever — for this cycle.
+        if not should_run_monthly_audit(db):
+            return
+
+        # ALWAYS mark cooldown regardless of outcome — prevents infinite retry
+        # when LLM keys aren't configured (the "skipped every 15 min" bug).
+        # Start with the full 30-day cooldown; if we detect a transient
+        # failure below, shorten it to 24h so we retry tomorrow.
+        mark_monthly_audit_run()
+
         result = run_monthly_opus_audit(db)
         db.commit()
 
         status = result.get("status", "skipped")
+        reason = result.get("reason", "unknown")
         actually_ran = status == "completed" and result.get("proposals_created", 0) > 0
 
-        if actually_ran:
+        # Transient-failure detection: if the audit was skipped purely because
+        # the LLM was unavailable (no API key, budget block, 429 backoff), do
+        # NOT burn the whole month. Shorten the cooldown to 24h so the next
+        # worker cycle tomorrow retries.
+        _TRANSIENT_REASONS = {"llm_unavailable"}
+        if status == "skipped" and reason in _TRANSIENT_REASONS:
+            mark_monthly_audit_run(ttl_seconds=86400)
+            log(f"monthly_opus_audit: transient skip ({reason}) — retry in 24h")
+        elif actually_ran:
             log(f"monthly_opus_audit: created={result['proposals_created']} cycle={result.get('cycle')}")
         elif status == "skipped":
-            log(f"monthly_opus_audit: skipped — {result.get('reason', 'unknown')}")
+            log(f"monthly_opus_audit: skipped — {reason}")
 
         # Send Telegram ONLY when audit actually produced proposals.
         # "Skipped" is a non-event — log it, don't spam Telegram.
@@ -1022,6 +1090,38 @@ def _run_cto_health_check():
         log(f"[CTO] error (non-fatal): {exc}")
 
 
+def _run_approval_expiry_sweep():
+    """
+    Expire stale pending action_approvals.
+
+    Approvals are created with expires_at; they're flipped to 'expired' lazily
+    on read by /approvals. Zombies accumulate if /approvals is never called.
+    This sweep guarantees bounded lifetime regardless of operator attention.
+
+    Runs every cycle (15 min) — cheap single-statement UPDATE.
+    """
+    db = SessionLocal()
+    try:
+        from sqlalchemy import text as sql_text
+        result = db.execute(sql_text(
+            "UPDATE action_approvals SET status = 'expired' "
+            "WHERE status = 'pending' AND expires_at < now() "
+            "RETURNING id"
+        ))
+        expired = len(result.fetchall())
+        db.commit()
+        if expired > 0:
+            log(f"approval_expiry_sweep: expired={expired}")
+    except Exception as exc:
+        log(f"approval_expiry_sweep error (non-fatal): {exc}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
 def _run_approved_reminders():
     """
     Send Telegram reminders for candidates that are approved but not yet applied.
@@ -1128,6 +1228,9 @@ def run_cycle():
 
     # Phase 0b: Remind operator about approved-but-not-applied candidates
     _run_approved_reminders()
+
+    # Phase 0c: Expire stale pending action_approvals (bounded lifetime)
+    _run_approval_expiry_sweep()
 
     # Phase 1: Orchestrator — reads alerts/state, executes safe actions
     _run_orchestrator()
