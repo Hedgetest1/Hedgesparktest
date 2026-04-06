@@ -257,6 +257,16 @@ def compute_fix_confidence(
     except Exception:
         novelty_penalty = 10  # conservative on error
 
+    # Test-only bonus: patches that only touch tests/ are inherently lower risk
+    test_only_bonus = 0
+    try:
+        files = json.loads(candidate.patch_files) if candidate.patch_files else []
+        if files and all(str(f).startswith("tests/") for f in files):
+            test_only_bonus = 20
+            novelty_penalty = 0  # exempt test creation from novelty penalty
+    except (json.JSONDecodeError, ValueError):
+        pass
+
     # Adaptive calibration offset (includes domain + remediation class)
     cal_offset = 0
     remediation_class = getattr(candidate, "remediation_class", None)
@@ -264,7 +274,7 @@ def compute_fix_confidence(
         cal_offset = calibration.get_confidence_offset(candidate.affected_domain, remediation_class)
 
     raw = (_BASE_CONFIDENCE + lesson_bonus + evidence_pts + recurrence_pts
-           - crit_penalty - novelty_penalty + cal_offset)
+           + test_only_bonus - crit_penalty - novelty_penalty + cal_offset)
     score = max(5, min(95, raw))
 
     detail = {

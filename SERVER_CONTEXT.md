@@ -1,5 +1,5 @@
 # WishSpark Server Context
-Auto-generated: 2026-04-03T19:00:01.388284 UTC
+Auto-generated: 2026-04-06T22:00:01.706858 UTC
 
 ## Base Path
 /opt/wishspark
@@ -93,10 +93,17 @@ Process Manager: PM2
 /backend/app/services/digest_formatter.py
 /backend/app/services/email_templates.py
 /backend/app/services/empirical_calibration.py
+/backend/app/services/evolution_bet_governance.py
+/backend/app/services/evolution_business_outcomes.py
+/backend/app/services/evolution_causal_attribution.py
 /backend/app/services/evolution_converter.py
+/backend/app/services/evolution_decision_engine.py
 /backend/app/services/evolution_engine.py
 /backend/app/services/evolution_gc.py
 /backend/app/services/evolution_outcomes.py
+/backend/app/services/evolution_proposal_outcomes.py
+/backend/app/services/evolution_reinforcement.py
+/backend/app/services/evolution_strategy.py
 /backend/app/services/execution_engine.py
 /backend/app/services/external_lookup_service.py
 /backend/app/services/gdpr_processor.py

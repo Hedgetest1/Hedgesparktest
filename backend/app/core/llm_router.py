@@ -122,7 +122,7 @@ def select_model(
     # Default: use configured base model
     sel.model = base_model
     sel.reason = "configured_default"
-    sel.max_tokens = 2048 if module == "bugfix_proposal" else 512
+    sel.max_tokens = 4096 if module == "bugfix_proposal" else 512
     return sel
 
 
