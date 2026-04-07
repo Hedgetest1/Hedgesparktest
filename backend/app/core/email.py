@@ -32,6 +32,7 @@ def send_email(
     subject: str,
     html: str,
     text: str | None = None,
+    from_address: str | None = None,
 ) -> bool:
     """
     Send an email via Resend.
@@ -53,7 +54,7 @@ def send_email(
         resend.api_key = api_key
 
         params: dict = {
-            "from": _get_from_address(),
+            "from": from_address or _get_from_address(),
             "to": [to],
             "subject": subject,
             "html": html,

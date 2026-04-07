@@ -156,6 +156,7 @@ def _calibrate_severity_offsets(db: Session) -> dict[str, CalibrationOffset]:
     cutoff = _now() - timedelta(days=90)
 
     try:
+        # ISOLATION GATE: Only real_merchant outcomes drive calibration offsets.
         rows = db.execute(text("""
             SELECT
                 si.severity,
@@ -167,6 +168,7 @@ def _calibrate_severity_offsets(db: Session) -> dict[str, CalibrationOffset]:
               AND bc.outcome_measured_at >= :cutoff
               AND si.severity IS NOT NULL
               AND si.family_head_id IS NULL
+              AND bc.evidence_source = 'real_merchant'
             GROUP BY si.severity, bc.outcome_status
         """), {"cutoff": cutoff}).fetchall()
 
@@ -217,6 +219,7 @@ def _calibrate_subsystem_offsets(db: Session) -> dict[str, CalibrationOffset]:
     cutoff = _now() - timedelta(days=90)
 
     try:
+        # ISOLATION GATE: Only real_merchant outcomes drive calibration offsets.
         rows = db.execute(text("""
             SELECT
                 si.subsystem_class,
@@ -228,6 +231,7 @@ def _calibrate_subsystem_offsets(db: Session) -> dict[str, CalibrationOffset]:
               AND bc.outcome_measured_at >= :cutoff
               AND si.subsystem_class IS NOT NULL
               AND si.family_head_id IS NULL
+              AND bc.evidence_source = 'real_merchant'
             GROUP BY si.subsystem_class, bc.outcome_status
         """), {"cutoff": cutoff}).fetchall()
 
@@ -282,12 +286,14 @@ def _calibrate_global_confidence(db: Session) -> CalibrationOffset | None:
     cutoff = _now() - timedelta(days=90)
 
     try:
+        # ISOLATION GATE: Only real_merchant outcomes drive calibration offsets.
         rows = db.execute(text("""
             SELECT fix_confidence, outcome_status
             FROM bugfix_candidates
             WHERE fix_confidence IS NOT NULL
               AND outcome_status IN ('effective', 'ineffective')
               AND outcome_measured_at >= :cutoff
+              AND evidence_source = 'real_merchant'
         """), {"cutoff": cutoff}).fetchall()
 
         if len(rows) < _MIN_EVIDENCE:
@@ -334,6 +340,7 @@ def _calibrate_domain_confidence(db: Session) -> dict[str, CalibrationOffset]:
     cutoff = _now() - timedelta(days=90)
 
     try:
+        # ISOLATION GATE: Only real_merchant outcomes drive calibration offsets.
         rows = db.execute(text("""
             SELECT affected_domain, fix_confidence, outcome_status
             FROM bugfix_candidates
@@ -341,6 +348,7 @@ def _calibrate_domain_confidence(db: Session) -> dict[str, CalibrationOffset]:
               AND outcome_status IN ('effective', 'ineffective')
               AND outcome_measured_at >= :cutoff
               AND affected_domain IS NOT NULL
+              AND evidence_source = 'real_merchant'
         """), {"cutoff": cutoff}).fetchall()
 
         domain_data: dict[str, list] = {}
@@ -710,6 +718,7 @@ def _calibrate_remediation_confidence(db: Session) -> dict[str, CalibrationOffse
     cutoff = _now() - timedelta(days=90)
 
     try:
+        # ISOLATION GATE: Only real_merchant outcomes drive calibration offsets.
         rows = db.execute(text("""
             SELECT remediation_class, fix_confidence, outcome_status
             FROM bugfix_candidates
@@ -718,6 +727,7 @@ def _calibrate_remediation_confidence(db: Session) -> dict[str, CalibrationOffse
               AND fix_confidence IS NOT NULL
               AND outcome_status IN ('effective', 'ineffective')
               AND outcome_measured_at >= :cutoff
+              AND evidence_source = 'real_merchant'
         """), {"cutoff": cutoff}).fetchall()
 
         class_data: dict[str, list] = {}

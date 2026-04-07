@@ -53,8 +53,8 @@ def test_auto_propose_attempts_open_candidates(db):
 
     mock_response = json.dumps({
         "patch_summary": "Fix it",
-        "files": ["app/services/test.py"],
-        "diff": "---\n+++\n",
+        "files": ["tests/test_mock_propose.py"],
+        "diff": "--- /dev/null\n+++ b/tests/test_mock_propose.py\n@@ -0,0 +1 @@\n+# test\n",
         "test_command": "pytest",
     })
 
@@ -107,7 +107,7 @@ def test_auto_propose_does_not_crash_worker(db):
 def test_auto_propose_sets_provider(db):
     """Successful proposal records the LLM provider."""
     c = _make_open(db)
-    mock_response = json.dumps({"patch_summary": "fix", "files": [], "diff": "d", "test_command": ""})
+    mock_response = json.dumps({"patch_summary": "fix", "files": ["tests/test_mock_prov.py"], "diff": "--- /dev/null\n+++ b/tests/test_mock_prov.py\n@@ -0,0 +1 @@\n+# test\n", "test_command": ""})
 
     with patch("app.services.bugfix_pipeline._call_llm", return_value=mock_response):
         run_auto_propose(db)

@@ -53,13 +53,17 @@ def evaluate_bugfix_outcomes(db: Session) -> dict:
 
     for c in candidates:
         try:
+            # Label evidence source on candidate before generating lessons
+            from app.services.learning_isolation import label_candidate
+            label_candidate(db, c)
+
             outcome, evidence = _measure_single(db, c)
             c.outcome_status = outcome
             c.outcome_measured_at = _now()
             c.outcome_evidence = json.dumps(evidence, default=str)
             summary["evaluated"] += 1
             summary[outcome] = summary.get(outcome, 0) + 1
-            log.info("evolution_outcome: candidate=%d outcome=%s", c.id, outcome)
+            log.info("evolution_outcome: candidate=%d outcome=%s evidence_source=%s", c.id, outcome, c.evidence_source)
 
             # Generate persistent lesson from outcome
             _generate_lesson(db, c, outcome, evidence)
@@ -300,6 +304,8 @@ def _generate_lesson(db: Session, candidate: BugFixCandidate, outcome: str, evid
             existing.confidence = min(1.0, existing.confidence + 0.1)
             return
 
+        # Propagate evidence source from candidate to lesson
+        from app.services.learning_isolation import label_lesson
         lesson = SystemLesson(
             domain=domain,
             lesson_type=lesson_type,
@@ -315,8 +321,9 @@ def _generate_lesson(db: Session, candidate: BugFixCandidate, outcome: str, evid
             source_type=candidate.source_type,
             dedup_key=dedup_key,
         )
+        label_lesson(db, lesson, candidate)
         db.add(lesson)
-        log.info("lesson: generated %s lesson for domain=%s candidate=%d", lesson_type, domain, candidate.id)
+        log.info("lesson: generated %s lesson for domain=%s candidate=%d evidence_source=%s", lesson_type, domain, candidate.id, lesson.evidence_source)
     except Exception as exc:
         log.debug("lesson: generation failed (non-fatal): %s", exc)
 
@@ -471,15 +478,22 @@ def detect_self_caused_regressions(db: Session) -> dict:
     return summary
 
 
-def get_effectiveness_stats(db: Session, days: int = 90) -> dict:
+def get_effectiveness_stats(db: Session, days: int = 90, *, product_only: bool = False) -> dict:
     """
     Aggregate bugfix outcome stats for evolution engine and Opus context.
     Returns stats grouped by source_type.
+
+    If product_only=True, only includes real_merchant evidence. Used by
+    monthly Opus audit to prevent pre-merchant data from influencing
+    strategic reasoning.
     """
     cutoff = _now() - timedelta(days=days)
 
     try:
-        rows = db.execute(text("""
+        source_filter = ""
+        if product_only:
+            source_filter = "AND evidence_source = 'real_merchant'"
+        rows = db.execute(text(f"""
             SELECT
                 source_type,
                 outcome_status,
@@ -488,6 +502,7 @@ def get_effectiveness_stats(db: Session, days: int = 90) -> dict:
             WHERE status = 'applied'
               AND outcome_status IS NOT NULL
               AND outcome_measured_at >= :cutoff
+              {source_filter}
             GROUP BY source_type, outcome_status
             ORDER BY source_type, outcome_status
         """), {"cutoff": cutoff}).fetchall()

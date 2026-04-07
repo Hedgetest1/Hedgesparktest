@@ -361,20 +361,41 @@ def _build_system_metrics(db: Session) -> str:
 
 
 def _build_bugfix_effectiveness(db: Session) -> str:
-    """Closed-loop: bugfix outcome stats — what worked and what didn't."""
+    """
+    Closed-loop: bugfix outcome stats — what worked and what didn't.
+
+    ISOLATION: Only real_merchant outcomes are shown to Opus for strategic
+    reasoning. Pre-merchant/test/sandbox stats are excluded to prevent
+    synthetic evidence from influencing product direction. A separate
+    technical-only stats line is shown for transparency.
+    """
     try:
         from app.services.evolution_outcomes import get_effectiveness_stats
-        stats = get_effectiveness_stats(db)
-        if stats["total_measured"] == 0:
+        # Product-grade stats (real merchant only) — drives strategic reasoning
+        stats = get_effectiveness_stats(db, product_only=True)
+        # All-source stats (technical reference only)
+        all_stats = get_effectiveness_stats(db, product_only=False)
+
+        if stats["total_measured"] == 0 and all_stats["total_measured"] == 0:
             return "Bugfix effectiveness (90d): No outcomes measured yet."
 
-        lines = [f"Bugfix effectiveness (90d): {stats['total_measured']} measured"]
-        for src, data in stats["by_source"].items():
-            eff = round(data["effective"] / data["total"] * 100) if data["total"] > 0 else 0
-            lines.append(
-                f"  {src}: {data['total']} total, {data['effective']} effective ({eff}%), "
-                f"{data['ineffective']} ineffective, {data['inconclusive']} inconclusive"
-            )
+        lines = []
+        if stats["total_measured"] > 0:
+            lines.append(f"Bugfix effectiveness (90d, REAL MERCHANT ONLY — use for strategic decisions): {stats['total_measured']} measured")
+            for src, data in stats["by_source"].items():
+                eff = round(data["effective"] / data["total"] * 100) if data["total"] > 0 else 0
+                lines.append(
+                    f"  {src}: {data['total']} total, {data['effective']} effective ({eff}%), "
+                    f"{data['ineffective']} ineffective, {data['inconclusive']} inconclusive"
+                )
+        else:
+            lines.append("Bugfix effectiveness (90d, REAL MERCHANT): No real merchant outcomes yet. DO NOT use pre-merchant data for strategic reasoning.")
+
+        # Technical reference (all sources) — informational only
+        if all_stats["total_measured"] > stats["total_measured"]:
+            pre_merchant_count = all_stats["total_measured"] - stats["total_measured"]
+            lines.append(f"  [TECHNICAL REFERENCE — {pre_merchant_count} pre-merchant outcomes exist but are excluded from strategic reasoning]")
+
         return "\n".join(lines)
     except Exception as exc:
         return f"Bugfix effectiveness unavailable: {exc}"

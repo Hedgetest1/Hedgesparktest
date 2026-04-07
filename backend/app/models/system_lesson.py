@@ -64,6 +64,13 @@ class SystemLesson(Base):
     # Dedup key — prevents duplicate lessons for same finding
     dedup_key = Column(String(256), nullable=True)
 
+    # Learning isolation: classifies the evidence source that produced this lesson.
+    # pre_merchant | internal_test | sandbox | real_merchant
+    # Only real_merchant lessons may influence product reasoning (confidence boosts,
+    # reinforcement weights, strategic memory). Pre-merchant/test/sandbox lessons
+    # remain available for technical hardening (patch formatting, failure taxonomy).
+    evidence_source = Column(String(32), nullable=True, default="pre_merchant")
+
     # Promotion validation — prevents auto-promoted lessons from becoming unchecked dogma
     # NULL = not promoted, pending_promotion = awaiting human review,
     # promoted = confirmed, rejected_promotion = human rejected

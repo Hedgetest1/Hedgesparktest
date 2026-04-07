@@ -105,10 +105,10 @@ def test_propose_patch_stores_result(db):
     db.flush()
 
     mock_response = json.dumps({
-        "patch_summary": "Fix the broken thing",
-        "files": ["app/services/broken.py"],
-        "diff": "--- a/broken.py\n+++ b/broken.py\n@@ -1 +1 @@\n-bad\n+good",
-        "test_command": "python -m pytest tests/test_broken.py -v",
+        "patch_summary": "Add test for alerting module",
+        "files": ["tests/test_mock_stores.py"],
+        "diff": "--- /dev/null\n+++ b/tests/test_mock_stores.py\n@@ -0,0 +1 @@\n+# test placeholder\n",
+        "test_command": "python -m pytest tests/test_mock_stores.py -v",
     })
 
     with patch("app.services.bugfix_pipeline._call_llm", return_value=mock_response):
@@ -117,8 +117,8 @@ def test_propose_patch_stores_result(db):
     assert result is True
     db.refresh(c)
     assert c.status == "patch_proposed"
-    assert c.patch_summary == "Fix the broken thing"
-    assert "broken.py" in c.patch_diff
+    assert c.patch_summary == "Add test for alerting module"
+    assert "test_mock_stores" in c.patch_diff
     assert c.test_command is not None
 
 
@@ -133,8 +133,8 @@ def test_propose_patch_does_not_apply(db):
 
     mock_response = json.dumps({
         "patch_summary": "Fix",
-        "files": ["app/test.py"],
-        "diff": "diff content",
+        "files": ["tests/test_mock_noapply.py"],
+        "diff": "--- /dev/null\n+++ b/tests/test_mock_noapply.py\n@@ -0,0 +1 @@\n+# test\n",
         "test_command": "pytest",
     })
 
@@ -251,8 +251,8 @@ def test_slack_failure_does_not_break_proposal(db):
 
     mock_response = json.dumps({
         "patch_summary": "Fix",
-        "files": [],
-        "diff": "d",
+        "files": ["tests/test_mock_slack.py"],
+        "diff": "--- /dev/null\n+++ b/tests/test_mock_slack.py\n@@ -0,0 +1 @@\n+# test\n",
         "test_command": "",
     })
 

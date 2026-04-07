@@ -193,10 +193,13 @@ def send_lifecycle_email(
         _log_email(db, shop_domain, email_type, to_email, None, "failed", f"template_error:{exc}")
         return {"status": "failed", "reason": f"template_error"}
 
-    # 4. Send via Resend
+    # 4. Send via Resend (lifecycle emails from dev@, not digest@)
     try:
         from app.core.email import send_email
-        sent = send_email(to=to_email, subject=subject, html=html, text=plain_text)
+        sent = send_email(
+            to=to_email, subject=subject, html=html, text=plain_text,
+            from_address="Hedge Spark <dev@hedgesparkhq.com>",
+        )
     except Exception as exc:
         log.error("merchant_email: send error type=%s shop=%s: %s", email_type, shop_domain, exc)
         _log_email(db, shop_domain, email_type, to_email, subject, "failed", f"send_error:{exc}")

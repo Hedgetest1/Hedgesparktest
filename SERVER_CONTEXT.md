@@ -1,5 +1,5 @@
 # WishSpark Server Context
-Auto-generated: 2026-04-06T22:00:01.706858 UTC
+Auto-generated: 2026-04-07T12:00:01.972680 UTC
 
 ## Base Path
 /opt/wishspark
@@ -110,6 +110,7 @@ Process Manager: PM2
 /backend/app/services/intent_engine.py
 /backend/app/services/klaviyo_connection.py
 /backend/app/services/klaviyo_export.py
+/backend/app/services/learning_isolation.py
 /backend/app/services/lesson_gc.py
 /backend/app/services/loop_health.py
 /backend/app/services/ltv_engine.py
@@ -156,6 +157,8 @@ Process Manager: PM2
 /backend/app/services/shopify_admin.py
 /backend/app/services/shopify_auth.py
 /backend/app/services/signal_text.py
+/backend/app/services/simulation_engine.py
+/backend/app/services/simulation_probe.py
 /backend/app/services/store_context.py
 /backend/app/services/store_insight_engine.py
 /backend/app/services/system_diagnostic.py
@@ -313,6 +316,7 @@ Process Manager: PM2
 /backend/app/api/ops.py :: @router.get("/incidents/triage/queue")
 /backend/app/api/ops.py :: @router.get("/incidents/parse-errors")
 /backend/app/api/ops.py :: @router.get("/incidents/consumer/stats")
+/backend/app/api/ops.py :: @router.get("/simulation/status")
 /backend/app/api/live_opportunities.py :: @router.get("/live-opportunities")
 /backend/app/api/telegram_webhook.py :: @router.post("/webhook")
 /backend/app/api/actions.py :: @router.get("/candidates/pro")

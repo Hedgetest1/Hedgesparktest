@@ -189,6 +189,7 @@ def _record_patch_fingerprint(
         )
         diff_fp = _compute_diff_fingerprint(candidate.patch_diff)
         domain = _classify_candidate_domain(candidate)
+        from app.services.learning_isolation import label_fingerprint
         fp = PatchFingerprint(
             fingerprint=fp_hash,
             diff_fingerprint=diff_fp,
@@ -200,6 +201,7 @@ def _record_patch_fingerprint(
             affected_domain=domain,
             patch_files=candidate.patch_files,
         )
+        label_fingerprint(db, fp, candidate)
         db.add(fp)
         db.flush()
     except Exception as exc:
@@ -210,9 +212,16 @@ def _lookup_lessons_for_proposal(db: Session, domain: str) -> tuple[str | None, 
     """
     Look up active lessons for a domain to inject into LLM context.
     Returns (formatted text block, list of lesson IDs used) or (None, []).
+
+    ISOLATION: All evidence sources contribute to TECHNICAL context (patch
+    formatting, failure patterns). But lessons are clearly labeled so the
+    LLM understands the evidence weight. Only real_merchant lessons are
+    marked as high-trust; pre-merchant lessons are labeled as low-trust
+    technical reference.
     """
     try:
         from app.models.system_lesson import SystemLesson
+        from app.services.learning_isolation import is_product_learning_eligible
         lessons = (
             db.query(SystemLesson)
             .filter(
@@ -231,7 +240,12 @@ def _lookup_lessons_for_proposal(db: Session, domain: str) -> tuple[str | None, 
         lines = [f"## Institutional Memory — Lessons for domain '{domain}'"]
         for l in lessons:
             marker = "✓" if l.lesson_type == "effective_pattern" else "✗"
-            lines.append(f"- {marker} [{l.lesson_type}] {l.summary} (confidence: {l.confidence:.1f}, evidence: {l.evidence_count})")
+            source = getattr(l, "evidence_source", None) or "pre_merchant"
+            trust_tag = "HIGH-TRUST" if is_product_learning_eligible(source) else "TECHNICAL-ONLY"
+            lines.append(
+                f"- {marker} [{l.lesson_type}] [{trust_tag}] {l.summary} "
+                f"(confidence: {l.confidence:.1f}, evidence: {l.evidence_count})"
+            )
         return "\n".join(lines), lesson_ids
     except Exception:
         return None, []
@@ -649,6 +663,68 @@ def _get_domain_effectiveness_context(db: Session) -> str | None:
 # Diff normalization + structural + semantic validation
 # ---------------------------------------------------------------------------
 
+def _extract_json(raw: str) -> dict | None:
+    """
+    Extract a JSON object from LLM output. Handles:
+    - Markdown code fences wrapping the JSON
+    - Trailing text after the JSON
+    - Leading text before the JSON
+    - Truncated output (partial JSON)
+
+    Uses brace-matching to find the outermost { ... } object.
+    Returns the parsed dict, or None if extraction fails.
+    """
+    if not raw or not raw.strip():
+        return None
+
+    text = raw.strip()
+
+    # Strip markdown code fences
+    if text.startswith("```"):
+        lines = text.split("\n")
+        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+
+    # Fast path: try direct parse
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Brace-matching: find the outermost { ... } handling string escaping
+    start = text.find("{")
+    if start < 0:
+        return None
+
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        c = text[i]
+        if escape:
+            escape = False
+            continue
+        if c == '\\' and in_string:
+            escape = True
+            continue
+        if c == '"' and not escape:
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(text[start:i + 1])
+                except (json.JSONDecodeError, ValueError):
+                    return None
+
+    # Unbalanced braces — truncated output
+    return None
+
+
 def _normalize_diff(raw_diff: str) -> str:
     """Normalize LLM-generated diff text into a format git apply will accept."""
     if not raw_diff:
@@ -682,8 +758,7 @@ def _normalize_diff(raw_diff: str) -> str:
         diff = "\n".join(fixed_lines)
 
     # Fix hunk line counts
-    import re as _re_norm
-    _hunk_re = _re_norm.compile(r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$')
+    _hunk_re = re.compile(r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$')
     result_lines = diff.split("\n")
     for i, line in enumerate(result_lines):
         m = _hunk_re.match(line)
@@ -730,17 +805,15 @@ def _validate_diff_structure(diff: str) -> tuple[bool, str]:
         if line.startswith(("diff --git", "index ", "new file mode", "old mode", "new mode")):
             continue
         return False, f"text_contamination: line {i+1}: {line[:60]}"
-    import re
-    hunk_pat = re.compile(r'^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@')
+    _hunk_pat = re.compile(r'^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@')
     for line in lines:
-        if line.startswith("@@ ") and not hunk_pat.match(line):
+        if line.startswith("@@ ") and not _hunk_pat.match(line):
             return False, f"malformed_hunk: {line[:60]}"
     return True, "valid"
 
 
 def _validate_patch_semantics(patch_diff: str, patch_files_json: str | None) -> tuple[bool, str]:
     """Semantic validation: check imports resolve, files exist, symbols are real."""
-    import re
     if not patch_diff:
         return False, "empty_diff"
     try:
@@ -1028,22 +1101,27 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
         db.flush()
         return False
 
-    # Parse response
-    try:
-        text_clean = raw.strip()
-        if text_clean.startswith("```"):
-            lines = text_clean.split("\n")
-            text_clean = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-        data = json.loads(text_clean)
-    except (json.JSONDecodeError, ValueError) as exc:
-        candidate.failure_reason = f"json_parse_error: {exc}"
+    # Parse response — robust JSON extraction
+    data = _extract_json(raw)
+    if data is None:
+        candidate.failure_reason = f"json_parse_error: could not extract valid JSON ({len(raw)} chars)"
         db.flush()
         return False
 
     candidate.patch_summary = data.get("patch_summary", "")
     raw_diff = data.get("diff", "")
     candidate.patch_files = json.dumps(data.get("files", []))
-    candidate.test_command = data.get("test_command", "")
+    # Normalize test_command: always use venv python, never bare "python"
+    _raw_test_cmd = data.get("test_command", "")
+    _venv_py = f"{_BACKEND_DIR}/venv/bin/python"
+    if _raw_test_cmd.startswith("python3 "):
+        candidate.test_command = f"{_venv_py} {_raw_test_cmd[8:]}"
+    elif _raw_test_cmd.startswith("python "):
+        candidate.test_command = f"{_venv_py} {_raw_test_cmd[7:]}"
+    elif _raw_test_cmd.startswith("pytest "):
+        candidate.test_command = f"{_venv_py} -m pytest {_raw_test_cmd[7:]}"
+    else:
+        candidate.test_command = _raw_test_cmd
 
     # Reject empty/whitespace-only diffs
     if not raw_diff or not raw_diff.strip():
@@ -1207,13 +1285,21 @@ def _call_llm(
 
 
 def _call_provider(sel, user_message: str, anthropic_key: str, openai_key: str) -> str:
-    """Make the actual API call based on model selection. Handles 429 with backoff."""
+    """
+    Make the actual API call based on model selection. Handles 429 with backoff.
+
+    Returns raw response text, or empty string on failure.
+    Rejects truncated output (max_tokens reached) before returning —
+    truncated JSON is unparseable and should not propagate.
+    """
     import httpx
     from app.core.llm_budget import is_provider_backed_off, record_429
 
+    anthropic_failed = False
     if sel.provider == "anthropic" and anthropic_key:
         if is_provider_backed_off("anthropic"):
             log.info("bugfix_pipeline: Anthropic backed off (429 cooldown)")
+            anthropic_failed = True
         else:
             try:
                 resp = httpx.post(
@@ -1226,22 +1312,34 @@ def _call_provider(sel, user_message: str, anthropic_key: str, openai_key: str) 
                         "system": _PATCH_SYSTEM_PROMPT,
                         "messages": [{"role": "user", "content": user_message}],
                     },
-                    timeout=30.0,
+                    timeout=60.0,
                 )
                 if resp.status_code == 200:
-                    return resp.json().get("content", [{}])[0].get("text", "")
-                if resp.status_code == 429:
+                    body = resp.json()
+                    # Reject truncated output — truncated JSON is unparseable
+                    stop = body.get("stop_reason", "")
+                    if stop == "max_tokens":
+                        log.warning("bugfix_pipeline: Anthropic output TRUNCATED (max_tokens=%d)", sel.max_tokens)
+                        anthropic_failed = True
+                    else:
+                        return body.get("content", [{}])[0].get("text", "")
+                elif resp.status_code == 429:
                     record_429("anthropic")
+                    anthropic_failed = True
                 else:
                     log.warning("bugfix_pipeline: Anthropic %s returned %d", sel.model, resp.status_code)
+                    anthropic_failed = True
             except Exception as exc:
                 log.warning("bugfix_pipeline: Anthropic %s failed: %s", sel.model, type(exc).__name__)
+                anthropic_failed = True
 
     if openai_key:
         if is_provider_backed_off("openai"):
             log.info("bugfix_pipeline: OpenAI backed off (429 cooldown)")
             return ""
         model = sel.model if sel.provider == "openai" else "gpt-4o-mini"
+        if anthropic_failed:
+            log.info("bugfix_pipeline: anthropic unavailable → fallback=openai model=%s", model)
         try:
             resp = httpx.post(
                 "https://api.openai.com/v1/chat/completions",
@@ -1256,10 +1354,17 @@ def _call_provider(sel, user_message: str, anthropic_key: str, openai_key: str) 
                         {"role": "user", "content": user_message},
                     ],
                 },
-                timeout=30.0,
+                timeout=60.0,
             )
             if resp.status_code == 200:
-                return resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                body = resp.json()
+                choice = body.get("choices", [{}])[0]
+                # Reject truncated output
+                finish = choice.get("finish_reason", "")
+                if finish == "length":
+                    log.warning("bugfix_pipeline: OpenAI output TRUNCATED (max_tokens=%d)", sel.max_tokens)
+                    return ""
+                return choice.get("message", {}).get("content", "")
             if resp.status_code == 429:
                 record_429("openai")
             else:

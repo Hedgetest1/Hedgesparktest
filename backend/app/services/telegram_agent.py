@@ -1986,6 +1986,17 @@ def build_daily_digest(db) -> str:
         lines.append("")
         lines.append("*LLM Budget:* unavailable")
 
+    # 3b. Resend email usage
+    try:
+        from app.core.resend_usage import get_resend_usage
+        ru = get_resend_usage(db)
+        label = {"ok": "OK", "warning": "⚠️ HIGH", "critical": "🔴 CRITICAL"}[ru["status"]]
+        lines.append(f"*Resend:* {ru['sent']} / {ru['limit']} emails ({ru['pct']:.0f}%) — {label}")
+        if ru["status"] == "critical" and overall_status == "OK":
+            overall_status = "WARNING"
+    except Exception:
+        lines.append("*Resend:* unavailable")
+
     # 4. Bugfix pipeline
     try:
         from sqlalchemy import text as sql_text

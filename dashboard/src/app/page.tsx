@@ -576,7 +576,7 @@ function Footer() {
           <div className="flex items-center gap-8 text-[13px] text-slate-600">
             <a href="/app" className="transition-colors duration-200 hover:text-slate-300">Dashboard</a>
             <a href="/pricing" className="transition-colors duration-200 hover:text-slate-300">Pricing</a>
-            <a href="mailto:support@hedgesparkhq.com" className="transition-colors duration-200 hover:text-slate-300">Support</a>
+            <a href="mailto:dev@hedgesparkhq.com" className="transition-colors duration-200 hover:text-slate-300">Support</a>
           </div>
           <span className="text-[12px] text-slate-700">&copy; {new Date().getFullYear()} Hedge Spark</span>
         </div>

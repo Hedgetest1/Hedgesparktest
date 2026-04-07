@@ -35,6 +35,7 @@ def _make_proposal(
     affected_files=None,
     linked_nudge_ids=None,
     business_measured_at=None,
+    evidence_source="real_merchant",
 ) -> EvolutionProposal:
     p = EvolutionProposal(
         proposal_type="architecture",
@@ -54,6 +55,7 @@ def _make_proposal(
         confidence_score=confidence_score,
         affected_files=json.dumps(affected_files) if affected_files else None,
         linked_nudge_ids=json.dumps(linked_nudge_ids) if linked_nudge_ids else None,
+        evidence_source=evidence_source,
     )
     db.add(p)
     db.flush()

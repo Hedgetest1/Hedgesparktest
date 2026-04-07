@@ -132,3 +132,23 @@ class Merchant(Base):
     # NULL for merchants installed before this field was added.
     # ---------------------------------------------------------------------------
     gdpr_consent_at = Column(DateTime, nullable=True)
+
+    # ---------------------------------------------------------------------------
+    # Synthetic merchant flag — simulation isolation
+    #
+    # True = this merchant was created by the simulation engine for operational
+    # hardening. Synthetic merchants are permanently excluded from:
+    #   - real_merchant evidence classification
+    #   - production reinforcement weights
+    #   - strategic learning / monthly Opus context
+    #   - merchant-facing business claims
+    #
+    # Synthetic merchants ARE included in:
+    #   - technical diagnostics and pipeline exercise
+    #   - patch engine hardening
+    #   - failure taxonomy
+    #   - operator visibility dashboards
+    #
+    # Once set to True, this flag must NEVER be changed to False.
+    # ---------------------------------------------------------------------------
+    is_synthetic = Column(Boolean, nullable=False, default=False, server_default="false")

@@ -7,7 +7,7 @@ status: open | accepted | rejected | applied | expired
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, Index, Boolean
+from sqlalchemy import Column, DateTime, Float, Integer, String, Text, Index, Boolean
 
 from app.core.database import Base
 
@@ -56,6 +56,46 @@ class EvolutionProposal(Base):
     # GC lifecycle metadata
     gc_reason = Column(Text, nullable=True)                # human-readable explanation of GC transition
     gc_updated_at = Column(DateTime, nullable=True)        # when GC last changed this proposal's status
+
+    # Closed-loop outcome tracking (populated by evolution_proposal_outcomes)
+    linked_bugfix_candidate_id = Column(Integer, nullable=True)
+    applied_at = Column(DateTime, nullable=True)
+    applied_commit_sha = Column(String(64), nullable=True)
+    outcome_status = Column(String(32), nullable=True)     # effective | ineffective | inconclusive
+    outcome_measured_at = Column(DateTime, nullable=True)
+    outcome_evidence = Column(Text, nullable=True)
+
+    # Business outcome tracking (populated by evolution_business_outcomes)
+    business_outcome = Column(String(32), nullable=True)   # improved | declined | stable | inconclusive | not_applicable | pending
+    business_measured_at = Column(DateTime, nullable=True)
+    business_evidence = Column(Text, nullable=True)
+
+    # Decision engine fields
+    confidence_score = Column(Float, nullable=True)
+    decision_status = Column(String(32), nullable=True)
+    decision_decided_at = Column(DateTime, nullable=True)
+    rollback_candidate_id = Column(Integer, nullable=True)
+
+    # Strategic bet fields
+    affected_shop_domains = Column(Text, nullable=True)
+    affected_product_urls = Column(Text, nullable=True)
+    affected_files = Column(Text, nullable=True)
+    linked_nudge_ids = Column(Text, nullable=True)
+    extended_from_proposal_id = Column(Integer, nullable=True)
+    revenue_thesis = Column(Text, nullable=True)
+    rejected_alternatives = Column(Text, nullable=True)
+    infra_cost_estimate = Column(String(32), nullable=True)
+    exploration_bet = Column(Boolean, nullable=True)
+
+    # UX/governance fields
+    ux_sensitive = Column(Boolean, nullable=True)
+    impact_radius = Column(String(32), nullable=True)
+    strategy_alignment_score = Column(Float, nullable=True)
+    strategy_version = Column(Integer, nullable=True)
+
+    # Learning isolation: classifies the evidence environment.
+    # pre_merchant | internal_test | sandbox | real_merchant
+    evidence_source = Column(String(32), nullable=True, default="pre_merchant")
 
     __table_args__ = (
         Index("ix_evolution_proposals_status", "status", "created_at"),

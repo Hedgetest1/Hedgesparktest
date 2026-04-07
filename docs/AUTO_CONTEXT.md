@@ -1,5 +1,5 @@
 # WishSpark Auto Context
-Auto-generated: 2026-04-06T22:00:01.710423 UTC
+Auto-generated: 2026-04-07T12:00:01.974440 UTC
 
 ## Project Root
 /opt/wishspark
@@ -111,6 +111,7 @@ Auto-generated: 2026-04-06T22:00:01.710423 UTC
 /backend/app/services/intent_engine.py
 /backend/app/services/klaviyo_connection.py
 /backend/app/services/klaviyo_export.py
+/backend/app/services/learning_isolation.py
 /backend/app/services/lesson_gc.py
 /backend/app/services/loop_health.py
 /backend/app/services/ltv_engine.py
@@ -157,6 +158,8 @@ Auto-generated: 2026-04-06T22:00:01.710423 UTC
 /backend/app/services/shopify_admin.py
 /backend/app/services/shopify_auth.py
 /backend/app/services/signal_text.py
+/backend/app/services/simulation_engine.py
+/backend/app/services/simulation_probe.py
 /backend/app/services/store_context.py
 /backend/app/services/store_insight_engine.py
 /backend/app/services/system_diagnostic.py

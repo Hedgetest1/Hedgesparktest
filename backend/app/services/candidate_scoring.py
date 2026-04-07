@@ -181,13 +181,17 @@ def compute_fix_confidence(
             pass
 
     # --- Lesson bonus: effective lessons in this domain = more trust ---
+    # ISOLATION GATE: Only real_merchant lessons may boost fix confidence.
+    # Pre-merchant/test/sandbox lessons are valuable for technical hardening
+    # but must not inflate product confidence scores.
     lesson_bonus = 0
     effective_lesson_count = 0
     try:
         from app.models.system_lesson import SystemLesson
+        from app.services.learning_isolation import filter_product_lessons
         domain = candidate.affected_domain or "unknown"
         if domain != "unknown":
-            effective_lessons = (
+            q = (
                 db.query(SystemLesson)
                 .filter(
                     SystemLesson.domain == domain,
@@ -195,8 +199,9 @@ def compute_fix_confidence(
                     SystemLesson.status == "active",
                     SystemLesson.confidence >= 0.5,
                 )
-                .count()
             )
+            q = filter_product_lessons(q, SystemLesson)
+            effective_lessons = q.count()
             effective_lesson_count = effective_lessons
             # Each effective lesson adds trust, diminishing returns
             lesson_bonus = min(_MAX_LESSON_BONUS, effective_lessons * 8)
@@ -234,22 +239,25 @@ def compute_fix_confidence(
     crit_penalty = _CRITICALITY_PENALTIES.get(criticality, 5)
 
     # --- Novelty penalty: first time seeing this error type in this domain ---
+    # ISOLATION GATE: Only real_merchant outcomes reduce novelty penalty.
+    # Pre-merchant fix history should not make the system overconfident.
     novelty_penalty = 0
     try:
         from app.models.bugfix_candidate import BugFixCandidate
         domain = candidate.affected_domain or "unknown"
         if domain != "unknown":
-            past_fixes = (
+            q = (
                 db.query(BugFixCandidate)
                 .filter(
                     BugFixCandidate.affected_domain == domain,
                     BugFixCandidate.outcome_status.in_(["effective", "ineffective"]),
                     BugFixCandidate.id != candidate.id,
+                    BugFixCandidate.evidence_source == "real_merchant",
                 )
-                .count()
             )
+            past_fixes = q.count()
             if past_fixes == 0:
-                novelty_penalty = _MAX_NOVELTY_PENALTY  # no history = less trust
+                novelty_penalty = _MAX_NOVELTY_PENALTY  # no real merchant history = less trust
             elif past_fixes <= 2:
                 novelty_penalty = 8
             else:

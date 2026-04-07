@@ -70,7 +70,7 @@ def _check_merchant_rate_limit(shop_domain: str) -> tuple[bool, int]:
 _RATE_LIMIT_RESPONSE = (
     "You've sent a lot of messages recently. "
     "Please wait a few minutes before sending another. "
-    "If you have an urgent issue, email support@hedgesparkhq.com."
+    "If you have an urgent issue, email dev@hedgesparkhq.com."
 )
 
 

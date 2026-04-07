@@ -60,6 +60,10 @@ class PatchFingerprint(Base):
     # Starts at 1.0, drops by 0.3 on each failure. At 0.0, fingerprint is blacklisted.
     confidence = Column(Float, nullable=False, default=1.0)
 
+    # Learning isolation: classifies the evidence environment.
+    # pre_merchant | internal_test | sandbox | real_merchant
+    evidence_source = Column(String(32), nullable=True, default="pre_merchant")
+
     __table_args__ = (
         Index("ix_patch_fp_fingerprint", "fingerprint", "created_at"),
         Index("ix_patch_fp_candidate", "bugfix_candidate_id"),

@@ -168,6 +168,9 @@ def run_lesson_gc(db: Session) -> dict:
         promote_conf = _PROMOTE_CONFIDENCE
 
     # Stage 4a: New promotions → pending_promotion (not yet hard-blocking)
+    # ISOLATION GATE: Only real_merchant lessons may be promoted to
+    # regression_warning. Pre-merchant/test/sandbox lessons must never
+    # become permanent product dogma.
     promotable = (
         db.query(SystemLesson)
         .filter(
@@ -176,6 +179,7 @@ def run_lesson_gc(db: Session) -> dict:
             SystemLesson.evidence_count >= _PROMOTE_MIN_EVIDENCE,
             SystemLesson.lesson_type == "ineffective_pattern",
             SystemLesson.promotion_status.is_(None),  # not already promoted/pending
+            SystemLesson.evidence_source == "real_merchant",
         )
         .all()
     )

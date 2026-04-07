@@ -87,6 +87,10 @@ class BugFixCandidate(Base):
     # Lesson effectiveness tracking — JSON list of SystemLesson IDs injected into proposal context
     lesson_ids_used = Column(Text, nullable=True)
 
+    # Learning isolation: classifies the evidence environment.
+    # pre_merchant | internal_test | sandbox | real_merchant
+    evidence_source = Column(String(32), nullable=True, default="pre_merchant")
+
     __table_args__ = (
         Index("ix_bugfix_candidates_status", "status", "created_at"),
         Index("ix_bugfix_candidates_source", "source_type", "source_ref"),

@@ -16,7 +16,7 @@ No images, no tracking pixels, no marketing fluff.
 from __future__ import annotations
 
 _DASHBOARD_URL = "https://app.hedgesparkhq.com/"
-_SUPPORT_EMAIL = "support@hedgesparkhq.com"
+_SUPPORT_EMAIL = "dev@hedgesparkhq.com"
 
 
 # ---------------------------------------------------------------------------

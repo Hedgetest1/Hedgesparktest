@@ -79,11 +79,15 @@ def compute_reinforcement_weights(db: Session, days: int = _LOOKBACK_DAYS) -> di
       }
     """
     cutoff = _now() - timedelta(days=days)
+    # ISOLATION GATE: Only real_merchant outcomes may influence reinforcement
+    # weights. Pre-merchant/test/sandbox outcomes are excluded to prevent
+    # synthetic evidence from becoming product truth.
     rows = (
         db.query(EvolutionProposal)
         .filter(
             EvolutionProposal.business_measured_at >= cutoff,
             EvolutionProposal.business_outcome.isnot(None),
+            EvolutionProposal.evidence_source == "real_merchant",
         )
         .all()
     )

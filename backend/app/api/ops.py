@@ -2231,3 +2231,23 @@ def ops_consumer_stats(
         "by_source_type": source_counts,
         "parse_errors": parse_errors,
     }
+
+
+# ---------------------------------------------------------------------------
+# Simulation — synthetic merchant observability
+# ---------------------------------------------------------------------------
+
+@router.get("/simulation/status")
+def simulation_status(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """
+    Synthetic merchant simulation status.
+
+    Shows all synthetic merchants, their archetypes, and how much
+    synthetic data exists across each pipeline stage.
+    Clearly separated from real merchant data.
+    """
+    from app.services.simulation_engine import get_simulation_status
+    return get_simulation_status(db)
