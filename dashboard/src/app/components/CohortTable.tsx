@@ -1,37 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createMoneyFormatter, type DisplayCurrency } from "../lib/currency";
+import { apiClient, getHeaders, type paths } from "../lib/api-client";
 
 // CohortTable — Weekly cohort retention analysis.
 //
 // The feature that attacks Lifetimely/Peel on their core territory.
 // Shows weekly cohort retention rates from real Shopify order data.
 //
-// Sources from: GET /pro/cohorts?shop=&weeks=12
+// Source of truth: GET /pro/cohorts → WeeklyCohortsResponse (fully typed).
 //
-// WishSpark's future advantage: linking behavioral engagement in week 0
+// HedgeSpark's future advantage: linking behavioral engagement in week 0
 // to retention outcomes in week 8 — Lifetimely structurally cannot do this.
 // This component is the foundation for that future positioning.
 
-type CohortWeek = Record<string, number>;
-
-type Cohort = {
-  cohort_week?: string;
-  cohort_start?: string;
-  size?: number;
-  revenue_total?: number;
-  retention?: CohortWeek;
-};
-
-type CohortData = {
-  window_weeks?: number;
-  generated_at?: string;
-  cohorts?: Cohort[];
-  avg_week_1_retention?: number;
-  avg_week_4_retention?: number;
-  best_cohort?: string | null;
-  total_customers?: number;
-};
+type CohortData =
+  paths["/pro/cohorts"]["get"]["responses"]["200"]["content"]["application/json"];
 
 function pctColor(pct: number | undefined): string {
   if (pct == null) return "text-slate-700";
@@ -53,23 +38,18 @@ function formatPct(v: number | undefined): string {
   return `${(v * 100).toFixed(0)}%`;
 }
 
-function formatDollars(v: number | undefined): string {
-  if (!v) return "—";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency", currency: "USD",
-    minimumFractionDigits: 0, maximumFractionDigits: 0,
-  }).format(v);
-}
-
 export function CohortTable({
   apiBase,
   shop,
   apiHeaders,
+  displayCurrency = "USD",
 }: {
   apiBase: string;
   shop: string;
   apiHeaders: () => HeadersInit;
+  displayCurrency?: DisplayCurrency;
 }) {
+  const formatDollars = createMoneyFormatter(displayCurrency, "USD");
   const [data, setData] = useState<CohortData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -80,13 +60,11 @@ export function CohortTable({
     async function load() {
       try {
         setLoading(true);
-        const res = await fetch(
-          `${apiBase}/pro/cohorts?shop=${encodeURIComponent(shop)}&weeks=8`,
-          { headers: apiHeaders(), credentials: "include", cache: "no-store" }
-        );
-        if (!res.ok) return;
-        const json = await res.json();
-        if (active) setData(json as CohortData);
+        const res = await apiClient.GET("/pro/cohorts", {
+          params: { query: { weeks: 8 } },
+          headers: getHeaders(apiHeaders),
+        });
+        if (active && res.data != null) setData(res.data);
       } catch { /* silent */ }
       finally { if (active) setLoading(false); }
     }
@@ -120,20 +98,16 @@ export function CohortTable({
 
   return (
     <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
-      {/* Header */}
-      <div className="mb-4 flex items-start justify-between">
-        <div>
-          <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-            Cohort Retention
-          </div>
-          <h3 className="text-[14px] font-semibold text-white">Weekly repeat purchase rates</h3>
-          <p className="mt-0.5 text-[11px] text-slate-500">
-            First-purchase cohorts from real Shopify order data
-          </p>
+      {/* Header — internal Pro badge removed. Pro context is owned by the
+          parent SectionHeading / Pro Intelligence zone. */}
+      <div className="mb-4">
+        <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+          Cohort Retention
         </div>
-        <span className="rounded-full border border-violet-400/30 bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold text-violet-300">
-          Pro
-        </span>
+        <h3 className="text-[14px] font-semibold text-white">Weekly repeat purchase rates</h3>
+        <p className="mt-0.5 text-[11px] text-slate-500">
+          First-purchase cohorts from real Shopify order data
+        </p>
       </div>
 
       {/* Summary stats */}

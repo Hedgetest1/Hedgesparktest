@@ -58,7 +58,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import SessionLocal, get_db
 from app.core.deps import require_pro_session
 from app.services.action_executor import (
     STATUS_EXECUTING,
@@ -73,12 +73,71 @@ from app.services.action_executor import (
 router = APIRouter(prefix="/actions", tags=["actions"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# ---------------------------------------------------------------------------
+# Response models for /actions/proof — Action Proof cassettone.
+# ---------------------------------------------------------------------------
+
+
+class ActionProofImprovement(BaseModel):
+    """One improved action snapshot (before/after)."""
+    product_url: str
+    action_type: str
+    summary: str | None = None
+    delta_cvr: float | None = None
+    delta_revenue: float | None = None
+    measured_at: str | None = None
+
+
+class ActionProofSummaryResponse(BaseModel):
+    """GET /actions/proof — closed-loop proof-of-impact summary."""
+    actions_measured: int
+    improvements: list[ActionProofImprovement]
+    total_revenue_delta: float
+
+
+class ActionTaskRow(BaseModel):
+    """One action task row (from _task_to_dict).
+
+    Note: result_detail is stored in the DB as TEXT (free-form string),
+    not JSON. The Pydantic type must therefore be `str | None`; declaring
+    it `dict | None` caused the ResponseValidationError observed in
+    Sentry incident #38 (2026-04-11).
+    """
+    id: int
+    shop_domain: str
+    product_url: str | None = None
+    action_type: str
+    status: str
+    triggered_by: str | None = None
+    claimed_by: str | None = None
+    source_candidate: dict | None = None
+    task_payload: dict | None = None
+    expected_loss: float | None = None
+    confidence: float | None = None
+    # urgency is a Float in the DB/ORM (action_task.py line 82). Declaring it
+    # as str here would cause a latent ResponseValidationError the first time
+    # any task is created with a numeric urgency — we caught this while
+    # fixing Sentry incident #38.
+    urgency: float | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    executed_at: str | None = None
+    completed_at: str | None = None
+    result_detail: str | None = None
+
+
+class ActionTasksListResponse(BaseModel):
+    """GET /actions/tasks — list of action tasks for the shop."""
+    shop_domain: str
+    total: int
+    tasks: list[ActionTaskRow]
+
+
+# Note: we used to define a local get_db() here as a duplicate of the one
+# in app.core.database. That duplication defeated pytest's
+# dependency_overrides[get_db] fixture — the override only replaced the
+# central get_db, not our local copy, so tests couldn't inject a
+# transactional session into this router. Fix: import the central one.
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +231,11 @@ def execute_action(
 # GET /actions/tasks
 # ---------------------------------------------------------------------------
 
-@router.get("/tasks")
+@router.get(
+    "/tasks",
+    response_model=ActionTasksListResponse,
+    response_model_exclude_none=False,
+)
 def list_action_tasks(
     status: Optional[str] = None,
     claimed_by: Optional[str] = None,
@@ -341,7 +404,11 @@ def get_action_task(
     return _task_to_dict(task)
 
 
-@router.get("/proof")
+@router.get(
+    "/proof",
+    response_model=ActionProofSummaryResponse,
+    response_model_exclude_none=False,
+)
 def get_action_proof(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),

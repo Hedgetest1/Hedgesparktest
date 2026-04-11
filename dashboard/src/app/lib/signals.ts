@@ -1,5 +1,5 @@
 /**
- * Centralized signal type metadata for Hedge Spark.
+ * Centralized signal type metadata for HedgeSpark.
  *
  * Single source of truth for signal type → color / label mappings.
  * Used by SignalCard, TopSignalCard, BriefHero, and page.tsx.

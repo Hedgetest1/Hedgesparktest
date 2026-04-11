@@ -454,7 +454,43 @@ def get_active_nudge_public(
 # Pro: GET /pro/nudges — management listing
 # ---------------------------------------------------------------------------
 
-@router.get("/pro/nudges")
+
+class NudgeListRow(BaseModel):
+    """One nudge row in the /pro/nudges list response."""
+    id: int
+    shop_domain: str
+    product_url: str
+    action_type: str
+    trigger_source: str | None = None
+    copy_variant: str | None = None
+    copy_config: dict | None = None
+    is_ab_experiment: bool
+    holdout_pct: int
+    is_holdout_active: bool
+    status: str
+    created_at: str | None = None
+    updated_at: str | None = None
+    expires_at: str | None = None
+    deactivated_at: str | None = None
+    action_task_id: int | None = None
+    visitor_count: int | None = None
+    estimated_revenue_window: float | None = None
+    calibration_state: str | None = None
+
+
+class NudgeListResponse(BaseModel):
+    """GET /pro/nudges — list of nudges for the shop."""
+    shop_domain: str
+    status_filter: str | None = None
+    total: int
+    nudges: list[NudgeListRow]
+
+
+@router.get(
+    "/pro/nudges",
+    response_model=NudgeListResponse,
+    response_model_exclude_none=False,
+)
 def list_pro_nudges(
     status: Optional[str] = Query(
         default="active",
@@ -780,10 +816,158 @@ def get_nudge_rank(
 
 
 # ---------------------------------------------------------------------------
-# Pro: GET /pro/nudges/{nudge_id}/stats — full measurement report
+# Pro: GET /pro/nudges — list + GET /pro/nudges/{nudge_id}/stats — full report
+# ---------------------------------------------------------------------------
+# Response models — emitted into OpenAPI and consumed by the dashboard's
+# typed api-client. See reference_openapi_codegen.md memory for the pattern.
 # ---------------------------------------------------------------------------
 
-@router.get("/pro/nudges/{nudge_id}/stats")
+
+class NudgeStatsBlock(BaseModel):
+    """Aggregate exposure / dismissal / click counts across all variants."""
+    nudge_id: int
+    exposures: int
+    dismissals: int
+    clicks: int
+    dismissal_rate: float = Field(..., ge=0.0)
+    click_rate: float = Field(..., ge=0.0)
+    total_shown_events: int
+    total_dismissed_events: int
+
+
+class NudgeAttributionBlock(BaseModel):
+    """Observational post-exposure attribution (aggregate, all variants)."""
+    nudge_id: int
+    window_hours: int
+    method: str
+    attribution_note: str
+    exposed_visitors: int
+    post_exposure_purchases: int
+    post_exposure_cvr: float = Field(..., ge=0.0)
+    purchase_session_revenue: float
+    revenue_currency: str
+    revenue_currency_note: str | None = None
+
+
+class NudgeVariantBreakdown(BaseModel):
+    """Per-variant stats + attribution (merged from two queries)."""
+    variant_name: str
+    exposures: int
+    dismissals: int
+    clicks: int
+    dismissal_rate: float = Field(..., ge=0.0)
+    click_rate: float = Field(..., ge=0.0)
+    post_exposure_purchases: int
+    post_exposure_cvr: float = Field(..., ge=0.0)
+
+
+class NudgeWinnerBlock(BaseModel):
+    """
+    Winner selection output from _compute_winner or fallback no_variant_data.
+
+    Several fields are Optional because the 'no_variant_data' fallback dict
+    omits them entirely (see nudge_measurement.get_nudge_ab_report).
+    """
+    decision: str
+    winner_variant: str | None = None
+    runner_up: str | None = None
+    cvr_delta: float | None = None
+    z_score: float | None = None
+    p_value: float | None = None
+    significance: str | None = None
+    sample_sizes: dict[str, int] | None = None
+    min_sample_required: int
+    method: str
+    note: str
+
+
+class NudgeAbExperimentBlock(BaseModel):
+    """A/B experiment block (variants, winner, metadata)."""
+    is_active: bool
+    variants: list[NudgeVariantBreakdown]
+    winner: NudgeWinnerBlock
+    window_hours: int
+    attribution_method: str
+    note: str
+
+
+class RevenueAgentRankingSignal(BaseModel):
+    """Clean agent-consumable signal: three metrics gated on data sufficiency."""
+    incremental_rpv: float | None = None
+    estimated_incremental_revenue: float | None = None
+    revenue_lift_pct: float | None = None
+
+
+class NudgeRevenueLiftBlock(BaseModel):
+    """Revenue-weighted lift block inside the holdout experiment report."""
+    has_order_data: bool
+    exposed_revenue: float
+    holdout_revenue: float
+    exposed_rpv: float
+    holdout_rpv: float
+    incremental_rpv: float
+    revenue_lift_pct: float | None = None
+    estimated_incremental_revenue: float | None = None
+    currency: str
+    currency_note: str | None = None
+    sample_state: str
+    min_sample_required: int
+    revenue_note: str
+    agent_ranking_signal: RevenueAgentRankingSignal
+
+
+class NudgeHoldoutExperimentBlock(BaseModel):
+    """Quasi-experimental holdout lift report — CVR + revenue."""
+    holdout_active: bool
+    exposed_count: int
+    holdout_count: int
+    exposed_purchases: int
+    holdout_purchases: int
+    exposed_cvr: float = Field(..., ge=0.0)
+    holdout_cvr: float = Field(..., ge=0.0)
+    estimated_lift_pct: float | None = None
+    cvr_delta: float
+    sample_state: str
+    min_sample_required: int
+    z_score: float
+    p_value: float
+    significance: str
+    method: str
+    attribution_note: str
+    window_hours: int
+    revenue_lift: NudgeRevenueLiftBlock
+
+
+class NudgeInfoBlock(BaseModel):
+    """Static metadata about the nudge record itself."""
+    id: int
+    product_url: str
+    action_type: str
+    copy_variant: str | None = None
+    is_ab_experiment: bool
+    holdout_pct: int
+    is_holdout_active: bool
+    status: str
+    visitor_count: int
+    created_at: str | None = None
+    expires_at: str | None = None
+
+
+class NudgeStatsProResponse(BaseModel):
+    """GET /pro/nudges/{nudge_id}/stats — Nudge Performance cassettone source."""
+    nudge_id: int
+    stats: NudgeStatsBlock
+    attribution: NudgeAttributionBlock
+    ab_experiment: NudgeAbExperimentBlock
+    holdout_experiment: NudgeHoldoutExperimentBlock
+    nudge: NudgeInfoBlock
+
+
+@router.get(
+    "/pro/nudges/{nudge_id}/stats",
+    response_model=NudgeStatsProResponse,
+    response_model_exclude_none=False,
+)
 def get_nudge_stats_pro(
     nudge_id:     int,
     window_hours: int     = Query(

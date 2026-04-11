@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
@@ -36,6 +37,188 @@ from app.services.ltv_engine import (
     get_product_ltv_contribution,
     get_predicted_ltv,
 )
+
+
+# ---------------------------------------------------------------------------
+# Pydantic response models
+# ---------------------------------------------------------------------------
+# These exist so FastAPI can emit a full OpenAPI response schema, which
+# `openapi-typescript` then picks up and turns into compile-time types on the
+# frontend. Without response_model, the frontend sees `unknown` for the body
+# and cannot type-check field access.
+#
+# Keep these in sync with the dicts returned by ltv_engine.py — if a field is
+# added to the engine output, add it here too. A mismatch is caught by
+# FastAPI's response validation at runtime (which is a bit late, but better
+# than the old silent drift).
+# ---------------------------------------------------------------------------
+
+
+class GatewayProductRow(BaseModel):
+    """One row in the Gateway Products cassettone."""
+    product: str = Field(..., description="Product key (slug or URL)")
+    title: str | None = None
+    buyer_count: int
+    avg_buyer_ltv: float
+    avg_buyer_orders: float
+    buyer_repeat_rate: float = Field(..., ge=0.0, le=1.0)
+    gateway_rate: float = Field(..., ge=0.0, le=1.0)
+    is_gateway: bool
+
+
+class GatewayProductsResponse(BaseModel):
+    """GET /pro/cohorts/ltv/products response shape."""
+    shop_domain: str
+    products: list[GatewayProductRow]
+
+
+class PredictedLtvCustomer(BaseModel):
+    """One customer in the Predicted LTV ranking."""
+    customer_key: str
+    email_hint: str | None = None
+    total_orders: int
+    total_spend: float
+    aov: float
+    days_since_last: float
+    repeat_probability_30d: float = Field(..., ge=0.0, le=1.0)
+    predicted_30d_value: float
+    predicted_12m_ltv: float
+
+
+class PredictedLtvResponse(BaseModel):
+    """GET /pro/cohorts/ltv/customers response shape."""
+    shop_domain: str
+    customers: list[PredictedLtvCustomer]
+    count: int
+
+
+# ---- Weekly cohort retention ---------------------------------------------
+
+
+class WeeklyCohortRow(BaseModel):
+    """One weekly cohort row with dynamic retention keys."""
+    cohort_week: str
+    cohort_start: str
+    size: int
+    revenue_total: float
+    # Dynamic keys like "week_1", "week_2", ... Values are retention rates 0..1.
+    retention: dict[str, float]
+
+
+class WeeklyCohortsResponse(BaseModel):
+    """GET /pro/cohorts (weekly retention matrix)."""
+    window_weeks: int
+    generated_at: str
+    cohorts: list[WeeklyCohortRow]
+    avg_week_1_retention: float
+    avg_week_4_retention: float
+    best_cohort: str | None = None
+    total_customers: int
+
+
+class CohortSummaryResponse(BaseModel):
+    """GET /pro/cohorts/summary — high-level retention stats."""
+    avg_week_1_retention: float
+    avg_week_4_retention: float
+    total_customers: int
+    cohorts_measured: int
+    best_cohort: str | None = None
+
+
+# ---- Monthly cohort / LTV ------------------------------------------------
+
+
+class CustomerCoverageBlock(BaseModel):
+    """Customer identifiability coverage for the monthly cohort window."""
+    total_orders: int
+    identifiable_orders: int
+    unidentifiable_orders: int
+    coverage_rate: float
+
+
+class CumulativeRevenuePoint(BaseModel):
+    """One point on a cohort's cumulative revenue curve by month age."""
+    month_age: int
+    revenue: float
+    month_revenue: float
+    customers_active: int
+
+
+class MonthlyCohortRow(BaseModel):
+    """One monthly acquisition cohort row."""
+    cohort_month: str
+    size: int
+    revenue_total: float
+    orders_total: int
+    orders_per_customer: float
+    revenue_per_customer: float
+    repeat_rate: float
+    cumulative_revenue: list[CumulativeRevenuePoint]
+
+
+class MonthlyCohortsOverall(BaseModel):
+    """Overall lifetime metrics across all monthly cohorts in the window."""
+    total_customers: int
+    repeat_customers: int
+    repeat_rate: float
+    avg_orders_per_customer: float
+    avg_revenue_per_customer: float
+
+
+class MonthlyCohortsResponse(BaseModel):
+    """GET /pro/cohorts/monthly — Customer Economics cassettone source."""
+    window_months: int
+    generated_at: str
+    customer_coverage: CustomerCoverageBlock
+    cohorts: list[MonthlyCohortRow]
+    overall: MonthlyCohortsOverall
+
+
+class LtvSummaryResponse(BaseModel):
+    """GET /pro/cohorts/ltv — high-level LTV summary."""
+    total_customers: int
+    repeat_rate: float
+    avg_orders_per_customer: float
+    avg_revenue_per_customer: float
+    top_cohort_month: str | None = None
+    customer_coverage_rate: float
+
+
+# ---- Behavioral LTV segmentation -----------------------------------------
+
+
+class BehavioralSegmentRow(BaseModel):
+    """One row inside a behavioral segmentation dimension."""
+    segment: str
+    customers: int
+    repeat_rate: float
+    avg_revenue: float
+    avg_orders: float
+    total_revenue: float = 0.0
+
+
+class BehavioralDataCoverage(BaseModel):
+    """Identifiability coverage for the behavioral cohort window."""
+    total_customers: int
+    segmentable_customers: int
+    coverage_rate: float
+
+
+class BehavioralSegmentsBlock(BaseModel):
+    """Three segmentation dimensions: engagement, visit pattern, source."""
+    by_engagement: list[BehavioralSegmentRow]
+    by_visit_pattern: list[BehavioralSegmentRow]
+    by_source: list[BehavioralSegmentRow]
+
+
+class BehavioralCohortsResponse(BaseModel):
+    """GET /pro/cohorts/behavioral — Behavioral DNA cassettone source."""
+    window_days: int
+    generated_at: str
+    data_coverage: BehavioralDataCoverage
+    segments: BehavioralSegmentsBlock
+    insights: list[str]
+
 
 log = logging.getLogger(__name__)
 
@@ -50,7 +233,11 @@ def get_db():
         db.close()
 
 
-@router.get("")
+@router.get(
+    "",
+    response_model=WeeklyCohortsResponse,
+    response_model_exclude_none=False,
+)
 def get_cohorts(
     weeks: int = 12,
     shop: str = Depends(require_pro_session),
@@ -88,7 +275,11 @@ def get_cohorts(
     return get_cohort_retention(db, shop, weeks=weeks)
 
 
-@router.get("/summary")
+@router.get(
+    "/summary",
+    response_model=CohortSummaryResponse,
+    response_model_exclude_none=False,
+)
 def get_cohort_summary_endpoint(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
@@ -108,7 +299,11 @@ def get_cohort_summary_endpoint(
     return get_cohort_summary(db, shop)
 
 
-@router.get("/monthly")
+@router.get(
+    "/monthly",
+    response_model=MonthlyCohortsResponse,
+    response_model_exclude_none=False,
+)
 def get_monthly_cohorts_endpoint(
     months: int = 6,
     shop: str = Depends(require_pro_session),
@@ -161,7 +356,11 @@ def get_monthly_cohorts_endpoint(
     return get_monthly_cohorts(db, shop, months=months)
 
 
-@router.get("/ltv")
+@router.get(
+    "/ltv",
+    response_model=LtvSummaryResponse,
+    response_model_exclude_none=False,
+)
 def get_ltv_summary_endpoint(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
@@ -182,7 +381,11 @@ def get_ltv_summary_endpoint(
     return get_ltv_summary(db, shop)
 
 
-@router.get("/ltv/products")
+@router.get(
+    "/ltv/products",
+    response_model=GatewayProductsResponse,
+    response_model_exclude_none=False,
+)
 def get_product_ltv_endpoint(
     limit: int = 20,
     shop: str = Depends(require_pro_session),
@@ -197,7 +400,11 @@ def get_product_ltv_endpoint(
     return get_product_ltv_contribution(db, shop, limit=min(limit, 50))
 
 
-@router.get("/ltv/customers")
+@router.get(
+    "/ltv/customers",
+    response_model=PredictedLtvResponse,
+    response_model_exclude_none=False,
+)
 def get_predicted_ltv_endpoint(
     limit: int = 50,
     shop: str = Depends(require_pro_session),
@@ -212,7 +419,11 @@ def get_predicted_ltv_endpoint(
     return get_predicted_ltv(db, shop, limit=min(limit, 100))
 
 
-@router.get("/behavioral")
+@router.get(
+    "/behavioral",
+    response_model=BehavioralCohortsResponse,
+    response_model_exclude_none=False,
+)
 def get_behavioral_cohorts_endpoint(
     days: int = 90,
     shop: str = Depends(require_pro_session),

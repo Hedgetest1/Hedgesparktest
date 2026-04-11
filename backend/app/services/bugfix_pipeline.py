@@ -387,6 +387,85 @@ def run_bug_triage(db: Session) -> dict:
         # Back-link: update any support incidents linked to this alert
         _backlink_incidents_to_candidate(db, alert_id=alert[0], candidate_id=candidate.id)
 
+    # Rule 5: Frontend errors → React/JS crashes, failed fetches, render bugs.
+    # The reporter in /ops/frontend-errors builds a stable `fe:{component}:{hash8}`
+    # source so repeated reports of the same crash collapse into one candidate.
+    # We group by source rather than by alert_id so the triage picks the most
+    # recent fingerprint once — subsequent alerts in the same window are
+    # harmless (dedup in _should_skip_source catches them).
+    fe_alerts = db.execute(text("""
+        SELECT id, source, shop_domain, summary, detail
+        FROM ops_alerts
+        WHERE alert_type = 'frontend_error'
+          AND resolved = false
+          AND created_at >= :cutoff
+        ORDER BY created_at DESC LIMIT 10
+    """), {"cutoff": cutoff}).fetchall()
+
+    seen_fe_sources: set[str] = set()
+    for alert in fe_alerts:
+        source_key = alert[1] or f"alert_{alert[0]}"
+        if source_key in seen_fe_sources:
+            continue
+        seen_fe_sources.add(source_key)
+        summary["scanned"] += 1
+        # Use the fingerprinted source directly as source_ref so thrash
+        # detection and reopening key off the same identity across reports.
+        ref = source_key
+        if _should_skip_source(db, "frontend_error", ref, summary):
+            continue
+        _create_candidate(
+            db,
+            source_type="frontend_error",
+            source_ref=ref,
+            title=f"Frontend error: {(alert[3] or '')[:180]}",
+            summary_text=alert[3],
+            context={
+                "alert_id": alert[0],
+                "shop": alert[2],
+                "detail": alert[4],
+                "source": source_key,
+            },
+        )
+        summary["created"] += 1
+
+    # Rule 6: Semantic drift → silent data corruption caught by data_integrity_probe.
+    # Each drift alert has a source of the form `probe:{check}:{shop}` which
+    # becomes the stable source_ref. Dedup + thrash suppression follow the
+    # same path as every other triage rule.
+    drift_alerts = db.execute(text("""
+        SELECT id, source, shop_domain, summary, detail
+        FROM ops_alerts
+        WHERE alert_type = 'semantic_drift'
+          AND resolved = false
+          AND created_at >= :cutoff
+        ORDER BY created_at DESC LIMIT 10
+    """), {"cutoff": cutoff}).fetchall()
+
+    seen_drift_sources: set[str] = set()
+    for alert in drift_alerts:
+        source_key = alert[1] or f"alert_{alert[0]}"
+        if source_key in seen_drift_sources:
+            continue
+        seen_drift_sources.add(source_key)
+        summary["scanned"] += 1
+        if _should_skip_source(db, "semantic_drift", source_key, summary):
+            continue
+        _create_candidate(
+            db,
+            source_type="semantic_drift",
+            source_ref=source_key,
+            title=f"Semantic drift: {(alert[3] or '')[:180]}",
+            summary_text=alert[3],
+            context={
+                "alert_id": alert[0],
+                "shop": alert[2],
+                "detail": alert[4],
+                "source": source_key,
+            },
+        )
+        summary["created"] += 1
+
     # Recover stuck candidates (applying for >10 min)
     _recover_stuck_candidates(db)
 
@@ -397,18 +476,44 @@ def run_bug_triage(db: Session) -> dict:
     return summary
 
 
+#: Source types whose candidates must NOT be auto-proposed by the LLM.
+#: These are triaged and shown in the operator dashboard, but the LLM
+#: propose_patch pipeline does not attempt to generate a fix — either
+#: because the LLM lacks training context for the target (e.g. React
+#: frontend code) or because the fix inherently needs human judgment.
+_VISIBILITY_ONLY_SOURCE_TYPES: frozenset[str] = frozenset({
+    # Phase-1 frontend bridge: we capture the error + alert the operator
+    # but the LLM is not yet trained on the specific dashboard codebase.
+    # Auto-proposing .tsx patches would burn budget and stuck the candidate
+    # in apply_failed loops. Re-enable when we ship frontend LLM enrichment.
+    "frontend_error",
+})
+
+
+def is_visibility_only(source_type: str | None) -> bool:
+    """Return True if candidates of this source_type must be handled by a
+    human operator instead of the LLM auto-propose loop."""
+    return (source_type or "") in _VISIBILITY_ONLY_SOURCE_TYPES
+
+
 def run_auto_propose(db: Session, max_per_cycle: int = 2) -> dict:
     """
     Auto-propose patches for open/analyzed candidates that have not yet
     been attempted. Max 2 per cycle to control LLM cost.
+
+    Visibility-only source types (see _VISIBILITY_ONLY_SOURCE_TYPES) are
+    excluded from auto-propose. They still flow through triage, still
+    produce ops_alert rows, still appear in the operator dashboard and
+    in loop_health weakness scoring — they just don't get an LLM proposal.
     """
-    summary = {"attempted": 0, "proposed": 0, "failed": 0}
+    summary = {"attempted": 0, "proposed": 0, "failed": 0, "skipped_visibility": 0}
 
     candidates = (
         db.query(BugFixCandidate)
         .filter(
             BugFixCandidate.status.in_(["open", "analyzed"]),
             BugFixCandidate.proposal_attempted_at.is_(None),
+            ~BugFixCandidate.source_type.in_(list(_VISIBILITY_ONLY_SOURCE_TYPES)),
         )
         .order_by(
             BugFixCandidate.priority_score.desc().nullslast(),
@@ -416,6 +521,19 @@ def run_auto_propose(db: Session, max_per_cycle: int = 2) -> dict:
         )
         .limit(max_per_cycle)
         .all()
+    )
+
+    # Observability: count how many candidates we skipped because they
+    # were visibility-only, so ops dashboard can show the backlog of
+    # "awaiting human triage".
+    summary["skipped_visibility"] = (
+        db.query(BugFixCandidate)
+        .filter(
+            BugFixCandidate.status.in_(["open", "analyzed"]),
+            BugFixCandidate.proposal_attempted_at.is_(None),
+            BugFixCandidate.source_type.in_(list(_VISIBILITY_ONLY_SOURCE_TYPES)),
+        )
+        .count()
     )
 
     for c in candidates:
@@ -448,24 +566,80 @@ def run_auto_propose(db: Session, max_per_cycle: int = 2) -> dict:
 
 
 def _has_open_candidate(db: Session, source_type: str, source_ref: str) -> bool:
-    """Check if an active candidate already exists for this source (any non-terminal status)."""
-    return db.query(BugFixCandidate).filter(
+    """
+    Check whether this source already has a candidate we should not duplicate.
+
+    We consider three classes of "don't re-triage":
+
+      1. **Active states** — any candidate in open/analyzed/patch_proposed/
+         approved/applying is still being processed. Re-triaging would
+         create a parallel duplicate that races the one already in flight.
+
+      2. **Recent terminal states** — a candidate in apply_failed /
+         rolled_back / discarded within the last 24h means we already
+         tried (or explicitly chose not to act) very recently. Creating
+         a new candidate within the dedup window would just loop the
+         pipeline (observed pattern in prod: merchant_bug_alert_16985
+         had 2 discarded candidates 15 minutes apart because the
+         previous dedup only considered active states).
+
+      3. **Recent successful applications** — an `applied` candidate
+         within 24h, regardless of outcome_status. Outcome evaluation
+         is async (48h delay), so we must not re-triage a just-applied
+         fix while we're still measuring it.
+
+    After 24h the window opens again: if a source keeps producing
+    incidents, thrash_score() is the secondary gate — it either
+    suppresses or annotates the retry with prior-failure context.
+    """
+    # Step 1 — any active candidate blocks duplicates unconditionally.
+    active = db.query(BugFixCandidate).filter(
         BugFixCandidate.source_type == source_type,
         BugFixCandidate.source_ref == source_ref,
         BugFixCandidate.status.in_(["open", "analyzed", "patch_proposed", "approved", "applying"]),
-    ).first() is not None
+    ).first()
+    if active is not None:
+        return True
+
+    # Step 2 — any recent terminal attempt within 24h blocks duplicates.
+    window_start = _now() - timedelta(hours=24)
+    recent_terminal = db.query(BugFixCandidate).filter(
+        BugFixCandidate.source_type == source_type,
+        BugFixCandidate.source_ref == source_ref,
+        BugFixCandidate.status.in_(["apply_failed", "rolled_back", "discarded", "applied"]),
+        BugFixCandidate.created_at >= window_start,
+    ).first()
+    return recent_terminal is not None
 
 
 def _should_skip_source(db: Session, source_type: str, source_ref: str, summary: dict) -> bool:
-    """Check dedup + thrash suppression + escalation. Returns True if source should be skipped."""
+    """
+    Dedup + graduated thrash gate + escalation.
+
+    Uses the new thrash_score() from loop_health which returns a continuous
+    signal in [0, 1] instead of the old binary is_source_thrashing().
+
+    * score == 0   → clean, do not skip.
+    * 0 < score < 0.5 → mild history; do not skip, the triage pipeline can
+                      still create candidates. The annotation in the
+                      context_json lets propose_patch() enrich the prompt
+                      with "prior attempts failed, try a different angle."
+    * score >= 0.5 → heavy thrash; skip and escalate.
+    """
     if _has_open_candidate(db, source_type, source_ref):
         summary["deduped"] += 1
         return True
     try:
-        from app.services.loop_health import is_source_thrashing
-        if is_source_thrashing(db, source_type, source_ref):
+        from app.services.loop_health import thrash_score
+        score = thrash_score(db, source_type, source_ref)
+        # Preserve a legacy signal for observability
+        summary.setdefault("thrash_scores", {})[f"{source_type}:{source_ref}"] = round(score, 2)
+        if score >= 0.5:
             summary["suppressed"] = summary.get("suppressed", 0) + 1
-            log.info("triage: suppressed thrashing source=%s ref=%s", source_type, source_ref)
+            log.info(
+                "triage: suppressed high-thrash source=%s ref=%s score=%.2f",
+                source_type, source_ref, score,
+            )
             _escalate_thrashing(db, source_type, source_ref)
             return True
     except ImportError:
@@ -513,21 +687,312 @@ def _escalate_thrashing(db: Session, source_type: str, source_ref: str) -> None:
         log.debug("triage: thrash escalation failed (non-fatal): %s", exc)
 
 
+# ---------------------------------------------------------------------------
+# Priority scoring — deterministic, cheap, explainable
+# ---------------------------------------------------------------------------
+#
+# Before 2026-04-11 the bugfix_candidates.priority_score column existed but
+# was NEVER POPULATED — audit showed 85/86 rows with NULL. run_auto_propose
+# and run_auto_apply both use `ORDER BY priority_score DESC NULLS LAST`,
+# which with all-NULL data degenerates to plain FIFO by created_at. A
+# critical webhook bug was processed after a stale low-criticality
+# evolution proposal simply because the latter was older.
+#
+# This function computes a 0–100 integer score at candidate creation time
+# based on five weighted signals. The result is stored on the row and
+# used by the batch selection ORDER BY. Pure function, no DB calls, no
+# LLM, safe to call thousands of times per minute.
+#
+# Signal weights sum to 1.0. Weights can be tuned but the structure must
+# stay linear so a human can always explain "why this came before that".
+
+_SEVERITY_WEIGHTS: dict[str, float] = {
+    "critical": 1.00,
+    "warning":  0.55,
+    "info":     0.20,
+}
+
+# Domain criticality is authoritative from project_brain. These weights
+# mirror _DOMAIN_CRITICALITY but are kept local so we don't have to import
+# project_brain at priority time (it does a cooldown-aware filesystem scan).
+_DOMAIN_CRITICALITY_WEIGHTS: dict[str, float] = {
+    "critical": 1.00,
+    "high":     0.75,
+    "medium":   0.50,
+    "low":      0.25,
+}
+
+# Source type weights — encode "how often has this signal type proven
+# to be a real, fixable bug". Tuning knob for future, starting values
+# reflect deterministic observations from the first prod cycle.
+_SOURCE_TYPE_WEIGHTS: dict[str, float] = {
+    "sentry_incident":   1.00,  # real runtime exception with stacktrace
+    "ops_alert":         0.90,  # deterministic alert from write_alert
+    "semantic_drift":    0.85,  # silent data corruption — high value
+    "recurrence":        0.85,  # reopened from ineffective — must try harder
+    "support_incident":  0.75,  # merchant-reported, high trust
+    "outcome":           0.65,  # 3+ no_effect action outcomes
+    "frontend_error":    0.55,  # visibility-only anyway
+    "evolution":         0.40,  # proactive refactor, not a bug
+    "auto_rollback":     0.95,  # rollback of a bad fix — urgent
+    "manual":            0.60,
+}
+
+
+def compute_priority_score(
+    *,
+    severity: str | None,
+    source_type: str | None,
+    affected_domain_criticality: str | None = None,
+    recurrence_count: int = 0,
+    age_minutes: int = 0,
+) -> tuple[int, dict[str, float]]:
+    """
+    Compute a 0-100 priority score with explainable breakdown.
+
+    Pure function. Same inputs → same score. Suitable for calling
+    inside _create_candidate (hot path).
+
+    Returns
+    -------
+    (score, breakdown)
+        score: int in [0, 100], rounded, higher = fix first
+        breakdown: dict of component contributions for observability
+    """
+    sev = (severity or "warning").lower()
+    sev_w = _SEVERITY_WEIGHTS.get(sev, 0.5)
+
+    crit = (affected_domain_criticality or "medium").lower()
+    crit_w = _DOMAIN_CRITICALITY_WEIGHTS.get(crit, 0.5)
+
+    src = (source_type or "manual").lower()
+    src_w = _SOURCE_TYPE_WEIGHTS.get(src, 0.5)
+
+    # Recency — fresh incidents win but we don't want oscillation, so
+    # use a step function instead of a continuous decay.
+    if age_minutes <= 60:
+        recency_w = 1.00
+    elif age_minutes <= 24 * 60:
+        recency_w = 0.70
+    elif age_minutes <= 7 * 24 * 60:
+        recency_w = 0.40
+    else:
+        recency_w = 0.20
+
+    # Recurrence — a source the system has seen multiple times deserves
+    # priority because repeat failures signal a deeper root cause.
+    if recurrence_count >= 5:
+        recur_w = 1.00
+    elif recurrence_count >= 3:
+        recur_w = 0.75
+    elif recurrence_count >= 2:
+        recur_w = 0.50
+    elif recurrence_count >= 1:
+        recur_w = 0.30
+    else:
+        recur_w = 0.10
+
+    # Weighted sum. Weights sum to 1.0.
+    contributions = {
+        "severity":    sev_w   * 0.35,
+        "criticality": crit_w  * 0.25,
+        "recency":     recency_w * 0.15,
+        "recurrence":  recur_w * 0.15,
+        "source_type": src_w   * 0.10,
+    }
+    total = sum(contributions.values())
+    score = int(round(total * 100))
+    score = max(0, min(100, score))
+    return score, contributions
+
+
+def _infer_alert_severity_from_context(source_type: str, context: dict) -> str:
+    """Best-effort severity extraction from context_json. Fail-soft."""
+    if not isinstance(context, dict):
+        return "warning"
+    # ops_alert contexts carry the full alert row under "detail"
+    detail = context.get("detail")
+    if isinstance(detail, dict):
+        sev = detail.get("severity")
+        if isinstance(sev, str):
+            return sev.lower()
+    # Some rules pass alert_id and not the full row — caller is
+    # responsible for enriching. Default to warning.
+    return "warning"
+
+
+def _infer_domain_criticality(affected_domain: str | None) -> str:
+    """Map affected_domain to criticality using project_brain semantics
+    without actually importing project_brain (cooldown-bound FS scan)."""
+    if not affected_domain:
+        return "medium"
+    _LOCAL_CRITICALITY = {
+        "billing": "critical",
+        "shopify_auth": "critical",
+        "auth": "critical",
+        "webhooks": "critical",
+        "frontend_billing": "critical",
+        "frontend_onboarding": "critical",
+        "frontend_auth": "critical",
+        "shopify_integration": "high",
+        "orchestrator": "high",
+        "autofix": "high",
+        "model_governance": "high",
+        "llm_infra": "high",
+        "infra": "high",
+        "migrations": "high",
+        "frontend": "high",
+        "merchant_api": "medium",
+        "nudges": "medium",
+        "workers": "medium",
+        "support": "medium",
+        "reviewer": "medium",
+        "intelligence": "low",
+        "tracking": "low",
+        "observability": "low",
+        "tests": "low",
+    }
+    return _LOCAL_CRITICALITY.get(affected_domain, "medium")
+
+
 def _create_candidate(
     db: Session, *, source_type: str, source_ref: str,
     title: str, summary_text: str, context: dict,
 ) -> BugFixCandidate:
+    # Compute priority at creation time so run_auto_propose and
+    # run_auto_apply can order meaningfully. The affected_domain is not
+    # yet known here (it's resolved later by _classify_candidate_domain
+    # once patch_files exist), so we score without it — the domain
+    # contribution will be a recompute opportunity post-propose.
+    inferred_severity = _infer_alert_severity_from_context(source_type, context)
+    recurrence_count = int(context.get("recurrence_count") or 0) if isinstance(context, dict) else 0
+    score, breakdown = compute_priority_score(
+        severity=inferred_severity,
+        source_type=source_type,
+        affected_domain_criticality=None,  # unknown at creation
+        recurrence_count=recurrence_count,
+        age_minutes=0,
+    )
+
+    # Stash the breakdown alongside the original context so ops can
+    # explain *why* this score — critical for operator trust.
+    enriched = dict(context) if isinstance(context, dict) else {"raw": context}
+    enriched["priority_breakdown"] = {k: round(v, 3) for k, v in breakdown.items()}
+    enriched["priority_inferred_severity"] = inferred_severity
+
     c = BugFixCandidate(
         source_type=source_type,
         source_ref=source_ref,
         title=title,
         summary=summary_text,
-        context_json=json.dumps(context, default=str),
+        context_json=json.dumps(enriched, default=str),
         status="open",
+        priority_score=score,
     )
     db.add(c)
     db.flush()
     return c
+
+
+def backfill_priority_scores(db: Session, limit: int = 500) -> dict:
+    """
+    Populate priority_score on historical candidates that were created
+    before deterministic scoring was added. One-shot cleanup utility
+    callable from an ops cron or ad-hoc Python.
+
+    Only touches rows where priority_score IS NULL or = 0. Never modifies
+    scores that were already computed. Safe to run repeatedly.
+    """
+    summary = {"scanned": 0, "backfilled": 0, "errors": 0}
+    rows = (
+        db.query(BugFixCandidate)
+        .filter(
+            (BugFixCandidate.priority_score.is_(None))
+            | (BugFixCandidate.priority_score == 0),
+        )
+        .order_by(BugFixCandidate.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    summary["scanned"] = len(rows)
+    for c in rows:
+        try:
+            severity = "warning"
+            recurrence_count = 0
+            if c.context_json:
+                try:
+                    ctx = json.loads(c.context_json)
+                    if isinstance(ctx, dict):
+                        severity = (
+                            ctx.get("priority_inferred_severity")
+                            or _infer_alert_severity_from_context(c.source_type, ctx)
+                        )
+                        recurrence_count = int(ctx.get("recurrence_count") or 0)
+                except (ValueError, TypeError):
+                    pass
+
+            age_minutes = 0
+            if c.created_at:
+                age_minutes = max(0, int((_now() - c.created_at).total_seconds() / 60))
+
+            crit = _infer_domain_criticality(c.affected_domain)
+            score, _ = compute_priority_score(
+                severity=severity,
+                source_type=c.source_type,
+                affected_domain_criticality=crit,
+                recurrence_count=recurrence_count,
+                age_minutes=age_minutes,
+            )
+            c.priority_score = score
+            summary["backfilled"] += 1
+        except Exception as exc:
+            summary["errors"] += 1
+            log.debug("backfill_priority: id=%d error: %s", c.id, exc)
+
+    if summary["backfilled"]:
+        db.flush()
+        log.info(
+            "backfill_priority: scanned=%d backfilled=%d errors=%d",
+            summary["scanned"], summary["backfilled"], summary["errors"],
+        )
+    return summary
+
+
+def recompute_priority_after_classification(candidate: BugFixCandidate) -> None:
+    """
+    Recompute a candidate's priority_score AFTER affected_domain is set
+    (which happens in _classify_candidate_domain during propose_patch).
+    Called from propose_patch to refine the FIFO-time estimate once we
+    know the real domain criticality.
+
+    In-place mutation — caller must flush.
+    """
+    try:
+        ctx = json.loads(candidate.context_json or "{}")
+    except (ValueError, TypeError):
+        ctx = {}
+    severity = ctx.get("priority_inferred_severity") or "warning"
+    recurrence_count = int(ctx.get("recurrence_count") or 0)
+
+    # Compute age from created_at
+    now = _now()
+    age_minutes = 0
+    if candidate.created_at:
+        age_minutes = max(0, int((now - candidate.created_at).total_seconds() / 60))
+
+    crit = _infer_domain_criticality(candidate.affected_domain)
+    score, breakdown = compute_priority_score(
+        severity=severity,
+        source_type=candidate.source_type,
+        affected_domain_criticality=crit,
+        recurrence_count=recurrence_count,
+        age_minutes=age_minutes,
+    )
+    candidate.priority_score = score
+    # Refresh breakdown in context for observability
+    ctx["priority_breakdown"] = {k: round(v, 3) for k, v in breakdown.items()}
+    ctx["priority_domain_criticality"] = crit
+    candidate.context_json = json.dumps(ctx, default=str)
 
 
 def _backlink_incidents_to_candidate(db: Session, alert_id: int, candidate_id: int):
@@ -555,25 +1020,109 @@ def _backlink_incidents_to_candidate(db: Session, alert_id: int, candidate_id: i
 
 def _recover_stuck_candidates(db: Session):
     """
-    Reset candidates stuck in 'applying' for >10 minutes.
-    Prevents permanent stuck state if worker crashes during apply.
+    Detect candidates that have rotted in intermediate states and escalate
+    them. Previously this only recovered 'applying' — the dangerous state.
+    Phase-5 hardening extends the sweep to every stuck state so backlog
+    accumulation cannot silently starve the pipeline:
+
+      * applying     > 10 min  → reset to patch_proposed (old behavior)
+      * open         > 72 h    → escalate via ops_alert
+      * analyzed     > 48 h    → escalate via ops_alert
+      * patch_proposed > 168 h → escalate via ops_alert
+
+    Escalation means: raise a unique, dedup-safe ops_alert so the operator
+    can investigate. We never silently advance a non-applying candidate —
+    doing so would hide a root-cause problem (LLM budget exhaustion, reviewer
+    deadlock, etc.). The alert IS the action.
     """
-    stuck_cutoff = _now() - timedelta(minutes=10)
-    stuck = (
+    now = _now()
+
+    # 1. Recover 'applying' — destructive-state recovery (reset to prior state).
+    applying_cutoff = now - timedelta(minutes=10)
+    stuck_applying = (
         db.query(BugFixCandidate)
         .filter(
             BugFixCandidate.status == "applying",
             BugFixCandidate.decided_at.isnot(None),
-            BugFixCandidate.decided_at <= stuck_cutoff,
+            BugFixCandidate.decided_at <= applying_cutoff,
         )
         .all()
     )
-    for c in stuck:
+    for c in stuck_applying:
         c.status = "patch_proposed"
         c.failure_reason = "stuck_in_applying_recovered"
-        log.warning("bugfix_triage: recovered stuck candidate id=%d", c.id)
-    if stuck:
+        log.warning("bugfix_triage: recovered stuck applying candidate id=%d", c.id)
+    if stuck_applying:
         db.flush()
+
+    # 2. Stuck intermediate states — emit ops_alert (dedup-safe), don't mutate.
+    _STUCK_THRESHOLDS: list[tuple[str, timedelta, str]] = [
+        ("open",           timedelta(hours=72),  "pipeline_stall_open"),
+        ("analyzed",       timedelta(hours=48),  "pipeline_stall_analyzed"),
+        ("patch_proposed", timedelta(hours=168), "pipeline_stall_proposed"),
+    ]
+
+    try:
+        from app.models.ops_alert import OpsAlert
+        from app.services.alerting import write_alert
+    except ImportError:
+        return
+
+    for state, max_age, alert_type in _STUCK_THRESHOLDS:
+        cutoff = now - max_age
+        stuck_rows = (
+            db.query(BugFixCandidate)
+            .filter(
+                BugFixCandidate.status == state,
+                BugFixCandidate.created_at <= cutoff,
+            )
+            .order_by(BugFixCandidate.created_at)
+            .limit(10)
+            .all()
+        )
+        if not stuck_rows:
+            continue
+
+        # Aggregate into a single alert per state — we escalate the backlog,
+        # not each individual row. Individual IDs go in the detail for audit.
+        ids = [int(c.id) for c in stuck_rows]
+        source_key = f"bugfix_pipeline:stuck:{state}"
+        existing = (
+            db.query(OpsAlert)
+            .filter(
+                OpsAlert.alert_type == alert_type,
+                OpsAlert.source == source_key,
+                OpsAlert.resolved == False,
+            )
+            .first()
+        )
+        if existing is not None:
+            continue  # dedup: already flagged, not yet acknowledged
+        try:
+            write_alert(
+                db,
+                severity="warning",
+                source=source_key,
+                alert_type=alert_type,
+                summary=(
+                    f"{len(stuck_rows)} bugfix candidate(s) have been in '{state}' "
+                    f"for longer than {max_age}. Pipeline may be stalled."
+                ),
+                detail={
+                    "state": state,
+                    "threshold_hours": int(max_age.total_seconds() / 3600),
+                    "stuck_count": len(stuck_rows),
+                    "candidate_ids": ids,
+                    "action": f"Investigate why candidates are not leaving '{state}' "
+                              "(LLM budget? reviewer blocking? missing phases in agent_worker?).",
+                },
+            )
+            log.warning(
+                "bugfix_triage: ESCALATED stuck state=%s count=%d",
+                state, len(stuck_rows),
+            )
+        except Exception as exc:
+            log.debug("bugfix_triage: stuck escalation failed (non-fatal): %s", exc)
 
 
 def _propagate_resolution(db: Session, candidate: BugFixCandidate):
@@ -867,7 +1416,7 @@ def _validate_patch_semantics(patch_diff: str, patch_files_json: str | None) -> 
 # Patch proposal: LLM generates a fix suggestion
 # ---------------------------------------------------------------------------
 
-_PATCH_SYSTEM_PROMPT = """You are a senior backend engineer fixing a bug in the Hedge Spark SaaS platform.
+_PATCH_SYSTEM_PROMPT = """You are a senior backend engineer fixing a bug in the HedgeSpark SaaS platform.
 
 Given the bug context (alert details, error info, affected subsystem), propose a minimal, safe fix.
 
@@ -905,6 +1454,15 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
 
     # Classify domain early (for fingerprinting and context)
     _classify_candidate_domain(candidate)
+
+    # Recompute priority now that we know the affected_domain criticality.
+    # At _create_candidate time we only had severity + source_type + recurrence;
+    # now we can add the domain dimension, which for criticals (billing,
+    # webhooks, auth) can push a 40 → 80 score shift, reordering the queue.
+    try:
+        recompute_priority_after_classification(candidate)
+    except Exception as exc:
+        log.debug("propose_patch: priority recompute failed (non-fatal): %s", exc)
 
     # Fingerprint pre-check: reject if identical patch recently failed
     pre_fp = _compute_patch_fingerprint(candidate.title, candidate.patch_files)
@@ -1270,10 +1828,10 @@ def _call_llm(
         openai_available=bool(openai_key),
     )
 
-    text = _call_provider(sel, user_message, anthropic_key, openai_key)
+    text, actual_provider, actual_model = _call_provider(sel, user_message, anthropic_key, openai_key)
 
     if text:
-        record_usage("bugfix_proposal", tokens_used=len(text) // 4, provider=sel.provider, model=sel.model)
+        record_usage("bugfix_proposal", tokens_used=len(text) // 4, provider=actual_provider, model=actual_model)
         return text
 
     # Escalation: if Sonnet failed and not already escalated, try Opus once
@@ -1284,11 +1842,12 @@ def _call_llm(
     return ""
 
 
-def _call_provider(sel, user_message: str, anthropic_key: str, openai_key: str) -> str:
+def _call_provider(sel, user_message: str, anthropic_key: str, openai_key: str) -> tuple[str, str, str]:
     """
     Make the actual API call based on model selection. Handles 429 with backoff.
 
-    Returns raw response text, or empty string on failure.
+    Returns (raw_text, actual_provider, actual_model) tuple.
+    Empty string on failure.
     Rejects truncated output (max_tokens reached) before returning —
     truncated JSON is unparseable and should not propagate.
     """
@@ -1322,7 +1881,7 @@ def _call_provider(sel, user_message: str, anthropic_key: str, openai_key: str) 
                         log.warning("bugfix_pipeline: Anthropic output TRUNCATED (max_tokens=%d)", sel.max_tokens)
                         anthropic_failed = True
                     else:
-                        return body.get("content", [{}])[0].get("text", "")
+                        return body.get("content", [{}])[0].get("text", ""), "anthropic", sel.model
                 elif resp.status_code == 429:
                     record_429("anthropic")
                     anthropic_failed = True
@@ -1336,7 +1895,7 @@ def _call_provider(sel, user_message: str, anthropic_key: str, openai_key: str) 
     if openai_key:
         if is_provider_backed_off("openai"):
             log.info("bugfix_pipeline: OpenAI backed off (429 cooldown)")
-            return ""
+            return "", "openai", sel.model
         model = sel.model if sel.provider == "openai" else "gpt-4o-mini"
         if anthropic_failed:
             log.info("bugfix_pipeline: anthropic unavailable → fallback=openai model=%s", model)
@@ -1363,8 +1922,8 @@ def _call_provider(sel, user_message: str, anthropic_key: str, openai_key: str) 
                 finish = choice.get("finish_reason", "")
                 if finish == "length":
                     log.warning("bugfix_pipeline: OpenAI output TRUNCATED (max_tokens=%d)", sel.max_tokens)
-                    return ""
-                return choice.get("message", {}).get("content", "")
+                    return "", "openai", model
+                return choice.get("message", {}).get("content", ""), "openai", model
             if resp.status_code == 429:
                 record_429("openai")
             else:
@@ -1372,7 +1931,7 @@ def _call_provider(sel, user_message: str, anthropic_key: str, openai_key: str) 
         except Exception as exc:
             log.warning("bugfix_pipeline: OpenAI %s failed: %s", model, type(exc).__name__)
 
-    return ""
+    return "", sel.provider, sel.model
 
 
 # ---------------------------------------------------------------------------
@@ -1781,6 +2340,11 @@ except ImportError:
         "app/api/shopify_oauth",
         "app/services/orchestrator.py",
         "app/models/action_approval",
+        "app/services/email_templates.py",
+        "app/services/email_orchestrator.py",
+        "app/services/email_governance.py",
+        "app/services/brand_voice.py",
+        "app/core/email.py",
         "migrations/",
     ]
 

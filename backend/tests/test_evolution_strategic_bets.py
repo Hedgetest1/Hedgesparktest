@@ -31,18 +31,31 @@ from app.models.evolution_proposal import EvolutionProposal
 
 
 def _bet(**overrides) -> dict:
+    """
+    Default bet used across the parser test suite.
+
+    Phase-6: autonomous evolution may only emit reliability / performance /
+    architecture / deprecate bets. The default type is therefore "reliability",
+    not "conversion". The revenue_thesis still mentions conversion/nudge
+    keywords because strategic alignment scores off the TEXT, not the type —
+    strategic alignment and proposal-type discipline are orthogonal layers.
+    """
     base = {
-        "title": "Improve cart conversion nudge",
-        "type": "conversion",
-        "revenue_thesis": "Return visitors on PDP → add-to-cart up 12% → +€300/mo.",
+        "title": "Harden nudge pipeline reliability",
+        "type": "reliability",
+        "revenue_thesis": (
+            "Current nudge engine drops ~2% of cart-abandonment events under load — "
+            "recovering the drop restores ~+€300/mo of measured conversion revenue via the "
+            "existing holdout-measured intervention path."
+        ),
         "rejected_alternatives": [
-            {"alternative": "Price A/B test", "why_rejected": "already tested, -3% CVR"},
-            {"alternative": "Free shipping banner", "why_rejected": "margin too thin"},
+            {"alternative": "Increase worker count", "why_rejected": "doesn't address root drop cause"},
+            {"alternative": "Add retry on failure only", "why_rejected": "masks the underlying leak"},
         ],
-        "expected_impact": "+€300/mo on top-10 products",
+        "expected_impact": "+€300/mo recovered via resilient nudge delivery on top-10 products",
         "risk_level": "LEVEL_2",
         "infra_cost_estimate": "none",
-        "infra_cost_reasoning": "pure content change",
+        "infra_cost_reasoning": "pure reliability hardening, no new infra",
         "exploration_bet": False,
     }
     base.update(overrides)
@@ -58,20 +71,20 @@ def test_max_bets_is_three():
 
 
 def test_parser_caps_at_three_even_if_llm_returns_ten():
-    # Each bet needs strategic alignment (Tier-1 keywords) + distinct
-    # fingerprint to survive parser discipline, so we use realistic
-    # conversion-loop variants.
+    # Phase-6: all bets must be engineering types. Strategic alignment
+    # scores off text content (nudge/conversion keywords remain fine),
+    # proposal-type discipline is enforced by _FORBIDDEN_PROPOSAL_TYPES.
     variants = [
-        ("conversion", "Add urgency nudge on cart abandonment", "cart-abandon"),
-        ("experiment", "A/B test checkout nudge copy for returning visitors", "checkout-nudge"),
-        ("conversion", "Surface attribution evidence in PDP intent signals", "attribution-signal"),
-        ("experiment", "Holdout-measure behavioral-leak nudge variant", "holdout-variant"),
-        ("conversion", "Targeting change: nudge high-intent session only", "session-targeting"),
-        ("experiment", "Causal measurement of add-to-cart nudge frequency", "atc-frequency"),
-        ("conversion", "In-session cart recovery for return visitors", "session-recovery"),
-        ("experiment", "Dwell-time based nudge trigger threshold tuning", "dwell-trigger"),
-        ("conversion", "Funnel intervention at checkout step 2", "checkout-step-2"),
-        ("experiment", "Behavioral leak detector for scroll-depth drop", "scroll-leak"),
+        ("reliability",  "Harden nudge delivery on cart abandonment path", "cart-abandon"),
+        ("performance",  "Optimize nudge render latency for returning visitors", "checkout-nudge"),
+        ("reliability",  "Fix attribution evidence gap in PDP intent signals", "attribution-signal"),
+        ("reliability",  "Stabilize holdout behavioral-leak nudge variant path", "holdout-variant"),
+        ("performance",  "Index tuning: nudge high-intent session lookup", "session-targeting"),
+        ("reliability",  "Fix causal measurement add-to-cart nudge frequency bug", "atc-frequency"),
+        ("reliability",  "Harden in-session cart recovery for return visitors", "session-recovery"),
+        ("performance",  "Reduce dwell-time nudge trigger threshold query cost", "dwell-trigger"),
+        ("reliability",  "Fix funnel intervention at checkout step 2 drop", "checkout-step-2"),
+        ("reliability",  "Fix behavioral leak detector scroll-depth drop", "scroll-leak"),
     ]
     bets = []
     for i, (t, title, tag) in enumerate(variants):
@@ -126,11 +139,22 @@ def test_parser_accepts_bet_with_two_alternatives():
 # Expanded type enum
 # ---------------------------------------------------------------------------
 
-def test_parser_accepts_business_types():
-    for t in ("growth", "retention", "conversion", "experiment", "deprecate"):
+def test_parser_rejects_business_types_phase6():
+    """Phase-6 regression: business proposal types (growth/retention/conversion/
+    experiment/product) must be hard-rejected — they are feature direction,
+    not autonomous repair. Only engineering types pass the gate."""
+    for t in ("growth", "retention", "conversion", "experiment", "product"):
         raw = json.dumps({"bets": [_bet(type=t)]})
         out = _parse_proposals(raw)
-        assert len(out) == 1
+        assert out == [], f"business type {t!r} must be rejected by Phase-6 gate"
+
+
+def test_parser_accepts_engineering_types_phase6():
+    """The allow-list is narrow: only reliability/performance/architecture/deprecate."""
+    for t in ("reliability", "performance", "architecture", "deprecate"):
+        raw = json.dumps({"bets": [_bet(type=t)]})
+        out = _parse_proposals(raw)
+        assert len(out) == 1, f"engineering type {t!r} must be accepted"
         assert out[0]["type"] == t
 
 
@@ -274,15 +298,19 @@ def test_store_persists_new_fields(db):
     stored = _store_proposals(db, bets, "9999-M99")
     assert stored == 1
 
-    row = db.query(EvolutionProposal).filter(
-        EvolutionProposal.dedup_key.like("monthly_opus:9999-M99:%")
-    ).first()
+    row = (
+        db.query(EvolutionProposal)
+        .filter(EvolutionProposal.dedup_key == "monthly_opus:9999-M99:persist test")
+        .first()
+    )
     assert row is not None
     assert row.revenue_thesis is not None
-    assert "Return visitors" in row.revenue_thesis
+    assert "nudge engine" in row.revenue_thesis  # from Phase-6 default _bet()
     assert row.rejected_alternatives is not None
     parsed_alts = json.loads(row.rejected_alternatives)
     assert len(parsed_alts) == 2
-    assert parsed_alts[0]["alternative"] == "Price A/B test"
+    assert parsed_alts[0]["alternative"] == "Increase worker count"
     assert row.infra_cost_estimate == "small"
     assert row.exploration_bet is True
+    # Phase-6 regression — the stored type is an engineering category
+    assert row.proposal_type == "reliability"

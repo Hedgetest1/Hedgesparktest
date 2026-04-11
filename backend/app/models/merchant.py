@@ -113,6 +113,12 @@ class Merchant(Base):
     onboarding_status = Column(String(32), nullable=False, default="pending", server_default="pending")
     onboarding_error  = Column(String(512), nullable=True)
 
+    # Onboarding retry backoff — prevents infinite 15-min retry loops
+    # retry_count: how many times onboarding has been attempted
+    # next_retry_at: earliest time next retry is allowed (exponential backoff)
+    onboarding_retry_count  = Column(Integer, nullable=True, default=0, server_default="0")
+    onboarding_next_retry_at = Column(DateTime, nullable=True)
+
     # ---------------------------------------------------------------------------
     # Tracker delivery method
     #
@@ -152,3 +158,7 @@ class Merchant(Base):
     # Once set to True, this flag must NEVER be changed to False.
     # ---------------------------------------------------------------------------
     is_synthetic = Column(Boolean, nullable=False, default=False, server_default="false")
+
+    # Merchant-controlled communication pause — stops all non-critical emails
+    # when True. Checked by email_orchestrator before any send.
+    email_paused = Column(Boolean, nullable=False, default=False, server_default="false")

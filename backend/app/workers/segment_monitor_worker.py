@@ -371,6 +371,7 @@ def _process_product(
             calibration_state=calibration_state,
             action_task_id=task.id,
             inventory_count=inventory_count,
+            holdout_pct=20,  # Enable causal measurement from day one
         )
         log(
             f"nudge {'CREATED' if nudge_created else 'refreshed'} "

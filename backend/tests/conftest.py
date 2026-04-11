@@ -18,6 +18,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Set env vars BEFORE any app imports (modules read env at import time)
+os.environ["APP_ENV"] = "test"
+os.environ.pop("NOTIFICATIONS_ALLOW_REAL", None)
 os.environ.setdefault("MERCHANT_SESSION_SECRET", "test-session-secret-32chars-long!")
 os.environ.setdefault("SHOPIFY_API_SECRET", "test-shopify-secret")
 os.environ.setdefault("MERCHANT_TOKEN_ENCRYPTION_KEY", os.urandom(32).hex())
@@ -75,8 +77,15 @@ def db():
         if transaction_inner.nested and not transaction_inner.parent.nested:
             nested = connection.begin_nested()
 
+    # Make evolution_engine weakness scoring use the test session
+    # so test data is visible to _sort_by_weakness
+    import app.services.evolution_engine as _ee
+    _prev_override = _ee._weakness_db_override
+    _ee._weakness_db_override = session
+
     yield session
 
+    _ee._weakness_db_override = _prev_override
     session.close()
     transaction.rollback()
     connection.close()

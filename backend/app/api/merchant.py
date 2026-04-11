@@ -47,6 +47,7 @@ from __future__ import annotations
 import os
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -74,7 +75,22 @@ def _normalise_plan(raw: str | None) -> str:
     return _PRO_PLAN if raw == _PRO_PLAN else "lite"
 
 
-@router.get("/me")
+class MerchantMeResponse(BaseModel):
+    """GET /merchant/me — session bootstrap identity + plan payload."""
+    shop_domain: str
+    pro_trial_days: int
+    pro_price: float
+    plan: str
+    billing_active: bool
+    install_status: str
+    billing_confirmed_at: str | None = None
+
+
+@router.get(
+    "/me",
+    response_model=MerchantMeResponse,
+    response_model_exclude_none=False,
+)
 def get_merchant_me(
     shop: str = Depends(require_merchant_session),
     db:   Session = Depends(get_db),
@@ -121,7 +137,11 @@ def get_merchant_me(
 
 # Keep /merchant/plan as an alias for backward compatibility
 # (same handler, same auth, same response)
-@router.get("/plan")
+@router.get(
+    "/plan",
+    response_model=MerchantMeResponse,
+    response_model_exclude_none=False,
+)
 def get_merchant_plan(
     shop: str = Depends(require_merchant_session),
     db:   Session = Depends(get_db),

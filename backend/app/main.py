@@ -137,6 +137,8 @@ from app.api.shopify_admin_api import router as shopify_admin_router
 from app.api.klaviyo import router as klaviyo_router
 from app.api.attribution import router as attribution_router
 from app.api.lift import router as lift_router
+from app.api.proof_report import router as proof_report_router
+from app.api.public_proofs import router as public_proofs_router
 from app.api.heatmap import router as heatmap_router
 from app.api.cohorts import router as cohorts_router
 from app.api.shopify_oauth import router as shopify_oauth_router
@@ -144,8 +146,11 @@ from app.api.billing import router as billing_router
 from app.api.setup import router as setup_router
 from app.api.onboarding import router as onboarding_router
 from app.api.ops import router as ops_router
+from app.api.frontend_errors import router as frontend_errors_router
 from app.api.health import router as health_router
 from app.api.orders import router as orders_router
+from app.api.pnl import router as pnl_router
+from app.api.cost_config import router as cost_config_router
 from app.api.integrations import router as integrations_router
 from app.api.telegram_webhook import router as telegram_webhook_router
 from app.api.chat_support import router as chat_support_router
@@ -154,7 +159,7 @@ from app.api.sentry_webhooks import router as sentry_webhooks_router
 
 _startup_log = logging.getLogger("wishspark.startup")
 
-app = FastAPI(title="WishSpark API", docs_url=None, redoc_url=None)
+app = FastAPI(title="HedgeSpark API", docs_url=None, redoc_url=None)
 
 # CORS — must allow:
 #   1. https://app.hedgesparkhq.com       — dashboard (subdomain)
@@ -330,6 +335,8 @@ app.include_router(shopify_admin_router)
 app.include_router(klaviyo_router)
 app.include_router(attribution_router)
 app.include_router(lift_router)
+app.include_router(proof_report_router)
+app.include_router(public_proofs_router)
 app.include_router(heatmap_router)
 app.include_router(cohorts_router)
 app.include_router(shopify_oauth_router)
@@ -338,12 +345,15 @@ app.include_router(setup_router)
 app.include_router(onboarding_router)
 app.include_router(health_router)
 app.include_router(orders_router)
+app.include_router(pnl_router)
+app.include_router(cost_config_router)
 app.include_router(integrations_router)
 app.include_router(telegram_webhook_router)
 app.include_router(chat_support_router)
 app.include_router(resend_webhooks_router)
 app.include_router(sentry_webhooks_router)
 app.include_router(ops_router)
+app.include_router(frontend_errors_router)
 
 
 # ---------------------------------------------------------------------------

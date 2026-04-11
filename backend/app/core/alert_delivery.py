@@ -66,6 +66,11 @@ def deliver_alert_externally(
         "text": f"{emoji} *[{severity.upper()}]* {alert_type}{shop_line}\n{summary}\n_Source: {source}_",
     }
 
+    # Guard: block real Slack sends in non-production environments.
+    from app.core.notifier_guard import require_production
+    if not require_production("slack", summary):
+        return False
+
     try:
         resp = httpx.post(_SLACK_URL, json=payload, timeout=_TIMEOUT)
         if resp.status_code == 200:
@@ -119,6 +124,12 @@ def notify_approval_pending(
 
     # Fallback: Slack (if configured and Telegram didn't work)
     if not sent and _SLACK_URL:
+        # Guard: block real Slack sends in non-production environments.
+        from app.core.notifier_guard import is_real_send_allowed as _slack_ok
+        if not _slack_ok():
+            from app.core.notifier_guard import block_send
+            block_send("slack", f"approval#{approval_id}")
+            return False
         try:
             shop_line = f"\n*Shop:* `{shop_domain}`" if shop_domain else ""
             reason_line = f"\n*Reason:* {reason}" if reason else ""

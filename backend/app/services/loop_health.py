@@ -83,8 +83,10 @@ def check_recurrence(db: Session, lookback_days: int = 60) -> list[dict]:
         FROM bugfix_candidates
         WHERE created_at >= :cutoff
           AND source_ref IS NOT NULL
+          AND outcome_status IS NOT NULL
         GROUP BY source_type, source_ref
         HAVING COUNT(*) >= 2
+          AND COUNT(CASE WHEN outcome_status = 'ineffective' THEN 1 END) > 0
         ORDER BY COUNT(*) DESC
         LIMIT 20
     """), {"cutoff": cutoff}).fetchall()
@@ -150,6 +152,9 @@ def is_source_thrashing(db: Session, source_type: str, source_ref: str) -> bool:
     """
     Check if a specific source has hit the thrash threshold.
     Called by bugfix_pipeline.run_bug_triage to skip thrashing sources.
+
+    Binary gate kept for backwards compatibility — new code should prefer
+    thrash_score() which returns a graduated [0.0, 1.0] signal.
     """
     cutoff = _now() - timedelta(days=_THRASH_LOOKBACK_DAYS)
 
@@ -162,6 +167,43 @@ def is_source_thrashing(db: Session, source_type: str, source_ref: str) -> bool:
     """), {"stype": source_type, "sref": source_ref, "cutoff": cutoff}).fetchone()
 
     return (row[0] if row else 0) >= _THRASH_THRESHOLD
+
+
+def thrash_score(db: Session, source_type: str, source_ref: str) -> float:
+    """
+    Return a graduated thrash score in [0.0, 1.0] for the given source.
+
+    The previous binary `is_source_thrashing` was overly aggressive: one hit
+    to the threshold and a source was locked out forever, hiding real new
+    bugs on historically-flaky services. The graduated score lets the caller
+    make smarter decisions:
+
+        score = 0.0  → clean. Proceed normally.
+        0.0–0.5      → mild history. Proceed but the triage pipeline should
+                       annotate new proposals with prior-failure context so
+                       the LLM attempts a different approach.
+        0.5–1.0      → heavy thrash. Skip triage, escalate to operator.
+        1.0          → same as binary is_source_thrashing == True.
+
+    The underlying mapping is linear: score = min(1.0, failures / (2 * threshold)).
+    At `threshold` failures (the old binary cutoff) score = 0.5 — meaning
+    we *start* suppressing only after **double** the previous threshold,
+    while still conveying warning signals below that.
+    """
+    cutoff = _now() - timedelta(days=_THRASH_LOOKBACK_DAYS)
+
+    row = db.execute(text("""
+        SELECT COUNT(*) FROM bugfix_candidates
+        WHERE source_type = :stype AND source_ref = :sref
+          AND created_at >= :cutoff
+          AND (status IN ('apply_failed', 'rolled_back')
+               OR outcome_status = 'ineffective')
+    """), {"stype": source_type, "sref": source_ref, "cutoff": cutoff}).fetchone()
+
+    failures = int(row[0]) if row else 0
+    if failures <= 0:
+        return 0.0
+    return min(1.0, failures / float(2 * _THRASH_THRESHOLD))
 
 
 # ---------------------------------------------------------------------------
@@ -210,10 +252,17 @@ def reopen_from_ineffective(db: Session, max_per_cycle: int = 2) -> dict:
         if existing:
             continue
 
-        # Check thrash suppression
-        if is_source_thrashing(db, c.source_type, c.source_ref or ""):
+        # Graduated thrash gate — use the same [0,1] score that triage uses.
+        # Score >= 0.5 suppresses (equivalent to the legacy binary cutoff at
+        # the threshold). Score 0.0–0.5 still allows reopening but marks the
+        # followup with enrichment so the LLM knows this is a repeat attempt.
+        score = thrash_score(db, c.source_type, c.source_ref or "")
+        if score >= 0.5:
             summary["suppressed"] += 1
-            log.info("loop_health: suppressed reopen for thrashing source=%s ref=%s", c.source_type, c.source_ref)
+            log.info(
+                "loop_health: suppressed reopen for high-thrash source=%s ref=%s score=%.2f",
+                c.source_type, c.source_ref, score,
+            )
             continue
 
         # Create follow-up candidate with richer context
@@ -234,6 +283,11 @@ def reopen_from_ineffective(db: Session, max_per_cycle: int = 2) -> dict:
             "original_source_type": c.source_type,
             "original_source_ref": c.source_ref,
             "original_title": c.title,
+            # Graduated thrash score at the moment of reopen. Passed through
+            # to the LLM prompt so it can adjust its aggressiveness: a source
+            # that has failed twice before (score ~0.33) needs a fundamentally
+            # different approach, not a cosmetic variant of the previous patch.
+            "thrash_score_at_reopen": round(score, 3),
         }
 
         new_candidate = BugFixCandidate(
@@ -432,11 +486,91 @@ def get_loop_health(db: Session) -> dict:
     failed = total_failed_30d[0] if total_failed_30d else 0
     failure_rate = round(failed / attempted * 100, 1) if attempted > 0 else 0.0
 
+    # ----- Organic repair honesty metrics (post-2026-04-11 audit) -------
+    # The old `failure_rate` counts raw apply_failed/rolled_back/rejected
+    # over everything past-open. That number is MISLEADING because:
+    #   (a) bulk operator cleanups show up as "discarded" rows — they
+    #       aren't failures, they're noise removal
+    #   (b) orchestrator cosmetic actions (resolve_alert) inflate the
+    #       denominator when they recur as no_effect outcomes
+    #   (c) "applied" with outcome="ineffective" isn't counted as failed,
+    #       but from a merchant standpoint it IS a failed repair.
+    #
+    # `organic_*` metrics expose the honest signal:
+    #   - only real propose-patch attempts (excluding operator_cleanup)
+    #   - success = applied AND outcome='effective'
+    #   - failed = apply_failed OR rolled_back OR outcome='ineffective'
+    organic_attempted_30d = db.execute(text("""
+        SELECT COUNT(*) FROM bugfix_candidates
+        WHERE created_at >= :cutoff
+          AND status IN ('applied','apply_failed','rolled_back')
+          AND COALESCE(failure_reason,'') NOT LIKE 'pre_activation_cleanup%%'
+          AND COALESCE(failure_reason,'') NOT LIKE 'operator_cleanup%%'
+    """), {"cutoff": month_ago}).fetchone()
+    organic_effective_30d = db.execute(text("""
+        SELECT COUNT(*) FROM bugfix_candidates
+        WHERE created_at >= :cutoff
+          AND status = 'applied'
+          AND outcome_status = 'effective'
+    """), {"cutoff": month_ago}).fetchone()
+    organic_ineffective_30d = db.execute(text("""
+        SELECT COUNT(*) FROM bugfix_candidates
+        WHERE created_at >= :cutoff
+          AND status = 'applied'
+          AND outcome_status = 'ineffective'
+    """), {"cutoff": month_ago}).fetchone()
+
+    org_attempted = organic_attempted_30d[0] if organic_attempted_30d else 0
+    org_effective = organic_effective_30d[0] if organic_effective_30d else 0
+    org_ineffective = organic_ineffective_30d[0] if organic_ineffective_30d else 0
+    organic_success_rate = (
+        round(org_effective / org_attempted * 100, 1) if org_attempted > 0 else 0.0
+    )
+
+    # Orchestrator: distinguish cosmetic vs repair
+    try:
+        from app.services.orchestrator import _COSMETIC_ACTIONS
+        cosmetic_list = list(_COSMETIC_ACTIONS)
+    except Exception:
+        cosmetic_list = ["resolve_alert"]
+    orch_repair = db.execute(text("""
+        SELECT
+            COUNT(*) FILTER (WHERE outcome_status = 'success') AS successes,
+            COUNT(*) FILTER (WHERE outcome_status = 'no_effect') AS no_effects,
+            COUNT(*) AS total
+        FROM action_outcomes
+        WHERE executed_at >= :cutoff
+          AND action_type LIKE 'orch_%%'
+          AND action_type NOT IN :cosmetic
+    """), {"cutoff": month_ago, "cosmetic": tuple(f"orch_{c}" for c in cosmetic_list) or ("__none__",)}).fetchone()
+    orch_cosmetic = db.execute(text("""
+        SELECT
+            COUNT(*) FILTER (WHERE outcome_status = 'success') AS successes,
+            COUNT(*) FILTER (WHERE outcome_status = 'no_effect') AS no_effects,
+            COUNT(*) AS total
+        FROM action_outcomes
+        WHERE executed_at >= :cutoff
+          AND action_type IN :cosmetic
+    """), {"cutoff": month_ago, "cosmetic": tuple(f"orch_{c}" for c in cosmetic_list) or ("__none__",)}).fetchone()
+
+    orch_repair_success_rate = (
+        round((orch_repair[0] or 0) / (orch_repair[2] or 1) * 100, 1)
+        if orch_repair and orch_repair[2] else 0.0
+    )
+
     # Subsystem weakness ranking
     weakness = score_subsystem_weakness(db)
 
     # Trend tracking — compare recent (7d) vs baseline (30d) performance
     trend = _compute_trend(db, now)
+
+    # Honesty gate: the system claims health only when ORGANIC repairs
+    # actually produce effective outcomes. Pure activity (throughput)
+    # is not enough — we want measurable recovery.
+    organic_health_healthy = (
+        org_attempted == 0  # nothing to judge yet — don't flag as unhealthy
+        or organic_success_rate >= 40.0  # at least 40% effective when we do try
+    )
 
     return {
         "timestamp": now.isoformat() + "Z",
@@ -445,12 +579,34 @@ def get_loop_health(db: Session) -> dict:
         "throughput_7d": throughput,
         "outcomes_30d": outcomes_30d,
         "failure_rate_30d_pct": failure_rate,
+        "organic_repairs_30d": {
+            "attempted": org_attempted,
+            "effective": org_effective,
+            "ineffective": org_ineffective,
+            "success_rate_pct": organic_success_rate,
+        },
+        "orchestrator_30d": {
+            "repair_actions_total": orch_repair[2] if orch_repair else 0,
+            "repair_actions_success": orch_repair[0] if orch_repair else 0,
+            "repair_success_rate_pct": orch_repair_success_rate,
+            "cosmetic_actions_total": orch_cosmetic[2] if orch_cosmetic else 0,
+            "cosmetic_note": (
+                "cosmetic actions (e.g. resolve_alert) clean up noise "
+                "but are not expected to fix root causes — excluded "
+                "from repair_success_rate"
+            ),
+        },
         "stuck_items": stuck_items,
         "thrashing_sources": thrashing,
         "recurrences": recurrences,
         "weakest_subsystems": weakness[:5],
         "trend": trend,
-        "is_healthy": len(stuck_items) == 0 and len(thrashing) == 0 and failure_rate < 50,
+        "is_healthy": (
+            len(stuck_items) == 0
+            and len(thrashing) == 0
+            and failure_rate < 50
+            and organic_health_healthy
+        ),
     }
 
 

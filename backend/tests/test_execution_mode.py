@@ -61,7 +61,8 @@ class TestDryRunPrefix:
         with patch("app.core.execution_mode.is_dry_run", return_value=True), \
              patch("app.services.telegram_agent._BOT_TOKEN", "test-token"), \
              patch("app.services.telegram_agent._CHAT_ID", "123"), \
-             patch("app.services.telegram_agent._get_http_client", return_value=mock_client):
+             patch("app.services.telegram_agent._get_http_client", return_value=mock_client), \
+             patch("app.core.notifier_guard.is_real_send_allowed", return_value=True):
 
             send_message("Opus audit completed.")
 
@@ -84,7 +85,8 @@ class TestDryRunPrefix:
         with patch("app.core.execution_mode.is_dry_run", return_value=False), \
              patch("app.services.telegram_agent._BOT_TOKEN", "test-token"), \
              patch("app.services.telegram_agent._CHAT_ID", "123"), \
-             patch("app.services.telegram_agent._get_http_client", return_value=mock_client):
+             patch("app.services.telegram_agent._get_http_client", return_value=mock_client), \
+             patch("app.core.notifier_guard.is_real_send_allowed", return_value=True):
 
             send_message("Opus audit completed.")
 

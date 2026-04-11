@@ -1,5 +1,5 @@
 """
-Shopify OAuth helpers for Hedge Spark.
+Shopify OAuth helpers for HedgeSpark.
 
 All functions are pure (no DB, no FastAPI) so they are easy to unit-test.
 """
@@ -22,7 +22,7 @@ SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY", "")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET", "")
 APP_URL = os.getenv("APP_URL", "").rstrip("/")
 
-# Scopes required by Hedge Spark
+# Scopes required by HedgeSpark
 SHOPIFY_SCOPES = "read_products,read_orders,write_script_tags"
 
 # Callback URL that Shopify will redirect to after authorization

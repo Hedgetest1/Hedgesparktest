@@ -159,9 +159,18 @@ def get_retired_domains(weights: dict[str, dict]) -> list[dict]:
         wins = s.get("wins", 0)
         losses = s.get("losses", 0)
         measured = wins + losses
+        # Support external weight dicts that use total_attempts instead of wins/losses
+        total_attempts = s.get("total_attempts", 0)
+        if measured == 0 and total_attempts > 0:
+            # Infer from success_rate + total_attempts
+            rate = s.get("success_rate", 0.0)
+            measured = total_attempts
+        else:
+            rate = None  # compute below
         if measured < _KILL_MIN_SAMPLES:
             continue
-        rate = wins / measured if measured > 0 else 0.0
+        if rate is None:
+            rate = wins / measured if measured > 0 else 0.0
         if rate < _KILL_MAX_SUCCESS_RATE:
             retired.append({
                 "domain": domain,
@@ -217,12 +226,18 @@ def format_for_opus_prompt(weights: dict[str, dict]) -> str:
     Sorted descending by weight so the highest-performing domains appear
     first, reinforcing Opus's attention on proven directions.
     """
-    ordered = sorted(weights.items(), key=lambda kv: -kv[1]["weight"])
+    ordered = sorted(weights.items(), key=lambda kv: -kv[1].get("weight", kv[1].get("success_rate", 0.5)))
     lines = ["Reinforcement weights (higher = repeat this, lower = avoid):"]
     for domain, s in ordered:
-        flag = " (DAMPENED — few samples)" if s["dampened"] else ""
+        w = s.get("weight", s.get("success_rate", 0.5))
+        dampened = s.get("dampened", False)
+        flag = " (DAMPENED — few samples)" if dampened else ""
+        wins = s.get("wins", 0)
+        losses = s.get("losses", 0)
+        neutral = s.get("neutral", 0)
+        total = s.get("total", s.get("total_attempts", 0))
         lines.append(
-            f"  {domain}: weight={s['weight']:.2f}{flag} "
-            f"(wins={s['wins']} losses={s['losses']} neutral={s['neutral']} n={s['total']})"
+            f"  {domain}: weight={w:.2f}{flag} "
+            f"(wins={wins} losses={losses} neutral={neutral} n={total})"
         )
     return "\n".join(lines)

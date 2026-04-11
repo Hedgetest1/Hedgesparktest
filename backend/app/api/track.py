@@ -1,5 +1,5 @@
 """
-POST /track — storefront event ingestion endpoint for Hedge Spark.
+POST /track — storefront event ingestion endpoint for HedgeSpark.
 
 Receives events from spark-tracker.js, upserts a Visitor row, then persists
 an Event row with all fields stored in their dedicated columns.
@@ -201,7 +201,7 @@ def _is_known_shop(db: Session, shop_domain: str) -> bool:
 
     Uses Redis cache (5-min TTL) to avoid DB hit per event.
     This is the primary tracker abuse protection — prevents forged
-    events for shops that never installed Hedge Spark.
+    events for shops that never installed HedgeSpark.
     """
     from app.core.redis_client import cache_get, cache_set
     cache_key = f"hs:known_shop:{shop_domain}"
@@ -610,6 +610,13 @@ def track_event(request: Request, payload: TrackPayload, db: Session = Depends(g
     _persist_purchase(db, payload)
 
     db.commit()
+
+    # Best-effort geo capture for live visitor map (non-blocking)
+    try:
+        from app.core.geo import capture_visitor_geo_sync
+        capture_visitor_geo_sync(request, payload.shop_domain, payload.visitor_id)
+    except Exception:
+        pass  # geo is never critical
 
     return JSONResponse(
         content={"status": "ok", "event_id": event.id},

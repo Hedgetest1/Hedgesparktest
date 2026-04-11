@@ -1,5 +1,5 @@
 """
-Single, explicit environment bootstrap for the Hedge Spark backend.
+Single, explicit environment bootstrap for the HedgeSpark backend.
 
 This is the ONLY module in the codebase permitted to call load_dotenv().
 Every process entry point (FastAPI app, PM2 workers, pytest conftest,

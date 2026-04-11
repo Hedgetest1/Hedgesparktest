@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,8 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import require_merchant_session, require_pro_session
 from app.services.external_lookup_service import infer_external_lookup
+
+log = logging.getLogger("dashboard_api")
 
 SANDBOX_PATH = Path("/opt/wishspark/sandbox")
 
@@ -60,19 +63,36 @@ def _safe_bool(value: Any, default: bool = False) -> bool:
 
 
 def _rows(query: str, db: Session, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """
+    Safe row list fetcher — returns [] on SQL error (intentional soft-fail
+    behavior for dashboard widgets that should never break the whole page).
+    Errors are logged so silent failures are observable in logs + Sentry.
+    """
     try:
         result = db.execute(text(query), params or {})
         return [_to_dict(row) for row in result.fetchall()]
-    except Exception:
+    except Exception as exc:
+        log.warning(
+            "dashboard._rows: SQL failed (%s): %s",
+            type(exc).__name__, str(exc)[:200],
+        )
         return []
 
 
 def _row(query: str, db: Session, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    """
+    Safe single-row fetcher — returns {} on SQL error. Same soft-fail contract
+    as _rows(); errors logged so they're not invisible.
+    """
     try:
         result = db.execute(text(query), params or {})
         row = result.fetchone()
         return _to_dict(row) if row else {}
-    except Exception:
+    except Exception as exc:
+        log.warning(
+            "dashboard._row: SQL failed (%s): %s",
+            type(exc).__name__, str(exc)[:200],
+        )
         return {}
 
 

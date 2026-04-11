@@ -34,6 +34,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -43,6 +44,53 @@ from app.core.deps import require_pro_session
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/pro/heatmap", tags=["heatmap"])
+
+
+# ---------------------------------------------------------------------------
+# Response models for /pro/heatmap + /pro/heatmap/top — Scroll DNA cassettoni.
+# ---------------------------------------------------------------------------
+
+
+class ScrollBucket(BaseModel):
+    """One quartile bucket in the scroll depth distribution."""
+    label: str
+    range: list[int]
+    visitor_count: int
+    pct_of_viewers: float
+
+
+class ScrollProfile(BaseModel):
+    """Per-product scroll profile (buckets + summary metrics)."""
+    total_viewers: int
+    avg_scroll_depth: float
+    median_scroll_depth: float
+    buckets: list[ScrollBucket]
+    insight: str
+
+
+class HeatmapResponse(BaseModel):
+    """GET /pro/heatmap — one product's scroll profile."""
+    product_url: str
+    window_hours: int
+    generated_at: str
+    scroll: ScrollProfile
+
+
+class HeatmapProductRow(BaseModel):
+    """One product summary row inside the /pro/heatmap/top response."""
+    product_url: str
+    total_viewers: int
+    avg_scroll_depth: float
+    deep_reader_pct: float
+    insight: str
+    buckets: list[ScrollBucket]
+
+
+class HeatmapTopResponse(BaseModel):
+    """GET /pro/heatmap/top — scroll profiles for the top 5 products."""
+    products: list[HeatmapProductRow]
+    window_hours: int
+    generated_at: str | None = None
 
 
 def get_db():
@@ -163,7 +211,11 @@ def _empty_scroll_buckets() -> dict:
     }
 
 
-@router.get("")
+@router.get(
+    "",
+    response_model=HeatmapResponse,
+    response_model_exclude_none=False,
+)
 def get_heatmap(
     product_url: str,
     hours: int = 72,
@@ -191,7 +243,11 @@ def get_heatmap(
     }
 
 
-@router.get("/top")
+@router.get(
+    "/top",
+    response_model=HeatmapTopResponse,
+    response_model_exclude_none=False,
+)
 def get_top_heatmaps(
     hours: int = 72,
     shop: str = Depends(require_pro_session),

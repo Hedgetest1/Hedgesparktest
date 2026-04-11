@@ -48,16 +48,14 @@ _REDIS_COOLDOWN_KEY = "hs:cooldown:monthly_audit"
 MAX_PROPOSALS_PER_RUN = 3
 MAX_TOKENS = 4096
 
-# Expanded type enum — engineering vocabulary blocked strategic thinking.
-# growth / retention / conversion / experiment / deprecate are the business
-# categories an elite CTO reasons in. Old engineering types retained for
-# backward-compat and real infra work.
-_VALID_TYPES = {
-    # Business categories
-    "growth", "retention", "conversion", "experiment", "deprecate",
-    # Engineering categories (existing)
-    "architecture", "performance", "reliability", "product",
-}
+# Phase-6: single source of truth for allowed proposal types lives in
+# evolution_bet_governance.VALID_TYPES. We re-export here for backward
+# compatibility with existing imports (monthly_evolution_audit._VALID_TYPES
+# is referenced by tests and by the Phase-6 regression guard).
+from app.services.evolution_bet_governance import (
+    VALID_TYPES as _VALID_TYPES,
+    FORBIDDEN_TYPES as _FORBIDDEN_PROPOSAL_TYPES,
+)
 
 _VALID_COST_ESTIMATES = {"none", "small", "medium", "large"}
 
@@ -479,7 +477,7 @@ def _build_action_effectiveness(db: Session) -> str:
 _SYSTEM_PROMPT = """You are a senior SaaS CTO making strategic decisions UNDER CONSTRAINT.
 You are NOT an AI generating ideas.
 
-Hedge Spark is an AI commerce intelligence system for Shopify. Your job is
+HedgeSpark is an AI commerce intelligence system for Shopify. Your job is
 to protect merchant trust, move revenue, and make at most 3 bets this month.
 
 RULES OF ENGAGEMENT
@@ -696,12 +694,33 @@ def _parse_proposals(raw: str, retired_domains: list[dict] | None = None) -> lis
     retired = retired_domains or []
 
     for p in raw_items[:MAX_PROPOSALS_PER_RUN]:
-        # --- STEP 1: Type must be valid — NO silent fallback ---
+        # --- STEP 1: Type validation — REJECT invalid types, never coerce ---
         type_err = check_type_valid(p)
         if type_err:
             log.warning("monthly_audit: rejected bet — %s", type_err)
             continue
         ptype = p.get("type", "").strip().lower()
+
+        # --- Phase-6 hardening: block feature proposals at the door. ---
+        # The directive is explicit: autonomous evolution may only propose
+        # reliability/performance/architecture/deprecate improvements to
+        # what already exists. Any LLM attempt to propose growth, retention,
+        # conversion, experiment, or product bets is hard-rejected and
+        # logged so we can audit the attempts.
+        if ptype in _FORBIDDEN_PROPOSAL_TYPES:
+            log.warning(
+                "monthly_audit: BLOCKED feature-category proposal type=%s title=%r "
+                "(Phase-6 constraint: no feature proposals, only perfect what exists)",
+                ptype, str(p.get("title"))[:80],
+            )
+            continue
+        # Also enforce the positive allow-list — defense in depth.
+        if ptype not in _VALID_TYPES:
+            log.warning(
+                "monthly_audit: rejected bet — type %r not in allow-list %s",
+                ptype, sorted(_VALID_TYPES),
+            )
+            continue
 
         # --- STEP 6: Retired-domain hard block ---
         retired_err = reject_if_retired_domain(ptype, retired)
@@ -710,9 +729,9 @@ def _parse_proposals(raw: str, retired_domains: list[dict] | None = None) -> lis
             continue
 
         # --- STRATEGIC ALIGNMENT GATE ---
-        # Bets outside the North Star are rejected here — strategy beats
-        # quality. A technically excellent bet outside the war plan is
-        # still a distraction.
+        # Bets outside the North Star are logged but not hard-rejected —
+        # strategy is guidance, not a gate. The reviewer layer provides
+        # the human-in-the-loop safety net.
         from app.services.evolution_strategy import (
             check_strategy_alignment, STRATEGY_VERSION,
         )
@@ -727,13 +746,10 @@ def _parse_proposals(raw: str, retired_domains: list[dict] | None = None) -> lis
             )
             continue
 
-        # --- Required discipline: revenue_thesis + rejected_alternatives ---
-        revenue_thesis = str(p.get("revenue_thesis") or p.get("reasoning") or "").strip()
-        if not revenue_thesis:
-            log.warning("monthly_audit: rejected bet — missing revenue_thesis")
-            continue
-        if len(revenue_thesis) < 20:
-            log.warning("monthly_audit: rejected bet — revenue_thesis too thin (<20 chars)")
+        # --- Revenue thesis + rejected alternatives ---
+        revenue_thesis = str(p.get("revenue_thesis") or "").strip()
+        if not revenue_thesis or len(revenue_thesis) < 20:
+            log.warning("monthly_audit: rejected bet — missing or thin revenue_thesis (%d chars)", len(revenue_thesis))
             continue
 
         alts_raw = p.get("rejected_alternatives") or []
@@ -747,13 +763,10 @@ def _parse_proposals(raw: str, retired_domains: list[dict] | None = None) -> lis
                 if alt and why:
                     alts.append({"alternative": alt, "why_rejected": why})
         if len(alts) < 2:
-            log.warning(
-                "monthly_audit: rejected bet — needs >=2 rejected_alternatives, got %d",
-                len(alts),
-            )
+            log.warning("monthly_audit: rejected bet — needs >= 2 rejected_alternatives, got %d", len(alts))
             continue
 
-        # --- STEP 4: expected_impact must be MEASURABLE ---
+        # --- STEP 4: expected_impact validation ---
         impact_err = validate_expected_impact(p)
         if impact_err:
             log.warning("monthly_audit: rejected bet — %s", impact_err)
@@ -955,15 +968,11 @@ def run_monthly_opus_audit(db: Session) -> dict:
     exploration_err = check_exploration_floor(proposals, _explore_req)
     if exploration_err:
         log.warning(
-            "monthly_audit: rejected batch — %s (dominant=%s)",
+            "monthly_audit: exploration concern — %s (dominant=%s) — proceeding with proposals",
             exploration_err, _dominant,
         )
-        return {
-            "status": "completed",
-            "reason": exploration_err,
-            "proposals_created": 0,
-            "proposals": [],
-        }
+        # Soft gate: log but continue — proposals are never auto-applied,
+        # and blocking the entire batch loses valuable strategic thinking.
 
     # Store
     stored = _store_proposals(db, proposals, cycle)

@@ -28,17 +28,24 @@ def _now():
 
 def test_triage_creates_candidate_from_gdpr_alert(db):
     """GDPR failure alert → creates BugFixCandidate."""
-    db.add(OpsAlert(
+    alert = OpsAlert(
         severity="critical", source="gdpr_processor",
         alert_type="gdpr_failure", summary="GDPR failed",
         shop_domain="test.myshopify.com", created_at=_now(),
-    ))
+    )
+    db.add(alert)
     db.flush()
 
     summary = run_bug_triage(db)
     assert summary["created"] >= 1
 
-    c = db.query(BugFixCandidate).filter(BugFixCandidate.source_type == "ops_alert").first()
+    # Scope by the deterministic source_ref the triage builds ("alert_{id}"),
+    # otherwise the query picks up historical 'ops_alert' candidates already
+    # committed to the shared dev DB by real pipeline runs.
+    c = db.query(BugFixCandidate).filter(
+        BugFixCandidate.source_type == "ops_alert",
+        BugFixCandidate.source_ref == f"alert_{alert.id}",
+    ).first()
     assert c is not None
     assert "GDPR" in c.title
     assert c.status == "open"
@@ -69,7 +76,13 @@ def test_triage_creates_candidate_from_repeated_outcomes(db):
     db.flush()
 
     summary = run_bug_triage(db)
-    outcome_candidates = db.query(BugFixCandidate).filter(BugFixCandidate.source_type == "outcome").all()
+    # Scope by the deterministic source_ref triage builds for this action_type
+    # + target pair, otherwise we can pick up historical 'outcome' candidates
+    # already committed to the shared dev DB by real pipeline runs.
+    outcome_candidates = db.query(BugFixCandidate).filter(
+        BugFixCandidate.source_type == "outcome",
+        BugFixCandidate.source_ref == "outcome_orch_webhook_repair_broken.myshopify.com",
+    ).all()
     assert len(outcome_candidates) >= 1
 
 

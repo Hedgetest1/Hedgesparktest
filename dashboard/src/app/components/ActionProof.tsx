@@ -1,24 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { apiClient, type paths } from "../lib/api-client";
 
-type Improvement = {
-  product_url: string;
-  action_type: string;
-  summary: string;
-  delta_cvr: number | null;
-  delta_revenue: number | null;
-  measured_at: string | null;
-};
-
-type ProofData = {
-  actions_measured: number;
-  improvements: Improvement[];
-  total_revenue_delta: number;
-};
+// Source of truth: GET /actions/proof → ActionProofSummaryResponse.
+type ProofData =
+  paths["/actions/proof"]["get"]["responses"]["200"]["content"]["application/json"];
+type Improvement = ProofData["improvements"][number];
 
 export function ActionProof({
-  apiBase,
+  apiBase: _apiBase,
   shop,
 }: {
   apiBase: string;
@@ -28,18 +19,14 @@ export function ActionProof({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!shop || !apiBase) return;
+    if (!shop) return;
     let active = true;
     setLoading(true);
 
-    fetch(`${apiBase}/actions/proof?shop=${encodeURIComponent(shop)}`, {
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      cache: "no-store",
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((json) => {
-        if (active) setData(json);
+    apiClient
+      .GET("/actions/proof", { params: { query: {} } })
+      .then((res) => {
+        if (active && res.data != null) setData(res.data);
       })
       .catch(() => {})
       .finally(() => {
@@ -49,7 +36,7 @@ export function ActionProof({
     return () => {
       active = false;
     };
-  }, [apiBase, shop]);
+  }, [shop]);
 
   if (loading) {
     return (
@@ -68,7 +55,7 @@ export function ActionProof({
           Proof of Impact
         </div>
         <p className="mt-2 text-[12px] leading-relaxed text-slate-500">
-          When you take action on a signal, Hedge Spark captures the baseline
+          When you take action on a signal, HedgeSpark captures the baseline
           metrics and measures the result 7 days later. Your first
           before-and-after report will appear here.
         </p>
@@ -112,7 +99,7 @@ export function ActionProof({
               <div className="text-[12px] font-medium text-slate-300">
                 {imp.summary}
               </div>
-              {imp.delta_revenue !== null && imp.delta_revenue > 0 && (
+              {imp.delta_revenue != null && imp.delta_revenue > 0 && (
                 <div className="mt-1 text-[11px] text-emerald-400/80">
                   +${imp.delta_revenue.toLocaleString(undefined, { minimumFractionDigits: 2 })} revenue
                 </div>

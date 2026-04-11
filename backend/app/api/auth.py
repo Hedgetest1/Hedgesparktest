@@ -1,5 +1,5 @@
 """
-Shopify OAuth install and callback endpoints for Hedge Spark.
+Shopify OAuth install and callback endpoints for HedgeSpark.
 
 Flow:
   GET /install?shop=example.myshopify.com
@@ -55,7 +55,7 @@ def install(shop: str = Query(..., description="Shopify shop domain")):
     Entry point for the Shopify app install flow.
 
     Validates the shop domain and redirects the merchant to the Shopify
-    OAuth authorization page where they grant permissions to Hedge Spark.
+    OAuth authorization page where they grant permissions to HedgeSpark.
     """
     if not is_valid_shop_domain(shop):
         raise HTTPException(

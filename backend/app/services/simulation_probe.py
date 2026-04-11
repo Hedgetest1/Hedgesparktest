@@ -88,7 +88,15 @@ def run_ingestion_probe(
 
     # Find a synthetic merchant to probe with
     from app.services.simulation_engine import get_synthetic_merchants
-    merchants = get_synthetic_merchants(db)
+    try:
+        merchants = get_synthetic_merchants(db)
+    except Exception as exc:
+        result.failures.append({
+            "check": "setup",
+            "detail": f"Failed to query synthetic merchants: {exc}",
+        })
+        result.checks_failed += 1
+        return result
     if not merchants:
         result.failures.append({
             "check": "setup",

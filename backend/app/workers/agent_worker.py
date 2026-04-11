@@ -255,9 +255,11 @@ def _run_bug_triage(auto_apply_paused: bool = False):
     db = SessionLocal()
     try:
         from app.services.bugfix_pipeline import run_bug_triage, run_auto_propose, run_auto_apply
-        from app.services.promotion_pipeline import run_auto_promotion
+        from app.services.promotion_pipeline import run_auto_promotion, run_auto_merge
 
-        # Build phase list — skip auto_apply and auto_promotion when circuit breaker is tripped
+        # Build phase list — skip auto_apply, auto_promotion, and auto_merge
+        # when the circuit breaker is tripped. auto_merge is also gated by
+        # AUTO_MERGE_TIER0 env flag (default off) inside promotion_pipeline.
         phases = [
             ("triage", lambda: run_bug_triage(db)),
             ("auto_propose", lambda: run_auto_propose(db)),
@@ -265,6 +267,7 @@ def _run_bug_triage(auto_apply_paused: bool = False):
         if not auto_apply_paused:
             phases.append(("auto_apply", lambda: run_auto_apply(db)))
             phases.append(("auto_promotion", lambda: run_auto_promotion(db)))
+            phases.append(("auto_merge", lambda: run_auto_merge(db)))
         else:
             log("bug_triage: auto_apply PAUSED by circuit breaker — triage and propose continue")
 
@@ -481,12 +484,6 @@ def _run_monthly_evolution_audit():
         if not should_run_monthly_audit(db):
             return
 
-        # ALWAYS mark cooldown regardless of outcome — prevents infinite retry
-        # when LLM keys aren't configured (the "skipped every 15 min" bug).
-        # Start with the full 30-day cooldown; if we detect a transient
-        # failure below, shorten it to 24h so we retry tomorrow.
-        mark_monthly_audit_run()
-
         result = run_monthly_opus_audit(db)
         db.commit()
 
@@ -494,6 +491,8 @@ def _run_monthly_evolution_audit():
         reason = result.get("reason", "unknown")
         actually_ran = status == "completed" and result.get("proposals_created", 0) > 0
 
+        # ALWAYS mark cooldown exactly once regardless of outcome — prevents
+        # infinite retry when LLM keys aren't configured.
         # Transient-failure detection: if the audit was skipped purely because
         # the LLM was unavailable (no API key, budget block, 429 backoff), do
         # NOT burn the whole month. Shorten the cooldown to 24h so the next
@@ -502,10 +501,12 @@ def _run_monthly_evolution_audit():
         if status == "skipped" and reason in _TRANSIENT_REASONS:
             mark_monthly_audit_run(ttl_seconds=86400)
             log(f"monthly_opus_audit: transient skip ({reason}) — retry in 24h")
-        elif actually_ran:
-            log(f"monthly_opus_audit: created={result['proposals_created']} cycle={result.get('cycle')}")
-        elif status == "skipped":
-            log(f"monthly_opus_audit: skipped — {reason}")
+        else:
+            mark_monthly_audit_run()
+            if actually_ran:
+                log(f"monthly_opus_audit: created={result['proposals_created']} cycle={result.get('cycle')}")
+            elif status == "skipped":
+                log(f"monthly_opus_audit: skipped — {reason}")
 
         # Send Telegram ONLY when audit actually produced proposals.
         # "Skipped" is a non-event — log it, don't spam Telegram.
@@ -747,15 +748,15 @@ def _run_lifecycle_emails():
       2. first_insight    — first opportunity_signal appeared (once per shop)
       3. connection_issue — merchant stuck in degraded/failed state >2h
 
-    All dedup is handled inside send_lifecycle_email — safe to call every cycle.
+    All dedup is handled inside submit_lifecycle_intent — safe to call every cycle.
     """
     db = SessionLocal()
     try:
-        from app.services.merchant_email_service import send_lifecycle_email
+        from app.services.merchant_email_service import submit_lifecycle_intent
         from app.models.merchant import Merchant
         from datetime import timedelta
         now = datetime.now(timezone.utc).replace(tzinfo=None)
-        emails_sent = 0
+        intents_queued = 0
 
         # --- 1. Setup incomplete: installed >24h ago, not ready ---
         install_cutoff = now - timedelta(hours=24)
@@ -773,12 +774,12 @@ def _run_lifecycle_emails():
         )
         for m in stuck_merchants:
             hours = int((now - m.installed_at).total_seconds() / 3600) if m.installed_at else 24
-            result = send_lifecycle_email(db, m.shop_domain, "setup_incomplete", {
+            result = submit_lifecycle_intent(db, m.shop_domain, "setup_incomplete", {
                 "issue": m.onboarding_error or "setup is incomplete",
                 "hours_since_install": hours,
             })
-            if result["status"] == "sent":
-                emails_sent += 1
+            if result["status"] == "queued":
+                intents_queued += 1
             db.commit()
 
         # --- 2. First insight: shops with signals that haven't received this email ---
@@ -818,9 +819,9 @@ def _run_lifecycle_emails():
             if top:
                 ctx["top_signal"] = top[1] or top[0] or "a product showing unusual visitor behavior"
 
-            result = send_lifecycle_email(db, shop, "first_insight", ctx)
-            if result["status"] == "sent":
-                emails_sent += 1
+            result = submit_lifecycle_intent(db, shop, "first_insight", ctx)
+            if result["status"] == "queued":
+                intents_queued += 1
             db.commit()
 
         # --- 3. Connection issue: stuck merchants (degraded/failed >2h) ---
@@ -837,19 +838,175 @@ def _run_lifecycle_emails():
             .all()
         )
         for m in degraded_merchants:
-            # Only send if they've been stuck for a while (check updated_at or installed_at)
-            result = send_lifecycle_email(db, m.shop_domain, "connection_issue", {
+            result = submit_lifecycle_intent(db, m.shop_domain, "connection_issue", {
                 "issue": m.onboarding_error or "the connection to your store was lost",
             })
-            if result["status"] == "sent":
-                emails_sent += 1
+            if result["status"] == "queued":
+                intents_queued += 1
             db.commit()
 
-        if emails_sent > 0:
-            log(f"lifecycle_emails: sent={emails_sent}")
+        if intents_queued > 0:
+            log(f"lifecycle_emails: {intents_queued} intents queued for orchestrator")
 
     except Exception as exc:
         log(f"lifecycle_emails error (non-fatal): {exc}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _run_followup_emails():
+    """
+    Send 48h follow-up emails to merchants who received a beta invite
+    but haven't engaged. Deterministic variant selection based on journey state.
+
+    The followup worker commits per-merchant internally — no outer commit needed.
+    """
+    db = SessionLocal()
+    try:
+        from app.services.followup_worker import run_followup_cycle
+        result = run_followup_cycle(db)
+        # No outer commit — run_followup_cycle commits per-merchant
+        if result["sent"] > 0 or result["failed"] > 0:
+            log(f"followup_emails: eligible={result['eligible']} sent={result['sent']} skipped={result['skipped']} failed={result['failed']}")
+    except Exception as exc:
+        log(f"followup_emails error (non-fatal): {exc}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _run_inbound_actions():
+    """Execute routing actions from classified inbound emails. Closes the merchant reply loop."""
+    db = SessionLocal()
+    try:
+        from app.services.inbound_action_executor import run_inbound_actions, run_low_severity_escalation
+        result = run_inbound_actions(db)
+        db.commit()
+        esc = run_low_severity_escalation(db)
+        db.commit()
+        total = result["processed"] + result["incidents_created"] + result["feedback_logged"]
+        if total > 0 or esc["escalated"] > 0:
+            log(f"inbound_actions: processed={result['processed']} incidents={result['incidents_created']} feedback={result['feedback_logged']} escalated={esc['escalated']}")
+    except Exception as exc:
+        log(f"inbound_actions error (non-fatal): {exc}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _run_silence_detection():
+    """Detect merchants with 0 events over 14 days while still active. Trigger re-engagement."""
+    db = SessionLocal()
+    try:
+        from app.services.silence_detector import run_silence_detection
+        result = run_silence_detection(db)
+        db.commit()
+        if result["detected"] > 0:
+            log(f"silence_detection: detected={result['detected']} alerted={result['alerted']}")
+    except Exception as exc:
+        log(f"silence_detection error (non-fatal): {exc}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _run_action_agent():
+    """Claim and execute pending action tasks — creates nudges for auto-executable actions."""
+    db = SessionLocal()
+    try:
+        from app.services.action_agent import run_action_cycle
+        result = run_action_cycle(db)
+        db.commit()
+        if result["executed"] > 0 or result["approval_queued"] > 0:
+            log(f"action_agent: claimed={result['claimed']} executed={result['executed']} approval={result['approval_queued']} failed={result['failed']}")
+    except Exception as exc:
+        log(f"action_agent error (non-fatal): {exc}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _run_action_learning():
+    """Evaluate action outcomes and feed learning back into ranking."""
+    db = SessionLocal()
+    try:
+        from app.services.action_learning import evaluate_pending_outcomes
+        result = evaluate_pending_outcomes(db)
+        db.commit()
+        if result["evaluated"] > 0:
+            log(f"action_learning: evaluated={result['evaluated']} success={result['success']} no_effect={result['no_effect']}")
+    except Exception as exc:
+        log(f"action_learning error (non-fatal): {exc}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _run_revenue_triggers():
+    """Send event-driven emails when revenue-significant conditions are detected."""
+    db = SessionLocal()
+    try:
+        from app.services.revenue_triggers import run_revenue_triggers
+        result = run_revenue_triggers(db)
+        db.commit()
+        if result["triggered"] > 0:
+            log(f"revenue_triggers: checked={result['checked']} triggered={result['triggered']} skipped={result['skipped']}")
+    except Exception as exc:
+        log(f"revenue_triggers error (non-fatal): {exc}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _run_email_orchestrator_flush():
+    """
+    Flush pending email intents through the orchestrator.
+
+    Called after all email-producing phases (digest, lifecycle, followup,
+    silence, revenue triggers). Resolves conflicts, enforces rate limits,
+    merges compatible messages, and sends the winners.
+    """
+    from app.services.email_orchestrator import get_pending_intents, resolve_and_flush, clear_intents
+
+    pending = get_pending_intents()
+    if not pending:
+        return
+
+    db = SessionLocal()
+    try:
+        result = resolve_and_flush(db)
+        db.commit()
+        log(
+            f"email_orchestrator: intents={result['total_intents']} "
+            f"merchants={result['merchants']} sent={result['sent']} "
+            f"deferred={result['deferred']} rate_limited={result['rate_limited']} "
+            f"merged={result['merged']}"
+        )
+    except Exception as exc:
+        log(f"email_orchestrator flush error (non-fatal): {exc}")
+        db.rollback()
+        clear_intents()  # Don't let failed intents accumulate
+    finally:
+        db.close()
+
+
+def _run_billing_sync():
+    """Verify Pro merchant billing state with Shopify. Runs weekly (Sunday only)."""
+    from datetime import timezone as _tz
+    now_dt = datetime.now(_tz.utc).replace(tzinfo=None)
+    if now_dt.weekday() != 6:  # Sunday only
+        return
+
+    db = SessionLocal()
+    try:
+        from app.services.billing_sync import run_billing_sync
+        result = run_billing_sync(db)
+        db.commit()
+        if result["checked"] > 0:
+            log(f"billing_sync: checked={result['checked']} deactivated={result['deactivated']}")
+    except Exception as exc:
+        log(f"billing_sync error (non-fatal): {exc}")
         db.rollback()
     finally:
         db.close()
@@ -1317,10 +1474,34 @@ def run_cycle():
     # Phase 7e: Lifecycle emails (setup_incomplete, first_insight, connection_issue)
     _run_lifecycle_emails()
 
-    # Phase 7f: Sentry incident triage — generate AI debugging packets
+    # Phase 7f: 48h follow-up emails (beta invite follow-ups)
+    _run_followup_emails()
+
+    # Phase 7g: Inbound email action executor — close the merchant reply loop
+    _run_inbound_actions()
+
+    # Phase 7h: Churn / silence detection — catch merchants going dark
+    _run_silence_detection()
+
+    # Phase 7i: Billing sync — verify Pro merchant charges with Shopify
+    _run_billing_sync()
+
+    # Phase 7j: Action execution agent — close the action loop
+    _run_action_agent()
+
+    # Phase 7k: Action learning — measure outcomes, feed back into scoring
+    _run_action_learning()
+
+    # Phase 7l: Revenue-triggered emails — event-driven merchant notifications
+    _run_revenue_triggers()
+
+    # Phase 7m: Email orchestrator flush — resolve conflicts across all email producers
+    _run_email_orchestrator_flush()
+
+    # Phase 7n: Sentry incident triage — generate AI debugging packets
     _run_sentry_triage()
 
-    # Phase 7g: Scoring intelligence self-evaluation (every cycle, lightweight)
+    # Phase 7k: Scoring intelligence self-evaluation (every cycle, lightweight)
     _run_scoring_self_eval()
 
     # Phase 8: Sandbox analysis (original agent_worker logic)

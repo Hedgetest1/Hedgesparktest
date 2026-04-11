@@ -537,7 +537,7 @@ def push_intent_signals_to_klaviyo(
     shop_domain: str,
 ) -> dict:
     """
-    Push 'Hedge Spark — Intent Detected' events to Klaviyo for fresh
+    Push 'HedgeSpark — Intent Detected' events to Klaviyo for fresh
     high-intent signals on a shop.
 
     Reads OpportunitySignal rows detected in the last 15 minutes,
@@ -669,7 +669,7 @@ def push_intent_signals_to_klaviyo(
                         "metric": {
                             "data": {
                                 "type": "metric",
-                                "attributes": {"name": "Hedge Spark — Intent Detected"},
+                                "attributes": {"name": "HedgeSpark — Intent Detected"},
                             }
                         },
                         "profile": {

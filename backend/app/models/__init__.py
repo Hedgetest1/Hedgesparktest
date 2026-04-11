@@ -24,6 +24,15 @@ from app.models.system_lesson import SystemLesson
 from app.models.onboarding_event import OnboardingEvent
 from app.models.merchant_email import MerchantEmail
 from app.models.sentry_incident import SentryIncident
+from app.models.merchant_journey_state import MerchantJourneyState
+from app.models.email_event import EmailEvent
+from app.models.inbound_email import InboundEmail
+from app.models.store_intelligence_profile import StoreIntelligenceProfile, SipSnapshot
+from app.models.autonomous_action import AutonomousAction
+from app.models.cig import CigCohort, CigMerchantMapping
+from app.models.share_event import PublicProofShare, ShareEvent
+from app.models.shop_cost_defaults import ShopCostDefaults
+from app.models.product_cost import ProductCost
 
 __all__ = [
     "ActiveNudge",
@@ -52,4 +61,16 @@ __all__ = [
     "OnboardingEvent",
     "MerchantEmail",
     "SentryIncident",
+    "MerchantJourneyState",
+    "EmailEvent",
+    "InboundEmail",
+    "StoreIntelligenceProfile",
+    "SipSnapshot",
+    "AutonomousAction",
+    "CigCohort",
+    "CigMerchantMapping",
+    "PublicProofShare",
+    "ShareEvent",
+    "ShopCostDefaults",
+    "ProductCost",
 ]

@@ -74,14 +74,25 @@ def compute_merge_recommendation(db: Session, promotion_id: int) -> MergeRecomme
     if candidate and getattr(candidate, "patch_risk_tier", None) != 0:
         rec.reasons.append(f"patch_risk_tier_not_0: {getattr(candidate, 'patch_risk_tier', 'unknown')}")
 
-    # Gate 6: No critical alerts since apply
+    # Gate 6: No critical alerts in the evaluation window after apply
+    # Only checks alerts within 24 hours of apply — older alerts are pre-existing.
+    # Excludes infrastructure alerts (worker health, circuit breakers) that are
+    # unrelated to code changes.
+    _INFRA_ALERT_TYPES = {
+        "circuit_breaker_tripped", "worker_stale", "worker_error_rate",
+        "merge_intelligence", "redis_unavailable", "health_check_failed",
+    }
     if candidate and candidate.applied_at:
         from app.models.ops_alert import OpsAlert
+        from datetime import timedelta
+        window_end = candidate.applied_at + timedelta(hours=24)
         critical_after = (
             db.query(OpsAlert)
             .filter(
                 OpsAlert.severity == "critical",
                 OpsAlert.created_at > candidate.applied_at,
+                OpsAlert.created_at <= window_end,
+                ~OpsAlert.alert_type.in_(_INFRA_ALERT_TYPES),
             )
             .count()
         )
@@ -204,14 +215,24 @@ def _evaluate_single(db: Session, outcome: MergeOutcome) -> tuple[str, str]:
         if new_candidates > 0:
             reasons.append(f"same_bug_reappeared: {new_candidates} new candidates")
 
-    # Check 2: New critical alerts since merge?
+    # Check 2: New critical alerts since merge (within evaluation window)?
+    # Only count alerts from sources that could indicate code regression,
+    # excluding infrastructure monitors like circuit breakers.
     from app.models.ops_alert import OpsAlert
+    _INFRA_ALERT_TYPES = {
+        "circuit_breaker_tripped", "worker_stale", "webhook_monitor",
+        "budget_exceeded", "rate_limit",
+    }
+    eval_window_end = outcome.created_at + timedelta(minutes=_MIN_EVAL_DELAY_MINUTES + 5)
     new_critical = (
         db.query(OpsAlert)
         .filter(
             OpsAlert.severity == "critical",
             OpsAlert.created_at > outcome.created_at,
+            OpsAlert.created_at <= eval_window_end,
             OpsAlert.resolved == False,
+            OpsAlert.source != "merge_intelligence",  # avoid self-referencing
+            OpsAlert.alert_type.notin_(_INFRA_ALERT_TYPES),
         )
         .count()
     )

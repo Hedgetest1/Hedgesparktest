@@ -74,10 +74,10 @@ _COST_PER_1K_TOKENS: dict[str, float] = {
 
 BUDGET_LIMITS: dict[str, dict] = {
     "orchestrator": {
-        "max_calls_per_day": 96,
+        "max_calls_per_day": 48,
         "max_calls_per_cycle": 1,
         "max_tokens_per_request": 512,
-        "cooldown_seconds": 300,
+        "cooldown_seconds": 900,  # 15 min — matches agent_worker cycle
     },
     "bugfix_proposal": {
         "max_calls_per_day": 10,
@@ -138,6 +138,33 @@ _provider_429: dict[str, dict] = {}   # provider → {last_429: float, backoff_s
 _MAX_BACKOFF = 300   # 5 minutes max
 _INITIAL_BACKOFF = 5  # 5 seconds initial
 
+# Both-providers-failed alert dedup: "module:hour_key" → True
+_both_failed_alert_sent: dict[str, bool] = {}
+
+# Exhaustion alert dedup (100% cap): "scope:month" → True
+_exhaustion_alert_sent: dict[str, bool] = {}
+
+# ---------------------------------------------------------------------------
+# Priority tiers — budget pressure gating
+# ---------------------------------------------------------------------------
+
+_MODULE_TIER: dict[str, str] = {
+    "orchestrator": "critical",
+    "bugfix_proposal": "important",
+    "evolution_audit": "important",
+    "monthly_opus_audit": "important",
+    "nudge_composer": "optional",
+    "default": "optional",
+}
+
+# ---------------------------------------------------------------------------
+# Scaled budget — dynamic cap by merchant count
+# ---------------------------------------------------------------------------
+
+_LLM_EUR_PER_MERCHANT = float(_os.getenv("LLM_EUR_PER_MERCHANT", "0.10"))
+_LLM_MAX_MONTHLY_EUR = float(_os.getenv("LLM_MAX_MONTHLY_EUR", "500.0"))
+_effective_cap_cache: dict[str, object] = {"value": None, "computed_at": 0.0, "merchants": 0}
+
 
 def _today() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -178,6 +205,43 @@ def _estimate_cost(tokens: int, model: str) -> float:
     """Estimate cost in EUR for a given token count and model."""
     rate = _COST_PER_1K_TOKENS.get(model, _COST_PER_1K_TOKENS["default"])
     return (tokens / 1000.0) * rate
+
+
+def _get_module_tier(module: str) -> str:
+    """Return priority tier for a module: critical, important, or optional."""
+    return _MODULE_TIER.get(module, _MODULE_TIER["default"])
+
+
+def _get_mode_override() -> str:
+    """Read operator mode override from Redis. Returns 'full', 'limited', or 'off'."""
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            return "full"
+        val = rc.get("llm:mode_override")
+        if val and val.decode() if isinstance(val, bytes) else val:
+            mode = (val.decode() if isinstance(val, bytes) else val).strip().lower()
+            if mode in ("off", "limited", "full"):
+                return mode
+    except Exception:
+        pass
+    return "full"
+
+
+def set_mode_override(mode: str) -> bool:
+    """Set operator mode override. Returns True on success, False if invalid."""
+    if mode not in ("off", "limited", "full"):
+        return False
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            return False
+        rc.set("llm:mode_override", mode, ex=86400 * 30)
+        return True
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -294,12 +358,25 @@ def check_budget(module: str) -> tuple[bool, str]:
     _ensure_month()
     limits = _get_limits(module)
     today = _today()
+    month = _this_month()
+    tier = _get_module_tier(module)
+
+    # Check operator mode override
+    mode = _get_mode_override()
+    if mode == "off" and tier != "critical":
+        return False, f"mode_off: operator disabled LLM calls"
+    if mode == "limited" and tier == "optional":
+        return False, f"mode_limited: optional modules blocked by operator"
 
     # Check monthly EUR cap (global)
-    month = _this_month()
     redis_cost = _redis_get_float(f"llm:monthly_cost:{month}")
     monthly_cost = max(redis_cost, _monthly_cost_eur)
     if monthly_cost >= MONTHLY_EUR_CAP:
+        log.warning(
+            "llm_budget: BLOCKED — global budget exceeded: €%.3f/€%.2f",
+            monthly_cost, MONTHLY_EUR_CAP,
+        )
+        _send_exhaustion_alert("global", month, monthly_cost, MONTHLY_EUR_CAP)
         return False, f"monthly_eur_cap_reached: €{monthly_cost:.3f}/€{MONTHLY_EUR_CAP:.2f}"
 
     # Check per-provider caps
@@ -308,7 +385,19 @@ def check_budget(module: str) -> tuple[bool, str]:
         prov_local = _provider_cost_eur.get(provider, 0.0)
         prov_cost = max(prov_redis, prov_local)
         if prov_cost >= cap:
+            log.warning(
+                "llm_budget: BLOCKED — %s budget exceeded: €%.3f/€%.2f",
+                provider, prov_cost, cap,
+            )
+            _send_exhaustion_alert(provider, month, prov_cost, cap)
             return False, f"provider_cap_reached: {provider} €{prov_cost:.3f}/€{cap:.2f}"
+
+    # Priority tier gating under budget pressure
+    remaining_pct = 1.0 - (monthly_cost / MONTHLY_EUR_CAP) if MONTHLY_EUR_CAP > 0 else 1.0
+    if tier == "optional" and remaining_pct < 0.20:
+        return False, f"tier_blocked: optional modules blocked at <20% remaining ({remaining_pct:.0%})"
+    if tier == "important" and remaining_pct < 0.10:
+        return False, f"tier_blocked: important modules blocked at <10% remaining ({remaining_pct:.0%})"
 
     # Check cooldown
     last = _last_call.get(module, 0)
@@ -371,6 +460,15 @@ def record_usage(module: str, tokens_used: int = 0, provider: str = "", model: s
     # Budget threshold alert (90%) — deduped, one per provider per month
     if provider:
         _check_budget_threshold_alert(provider, month)
+
+    # Budget exhaustion alert (100%) — deduped per scope per month
+    if _monthly_cost_eur >= MONTHLY_EUR_CAP:
+        _send_exhaustion_alert("global", month, _monthly_cost_eur, MONTHLY_EUR_CAP)
+    if provider:
+        prov_cost = _provider_cost_eur.get(provider, 0.0)
+        prov_cap = ANTHROPIC_MONTHLY_CAP if provider == "anthropic" else OPENAI_MONTHLY_CAP
+        if prov_cost >= prov_cap:
+            _send_exhaustion_alert(provider, month, prov_cost, prov_cap)
 
 
 def _check_budget_threshold_alert(provider: str, month: str):
@@ -477,6 +575,8 @@ def get_usage_summary() -> dict:
             "cap_reached": prov_cost >= cap,
         }
 
+    effective_cap = get_effective_monthly_cap()
+
     return {
         "date": _today(),
         "month": month,
@@ -484,9 +584,11 @@ def get_usage_summary() -> dict:
         "global_max_per_day": GLOBAL_MAX_CALLS_PER_DAY,
         "blocked_today": _blocked_count,
         "monthly_cost_eur": round(monthly_cost, 4),
-        "monthly_cap_eur": MONTHLY_EUR_CAP,
-        "monthly_remaining_eur": round(max(0, MONTHLY_EUR_CAP - monthly_cost), 4),
-        "monthly_cap_reached": monthly_cost >= MONTHLY_EUR_CAP,
+        "monthly_cap_eur": effective_cap,
+        "monthly_cap_static_floor": MONTHLY_EUR_CAP,
+        "monthly_cap_scaled_by_merchants": _effective_cap_cache.get("merchants", 0),
+        "monthly_remaining_eur": round(max(0, effective_cap - monthly_cost), 4),
+        "monthly_cap_reached": monthly_cost >= effective_cap,
         "provider_costs": provider_costs,
         "provider_429_state": backoff_state,
         "modules": modules,
@@ -511,6 +613,10 @@ def reset_daily_counters():
     _monthly_cost_eur = 0.0
     _month_key = ""
     _provider_429.clear()
+    _provider_cost_eur.clear()
+    _budget_alert_sent.clear()
+    _both_failed_alert_sent.clear()
+    _exhaustion_alert_sent.clear()
     try:
         from app.core.redis_client import _client
         rc = _client()
@@ -519,3 +625,170 @@ def reset_daily_counters():
                 rc.delete(key)
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Exhaustion alerts (100% cap reached)
+# ---------------------------------------------------------------------------
+
+def _send_exhaustion_alert(scope: str, month: str, cost: float, cap: float):
+    """Send Telegram alert when budget is fully exhausted. Deduped per scope per month."""
+    dedup_key = f"{scope}:{month}"
+    if _exhaustion_alert_sent.get(dedup_key):
+        return
+    _exhaustion_alert_sent[dedup_key] = True
+
+    if scope == "global":
+        msg = (
+            f"🚨 *LLM BUDGET EXHAUSTED — SYSTEM DEGRADED*\n\n"
+            f"GLOBAL cap reached: €{cost:.3f} / €{cap:.2f}\n"
+            f"LLM CALLS ARE NOW BLOCKED\n"
+            f"System is in DEGRADED MODE"
+        )
+    else:
+        provider_label = scope.upper()
+        msg = (
+            f"🚨 *LLM BUDGET EXHAUSTED — {provider_label} cap reached*\n\n"
+            f"{provider_label} cap reached: €{cost:.3f} / €{cap:.2f}\n"
+            f"Anthropic: €{_provider_cost_eur.get('anthropic', 0):.3f}\n"
+            f"Openai: €{_provider_cost_eur.get('openai', 0):.3f}\n"
+            f"Global: €{_monthly_cost_eur:.3f} / €{MONTHLY_EUR_CAP:.2f}"
+        )
+
+    try:
+        from app.services.telegram_agent import send_message, is_configured
+        if is_configured():
+            send_message(msg)
+    except Exception as exc:
+        log.debug("llm_budget: exhaustion alert failed (non-fatal): %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Both-providers-failed alert
+# ---------------------------------------------------------------------------
+
+def alert_both_providers_failed(
+    module: str,
+    anthropic_error: str = "",
+    openai_error: str = "",
+):
+    """Alert when both LLM providers failed. Deduped: once per module per hour."""
+    hour_key = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
+    dedup_key = f"{module}:{hour_key}"
+    if _both_failed_alert_sent.get(dedup_key):
+        return
+    _both_failed_alert_sent[dedup_key] = True
+
+    msg = (
+        f"🚨 *BOTH LLM PROVIDERS FAILED* — module={module}\n\n"
+        f"Anthropic: {anthropic_error}\n"
+        f"OpenAI: {openai_error}\n"
+        f"Module is running in deterministic fallback mode."
+    )
+
+    try:
+        from app.services.telegram_agent import send_message, is_configured
+        if is_configured():
+            send_message(msg)
+    except Exception as exc:
+        log.debug("llm_budget: both-failed alert failed (non-fatal): %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Status helpers
+# ---------------------------------------------------------------------------
+
+def is_llm_disabled() -> bool:
+    """Return True if LLM calls are effectively disabled (cap reached or mode=off)."""
+    _ensure_month()
+    if _get_mode_override() == "off":
+        return True
+    month = _this_month()
+    redis_cost = _redis_get_float(f"llm:monthly_cost:{month}")
+    monthly_cost = max(redis_cost, _monthly_cost_eur)
+    if monthly_cost >= MONTHLY_EUR_CAP:
+        return True
+    return False
+
+
+def get_llm_status() -> tuple[str, str]:
+    """Return (emoji, label) for operator dashboards.
+
+    Returns:
+        ("🟢", "ACTIVE") — healthy
+        ("🟡", "LIMITED") — approaching cap or operator limited
+        ("🔴", "DISABLED ...") — cap reached or operator off
+    """
+    _ensure_month()
+    mode = _get_mode_override()
+
+    if mode == "off":
+        return "🔴", "DISABLED — operator override"
+    if mode == "limited":
+        return "🟡", "LIMITED — operator override"
+
+    month = _this_month()
+    redis_cost = _redis_get_float(f"llm:monthly_cost:{month}")
+    monthly_cost = max(redis_cost, _monthly_cost_eur)
+
+    if monthly_cost >= MONTHLY_EUR_CAP:
+        return "🔴", "DISABLED — global budget exhausted"
+
+    # Check per-provider caps
+    for prov, cap in [("anthropic", ANTHROPIC_MONTHLY_CAP), ("openai", OPENAI_MONTHLY_CAP)]:
+        prov_redis = _redis_get_float(f"llm:monthly_cost:{prov}:{month}")
+        prov_local = _provider_cost_eur.get(prov, 0.0)
+        prov_cost = max(prov_redis, prov_local)
+        if prov_cost >= cap:
+            return "🔴", f"DISABLED — {prov} budget exhausted"
+
+    # Check if approaching cap (90%+)
+    if MONTHLY_EUR_CAP > 0 and monthly_cost / MONTHLY_EUR_CAP >= _BUDGET_ALERT_THRESHOLD:
+        return "🟡", "LIMITED"
+
+    return "🟢", "ACTIVE"
+
+
+# ---------------------------------------------------------------------------
+# Scaled budget — dynamic cap by merchant count
+# ---------------------------------------------------------------------------
+
+def get_effective_monthly_cap() -> float:
+    """Return effective monthly cap, scaled by active merchant count.
+
+    Logic:
+        scaled = merchants * _LLM_EUR_PER_MERCHANT
+        effective = clamp(scaled, floor=MONTHLY_EUR_CAP, ceiling=_LLM_MAX_MONTHLY_EUR)
+
+    Cached for 1 hour to avoid DB queries on every budget check.
+    """
+    now = time.monotonic()
+    cached_at = _effective_cap_cache.get("computed_at", 0.0)
+    cached_val = _effective_cap_cache.get("value")
+
+    if cached_val is not None and (now - cached_at) < 3600:
+        merchants = _effective_cap_cache.get("merchants", 0)
+        scaled = merchants * _LLM_EUR_PER_MERCHANT
+        effective = max(scaled, MONTHLY_EUR_CAP)
+        return min(effective, _LLM_MAX_MONTHLY_EUR)
+
+    # Query merchant count from DB
+    merchants = 0
+    try:
+        from app.core.database import SessionLocal
+        from app.models.merchant import Merchant
+        db = SessionLocal()
+        try:
+            merchants = db.query(Merchant).filter(Merchant.is_active.is_(True)).count()
+        finally:
+            db.close()
+    except Exception:
+        merchants = _effective_cap_cache.get("merchants", 0)
+
+    _effective_cap_cache["merchants"] = merchants
+    _effective_cap_cache["computed_at"] = now
+    _effective_cap_cache["value"] = True
+
+    scaled = merchants * _LLM_EUR_PER_MERCHANT
+    effective = max(scaled, MONTHLY_EUR_CAP)
+    return min(effective, _LLM_MAX_MONTHLY_EUR)

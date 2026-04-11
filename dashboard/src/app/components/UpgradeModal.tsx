@@ -108,12 +108,12 @@ export function UpgradeModal({
 
       {/* Modal card */}
       <div
-        className="hs-fade-up relative z-10 w-full max-w-md overflow-hidden rounded-3xl border border-violet-400/20 bg-[#0d0d1e] shadow-[0_32px_80px_rgba(124,58,237,0.22)]"
+        className="hs-fade-up relative z-10 w-full max-w-md overflow-hidden rounded-3xl border border-[#d4893a]/20 bg-[#0e0e1a] shadow-[0_32px_80px_rgba(212,137,58,0.15)]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Gradient header */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-violet-600/20 via-violet-500/10 to-transparent px-8 pb-2 pt-8">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(124,58,237,0.15),transparent_50%)]" />
+        <div className="relative overflow-hidden bg-gradient-to-br from-[#d4893a]/15 via-[#d4893a]/5 to-transparent px-8 pb-2 pt-8">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(212,137,58,0.1),transparent_50%)]" />
 
           {/* Close button */}
           <button
@@ -131,7 +131,7 @@ export function UpgradeModal({
             <div className="relative">
               <Image
                 src="/branding/hedgespark/spark.png"
-                alt="Hedge Spark"
+                alt="HedgeSpark"
                 width={64}
                 height={64}
                 priority
@@ -141,8 +141,8 @@ export function UpgradeModal({
 
           {/* Heading */}
           <div className="relative text-center">
-            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-300/80">
-              Hedge Spark Pro
+            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#e8a04e]/80">
+              HedgeSpark Pro
             </div>
             <h2 className="text-xl font-semibold leading-snug text-white">
               Stop reading data.<br />Start making decisions.
@@ -161,7 +161,7 @@ export function UpgradeModal({
           <ul className="mb-6 space-y-3">
             {PRO_FEATURES.map((feature) => (
               <li key={feature.title} className="flex items-start gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.02]">
-                <span className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-violet-500/15 text-[12px]">
+                <span className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-[#d4893a]/15 text-[12px]">
                   {feature.icon}
                 </span>
                 <div>
@@ -191,7 +191,7 @@ export function UpgradeModal({
           <button
             onClick={handleUpgrade}
             disabled={loading}
-            className="w-full rounded-xl bg-violet-600 py-3 text-sm font-semibold text-white shadow-[0_0_20px_rgba(124,58,237,0.4)] transition-all hover:bg-violet-500 hover:shadow-[0_0_28px_rgba(124,58,237,0.5)] active:bg-violet-700 disabled:opacity-60"
+            className="w-full rounded-xl bg-[#d4893a] py-3 text-sm font-semibold text-white shadow-[0_0_20px_rgba(212,137,58,0.4)] transition-all hover:bg-[#e8a04e] hover:shadow-[0_0_28px_rgba(212,137,58,0.5)] active:bg-[#c47a3e] disabled:opacity-60"
           >
             {loading
               ? "Opening Shopify billing…"

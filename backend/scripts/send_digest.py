@@ -82,7 +82,8 @@ def main() -> None:
             f"({tw['order_count']} orders)"
         )
         print(f"Sending to {recipient}...")
-        ok = send_email(to=recipient, subject=subject, html=html, text=plain)
+        ok = send_email(to=recipient, subject=subject, html=html, text=plain,
+                       from_address="Hedge Spark <digest@hedgesparkhq.com>")
         if ok:
             print(f"SENT successfully to {recipient}")
         else:

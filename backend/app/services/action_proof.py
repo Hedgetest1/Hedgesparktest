@@ -257,7 +257,11 @@ def get_action_effectiveness(db: Session, days: int = 90) -> dict[str, dict]:
             )
             .all()
         )
-    except Exception:
+    except Exception as exc:
+        log.warning(
+            "action_proof: snapshot query failed (%s): %s",
+            type(exc).__name__, str(exc)[:200],
+        )
         return {}
 
     by_type: dict[str, dict] = {}

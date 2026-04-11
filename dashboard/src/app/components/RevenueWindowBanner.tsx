@@ -1,5 +1,7 @@
 "use client";
 
+import { createMoneyFormatter, type DisplayCurrency } from "../lib/currency";
+
 // RevenueWindowBanner — Revenue at risk summary for the Pro dashboard.
 //
 // This is the loudest number in the entire Pro dashboard.
@@ -33,15 +35,8 @@ type RevenueWindowData = {
   currency?: string;
 };
 
-function formatDollars(value: number | undefined): string {
-  if (typeof value !== "number" || isNaN(value)) return "$—";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value);
-}
+// formatDollars replaced by createMoneyFormatter at each callsite (bound per
+// component to the user's displayCurrency preference).
 
 function shortProductLabel(url: string | undefined): string {
   if (!url) return "Product";
@@ -59,11 +54,15 @@ function actionTypeLabel(t: string | undefined): string {
 // ---------------------------------------------------------------------------
 export function RevenueWindowPro({
   data,
+  displayCurrency = "USD",
 }: {
   data: RevenueWindowData | null;
+  displayCurrency?: DisplayCurrency;
 }) {
   const total = data?.total_revenue_at_risk ?? 0;
   const opps = data?.opportunities ?? [];
+  const nativeCurrency = data?.currency ?? "USD";
+  const formatDollars = createMoneyFormatter(displayCurrency, nativeCurrency);
 
   return (
     <div className="rounded-2xl border border-emerald-400/[0.16] bg-gradient-to-br from-emerald-950/40 to-[#09091a] p-5">
@@ -140,12 +139,17 @@ export function RevenueWindowPro({
 export function RevenueWindowLite({
   data,
   onUpgradeClick,
+  displayCurrency = "USD",
 }: {
   data: RevenueWindowTeaseData | null;
   onUpgradeClick: () => void;
+  displayCurrency?: DisplayCurrency;
 }) {
   const amount = data?.estimated_revenue_at_risk ?? 0;
   const oppCount = data?.active_opportunity_count ?? 0;
+  // Lite variant's number is blurred out anyway — still respect the merchant's
+  // chosen display currency so the shape is correct.
+  const formatDollars = createMoneyFormatter(displayCurrency, "USD");
 
   if (amount <= 0 && oppCount === 0) return null;
 

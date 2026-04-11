@@ -3,24 +3,39 @@
 type SparklineProps = {
   values: number[];
   className?: string;
+  width?: number;
+  height?: number;
+  /** Tailwind background class for the bars (e.g. "bg-violet-400/60"). */
+  barClassName?: string;
 };
 
-export function Sparkline({ values, className = "" }: SparklineProps) {
-  if (!values || values.length === 0) return null;
-  const max = Math.max(...values, 1);
+/**
+ * Tiny inline sparkline rendered with pixel heights (not CSS percentages)
+ * to avoid layout/rounding ambiguity. Defensive against NaN/non-number entries.
+ */
+export function Sparkline({
+  values,
+  className = "",
+  width = 64,
+  height = 28,
+  barClassName = "bg-violet-400/60",
+}: SparklineProps) {
+  if (!Array.isArray(values) || values.length === 0) return null;
+  const clean = values.map((v) => (typeof v === "number" && !Number.isNaN(v) ? v : 0));
+  const max = Math.max(...clean, 1);
   return (
     <div
       className={`flex items-end gap-px ${className}`}
-      style={{ height: 28 }}
+      style={{ height, width }}
       aria-hidden="true"
     >
-      {values.map((v, i) => {
-        const heightPct = Math.max(8, Math.round((v / max) * 100));
+      {clean.map((v, i) => {
+        const px = Math.max(2, Math.round((v / max) * height));
         return (
           <div
             key={i}
-            className="flex-1 rounded-[2px] bg-violet-400/50 transition-all duration-300"
-            style={{ height: `${heightPct}%` }}
+            className={`flex-1 rounded-[2px] ${barClassName}`}
+            style={{ height: px }}
             title={String(v)}
           />
         );

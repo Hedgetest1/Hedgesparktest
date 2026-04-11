@@ -690,7 +690,11 @@ def _get_co_occurring(db: Session, incident: SentryIncident) -> list[dict]:
     try:
         from app.services.scoring_calibration import find_co_occurring_families
         return find_co_occurring_families(db, incident.fingerprint)
-    except Exception:
+    except Exception as exc:
+        log.warning(
+            "sentry_triage: co-occurring families lookup failed fingerprint=%s (%s): %s",
+            incident.fingerprint, type(exc).__name__, str(exc)[:200],
+        )
         return []
 
 

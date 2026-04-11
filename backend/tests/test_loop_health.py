@@ -113,9 +113,15 @@ class TestReopenFromIneffective:
         result = reopen_from_ineffective(db)
         assert result["reopened"] == 1
 
-        # Verify follow-up candidate exists
+        # Verify follow-up candidate exists. Scope the query by the deterministic
+        # source_ref that reopen_from_ineffective builds, otherwise we pick up
+        # historical 'recurrence' rows committed to the shared dev DB by real
+        # pipeline runs (SAVEPOINT isolates the test's own writes, not rows
+        # that were already committed before the test started).
+        followup_ref = f"reopen_{c.source_type}_{c.source_ref}_{c.id}"
         followup = db.query(BugFixCandidate).filter(
             BugFixCandidate.source_type == "recurrence",
+            BugFixCandidate.source_ref == followup_ref,
         ).first()
         assert followup is not None
         assert "[Recurrence]" in followup.title

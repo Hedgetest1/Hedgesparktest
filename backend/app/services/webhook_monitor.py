@@ -128,7 +128,11 @@ def get_merchant_webhook_status(shop_domain: str) -> dict | None:
             return None
         raw = rc.get(f"{_REDIS_PREFIX}{shop_domain}")
         return json.loads(raw) if raw else None
-    except Exception:
+    except Exception as exc:
+        log.warning(
+            "webhook_monitor: redis read failed shop=%s (%s): %s",
+            shop_domain, type(exc).__name__, str(exc)[:200],
+        )
         return None
 
 

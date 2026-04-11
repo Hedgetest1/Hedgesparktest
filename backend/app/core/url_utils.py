@@ -1,5 +1,5 @@
 """
-url_utils.py — URL normalization helpers for Hedge Spark.
+url_utils.py — URL normalization helpers for HedgeSpark.
 
 Canonical product URL format: /products/{handle}
   - path-only (no scheme, host, query, or fragment)

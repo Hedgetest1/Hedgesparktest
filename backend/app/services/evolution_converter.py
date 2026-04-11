@@ -118,6 +118,17 @@ def convert_eligible_proposals(db: Session, max_per_cycle: int = 2) -> dict:
             summary["skipped_ineligible"] += 1
             continue
 
+        # === UX-SENSITIVE PROPOSALS ARE NEVER AUTO-CONVERTED ===
+        # UX-sensitive proposals require human review and cannot flow
+        # through the autonomous conversion pipeline.
+        if getattr(proposal, "ux_sensitive", False):
+            log.info(
+                "evolution_converter: UX_SENSITIVE BLOCKED proposal=%d",
+                proposal.id,
+            )
+            summary["skipped_ineligible"] += 1
+            continue
+
         # === EXECUTION POLICY ENFORCEMENT ===
         # Tier-check the target file BEFORE conversion to avoid wasting
         # LLM proposal calls on files the guard will block at apply time.

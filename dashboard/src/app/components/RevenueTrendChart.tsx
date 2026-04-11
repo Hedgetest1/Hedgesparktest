@@ -1,21 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createMoneyFormatter, type DisplayCurrency } from "../lib/currency";
+import { apiClient, type paths } from "../lib/api-client";
 
 // ---------------------------------------------------------------------------
-// Types
+// Types — source of truth: GET /orders/daily-revenue → DailyRevenueResponse.
 // ---------------------------------------------------------------------------
-type DailyPoint = {
-  day: string;
-  revenue: number;
-  orders: number;
-};
-
-type DailyRevenueResponse = {
-  points: DailyPoint[];
-  currency: string;
-  days: number;
-};
+type DailyRevenueResponse =
+  paths["/orders/daily-revenue"]["get"]["responses"]["200"]["content"]["application/json"];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -29,26 +22,46 @@ function fmtShortDay(iso: string): string {
   }
 }
 
-function fmtCurrencyCompact(value: number, currency: string): string {
-  try {
-    if (value >= 1000) {
-      return new Intl.NumberFormat("en-US", {
+/**
+ * Compact currency formatter that respects displayCurrency + native currency
+ * via the shared /lib/currency.ts helper, with an added "compact notation"
+ * wrapper (1.2K, 34K, 1.5M) for values ≥ 1000 to keep the chart tooltip tight.
+ */
+function makeCompactFormatter(displayCurrency: DisplayCurrency, nativeCurrency: string) {
+  const base = createMoneyFormatter(displayCurrency, nativeCurrency);
+  return (value: number | null | undefined): string => {
+    if (value == null || value === 0) return "—";
+    // For small values, the shared formatter is already compact enough.
+    if (Math.abs(value) < 1000) return base(value);
+    // For ≥1000 values, also apply compact notation with the SAME conversion
+    // logic (native → display with ≈ prefix when needed).
+    const native = (nativeCurrency || "USD").toUpperCase();
+    let amount = value;
+    let converted = false;
+    if (
+      (native === "USD" || native === "EUR") &&
+      native !== displayCurrency
+    ) {
+      const rate = { USD: { EUR: 0.92 }, EUR: { USD: 1.09 } }[native as "USD" | "EUR"]?.[displayCurrency];
+      if (rate) {
+        amount = value * rate;
+        converted = true;
+      }
+    }
+    const effective = converted ? displayCurrency : native;
+    try {
+      const formatted = new Intl.NumberFormat("en-US", {
         style: "currency",
-        currency,
+        currency: effective,
         minimumFractionDigits: 0,
         maximumFractionDigits: 0,
         notation: "compact",
-      }).format(value);
+      }).format(amount);
+      return converted ? `≈ ${formatted}` : formatted;
+    } catch {
+      return base(value);
     }
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency,
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(value);
-  } catch {
-    return `${Math.round(value)}`;
-  }
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -108,37 +121,39 @@ function buildPath(
 // Component
 // ---------------------------------------------------------------------------
 export function RevenueTrendChart({
-  apiBase,
+  apiBase: _apiBase,
   shop,
   currency: fallbackCurrency = "USD",
+  displayCurrency = "USD",
 }: {
   apiBase: string;
   shop: string;
   currency?: string;
+  displayCurrency?: DisplayCurrency;
 }) {
   const [data, setData] = useState<DailyRevenueResponse | null>(null);
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!apiBase || !shop) return;
+    if (!shop) return;
     let active = true;
 
-    fetch(`${apiBase}/orders/daily-revenue?shop=${encodeURIComponent(shop)}&days=7`, {
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      cache: "no-store",
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((json) => {
-        if (active && json?.points) setData(json);
+    apiClient
+      .GET("/orders/daily-revenue", { params: { query: { days: 7 } } })
+      .then((res) => {
+        if (active && res.data != null) setData(res.data);
       })
       .catch(() => {});
 
     return () => { active = false; };
-  }, [apiBase, shop]);
+  }, [shop]);
 
   const points = data?.points ?? [];
   const currency = data?.currency ?? fallbackCurrency;
+  const fmtCurrencyCompact = useMemo(
+    () => makeCompactFormatter(displayCurrency, currency),
+    [displayCurrency, currency],
+  );
   const values = useMemo(() => points.map((p) => p.revenue), [points]);
   const hasRevenue = values.some((v) => v > 0);
 
@@ -189,7 +204,7 @@ export function RevenueTrendChart({
             </span>
           )}
           <span className="text-[11px] tabular-nums text-slate-400">
-            {fmtCurrencyCompact(totalRevenue, currency)} total
+            {fmtCurrencyCompact(totalRevenue)} total
           </span>
         </div>
       </div>
@@ -272,7 +287,7 @@ export function RevenueTrendChart({
             }}
           >
             <div className="font-medium tabular-nums text-white">
-              {fmtCurrencyCompact(points[hoveredIdx].revenue, currency)}
+              {fmtCurrencyCompact(points[hoveredIdx].revenue)}
             </div>
             <div className="text-slate-500">
               {fmtShortDay(points[hoveredIdx].day)} · {points[hoveredIdx].orders} order{points[hoveredIdx].orders !== 1 ? "s" : ""}

@@ -100,10 +100,13 @@ export function IntelligenceHero({
       <div className="p-5 sm:p-6">
 
         {/* ── Severity tag ── */}
-        <div className="mb-4 flex items-center gap-2">
-          <span className={`h-2 w-2 rounded-full ${sev.dot} ${hasProblem ? "animate-pulse" : ""}`} />
-          <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
-            {sev.label} &mdash; {insight.category}
+        <div className="mb-5 flex items-center gap-2.5">
+          <span className={`h-2.5 w-2.5 rounded-full ${sev.dot} ${hasProblem ? "animate-pulse" : ""}`} />
+          <span className="text-[13px] font-bold uppercase tracking-[0.14em] hs-brand-gradient">
+            {sev.label}
+          </span>
+          <span className="text-[13px] font-bold uppercase tracking-[0.14em] text-slate-500">
+            {insight.category}
           </span>
         </div>
 
@@ -122,28 +125,26 @@ export function IntelligenceHero({
             </div>
 
             {/* Product name — large */}
-            <div className="text-[17px] font-bold text-rose-200">{topBottleneck}</div>
+            <div className="text-[20px] font-bold text-rose-200">{topBottleneck}</div>
 
             {/* Proof numbers — inline, high contrast */}
-            <div className="mt-2 flex items-center gap-4">
+            <div className="mt-3 flex items-center gap-5">
               <div>
-                <span className="text-[20px] font-bold tabular-nums text-white">28</span>
-                <span className="ml-1 text-[12px] text-slate-500">views</span>
+                <span className="text-[2rem] font-extrabold tabular-nums text-white">28</span>
+                <span className="ml-1.5 text-[14px] text-slate-400">views</span>
               </div>
-              <span className="text-[16px] text-slate-600">&rarr;</span>
+              <span className="text-[20px] text-slate-600">&rarr;</span>
               <div>
-                <span className="text-[20px] font-bold tabular-nums text-rose-400">0</span>
-                <span className="ml-1 text-[12px] text-slate-500">carts</span>
+                <span className="text-[2rem] font-extrabold tabular-nums text-rose-400">0</span>
+                <span className="ml-1.5 text-[14px] text-slate-400">carts</span>
               </div>
-              <div className="ml-auto rounded-md bg-rose-500/15 px-2 py-0.5">
-                <span className="text-[11px] font-bold text-rose-400">&darr; 0% cart rate</span>
+              <div className="ml-auto rounded-lg bg-rose-500/15 px-3 py-1.5">
+                <span className="text-[14px] font-bold text-rose-400">&darr; 0% cart rate</span>
               </div>
             </div>
 
-            {/* Interpretation — direct, uncomfortable */}
-            <div className="mt-3 text-[12px] font-medium leading-relaxed text-rose-300/70">
-              Visitors are reaching this product but <span className="text-rose-300">not adding it to cart</span>.
-              This is a product page problem, not a traffic problem.
+            <div className="mt-4 text-[15px] font-medium leading-relaxed text-rose-300/70">
+              Traffic is fine. <span className="text-rose-200">The page isn&apos;t converting.</span>
             </div>
           </div>
         )}
@@ -151,13 +152,13 @@ export function IntelligenceHero({
         {/* ═══════════════════════════════════════════════════════════════════
            PROOF METRICS — 4 columns, numbers dominate
            ═══════════════════════════════════════════════════════════════════ */}
-        <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
 
           {/* Revenue */}
-          <div className="group rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 transition-colors hover:bg-white/[0.04]">
-            <div className="text-[10px] font-medium uppercase tracking-wider text-slate-600">Revenue</div>
-            <div className="mt-1 flex items-baseline gap-1.5">
-              <span className="text-[24px] font-bold tabular-nums text-white">{fmt$(d.revenue_this_week)}</span>
+          <div className="group rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3.5 transition-colors hover:bg-white/[0.04]">
+            <div className="text-[12px] font-bold uppercase tracking-wider text-slate-500">Revenue</div>
+            <div className="mt-1.5 flex items-baseline gap-1.5">
+              <span className="text-[1.75rem] font-extrabold tabular-nums text-white">{fmt$(d.revenue_this_week)}</span>
               {revChange != null && (
                 <span className={`text-[13px] font-bold ${revChange >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                   {fmtPct(revChange)}
@@ -174,10 +175,10 @@ export function IntelligenceHero({
           </div>
 
           {/* Orders */}
-          <div className="group rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 transition-colors hover:bg-white/[0.04]">
-            <div className="text-[10px] font-medium uppercase tracking-wider text-slate-600">Orders</div>
-            <div className="mt-1">
-              <span className="text-[24px] font-bold tabular-nums text-white">{d.orders_this_week ?? 0}</span>
+          <div className="group rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3.5 transition-colors hover:bg-white/[0.04]">
+            <div className="text-[12px] font-bold uppercase tracking-wider text-slate-500">Orders</div>
+            <div className="mt-1.5">
+              <span className="text-[1.75rem] font-extrabold tabular-nums text-white">{d.orders_this_week ?? 0}</span>
             </div>
             {/* Mini bar — previous (gray) vs current (colored) */}
             {d.orders_last_week != null && (d.orders_this_week ?? 0) + d.orders_last_week > 0 && (() => {
@@ -201,19 +202,19 @@ export function IntelligenceHero({
           </div>
 
           {/* Visitors */}
-          <div className="group rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 transition-colors hover:bg-white/[0.04]">
-            <div className="text-[10px] font-medium uppercase tracking-wider text-slate-600">Visitors</div>
-            <div className="mt-1">
-              <span className="text-[24px] font-bold tabular-nums text-white">{d.visitors_7d ?? 0}</span>
+          <div className="group rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3.5 transition-colors hover:bg-white/[0.04]">
+            <div className="text-[12px] font-bold uppercase tracking-wider text-slate-500">Visitors</div>
+            <div className="mt-1.5">
+              <span className="text-[1.75rem] font-extrabold tabular-nums text-white">{d.visitors_7d ?? 0}</span>
             </div>
-            <div className="mt-0.5 text-[10px] text-slate-600">7-day total</div>
+            <div className="mt-1 text-[13px] text-slate-500">7-day total</div>
           </div>
 
           {/* Cart Rate */}
-          <div className="group rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 transition-colors hover:bg-white/[0.04]">
-            <div className="text-[10px] font-medium uppercase tracking-wider text-slate-600">Cart Rate</div>
-            <div className="mt-1">
-              <span className={`text-[24px] font-bold tabular-nums ${
+          <div className="group rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3.5 transition-colors hover:bg-white/[0.04]">
+            <div className="text-[12px] font-bold uppercase tracking-wider text-slate-500">Cart Rate</div>
+            <div className="mt-1.5">
+              <span className={`text-[1.75rem] font-extrabold tabular-nums ${
                 d.cart_rate != null
                   ? d.cart_rate > 0.05 ? "text-emerald-400" : d.cart_rate > 0.02 ? "text-white" : "text-rose-400"
                   : "text-slate-600"
@@ -236,30 +237,30 @@ export function IntelligenceHero({
         {/* ═══════════════════════════════════════════════════════════════════
            INTERPRETATION — headline + explanation + diagnosis
            ═══════════════════════════════════════════════════════════════════ */}
-        <h2 className={`text-[18px] font-bold leading-snug sm:text-[20px] ${sev.headline}`}>
+        <h2 className={`text-[22px] font-extrabold leading-snug sm:text-[24px] ${sev.headline}`}>
           {insight.headline}
         </h2>
-        <p className="mt-1.5 text-[13px] leading-relaxed text-slate-400">
+        <p className="mt-2 text-[16px] leading-relaxed text-slate-400">
           {insight.explanation}
         </p>
         {brief.diagnosis && brief.signals.length > 1 && (
-          <p className="mt-2 text-[12px] font-semibold text-slate-500">
+          <p className="mt-2.5 text-[14px] font-semibold text-slate-500">
             {brief.diagnosis}
           </p>
         )}
 
         {/* ── Signal strip ── */}
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-5 flex flex-wrap gap-2.5">
           {brief.signals.map((sig) => (
             <div
               key={sig.name}
-              className="flex items-center gap-1.5 rounded-lg border border-white/[0.05] bg-white/[0.015] px-2.5 py-1 transition-colors hover:bg-white/[0.03]"
+              className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-1.5 transition-colors hover:bg-white/[0.04]"
             >
-              <span className={`text-[12px] font-bold ${DIR_COLOR[sig.direction] || DIR_COLOR.unknown}`}>
+              <span className={`text-[14px] font-bold ${DIR_COLOR[sig.direction] || DIR_COLOR.unknown}`}>
                 {DIR_ARROW[sig.direction] || DIR_ARROW.unknown}
               </span>
-              <span className="text-[10px] font-medium uppercase tracking-wider text-slate-600">{sig.name}</span>
-              <span className="text-[11px] text-slate-400">{sig.detail}</span>
+              <span className="text-[12px] font-bold uppercase tracking-wider text-slate-500">{sig.name}</span>
+              <span className="text-[13px] text-slate-400">{sig.detail}</span>
             </div>
           ))}
         </div>
@@ -268,37 +269,37 @@ export function IntelligenceHero({
       {/* ═══════════════════════════════════════════════════════════════════
          ACTION — visually connected to anomaly, secondary to proof
          ═══════════════════════════════════════════════════════════════════ */}
-      <div className={`border-t px-5 py-4 sm:px-6 ${
+      <div className={`border-t px-6 py-5 sm:px-7 ${
         isProUser
           ? hasProblem ? "border-rose-500/10 bg-rose-500/[0.02]" : "border-white/[0.06] bg-white/[0.015]"
           : "border-white/[0.04] bg-white/[0.01]"
       }`}>
         {isProUser ? (
-          <div className="flex items-start gap-2.5">
-            <svg className={`mt-0.5 h-4 w-4 flex-shrink-0 ${hasProblem ? "text-rose-400" : "text-violet-400"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+          <div className="flex items-start gap-3">
+            <svg className={`mt-0.5 h-5 w-5 flex-shrink-0 ${hasProblem ? "text-rose-400" : "text-[#d4893a]"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
             </svg>
             <div>
-              <div className={`text-[10px] font-bold uppercase tracking-[0.14em] ${hasProblem ? "text-rose-400/60" : "text-slate-500"}`}>
+              <div className={`text-[12px] font-bold uppercase tracking-[0.14em] ${hasProblem ? "text-rose-400/60" : "text-[#d4893a]"}`}>
                 {hasProblem ? "Fix this" : "Next step"}
               </div>
-              <div className="mt-1 text-[13px] font-medium text-slate-300">{insight.action}</div>
+              <div className="mt-1.5 text-[16px] font-medium leading-relaxed text-slate-300">{insight.action}</div>
             </div>
           </div>
         ) : (
           <div className="relative">
             <div className="pointer-events-none select-none blur-[3px]">
-              <div className="flex items-start gap-2.5">
-                <svg className="mt-0.5 h-4 w-4 flex-shrink-0 text-violet-400/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+              <div className="flex items-start gap-3">
+                <svg className="mt-0.5 h-5 w-5 flex-shrink-0 text-slate-500/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
                 </svg>
-                <div className="text-[13px] text-slate-500">{insight.action}</div>
+                <div className="text-[15px] text-slate-500">{insight.action}</div>
               </div>
             </div>
             <div className="absolute inset-0 flex items-center justify-center">
               <button
                 onClick={onUpgrade}
-                className="rounded-lg bg-violet-600/90 px-4 py-2 text-[12px] font-semibold text-white shadow-lg shadow-violet-600/20 transition-all hover:bg-violet-500 hover:shadow-violet-500/30 active:scale-[0.98]"
+                className="hs-cta-gradient rounded-xl px-6 py-3 text-[14px] font-bold text-white shadow-lg shadow-[#d4893a]/20 transition-all hover:shadow-[#d4893a]/30 active:scale-[0.98]"
               >
                 {hasProblem ? "Unlock actions to fix this" : "Turn this insight into revenue"}
               </button>

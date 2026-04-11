@@ -121,11 +121,21 @@ _last_retention_run: float | None = None
 _WEBHOOK_CHECK_INTERVAL_S = 86_400  # 24 hours
 _last_webhook_check: float | None = None
 
+# CIG computation — once per 24h (weekly would be ideal but daily is cheap)
+_CIG_INTERVAL_S = 86_400  # 24 hours
+_last_cig_run: float | None = None
+
 # Worker watchdog — once per hour, checks worker_log for repeated errors
 _WATCHDOG_INTERVAL_S = 3_600  # 1 hour
 _WATCHDOG_ERROR_THRESHOLD = 3  # consecutive cycles with errors = alert
 _WATCHDOG_WINDOW_HOURS = 2    # look back this many hours
 _last_watchdog_run: float | None = None
+
+# Data integrity probe — semantic drift detection (attribution, orders,
+# AOV, nudge lift). Runs every 6h; the probe itself is cheap but each
+# sub-check sweeps N merchants, so we do not want it in every 5-min cycle.
+_DATA_INTEGRITY_INTERVAL_S = 6 * 3_600
+_last_data_integrity_run: float | None = None
 
 # ---------------------------------------------------------------------------
 # Logging — structured JSON via app.core.logging_config
@@ -1189,9 +1199,15 @@ def _run_ai_nudge_compose(db: Session) -> int:
     if "skip_optional_llm_calls" in state["protective_actions"]:
         log(f"protection_state: DEGRADED (llm) — skipping _run_ai_nudge_compose")
         return 0
-    _MAX_PER_CYCLE = 2 if state["level"] == "DEGRADED" else 5
-    if state["level"] == "DEGRADED":
-        log(f"protection_state: DEGRADED — reducing _run_ai_nudge_compose batch from 5 to {_MAX_PER_CYCLE}")
+    # Reduce batch when system is DEGRADED with batch reduction requested,
+    # or when the LLM subsystem specifically is degraded.
+    reduce_batch = (
+        "reduce_batch_sizes" in state.get("protective_actions", [])
+        or state.get("subsystems", {}).get("llm", {}).get("level") == "degraded"
+    )
+    _MAX_PER_CYCLE = 2 if reduce_batch else 5
+    if reduce_batch:
+        log(f"protection_state: {state['level']} — reducing _run_ai_nudge_compose batch from 5 to {_MAX_PER_CYCLE}")
 
     pending = (
         db.query(ActiveNudge)
@@ -1427,6 +1443,41 @@ def _should_run_watchdog() -> bool:
     return (time.monotonic() - _last_watchdog_run) >= _WATCHDOG_INTERVAL_S
 
 
+def _should_run_data_integrity_probe() -> bool:
+    if _last_data_integrity_run is None:
+        return True
+    return (time.monotonic() - _last_data_integrity_run) >= _DATA_INTEGRITY_INTERVAL_S
+
+
+def _run_data_integrity_probe() -> None:
+    """
+    Sweep active merchants and flag semantic drift: attribution collapse,
+    order collapse, AOV drift, nudge lift decay. Findings are written to
+    ops_alerts and picked up by bugfix_pipeline.run_bug_triage Rule 6.
+
+    Runs in its own DB session. Non-fatal — a probe failure logs and exits
+    cleanly so it never blocks the aggregation cycle.
+    """
+    db = SessionLocal()
+    try:
+        from app.services.data_integrity_probe import run_probe
+        result = run_probe(db)
+        db.commit()
+        if result.findings:
+            log(
+                f"data_integrity_probe: checks={result.checks_run} "
+                f"findings={len(result.findings)} errors={len(result.errors)}"
+            )
+    except Exception as exc:
+        log(f"data_integrity_probe: error (non-fatal): {exc}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
 def _run_worker_watchdog() -> None:
     """
     Check worker_log for workers with repeated errors in recent cycles.
@@ -1657,7 +1708,7 @@ def _upsert_store_metrics(conn, metrics: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def run_cycle() -> None:
-    global _last_retention_run, _last_webhook_check, _last_watchdog_run
+    global _last_retention_run, _last_webhook_check, _last_watchdog_run, _last_data_integrity_run
 
     from app.core.metrics import track_worker_cycle
     with track_worker_cycle(WORKER_NAME):
@@ -1665,7 +1716,7 @@ def run_cycle() -> None:
 
 
 def _run_cycle_inner() -> None:
-    global _last_retention_run, _last_webhook_check, _last_watchdog_run
+    global _last_retention_run, _last_webhook_check, _last_watchdog_run, _last_data_integrity_run
 
     started_at = datetime.now(timezone.utc).replace(tzinfo=None)
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
@@ -1788,6 +1839,16 @@ def _run_cycle_inner() -> None:
                     _last_watchdog_run = time.monotonic()
                 except Exception as exc:
                     log(f"watchdog error (non-fatal): {exc}")
+
+            # ---------------------------------------------------------- #
+            # Data integrity probe (once per 6 h) — semantic drift       #
+            # ---------------------------------------------------------- #
+            if _should_run_data_integrity_probe():
+                try:
+                    _run_data_integrity_probe()
+                    _last_data_integrity_run = time.monotonic()
+                except Exception as exc:
+                    log(f"data_integrity_probe error (non-fatal): {exc}")
 
             # ---------------------------------------------------------- #
             # Find active products — BATCHED with cursor pagination        #
@@ -1969,6 +2030,39 @@ def _run_cycle_inner() -> None:
                             conn.rollback()
                             log(f"execution delta error for {shop} (non-fatal): {exc_d}")
 
+                        # Compute Store Intelligence Profile (SIP)
+                        try:
+                            from app.services.sip_engine import compute_sip, upsert_sip, maybe_snapshot
+                            sip_data = compute_sip(conn, shop)
+                            if sip_data:
+                                upsert_sip(conn, sip_data)
+                                maybe_snapshot(conn, sip_data)
+                                conn.commit()
+                        except Exception as exc_sip:
+                            conn.rollback()
+                            log(f"SIP error for {shop} (non-fatal): {exc_sip}")
+
+                        # Autonomous Revenue Loop (Pro merchants only)
+                        try:
+                            from app.services.autonomous_loop import run_autonomous_cycle
+                            db_session = SessionLocal()
+                            try:
+                                # Gate: only run for Pro merchants with billing active
+                                from app.models.merchant import Merchant
+                                merchant = db_session.query(Merchant).filter(
+                                    Merchant.shop_domain == shop,
+                                    Merchant.plan == "pro",
+                                    Merchant.billing_active == True,  # noqa: E712
+                                ).first()
+                                if merchant:
+                                    auto_count = run_autonomous_cycle(db_session, shop)
+                                    if auto_count > 0:
+                                        log(f"autonomous_loop: {auto_count} action(s) for {shop}")
+                            finally:
+                                db_session.close()
+                        except Exception as exc_auto:
+                            log(f"autonomous_loop error for {shop} (non-fatal): {exc_auto}")
+
                         store_count += 1
                     except Exception as exc:
                         conn.rollback()
@@ -1978,6 +2072,20 @@ def _run_cycle_inner() -> None:
                     log(f"store_metrics: updated {store_count} shop(s), {exec_count} opportunities")
             except Exception as exc:
                 log(f"store_metrics: top-level error (non-fatal): {exc}")
+
+        # Commerce Intelligence Graph — cross-store aggregation (daily)
+        global _last_cig_run
+        try:
+            _now_mono = time.monotonic()
+            if _last_cig_run is None or (_now_mono - _last_cig_run) > _CIG_INTERVAL_S:
+                from app.services.cig_engine import compute_cig
+                with engine.connect() as cig_conn:
+                    n_cohorts = compute_cig(cig_conn)
+                    if n_cohorts > 0:
+                        log(f"CIG: computed {n_cohorts} cohorts")
+                _last_cig_run = _now_mono
+        except Exception as exc:
+            log(f"CIG error (non-fatal): {exc}")
 
         # Pre-compute proactive chat messages + intelligence briefs per shop (cached in Redis)
         try:

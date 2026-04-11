@@ -423,6 +423,8 @@ def _evaluate_product_signals(
     browsing_views_24h: int = 0,
     landing_carts_24h: int = 0,
     browsing_carts_24h: int = 0,
+    # Store Intelligence Profile — adaptive thresholds (optional)
+    sip_thresholds: dict | None = None,
 ) -> list[dict]:
     """
     Apply all 8 signal rules to a single product's data and return a list
@@ -435,9 +437,19 @@ def _evaluate_product_signals(
       Group D (spike):           independent
 
     At most 4 signals per product (one per group).
+
+    When sip_thresholds is provided (from StoreIntelligenceProfile), adaptive
+    thresholds replace global constants for this store.
     """
     signals: list[dict] = []
     label = _label_from_url(product_url)
+
+    # ── SIP-adaptive thresholds (fallback to global constants) ──
+    _sip = sip_thresholds or {}
+    views_floor = _sip.get("views_floor", 20)
+    dwell_floor = _sip.get("dwell_floor", 5)
+    return_floor = _sip.get("return_floor", 5)
+    low_conv_threshold = _sip.get("low_conv_threshold", 0.02)
 
     # Computed conversions
     conv_rate = cart_conversions_24h / views_24h if views_24h > 0 else 0.0
@@ -450,7 +462,7 @@ def _evaluate_product_signals(
     # Group A — Traffic quality (mutually exclusive)                       #
     # ------------------------------------------------------------------ #
 
-    if views_24h >= 20 and dwell is not None and dwell < 5:
+    if views_24h >= views_floor and dwell is not None and dwell < dwell_floor:
         # DEAD_TRAFFIC: people are landing but immediately leaving
         strength = _strength_dead_traffic(views_24h)
         m = {
@@ -471,7 +483,7 @@ def _evaluate_product_signals(
             "human_action": humanize_action("DEAD_TRAFFIC"),
         })
 
-    elif views_24h >= 20 and cart_conversions_24h == 0:
+    elif views_24h >= views_floor and cart_conversions_24h == 0:
         # HIGH_TRAFFIC_NO_CART: traffic present, zero purchase intent
         strength = _strength_high_traffic_no_cart(views_24h)
         m = {
@@ -492,7 +504,7 @@ def _evaluate_product_signals(
             "human_action": humanize_action("HIGH_TRAFFIC_NO_CART"),
         })
 
-    elif views_24h >= 25 and cart_conversions_24h > 0 and conv_rate < 0.02:
+    elif views_24h >= max(views_floor, 25) and cart_conversions_24h > 0 and conv_rate < low_conv_threshold:
         # LOW_CONVERSION_ATTENTION: some intent but critically low rate
         strength = _strength_low_conversion(conv_rate)
         m = {
@@ -574,7 +586,7 @@ def _evaluate_product_signals(
     # Group C — Return-visitor quality (mutually exclusive)               #
     # ------------------------------------------------------------------ #
 
-    if return_visitor_count_7d >= 5 and cart_conversions_24h <= 1:
+    if return_visitor_count_7d >= return_floor and cart_conversions_24h <= 1:
         # HIGH_RETURN_LOW_CONVERSION: repeat visitors, almost no conversions
         strength = _strength_high_return_low_conversion(return_visitor_count_7d)
         m = {
@@ -1303,6 +1315,7 @@ def detect_opportunities_from_metrics(shop_domain: str) -> list[dict]:
     all_signals: list[dict] = []
 
     db = SessionLocal()
+    sip_thresholds = None
     try:
         rows = (
             db.query(ProductMetrics)
@@ -1313,6 +1326,21 @@ def detect_opportunities_from_metrics(shop_domain: str) -> list[dict]:
             )
             .all()
         )
+        # Load SIP for adaptive thresholds (only if confidence >= medium)
+        try:
+            from app.models.store_intelligence_profile import StoreIntelligenceProfile
+            sip_row = (
+                db.query(StoreIntelligenceProfile)
+                .filter(
+                    StoreIntelligenceProfile.shop_domain == shop_domain,
+                    StoreIntelligenceProfile.confidence_level.in_(["medium", "high"]),
+                )
+                .first()
+            )
+            if sip_row and sip_row.learned_thresholds:
+                sip_thresholds = sip_row.learned_thresholds
+        except Exception:
+            pass  # SIP not available — use global defaults
     finally:
         db.close()
 
@@ -1354,6 +1382,7 @@ def detect_opportunities_from_metrics(shop_domain: str) -> list[dict]:
             browsing_views_24h=int(row.browsing_views_24h or 0),
             landing_carts_24h=int(row.landing_carts_24h or 0),
             browsing_carts_24h=int(row.browsing_carts_24h or 0),
+            sip_thresholds=sip_thresholds,
         )
         all_signals.extend(product_signals)
 

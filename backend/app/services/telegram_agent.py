@@ -59,6 +59,11 @@ def warmup_connection() -> None:
     there is no race — warmup and the first command simply queue on
     the connection pool and both complete without blocking the webhook.
     """
+    from app.core.notifier_guard import is_real_send_allowed
+
+    if not is_real_send_allowed():
+        return
+
     if not _BOT_TOKEN:
         return
     try:
@@ -126,6 +131,11 @@ def register_bot_commands() -> bool:
     Register commands with Telegram BotFather so they appear in the / autocomplete menu.
     Call once at startup.
     """
+    from app.core.notifier_guard import require_production
+
+    if not require_production("telegram", "register_bot_commands"):
+        return False
+
     if not _BOT_TOKEN:
         return False
 
@@ -224,6 +234,10 @@ def send_message(
     Safety: if HTML parse fails (HTTP 400), automatically retries as plain text.
     """
     from app.core.execution_mode import is_dry_run
+    from app.core.notifier_guard import require_production
+
+    if not require_production("telegram", text):
+        return False
 
     if not _BOT_TOKEN:
         log.debug("telegram_agent: not configured — skipping send")
@@ -296,6 +310,11 @@ def send_message_with_buttons(
     buttons format: [[{"text": "Approve", "callback_data": "/bugfix_approve 19917"}]]
     Returns message_id on success, False on failure.
     """
+    from app.core.notifier_guard import require_production
+
+    if not require_production("telegram", text):
+        return False
+
     if not _BOT_TOKEN:
         return False
 
@@ -575,7 +594,10 @@ def handle_command(command: str, db=None, chat_id: str | None = None) -> str:
         "/webhooks": lambda: _cmd_webhooks(db),
         "/loop_health": lambda: _cmd_loop_health(db),
         "/weakness": lambda: _cmd_weakness(db),
-        "/cleanup": lambda: _cmd_cleanup(db),
+        "/cleanup": lambda: _cmd_cleanup(db, chat_id=chat_id),
+        "/cleanup_confirm": lambda: _cmd_cleanup_confirm(db, chat_id=chat_id),
+        "/cleanup_cancel": lambda: _cmd_cleanup_cancel(db, chat_id=chat_id),
+        "/cleanup_safe": lambda: _cmd_cleanup_safe(db, chat_id=chat_id),
         "/rollback": lambda: _cmd_rollback(db, args),
         "/help": lambda: _cmd_help(db),
     }
@@ -617,7 +639,7 @@ def _cmd_status(db) -> str:
     except Exception:
         health = None
 
-    lines = ["*System Status* — Hedge Spark", ""]
+    lines = ["*System Status* — HedgeSpark", ""]
 
     if health:
         status = health.get("overall_status", "unknown").upper()
@@ -703,7 +725,7 @@ def _cmd_costs(db) -> str:
     fixed = cost["fixed_monthly_eur"]
 
     lines = [
-        "*Monthly Cost Estimate* \u2014 Hedge Spark",
+        "*Monthly Cost Estimate* \u2014 HedgeSpark",
         "",
         "*Fixed costs:*",
     ]
@@ -766,7 +788,7 @@ def _cmd_scaling(db) -> str:
     recs = get_active_recommendations(db)
     forecast = build_forecast(db)
 
-    lines = ["*Scaling Intelligence* \u2014 Hedge Spark", ""]
+    lines = ["*Scaling Intelligence* \u2014 HedgeSpark", ""]
 
     if forecast.get("status") == "not_enough_data":
         lines.append(f"Forecast: not enough data ({forecast.get('snapshots_available', 0)}/{forecast.get('minimum_required', 5)} days)")
@@ -1161,7 +1183,7 @@ def _cmd_bugfix_apply(db, args: list[str]) -> str:
             approval_mode="human_approved",
             metadata={"channel": "telegram"},
         )
-        db.commit()
+        db.flush()
 
         # 6. Result — threaded reply to progress message
         reply_to = progress_id
@@ -1169,29 +1191,30 @@ def _cmd_bugfix_apply(db, args: list[str]) -> str:
         if result.status == "applied":
             # Refresh to get commit SHA
             db.refresh(c)
-            send_message(
-                f"✅ *Bugfix #{candidate_id} deployed*\n\n"
-                f"Tests: passed ✓\n"
-                f"Health: ok ✓\n"
+            msg = (
+                f"✅ *Bugfix applied* #{candidate_id}\n\n"
+                f"Tests: {('passed' if result.test_passed else 'failed')}\n"
+                f"Health: {'ok' if result.health_ok else 'degraded'}\n"
                 f"Commit: {c.git_commit_sha or 'n/a'}\n\n"
-                f"Outcome measurement starts in 48h.",
-                reply_to=reply_to,
+                f"Outcome measurement starts in 48h."
             )
+            send_message(msg, reply_to=reply_to)
             # Add rollback button
             send_message_with_buttons(
                 f"Rollback available:",
                 [[{"text": f"🔄 Rollback #{candidate_id}", "callback_data": f"/rollback {candidate_id}"}]],
                 reply_to=reply_to,
             )
+            return msg
         else:
-            send_message(
+            msg = (
                 f"❌ *Bugfix #{candidate_id} failed*\n\n"
                 f"Status: {result.status}\n"
                 f"Reason: {result.failure_reason or 'unknown'}\n\n"
-                f"Patch was auto-reverted. No code changed.",
-                reply_to=reply_to,
+                f"Patch was auto-reverted. No code changed."
             )
-        return ""  # already sent
+            send_message(msg, reply_to=reply_to)
+            return msg
 
     finally:
         release_execution_lock("bugfix", str(candidate_id))
@@ -1315,10 +1338,23 @@ def _cmd_promotions(db) -> str:
         return "No DB session available."
 
     from app.models.autofix_promotion import AutoFixPromotion
+    from app.models.bugfix_candidate import BugFixCandidate
 
+    # Only show promotions whose candidate is still in an actionable state.
+    # Exclude candidates that have been rejected, rolled back, or discarded —
+    # their promotions are no longer relevant. Use outerjoin so promotions
+    # with missing candidates still appear (edge case / data cleanup).
+    from sqlalchemy import or_
     promotions = (
         db.query(AutoFixPromotion)
-        .filter(AutoFixPromotion.status.notin_(["merged", "rejected", "failed"]))
+        .outerjoin(BugFixCandidate, BugFixCandidate.id == AutoFixPromotion.bugfix_candidate_id)
+        .filter(
+            AutoFixPromotion.status.notin_(["merged", "rejected", "failed"]),
+            or_(
+                BugFixCandidate.id.is_(None),  # no candidate linked
+                BugFixCandidate.status.notin_(["rejected", "rolled_back", "discarded"]),
+            ),
+        )
         .order_by(AutoFixPromotion.created_at.desc())
         .limit(10)
         .all()
@@ -1583,18 +1619,60 @@ def _cmd_webhooks(db) -> str:
         return f"Webhook status unavailable: {exc}"
 
 
-def _cmd_cleanup(db) -> str:
+def _cmd_cleanup(db, chat_id: str | None = None) -> str:
     """
-    Resolve all unresolved alerts and dismiss all active incidents.
-    One-tap operator command to clear the board.
+    Two-step cleanup: first call stages a confirmation in Redis;
+    second call (/cleanup_confirm) actually executes.
+
+    This prevents accidental one-tap board wipes.
     """
     if db is None:
         return "No DB session available."
 
+    from app.core.redis_client import _client as get_redis
+
+    redis = get_redis()
+    key = f"hs:cleanup_pending:{chat_id or 'unknown'}"
+
+    # Stage a pending cleanup (120s TTL)
+    redis.set(key, "full", ex=120)
+
     from sqlalchemy import text
+    alert_count = db.execute(text(
+        "SELECT COUNT(*) FROM ops_alerts WHERE resolved = false"
+    )).scalar() or 0
+
+    send_message_with_buttons(
+        f"\u26a0\ufe0f *Cleanup confirmation required*\n\n"
+        f"This will resolve {alert_count} alert(s) and dismiss open incidents.\n\n"
+        f"Send /cleanup\\_confirm to proceed or /cleanup\\_cancel to abort.\n"
+        f"Expires in 2 minutes.",
+        [],
+    )
+    return ""
+
+
+def _cmd_cleanup_confirm(db, chat_id: str | None = None) -> str:
+    """Execute a previously staged cleanup. Requires /cleanup first."""
+    if db is None:
+        return "No DB session available."
+
+    from app.core.redis_client import _client as get_redis
+
+    redis = get_redis()
+    key = f"hs:cleanup_pending:{chat_id or 'unknown'}"
+    scope = redis.get(key)
+
+    if not scope:
+        return "No pending cleanup — run /cleanup first (may have expired)."
+
+    # Clear pending state
+    redis.delete(key)
+
+    from sqlalchemy import text as _text
 
     # Resolve all alerts
-    alert_result = db.execute(text("""
+    alert_result = db.execute(_text("""
         UPDATE ops_alerts SET resolved = true, resolved_at = now()
         WHERE resolved = false
         RETURNING id
@@ -1602,7 +1680,7 @@ def _cmd_cleanup(db) -> str:
     alerts_resolved = len(alert_result.fetchall())
 
     # Dismiss all active incidents
-    incident_result = db.execute(text("""
+    incident_result = db.execute(_text("""
         UPDATE support_incidents SET status = 'dismissed',
         resolved_at = now(), resolved_by = 'telegram_operator'
         WHERE status IN ('open', 'triaged', 'investigating')
@@ -1611,7 +1689,7 @@ def _cmd_cleanup(db) -> str:
     incidents_dismissed = len(incident_result.fetchall())
 
     # Discard stuck bugfix candidates (failed, not applied)
-    candidate_result = db.execute(text("""
+    candidate_result = db.execute(_text("""
         UPDATE bugfix_candidates SET status = 'discarded',
         failure_reason = 'operator_cleanup'
         WHERE status IN ('open', 'analyzed', 'apply_failed')
@@ -1621,16 +1699,72 @@ def _cmd_cleanup(db) -> str:
 
     db.commit()
 
+    # Decode scope for audit log
+    scope_str = scope if isinstance(scope, str) else scope.decode() if isinstance(scope, bytes) else "full"
+
+    log.warning(
+        "AUDIT cleanup scope=%s actor_chat=%s alerts=%d incidents=%d candidates=%d",
+        scope_str, chat_id or "unknown",
+        alerts_resolved, incidents_dismissed, candidates_discarded,
+    )
+
     total = alerts_resolved + incidents_dismissed + candidates_discarded
     if total == 0:
-        return "\u2705 Already clean — nothing to resolve."
+        return "\u2705 Cleanup complete (scope=full) — already clean."
 
     return (
-        f"\u2705 *Cleanup complete*\n\n"
+        f"\u2705 *Cleanup complete* (scope=full)\n\n"
         f"Alerts resolved: {alerts_resolved}\n"
         f"Incidents dismissed: {incidents_dismissed}\n"
         f"Candidates discarded: {candidates_discarded}\n\n"
         f"Board is clear."
+    )
+
+
+def _cmd_cleanup_cancel(db, chat_id: str | None = None) -> str:
+    """Cancel a pending cleanup."""
+    from app.core.redis_client import _client as get_redis
+
+    redis = get_redis()
+    key = f"hs:cleanup_pending:{chat_id or 'unknown'}"
+    redis.delete(key)
+    return "Cleanup cancelled."
+
+
+def _cmd_cleanup_safe(db, chat_id: str | None = None) -> str:
+    """
+    Safe cleanup: resolve only non-critical, old alerts.
+    Never touches critical alerts or fresh incidents.
+    """
+    if db is None:
+        return "No DB session available."
+
+    from sqlalchemy import text as _text
+
+    # Only resolve non-critical alerts older than 24h
+    alert_result = db.execute(_text("""
+        UPDATE ops_alerts SET resolved = true, resolved_at = now()
+        WHERE resolved = false
+          AND severity != 'critical'
+          AND created_at < now() - interval '24 hours'
+        RETURNING id
+    """))
+    alerts_resolved = len(alert_result.fetchall())
+
+    db.commit()
+
+    log.warning(
+        "AUDIT cleanup scope=%s actor_chat=%s alerts=%d",
+        "safe", chat_id or "unknown", alerts_resolved,
+    )
+
+    if alerts_resolved == 0:
+        return "\u2705 Safe cleanup: nothing to resolve (all alerts are critical or fresh)."
+
+    return (
+        f"\u2705 *Safe cleanup complete* (scope=safe)\n\n"
+        f"Non-critical alerts resolved: {alerts_resolved}\n"
+        f"Critical alerts preserved."
     )
 
 
@@ -1697,7 +1831,7 @@ def _cmd_weakness(db) -> str:
 def _cmd_help(db) -> str:
     """Full command list."""
     return (
-        "*Hedge Spark Operator Bot*\n\n"
+        "*HedgeSpark Operator Bot*\n\n"
         "*Status & Info:*\n"
         "/status \u2014 system health summary\n"
         "/evolution \u2014 last monthly audit proposals\n"
@@ -1750,7 +1884,7 @@ def send_monthly_report(proposals: list[dict], system_summary: dict) -> bool:
     cost = system_summary["cost_estimate"]
 
     lines = [
-        "*Monthly Evolution Report \u2014 Hedge Spark*",
+        "*Monthly Evolution Report \u2014 HedgeSpark*",
         "",
         "Opus audit completed.",
         "",
@@ -1846,7 +1980,7 @@ def send_scaling_alert(recommendation: dict, forecast: dict) -> bool:
     ram = forecast.get("ram_pct", {})
 
     lines = [
-        "*Scaling Recommendation \u2014 Hedge Spark*",
+        "*Scaling Recommendation \u2014 HedgeSpark*",
         "",
         "*Current:*",
         f"\u2022 Active merchants: {merch.get('current', '?')}",
@@ -1924,7 +2058,7 @@ def build_daily_digest(db) -> str:
     # --- Build message ---
     status_emoji = "\u2705" if overall_status == "OK" else ("\u26a0\ufe0f" if overall_status == "WARNING" else "\U0001f534")
     lines = [
-        f"*Daily Digest* \u2014 Hedge Spark",
+        f"*Daily Digest* \u2014 HedgeSpark",
         f"{now_rome.strftime('%A %d %B, %H:%M')} (Rome)",
         f"{status_emoji} *Status: {overall_status}*",
         "",

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
@@ -727,7 +728,11 @@ def _get_merge_recommendation(db, promo_id):
         from app.services.merge_intelligence import compute_merge_recommendation
         rec = compute_merge_recommendation(db, promo_id)
         return {"recommend": rec.recommend, "reasons": rec.reasons}
-    except Exception:
+    except Exception as exc:
+        log.warning(
+            "ops._get_merge_recommendation: promo_id=%s failed (%s): %s",
+            promo_id, type(exc).__name__, str(exc)[:200],
+        )
         return None
 
 
@@ -742,7 +747,11 @@ def _get_merge_outcome(db, promo_id):
             "evaluated_at": o.evaluated_at.isoformat() + "Z" if o.evaluated_at else None,
             "detail": o.detail,
         }
-    except Exception:
+    except Exception as exc:
+        log.warning(
+            "ops._get_merge_outcome: promo_id=%s failed (%s): %s",
+            promo_id, type(exc).__name__, str(exc)[:200],
+        )
         return None
 
 
@@ -1986,6 +1995,482 @@ def ops_email_history(
 
 
 # ---------------------------------------------------------------------------
+# Email journey visibility
+# ---------------------------------------------------------------------------
+
+@router.get("/journey")
+def ops_journey(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+    shop: str | None = Query(default=None),
+):
+    """
+    Merchant email journey state — per-merchant lifecycle tracking.
+    Shows invite/open/click/onboarding/followup/activation timestamps.
+    """
+    from app.services.email_journey import get_journey_summary
+    return get_journey_summary(db, shop_domain=shop)
+
+
+@router.get("/journey/stats")
+def ops_journey_stats(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """
+    Journey funnel stats — count of merchants in each stage.
+    Answers "how many merchants are in each stage?" without fetching all rows.
+    """
+    from sqlalchemy import func as sqlfunc
+    from app.models.merchant_journey_state import MerchantJourneyState
+    rows = (
+        db.query(
+            MerchantJourneyState.current_stage,
+            sqlfunc.count(MerchantJourneyState.id),
+        )
+        .group_by(MerchantJourneyState.current_stage)
+        .all()
+    )
+    stages = {row[0]: row[1] for row in rows}
+    total = sum(stages.values())
+    return {"total": total, "stages": stages}
+
+
+@router.get("/email-events")
+def ops_email_events(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+    shop: str | None = Query(default=None),
+    event_type: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+):
+    """
+    Resend delivery events — delivered, opened, clicked, bounced, complained.
+    Critical for monitoring bounce/complaint rates.
+    """
+    from app.models.email_event import EmailEvent
+
+    def _ts(dt):
+        return dt.isoformat() + "Z" if dt else None
+
+    q = db.query(EmailEvent).order_by(EmailEvent.created_at.desc())
+    if shop:
+        q = q.filter(EmailEvent.shop_domain == shop)
+    if event_type:
+        q = q.filter(EmailEvent.event_type == event_type)
+    rows = q.limit(limit).all()
+    return [
+        {
+            "id": r.id,
+            "created_at": _ts(r.created_at),
+            "resend_email_id": r.resend_email_id,
+            "event_type": r.event_type,
+            "to_email": r.to_email,
+            "shop_domain": r.shop_domain,
+            "email_type": r.email_type,
+            "event_timestamp": _ts(r.event_timestamp),
+        }
+        for r in rows
+    ]
+
+
+@router.get("/email-events/stats")
+def ops_email_event_stats(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """
+    Email event breakdown — count by event_type.
+    Quick health check: are bounces/complaints growing?
+    """
+    from sqlalchemy import func as sqlfunc
+    from app.models.email_event import EmailEvent
+    rows = (
+        db.query(
+            EmailEvent.event_type,
+            sqlfunc.count(EmailEvent.id),
+        )
+        .group_by(EmailEvent.event_type)
+        .all()
+    )
+    return {row[0]: row[1] for row in rows}
+
+
+@router.get("/merchant-scores")
+def ops_merchant_scores(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    """
+    Merchant priority scores — ranked by revenue opportunity.
+    Shows which merchants to focus on for conversion and retention.
+    """
+    from app.services.merchant_scoring import score_all_merchants
+    from dataclasses import asdict
+    scores = score_all_merchants(db, limit=limit)
+    return [asdict(s) for s in scores]
+
+
+@router.get("/merchant/{shop_domain}/score")
+def ops_merchant_score(
+    shop_domain: str,
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Single merchant priority score with sub-score breakdown."""
+    from app.services.merchant_scoring import score_merchant
+    from dataclasses import asdict
+    try:
+        return asdict(score_merchant(db, shop_domain))
+    except Exception as exc:
+        return {"error": str(exc), "shop_domain": shop_domain}
+
+
+@router.get("/feedback/themes")
+def ops_feedback_themes(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """
+    Aggregated merchant feedback themes — recurring feature requests and suggestions
+    grouped by product area. Shows demand signals for product roadmap.
+    """
+    from app.services.feedback_intelligence import get_feedback_summary
+    return get_feedback_summary(db)
+
+
+@router.get("/merchant/{shop_domain}/profile")
+def ops_merchant_profile(
+    shop_domain: str,
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """
+    Unified merchant profile — everything an operator needs to understand
+    a merchant's full state in one call.
+
+    Answers: what state are they in? what did we send? what did they do?
+    what did they reply? are they stuck / silent / at risk?
+    """
+    from app.models.merchant import Merchant
+    from app.models.merchant_email import MerchantEmail
+    from app.models.merchant_journey_state import MerchantJourneyState
+    from app.models.inbound_email import InboundEmail
+    from sqlalchemy import text as sa_text
+
+    def _ts(dt):
+        return dt.isoformat() + "Z" if dt else None
+
+    merchant = db.query(Merchant).filter(Merchant.shop_domain == shop_domain).first()
+    if not merchant:
+        return {"error": "merchant_not_found"}
+
+    # Merchant identity + status
+    identity = {
+        "shop_domain": merchant.shop_domain,
+        "contact_email": merchant.contact_email,
+        "plan": merchant.plan,
+        "billing_active": merchant.billing_active,
+        "install_status": merchant.install_status,
+        "installed_at": _ts(merchant.installed_at),
+        "uninstalled_at": _ts(merchant.uninstalled_at),
+        "onboarding_status": merchant.onboarding_status,
+        "onboarding_error": merchant.onboarding_error,
+        "onboarding_retry_count": merchant.onboarding_retry_count,
+    }
+
+    # Journey state
+    journey = db.query(MerchantJourneyState).filter(
+        MerchantJourneyState.shop_domain == shop_domain
+    ).first()
+    journey_info = None
+    if journey:
+        from app.services.email_journey import _journey_to_dict
+        journey_info = _journey_to_dict(journey)
+        journey_info["email_suppressed"] = journey.email_suppressed
+
+    # Recent emails sent (last 10)
+    emails_sent = (
+        db.query(MerchantEmail)
+        .filter(MerchantEmail.shop_domain == shop_domain)
+        .order_by(MerchantEmail.created_at.desc())
+        .limit(10)
+        .all()
+    )
+    sent_list = [
+        {"type": e.email_type, "status": e.status, "at": _ts(e.created_at),
+         "suppressed_by": e.suppressed_by}
+        for e in emails_sent
+    ]
+
+    # Inbound emails from merchant (last 10)
+    inbound = (
+        db.query(InboundEmail)
+        .filter(InboundEmail.shop_domain == shop_domain)
+        .order_by(InboundEmail.created_at.desc())
+        .limit(10)
+        .all()
+    )
+    inbound_list = [
+        {"subject": ie.subject, "classification": ie.classification,
+         "routing_status": ie.routing_status, "at": _ts(ie.created_at),
+         "responded": ie.agent_response_sent_at is not None}
+        for ie in inbound
+    ]
+
+    # Open incidents for this merchant
+    incidents = db.execute(sa_text("""
+        SELECT id, severity, alert_type, summary, created_at, resolved
+        FROM ops_alerts
+        WHERE shop_domain = :shop
+        ORDER BY created_at DESC LIMIT 10
+    """), {"shop": shop_domain}).fetchall()
+    incident_list = [
+        {"id": r[0], "severity": r[1], "type": r[2],
+         "summary": r[3][:100] if r[3] else None,
+         "at": r[4].isoformat() + "Z" if r[4] else None,
+         "resolved": r[5]}
+        for r in incidents
+    ]
+
+    # Activity: recent event count
+    event_count_7d = db.execute(sa_text("""
+        SELECT COUNT(*) FROM events
+        WHERE shop_domain = :shop
+          AND timestamp > :cutoff
+    """), {
+        "shop": shop_domain,
+        "cutoff": int((_now_utc() - __import__('datetime').timedelta(days=7)).timestamp() * 1000),
+    }).scalar() or 0
+
+    # Risk assessment
+    risk_signals = []
+    if merchant.install_status != "active":
+        risk_signals.append("UNINSTALLED")
+    if merchant.onboarding_status == "failed":
+        risk_signals.append(f"ONBOARDING_FAILED (retry {merchant.onboarding_retry_count or 0})")
+    if journey and journey.email_suppressed:
+        risk_signals.append(f"EMAIL_SUPPRESSED ({journey.email_suppressed})")
+    if event_count_7d == 0 and merchant.onboarding_status == "ready":
+        risk_signals.append("SILENT — 0 events in 7 days")
+    if not merchant.contact_email:
+        risk_signals.append("NO_CONTACT_EMAIL")
+    if merchant.plan == "pro" and not merchant.billing_active:
+        risk_signals.append("PRO_BUT_BILLING_INACTIVE")
+    if not risk_signals:
+        risk_signals.append("HEALTHY")
+
+    return {
+        "merchant": identity,
+        "journey": journey_info,
+        "emails_sent": sent_list,
+        "inbound_emails": inbound_list,
+        "incidents": incident_list,
+        "activity": {"events_7d": event_count_7d},
+        "risk_signals": risk_signals,
+    }
+
+
+def _now_utc():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+@router.get("/inbound-emails")
+def ops_inbound_emails(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+    shop: str | None = Query(default=None),
+    classification: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+):
+    """
+    Inbound email log — merchant replies with classification and routing status.
+    Includes body preview for operator triage without DB access.
+    """
+    from app.models.inbound_email import InboundEmail
+    q = db.query(InboundEmail).order_by(InboundEmail.created_at.desc())
+    if shop:
+        q = q.filter(InboundEmail.shop_domain == shop)
+    if classification:
+        q = q.filter(InboundEmail.classification == classification)
+    if status:
+        q = q.filter(InboundEmail.routing_status == status)
+    rows = q.limit(limit).all()
+
+    def _ts(dt):
+        return dt.isoformat() + "Z" if dt else None
+
+    return [
+        {
+            "id": r.id,
+            "created_at": _ts(r.created_at),
+            "from_email": r.from_email,
+            "shop_domain": r.shop_domain,
+            "subject": r.subject,
+            "body_preview": (r.body_text or "")[:200] or None,
+            "classification": r.classification,
+            "classification_confidence": r.classification_confidence,
+            "classification_method": r.classification_method,
+            "routing_status": r.routing_status,
+            "routing_action": r.routing_action,
+            "processed_at": _ts(r.processed_at),
+        }
+        for r in rows
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Per-merchant email diagnostics — full trace without SSH
+# ---------------------------------------------------------------------------
+
+@router.get("/merchant/{shop_domain}/email-trace")
+def ops_merchant_email_trace(
+    shop_domain: str,
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """
+    Complete email diagnostic trace for a single merchant.
+
+    Returns everything needed to answer "why didn't merchant X get their email?"
+    without SSH access.
+    """
+    from app.models.merchant import Merchant
+    from app.models.merchant_email import MerchantEmail
+    from app.models.merchant_journey_state import MerchantJourneyState
+    from app.models.email_event import EmailEvent
+    from app.models.inbound_email import InboundEmail
+
+    def _ts(dt):
+        return dt.isoformat() + "Z" if dt else None
+
+    # 1. Merchant basics
+    merchant = db.query(Merchant).filter(Merchant.shop_domain == shop_domain).first()
+    if not merchant:
+        return {"error": "merchant_not_found", "shop_domain": shop_domain}
+
+    merchant_info = {
+        "shop_domain": merchant.shop_domain,
+        "contact_email": merchant.contact_email,
+        "install_status": merchant.install_status,
+        "plan": merchant.plan,
+        "billing_active": merchant.billing_active,
+        "onboarding_status": merchant.onboarding_status,
+        "onboarding_error": merchant.onboarding_error,
+        "onboarding_retry_count": merchant.onboarding_retry_count,
+    }
+
+    # 2. Journey state
+    journey = db.query(MerchantJourneyState).filter(
+        MerchantJourneyState.shop_domain == shop_domain
+    ).first()
+    journey_info = None
+    if journey:
+        from app.services.email_journey import _journey_to_dict
+        journey_info = _journey_to_dict(journey)
+        journey_info["email_suppressed"] = journey.email_suppressed
+        journey_info["email_suppressed_at"] = _ts(journey.email_suppressed_at)
+
+    # 3. Sent / suppressed emails (last 20)
+    emails = (
+        db.query(MerchantEmail)
+        .filter(MerchantEmail.shop_domain == shop_domain)
+        .order_by(MerchantEmail.created_at.desc())
+        .limit(20)
+        .all()
+    )
+    email_history = [
+        {
+            "id": e.id,
+            "created_at": _ts(e.created_at),
+            "email_type": e.email_type,
+            "to_email": e.to_email,
+            "status": e.status,
+            "suppressed_by": e.suppressed_by,
+            "resend_id": e.resend_id,
+        }
+        for e in emails
+    ]
+
+    # 4. Resend delivery events (last 20)
+    events = (
+        db.query(EmailEvent)
+        .filter(EmailEvent.shop_domain == shop_domain)
+        .order_by(EmailEvent.created_at.desc())
+        .limit(20)
+        .all()
+    )
+    delivery_events = [
+        {
+            "event_type": ev.event_type,
+            "resend_email_id": ev.resend_email_id,
+            "event_timestamp": _ts(ev.event_timestamp),
+            "email_type": ev.email_type,
+        }
+        for ev in events
+    ]
+
+    # 5. Bounce/complaint suppression check (Redis)
+    redis_suppressed = None
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc:
+            redis_suppressed = rc.get(f"hs:email_suppressed:{shop_domain}")
+            if isinstance(redis_suppressed, bytes):
+                redis_suppressed = redis_suppressed.decode()
+    except Exception:
+        pass
+
+    # 6. Inbound emails from this merchant (last 10)
+    inbound = (
+        db.query(InboundEmail)
+        .filter(InboundEmail.shop_domain == shop_domain)
+        .order_by(InboundEmail.created_at.desc())
+        .limit(10)
+        .all()
+    )
+    inbound_list = [
+        {
+            "id": ie.id,
+            "created_at": _ts(ie.created_at),
+            "subject": ie.subject,
+            "classification": ie.classification,
+            "routing_status": ie.routing_status,
+        }
+        for ie in inbound
+    ]
+
+    # 7. Diagnosis summary
+    diagnosis = []
+    if not merchant.contact_email:
+        diagnosis.append("NO_CONTACT_EMAIL — merchant has no email address")
+    if merchant.install_status != "active":
+        diagnosis.append(f"UNINSTALLED — status={merchant.install_status}")
+    if journey and journey.email_suppressed:
+        diagnosis.append(f"EMAIL_SUPPRESSED — reason={journey.email_suppressed}")
+    if redis_suppressed:
+        diagnosis.append(f"REDIS_SUPPRESSED — {redis_suppressed}")
+    if not emails:
+        diagnosis.append("NO_EMAILS_EVER — no email attempts found")
+    if not diagnosis:
+        diagnosis.append("HEALTHY — no issues detected")
+
+    return {
+        "merchant": merchant_info,
+        "journey": journey_info,
+        "email_history": email_history,
+        "delivery_events": delivery_events,
+        "redis_suppression": redis_suppressed,
+        "inbound_emails": inbound_list,
+        "diagnosis": diagnosis,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Sentry incident triage visibility
 # ---------------------------------------------------------------------------
 
@@ -2251,3 +2736,199 @@ def simulation_status(
     """
     from app.services.simulation_engine import get_simulation_status
     return get_simulation_status(db)
+
+
+# ---------------------------------------------------------------------------
+# Unified Pipeline Health — one-glance view of the self-healing system
+# ---------------------------------------------------------------------------
+
+@router.get("/pipeline-health")
+def get_pipeline_health(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """
+    Single endpoint returning every signal an operator needs to reason
+    about the self-healing pipeline:
+
+      * loop_health snapshot (queue depths, throughput, stuck items,
+        thrashing sources, recurrence, weakest subsystems, trend)
+      * protection_state (LLM budget, Redis, DB pool, worker staleness)
+      * live candidate state counts by (status, source_type)
+      * active alert storm aggregation counter sums
+      * visibility-only backlog (frontend_error candidates awaiting human)
+      * top 5 most recent high-impact ops_alerts
+      * last agent_worker cycle timestamp + cycle freshness
+      * last data_integrity_probe run timestamp
+      * auto_merge cooldown state
+
+    Built entirely on existing deterministic sources — no new
+    computation. Cheap enough to poll every 30s from the operator
+    dashboard without impacting DB.
+    """
+    from datetime import timedelta as _td
+    from app.services.loop_health import get_loop_health
+    from app.core.protection_state import protection_state
+    from app.services.bugfix_pipeline import _VISIBILITY_ONLY_SOURCE_TYPES
+    from app.models.bugfix_candidate import BugFixCandidate
+    from app.models.ops_alert import OpsAlert
+    from app.models.worker_log import WorkerLog
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    # Loop health — the main snapshot
+    try:
+        loop = get_loop_health(db)
+    except Exception as exc:
+        loop = {"error": f"loop_health_failed: {type(exc).__name__}: {exc}"}
+
+    # Protection state — cheap, cached 30s internally
+    try:
+        prot = protection_state()
+    except Exception as exc:
+        prot = {"error": f"protection_state_failed: {type(exc).__name__}"}
+
+    # Candidates grouped by (status, source_type) for the last 48h
+    candidate_48h = []
+    try:
+        rows = db.execute(text("""
+            SELECT status, source_type, COUNT(*) AS n
+            FROM bugfix_candidates
+            WHERE created_at >= :cutoff
+            GROUP BY status, source_type
+            ORDER BY n DESC
+        """), {"cutoff": now - _td(hours=48)}).fetchall()
+        candidate_48h = [
+            {"status": r[0], "source_type": r[1], "count": int(r[2])}
+            for r in rows
+        ]
+    except Exception as exc:
+        candidate_48h = [{"error": f"candidates_48h_failed: {type(exc).__name__}"}]
+
+    # Visibility-only backlog (awaiting human triage)
+    try:
+        visibility_backlog = (
+            db.query(BugFixCandidate)
+            .filter(
+                BugFixCandidate.status.in_(["open", "analyzed"]),
+                BugFixCandidate.proposal_attempted_at.is_(None),
+                BugFixCandidate.source_type.in_(list(_VISIBILITY_ONLY_SOURCE_TYPES)),
+            )
+            .count()
+        )
+    except Exception:
+        visibility_backlog = None
+
+    # Alert storm summary: aggregated occurrence counts for unresolved chronic alerts
+    storm_totals = []
+    try:
+        alerts_24h = (
+            db.query(OpsAlert)
+            .filter(
+                OpsAlert.resolved == False,
+                OpsAlert.created_at >= now - _td(hours=24),
+            )
+            .order_by(OpsAlert.created_at.desc())
+            .limit(100)
+            .all()
+        )
+        for a in alerts_24h:
+            occ = 1
+            if a.detail:
+                try:
+                    parsed = json.loads(a.detail)
+                    if isinstance(parsed, dict):
+                        occ = int(parsed.get("occurrence_count", 1))
+                except (ValueError, TypeError):
+                    pass
+            if occ >= 5:
+                storm_totals.append({
+                    "id": a.id,
+                    "alert_type": a.alert_type,
+                    "source": a.source,
+                    "severity": a.severity,
+                    "shop_domain": a.shop_domain,
+                    "occurrence_count": occ,
+                    "summary": (a.summary or "")[:200],
+                    "created_at": a.created_at.isoformat() if a.created_at else None,
+                })
+        storm_totals.sort(key=lambda s: s["occurrence_count"], reverse=True)
+        storm_totals = storm_totals[:10]
+    except Exception as exc:
+        storm_totals = [{"error": f"storm_query_failed: {type(exc).__name__}"}]
+
+    # Last cycles
+    last_agent_cycle = None
+    last_agg_cycle = None
+    try:
+        ag = (
+            db.query(WorkerLog)
+            .filter(WorkerLog.worker_name == "agent_worker")
+            .order_by(WorkerLog.started_at.desc())
+            .first()
+        )
+        if ag:
+            last_agent_cycle = {
+                "started_at": ag.started_at.isoformat() if ag.started_at else None,
+                "age_seconds": int((now - ag.started_at).total_seconds()) if ag.started_at else None,
+                "errors": ag.errors,
+            }
+        agg = (
+            db.query(WorkerLog)
+            .filter(WorkerLog.worker_name == "aggregation_worker")
+            .order_by(WorkerLog.started_at.desc())
+            .first()
+        )
+        if agg:
+            last_agg_cycle = {
+                "started_at": agg.started_at.isoformat() if agg.started_at else None,
+                "age_seconds": int((now - agg.started_at).total_seconds()) if agg.started_at else None,
+                "errors": agg.errors,
+            }
+    except Exception:
+        pass
+
+    # Auto-merge cooldown state
+    auto_merge_info = {}
+    try:
+        import os as _os
+        import app.services.promotion_pipeline as pp
+        import time as _time
+        auto_merge_info = {
+            "enabled_env_flag": _os.getenv("AUTO_MERGE_TIER0", "").strip() == "1",
+            "on_cooldown": pp._is_auto_merge_on_cooldown(),
+            "cooldown_seconds_remaining": (
+                max(0, int(pp._AUTO_MERGE_COOLDOWN_S - (_time.monotonic() - pp._auto_merge_last)))
+                if pp._auto_merge_last is not None else 0
+            ),
+        }
+    except Exception:
+        auto_merge_info = {"error": "auto_merge_state_unavailable"}
+
+    # Stale worker detection — freshness thresholds
+    freshness_warnings: list[str] = []
+    if last_agent_cycle and last_agent_cycle.get("age_seconds") is not None:
+        if last_agent_cycle["age_seconds"] > 30 * 60:  # 30 min
+            freshness_warnings.append(
+                f"agent_worker last ran {last_agent_cycle['age_seconds'] // 60}m ago "
+                "(expected every 15m)"
+            )
+    if last_agg_cycle and last_agg_cycle.get("age_seconds") is not None:
+        if last_agg_cycle["age_seconds"] > 15 * 60:  # 15 min
+            freshness_warnings.append(
+                f"aggregation_worker last ran {last_agg_cycle['age_seconds'] // 60}m ago "
+                "(expected every 5m)"
+            )
+
+    return {
+        "generated_at": now.isoformat(),
+        "loop_health": loop,
+        "protection_state": prot,
+        "candidates_48h_by_status_source": candidate_48h,
+        "visibility_only_backlog": visibility_backlog,
+        "alert_storms_top10": storm_totals,
+        "last_agent_cycle": last_agent_cycle,
+        "last_aggregation_cycle": last_agg_cycle,
+        "auto_merge": auto_merge_info,
+        "freshness_warnings": freshness_warnings,
+    }

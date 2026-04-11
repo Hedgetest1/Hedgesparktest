@@ -29,7 +29,7 @@ OPUS_OPENAI = "gpt-4o"
 
 # Provider policy (read once at import, restart to change)
 PREFERRED_PROVIDER = os.getenv("LLM_PREFERRED_PROVIDER", "anthropic").strip().lower()
-ALLOW_FALLBACK = os.getenv("LLM_ALLOW_FALLBACK", "false").strip().lower() == "true"
+ALLOW_FALLBACK = os.getenv("LLM_ALLOW_FALLBACK", "true").strip().lower() == "true"
 
 _last_blocked_reason: str = ""
 
@@ -69,6 +69,12 @@ def select_model(
     sel = ModelSelection()
 
     # --- Provider resolution with explicit fallback policy ---
+    # Auto-demote providers in 429 backoff
+    from app.core.llm_budget import is_provider_backed_off
+    if anthropic_available and is_provider_backed_off("anthropic"):
+        anthropic_available = False
+    if openai_available and is_provider_backed_off("openai"):
+        openai_available = False
     provider = _resolve_provider(anthropic_available, openai_available)
     if provider == "none":
         sel.provider = "none"

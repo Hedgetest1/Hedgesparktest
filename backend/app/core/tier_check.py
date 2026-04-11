@@ -61,6 +61,11 @@ SCAN_FORBIDDEN_PATTERNS: list[str] = _TIER_2_PATTERNS + [
     "dashboard/",
     "app/services/orchestrator.py",
     "app/models/action_approval",
+    "app/services/email_templates.py",
+    "app/services/email_orchestrator.py",
+    "app/services/email_governance.py",
+    "app/services/brand_voice.py",
+    "app/core/email.py",
 ]
 
 

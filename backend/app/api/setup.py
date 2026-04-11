@@ -265,7 +265,7 @@ analytics.subscribe("checkout_completed", function (event) {{
         "instructions": [
             "Go to Shopify Admin → Settings → Customer events",
             "Click 'Add custom pixel'",
-            "Name it 'Hedge Spark'",
+            "Name it 'HedgeSpark'",
             "Paste the code below",
             "Click Save, then Connect",
         ],

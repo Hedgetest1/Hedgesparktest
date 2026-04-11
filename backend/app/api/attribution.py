@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
@@ -33,6 +34,41 @@ from app.services.utm_attribution import (
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/attribution", tags=["attribution"])
+
+
+# ---------------------------------------------------------------------------
+# Response models for /attribution/summary/pro — Attribution Intelligence
+# cassettone source. See reference_openapi_codegen.md for the pattern.
+# ---------------------------------------------------------------------------
+
+
+class AttributionSourceRow(BaseModel):
+    """One row in top_sources_first_touch / top_sources_last_touch."""
+    source: str
+    label: str
+    orders: int
+    revenue: float
+
+
+class AttributionCampaignRow(BaseModel):
+    """One row in top_campaigns — ranked by revenue."""
+    campaign: str
+    orders: int
+    revenue: float
+
+
+class AttributionSummaryResponse(BaseModel):
+    """GET /attribution/summary/pro — attribution overview dashboard."""
+    window_days: int
+    generated_at: str
+    orders_total: int
+    orders_attributed: int
+    orders_unattributed: int
+    attribution_rate: float
+    top_sources_first_touch: list[AttributionSourceRow]
+    top_sources_last_touch: list[AttributionSourceRow]
+    top_campaigns: list[AttributionCampaignRow]
+    first_vs_last_match_rate: float
 
 
 def get_db():
@@ -118,7 +154,11 @@ def get_product_source_attribution(
     return {"window_days": days, "results": results, "count": len(results)}
 
 
-@router.get("/summary/pro")
+@router.get(
+    "/summary/pro",
+    response_model=AttributionSummaryResponse,
+    response_model_exclude_none=False,
+)
 def get_attribution_summary_pro(
     days: int = 30,
     shop: str = Depends(require_pro_session),

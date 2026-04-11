@@ -1,5 +1,5 @@
 /**
- * Shared formatting utilities for Hedge Spark dashboard.
+ * Shared formatting utilities for HedgeSpark dashboard.
  *
  * Centralizes all number / currency / URL formatting to avoid
  * duplicate definitions across components.

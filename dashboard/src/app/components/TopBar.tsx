@@ -49,21 +49,21 @@ export function TopBar({
   const isProUser = tier === "pro";
 
   return (
-    <header className="flex h-14 flex-shrink-0 items-center justify-between border-b border-white/[0.08] bg-[#06060e]/90 px-5 backdrop-blur-sm">
+    <header className="flex h-16 flex-shrink-0 items-center justify-between border-b border-white/[0.06] bg-[#07070f]/90 px-6 backdrop-blur-sm">
       {/* Left: shop pill + date */}
       <div className="flex items-center gap-3">
         {shop ? (
-          <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5">
-            <span className="hs-pulse h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            <span className="text-[12px] text-slate-300">{shop}</span>
+          <div className="flex items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.05] px-4 py-2">
+            <span className="hs-pulse h-2 w-2 rounded-full bg-emerald-400" />
+            <span className="text-[14px] font-medium text-slate-200">{shop}</span>
           </div>
         ) : (
-          <div className="rounded-full border border-amber-400/30 bg-amber-500/10 px-3 py-1.5">
-            <span className="text-[12px] text-amber-300">No shop connected</span>
+          <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-2">
+            <span className="text-[14px] font-medium text-amber-300">No shop connected</span>
           </div>
         )}
         {dateStr && (
-          <span className="hidden text-[12px] text-slate-600 sm:block">{dateStr}</span>
+          <span className="hidden text-[14px] text-slate-500 sm:block">{dateStr}</span>
         )}
       </div>
 
@@ -116,12 +116,12 @@ export function TopBar({
         )}
 
         {tier === "pro" ? (
-          <div className="flex items-center gap-1.5 rounded-full border border-violet-400/30 bg-violet-500/15 px-3.5 py-1.5">
+          <div className="flex items-center gap-1.5 rounded-full border border-[#d4893a]/30 bg-[#d4893a]/15 px-3.5 py-1.5">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               viewBox="0 0 24 24"
               fill="currentColor"
-              className="h-3 w-3 text-violet-300"
+              className="h-3 w-3 text-[#e8a04e]"
             >
               <path
                 fillRule="evenodd"
@@ -129,14 +129,14 @@ export function TopBar({
                 clipRule="evenodd"
               />
             </svg>
-            <span className="text-[12px] font-semibold text-violet-200">
+            <span className="text-[14px] font-bold text-[#e8a04e]">
               {showTrialBadge ? "Pro trial" : "Pro"}
             </span>
           </div>
         ) : (
           <button
             onClick={onTierToggle}
-            className="flex items-center gap-1.5 rounded-full bg-violet-600 px-4 py-1.5 text-[12px] font-semibold text-white shadow-[0_0_16px_rgba(124,58,237,0.35)] transition-colors hover:bg-violet-500 active:bg-violet-700"
+            className="hs-cta-gradient flex items-center gap-2 rounded-xl px-5 py-2 text-[14px] font-bold text-white shadow-[0_0_20px_rgba(212,137,58,0.35)] transition-all hover:shadow-[0_0_28px_rgba(212,137,58,0.4)]"
           >
             Upgrade
             <svg

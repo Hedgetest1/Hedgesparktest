@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -29,7 +30,125 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/orders", tags=["orders"])
 
 
-@router.get("/summary")
+# ---------------------------------------------------------------------------
+# Response models for /orders/forecast/pro — Forecast cassettone source.
+# ---------------------------------------------------------------------------
+
+
+class ForecastDailyPoint(BaseModel):
+    """One day in the historical revenue series."""
+    day: str
+    revenue: float
+    orders: int
+
+
+class ForecastHistoryBlock(BaseModel):
+    """Historical revenue series used as the forecast training window."""
+    days_available: int
+    days_with_revenue: int
+    daily_series: list[ForecastDailyPoint]
+    total_revenue: float
+    avg_daily_revenue: float
+
+
+class ForecastWindowBlock(BaseModel):
+    """Projected revenue for a future window (7d or 30d)."""
+    revenue: float
+    revenue_low: float
+    revenue_high: float
+    avg_daily: float
+
+
+class ForecastTrendBlock(BaseModel):
+    """Linear trend classification from the history window."""
+    direction: str
+    slope_per_day: float
+    weekly_change_pct: float
+
+
+class RevenueForecastResponse(BaseModel):
+    """GET /orders/forecast/pro — deterministic revenue forecast."""
+    generated_at: str
+    currency: str
+    history: ForecastHistoryBlock
+    forecast_7d: ForecastWindowBlock | None = None
+    forecast_30d: ForecastWindowBlock | None = None
+    trend: ForecastTrendBlock | None = None
+    confidence: str | None = None
+    confidence_reason: str
+    seasonality_available: bool
+
+
+# ---------------------------------------------------------------------------
+# Response models for /orders/summary, /orders/daily-revenue, /orders/product-conversions
+# ---------------------------------------------------------------------------
+
+
+class OrdersWindowStats(BaseModel):
+    """Per-window order stats (7d / 30d slice)."""
+    order_count: int
+    total_revenue: float
+    avg_order_value: float
+
+
+class TopProductByRevenue(BaseModel):
+    """One row inside top_products_by_revenue."""
+    product_title: str
+    revenue: float
+    units_sold: int
+
+
+class OrdersSummaryResponse(BaseModel):
+    """GET /orders/summary — real revenue summary from shop_orders."""
+    has_orders: bool
+    currency: str
+    last_7d: OrdersWindowStats
+    last_30d: OrdersWindowStats
+    top_products_by_revenue: list[TopProductByRevenue]
+
+
+class DailyRevenuePoint(BaseModel):
+    """One day in the /orders/daily-revenue series."""
+    day: str
+    revenue: float
+    orders: int
+
+
+class DailyRevenueResponse(BaseModel):
+    """GET /orders/daily-revenue — revenue per day for the last N days."""
+    points: list[DailyRevenuePoint]
+    currency: str
+    days: int
+
+
+class ProductConversionRow(BaseModel):
+    """One row in the /orders/product-conversions funnel response."""
+    product_url: str
+    product_name: str
+    views: int
+    unique_viewers: int
+    add_to_cart: int
+    purchases: int
+    units_sold: int
+    revenue: float
+    cvr: float = Field(..., ge=0.0)
+    atc_rate: float = Field(..., ge=0.0)
+    avg_order_value: float
+
+
+class ProductConversionsResponse(BaseModel):
+    """GET /orders/product-conversions — per-product conversion funnel."""
+    products: list[ProductConversionRow]
+    days: int
+    currency: str
+    has_data: bool
+
+
+@router.get(
+    "/summary",
+    response_model=OrdersSummaryResponse,
+    response_model_exclude_none=False,
+)
 def get_orders_summary(
     shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
@@ -131,7 +250,11 @@ def _top_products_by_revenue(db: Session, shop: str, days: int, limit: int = 5) 
 # GET /orders/daily-revenue — Revenue per day for last N days
 # ---------------------------------------------------------------------------
 
-@router.get("/daily-revenue")
+@router.get(
+    "/daily-revenue",
+    response_model=DailyRevenueResponse,
+    response_model_exclude_none=False,
+)
 def get_daily_revenue(
     shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
@@ -194,7 +317,11 @@ def get_daily_revenue(
 # GET /orders/product-conversions — Per-product conversion funnel
 # ---------------------------------------------------------------------------
 
-@router.get("/product-conversions")
+@router.get(
+    "/product-conversions",
+    response_model=ProductConversionsResponse,
+    response_model_exclude_none=False,
+)
 def get_product_conversions(
     shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
@@ -235,9 +362,14 @@ def get_product_conversions(
         rows = db.execute(
             text("""
                 WITH
-                -- Time boundaries
+                -- Time boundaries.
+                -- :days * 86400000 overflows int32 for days >= 25 (max int32 = 2,147,483,647).
+                -- CAST(:days AS bigint) forces the multiplication into bigint space.
+                -- Using CAST() instead of ::bigint to avoid SQLAlchemy bind-parameter
+                -- confusion with Postgres :: cast operator.
+                -- Bug discovered 2026-04-10: without the cast, days=30 crashed the query.
                 cutoff_ms AS (
-                    SELECT (EXTRACT(EPOCH FROM NOW()) * 1000 - :days * 86400000)::bigint AS ts
+                    SELECT (EXTRACT(EPOCH FROM NOW()) * 1000 - (CAST(:days AS bigint) * 86400000))::bigint AS ts
                 ),
                 cutoff_dt AS (
                     SELECT NOW() - make_interval(days => :days) AS dt
@@ -374,7 +506,11 @@ def get_product_conversions(
 # GET /orders/forecast/pro — Revenue forecast (Pro only)
 # ---------------------------------------------------------------------------
 
-@router.get("/forecast/pro")
+@router.get(
+    "/forecast/pro",
+    response_model=RevenueForecastResponse,
+    response_model_exclude_none=False,
+)
 def get_revenue_forecast_endpoint(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),

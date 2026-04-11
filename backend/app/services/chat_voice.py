@@ -46,9 +46,9 @@ def closing(message: str, shop_domain: str = "") -> str:
 # ---------------------------------------------------------------------------
 
 OUT_OF_SCOPE = [
-    "I\u2019m Spark \u2014 I handle everything inside Hedge Spark: setup, diagnostics, feature questions, and bug reports. What do you need help with?",
-    "That\u2019s outside what I can help with. I\u2019m built for Hedge Spark \u2014 bugs, features, setup, data. What\u2019s going on in your dashboard?",
-    "I\u2019m focused on your Hedge Spark store. If something\u2019s broken, confusing, or missing, I\u2019m the right place. What do you need?",
+    "I\u2019m Spark \u2014 I handle everything inside HedgeSpark: setup, diagnostics, feature questions, and bug reports. What do you need help with?",
+    "That\u2019s outside what I can help with. I\u2019m built for HedgeSpark \u2014 bugs, features, setup, data. What\u2019s going on in your dashboard?",
+    "I\u2019m focused on your HedgeSpark store. If something\u2019s broken, confusing, or missing, I\u2019m the right place. What do you need?",
 ]
 
 
@@ -244,9 +244,9 @@ DATA_QUALITY_HEALTHY = [
 # ---------------------------------------------------------------------------
 
 PRODUCT_QUESTION_FALLBACK = [
-    "Hedge Spark monitors your Shopify store for high-intent visitors, cart patterns, and revenue signals. Everything is in the dashboard. What specifically do you want to know about?",
-    "Hedge Spark tracks visitor behavior across your store and surfaces insights \u2014 from intent signals to revenue trends. Which part are you curious about?",
-    "I can explain any part of Hedge Spark \u2014 signals, nudges, attribution, funnels, or anything else you see in the dashboard. What are you looking at?",
+    "HedgeSpark monitors your Shopify store for high-intent visitors, cart patterns, and revenue signals. Everything is in the dashboard. What specifically do you want to know about?",
+    "HedgeSpark tracks visitor behavior across your store and surfaces insights \u2014 from intent signals to revenue trends. Which part are you curious about?",
+    "I can explain any part of HedgeSpark \u2014 signals, nudges, attribution, funnels, or anything else you see in the dashboard. What are you looking at?",
 ]
 
 

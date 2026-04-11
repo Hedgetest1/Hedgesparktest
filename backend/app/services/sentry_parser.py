@@ -577,7 +577,11 @@ def _extract_stacktrace_from_event(event: dict) -> str | None:
             lines.append(f"{exc_type}: {exc_value}")
 
         return "\n".join(lines) if lines else None
-    except Exception:
+    except Exception as exc:
+        log.warning(
+            "sentry_parser: stack trace extraction failed (%s): %s",
+            type(exc).__name__, str(exc)[:200],
+        )
         return None
 
 

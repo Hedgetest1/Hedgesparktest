@@ -101,6 +101,20 @@ def live_visitors(
             "recency_ms": _RECENCY_MS,
         }).mappings().all()
 
-    result = {"visitors": [dict(r) for r in rows]}
+    # Enrich with geo data from Redis (populated by track endpoint)
+    from app.core.geo import get_visitor_geo
+    visitors = []
+    for r in rows:
+        v = dict(r)
+        geo = get_visitor_geo(shop, v.get("visitor_id", ""))
+        if geo:
+            v["country"] = geo.get("country", "")
+            v["country_code"] = geo.get("country_code", "")
+            v["city"] = geo.get("city", "")
+            v["lat"] = geo.get("lat", 0)
+            v["lon"] = geo.get("lon", 0)
+        visitors.append(v)
+
+    result = {"visitors": visitors}
     cache_set(cache_key, result, 10)  # 10 second TTL
     return result

@@ -38,7 +38,7 @@ _MAX_PROPOSALS = 5
 # System prompt
 # ---------------------------------------------------------------------------
 
-_SYSTEM_PROMPT = """You are the autonomous operations agent for Hedge Spark, a Shopify commerce intelligence SaaS.
+_SYSTEM_PROMPT = """You are the autonomous operations agent for HedgeSpark, a Shopify commerce intelligence SaaS.
 
 Your role: read system state, identify problems, and propose safe remediation actions.
 
@@ -109,18 +109,18 @@ def claude_decision(
     Returns LLMDecisionResult with validated proposals.
     Returns empty proposals (no error) if no API key is configured.
     """
+    if not _ANTHROPIC_KEY and not _OPENAI_KEY:
+        return LLMDecisionResult(
+            assessment="No LLM API key configured — skipping AI decision layer",
+            error="no_api_key",
+        )
+
     # Budget guard
     from app.core.llm_budget import check_budget, record_usage, record_blocked, get_max_tokens
     allowed, reason = check_budget("orchestrator")
     if not allowed:
         record_blocked("orchestrator", reason)
         return LLMDecisionResult(assessment=f"Budget blocked: {reason}", error=f"budget:{reason}")
-
-    if not _ANTHROPIC_KEY and not _OPENAI_KEY:
-        return LLMDecisionResult(
-            assessment="No LLM API key configured — skipping AI decision layer",
-            error="no_api_key",
-        )
 
     # Build the action descriptions for the prompt
     # Registry entries are (function, description, tier) — extract description safely
@@ -153,6 +153,8 @@ Analyze the system state and propose actions if needed. Return strict JSON."""
     if sel.provider == "anthropic" and _ANTHROPIC_KEY:
         raw, model = _call_anthropic(user_message, model=sel.model, max_tokens=sel.max_tokens)
     if not raw and _OPENAI_KEY:
+        if sel.provider == "anthropic":
+            log.info("orchestrator_llm: anthropic failed, fallback=openai")
         raw, model = _call_openai(user_message, model=sel.model if sel.provider == "openai" else "gpt-4o-mini", max_tokens=sel.max_tokens)
 
     if raw:

@@ -241,7 +241,7 @@ def _check_first_purchase(db: Session, shop_domain: str) -> bool | str:
         if 1 <= order_count <= 3:
             return (
                 f"Your first {'purchase has' if order_count == 1 else f'{order_count} purchases have'} "
-                f"been tracked through Hedge Spark. Revenue attribution is now active \u2014 "
+                f"been tracked through HedgeSpark. Revenue attribution is now active \u2014 "
                 f"you can see which traffic sources drive real purchases in the Revenue section."
             )
         return False

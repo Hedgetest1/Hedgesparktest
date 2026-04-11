@@ -26,8 +26,36 @@ from app.models.ops_alert import OpsAlert
 log = logging.getLogger(__name__)
 
 
-# Dedup window — suppress duplicate alerts within this many seconds
-_DEDUP_WINDOW_SECONDS = 300  # 5 minutes
+# ---------------------------------------------------------------------------
+# Alert storm aggregation — collapse repeat alerts into a counter
+# ---------------------------------------------------------------------------
+#
+# Pre-2026-04-11 behavior: 5-minute dedup window. Workers running every
+# 15 minutes therefore emitted a FRESH alert every cycle, producing 95
+# duplicates of the same (source, type) in 24h for chronic issues
+# (circuit_breaker_tripped, slow_activation, stale_level2_proposal, …).
+#
+# New behavior: extended dedup window to 24h for UNRESOLVED alerts.
+# Instead of creating a new row, we COLLAPSE the repeat into the
+# existing unresolved alert by:
+#   1. incrementing `detail.occurrence_count` (stored in the JSON text field)
+#   2. updating `detail.last_seen_at` to the current wall clock
+#
+# The original 5-minute acute-dedup is preserved: if an unresolved alert
+# exists and was last seen within 5 minutes, we treat the repeat as a
+# pure duplicate (no counter increment, no side-effects — just return
+# the existing row).
+#
+# Net effect in prod: an alert storming at 15-min intervals now shows up
+# as ONE ops_alert row with `occurrence_count=95`, not 95 separate rows.
+# Operators see "this problem is still here" via the counter and the
+# `last_seen_at` freshness, not via alert noise.
+#
+# TIER_2 constraint: no schema migration — `detail` is a JSON text field
+# that already exists, so we store aggregation state inside it.
+
+_DEDUP_ACUTE_WINDOW_SECONDS = 300         # 5 minutes — pure noise suppression
+_DEDUP_CHRONIC_WINDOW_SECONDS = 24 * 3600  # 24 hours — aggregate ongoing issue
 
 
 def _check_dedup(
@@ -37,11 +65,13 @@ def _check_dedup(
     shop_domain: str | None,
 ) -> OpsAlert | None:
     """
-    Check if a similar unresolved alert was already created within the dedup window.
-    Returns the existing alert if found, None otherwise.
+    Legacy 5-minute acute dedup: return an existing unresolved alert if
+    one was fired in the last 5 minutes. Used by write_alert as the
+    first-pass dedup — if we find an acute match, no state mutation,
+    return the existing row.
     """
     from datetime import timedelta
-    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=_DEDUP_WINDOW_SECONDS)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=_DEDUP_ACUTE_WINDOW_SECONDS)
 
     q = db.query(OpsAlert).filter(
         OpsAlert.source == source,
@@ -55,6 +85,92 @@ def _check_dedup(
         q = q.filter(OpsAlert.shop_domain.is_(None))
 
     return q.first()
+
+
+def _check_chronic(
+    db: Session,
+    source: str,
+    alert_type: str,
+    shop_domain: str | None,
+) -> OpsAlert | None:
+    """
+    24-hour chronic dedup: return the *oldest* still-unresolved alert of
+    this (source, type, shop) created within the last 24 hours. If found,
+    the caller collapses the repeat into it via _collapse_into_existing.
+    """
+    from datetime import timedelta
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=_DEDUP_CHRONIC_WINDOW_SECONDS)
+
+    q = db.query(OpsAlert).filter(
+        OpsAlert.source == source,
+        OpsAlert.alert_type == alert_type,
+        OpsAlert.resolved == False,
+        OpsAlert.created_at >= cutoff,
+    )
+    if shop_domain:
+        q = q.filter(OpsAlert.shop_domain == shop_domain)
+    else:
+        q = q.filter(OpsAlert.shop_domain.is_(None))
+
+    return q.order_by(OpsAlert.created_at.asc()).first()
+
+
+def _collapse_into_existing(
+    db: Session,
+    existing: OpsAlert,
+    new_summary: str,
+    new_detail: Any,
+) -> OpsAlert:
+    """
+    Collapse a repeat alert into an existing unresolved row. Increments
+    `detail.occurrence_count` and sets `detail.last_seen_at`, preserves
+    any prior structured detail under `detail.initial_detail` on the
+    first collapse so the original context is not lost.
+    """
+    now_iso = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+
+    # Parse existing detail (might be string, JSON string, or None)
+    prior_parsed: dict[str, Any] | None = None
+    prior_raw = existing.detail
+    if prior_raw:
+        try:
+            parsed = json.loads(prior_raw)
+            if isinstance(parsed, dict):
+                prior_parsed = parsed
+        except (ValueError, TypeError):
+            prior_parsed = None
+
+    if prior_parsed is None:
+        # First collapse: preserve whatever was there as initial_detail.
+        prior_parsed = {
+            "initial_detail": prior_raw if prior_raw else None,
+            "initial_summary": existing.summary,
+            "occurrence_count": 1,
+            "first_seen_at": existing.created_at.isoformat() if existing.created_at else now_iso,
+        }
+
+    # Increment + refresh
+    prior_parsed["occurrence_count"] = int(prior_parsed.get("occurrence_count", 1)) + 1
+    prior_parsed["last_seen_at"] = now_iso
+
+    # Record the most recent payload so operators see what just came in,
+    # not just the oldest stale context.
+    if new_detail is not None:
+        prior_parsed["last_detail"] = (
+            json.dumps(new_detail, default=str) if not isinstance(new_detail, str) else new_detail
+        )[:2000]
+    if new_summary and new_summary != existing.summary:
+        prior_parsed["last_summary"] = new_summary[:512]
+
+    existing.detail = json.dumps(prior_parsed, default=str)
+    # Touch a visible mutation so ORM flushes it — SQLAlchemy tracks
+    # assignment on Text fields reliably.
+    try:
+        db.flush()
+    except Exception as exc:
+        log.debug("alerting: flush after collapse failed (non-fatal): %s", exc)
+
+    return existing
 
 
 def write_alert(
@@ -76,14 +192,33 @@ def write_alert(
     DB persist happens FIRST — the alert exists regardless of delivery outcome.
     External delivery is attempted SECOND — failure is logged but never raised.
     """
-    # Step 0: Dedup check — suppress identical alerts within window
-    existing = _check_dedup(db, source, alert_type, shop_domain)
-    if existing:
+    # Step 0a: Acute dedup — pure noise suppression within 5 minutes.
+    # If an identical alert was raised in the last 5 minutes, drop this
+    # one entirely. No state mutation — we don't even bump the counter,
+    # because 5-minute-apart duplicates are noise (retry loops, racing
+    # worker cycles), not operationally meaningful repeats.
+    acute = _check_dedup(db, source, alert_type, shop_domain)
+    if acute:
         log.debug(
-            "alert: dedup suppressed [%s] %s shop=%s — existing alert_id=%d",
-            alert_type, source, shop_domain or "global", existing.id,
+            "alert: acute dedup suppressed [%s] %s shop=%s — existing alert_id=%d",
+            alert_type, source, shop_domain or "global", acute.id,
         )
-        return existing
+        return acute
+
+    # Step 0b: Chronic aggregation — if an unresolved alert exists within
+    # 24h but older than the acute window, COLLAPSE this repeat into it.
+    # Result: one ops_alert row per ongoing problem, with an
+    # `occurrence_count` counter in its detail JSON that shows how many
+    # times the pipeline has re-observed the issue. The operator then
+    # sees the single row updating over time, not a storm of duplicates.
+    chronic = _check_chronic(db, source, alert_type, shop_domain)
+    if chronic:
+        log.info(
+            "alert: chronic aggregation — collapsing [%s] %s shop=%s "
+            "into existing alert_id=%d",
+            alert_type, source, shop_domain or "global", chronic.id,
+        )
+        return _collapse_into_existing(db, chronic, summary, detail)
 
     # Step 1: Persist to DB (always)
     alert = OpsAlert(

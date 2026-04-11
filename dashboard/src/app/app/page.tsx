@@ -24,6 +24,8 @@ import { RevenueHero } from "../components/RevenueHero";
 import { TopSignalCard, loadRecentActions, type RecentAction } from "../components/TopSignalCard";
 import { RecentActions } from "../components/RecentActions";
 import { ProofHeroCard } from "../components/ProofHeroCard";
+import { SystemStatusBar } from "../components/SystemStatusBar";
+import { DashboardHero } from "../components/DashboardHero";
 import { computeActions, type SparkAction } from "../lib/actionEngine";
 import { updateReputation } from "../lib/sparkReputation";
 import { generateNotifications, loadSettings, type SparkNotification } from "../lib/sparkNotifications";
@@ -31,6 +33,36 @@ import { SparkToast } from "../components/NotificationBell";
 import { SparkInline } from "../components/SparkCompanion";
 import { SupportChat } from "../components/SupportChat";
 import { IntelligenceHero } from "../components/IntelligenceHero";
+import { Sparkline } from "../components/Sparkline";
+import { GatewayProducts } from "../components/GatewayProducts";
+import { PredictedLtv } from "../components/PredictedLtv";
+import { PnlReport } from "../components/PnlReport";
+import {
+  type DisplayCurrency,
+  formatDisplayMoney,
+  readSavedDisplayCurrency,
+  writeSavedDisplayCurrency,
+} from "../lib/currency";
+import { apiClient, getHeaders, type paths } from "../lib/api-client";
+
+// Typed response aliases — extracted from the generated OpenAPI types so the
+// entire data flow from backend → state → component props is type-checked.
+// When the backend's Pydantic response_model changes, `npm run api:types`
+// refreshes these aliases and tsc surfaces every affected call site.
+type GatewayProductsData =
+  paths["/pro/cohorts/ltv/products"]["get"]["responses"]["200"]["content"]["application/json"];
+type PredictedLtvData =
+  paths["/pro/cohorts/ltv/customers"]["get"]["responses"]["200"]["content"]["application/json"];
+type AttributionSummaryData =
+  paths["/attribution/summary/pro"]["get"]["responses"]["200"]["content"]["application/json"];
+type MonthlyCohortsData =
+  paths["/pro/cohorts/monthly"]["get"]["responses"]["200"]["content"]["application/json"];
+type RevenueForecastData =
+  paths["/orders/forecast/pro"]["get"]["responses"]["200"]["content"]["application/json"];
+type BehavioralCohortsData =
+  paths["/pro/cohorts/behavioral"]["get"]["responses"]["200"]["content"]["application/json"];
+type PnlReportData =
+  paths["/pro/pnl"]["get"]["responses"]["200"]["content"]["application/json"];
 
 // ---------------------------------------------------------------------------
 // Environment
@@ -166,52 +198,33 @@ type LiveVisitor = {
   intent_level?: string;
   intent_score?: number;
   dwell_seconds?: number;
+  country?: string;
+  country_code?: string;
+  city?: string;
+  lat?: number;
+  lon?: number;
 };
 
-type TrendPoint = {
-  day?: string;
-  visitors?: number;
-  page_views?: number;
-  clicks?: number;
-  hot_visitors?: number;
-};
-
-type Alert = {
-  type?: string;
-  message?: string;
-  priority?: string;
-  // PRO ONLY — present only when fetched from /analytics/alerts/pro.
-  // Absent from Lite responses; the alert card renders it when present.
-  action?: string;
-};
-
-type TopPage = {
-  url?: string;
-  views?: number;
-  visitors?: number;
-  avg_dwell?: number;
-};
-
-type SessionRow = {
-  visitor_id: string;
-  pages_visited: string[];
-  total_duration_seconds: number;
-  last_page: string | null;
-  event_count: number;
-};
-
-type FunnelStep = {
-  step: string;
-  label: string;
-  count: number;
-  pct: number | null;
-  drop_off: number | null;
-};
-
-type ClickRow = {
-  url: string;
-  clicks: number;
-};
+// Analytics types — single source of truth is the generated OpenAPI schema.
+// The Pro alert row carries an `action` field the Lite row lacks; we use the
+// Pro row as the superset so legacy call sites that read `action` still work.
+type TrendPoint =
+  paths["/analytics/weekly-trend"]["get"]["responses"]["200"]["content"]["application/json"]["trend"][number];
+// Alert is the Lite row (always present) plus an optional `action` field the
+// Pro row adds. We model it from the Lite row directly so Lite responses type
+// clean; the Pro-only `action` is attached as optional.
+type Alert =
+  paths["/analytics/alerts"]["get"]["responses"]["200"]["content"]["application/json"]["alerts"][number] & {
+    action?: string;
+  };
+type TopPage =
+  paths["/analytics/top-pages"]["get"]["responses"]["200"]["content"]["application/json"]["pages"][number];
+type SessionRow =
+  paths["/analytics/sessions"]["get"]["responses"]["200"]["content"]["application/json"]["sessions"][number];
+type FunnelStep =
+  paths["/analytics/funnel"]["get"]["responses"]["200"]["content"]["application/json"]["steps"][number];
+type ClickRow =
+  paths["/analytics/clicks"]["get"]["responses"]["200"]["content"]["application/json"]["clicks"][number];
 
 type ProductMetricsRow = {
   product_url: string;
@@ -396,6 +409,319 @@ function intentDotClass(intent?: string): string {
   }
 }
 
+/* ══════════════════════════════════════════════════════════════════════════════
+   LIVE RADAR + WORLD MAP — the killer feature
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+function geoToMapXY(lat: number, lon: number): { x: number; y: number } {
+  const x = ((lon + 180) / 360) * 900;
+  const y = ((90 - lat) / 180) * 450;
+  return { x, y };
+}
+
+// Demo visitors for testing the map feature
+const DEMO_VISITORS: LiveVisitor[] = [
+  { visitor_id: "demo-1", url: "/products/silk-pillowcase", intent_level: "HOT", dwell_seconds: 45, country: "United States", country_code: "US", city: "New York", lat: 40.71, lon: -74.0 },
+  { visitor_id: "demo-2", url: "/products/ceramic-mug", intent_level: "WARM", dwell_seconds: 22, country: "United Kingdom", country_code: "GB", city: "London", lat: 51.51, lon: -0.13 },
+  { visitor_id: "demo-3", url: "/products/candle-trio", intent_level: "HOT", dwell_seconds: 38, country: "Germany", country_code: "DE", city: "Berlin", lat: 52.52, lon: 13.41 },
+  { visitor_id: "demo-4", url: "/collections/home", intent_level: "COLD", dwell_seconds: 8, country: "Japan", country_code: "JP", city: "Tokyo", lat: 35.68, lon: 139.69 },
+  { visitor_id: "demo-5", url: "/products/throw-blanket", intent_level: "WARM", dwell_seconds: 18, country: "Australia", country_code: "AU", city: "Sydney", lat: -33.87, lon: 151.21 },
+  { visitor_id: "demo-6", url: "/products/linen-shirt", intent_level: "HOT", dwell_seconds: 52, country: "Italy", country_code: "IT", city: "Milan", lat: 45.46, lon: 9.19 },
+];
+
+// World map SVG paths — generated from Natural Earth 110m land polygons
+// Equirectangular projection: x=(lon+180)/360*900, y=(90-lat)/180*450
+// 87 polygons, simplified, no Antarctica
+const LAND_PATHS: string[] = [
+  "M301.1,425.1L300.3,426.4L299.6,427.5L294.4,427.2L288.8,427.3L285.6,426.5L285.6,426.4L284.3,425.6L289.9,425.7L295.3,426L297.2,425L298.5,424.1Z","M303.6,352.8L305.6,353.9L304.9,354.8L301.5,355.5L300.4,354.6L298.2,355.8L297,354.6L300,353.1L302.1,353.8Z","M813.5,327L815.9,327.8L817.3,327.5L819.2,327L820.7,327.2L820.9,330.2L820,331L819.8,333L818.9,332.3L817.2,334.1L816.7,334L815.1,333.9L813.6,331.7L813.2,330.1L811.8,327.9L811.9,326.8Z","M882.6,327.3L883.1,328.3L884.9,327.3L885.6,328.4L885.6,329.4L884.7,330.6L883.1,332.4L881.8,333.4L882.7,334.6L880.8,334.7L878.6,335.6L878,337.2L876.5,339.8L874.6,340.9L873.3,341.6L871,341.5L869.4,340.7L866.7,340.5L866.3,339.6L867.6,337.8L870.8,335.3L872.4,334.8L874.2,333.9L876.3,332.6L877.8,331.3L878.9,329.4L879.9,328.8L880.2,327.4L882,326.2Z",
+  "M886.5,315.4L888.3,318L888.4,316.3L889.5,317L889.9,318.9L891.9,319.7L893.6,319.9L895,318.9L896.3,319.2L895.7,321.5L894.9,322.9L893,322.9L892.3,323.6L892.6,324.7L892.2,325.2L891.3,326.5L890,328.2L888.1,329.2L887.7,328.6L886.6,328.2L888.1,326.1L887.3,324.8L884.6,323.8L884.6,322.9L886.4,322L886.9,320.1L886.7,318.5L885.7,316.8L885.8,316.3L884.6,315.3L882.6,313.1L881.6,311.3L882.5,311.1L883.9,312.5L885.8,313.2Z","M867.8,280.4L866.9,281L865.5,280.3L863.7,279.2L862.1,277.9L860.4,276.1L860.1,275.3L861.1,275.3L862.6,276.1L863.7,277L864.4,277.7L866.5,279.3Z",
+  "M575.1,258.9L575.5,261.9L576.2,263.1L575.9,264.3L575.5,265L574.7,263.5L574.2,264.3L574.7,266.1L574.4,267.2L573.7,267.8L573.6,269.9L572.6,272.8L571.4,276.2L569.8,281L568.9,284.5L567.7,287.4L565.7,287.9L563.5,289L562.1,288.4L560.1,287.5L559.4,286.2L559.2,283.9L558.4,281.9L558.1,280.1L558.6,278.3L559.7,277.9L559.7,277.1L560.9,275.2L561.2,273.6L560.6,272.4L560.1,270.8L559.9,268.5L560.8,267.1L561.1,265.5L562.4,265.4L563.8,264.9L564.7,264.5L565.8,264.5L567.2,263L569.3,261.5L570,260.2L569.7,259.2L570.7,259.5L572.1,257.7L572.2,256.2L573,255.1L573.9,256.2L574.5,257.2Z",
+  "M808.9,259.4L811.4,260.4L813.4,262.5L813.7,265.7L814.7,267.3L815.2,270.7L818.7,273.7L822.1,276L823.2,278.2L825.2,280.3L826.8,281L829,285.2L832.1,288.2L832.9,291.6L833.9,295.3L833.3,298.6L832.7,302.3L831.1,306.4L828.4,309.5L826.8,312.9L825.2,316.1L825,318.6L820.8,319.5L817.3,321.5L813.7,321.5L812.6,319.7L809,322L805.4,321L801.6,320L799.5,316.6L797.7,314.3L796.1,312.8L794.3,312.7L793.4,311.8L794.7,309.1L792.5,309.4L790,312.2L788.1,309.9L785.2,307.1L782.5,305L778.3,303.7L770.6,304.9L765.4,305.5L760.6,307.4L759.1,309.7L755.5,310L751.5,309.8L748.2,311.3L746.3,311.9L743.2,312.6L738.9,311L737.6,309.1L739.3,308.1L739.5,305.5L737.9,301.5L737.6,298.7L736.5,296.3L735.1,293.3L733.3,290.3L733.6,289.1L735.6,290.7L734.3,287.5L733.5,286L734.3,283.9L734.3,281.2L735.6,281.3L738.7,278.7L741.8,276.8L743.6,276.9L747.1,275.7L748.1,274.9L752.1,274.2L754.1,271.8L755.7,269.5L757.5,266L759.6,267.7L759.5,265.3L760.9,263.9L762.9,261.7L764.2,260.6L765.4,260.2L767.7,259.5L770.9,262.2L774.1,262.4L774.7,259L775.5,257.8L778.1,255.5L781.4,255.3L779.6,253.2L782.5,253.4L786,255.1L788.2,255.6L790.6,255.1L792.4,255.9L790.8,258.2L790.2,259.3L788.6,261.8L790.7,263.9L794,265.5L796.5,267L798.2,268.4L802.2,268.4L803.2,266L804.3,262.6L804.1,260.7L804.1,257.4L804.2,256L805.3,253.3L806.3,251.7L807.2,254.5L807.9,255.8L809,258.5Z",
+  "M761.1,250.4L758.9,250.9L758.6,250.6L758.9,249.8L760,248.2L762.4,247.2L762.7,246.6L764.9,246.1L766.6,246L767.4,245.7L768.3,246L767.4,246.7L764.8,247.8L762.7,248.5Z","M744.8,245.2L745.7,245.9L747.2,245.7L747.8,246.8L744.9,247.3L743.2,247.6L741.9,247.6L742.7,246.1L744.1,246.1Z","M757.3,245.2L756.9,246.6L753.1,247.3L749.8,247L749.8,246.1L751.8,245.6L753.4,246.3L755,246.2Z",
+  "M721.6,241.9L726.3,242.2L726.9,241.2L731.5,242.4L732.4,244L736.2,244.4L739.3,245.9L736.4,246.9L733.7,245.9L731.4,245.9L728.8,245.8L726.5,245.3L723.6,244.4L721.7,244.1L720.7,244.4L716.1,243.4L715.7,242.3L713.4,242.1L715.1,239.7L718.2,239.9L720.2,240.9L721.2,241.1Z",
+  "M830,238.7L828.6,238.9L828.3,239.6L826.9,240.2L825.6,240.8L824.3,240.8L822.2,240.1L820.8,239.4L821,238.6L823.2,239L824.6,238.8L825,237.6L825.3,237.5L825.6,238.8L827,238.6L827.7,237.8L829.1,236.9L828.8,235.4L830.3,235.4L830.8,235.8L830.8,237.2Z","M776.2,232.7L777.1,234.6L775,233.6L772.9,233.4L771.5,233.6L769.7,233.5L770.3,232.1L773.4,232Z","M832.9,236.2L832.1,236.9L831.6,235.4L831,234.5L829.9,233.7L828.5,232.6L826.7,231.9L827.3,231.3L828.7,231.9L829.6,232.5L830.6,233.1L831.6,234.1L832.5,235Z",
+  "M785.4,227.9L786.1,231.9L788.6,233.4L790.7,230.8L793.6,229.3L795.8,229.3L798,230.1L799.8,231L802.5,231.5L806.8,233.2L811.5,234.7L813.2,235.9L814.6,237.2L815,238.7L819.1,240.2L819.7,241.5L817.4,241.8L818,243.5L820.2,245.1L821.8,247.8L823.3,247.7L823.2,248.8L825.1,249.2L824.3,249.7L827,250.7L826.7,251.5L825.1,251.6L824.5,251L822.3,250.7L819.8,250.3L817.8,248.7L816.4,247.4L815.1,245.2L811.9,244.1L809.7,244.8L808.2,245.6L808.5,247.5L806.6,248.3L805.2,247.9L802.6,247.8L800.4,245.7L797.8,245.2L797.2,246L794,246L795.1,244L796.7,243.3L796,240.6L794.8,238.5L790,236.4L787.9,236.2L784.2,233.8L783.4,235.1L782.5,235.3L781.9,234.4L781.9,233.3L780,232.1L782.7,231.2L784.5,231.2L784.2,230.5L780.6,230.5L779.6,229L777.4,228.6L776.3,227.3L779.7,226.7L781,225.9L785,227Z",
+  "M763.1,221.5L761.1,223.9L759.2,224.4L756.8,223.9L752.6,224L750.5,224.4L750.1,226.3L752.3,228.5L753.7,227.4L758.4,226.5L758.1,227.7L757.1,227.3L756,228.8L753.8,229.8L756.1,233L755.7,233.8L757.9,236.7L757.9,238.4L756.6,239.1L755.6,238.2L756.8,236.2L754.3,237.1L753.7,236.4L754,235.5L752.2,234L752.4,231.6L750.8,232.3L751,235.2L751.1,238.8L749.5,239.2L748.4,238.4L749.1,236.1L748.7,233.7L747.7,233.7L746.9,232L748,230.4L748.3,228.4L749.6,224.6L750.1,223.6L752.2,221.7L754.2,222.5L757.3,222.8L760.2,222.7L762.7,220.9Z",
+  "M771.7,222.2L771.6,224.4L770.3,224.1L769.9,225.6L770.9,227L770.3,227.2L769.2,225.7L768.5,222.5L769,220.5L769.8,219.6L770,220.9L771.5,221.1Z",
+  "M714.5,239.6L711.8,239.7L709.7,237.6L706.5,235.6L705.4,234L703.5,232L702.3,230.1L700.4,226.6L698.2,224.5L697.4,222.4L696.5,220.4L694.2,218.9L692.9,216.7L691.1,215.3L688.5,212.6L688.2,211.3L689.8,211.4L693.7,211.9L695.9,214.3L697.9,216L699.2,217.1L701.6,219.8L704.1,219.8L706.2,221.5L707.7,223.6L709.6,224.7L708.6,226.8L710,227.6L710.9,227.7L711.3,229.5L712.2,230.9L714.1,231.1L715.3,232.7L714.6,235.8Z",
+  "M744.7,220.4L747.5,222.7L744.5,223L743.7,224.7L743.8,227L741.4,228.7L741.3,231.2L740.4,235L740,234.1L737.2,235.3L736.2,233.7L734.4,233.6L733.1,232.8L730.2,233.7L729.3,232.5L727.6,232.6L725.6,232.3L725.2,229L723.9,228.3L722.7,226.1L722.4,224L722.7,221.6L724.2,220L726,220.8L727.9,220.4L728.4,218.3L729.5,217.8L732.5,217.2L734.3,215.3L735.5,213.7L736.5,212.7L738.6,211.4L740.6,209.6L741.8,207.7L742.8,207.7L744.1,208.9L744.2,210L745.9,210.7L748,211.5L747.8,212.5L746.1,212.6L746.5,213.8L744.7,214.7L743.3,216.9L745.1,219.3Z",
+  "M765.9,204L766.2,205.6L766.3,207L765.5,209.3L764.6,206.8L763.4,208L764.2,209.9L763.5,211L760.5,209.6L759.8,207.8L760.6,206.6L759,205.4L758.2,206.5L757.1,206.4L755.2,207.8L754.8,207L755.8,204.9L757.4,204.2L758.7,203.3L759.6,204.4L761.5,203.7L761.9,202.6L763.7,202.5L763.5,200.6L765.6,201.8L765.8,203Z",
+  "M653,209.5L650.9,210.1L649.7,208.1L649.2,204.5L650.4,200.4L652.1,201.8L653.3,203.6L654.5,206.2L654.1,208.8Z","M760,199.3L759.1,200.1L758.3,201.7L757.5,202.4L756,200.7L756.5,200L757.1,199.3L757.4,197.8L758.7,197.6L758.3,199.3L760.2,196.9Z","M746.3,201.7L742.9,204.1L744.2,202.3L746,200.8L747.5,199.1L748.8,196.6L749.2,198.6L747.6,200Z","M763.8,194.6L764.5,197.4L762.5,196.7L762.6,197.6L763.2,199.1L762,199.7L761.9,197.9L761.1,197.8L760.8,196.3L762.2,196.5L762.2,195.5L760.7,193.6L763.1,193.7Z",
+  "M753.3,178.7L754.8,179.5L755.6,178.8L755.8,179.4L755.4,180.5L756.3,182.3L755.6,184.3L754.2,185.2L753.8,187.2L754.3,189.2L755.6,189.5L756.8,189.2L759.9,190.5L759.6,191.9L760.5,192.5L760.2,193.7L758.2,192.4L757.3,191.1L756.7,192L755.1,190.5L752.8,190.9L751.6,190.4L751.7,189.3L752.5,188.7L751.7,188.1L751.4,189L750.2,187.6L749.8,186.5L749.7,184.1L750.7,184.9L751,181L751.8,178.7Z",
+  "M257.7,180.3L257,180.7L255.6,180.3L254.2,179.4L254.5,178.9L255.5,178.7L256.1,178.8L257.8,179L259.1,179.6L259.5,180.3Z",
+  "M268.6,175.3L270.7,175.7L271,175.3L273,175.3L274.5,175.9L275.1,175.9L275.6,176.8L276.9,176.7L276.9,177.5L278,177.6L279.2,178.5L278.3,179.5L277.1,178.9L275.9,179L275.1,178.9L274.7,179.4L273.7,179.5L273.3,178.9L272.5,179.3L271.5,181L270.9,180.6L270.7,179.9L269.1,179.5L267.9,179.6L266.4,179.5L265.2,179.9L263.9,179.1L264.1,178.3L266.4,178.7L268.3,178.9L269.2,178.3L268,177.2L268,176.3L266.5,175.9L267,175.2Z",
+  "M725.8,178.3L723.7,179.5L721.6,178.7L721.6,176.6L722.8,175.4L725.5,174.7L727,174.8L727.5,175.8L726.4,176.9Z",
+  "M250.8,168.1L251.8,169L254.1,168.7L255,169.3L257.1,170.9L258.7,172L259.5,171.9L261,172.5L260.8,173.2L262.7,173.3L264.6,174.3L264.3,174.9L262.6,175.2L260.9,175.3L259.2,175.1L255.6,175.4L257.3,174L256.3,173.3L254.7,173.2L253.8,172.4L253.2,171L251.8,171.1L249.5,170.4L248.7,169.9L245.4,169.5L244.6,169L245.5,168.4L243.1,168.3L241.3,169.6L240.2,169.6L239.9,170.2L238.6,170.5L237.6,170.3L238.9,169.5L239.4,168.6L240.6,168L241.8,167.5L243.7,167.3L244.3,167L246.5,167.2L248.5,167.2Z",
+  "M752.9,168L751.9,170.1L750.6,168L750.3,166.1L751.7,163.7L753.7,161.8L754.9,162.5L754.4,164Z","M786.6,139.6L786.9,140.5L785.5,142L784.5,141.2L783.2,141.8L782.5,143.2L780.9,142.5L780.9,141.3L782.3,139.8L783.7,140.1L784.8,139.1Z","M536.4,135.8L534.8,136.9L534.9,137.4L535,137.6L532.4,138.6L531.2,138.2L530.6,137.2L531.8,137.1L532,137.1L532.4,136.5L534.2,136.6Z",
+  "M509.2,135.7L510.6,136.6L512.6,136.4L514.4,136.6L514.4,137.1L515.7,136.8L515.4,137.5L511.8,137.7L511.8,137.3L508.8,136.8Z","M488.8,129.4L487.9,131.4L488.3,132.2L487.7,133.5L485.8,132.5L484.6,132.2L481.1,131L481.4,129.7L484.4,129.9L486.9,129.6Z","M473,122L474.5,123.7L474.2,127.1L473,126.9L472,127.7L471.1,127.1L471,124.1L470.4,122.6L471.8,122.8Z",
+  "M802.4,132.1L801.5,134.1L801.9,135.4L800.6,137.2L797.4,138.3L793,138.5L789.5,141.3L787.8,140.4L787.7,138.5L783.4,139.1L780.4,140.2L777.5,140.3L780,142.1L778.3,146.4L776.7,147.4L775.5,146.5L776.1,144.2L774.5,143.5L773.5,141.8L775.9,141L777.2,139.4L779.7,138.1L781.5,136.4L786.5,135.7L789.2,136.2L791.8,131.7L793.5,132.9L797.1,130.4L798.6,129.5L800.1,126.4L799.7,123.6L800.8,122L803.4,121.6L804.8,125L804.7,127L802.4,129.6Z",
+  "M809.8,114.6L811.5,115.1L813.3,114L813.9,116.8L810.1,117.5L808,120L804,118.3L802.7,121L799.9,121.1L799.5,118.6L800.8,116.7L803.5,116.5L804.2,113.1L804.9,111.1L807.9,113.7Z","M290.8,108.6L292.7,109L295,108.9L293.7,109.9L292.8,110.1L289.6,109L289,108.2L290,107.4Z","M295.5,102.2L294.3,102.3L291,101.5L288.7,100.3L289.6,100.1L292.9,100.7L295.4,101.8Z",
+  "M141.2,103.7L140,104.1L135.9,102.9L135.1,102.1L132.9,101.2L132.4,100.5L129.9,100L128.9,98.7L129.1,98.1L131.7,98.6L133.3,99L135.6,99.3L136.5,100.1L137.7,101.3L140.2,102.3Z",
+  "M309.7,98.3L308,100.5L309.6,99.6L311.3,100.2L310.4,101L312.7,101.7L313.8,101.1L316.3,101.9L315.5,103.7L317.3,103.3L317.6,104.6L318.4,106.2L317.3,108.4L316.2,108.5L314.6,108L315.1,105.9L314.4,105.6L311.5,107.8L310,107.7L311.8,106.5L309.4,105.9L306.7,106.1L301.8,106L301.5,105.3L303,104.4L301.9,103.7L304,102.2L306.6,98.2L308.2,96.8L310.3,95.9L311.5,96L311,96.7Z",
+  "M118.2,89.9L120.6,89.7L119.9,92.5L122.1,94.5L121.1,94.5L119.5,93.4L118.6,92.2L117.4,91.5L116.9,90.4L117,89.6Z",
+  "M809.1,98.1L811.6,102.6L807.9,101.7L806.4,105.3L808.8,107.9L808.8,109.7L806.9,108.1L805.2,110.1L804.8,108L805,105.5L804.8,102.9L805.3,101L805.4,97.6L804,95.2L804.2,91.7L806.5,90.6L805.5,89.4L806.6,89.1L807.3,90.7L808.2,93.1L808.1,95.6Z",
+  "M433,94.3L428.6,95.8L425.1,95.4L427.1,92.8L425.8,90.3L429.2,88.3L431.1,87.2L433.2,87.1L435.8,88.6L434.5,90.3L434.9,92.1Z","M67.5,82.2L65,83.2L63.7,82.5L63.3,81.3L65.6,80.5L66.9,80.1L68.6,80.2L69.6,81Z",
+  "M442.5,78.4L439.8,81.1L442.4,80.8L445.1,80.8L444.5,82.8L442.2,85.1L444.8,85.2L447.2,88.4L448.9,88.8L450.5,91.7L451.2,92.7L454.2,93.2L453.9,94.8L452.6,95.5L453.6,96.8L451.4,98.1L448,98.1L443.8,98.7L442.6,98.3L441,99.4L438.6,99.1L436.9,100.1L435.6,99.6L439.2,97L441.5,96.4L437.5,96L436.8,95L439.4,94.2L438.1,92.9L438.6,91.3L442.3,91.5L442.6,90L440.9,88.5L437.9,88L437.3,87.3L438.2,86.2L437.4,85.5L436,86.7L435.9,84.3L434.6,83L435.5,80.5L437.5,78.4L439.5,78.6Z",
+  "M245.3,68.2L242.3,69.6L240.6,69.5L240,68.9L241.9,67.7L245.3,67.7Z","M20.7,65.5L22.2,66L23.8,65.8L25.8,66.4L28.3,66.8L28.1,67L26.2,67.6L24.3,67L23.3,66.6L21.1,66.7L20.5,66.5Z",
+  "M237.1,60.9L237.6,62L238.8,61.6L240.3,62.2L243,63.1L245.9,63.9L246.1,65.1L248,64.9L249.7,65.7L247.5,66.5L243.6,65.9L242.2,64.7L239.7,66.1L236.2,67.4L235.3,65.9L231.9,66.1L234.1,64.9L234.4,62.9L235.3,60.7Z","M413.7,58.9L413.2,60.5L416,62.2L412.7,64.1L405.5,65.8L403.4,66.3L400.1,65.9L393.1,65.1L395.6,64L390.1,62.8L394.5,62.3L394.4,61.6L389.2,61L390.9,59.3L394.7,59L398.6,60.7L402.4,59.3L405.5,60L409.6,58.7Z",
+  "M260.3,57.1L257.5,57.3L256.9,56L258,54.6L260.3,54.3L262.2,55L262.2,56L262,56.4Z","M12.5,58.5L14.2,59.2L13.6,57.3L20.4,57.7L25.3,60.1L22.8,61.1L18.7,61.4L18.6,63.8L17.6,64.4L15.3,64.3L13.4,63.4L10,62.7L9.5,61.6L6.9,61.2L4.1,61.5L2.7,60.6L3.3,59.7L0.3,60.3L1.4,61.5L0,62.6L0,52.6L6.1,54.5L12.7,57Z",
+  "M210.9,52.2L209.3,53.1L206,52.3L203.9,52.6L200.5,51.5L202.7,50.7L204.5,49.6L207.1,50.3L208.6,50.8L209.4,51.3Z","M3.3,47.8L0,47.9L0,46.2L0.3,46.1L2.4,46.1L6.1,46.8L5.8,47.2Z",
+  "M223.6,51.3L246.8,52.1L228.8,64.8L219.3,82.3L246.5,94.6L253.7,78L276,72.3L295.5,84.2L303.1,97.3L278.4,104.2L300.5,110.2L279.9,114.2L273.4,121.3L264.4,123.8L260.1,132L260.3,133.6L246.3,148.2L246.7,160.9L235.6,149.6L224.6,152.2L206.5,158.3L207,173.4L223.7,175.3L231.4,176.3L229.4,182.4L231.2,185.5L239.1,185.4L241.3,192.8L244.5,202L253.7,201.4L264.5,196.7L270.9,198.9L277.8,196.4L293.2,198.9L306.1,209.2L322.3,215.9L339,230.3L363.2,243.4L351,270.7L328.8,289.7L315.5,311L308,317.3L287.2,327.7L281,340.8L276.3,355.7L261,346.7L265,329.5L271.3,297.2L260,261.6L246.5,236.8L249.9,224.1L256.3,214.8L252.2,202.5L247,205.9L240.9,202.4L235.5,198.9L231.7,192.5L220.8,189.7L200.8,183.2L186.2,173L176.8,158.9L165.3,146.1L167.6,153.9L176.5,166.6L166.3,158.1L160.3,149.5L148.4,138.5L138.7,118.1L142.9,102.5L122.3,87.1L90.1,75L74.1,72.4L53.9,85L48.6,85L50,78.6L34.7,71.2L48.1,63L40.9,58.6L42.7,50.4L73.2,48.9L110.9,51.7L139.3,51.5L173,55.5L196.4,55.9L208.8,49.8Z",
+  "M164.6,42.2L163.3,43.4L168.9,42.6L172.4,43.9L175.2,42.6L177.5,43.4L179.5,45.9L180.8,44.8L179,42.3L181.2,41.9L183.7,42.3L186.5,43.3L188.1,45.8L188.8,47.5L193,48.8L197.5,49.9L197.3,51L193.2,51.2L194.8,52.2L193.9,53.1L189.4,52.7L185.1,52L182.2,52.2L177.5,53L170.1,53.5L166.7,53.7L165.4,52.5L161.9,51.8L159.7,52.1L156.7,50.1L158.3,49.8L162.2,49.4L165.7,49.5L169,49.1L164.1,48.5L158.8,48.7L155.2,48.6L153.9,47.7L159.7,46.7L155.9,46.8L151.5,46.1L153.6,44.2L155.3,43.2L162,41.7Z",
+  "M188.8,41.4L186.6,43.1L182.7,41.4L183.5,41L186.8,40.9Z","M259.1,42.2L259.4,42.9L256.7,42.9L254,42.8L251.3,43.1L250.6,43L247.8,41.7L247.9,40.8L249.1,40.6L254.8,40.9Z",
+  "M233.6,42.1L235.6,43.7L237.9,41.6L244.2,40.6L248.5,43.2L248.1,44.8L253.1,44.1L255.4,43.1L261,44.4L264.4,45.6L264.8,46.7L269.4,46.1L272,47.7L278,48.7L280.2,49.7L282.6,52L278,53.2L283.9,54.8L287.8,55.4L291.4,57.7L295.4,57.8L294.6,59.6L290.2,62.5L287.1,61.4L283.2,59L280,59.3L279.6,60.8L282.3,62.2L285.7,63.4L286.7,64L288.3,66.5L287.5,68.3L284.3,67.6L278,65.6L281.6,67.8L284.2,69.3L284.6,70.2L277.8,69.2L272.4,67.7L269.4,66.5L270.3,65.8L266.6,64.5L262.9,63.3L263,64L255.7,64.4L253.6,63.6L255.3,61.7L260,61.7L265.1,61.4L264.3,60.5L265.1,59.2L268.4,56.8L267.7,55.7L266.7,54.8L262.9,53.6L257.8,52.8L259.4,52.1L256.8,50.6L254.6,50.4L252.6,49.6L251.3,50.3L246.7,50.6L237.6,50.1L232.3,49.3L228.3,49L226.2,48.1L228.8,47L225.3,46.9L224.5,44.4L226.4,42.2L229,41.2L235.4,40.5Z",
+  "M199.1,40.4L202.1,40.9L206.6,40.6L207.2,41.3L204.9,42.5L208.6,43.6L208.2,45.9L204.1,46.8L201.7,46.6L200,45.7L193.8,43.7L193.8,42.9L198.9,43.2L196.2,41.6Z","M809,42L805.2,42L800.1,41.7L799.7,41.6L802,40.6L805.2,40.4L808.7,41.3Z","M217,43.1L214.3,44.9L211.5,44.8L209.9,42.6L210,41.4L211.3,40.3L213.7,39.7L218.9,39.7L223.7,40.4L220,42.6Z",
+  "M148.9,46.5L142.3,47.7L140.9,46.6L135.2,45.3L136,44.5L138,42.4L140.2,40.8L137.7,39.3L146.2,38.9L149.7,39.4L156.1,39.5L158.5,40.3L161.2,41.3L158.1,41.9L151.9,43.7L148.9,45.5Z","M826.8,37.3L823.9,38.3L819.9,38.1L815.3,37.1L815.9,36.3L820.6,36.6Z","M216,37.6L214.6,38.5L211,38.3L207.9,37.7L209.3,36.6L212.9,35.9L215.1,36.8Z",
+  "M812.7,36.1L810.8,38L801.5,37.9L797.4,38.5L792.4,36.8L793.8,35.1L797.1,34.7L803.7,34.8Z","M203.8,33.2L205.7,34.4L205.7,35.6L204.6,37.5L200.5,37.8L197.8,37.4L197.8,35.9L193.7,36.1L193.6,34.2L196.3,34.2L200,33.4L203.6,33.5Z",
+  "M179.5,34.5L180.5,35.4L182.7,35L185.3,35.1L185.7,36.3L184.2,37.5L175.8,37.9L169.4,39L165.6,39L165.3,38.2L170.5,37.1L159.2,37.4L155.7,36.9L159.1,34.5L161.5,33.8L168.5,34.6L173,36.1L177.3,36.3L173.8,33.9L176,33L178.6,33.3Z",
+  "M593.8,48.2L592.4,48.4L584.2,48.1L583.5,47L579,46.3L578.6,45L581.2,44.4L581.1,43.1L586.1,40.9L583.8,40.6L589.8,38.4L589.1,37.3L594.7,36L602.9,34.4L611.2,33.9L615.5,33L620.4,32.7L622.1,33.6L620.5,34.4L611.6,35.7L604,36.8L596.2,39.2L592.5,41.7L588.5,44.1L589.1,46.1Z",
+  "M213.3,32.3L216.1,33.1L221,33.1L223.1,33.9L222.6,34.8L225.4,35.4L227,36L230.4,36.1L234.1,36.3L238,35.8L243.1,35.5L247.2,35.7L249.9,36.7L250.4,37.7L248.9,38.4L245.1,38.9L241.9,38.6L234.8,39L229.6,39L225.6,38.7L218.9,37.9L218.1,36.5L217.8,35.3L215.3,34.2L210.1,33.9L207.2,33.1L208.1,32.1Z",
+  "M159.5,30.9L159.2,32.8L157.2,33.7L154.9,33.8L150.3,34.9L146.3,35.2L142.9,34.7L147.1,32.8L152.2,31.2L156.1,31.3Z",
+  "M717.4,32.6L746.9,41L799.7,46.3L877,52.5L893.4,68.7L855.3,84.7L854.7,74.1L805.5,77.4L788.8,115L768.8,126.7L764.2,130.1L754,126.6L756.3,132.7L751,157.4L720.1,171.1L710.8,198.8L704.1,208.1L701.7,215.2L696.3,192.2L680.1,170.7L659.9,179.2L644.9,204.4L622.9,169.8L586.8,158.8L575.4,158.3L581.4,164.6L598.6,168.3L589.2,180.3L566.8,191.5L557.1,185.2L542.9,162.9L534,155.1L542.8,175.5L558.7,196.8L577.6,197.1L551.6,231.2L551.2,251.9L538.4,279.6L530.5,296.9L506.4,309.7L492.7,299.7L479.4,264.5L480.6,240.7L472.4,215.2L447.3,212.5L418.9,206.8L408.3,194L407.4,171.4L424,152.3L449.7,135.3L476.5,135.1L498.9,148.7L524.2,147L539.9,138.5L517.6,130.9L554.3,120.1L539.6,108.4L526.9,108.5L515.1,123.5L507.8,130.2L498.9,120.7L484.3,111.2L496.2,124.6L486.8,123.5L457.5,118.8L435.3,134.9L427.5,121.1L441.8,102.7L471.4,89L474.8,87.5L502.6,84.9L520.2,73.7L503.4,64L475.9,76.3L515.9,47.5L537.4,64L565.6,54.4L602.7,52.6L631.5,43.1L634.6,52.3L655.6,40.4L715.2,31.6Z",
+  "M215.4,31.2L214.3,31.3L209.6,31.1L208.9,30.4L213.9,30.4L215.7,30.9Z","M174.5,30.8L169.9,31.5L166.2,30.7L168.2,29.9L171.8,29.6L175.4,30Z","M511.8,30.4L506.2,31.4L501.8,30.8L503.5,30.2L502,29.4L507.2,28.9L508.2,29.8Z","M175.8,28.5L172.8,29L168.6,29L168.7,28.6L171.2,27.9L172.6,28Z",
+  "M210.4,29.9L206.7,30.4L204.7,29.8L203.6,28.9L203.4,27.8L206.7,27.9L208.1,28.1L211.1,29Z","M199.8,29.2L200.8,30.2L196.7,30L192.6,29.1L187.1,29L189.5,28.3L186.5,27.7L186.3,26.7L191.2,27.1L197.9,28Z","M712.7,29.2L698.6,30.2L703.2,26.9L705.2,26.6L707.1,26.8L713.4,28.2Z",
+  "M495.6,25.7L503.9,27.6L497.6,28.6L496.2,30.4L494,30.9L492.8,33L489.8,33.1L484.4,31.5L486.7,30.7L482.9,29.9L478.1,27.8L476.1,25.9L482.9,25L484.3,25.8L487.9,25.8L488.8,25L492.5,24.9Z","M513.6,24L518.5,24.9L514.8,26.2L507.6,26.5L500.2,26.1L499.7,25.4L496.2,25.4L493.4,24.2L501.1,23.5L504.8,24.1L507.3,23.4Z",
+  "M577.8,23.6L574.5,24L572.2,24.2L571.9,24.6L569,25L566.3,24.4L567.7,23.6L562.1,23.5L567,23.1L570.8,23L571.3,23.7L572.7,23.1L575.1,22.7L578.8,23.3Z","M699.8,27.8L694.4,28.1L687.4,27.4L683.3,26.4L681.4,24.6L678,24.1L684.4,22.4L689.9,21.9L694.7,23.1L700.5,25.5Z",
+  "M232.4,25.9L235.5,26.7L232,27.4L227.4,29.3L223,29.5L217.8,29.1L215.1,28.1L215.2,27.2L217.1,26.5L212.6,26.6L209.8,25.7L208.2,24.6L210,23.5L211.7,22.7L214.3,22.6L213.2,22L219,21.9L222.2,23.2L226.4,23.7L230.5,24.2Z",
+  "M278.8,17.2L285.4,17.4L290.8,17.7L295.4,18.4L295.3,19.1L289.2,20.2L283.1,20.7L280.9,21.2L286.3,21.2L280.4,22.7L276.3,23.5L272,25.5L266.9,25.9L265.3,26.4L257.7,26.7L261.2,27L259.4,27.5L261.5,28.7L259.1,29.5L255.3,30.3L254.1,31.2L250.6,32L251,32.5L255.2,32.4L255.3,33.1L248.6,34.6L242.1,33.9L234.7,34.3L231,33.9L226.3,33.8L226,32.6L230.6,32.1L229.3,30.2L230.9,30.1L237.6,31.2L234.1,29.5L230.1,29.1L232.1,28.1L236.6,27.5L237.3,26.6L233.7,25.7L232.7,24.4L239.5,24.5L241.5,24.8L245.4,23.8L239.8,23.6L231,23.7L226.6,22.9L224.5,21.8L221.6,21.1L221,20.3L224.8,19.8L227.7,19.7L232.6,19.3L236.2,18.4L239.3,18.5L242,19.2L243.9,17.9L247.3,17.5L251.7,17.2L259.4,17.1L260.7,17.3L267.9,16.9L273.3,17.1Z",
+  "M382.2,16.2L397.9,18.2L393.3,19.1L383.7,19.3L370.2,19.5L371.5,19.9L380.4,19.7L387.9,20.5L392.7,19.8L394.8,20.7L392.1,22.1L398.4,21.2L410.6,20.2L418.1,20.7L419.5,21.8L409.3,23.5L407.9,24.1L399.9,24.6L405.7,24.7L402.8,26.5L400.7,28.1L400.8,30.9L403.8,32.5L399.9,32.6L395.8,33.4L400.4,34.8L401,36.9L398.3,37.1L401.6,39.3L396,39.4L398.9,40.5L398.1,41.3L394.6,41.7L391.1,41.7L394.2,43.4L394.3,44.5L389.3,43.5L388,44.2L391.4,44.8L394.7,46.3L395.6,48.3L391.2,48.8L389.2,47.9L386.1,46.4L387,48.1L384.1,49.4L390.7,49.5L394.1,49.7L387.4,51.9L380.6,53.8L373.3,54.7L370.6,54.7L368,55.7L364.5,58.3L359.1,60.1L357.4,60.2L354.1,60.8L350.5,61.4L348.3,62.9L348.3,64.7L347,66.3L343,68.3L344,70.2L342.8,72.3L341.6,74.8L338,74.9L334.3,72.9L329.3,72.9L326.9,71.5L325.2,69L320.9,65.9L319.6,64.3L319.3,62.1L315.8,59.8L316.7,57.9L315.1,57L317.5,54.1L321.3,53.2L322.3,52.1L322.8,50.2L320,51.1L318.6,51.4L316.4,51.8L313.3,51L313.1,49.3L314.1,47.9L316.4,47.9L321.5,48.6L317.2,47L315,46.1L312.5,46.5L310.4,45.9L313.2,43.5L311.7,42.6L309.7,40.9L306.7,38.2L303.5,37.3L303.5,36.2L296.8,34.7L291.5,34.6L284.8,34.7L278.7,34.8L275.8,34.1L271.5,32.5L278.1,31.7L283.1,31.6L272.4,30.9L266.8,29.9L267.1,28.9L276.6,27.7L285.7,26.5L286.7,25.6L279.9,24.7L282.1,23.7L290.8,22L294.4,21.7L293.4,20.6L299.3,19.9L307,19.5L314.7,19.5L317.4,20.3L324,18.9L330,19.8L333.5,20L338.7,20.8L332.7,19.5L333.1,18.4L341.5,16.9L350.3,17L353.4,16.1L362.3,15.9Z",
+];
+
+
+function LiveRadarMap({
+  visitors: realVisitors,
+  radarPositions,
+  coldStartPhase,
+}: {
+  visitors: LiveVisitor[];
+  radarPositions: string[];
+  coldStartPhase: number;
+}) {
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+  const [demoMode, setDemoMode] = useState(false);
+
+  const visitors = realVisitors.length > 0 ? realVisitors : demoMode ? DEMO_VISITORS : [];
+  const isExpanded = selectedIdx !== null;
+  const selectedVisitor = selectedIdx !== null ? visitors[selectedIdx] : null;
+
+  function handleDotClick(i: number) {
+    setSelectedIdx((prev) => (prev === i ? null : i));
+  }
+
+  return (
+    <div className="relative overflow-hidden rounded-3xl border border-cyan-400/10 bg-[#08080f]" style={{ minHeight: 400 }}>
+      <style>{`
+        @keyframes radar-sweep { from { transform: translate(-50%,-50%) rotate(0deg); } to { transform: translate(-50%,-50%) rotate(360deg); } }
+        @keyframes ripple-out { from { r: 5; opacity: 0.6; } to { r: 35; opacity: 0; } }
+      `}</style>
+
+      <div className="flex h-full" style={{ minHeight: 400 }}>
+
+        {/* ── World Map — slides in from left on click ── */}
+        <div
+          className="relative overflow-hidden transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)]"
+          style={{ width: isExpanded ? "60%" : "0%", opacity: isExpanded ? 1 : 0 }}
+        >
+          <svg viewBox="0 0 900 450" className="absolute inset-0 h-full w-full" preserveAspectRatio="xMidYMid meet">
+            {/* Real land polygons from Natural Earth 110m */}
+            {LAND_PATHS.map((d, i) => (
+              <path key={`lp${i}`} d={d} fill="rgba(34,211,238,0.07)" stroke="rgba(34,211,238,0.2)" strokeWidth="0.8" strokeLinejoin="round" />
+            ))}
+
+            {/* ALL visitor dots (dimmed) */}
+            {visitors.map((v, i) => {
+              if (!v.lat || !v.lon) return null;
+              const { x, y } = geoToMapXY(v.lat, v.lon);
+              const isSel = selectedIdx === i;
+              const color = v.intent_level === "HOT" ? "#fb7185" : v.intent_level === "WARM" ? "#fcd34d" : "#94a3b8";
+              return (
+                <g key={`mp-${i}`}>
+                  {/* Ripple rings on selected */}
+                  {isSel && (
+                    <>
+                      <circle cx={x} cy={y} fill="none" stroke={color} strokeWidth="1.5" r="5" opacity="0">
+                        <animate attributeName="r" values="5;35" dur="2s" repeatCount="indefinite" />
+                        <animate attributeName="opacity" values="0.7;0" dur="2s" repeatCount="indefinite" />
+                      </circle>
+                      <circle cx={x} cy={y} fill="none" stroke={color} strokeWidth="1" r="5" opacity="0">
+                        <animate attributeName="r" values="5;35" dur="2s" begin="0.7s" repeatCount="indefinite" />
+                        <animate attributeName="opacity" values="0.5;0" dur="2s" begin="0.7s" repeatCount="indefinite" />
+                      </circle>
+                    </>
+                  )}
+                  {/* Always-visible pulse for non-selected */}
+                  {!isSel && (
+                    <circle cx={x} cy={y} fill="none" stroke={color} strokeWidth="0.5" r="4" opacity="0">
+                      <animate attributeName="r" values="4;15" dur="3s" repeatCount="indefinite" />
+                      <animate attributeName="opacity" values="0.4;0" dur="3s" repeatCount="indefinite" />
+                    </circle>
+                  )}
+                  {/* Dot */}
+                  <circle
+                    cx={x} cy={y}
+                    r={isSel ? 8 : 4}
+                    fill={color}
+                    stroke={isSel ? "white" : "none"}
+                    strokeWidth={isSel ? 3 : 0}
+                    style={{ filter: `drop-shadow(0 0 ${isSel ? 20 : 8}px ${color})`, transition: "all 0.4s ease-out" }}
+                    className="cursor-pointer"
+                    onClick={() => handleDotClick(i)}
+                  />
+                  {/* City label for selected */}
+                  {isSel && v.city && (() => {
+                    const label = `${v.city}, ${v.country_code}`;
+                    const labelW = label.length * 7.5 + 20;
+                    return (
+                      <g style={{ transition: "opacity 0.3s", opacity: 1 }}>
+                        <rect x={x + 14} y={y - 16} width={labelW} height={28} rx="8" fill="rgba(0,0,0,0.85)" stroke={color} strokeWidth="1" />
+                        <text x={x + 24} y={y + 2} fill="white" fontSize="13" fontWeight="700" fontFamily="system-ui,sans-serif">{label}</text>
+                      </g>
+                    );
+                  })()}
+                </g>
+              );
+            })}
+          </svg>
+
+          {/* Selected visitor detail */}
+          {selectedVisitor && (
+            <div className="absolute bottom-4 left-4 right-4 rounded-2xl border border-white/[0.08] bg-black/70 px-5 py-4 backdrop-blur-md">
+              <div className="flex items-center gap-3">
+                <span className={`h-4 w-4 flex-shrink-0 rounded-full ${intentDotClass(selectedVisitor.intent_level)}`} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[16px] font-bold text-white">
+                    {selectedVisitor.city ? `${selectedVisitor.city}, ${selectedVisitor.country}` : "Unknown location"}
+                  </div>
+                  <div className="truncate text-[14px] text-slate-400">{selectedVisitor.url}</div>
+                </div>
+                <span className={`flex-shrink-0 rounded-lg px-3 py-1.5 text-[13px] font-bold uppercase ${
+                  selectedVisitor.intent_level === "HOT" ? "bg-rose-500/20 text-rose-300" :
+                  selectedVisitor.intent_level === "WARM" ? "bg-amber-500/20 text-amber-300" :
+                  "bg-white/10 text-slate-400"
+                }`}>{selectedVisitor.intent_level}</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Radar — centered by default, slides right on click ── */}
+        <div
+          className="relative flex-1 transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)]"
+          style={{ flexBasis: isExpanded ? "40%" : "100%" }}
+        >
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(56,189,248,0.08),transparent_40%)]" />
+
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className={`relative rounded-full border border-cyan-400/12 transition-all duration-700 ${isExpanded ? "h-[180px] w-[180px]" : "h-[240px] w-[240px]"}`}>
+              <div className="absolute inset-[22%] rounded-full border border-cyan-400/8" />
+              <div className="absolute inset-[44%] rounded-full border border-cyan-400/5" />
+              <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-cyan-400/[0.04]" />
+              <div className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-cyan-400/[0.04]" />
+
+              {/* Sweep */}
+              <div className="absolute left-1/2 top-1/2 h-1/2 w-px origin-bottom" style={{ animation: "radar-sweep 4s linear infinite", background: "linear-gradient(to top, transparent, rgba(34,211,238,0.35))" }} />
+
+              {/* Center */}
+              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+                <div className="h-3 w-3 rounded-full bg-cyan-400/30" />
+                <div className="absolute inset-0 animate-ping rounded-full bg-cyan-400/20" style={{ animationDuration: "3s" }} />
+              </div>
+
+              {/* Visitor dots — CLICK to select */}
+              {visitors.slice(0, 8).map((v, i) => (
+                <div
+                  key={`rd-${v.visitor_id || i}`}
+                  className={`absolute ${radarPositions[i % radarPositions.length]} -translate-x-1/2 -translate-y-1/2 cursor-pointer`}
+                  onClick={() => handleDotClick(i)}
+                >
+                  <div className={`rounded-full transition-all duration-300 ${
+                    selectedIdx === i ? "h-6 w-6 ring-[3px] ring-white/60" : "h-4 w-4"
+                  } ${intentDotClass(v.intent_level)}`} />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Live badge */}
+          <div className="absolute left-4 top-4 flex items-center gap-2 rounded-xl bg-black/40 px-4 py-2 backdrop-blur-sm">
+            <div className="relative h-2.5 w-2.5">
+              <div className="absolute inset-0 rounded-full bg-cyan-400" />
+              <div className="absolute inset-0 animate-ping rounded-full bg-cyan-400/40" style={{ animationDuration: "2s" }} />
+            </div>
+            <span className="text-[16px] font-bold text-cyan-300">{visitors.length || 0}</span>
+            <span className="text-[14px] text-slate-400">{visitors.length > 0 ? "live" : ""}</span>
+            {demoMode && <span className="rounded bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-300">DEMO</span>}
+          </div>
+
+          {/* Legend */}
+          <div className="absolute right-3 top-3 flex flex-col gap-1.5 rounded-lg bg-black/30 px-2.5 py-2 backdrop-blur-sm">
+            <span className="flex items-center gap-1.5 text-[11px]"><span className="h-2.5 w-2.5 rounded-full bg-rose-400 shadow-[0_0_6px_rgba(251,113,133,0.5)]" /><span className="text-slate-400">Hot</span></span>
+            <span className="flex items-center gap-1.5 text-[11px]"><span className="h-2.5 w-2.5 rounded-full bg-amber-300 shadow-[0_0_6px_rgba(252,211,77,0.5)]" /><span className="text-slate-400">Warm</span></span>
+            <span className="flex items-center gap-1.5 text-[11px]"><span className="h-2.5 w-2.5 rounded-full bg-slate-400" /><span className="text-slate-400">Cold</span></span>
+          </div>
+
+          {/* Empty state + demo button */}
+          {visitors.length === 0 && (
+            <div className="absolute inset-x-0 bottom-5 flex flex-col items-center gap-3 text-center">
+              <p className="text-[15px] font-semibold text-slate-400">
+                {coldStartPhase <= 1 ? "Scanning..." : "No visitors right now"}
+              </p>
+              <button
+                onClick={() => setDemoMode(true)}
+                className="rounded-xl border border-cyan-400/20 bg-cyan-500/10 px-5 py-2 text-[14px] font-semibold text-cyan-300 transition-all hover:bg-cyan-500/20"
+              >
+                Preview with demo data
+              </button>
+            </div>
+          )}
+
+          {/* Instruction hint */}
+          {visitors.length > 0 && selectedIdx === null && (
+            <div className="absolute inset-x-0 bottom-4 text-center">
+              <span className="rounded-lg bg-black/40 px-4 py-1.5 text-[13px] text-cyan-300/60 backdrop-blur-sm">
+                Click a dot to locate on map
+              </span>
+            </div>
+          )}
+
+          {/* Close button when expanded */}
+          {isExpanded && (
+            <button
+              onClick={() => setSelectedIdx(null)}
+              className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-lg bg-black/40 px-4 py-1.5 text-[13px] text-slate-400 backdrop-blur-sm transition hover:text-white"
+            >
+              Close map
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Visitor chips — bottom bar */}
+      {visitors.length > 0 && (
+        <div className="border-t border-white/[0.04] px-4 py-3">
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {visitors.slice(0, 8).map((v, i) => (
+              <button
+                key={`vl-${v.visitor_id || i}`}
+                className={`flex flex-shrink-0 items-center gap-2 rounded-xl border px-3.5 py-2 text-[13px] transition-all duration-200 ${
+                  selectedIdx === i
+                    ? "border-cyan-400/30 bg-cyan-500/[0.1] shadow-[0_0_16px_rgba(34,211,238,0.12)]"
+                    : "border-white/[0.05] bg-white/[0.02] hover:bg-white/[0.04]"
+                }`}
+                onClick={() => handleDotClick(i)}
+              >
+                <span className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${intentDotClass(v.intent_level)}`} />
+                <span className="font-medium text-slate-200">{v.city || "Visitor"}</span>
+                {v.country_code && <span className="text-slate-500">{v.country_code}</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function formatDuration(seconds: number): string {
   if (seconds <= 0) return "—";
   if (seconds < 60) return `${seconds}s`;
@@ -412,6 +738,10 @@ function fmtLoss(value: number): string {
   }
 }
 
+// Display currency formatter moved to /lib/currency.ts as part of the
+// DRY refactor (Sprint A hardening, 11 April 2026). Imported at the top
+// of this file as `formatDisplayMoney` from "../lib/currency".
+
 function shortUrl(url: string): string {
   try {
     const path = new URL(url).pathname.replace(/\/$/, "");
@@ -420,36 +750,6 @@ function shortUrl(url: string): string {
   } catch {
     return url.length > 48 ? "…" + url.slice(-46) : url;
   }
-}
-
-// ---------------------------------------------------------------------------
-// Inline sparkline — pixel heights, no CSS percentage ambiguity
-// ---------------------------------------------------------------------------
-const SPARK_H = 28; // container height in px
-
-function InlineSparkline({ values }: { values: number[] }) {
-  if (!Array.isArray(values) || values.length === 0) return null;
-  const clean = values.map((v) => (typeof v === "number" && !Number.isNaN(v) ? v : 0));
-  const max = Math.max(...clean, 1);
-  return (
-    <div
-      className="flex items-end gap-px"
-      style={{ height: SPARK_H, width: 64 }}
-      aria-hidden="true"
-    >
-      {clean.map((v, i) => {
-        const px = Math.max(2, Math.round((v / max) * SPARK_H));
-        return (
-          <div
-            key={i}
-            className="flex-1 rounded-[2px] bg-violet-400/60"
-            style={{ height: px }}
-            title={String(v)}
-          />
-        );
-      })}
-    </div>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -494,28 +794,28 @@ function SectionHeading({
   eyebrow,
   title,
   description,
-  pro,
 }: {
   eyebrow: string;
   title: string;
   description?: string;
+  /**
+   * @deprecated The "PRO" badge next to section titles was visual noise:
+   * Pro users already know they're Pro, and Lite users see the ProGate
+   * overlay which already labels the section as Pro. The prop is still
+   * accepted at callsites (no-op) to avoid churn — clean up later.
+   */
   pro?: boolean;
 }) {
   return (
-    <div className="mb-5">
-      <div className="mb-1.5 flex items-center gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-300/70">
-          {eyebrow}
-        </span>
-        {pro && (
-          <span className="rounded-full border border-violet-400/30 bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-violet-300">
-            Pro
-          </span>
-        )}
-      </div>
-      <h2 className="text-lg font-semibold text-white">{title}</h2>
+    <div className="mb-6">
+      <h2 className="text-[1.75rem] font-extrabold tracking-tight text-[#e8a04e] sm:text-[2rem]">
+        {eyebrow}
+      </h2>
+      {title && (
+        <p className="mt-1 text-[15px] text-slate-400">{title}</p>
+      )}
       {description && (
-        <p className="mt-1 max-w-2xl text-[13px] text-slate-400">{description}</p>
+        <p className="text-[14px] text-slate-500">{description}</p>
       )}
     </div>
   );
@@ -539,13 +839,13 @@ function KpiCard({
 }) {
   return (
     <div
-      className={`hs-fade-up rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4 transition-all duration-150 hover:border-violet-400/20 hover:bg-white/[0.05] hover:shadow-[0_0_20px_rgba(124,58,237,0.06)]${onClick ? " cursor-pointer select-none" : ""}`}
+      className={`hs-fade-up group rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5 transition-all duration-200 hover:border-[#d4893a]/20 hover:bg-white/[0.05] hover:shadow-[0_4px_24px_rgba(212,137,58,0.06)]${onClick ? " cursor-pointer select-none" : ""}`}
       onClick={onClick}
     >
       <div className="flex items-center justify-between gap-2">
-        <div className="text-[12px] text-slate-500">{label}</div>
+        <div className="text-[14px] font-medium text-slate-400">{label}</div>
         {delta != null && Math.abs(delta) >= 1 && (
-          <span className={`flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${
+          <span className={`flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[12px] font-bold tabular-nums ${
             delta > 0
               ? "bg-emerald-500/15 text-emerald-300"
               : "bg-rose-500/15 text-rose-300"
@@ -554,14 +854,14 @@ function KpiCard({
           </span>
         )}
       </div>
-      <div className="mt-2 text-2xl font-semibold tabular-nums text-white">
+      <div className="mt-2.5 text-[2rem] font-bold tabular-nums text-white">
         {numeric !== undefined ? (
           <CountUp value={numeric} />
         ) : (
           value
         )}
       </div>
-      <div className="mt-1 text-[11px] text-slate-600">{hint}</div>
+      <div className="mt-1.5 text-[13px] leading-snug text-slate-500">{hint}</div>
     </div>
   );
 }
@@ -1197,15 +1497,8 @@ function TrafficSourceBox({
                     Boundary: diagnostic (quality_label) = Lite, prescriptive (action_insight) = Pro.
                   */}
                   {isProUser && src.action_insight && (
-                    <div className="mt-1.5 rounded-lg border border-emerald-400/15 bg-emerald-500/[0.05] px-2.5 py-1.5">
-                      <div className="mb-0.5 flex items-center gap-1.5">
-                        <span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-emerald-300/70">
-                          Action
-                        </span>
-                        <span className="rounded border border-violet-400/20 px-1 py-px text-[9px] font-normal normal-case tracking-normal text-violet-400/70">
-                          PRO
-                        </span>
-                      </div>
+                    <div className="mt-1.5 flex items-start gap-2 rounded-lg border border-emerald-400/15 bg-emerald-500/[0.05] px-2.5 py-1.5">
+                      <span className="mt-1 h-1 w-1 flex-shrink-0 rounded-full bg-emerald-400/80" />
                       <p className="text-[11px] leading-[1.5] text-slate-300">{src.action_insight}</p>
                     </div>
                   )}
@@ -1500,7 +1793,7 @@ class DashboardErrorBoundary extends React.Component<
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex min-h-screen items-center justify-center bg-[#080811] px-6">
+        <div className="flex min-h-screen items-center justify-center bg-[#07070f] px-6">
           <div className="max-w-md rounded-2xl border border-rose-400/20 bg-rose-500/[0.07] p-8 text-center">
             <div className="text-lg font-semibold text-rose-200">Something went wrong</div>
             <p className="mt-3 text-sm text-rose-200/70">
@@ -1642,10 +1935,25 @@ function PageInner() {
   const [expandedTaskKey, setExpandedTaskKey] = useState<string | null>(null);
 
   // Pro intelligence modules
-  const [attrSummary, setAttrSummary] = useState<Record<string, unknown> | null>(null);
-  const [ltvData, setLtvData] = useState<Record<string, unknown> | null>(null);
-  const [forecastData, setForecastData] = useState<Record<string, unknown> | null>(null);
-  const [behavioralData, setBehavioralData] = useState<Record<string, unknown> | null>(null);
+  const [attrSummary, setAttrSummary] = useState<AttributionSummaryData | null>(null);
+  // Display currency preference — merchant-chosen visualization currency.
+  // Storage + FX conversion helpers live in /lib/currency.ts (single source
+  // of truth shared by all dashboard components).
+  const [displayCurrency, setDisplayCurrencyState] = useState<DisplayCurrency>("USD");
+  useEffect(() => {
+    setDisplayCurrencyState(readSavedDisplayCurrency("USD"));
+  }, []);
+  const setDisplayCurrency = useCallback((c: DisplayCurrency) => {
+    setDisplayCurrencyState(c);
+    writeSavedDisplayCurrency(c);
+  }, []);
+
+  const [ltvData, setLtvData] = useState<MonthlyCohortsData | null>(null);
+  const [forecastData, setForecastData] = useState<RevenueForecastData | null>(null);
+  const [behavioralData, setBehavioralData] = useState<BehavioralCohortsData | null>(null);
+  const [gatewayProductsData, setGatewayProductsData] = useState<GatewayProductsData | null>(null);
+  const [predictedLtvData, setPredictedLtvData] = useState<PredictedLtvData | null>(null);
+  const [pnlData, setPnlData] = useState<PnlReportData | null>(null);
 
   // Session expiry detection — set when any fetch returns 401/403 mid-session
   const [sessionExpired, setSessionExpired] = useState(false);
@@ -1702,14 +2010,11 @@ function PageInner() {
       return;
     }
 
-    fetch(`${API_BASE}/merchant/me`, {
-      headers: apiHeaders(),
-      credentials: "include",
-      cache: "no-store",
-    })
+    apiClient
+      .GET("/merchant/me", { headers: getHeaders(apiHeaders) })
       .then(async (res) => {
-        if (res.ok) {
-          const json = await res.json();
+        const json = res.data;
+        if (json != null) {
           const shopDomain = json.shop_domain;
           if (shopDomain) {
             setShop(shopDomain);
@@ -1740,12 +2045,11 @@ function PageInner() {
           // Just came from OAuth callback — shop param is trusted, proceed
           setShop(urlShop);
           try {
-            const planRes = await fetch(
-              `${API_BASE}/merchant/plan?shop=${encodeURIComponent(urlShop)}`,
-              { headers: apiHeaders(), credentials: "include", cache: "no-store" }
-            );
-            if (planRes.ok) {
-              const planJson = await planRes.json();
+            const planRes = await apiClient.GET("/merchant/plan", {
+              headers: getHeaders(apiHeaders),
+            });
+            const planJson = planRes.data;
+            if (planJson != null) {
               const isPro = planJson.plan === "pro" && planJson.billing_active === true;
               setTier(isPro ? "pro" : "lite");
               if (planJson.pro_trial_days != null) setProTrialDays(planJson.pro_trial_days);
@@ -2142,24 +2446,24 @@ function PageInner() {
 
     async function loadActionsData() {
       try {
+        const typedHeaders = getHeaders(apiHeaders);
         const [candRes, taskRes] = await Promise.all([
           fetch(
             `${API_BASE}/actions/candidates/pro?shop=${encodeURIComponent(shop)}`,
             { headers: apiHeaders(), credentials: "include", cache: "no-store" }
           ),
-          fetch(
-            `${API_BASE}/actions/tasks?limit=50&shop=${encodeURIComponent(shop)}`,
-            { headers: apiHeaders(), credentials: "include", cache: "no-store" }
-          ),
+          apiClient.GET("/actions/tasks", {
+            params: { query: { limit: 50 } },
+            headers: typedHeaders,
+          }),
         ]);
         if (!active) return;
         if (candRes.ok) {
           const j = await candRes.json();
           setCandidates(Array.isArray(j.candidates) ? j.candidates : []);
         }
-        if (taskRes.ok) {
-          const j = await taskRes.json();
-          const tasks: ActionTask[] = Array.isArray(j.tasks) ? j.tasks : [];
+        if (taskRes.data != null) {
+          const tasks = taskRes.data.tasks as unknown as ActionTask[];
           setTaskMap(buildTaskMap(tasks));
           hasExecutingRef.current = tasks.some((t) => t.status === "executing");
         }
@@ -2184,13 +2488,12 @@ function PageInner() {
     async function pollActionTasks() {
       if (!hasExecutingRef.current) return;
       try {
-        const res = await fetch(
-          `${API_BASE}/actions/tasks?limit=50&shop=${encodeURIComponent(shop)}`,
-          { headers: apiHeaders(), credentials: "include", cache: "no-store" }
-        );
-        if (!active || !res.ok) return;
-        const j = await res.json();
-        const tasks: ActionTask[] = Array.isArray(j.tasks) ? j.tasks : [];
+        const res = await apiClient.GET("/actions/tasks", {
+          params: { query: { limit: 50 } },
+          headers: getHeaders(apiHeaders),
+        });
+        if (!active || res.data == null) return;
+        const tasks = res.data.tasks as unknown as ActionTask[];
         setTaskMap(buildTaskMap(tasks));
         hasExecutingRef.current = tasks.some((t) => t.status === "executing");
       } catch { /* silent */ }
@@ -2210,29 +2513,65 @@ function PageInner() {
     let active = true;
 
     async function loadProIntelligence() {
-      const enc = encodeURIComponent(shop);
-      const opts = { headers: apiHeaders(), credentials: "include" as const, cache: "no-store" as const };
+      const typedHeaders = getHeaders(apiHeaders);
 
-      const [attrRes, ltvRes, fcRes, behRes] = await Promise.allSettled([
-        fetch(`${API_BASE}/attribution/summary/pro?shop=${enc}&days=30`, opts),
-        fetch(`${API_BASE}/pro/cohorts/monthly?shop=${enc}&months=6`, opts),
-        fetch(`${API_BASE}/orders/forecast/pro?shop=${enc}`, opts),
-        fetch(`${API_BASE}/pro/cohorts/behavioral?shop=${enc}&days=90`, opts),
+      // All six Pro intelligence endpoints now go through the typed client.
+      // TypeScript validates the URL path, query params, AND response body
+      // shape against the generated OpenAPI types — any backend rename
+      // surfaces as a compile error on the next `npm run api:types`.
+      const [attrRes, ltvRes, fcRes, behRes, gwRes, predRes, pnlRes] = await Promise.allSettled([
+        apiClient.GET("/attribution/summary/pro", {
+          params: { query: { days: 30 } },
+          headers: typedHeaders,
+        }),
+        apiClient.GET("/pro/cohorts/monthly", {
+          params: { query: { months: 6 } },
+          headers: typedHeaders,
+        }),
+        apiClient.GET("/orders/forecast/pro", {
+          params: { query: {} },
+          headers: typedHeaders,
+        }),
+        apiClient.GET("/pro/cohorts/behavioral", {
+          params: { query: { days: 90 } },
+          headers: typedHeaders,
+        }),
+        apiClient.GET("/pro/cohorts/ltv/products", {
+          params: { query: { limit: 12 } },
+          headers: typedHeaders,
+        }),
+        apiClient.GET("/pro/cohorts/ltv/customers", {
+          params: { query: { limit: 10 } },
+          headers: typedHeaders,
+        }),
+        apiClient.GET("/pro/pnl", {
+          params: { query: { window_days: 30 } },
+          headers: typedHeaders,
+        }),
       ]);
 
       if (!active) return;
 
-      if (attrRes.status === "fulfilled" && attrRes.value.ok) {
-        try { setAttrSummary(await attrRes.value.json()); } catch {}
+      if (attrRes.status === "fulfilled" && attrRes.value.data != null) {
+        setAttrSummary(attrRes.value.data);
       }
-      if (ltvRes.status === "fulfilled" && ltvRes.value.ok) {
-        try { setLtvData(await ltvRes.value.json()); } catch {}
+      if (ltvRes.status === "fulfilled" && ltvRes.value.data != null) {
+        setLtvData(ltvRes.value.data);
       }
-      if (fcRes.status === "fulfilled" && fcRes.value.ok) {
-        try { setForecastData(await fcRes.value.json()); } catch {}
+      if (fcRes.status === "fulfilled" && fcRes.value.data != null) {
+        setForecastData(fcRes.value.data);
       }
-      if (behRes.status === "fulfilled" && behRes.value.ok) {
-        try { setBehavioralData(await behRes.value.json()); } catch {}
+      if (behRes.status === "fulfilled" && behRes.value.data != null) {
+        setBehavioralData(behRes.value.data);
+      }
+      if (gwRes.status === "fulfilled" && gwRes.value.data != null) {
+        setGatewayProductsData(gwRes.value.data);
+      }
+      if (predRes.status === "fulfilled" && predRes.value.data != null) {
+        setPredictedLtvData(predRes.value.data);
+      }
+      if (pnlRes.status === "fulfilled" && pnlRes.value.data != null) {
+        setPnlData(pnlRes.value.data);
       }
     }
 
@@ -2266,53 +2605,48 @@ function PageInner() {
 
     async function loadAnalytics() {
       try {
-        // Core analytics: alerts + weekly trend (all tiers)
+        const typedHeaders = getHeaders(apiHeaders);
+        // Core analytics: alerts + weekly trend (all tiers) via typed client.
+        const alertsPromise = tier === "pro"
+          ? apiClient.GET("/analytics/alerts/pro", { headers: typedHeaders })
+          : apiClient.GET("/analytics/alerts",     { headers: typedHeaders });
         const [alertsRes, trendRes] = await Promise.all([
-          fetch(alertsEndpoint, { headers: apiHeaders(), credentials: "include", cache: "no-store" }),
-          fetch(`${API_BASE}/analytics/weekly-trend?shop=${encodeURIComponent(shop)}`, { headers: apiHeaders(), credentials: "include", cache: "no-store" }),
+          alertsPromise,
+          apiClient.GET("/analytics/weekly-trend", { headers: typedHeaders }),
         ]);
 
         // Detect session expiry on core analytics (most reliable signal)
-        if ([alertsRes.status, trendRes.status].some((s) => s === 401 || s === 403)) {
+        const alertsStatus = alertsRes.response.status;
+        const trendStatus = trendRes.response.status;
+        if ([alertsStatus, trendStatus].some((s) => s === 401 || s === 403)) {
           dispatchSessionExpired();
           return;
         }
 
-        const alertsJson = alertsRes.ok ? await alertsRes.json() : { alerts: [] };
-        const trendJson  = trendRes.ok  ? await trendRes.json()  : { trend: [] };
-
         if (!active) return;
-        setAlerts(Array.isArray(alertsJson.alerts) ? alertsJson.alerts : []);
-        setTrend(Array.isArray(trendJson.trend) ? trendJson.trend : []);
+        setAlerts(alertsRes.data?.alerts ?? []);
+        setTrend(trendRes.data?.trend ?? []);
         setAnalyticsError("");
         setLastUpdated(new Date());
 
-        // Extended analytics: sessions, funnel, clicks, top pages — Pro only.
-        // Lite users see empty/placeholder UI for these sections, so fetching
-        // them wastes 4 network requests + server queries per load cycle.
         // Top pages — available to all tiers
         try {
-          const pagesRes = await fetch(`${API_BASE}/analytics/top-pages?shop=${encodeURIComponent(shop)}`, { headers: apiHeaders(), credentials: "include", cache: "no-store" });
-          const pagesJson = pagesRes.ok ? await pagesRes.json() : { pages: [] };
-          if (active) setTopPages(Array.isArray(pagesJson.pages) ? pagesJson.pages : []);
+          const pagesRes = await apiClient.GET("/analytics/top-pages", { headers: typedHeaders });
+          if (active) setTopPages(pagesRes.data?.pages ?? []);
         } catch { /* top pages is supplementary — degrade silently */ }
 
         // Funnel, sessions, clicks — Pro only
         if (tier === "pro") {
           const [sessionsRes, funnelRes, clicksRes] = await Promise.all([
-            fetch(`${API_BASE}/analytics/sessions?shop=${encodeURIComponent(shop)}`,  { headers: apiHeaders(), credentials: "include", cache: "no-store" }),
-            fetch(`${API_BASE}/analytics/funnel?shop=${encodeURIComponent(shop)}`,    { headers: apiHeaders(), credentials: "include", cache: "no-store" }),
-            fetch(`${API_BASE}/analytics/clicks?shop=${encodeURIComponent(shop)}`,    { headers: apiHeaders(), credentials: "include", cache: "no-store" }),
+            apiClient.GET("/analytics/sessions", { headers: typedHeaders }),
+            apiClient.GET("/analytics/funnel",   { headers: typedHeaders }),
+            apiClient.GET("/analytics/clicks",   { headers: typedHeaders }),
           ]);
 
-          const sessionsJson = sessionsRes.ok ? await sessionsRes.json() : { sessions: [] };
-          const funnelJson   = funnelRes.ok   ? await funnelRes.json()   : { steps: [] };
-          const clicksJson   = clicksRes.ok   ? await clicksRes.json()   : { clicks: [] };
-
           if (!active) return;
-          setSessions(Array.isArray(sessionsJson.sessions) ? sessionsJson.sessions : []);
-          setFunnelSteps(Array.isArray(funnelJson.steps) ? funnelJson.steps : []);
-          setClicks(Array.isArray(clicksJson.clicks) ? clicksJson.clicks : []);
+          setSessions(sessionsRes.data?.sessions ?? []);
+          setFunnelSteps(funnelRes.data?.steps ?? []);
+          setClicks(clicksRes.data?.clicks ?? []);
         }
       } catch {
         if (active) setAnalyticsError("Unable to load analytics — retrying…");
@@ -2337,7 +2671,10 @@ function PageInner() {
   // ---------------------------------------------------------------------------
   // Feature gating — derived from plan tier, replace with billing check later
   // ---------------------------------------------------------------------------
-  const isProUser = tier === "pro";
+  // ⚠️ DEV OVERRIDE — founder is reviewing all dashboard sections during build.
+  // Remove the `|| true` before production / before re-enabling Lite/Pro gating.
+  // Ref: founder request 2026-04-10 "sblocca tutto, devo vedere tutto".
+  const isProUser = tier === "pro" || true;
 
   // ---------------------------------------------------------------------------
   // Signal dedup + split: early (low confidence) vs strong (high confidence)
@@ -2390,6 +2727,165 @@ function PageInner() {
       strongSignals: strong,
     };
   }, [signals]);
+
+  // ---------------------------------------------------------------------------
+  // Cost Configuration state (Settings section) — Sprint B Phase 2
+  // Powers the Profit Intelligence cassettone by overriding the pnl_engine
+  // module defaults with real shop-level cost data. Every field is optional
+  // and merges with the existing row on PATCH.
+  // ---------------------------------------------------------------------------
+  type CostDefaults =
+    paths["/pro/costs/defaults"]["get"]["responses"]["200"]["content"]["application/json"];
+
+  const [costDefaults, setCostDefaults] = useState<CostDefaults | null>(null);
+  const [costFormCogsPct,  setCostFormCogsPct]  = useState<string>("");
+  const [costFormShipping, setCostFormShipping] = useState<string>("");
+  const [costFormPayPct,   setCostFormPayPct]   = useState<string>("");
+  const [costFormPayFlat,  setCostFormPayFlat]  = useState<string>("");
+  const [costFormAdSpend,  setCostFormAdSpend]  = useState<string>("");
+  const [costSaving,       setCostSaving]       = useState(false);
+  const [costSavedMsg,     setCostSavedMsg]     = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [costSyncing,      setCostSyncing]      = useState(false);
+  const [costSyncMsg,      setCostSyncMsg]      = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  // Fetch current cost defaults when shop resolves.
+  useEffect(() => {
+    if (!shop) return;
+    let active = true;
+    apiClient
+      .GET("/pro/costs/defaults", { headers: getHeaders(apiHeaders) })
+      .then((res) => {
+        if (!active || res.data == null) return;
+        setCostDefaults(res.data);
+        // Seed form inputs with current values (or empty when NULL).
+        // COGS % is stored as fraction (0.40) but displayed as 40 in the input.
+        setCostFormCogsPct(
+          res.data.default_cogs_pct != null
+            ? String(Math.round(res.data.default_cogs_pct * 100))
+            : ""
+        );
+        setCostFormShipping(
+          res.data.default_shipping_per_order != null
+            ? String(res.data.default_shipping_per_order)
+            : ""
+        );
+        setCostFormPayPct(
+          res.data.payment_pct != null
+            ? String((res.data.payment_pct * 100).toFixed(2))
+            : ""
+        );
+        setCostFormPayFlat(
+          res.data.payment_flat != null
+            ? String(res.data.payment_flat)
+            : ""
+        );
+        setCostFormAdSpend(
+          res.data.ad_spend_manual_monthly != null
+            ? String(res.data.ad_spend_manual_monthly)
+            : ""
+        );
+      })
+      .catch(() => { /* silent */ });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shop]);
+
+  // Save handler — PATCH the row, refresh cached cost defaults, re-fetch P&L
+  // so the cassettone updates without a page reload.
+  async function handleCostDefaultsSave() {
+    if (!shop) return;
+    setCostSaving(true);
+    setCostSavedMsg(null);
+
+    // Convert form strings to numbers, treating empty as "leave unchanged".
+    // We send every field (model_dump(exclude_unset=True) on backend) so
+    // fields with empty strings come through as null to clear existing values.
+    const parseOrNull = (s: string): number | null => {
+      if (!s || !s.trim()) return null;
+      const n = parseFloat(s.trim());
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const cogsPctNum = parseOrNull(costFormCogsPct);
+    const payPctNum  = parseOrNull(costFormPayPct);
+
+    try {
+      const res = await apiClient.PATCH("/pro/costs/defaults", {
+        params: {},
+        headers: { ...getHeaders(apiHeaders), "Content-Type": "application/json" },
+        body: {
+          default_cogs_pct:
+            cogsPctNum != null ? cogsPctNum / 100 : null, // 40 → 0.40
+          default_shipping_per_order: parseOrNull(costFormShipping),
+          payment_pct:
+            payPctNum != null ? payPctNum / 100 : null,   // 2.9 → 0.029
+          payment_flat: parseOrNull(costFormPayFlat),
+          ad_spend_manual_monthly: parseOrNull(costFormAdSpend),
+          currency: null,
+        },
+      });
+      if (res.data != null) {
+        setCostDefaults(res.data);
+        setCostSavedMsg({ type: "ok", text: "Saved — Profit Intelligence updating..." });
+        // Re-fetch P&L to reflect new precision and numbers.
+        try {
+          const pnlRes = await apiClient.GET("/pro/pnl", {
+            params: { query: { window_days: 30 } },
+            headers: getHeaders(apiHeaders),
+          });
+          if (pnlRes.data != null) setPnlData(pnlRes.data);
+        } catch { /* pnl refetch is best-effort */ }
+      } else {
+        setCostSavedMsg({ type: "err", text: "Save failed — please retry." });
+      }
+    } catch {
+      setCostSavedMsg({ type: "err", text: "Save failed — please retry." });
+    } finally {
+      setCostSaving(false);
+      setTimeout(() => setCostSavedMsg(null), 4000);
+    }
+  }
+
+  // Shopify Admin auto-import of product COGS. Hits the new backend endpoint
+  // which pulls inventory_items.cost for every variant, aggregates by product,
+  // and upserts into product_costs. On success we also re-fetch /pro/pnl so
+  // the Profit Intelligence cassettone reflects the new precision immediately.
+  async function handleShopifyCogsSync() {
+    if (!shop) return;
+    setCostSyncing(true);
+    setCostSyncMsg(null);
+    try {
+      const res = await apiClient.POST("/pro/costs/sync-from-shopify", {
+        headers: getHeaders(apiHeaders),
+      });
+      if (res.data == null) {
+        setCostSyncMsg({ type: "err", text: "Sync failed — please retry." });
+      } else if (res.data.status === "ok") {
+        setCostSyncMsg({
+          type: "ok",
+          text: `${res.data.message}`,
+        });
+        // Refresh P&L so the precision badge and waterfall update.
+        try {
+          const pnlRes = await apiClient.GET("/pro/pnl", {
+            params: { query: { window_days: 30 } },
+            headers: getHeaders(apiHeaders),
+          });
+          if (pnlRes.data != null) setPnlData(pnlRes.data);
+        } catch { /* best effort */ }
+      } else {
+        setCostSyncMsg({
+          type: "err",
+          text: res.data.message || "Sync returned no data.",
+        });
+      }
+    } catch {
+      setCostSyncMsg({ type: "err", text: "Sync failed — please retry." });
+    } finally {
+      setCostSyncing(false);
+      setTimeout(() => setCostSyncMsg(null), 6000);
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Klaviyo integration state (Settings section)
@@ -2912,7 +3408,7 @@ function PageInner() {
   // Render
   // ---------------------------------------------------------------------------
   return (
-    <div className="flex h-screen overflow-hidden bg-[#080811] text-white">
+    <div className="flex h-screen overflow-hidden bg-[#07070f] text-white">
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed((c) => !c)}
@@ -2932,7 +3428,7 @@ function PageInner() {
               <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-5 text-center">
                 <div className="text-[14px] font-semibold text-amber-200">No store connected</div>
                 <div className="mt-2 text-[13px] leading-relaxed text-amber-200/70">
-                  Install Hedge Spark from the Shopify App Store to connect your store.
+                  Install HedgeSpark from the Shopify App Store to connect your store.
                   If you&apos;ve already installed, try refreshing this page.
                 </div>
               </div>
@@ -2950,7 +3446,9 @@ function PageInner() {
               </div>
             </div>
           ) : (
-            <div className="space-y-8 px-6 py-5 pb-[70vh]">
+            <div className="space-y-6 px-6 py-6 pb-[70vh]">
+
+              {/* DashboardHero removed — logo + shop + active status already in sidebar + topbar */}
 
               {/* Session expired banner — shown when any fetch returns 401/403 */}
               {sessionExpired && (
@@ -3016,7 +3514,7 @@ function PageInner() {
                     }`}
                   >
                     {billingToast.type === "activated" &&
-                      "Pro activated — welcome to Hedge Spark Pro. Your dashboard is upgrading now."}
+                      "Pro activated — welcome to HedgeSpark Pro. Your dashboard is upgrading now."}
                     {billingToast.type === "declined" &&
                       "Billing was declined. You can try again anytime from the setup panel below."}
                     {billingToast.type === "pending" &&
@@ -3041,18 +3539,18 @@ function PageInner() {
                 <div className="hs-fade-up flex items-center gap-3 rounded-2xl border border-emerald-400/25 bg-emerald-500/[0.07] px-4 py-3">
                   <span className="flex-shrink-0 text-[15px]">&#x1F994;</span>
                   <div className="min-w-0 flex-1">
-                    <span className="text-[13px] font-medium text-emerald-200">
-                      Your first insight just landed
+                    <span className="text-[14px] font-semibold text-emerald-200">
+                      First finding ready
                     </span>
-                    <span className="ml-1.5 text-[12px] text-emerald-300/60">
-                      — Hedge Spark found something worth looking at.
+                    <span className="ml-1.5 text-[13px] text-emerald-300/60">
+                      — <span className="hs-brand-gradient font-semibold">Spark</span> found something.
                     </span>
                   </div>
                   <button
                     onClick={() => { setFirstSignalToast(false); setActiveSection("brief"); }}
                     className="flex-shrink-0 rounded-lg bg-emerald-500/15 px-3 py-1.5 text-[12px] font-semibold text-emerald-300 ring-1 ring-emerald-400/20 transition hover:bg-emerald-500/25"
                   >
-                    View insight
+                    View finding
                   </button>
                   <button
                     onClick={() => setFirstSignalToast(false)}
@@ -3096,6 +3594,9 @@ function PageInner() {
                 signalCount={strongSignals.length > 0 ? strongSignals.length : (data ? 0 : null)}
               />
 
+              {/* ═══ SYSTEM STATUS BAR — intelligence progress + aliveness ═══ */}
+              <SystemStatusBar apiBase={API_BASE} shop={shop} />
+
               {/* ═══ INTELLIGENCE HERO — decision-first: what matters most right now ═══ */}
               <IntelligenceHero
                 connected={!!shop}
@@ -3120,6 +3621,7 @@ function PageInner() {
                 onViewSignals={() => handleNavigate("signals")}
                 onUpgrade={() => setUpgradeModalOpen(true)}
                 coldStartPhase={coldStartPhase}
+                displayCurrency={displayCurrency}
                 apiBase={API_BASE}
                 shop={shop}
               />
@@ -3152,11 +3654,11 @@ function PageInner() {
                   onUpgradeClick={() => setUpgradeModalOpen(true)}
                   emptyHint={
                     coldStartPhase === 0
-                      ? "Setup incomplete. Signals require active tracking."
+                      ? "Complete setup to start tracking."
                       : coldStartPhase === 1
-                      ? "Watching your store. Signals appear within minutes of the next visitor."
+                      ? "Tracker live. First findings within minutes."
                       : coldStartPhase === 2
-                      ? "Visitors arriving. Collecting enough behavior data to produce signals."
+                      ? "Visitors arriving. Analyzing behavior to find your first revenue opportunity."
                       : undefined
                   }
                   sparkInsight={(() => {
@@ -3170,7 +3672,7 @@ function PageInner() {
                   })()}
                   sparkDetail={(() => {
                     if (strongSignals.length <= 1) return undefined;
-                    return `${strongSignals.length} signals active across your store.`;
+                    return `${strongSignals.length} findings across your store.`;
                   })()}
                 />
               </section>
@@ -3190,49 +3692,41 @@ function PageInner() {
                   <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-5 py-6">
                     <p className="text-[13px] text-slate-500">
                       {coldStartPhase === 0
-                        ? "These metrics will populate once setup is complete and the tracker is running."
-                        : "Your tracker is active. These numbers appear as soon as your first visitor lands. Usually within minutes."}
+                        ? "Complete setup to see your metrics."
+                        : "Tracker active — data appears with your next visitor."}
                     </p>
                   </div>
                 ) : (
                 <>
-                {/* Phase 2+: show guidance above KPI cards */}
-                {isColdStart && (
-                  <div className="mb-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
-                    <div className="text-[12px] leading-[1.6] text-slate-500">
-                      Visitors are being tracked. As more behavior accumulates, you&apos;ll see intent scores, hot visitors, and conversion-ready products appear here.
-                    </div>
-                  </div>
-                )}
-
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <KpiCard label="Visitors (24h)" value={formatNumber(summary.total_visitors)} hint="Unique visitors in last 24 hours" numeric={summary.total_visitors} onClick={() => setActiveKpi("visitors")} />
-                  <KpiCard label="Events (24h)" value={formatNumber(summary.total_events)} hint="Behavioral signals in last 24 hours" numeric={summary.total_events} onClick={() => setActiveKpi("events")} />
-                  <KpiCard label="Hot Visitors" value={formatNumber(summary.hot_visitors)} hint="Unique visitors with high intent" numeric={summary.hot_visitors} onClick={() => setActiveKpi("hot")} />
-                  <KpiCard label="Wishlist Adds" value={formatNumber(summary.wishlist_adds)} hint="Strong product desire signals" numeric={summary.wishlist_adds} onClick={() => setActiveKpi("wishlist")} />
-                  <KpiCard label="Average Intent" value={formatScore(summary.avg_intent_score)} hint="Average signal strength — click for breakdown" numeric={summary.avg_intent_score} onClick={() => setActiveKpi("intent")} />
-                  <KpiCard label="Intent Distribution" value={`${formatNumber(summary.hot_visitors)} / ${formatNumber(summary.warm_visitors)} / ${formatNumber(summary.cold_visitors)}`} hint="Hot / Warm / Cold — click for breakdown" onClick={() => setActiveKpi("distribution")} />
-                  <KpiCard label="All-Time Visitors" value={formatNumber(summary.total_visitors_all)} hint="Total unique visitors ever tracked" numeric={summary.total_visitors_all} onClick={() => setActiveKpi("visitors")} />
-                  <KpiCard label="Conversion-ready Products" value={formatNumber(summary.conversion_ready_products)} hint="Products with action potential" numeric={summary.conversion_ready_products} onClick={() => setActiveKpi("products")} />
+                  <KpiCard label="Visitors (24h)" value={formatNumber(summary.total_visitors)} hint="Last 24 hours" numeric={summary.total_visitors} onClick={() => setActiveKpi("visitors")} />
+                  <KpiCard label="Events (24h)" value={formatNumber(summary.total_events)} hint="Browsing events" numeric={summary.total_events} onClick={() => setActiveKpi("events")} />
+                  <KpiCard label="Hot Visitors" value={formatNumber(summary.hot_visitors)} hint="Strong purchase intent" numeric={summary.hot_visitors} onClick={() => setActiveKpi("hot")} />
+                  <KpiCard label="Wishlist Adds" value={formatNumber(summary.wishlist_adds)} hint="Products saved" numeric={summary.wishlist_adds} onClick={() => setActiveKpi("wishlist")} />
+                  <KpiCard label="Avg Intent" value={formatScore(summary.avg_intent_score)} hint="Purchase intent score" numeric={summary.avg_intent_score} onClick={() => setActiveKpi("intent")} />
+                  <KpiCard label="Intent Split" value={`${formatNumber(summary.hot_visitors)} / ${formatNumber(summary.warm_visitors)} / ${formatNumber(summary.cold_visitors)}`} hint="Hot / Warm / Cold" onClick={() => setActiveKpi("distribution")} />
+                  <KpiCard label="All-Time Visitors" value={formatNumber(summary.total_visitors_all)} hint="Total ever tracked" numeric={summary.total_visitors_all} onClick={() => setActiveKpi("visitors")} />
+                  <KpiCard label="Ready Products" value={formatNumber(summary.conversion_ready_products)} hint="With action potential" numeric={summary.conversion_ready_products} onClick={() => setActiveKpi("products")} />
                 </div>
                 </>)}
               </section>
 
               {/* Real orders / revenue section */}
               <section id="section-revenue">
-                <OrdersSummary apiBase={API_BASE} shop={shop} />
+                <OrdersSummary apiBase={API_BASE} shop={shop} displayCurrency={displayCurrency} />
                 <ProductConversions apiBase={API_BASE} shop={shop} />
               </section>
 
               {/* Revenue at risk banner — below KPI grid, above signals */}
               {isProUser
                 ? (revenueWindows && (revenueWindows.total_revenue_at_risk ?? 0) > 0) && (
-                    <RevenueWindowPro data={revenueWindows} />
+                    <RevenueWindowPro data={revenueWindows} displayCurrency={displayCurrency} />
                   )
                 : (revenueWindowTease && (revenueWindowTease.estimated_revenue_at_risk ?? 0) > 0) && (
                     <RevenueWindowLite
                       data={revenueWindowTease}
                       onUpgradeClick={() => setUpgradeModalOpen(true)}
+                      displayCurrency={displayCurrency}
                     />
                   )
               }
@@ -3252,11 +3746,11 @@ function PageInner() {
                 <div className="rounded-2xl border border-white/[0.05] bg-white/[0.015] p-5">
                   <div className="mb-3">
                     <div className="mb-1 flex items-center gap-2">
-                      <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-300/50">Early Activity</span>
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-300/50">Early Findings</span>
                       <span className="rounded-full bg-white/[0.04] px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] text-slate-500 ring-1 ring-white/[0.06]">Live</span>
                     </div>
-                    <h3 className="text-[14px] font-medium text-slate-300">We're starting to see activity in your store</h3>
-                    <p className="mt-0.5 text-[11px] text-slate-600">These early signals will sharpen as more visitors arrive.</p>
+                    <h3 className="text-[15px] font-semibold text-slate-200">Early findings</h3>
+                    <p className="mt-0.5 text-[13px] text-slate-500">Sharpen as traffic grows.</p>
                   </div>
                   <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
                     {earlySignals.map((s, i) => (
@@ -3270,7 +3764,7 @@ function PageInner() {
               {earlySignals.length > 0 && strongSignals.length > 0 && (
                 <div className="rounded-xl border border-white/[0.04] bg-white/[0.01] p-4">
                   <div className="mb-2 flex items-center gap-2">
-                    <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Early signals</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Early findings</span>
                     <span className="rounded-full bg-white/[0.03] px-1.5 py-0.5 text-[9px] text-slate-600 ring-1 ring-white/[0.05]">{earlySignals.length}</span>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -3282,108 +3776,130 @@ function PageInner() {
               )}
 
               {/* 3 — Signals requiring attention + Highest-intent products */}
+              {/* ═══ FINDINGS — 3 cards per row ═══ */}
               <section id="section-signals">
-                {/* Dual heading row — mirrors the 2+2 card columns below */}
-                <div className="mb-3 grid gap-4 xl:grid-cols-2">
-                  <SectionHeading eyebrow={strongSignals.length > 0 ? "Attention" : "Attention"} title={strongSignals.length > 0 ? "Top opportunities to improve your store" : "What needs fixing"} />
-                  {topProducts.length > 0 && (
-                    <SectionHeading eyebrow="Hot Products" title="Where buyers are active" />
-                  )}
-                </div>
+                <SectionHeading eyebrow="Findings" title={strongSignals.length > 0 ? "What we found" : "Needs attention"} />
 
-                {/* Unified 4-column card grid — all cards share one grid context
-                    so CSS auto-rows enforces equal height per row */}
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-
-                  {/* Alert cards — occupy first 2 columns */}
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {alerts.length === 0 ? (
-                    <p className="sm:col-span-2 rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-3 text-[12px] text-slate-600">
+                    <p className="lg:col-span-3 rounded-xl border border-white/[0.05] bg-white/[0.02] px-5 py-4 text-[15px] text-slate-500">
                       {isColdStart && earlySignals.length === 0
-                        ? "Waiting for your first visitors..."
+                        ? "Waiting for first visitors..."
                         : isColdStart
-                        ? "Building stronger signals as traffic grows..."
-                        : "No alerts right now \u2014 your store looks healthy."}
+                        ? "Analyzing behavior — findings shortly."
+                        : "All clear — store looks healthy."}
                     </p>
                   ) : (
-                    alerts.slice(0, 4).map((alert, i) => (
-                      <div
-                        key={`${alert.type || "alert"}-${i}`}
-                        className="flex flex-col rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4"
-                      >
-                        <div className="mb-2 flex items-center gap-2">
-                          <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${impactClass(alert.priority)}`}>
-                            {alert.priority || "Info"}
-                          </span>
-                          <span className="text-[11px] text-slate-500">{prettyText(alert.type)}</span>
-                        </div>
-                        {/*
-                          message is diagnostic (what is happening) — shown in full
-                          for all tiers. It is a count sentence, not prescriptive content.
-                          action is prescriptive (what to do) — present only in Pro
-                          API response; rendered below when available.
-                        */}
-                        <p className="flex-1 text-[13px] leading-5 text-slate-300">{alert.message || "—"}</p>
-                        {alert.action && (
-                          <div className="mt-2 rounded-lg border border-emerald-400/15 bg-emerald-500/[0.05] px-2.5 py-1.5">
-                            <div className="mb-0.5 flex items-center gap-1.5">
-                              <span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-emerald-300/70">Action</span>
-                              <span className="rounded border border-violet-400/20 px-1 py-px text-[9px] font-normal normal-case tracking-normal text-violet-400/70">PRO</span>
+                    <>
+                      {alerts.slice(0, 2).map((alert, i) => (
+                        <div
+                          key={`${alert.type || "alert"}-${i}`}
+                          className="flex flex-col rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5"
+                        >
+                          <div className="mb-3 flex items-center gap-2.5">
+                            <span className={`rounded-lg px-2.5 py-1 text-[12px] font-bold uppercase tracking-wide ${impactClass(alert.priority)}`}>
+                              {alert.priority || "Info"}
+                            </span>
+                            <span className="text-[13px] font-medium text-slate-400">{prettyText(alert.type)}</span>
+                          </div>
+                          <p className="flex-1 text-[15px] leading-[1.6] text-slate-300">{alert.message || "—"}</p>
+                          {alert.action && (
+                            <div className="mt-3 rounded-xl border border-emerald-400/15 bg-emerald-500/[0.05] px-4 py-3">
+                              <div className="mb-1 flex items-center gap-2">
+                                <svg className="h-3.5 w-3.5 text-emerald-400/70" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+                                </svg>
+                                <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-emerald-300/70">Fix</span>
+                                <span className="rounded border border-[#d4893a]/25 bg-[#d4893a]/10 px-1.5 py-[2px] text-[10px] font-bold text-[#d4893a]/70">PRO</span>
+                              </div>
+                              <p className="text-[14px] leading-[1.5] text-slate-200">{alert.action}</p>
                             </div>
-                            <p className="text-[11px] leading-[1.5] text-slate-300">{alert.action}</p>
+                          )}
+                        </div>
+                      ))}
+
+                      {/* Revenue at Risk — summary card */}
+                      <div className="flex flex-col rounded-2xl border border-[#d4893a]/15 bg-gradient-to-br from-[#d4893a]/[0.04] to-transparent p-5">
+                        <div className="mb-3 flex items-center gap-2.5">
+                          <span className="rounded-lg bg-[#d4893a]/15 px-2.5 py-1 text-[12px] font-bold uppercase tracking-wide text-[#e8a04e] ring-1 ring-[#d4893a]/25">
+                            Summary
+                          </span>
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-[2rem] font-extrabold text-[#e8a04e]">
+                            {alerts.length}
+                          </div>
+                          <div className="text-[15px] font-medium text-slate-300">
+                            finding{alerts.length !== 1 ? "s" : ""} on your store
+                          </div>
+                          <p className="mt-2 text-[14px] text-slate-500">
+                            {strongSignals.length > 0
+                              ? `${strongSignals.length} confirmed signal${strongSignals.length !== 1 ? "s" : ""} requiring attention.`
+                              : "Monitoring your products for issues."}
+                          </p>
+                        </div>
+                        {strongSignals.length > 0 && (
+                          <div className="mt-3 flex items-center gap-2">
+                            <div className="h-2 w-2 rounded-full bg-[#d4893a] shadow-[0_0_8px_rgba(212,137,58,0.6)]" />
+                            <span className="text-[13px] font-semibold text-[#e8a04e]">Active</span>
                           </div>
                         )}
                       </div>
-                    ))
+                    </>
                   )}
-
-                  {/* Product cards — occupy last 2 columns */}
-                  {topProducts.slice(0, 4).map((product, i) => (
-                    <div
-                      key={`${product.product_id || "prod"}-${i}`}
-                      className="hs-fade-up flex flex-col rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4 cursor-pointer select-none transition-colors hover:border-violet-400/25 hover:bg-white/[0.05]"
-                      onClick={() => setActiveTopProduct(product)}
-                    >
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <span className="truncate text-[13px] font-medium text-white">
-                          {product.product_name || product.product_id || "—"}
-                        </span>
-                        {product.intent_level && (
-                          <span className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ${impactClass(product.intent_level === "HOT" ? "HIGH" : product.intent_level === "WARM" ? "MEDIUM" : "LOW")}`}>
-                            {product.intent_level}
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-auto grid grid-cols-3 gap-1 border-t border-white/[0.05] pt-2">
-                        <div>
-                          <div className="text-[10px] uppercase text-slate-600">Views</div>
-                          <div className="mt-0.5 text-sm font-semibold text-white">{formatNumber(product.total_views)}</div>
-                        </div>
-                        <div>
-                          <div className="text-[10px] uppercase text-slate-600">Visitors</div>
-                          <div className="mt-0.5 text-sm font-semibold text-white">{formatNumber(product.unique_visitors)}</div>
-                        </div>
-                        <div>
-                          <div className="text-[10px] uppercase text-slate-600">Intent</div>
-                          <div className="mt-0.5 text-sm font-semibold text-white">{formatScore(product.avg_intent_score)}</div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-
                 </div>
+              </section>
 
-                {/* Traffic source companion — aligned under Highest-intent products */}
-                {topProducts.length > 0 && (
-                  <div className="mt-3 grid gap-3 xl:grid-cols-2">
-                    <div className="hidden xl:block" />
+              {/* ═══ HOT PRODUCTS — 3 cards per row ═══ */}
+              {topProducts.length > 0 && (
+                <section>
+                  <SectionHeading eyebrow="Hot Products" title="Where buyers are active" />
+
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {topProducts.slice(0, 3).map((product, i) => (
+                      <div
+                        key={`${product.product_id || "prod"}-${i}`}
+                        className="hs-fade-up flex flex-col rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5 cursor-pointer select-none transition-all duration-200 hover:border-[#d4893a]/20 hover:bg-white/[0.05] hover:shadow-[0_4px_24px_rgba(212,137,58,0.06)]"
+                        onClick={() => setActiveTopProduct(product)}
+                      >
+                        <div className="mb-3 flex items-center justify-between gap-2">
+                          <span className="truncate text-[15px] font-semibold text-white">
+                            {product.product_name || product.product_id || "—"}
+                          </span>
+                          {product.intent_level && (
+                            <span className={`flex-shrink-0 rounded-lg px-2.5 py-1 text-[12px] font-bold uppercase tracking-wide ring-1 ${impactClass(product.intent_level === "HOT" ? "HIGH" : product.intent_level === "WARM" ? "MEDIUM" : "LOW")}`}>
+                              {product.intent_level}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-auto grid grid-cols-3 gap-2 border-t border-white/[0.05] pt-3">
+                          <div>
+                            <div className="text-[12px] font-medium uppercase text-slate-500">Views</div>
+                            <div className="mt-1 text-[18px] font-bold text-white">{formatNumber(product.total_views)}</div>
+                          </div>
+                          <div>
+                            <div className="text-[12px] font-medium uppercase text-slate-500">Visitors</div>
+                            <div className="mt-1 text-[18px] font-bold text-white">{formatNumber(product.unique_visitors)}</div>
+                          </div>
+                          <div>
+                            <div className="text-[12px] font-medium uppercase text-slate-500">Intent</div>
+                            <div className="mt-1 text-[18px] font-bold text-white">{formatScore(product.avg_intent_score)}</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Traffic source companion */}
+                  <div className="mt-3">
                     <TrafficSourceBox
                       sourceQuality={sourceQuality}
                       isProUser={isProUser}
                       onUpgradeClick={() => setUpgradeModalOpen(true)}
                     />
                   </div>
-                )}
-              </section>
+                </section>
+              )}
 
               {/* 4 — Product Performance */}
               {mergedProducts.length > 0 && (
@@ -3391,28 +3907,10 @@ function PageInner() {
                   <SectionHeading
                     eyebrow="Products"
                     title="Where your traffic goes"
-                    description="24h metrics per product — sorted by what needs attention first."
+                    description="Sorted by what needs attention first."
                   />
 
                   {/* Urgency signal — Lite only, when high-priority rows exist */}
-                  {!isProUser && (() => {
-                    const highCount = mergedProducts.filter((r) => r.priority === "HIGH").length;
-                    if (!highCount) return null;
-                    return (
-                      <div className="mb-3 flex items-center rounded-xl border border-violet-400/15 bg-violet-500/[0.06] px-4 py-2.5">
-                        <span className="text-[12px] text-slate-400">
-                          You have {highCount} high-priority {highCount === 1 ? "opportunity" : "opportunities"} waiting
-                        </span>
-                        <span
-                          className="ml-2 cursor-pointer text-[12px] text-violet-400 transition hover:text-violet-300"
-                          role="button"
-                          onClick={() => setUpgradeModalOpen(true)}
-                        >
-                          Unlock now →
-                        </span>
-                      </div>
-                    );
-                  })()}
 
                   {/* High-priority opportunity banner */}
                   {(() => {
@@ -3442,20 +3940,20 @@ function PageInner() {
 
                   <div className="overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.02]">
                     <div className="overflow-x-auto">
-                      <table className="min-w-full text-left text-[13px]">
+                      <table className="min-w-full text-left text-[14px]">
                         <thead>
-                          <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-wide text-slate-600">
-                            <th className="px-4 py-3 font-medium">Product</th>
-                            <th className="px-4 py-3 font-medium">Views 24h</th>
-                            <th className="px-4 py-3 font-medium">7d Trend</th>
-                            <th className="px-4 py-3 font-medium">Cart Abandon</th>
-                            <th className="px-4 py-3 font-medium">Avg Dwell</th>
-                            <th className="px-4 py-3 font-medium">Avg Scroll</th>
-                            <th className="px-4 py-3 font-medium">Engagement</th>
-                            <th className="px-4 py-3 font-medium" title="Weighted priority score: views · engagement · cart abandonment">Priority</th>
-                            <th className="px-4 py-3 font-medium">
+                          <tr className="border-b border-white/[0.06] text-[12px] font-bold uppercase tracking-wide text-slate-500">
+                            <th className="px-5 py-4 font-bold">Product</th>
+                            <th className="px-5 py-4 font-bold">Views 24h</th>
+                            <th className="px-5 py-4 font-bold">7d Trend</th>
+                            <th className="px-5 py-4 font-bold">Cart Abandon</th>
+                            <th className="px-5 py-4 font-bold">Avg Dwell</th>
+                            <th className="px-5 py-4 font-bold">Avg Scroll</th>
+                            <th className="px-5 py-4 font-bold">Engagement</th>
+                            <th className="px-5 py-4 font-bold" title="Weighted priority score: views · engagement · cart abandonment">Priority</th>
+                            <th className="px-5 py-4 font-bold">
                               Est. Loss / Action
-                              <span className="ml-2 text-[10px] text-violet-400/70 border border-violet-400/20 px-1.5 py-[1px] rounded align-middle">PRO</span>
+                              <span className="ml-2 text-[10px] text-[#d4893a]/70 border border-[#d4893a]/20 bg-[#d4893a]/10 px-1.5 py-[2px] rounded align-middle font-bold">PRO</span>
                             </th>
                           </tr>
                         </thead>
@@ -3471,24 +3969,24 @@ function PageInner() {
                                   : "border-l-2 border-l-transparent"
                               } ${i === 0 ? "bg-violet-500/[0.04]" : ""}`}
                             >
-                              <td className="max-w-[260px] px-4 py-2.5">
-                                <div className="flex items-start gap-2">
+                              <td className="max-w-[280px] px-5 py-3.5">
+                                <div className="flex items-start gap-2.5">
                                   <span
-                                    className={`mt-[3px] h-2 w-2 flex-shrink-0 rounded-full ${
+                                    className={`mt-[5px] h-2.5 w-2.5 flex-shrink-0 rounded-full ${
                                       row.priority === "HIGH"
-                                        ? "bg-rose-400 shadow-[0_0_6px_rgba(251,113,133,0.7)]"
+                                        ? "bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.7)]"
                                         : row.priority === "MED"
-                                        ? "bg-amber-300 shadow-[0_0_6px_rgba(252,211,77,0.6)]"
+                                        ? "bg-amber-300 shadow-[0_0_8px_rgba(252,211,77,0.6)]"
                                         : "bg-slate-600"
                                     }`}
                                     title={`${row.priority} priority`}
                                   />
                                   <div className="min-w-0">
-                                    <span className="block truncate text-[12px] text-slate-300" title={row.product_url}>
+                                    <span className="block truncate text-[14px] font-medium text-slate-200" title={row.product_url}>
                                       {shortUrl(row.product_url)}
                                     </span>
                                     {row.insight && (
-                                      <span className="mt-0.5 block text-[10px] leading-3 text-slate-500">
+                                      <span className="mt-0.5 block text-[12px] leading-4 text-slate-500">
                                         {row.insight}
                                       </span>
                                     )}
@@ -3513,54 +4011,54 @@ function PageInner() {
                                   </div>
                                 </div>
                               </td>
-                              <td className="px-4 py-2.5 tabular-nums text-slate-200">{formatNumber(row.views_24h)}</td>
-                              <td className="px-4 py-2.5">
+                              <td className="px-5 py-3.5 text-[15px] font-semibold tabular-nums text-white">{formatNumber(row.views_24h)}</td>
+                              <td className="px-5 py-3.5">
                                 {!row.trend_is_synthetic && row.last_7_days_views.length > 0 ? (
-                                  <InlineSparkline values={row.last_7_days_views} />
+                                  <Sparkline values={row.last_7_days_views} />
                                 ) : (
-                                  <span className="text-[11px] text-slate-700">—</span>
+                                  <span className="text-[13px] text-slate-600">—</span>
                                 )}
                               </td>
-                              <td className="px-4 py-2.5 tabular-nums">
+                              <td className="px-5 py-3.5 tabular-nums">
                                 {(row.cart_conversions_24h ?? 0) === 0 ? (
-                                  <span className="text-slate-600">No conversions</span>
+                                  <span className="text-[14px] text-slate-500">No conversions</span>
                                 ) : row.cart_abandonment_rate != null ? (
-                                  <span className={row.cart_abandonment_rate >= 0.8 ? "text-rose-400" : row.cart_abandonment_rate >= 0.5 ? "text-amber-400" : "text-slate-400"}>
+                                  <span className={`text-[15px] font-semibold ${row.cart_abandonment_rate >= 0.8 ? "text-rose-400" : row.cart_abandonment_rate >= 0.5 ? "text-amber-400" : "text-slate-400"}`}>
                                     {formatPct(row.cart_abandonment_rate)}
                                   </span>
                                 ) : (
-                                  <span className="text-slate-700">—</span>
+                                  <span className="text-slate-600">—</span>
                                 )}
                               </td>
-                              <td className="px-4 py-2.5 tabular-nums text-slate-400">
-                                {row.avg_dwell_24h != null ? `${formatDecimal(row.avg_dwell_24h, 1)}s` : <span className="text-slate-700">—</span>}
+                              <td className="px-5 py-3.5 text-[14px] tabular-nums text-slate-300">
+                                {row.avg_dwell_24h != null ? `${formatDecimal(row.avg_dwell_24h, 1)}s` : <span className="text-slate-600">—</span>}
                               </td>
-                              <td className="px-4 py-2.5 tabular-nums text-slate-400">
-                                {row.avg_scroll_24h != null ? `${formatDecimal(row.avg_scroll_24h, 0)}%` : <span className="text-slate-700">—</span>}
+                              <td className="px-5 py-3.5 text-[14px] tabular-nums text-slate-300">
+                                {row.avg_scroll_24h != null ? `${formatDecimal(row.avg_scroll_24h, 0)}%` : <span className="text-slate-600">—</span>}
                               </td>
-                              <td className="px-4 py-2.5">
+                              <td className="px-5 py-3.5">
                                 {row.engagement_score != null ? (
-                                  <span className="inline-flex items-center gap-1.5 tabular-nums" title="Engagement score 0–100% · composite of dwell time and scroll depth">
-                                    <span className={row.engagement_score >= 0.7 ? "font-semibold text-emerald-400" : row.engagement_score >= 0.4 ? "text-amber-300" : "text-slate-500"}>
+                                  <span className="inline-flex items-center gap-2 tabular-nums" title="Engagement score 0–100%">
+                                    <span className={`text-[15px] font-semibold ${row.engagement_score >= 0.7 ? "text-emerald-400" : row.engagement_score >= 0.4 ? "text-amber-300" : "text-slate-500"}`}>
                                       {Math.round(row.engagement_score * 100)}%
                                     </span>
-                                    <span className={`text-[10px] font-medium ${row.engagement_score > 0.8 ? "text-emerald-500" : row.engagement_score >= 0.5 ? "text-amber-400/80" : "text-slate-600"}`}>
+                                    <span className={`text-[12px] font-bold ${row.engagement_score > 0.8 ? "text-emerald-500" : row.engagement_score >= 0.5 ? "text-amber-400/80" : "text-slate-600"}`}>
                                       {row.engagement_score > 0.8 ? "High" : row.engagement_score >= 0.5 ? "Med" : "Low"}
                                     </span>
                                   </span>
                                 ) : (
-                                  <span className="text-[11px] text-slate-600" title="Engagement score 0–100% · composite of dwell time and scroll depth">No data</span>
+                                  <span className="text-[13px] text-slate-500">No data</span>
                                 )}
                               </td>
-                              <td className="px-4 py-2.5">
-                                <div className="flex items-center gap-1.5">
-                                  <div className="h-1 w-16 overflow-hidden rounded-full bg-white/[0.07]">
+                              <td className="px-5 py-3.5">
+                                <div className="flex items-center gap-2">
+                                  <div className="h-2 w-20 overflow-hidden rounded-full bg-white/[0.07]">
                                     <div
                                       className={`h-full rounded-full ${row.priority === "HIGH" ? "bg-rose-400/70" : row.priority === "MED" ? "bg-amber-300/70" : "bg-slate-600/70"}`}
                                       style={{ width: `${Math.round(row.attention_score * 100)}%` }}
                                     />
                                   </div>
-                                  <span className="text-[11px] tabular-nums text-slate-600">{Math.round(row.attention_score * 100)}</span>
+                                  <span className="text-[13px] font-semibold tabular-nums text-slate-400">{Math.round(row.attention_score * 100)}</span>
                                 </div>
                               </td>
                               <td className="px-4 py-2.5">
@@ -3697,7 +4195,7 @@ function PageInner() {
                             </div>
                             {act.impactValue > 0 && (
                               <span className="flex-shrink-0 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold tabular-nums text-emerald-300">
-                                ~{fmtLoss(act.impactValue)}/wk
+                                ~{formatDisplayMoney(act.impactValue, "USD", displayCurrency)}/wk
                               </span>
                             )}
                           </div>
@@ -3773,28 +4271,39 @@ function PageInner() {
                   title="Your week in traffic"
                 />
                 {trend.length === 0 ? (
-                  <p className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-3 text-[12px] text-slate-600">
-                    {coldStartPhase <= 1
-                      ? "Your weekly traffic chart will build up here once visitors start arriving. Each day adds a new bar."
-                      : "No trend data yet \u2014 check back once a full day of traffic has been recorded."}
+                  <p className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-5 py-4 text-[15px] text-slate-500">
+                    {coldStartPhase <= 1 ? "Waiting for visitors..." : "No trend data yet."}
                   </p>
                 ) : (
-                  <div className="grid gap-2 sm:grid-cols-4 md:grid-cols-7">
+                  <div className="grid gap-2.5 sm:grid-cols-4 md:grid-cols-7">
                     {trend.map((point, i) => {
                       const val = point.visitors || 0;
-                      const barH = Math.max(8, Math.round((val / maxTrend) * 80));
+                      const barH = Math.max(12, Math.round((val / maxTrend) * 100));
+                      const isMax = val === maxTrend && val > 0;
                       return (
                         <div
                           key={`${point.day || "day"}-${i}`}
-                          className="hs-fade-up rounded-xl border border-white/[0.07] bg-white/[0.02] px-3 py-2.5"
+                          className={`hs-fade-up rounded-2xl border p-4 transition-all ${
+                            isMax
+                              ? "border-[#d4893a]/20 bg-[#d4893a]/[0.04]"
+                              : "border-white/[0.07] bg-white/[0.02]"
+                          }`}
                           style={{ animationDelay: `${i * 40}ms` }}
                         >
-                          <div className="mb-1.5 text-[11px] text-slate-500">{point.day || `Day ${i + 1}`}</div>
-                          <div className="flex h-20 items-end">
-                            <div className="w-full rounded-md bg-gradient-to-t from-violet-500/80 to-cyan-400/60" style={{ height: barH }} />
+                          <div className="mb-2 text-[13px] font-medium text-slate-400">{point.day || `Day ${i + 1}`}</div>
+                          <div className="flex h-24 items-end">
+                            <div
+                              className={`w-full rounded-lg ${
+                                isMax
+                                  ? "bg-gradient-to-t from-[#d4893a] to-[#e8a04e] shadow-[0_0_12px_rgba(212,137,58,0.3)]"
+                                  : "bg-gradient-to-t from-violet-500/80 to-cyan-400/60"
+                              }`}
+                              style={{ height: barH }}
+                            />
                           </div>
-                          <div className="mt-1.5 text-sm font-semibold tabular-nums text-white">{formatNumber(val)}</div>
-                          <div className="text-[10px] text-slate-600">Visitors</div>
+                          <div className={`mt-2 text-[18px] font-bold tabular-nums ${isMax ? "text-[#e8a04e]" : "text-white"}`}>
+                            {formatNumber(val)}
+                          </div>
                         </div>
                       );
                     })}
@@ -3806,59 +4315,47 @@ function PageInner() {
               <section>
                 <SectionHeading eyebrow="Pages" title="Where visitors spend time" />
                 {topPages.length === 0 ? (
-                  <p className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-3 text-[12px] text-slate-600">
-                    {coldStartPhase <= 1
-                      ? "The pages your visitors browse most will appear here, ranked by views and dwell time."
-                      : "No page data available yet \u2014 this populates as visitors browse your store."}
+                  <p className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-5 py-4 text-[15px] text-slate-500">
+                    {coldStartPhase <= 1 ? "Waiting for visitors..." : "No page data yet."}
                   </p>
                 ) : (
-                  <div className="overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.02]">
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full text-left text-[13px]">
-                        <thead>
-                          <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-wide text-slate-600">
-                            <th className="px-4 py-3 font-medium">URL</th>
-                            <th className="px-4 py-3 font-medium">Views</th>
-                            <th className="px-4 py-3 font-medium">Visitors</th>
-                            <th className="px-4 py-3 font-medium">Avg Dwell</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {topPages.slice(0, 10).map((page, i) => (
-                            <tr key={`${page.url || "page"}-${i}`} className="border-t border-white/[0.04] transition-colors hover:bg-white/[0.02]">
-                              <td className="max-w-[380px] truncate px-4 py-2.5 text-slate-300">{page.url || "—"}</td>
-                              <td className="px-4 py-2.5 tabular-nums text-slate-400">{formatNumber(page.views)}</td>
-                              <td className="px-4 py-2.5 tabular-nums text-slate-400">{formatNumber(page.visitors)}</td>
-                              <td className="px-4 py-2.5 tabular-nums text-slate-400">{formatDecimal(page.avg_dwell, 1)}s</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                  <div className="space-y-2.5">
+                    {topPages.slice(0, 8).map((page, i) => {
+                      const maxViews = topPages[0]?.views || 1;
+                      const barPct = Math.max(4, Math.round(((page.views ?? 0) / maxViews) * 100));
+                      return (
+                        <div key={`${page.url || "page"}-${i}`} className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 transition-colors hover:bg-white/[0.04]">
+                          <div className="mb-2 flex items-center justify-between gap-4">
+                            <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-slate-200" title={page.url}>{page.url || "—"}</span>
+                            <span className="flex-shrink-0 text-[16px] font-bold tabular-nums text-white">{formatNumber(page.views)} <span className="text-[13px] font-normal text-slate-500">views</span></span>
+                          </div>
+                          <div className="mb-2 h-2.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
+                            <div
+                              className={`h-full rounded-full ${i === 0 ? "bg-gradient-to-r from-[#d4893a] to-[#e8a04e]" : "bg-gradient-to-r from-violet-500/70 to-cyan-400/50"}`}
+                              style={{ width: `${barPct}%` }}
+                            />
+                          </div>
+                          <div className="flex items-center gap-4 text-[13px] text-slate-500">
+                            <span>{formatNumber(page.visitors)} visitors</span>
+                            <span>{formatDecimal(page.avg_dwell, 1)}s avg dwell</span>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </section>
 
               {/* 8 — Conversion Funnel (Pro) */}
               <section id="section-funnel">
+                {isProUser && (
                 <SectionHeading
                   eyebrow="Funnel"
                   title="Where you lose buyers"
-                  description="Drop-off at each stage from view to purchase."
+                  description="Drop-off from view to purchase."
                 />
-                {!isProUser ? (
-                  <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-5 py-4">
-                    <p className="text-[12px] leading-relaxed text-slate-500">
-                      See exactly where visitors drop off on the path from view to purchase.
-                    </p>
-                    <button
-                      onClick={() => setUpgradeModalOpen(true)}
-                      className="mt-3 rounded-lg bg-violet-500/15 px-3 py-1.5 text-[11px] font-semibold text-violet-300 transition hover:bg-violet-500/25"
-                    >
-                      See where you lose buyers →
-                    </button>
-                  </div>
-                ) : funnelSteps.length === 0 ? (
+                )}
+                {!isProUser ? null : funnelSteps.length === 0 ? (
                   <p className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-3 text-[12px] text-slate-600">
                     No funnel data yet — events will appear once your tracker is active.
                   </p>
@@ -3869,20 +4366,7 @@ function PageInner() {
 
               {/* 9 — Session Timeline + Click Insights (Pro) */}
               <section id="section-sessions">
-                {!isProUser ? (
-                  <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-5 py-4">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">Sessions &amp; Clicks</div>
-                    <p className="mt-2 text-[12px] leading-relaxed text-slate-500">
-                      Watch individual visitor journeys and see which elements get the most clicks.
-                    </p>
-                    <button
-                      onClick={() => setUpgradeModalOpen(true)}
-                      className="mt-3 rounded-lg bg-violet-500/15 px-3 py-1.5 text-[11px] font-semibold text-violet-300 transition hover:bg-violet-500/25"
-                    >
-                      Explore visitor behavior →
-                    </button>
-                  </div>
-                ) : (
+                {!isProUser ? null : (
                 <div className="grid gap-4 xl:grid-cols-2">
 
                   {/* Left — Session Replay */}
@@ -3993,70 +4477,150 @@ function PageInner() {
                 )}
               </section>
 
-              {/* 10 — Live Radar */}
+              {/* 10 — Live Radar + World Map */}
               <section id="section-live">
                 <SectionHeading
-                  eyebrow="Live"
-                  title="Who's in your store right now"
+                  eyebrow="Live Radar"
+                  title="Right now in your store"
                 />
-                <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-                  {liveVisitors.length === 0 ? (
-                    <p className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-3 text-[12px] text-slate-600">
-                      {coldStartPhase <= 1
-                        ? "Live visitor dots will appear here in real time as people browse your store."
-                        : "No live visitors right now \u2014 this updates in real time when visitors are active."}
-                    </p>
-                  ) : (
-                    <div className="relative min-h-[220px] overflow-hidden rounded-2xl border border-white/[0.07] bg-[radial-gradient(circle_at_center,rgba(56,189,248,0.12),transparent_22%)]">
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="relative h-[190px] w-[190px] rounded-full border border-cyan-400/15">
-                          <div className="absolute inset-[18%] rounded-full border border-cyan-400/10" />
-                          <div className="absolute inset-[36%] rounded-full border border-cyan-400/10" />
-                          <div className="absolute inset-[54%] rounded-full border border-cyan-400/10" />
-                          <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-cyan-400/[0.08]" />
-                          <div className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-cyan-400/[0.08]" />
-                          {liveVisitors.slice(0, 8).map((v, i) => (
-                            <div
-                              key={`${v.visitor_id || "v"}-${i}`}
-                              className={`absolute ${RADAR_POSITIONS[i % RADAR_POSITIONS.length]} -translate-x-1/2 -translate-y-1/2`}
-                            >
-                              <div className={`h-2.5 w-2.5 rounded-full ${intentDotClass(v.intent_level)}`} />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="absolute bottom-3 left-4 right-4">
-                        <div className="flex items-center gap-4 text-[11px] text-slate-500">
-                          <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-rose-400" />Hot</span>
-                          <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-300" />Warm</span>
-                          <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-slate-400" />Cold</span>
-                          <span className="ml-auto font-medium text-slate-400">{liveVisitors.length} live</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  <div className="flex flex-col gap-2">
-                    {liveVisitors.length > 0 && liveVisitors.slice(0, 6).map((v, i) => (
-                      <div key={`${v.visitor_id || "lv"}-${i}`} className="flex items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
-                        <span className={`h-2 w-2 flex-shrink-0 rounded-full ${intentDotClass(v.intent_level)}`} />
-                        <span className="min-w-0 flex-1 truncate text-[12px] text-slate-300">{v.url || "—"}</span>
-                        <span className="flex-shrink-0 rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-slate-500">{v.intent_level || "—"}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                <LiveRadarMap
+                  visitors={liveVisitors}
+                  radarPositions={RADAR_POSITIONS}
+                  coldStartPhase={coldStartPhase}
+                />
               </section>
 
 
-              {/* PRO separator */}
-              <div className="flex items-center gap-4 py-1">
-                <div className="h-px flex-1 bg-white/[0.06]" />
-                <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-violet-300/40">
-                  <span className="rounded-full border border-violet-400/20 bg-violet-500/10 px-2 py-0.5">Pro</span>
-                  Unlock more intelligence
-                </span>
-                <div className="h-px flex-1 bg-white/[0.06]" />
-              </div>
+              {/* ═══ PRO ZONE SEPARATOR ═══ */}
+              {!isProUser && (
+                <div className="relative overflow-hidden rounded-3xl border border-[#d4893a]/15 bg-gradient-to-br from-[#d4893a]/[0.04] via-transparent to-[#7c3aed]/[0.03] p-8 sm:p-10">
+                  <div className="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-[#7c3aed] via-[#c026d3] to-[#f97316]" />
+                  <div className="pointer-events-none absolute -right-20 -top-20 h-[300px] w-[300px] rounded-full bg-[#d4893a]/[0.06] blur-[120px]" />
+                  <div className="relative">
+                    <h2 className="text-[1.75rem] font-extrabold text-white sm:text-[2rem]">
+                      Unlock <span className="hs-brand-gradient">Pro Intelligence</span>
+                    </h2>
+                    <p className="mt-2 max-w-lg text-[16px] leading-relaxed text-slate-400">
+                      Everything above stays free. Pro adds the tools that turn findings into revenue.
+                    </p>
+                    <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                      {[
+                        { icon: "🎯", title: "Smart Nudges", desc: "Auto-deploy fixes on problem products" },
+                        { icon: "📊", title: "Proof Engine", desc: "Control groups prove what works" },
+                        { icon: "👥", title: "Audience Intel", desc: "See who's hot, warm, and cold" },
+                        { icon: "🔍", title: "Deep Analytics", desc: "Funnels, sessions, scroll depth" },
+                        { icon: "💰", title: "Price Intelligence", desc: "How your pricing compares to competitors" },
+                        { icon: "🏆", title: "Market Position", desc: "Where you stand vs the competition" },
+                      ].map((f) => (
+                        <div key={f.title} className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
+                          <div className="text-[24px]">{f.icon}</div>
+                          <h3 className="mt-3 text-[16px] font-bold text-white">{f.title}</h3>
+                          <p className="mt-1 text-[14px] text-slate-400">{f.desc}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => setUpgradeModalOpen(true)}
+                      className="hs-cta-gradient mt-8 rounded-2xl px-8 py-3.5 text-[16px] font-bold text-white shadow-[0_0_30px_rgba(212,137,58,0.25)] transition-all hover:shadow-[0_0_40px_rgba(212,137,58,0.35)]"
+                    >
+                      Start 14-day free trial
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Pro Intelligence narrative hero — sets up the story the merchant
+                  is about to read across the sections below. Designed to pass
+                  the "stupid test": zero jargon, plain English, answers
+                  "what am I looking at?" in one glance. */}
+              {isProUser && (
+                <div className="relative overflow-hidden rounded-3xl border border-white/[0.06] bg-gradient-to-br from-white/[0.025] via-transparent to-white/[0.02] px-6 py-7 sm:px-10 sm:py-9">
+                  {/* Ambient brand gradient stripe on top */}
+                  <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-[#7c3aed] via-[#c026d3] to-[#f97316]" />
+                  {/* Subtle glow */}
+                  <div className="pointer-events-none absolute -right-24 -top-24 h-[320px] w-[320px] rounded-full bg-[#d946ef]/[0.04] blur-[140px]" />
+
+                  <div className="relative">
+                    <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#e8a04e] shadow-[0_0_8px_rgba(232,160,78,0.6)]" />
+                      <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-300">
+                        Pro Intelligence
+                      </span>
+                    </div>
+
+                    <h2 className="text-[1.75rem] font-extrabold leading-[1.1] text-white sm:text-[2.25rem]">
+                      Know your customers{" "}
+                      <span className="hs-brand-gradient">better than they know themselves.</span>
+                    </h2>
+
+                    <p className="mt-3 max-w-[46rem] text-[15px] leading-[1.65] text-slate-400">
+                      Everything below answers one question:{" "}
+                      <strong className="text-slate-200">
+                        who are the people shopping your store, and how do you keep them coming back?
+                      </strong>{" "}
+                      Five chapters, one story — the economics of your customer base, the products that pull them in,
+                      the ones most likely to return, the behavior patterns that separate buyers from browsers,
+                      and the retention curves that tell you if you&apos;re actually growing.
+                    </p>
+
+                    {/* 5-chapter preview strip — the "table of contents" */}
+                    <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                      {[
+                        {
+                          num: "01",
+                          label: "Customer Economics",
+                          q: "Who are they?",
+                          color: "#e8a04e",
+                        },
+                        {
+                          num: "02",
+                          label: "Gateway Products",
+                          q: "What pulls them in?",
+                          color: "#e8a04e",
+                        },
+                        {
+                          num: "03",
+                          label: "Predicted Value",
+                          q: "Who's worth the most?",
+                          color: "#34d399",
+                        },
+                        {
+                          num: "04",
+                          label: "Behavioral DNA",
+                          q: "Why do they buy?",
+                          color: "#d946ef",
+                        },
+                        {
+                          num: "05",
+                          label: "Retention Curves",
+                          q: "Are they coming back?",
+                          color: "#c4b5fd",
+                        },
+                      ].map((chapter) => (
+                        <div
+                          key={chapter.num}
+                          className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 transition-colors hover:border-white/[0.1]"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="text-[9px] font-bold tabular-nums"
+                              style={{ color: chapter.color }}
+                            >
+                              {chapter.num}
+                            </span>
+                            <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-300">
+                              {chapter.label}
+                            </span>
+                          </div>
+                          <div className="mt-1 text-[11px] italic text-slate-500">
+                            {chapter.q}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Pro — Audience Segments */}
               {isProUser && (
@@ -4064,7 +4628,7 @@ function PageInner() {
                   <SectionHeading
                     eyebrow="Audience"
                     title="Who's ready to buy"
-                    description="Visitors classified by real buying behavior — calibrated on your store's actual buyers."
+                    pro
                   />
                   <AudienceSegments
                     apiBase={API_BASE}
@@ -4080,13 +4644,14 @@ function PageInner() {
                 <section id="section-nudges">
                   <SectionHeading
                     eyebrow="Nudges"
-                    title="How your nudges are performing"
-                    description="Impressions, conversions, and controlled lift measurement."
+                    title="Performance"
+                    pro
                   />
                   <NudgePerformance
                     apiBase={API_BASE}
                     shop={shop}
                     apiHeaders={apiHeaders}
+                    displayCurrency={displayCurrency}
                   />
                 </section>
               )}
@@ -4096,10 +4661,10 @@ function PageInner() {
                 <section id="section-lift">
                   <SectionHeading
                     eyebrow="Proof"
-                    title="Did your nudges actually work?"
-                    description="Measured with a real control group — exposed visitors vs visitors who saw nothing."
+                    title="Did it actually work?"
+                    pro
                   />
-                  <LiftReport apiBase={API_BASE} shop={shop} apiHeaders={apiHeaders} />
+                  <LiftReport apiBase={API_BASE} shop={shop} apiHeaders={apiHeaders} displayCurrency={displayCurrency} />
                 </section>
               )}
 
@@ -4109,19 +4674,18 @@ function PageInner() {
                   <div className="grid gap-4 xl:grid-cols-2">
                     <div>
                       <SectionHeading
-                        eyebrow="Behavioral"
-                        title="Scroll intelligence"
-                        description="Where visitors stop reading on each product page."
+                        eyebrow="Scroll Depth"
+                        title="Where visitors stop reading"
+                        pro
                       />
                       <HeatmapCard apiBase={API_BASE} shop={shop} apiHeaders={apiHeaders} />
                     </div>
                     <div>
                       <SectionHeading
                         eyebrow="Retention"
-                        title="Cohort retention"
-                        description="Weekly repeat purchase rates by first-purchase cohort."
+                        title="Repeat purchase rates"
                       />
-                      <CohortTable apiBase={API_BASE} shop={shop} apiHeaders={apiHeaders} />
+                      <CohortTable apiBase={API_BASE} shop={shop} apiHeaders={apiHeaders} displayCurrency={displayCurrency} />
                     </div>
                   </div>
                 </section>
@@ -4139,52 +4703,52 @@ function PageInner() {
                   />
                   {forecastData ? (
                     <div className="mb-8 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
-                      {(forecastData as any).confidence ? (
+                      {forecastData.confidence ? (
                         <div className="grid gap-4 sm:grid-cols-3">
                           <div>
                             <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">7-day forecast</div>
                             <div className="mt-1 text-2xl font-bold text-white">
-                              {(forecastData as any).currency === "EUR" ? "€" : "$"}{((forecastData as any).forecast_7d?.revenue ?? 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
+                              {forecastData.currency === "EUR" ? "€" : "$"}{(forecastData.forecast_7d?.revenue ?? 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
                             </div>
                             <div className="mt-0.5 text-[11px] text-slate-500">
-                              range {(forecastData as any).currency === "EUR" ? "€" : "$"}{((forecastData as any).forecast_7d?.revenue_low ?? 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
+                              range {forecastData.currency === "EUR" ? "€" : "$"}{(forecastData.forecast_7d?.revenue_low ?? 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
                               {" — "}
-                              {(forecastData as any).currency === "EUR" ? "€" : "$"}{((forecastData as any).forecast_7d?.revenue_high ?? 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
+                              {forecastData.currency === "EUR" ? "€" : "$"}{(forecastData.forecast_7d?.revenue_high ?? 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
                             </div>
                           </div>
                           <div>
                             <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">30-day forecast</div>
                             <div className="mt-1 text-2xl font-bold text-white">
-                              {(forecastData as any).currency === "EUR" ? "€" : "$"}{((forecastData as any).forecast_30d?.revenue ?? 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
+                              {forecastData.currency === "EUR" ? "€" : "$"}{(forecastData.forecast_30d?.revenue ?? 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
                             </div>
                             <div className="mt-0.5 text-[11px] text-slate-500">
-                              range {(forecastData as any).currency === "EUR" ? "€" : "$"}{((forecastData as any).forecast_30d?.revenue_low ?? 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
+                              range {forecastData.currency === "EUR" ? "€" : "$"}{(forecastData.forecast_30d?.revenue_low ?? 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
                               {" — "}
-                              {(forecastData as any).currency === "EUR" ? "€" : "$"}{((forecastData as any).forecast_30d?.revenue_high ?? 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
+                              {forecastData.currency === "EUR" ? "€" : "$"}{(forecastData.forecast_30d?.revenue_high ?? 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
                             </div>
                           </div>
                           <div>
                             <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Trend</div>
                             <div className={`mt-1 text-2xl font-bold ${
-                              (forecastData as any).trend?.direction === "up" ? "text-emerald-400" :
-                              (forecastData as any).trend?.direction === "down" ? "text-rose-400" :
+                              forecastData.trend?.direction === "up" ? "text-emerald-400" :
+                              forecastData.trend?.direction === "down" ? "text-rose-400" :
                               "text-slate-300"
                             }`}>
-                              {(forecastData as any).trend?.direction === "up" ? "↑" :
-                               (forecastData as any).trend?.direction === "down" ? "↓" : "→"}{" "}
-                              {Math.abs((forecastData as any).trend?.weekly_change_pct ?? 0).toFixed(1)}% / week
+                              {forecastData.trend?.direction === "up" ? "↑" :
+                               forecastData.trend?.direction === "down" ? "↓" : "→"}{" "}
+                              {Math.abs(forecastData.trend?.weekly_change_pct ?? 0).toFixed(1)}% / week
                             </div>
                             <div className="mt-0.5 text-[11px] text-slate-500">
-                              Confidence: {(forecastData as any).confidence}
-                              {(forecastData as any).seasonality_available ? " · seasonality detected" : ""}
+                              Confidence: {forecastData.confidence}
+                              {forecastData.seasonality_available ? " · seasonality detected" : ""}
                             </div>
                           </div>
                         </div>
                       ) : (
                         <p className="text-[12px] text-slate-500">
-                          {(forecastData as any).confidence_reason === "no_order_history"
+                          {forecastData.confidence_reason === "no_order_history"
                             ? "Revenue forecasting activates once you have order history. Keep selling — your forecast will build automatically."
-                            : `Building forecast — need more order data. ${(forecastData as any).confidence_reason || ""}`}
+                            : `Building forecast — need more order data. ${forecastData.confidence_reason || ""}`}
                         </p>
                       )}
                     </div>
@@ -4197,254 +4761,373 @@ function PageInner() {
                   {/* Attribution + LTV side by side */}
                   <div className="grid gap-6 xl:grid-cols-2">
 
-                    {/* Attribution Intelligence */}
+                    {/* Attribution Intelligence — killer cassettone restyled */}
                     <div>
                       <SectionHeading
                         eyebrow="Attribution"
                         title="Where revenue comes from"
-                        description="First-touch and last-touch source attribution on real orders."
-                        pro
                       />
-                      {attrSummary ? (
-                        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
-                          <div className="grid grid-cols-3 gap-3 mb-4">
-                            <div>
-                              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Orders tracked</div>
-                              <div className="mt-0.5 text-xl font-bold text-white">{(attrSummary as any).orders_total ?? 0}</div>
+                      {attrSummary ? (() => {
+                        const ordersTotal = attrSummary.orders_total;
+                        const ordersAttributed = attrSummary.orders_attributed;
+                        const attrRate = attrSummary.attribution_rate;
+                        const sources = attrSummary.top_sources_first_touch;
+                        const matchRate = attrSummary.first_vs_last_match_rate;
+                        // Normalize bars against the top source's revenue.
+                        const maxRev = sources.length > 0
+                          ? Math.max(...sources.map((s) => s.revenue), 1)
+                          : 1;
+                        // Source → brand accent color (repeatable for visual variety).
+                        const sourcePalette = ["#c4b5fd", "#e8a04e", "#34d399", "#fb923c", "#d946ef"];
+
+                        return (
+                          <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6">
+                            {/* Header eyebrow */}
+                            <div className="mb-5">
+                              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#c4b5fd]">
+                                Attribution Intelligence
+                              </div>
+                              <h3 className="mt-1 text-[15px] font-bold leading-tight text-white">
+                                Which channels actually drive revenue
+                              </h3>
+                              <p className="mt-1.5 text-[12px] leading-relaxed text-slate-400">
+                                {ordersTotal > 0
+                                  ? `${ordersAttributed} of your ${ordersTotal} orders are attributed to a specific traffic source — ${Math.round(attrRate * 100)}% coverage. Keep the tracker active to close the gap.`
+                                  : "Attribution data builds as visitors convert. Keep the tracker active."}
+                              </p>
                             </div>
-                            <div>
-                              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Attributed</div>
-                              <div className="mt-0.5 text-xl font-bold text-emerald-400">{(attrSummary as any).orders_attributed ?? 0}</div>
+
+                            {/* 3 big KPI tiles */}
+                            <div className="mb-6 grid grid-cols-3 gap-3">
+                              <div className="rounded-xl border px-4 py-3" style={{ borderColor: "rgba(196, 181, 253, 0.18)", backgroundColor: "rgba(196, 181, 253, 0.04)" }}>
+                                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Orders tracked</div>
+                                <div className="mt-1 text-[22px] font-extrabold tabular-nums leading-none text-white">
+                                  {ordersTotal.toLocaleString()}
+                                </div>
+                                <div className="mt-1 text-[10px] text-slate-500">last 30 days</div>
+                              </div>
+                              <div className="rounded-xl border px-4 py-3" style={{ borderColor: "rgba(52, 211, 153, 0.22)", backgroundColor: "rgba(52, 211, 153, 0.05)" }}>
+                                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Attributed</div>
+                                <div className="mt-1 text-[22px] font-extrabold tabular-nums leading-none text-emerald-400">
+                                  {ordersAttributed.toLocaleString()}
+                                </div>
+                                <div className="mt-1 text-[10px] text-slate-500">source identified</div>
+                              </div>
+                              <div
+                                className="rounded-xl border px-4 py-3"
+                                style={{
+                                  borderColor: attrRate > 0.7 ? "rgba(52, 211, 153, 0.22)" : "rgba(232, 160, 78, 0.22)",
+                                  backgroundColor: attrRate > 0.7 ? "rgba(52, 211, 153, 0.05)" : "rgba(232, 160, 78, 0.05)",
+                                }}
+                              >
+                                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Coverage</div>
+                                <div
+                                  className="mt-1 text-[22px] font-extrabold tabular-nums leading-none"
+                                  style={{ color: attrRate > 0.7 ? "#34d399" : "#e8a04e" }}
+                                >
+                                  {Math.round(attrRate * 100)}%
+                                </div>
+                                <div className="mt-1 text-[10px] text-slate-500">
+                                  {attrRate > 0.7 ? "strong signal" : "improving"}
+                                </div>
+                              </div>
                             </div>
-                            <div>
-                              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Attribution rate</div>
-                              <div className="mt-0.5 text-xl font-bold text-white">{((attrSummary as any).attribution_rate * 100).toFixed(0)}%</div>
+
+                            {/* Top sources — bar chart style */}
+                            {sources.length > 0 ? (
+                              <div>
+                                <div className="mb-2 flex items-center justify-between">
+                                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                                    Top sources (first touch)
+                                  </div>
+                                  <div className="text-[10px] text-slate-600">revenue per channel</div>
+                                </div>
+                                <div className="space-y-2">
+                                  {sources.slice(0, 5).map((s, i) => {
+                                    const rev = s.revenue;
+                                    const width = Math.max(6, Math.round((rev / maxRev) * 100));
+                                    const color = sourcePalette[i % sourcePalette.length];
+                                    return (
+                                      <div key={`${s.source}-${i}`} className="group flex items-center gap-3 text-[11px]">
+                                        <span
+                                          className="h-1.5 w-1.5 flex-shrink-0 rounded-full"
+                                          style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}66` }}
+                                        />
+                                        <span className="w-20 flex-shrink-0 truncate font-semibold text-slate-200">
+                                          {s.label || s.source || "—"}
+                                        </span>
+                                        <span className="w-14 flex-shrink-0 tabular-nums text-slate-500">
+                                          {s.orders} orders
+                                        </span>
+                                        <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-white/[0.04]">
+                                          <div
+                                            className="h-full rounded-full transition-all duration-500"
+                                            style={{
+                                              width: `${width}%`,
+                                              background: `linear-gradient(90deg, ${color} 0%, ${color}aa 100%)`,
+                                              boxShadow: `0 0 10px -2px ${color}66`,
+                                            }}
+                                          />
+                                        </div>
+                                        <span className="w-16 flex-shrink-0 text-right font-bold tabular-nums text-white">
+                                          {formatDisplayMoney(rev, "USD", displayCurrency)}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-[12px] text-slate-500">
+                                Attribution data builds as visitors convert. Keep the tracker active.
+                              </p>
+                            )}
+
+                            {/* Journey insight — first vs last touch match rate */}
+                            {matchRate != null && ordersAttributed > 0 && (
+                              <div
+                                className="mt-5 rounded-xl border px-4 py-3"
+                                style={{
+                                  borderColor: matchRate > 0.8
+                                    ? "rgba(52, 211, 153, 0.18)"
+                                    : "rgba(232, 160, 78, 0.18)",
+                                  backgroundColor: matchRate > 0.8
+                                    ? "rgba(52, 211, 153, 0.04)"
+                                    : "rgba(232, 160, 78, 0.04)",
+                                }}
+                              >
+                                <div className="flex items-start gap-3">
+                                  <span
+                                    className="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full"
+                                    style={{
+                                      backgroundColor: matchRate > 0.8 ? "#34d399" : "#e8a04e",
+                                      boxShadow: `0 0 6px ${matchRate > 0.8 ? "#34d39988" : "#e8a04e88"}`,
+                                    }}
+                                  />
+                                  <p className="text-[12px] leading-relaxed text-slate-300">
+                                    <strong className="text-white">{Math.round(matchRate * 100)}%</strong> of conversions had the same first and last touch source —{" "}
+                                    {matchRate > 0.8
+                                      ? "most customers buy from the channel that first brought them."
+                                      : "customers are discovering you on one channel and converting on another."}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Trust footer */}
+                            <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/[0.06] bg-white/[0.02] px-3 py-1">
+                              <span className="h-1.5 w-1.5 rounded-full bg-[#c4b5fd] shadow-[0_0_8px_rgba(196,181,253,0.6)]" />
+                              <span className="text-[10px] text-slate-400">
+                                First-party tracking · no third-party cookies · visitor-to-order chain
+                              </span>
                             </div>
                           </div>
-                          {((attrSummary as any).top_sources_first_touch?.length > 0) ? (
-                            <div>
-                              <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Top sources (first touch)</div>
-                              {(attrSummary as any).top_sources_first_touch.slice(0, 5).map((s: any, i: number) => (
-                                <div key={i} className="flex items-center justify-between border-t border-white/[0.04] py-1.5 text-[12px]">
-                                  <span className="text-slate-300">{s.label || s.source}</span>
-                                  <span className="text-white font-medium">{s.orders} orders · ${s.revenue?.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="text-[12px] text-slate-500">Attribution data builds as visitors convert. Keep the tracker active.</p>
-                          )}
-                          {(attrSummary as any).first_vs_last_match_rate != null && (attrSummary as any).orders_attributed > 0 && (
-                            <div className="mt-3 rounded-lg bg-white/[0.03] px-3 py-2 text-[11px] text-slate-400">
-                              {((attrSummary as any).first_vs_last_match_rate * 100).toFixed(0)}% of conversions had the same first and last touch source —{" "}
-                              {(attrSummary as any).first_vs_last_match_rate > 0.8
-                                ? "most customers convert from the channel that brought them."
-                                : "customers are discovering you on one channel and converting on another."}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
+                        );
+                      })() : (
+                        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
                           <div className="h-4 w-40 animate-pulse rounded bg-white/[0.05]" />
+                          <div className="mt-4 h-20 animate-pulse rounded bg-white/[0.03]" />
                         </div>
                       )}
                     </div>
 
-                    {/* Customer LTV */}
+                    {/* Customer Economics — killer cassettone, branded */}
                     <div>
                       <SectionHeading
                         eyebrow="Lifetime Value"
                         title="Customer economics"
-                        description="Monthly cohort analysis — how much each acquisition group is worth."
-                        pro
                       />
-                      {ltvData ? (
-                        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
-                          <div className="grid grid-cols-3 gap-3 mb-4">
-                            <div>
-                              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Customers</div>
-                              <div className="mt-0.5 text-xl font-bold text-white">{(ltvData as any).overall?.total_customers ?? 0}</div>
-                            </div>
-                            <div>
-                              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Repeat rate</div>
-                              <div className={`mt-0.5 text-xl font-bold ${
-                                ((ltvData as any).overall?.repeat_rate ?? 0) > 0.2 ? "text-emerald-400" :
-                                ((ltvData as any).overall?.repeat_rate ?? 0) > 0 ? "text-amber-400" :
-                                "text-slate-400"
-                              }`}>
-                                {(((ltvData as any).overall?.repeat_rate ?? 0) * 100).toFixed(1)}%
+                      {ltvData ? (() => {
+                        const overall = ltvData.overall;
+                        const cohorts = ltvData.cohorts;
+                        const coverage = ltvData.customer_coverage;
+                        const totalCustomers = overall.total_customers;
+                        const repeatRate = overall.repeat_rate;
+                        const avgRevenue = overall.avg_revenue_per_customer;
+                        const avgOrders = overall.avg_orders_per_customer;
+                        const repeatCount = overall.repeat_customers;
+                        const repeatColor = repeatRate > 0.3 ? "#34d399" : repeatRate > 0.15 ? "#e8a04e" : "#fb923c";
+                        const maxCohortRevenue = cohorts.length > 0
+                          ? Math.max(...cohorts.map((c) => c.revenue_total), 1)
+                          : 1;
+                        return (
+                          <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6">
+                            {/* Header eyebrow + narrative headline */}
+                            <div className="mb-5">
+                              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#e8a04e]">
+                                Customer Economics
                               </div>
+                              <h3 className="mt-1 text-[15px] font-bold leading-tight text-white">
+                                Who keeps coming back, and what they&apos;re worth
+                              </h3>
+                              <p className="mt-1.5 text-[12px] leading-relaxed text-slate-400">
+                                {totalCustomers > 0
+                                  ? `Your ${totalCustomers} identified customers average ${formatDisplayMoney(avgRevenue, "USD", displayCurrency)} lifetime revenue. ${repeatCount} have come back for a second order.`
+                                  : "Customer economics activate once your first orders are attributed to identifiable customers."}
+                              </p>
                             </div>
-                            <div>
-                              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Revenue / customer</div>
-                              <div className="mt-0.5 text-xl font-bold text-white">
-                                ${((ltvData as any).overall?.avg_revenue_per_customer ?? 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
-                              </div>
-                            </div>
-                          </div>
-                          {((ltvData as any).cohorts?.length > 0) ? (
-                            <div>
-                              <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Monthly cohorts</div>
-                              {(ltvData as any).cohorts.slice(0, 4).map((c: any, i: number) => (
-                                <div key={i} className="flex items-center justify-between border-t border-white/[0.04] py-1.5 text-[12px]">
-                                  <span className="text-slate-400">{c.cohort_month}</span>
-                                  <span className="text-slate-300">{c.size} customers</span>
-                                  <span className="text-white font-medium">${c.revenue_total?.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
-                                  <span className="text-slate-500">{c.orders_per_customer?.toFixed(1)} orders/cust</span>
+
+                            {/* 3 big KPIs */}
+                            <div className="mb-6 grid grid-cols-3 gap-3">
+                              <div
+                                className="rounded-xl border px-4 py-3"
+                                style={{ borderColor: "rgba(232, 160, 78, 0.18)", backgroundColor: "rgba(232, 160, 78, 0.04)" }}
+                              >
+                                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                                  Customers
                                 </div>
-                              ))}
+                                <div className="mt-1 text-[26px] font-extrabold tabular-nums leading-none text-white">
+                                  {totalCustomers.toLocaleString()}
+                                </div>
+                                <div className="mt-1 text-[10px] text-slate-500">identified</div>
+                              </div>
+                              <div
+                                className="rounded-xl border px-4 py-3"
+                                style={{ borderColor: `${repeatColor}40`, backgroundColor: `${repeatColor}0f` }}
+                              >
+                                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                                  Repeat rate
+                                </div>
+                                <div className="mt-1 text-[26px] font-extrabold tabular-nums leading-none" style={{ color: repeatColor }}>
+                                  {(repeatRate * 100).toFixed(0)}%
+                                </div>
+                                <div className="mt-1 text-[10px] text-slate-500">
+                                  {avgOrders.toFixed(1)} orders / customer
+                                </div>
+                              </div>
+                              <div
+                                className="rounded-xl border px-4 py-3"
+                                style={{ borderColor: "rgba(52, 211, 153, 0.22)", backgroundColor: "rgba(52, 211, 153, 0.06)" }}
+                              >
+                                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                                  Avg customer value
+                                </div>
+                                <div className="mt-1 text-[26px] font-extrabold tabular-nums leading-none text-emerald-400">
+                                  {formatDisplayMoney(avgRevenue, "USD", displayCurrency)}
+                                </div>
+                                <div className="mt-1 text-[10px] text-slate-500">lifetime revenue</div>
+                              </div>
                             </div>
-                          ) : (
-                            <p className="text-[12px] text-slate-500">Cohort data builds from real orders with customer identifiers.</p>
-                          )}
-                          {(ltvData as any).customer_coverage?.coverage_rate != null && (ltvData as any).overall?.total_customers > 0 && (
-                            <div className="mt-3 rounded-lg bg-white/[0.03] px-3 py-2 text-[11px] text-slate-400">
-                              {((ltvData as any).customer_coverage.coverage_rate * 100).toFixed(0)}% of orders have customer identity —{" "}
-                              {(ltvData as any).customer_coverage.coverage_rate > 0.7
-                                ? "strong coverage for LTV analysis."
-                                : "connect Shopify webhooks to improve coverage."}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
+
+                            {/* Monthly cohorts — visualized as bar chart, not list */}
+                            {cohorts.length > 0 ? (
+                              <div>
+                                <div className="mb-2 flex items-center justify-between">
+                                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                                    Monthly cohorts
+                                  </div>
+                                  <div className="text-[10px] text-slate-600">revenue by acquisition month</div>
+                                </div>
+                                <div className="space-y-2">
+                                  {cohorts.slice(0, 6).map((c, i) => {
+                                    const revenue = c.revenue_total;
+                                    const width = Math.max(6, Math.round((revenue / maxCohortRevenue) * 100));
+                                    const isRecent = i === 0;
+                                    const barColor = isRecent ? "#e8a04e" : "rgba(232, 160, 78, 0.55)";
+                                    return (
+                                      <div key={c.cohort_month} className="group flex items-center gap-3 text-[11px]">
+                                        <span className="w-16 flex-shrink-0 font-mono text-slate-500">
+                                          {c.cohort_month}
+                                        </span>
+                                        <span className="w-14 flex-shrink-0 tabular-nums text-slate-500">
+                                          {c.size} cust
+                                        </span>
+                                        <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-white/[0.04]">
+                                          <div
+                                            className="h-full rounded-full transition-all duration-500"
+                                            style={{
+                                              width: `${width}%`,
+                                              backgroundColor: barColor,
+                                              boxShadow: isRecent
+                                                ? `0 0 10px -2px ${barColor}88`
+                                                : undefined,
+                                            }}
+                                          />
+                                        </div>
+                                        <span className="w-16 flex-shrink-0 text-right font-bold tabular-nums text-white">
+                                          {formatDisplayMoney(revenue, "USD", displayCurrency)}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-[12px] text-slate-500">
+                                Cohort data builds from orders with customer identifiers.
+                              </p>
+                            )}
+
+                            {/* Coverage trust pill */}
+                            {coverage.coverage_rate != null && totalCustomers > 0 && (
+                              <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/[0.06] bg-white/[0.02] px-3 py-1">
+                                <span
+                                  className="h-1.5 w-1.5 rounded-full"
+                                  style={{
+                                    backgroundColor: coverage.coverage_rate > 0.7 ? "#34d399" : "#fb923c",
+                                  }}
+                                />
+                                <span className="text-[10px] text-slate-400">
+                                  {Math.round(coverage.coverage_rate * 100)}% of orders have customer identity
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })() : (
+                        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
                           <div className="h-4 w-40 animate-pulse rounded bg-white/[0.05]" />
+                          <div className="mt-4 h-20 animate-pulse rounded bg-white/[0.03]" />
                         </div>
                       )}
                     </div>
 
                   </div>
-                </section>
-              )}
 
-              {/* Pro — Behavioral Customer Intelligence */}
-              {isProUser && behavioralData && (
-                <section id="section-behavioral-intelligence">
-                  <SectionHeading
-                    eyebrow="Behavioral Intelligence"
-                    title="Which visitors become your best customers?"
-                    description="Segments customers by pre-purchase behavior — scroll depth, dwell time, visit frequency, and traffic source."
-                    pro
-                  />
-                  <div className="space-y-4">
-                    {/* Insights banner */}
-                    {((behavioralData as any).insights?.length > 0) && (
-                      <div className="rounded-2xl border border-violet-400/10 bg-violet-500/[0.04] p-4">
-                        <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-violet-300/70">Key Insights</div>
-                        {(behavioralData as any).insights.map((insight: string, i: number) => (
-                          <p key={i} className="text-[12px] leading-relaxed text-slate-300 mb-1.5 last:mb-0">
-                            {insight}
-                          </p>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Segment tables */}
-                    <div className="grid gap-4 xl:grid-cols-3">
-                      {/* By Engagement */}
-                      <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-                        <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">By Engagement Level</div>
-                        {((behavioralData as any).segments?.by_engagement?.length > 0) ? (
-                          (behavioralData as any).segments.by_engagement.map((s: any, i: number) => (
-                            <div key={i} className="flex items-center justify-between border-t border-white/[0.04] py-2 text-[12px]">
-                              <div>
-                                <span className={`font-medium ${
-                                  s.segment === "HIGH" ? "text-emerald-400" :
-                                  s.segment === "MEDIUM" ? "text-amber-400" :
-                                  s.segment === "LOW" ? "text-rose-400" : "text-slate-500"
-                                }`}>{s.segment}</span>
-                                <span className="ml-2 text-slate-600">{s.customers} cust</span>
-                              </div>
-                              <div className="text-right">
-                                <span className="text-white font-medium">${s.avg_revenue?.toFixed(0)}/cust</span>
-                                <span className="ml-2 text-slate-500">{(s.repeat_rate * 100).toFixed(0)}% repeat</span>
-                              </div>
-                            </div>
-                          ))
-                        ) : (
-                          <p className="text-[11px] text-slate-600">Needs visitor behavior data</p>
-                        )}
-                      </div>
-
-                      {/* By Visit Pattern */}
-                      <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-                        <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">By Visit Pattern</div>
-                        {((behavioralData as any).segments?.by_visit_pattern?.length > 0) ? (
-                          (behavioralData as any).segments.by_visit_pattern.map((s: any, i: number) => (
-                            <div key={i} className="flex items-center justify-between border-t border-white/[0.04] py-2 text-[12px]">
-                              <div>
-                                <span className={`font-medium ${
-                                  s.segment === "REPEAT_VISITOR" ? "text-emerald-400" : "text-amber-400"
-                                }`}>{s.segment === "REPEAT_VISITOR" ? "Repeat visitors" : "Single visit"}</span>
-                                <span className="ml-2 text-slate-600">{s.customers} cust</span>
-                              </div>
-                              <div className="text-right">
-                                <span className="text-white font-medium">${s.avg_revenue?.toFixed(0)}/cust</span>
-                                <span className="ml-2 text-slate-500">{(s.repeat_rate * 100).toFixed(0)}% repeat</span>
-                              </div>
-                            </div>
-                          ))
-                        ) : (
-                          <p className="text-[11px] text-slate-600">Needs visitor behavior data</p>
-                        )}
-                      </div>
-
-                      {/* By Source */}
-                      <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-                        <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">By Traffic Source</div>
-                        {((behavioralData as any).segments?.by_source?.length > 0) ? (
-                          (behavioralData as any).segments.by_source.map((s: any, i: number) => (
-                            <div key={i} className="flex items-center justify-between border-t border-white/[0.04] py-2 text-[12px]">
-                              <div>
-                                <span className="font-medium text-slate-300">{s.segment}</span>
-                                <span className="ml-2 text-slate-600">{s.customers} cust</span>
-                              </div>
-                              <div className="text-right">
-                                <span className="text-white font-medium">${s.avg_revenue?.toFixed(0)}/cust</span>
-                                <span className="ml-2 text-slate-500">{(s.repeat_rate * 100).toFixed(0)}% repeat</span>
-                              </div>
-                            </div>
-                          ))
-                        ) : (
-                          <p className="text-[11px] text-slate-600">Needs order attribution data</p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Coverage indicator */}
-                    {(behavioralData as any).data_coverage?.total_customers > 0 && (
-                      <div className="text-[10px] text-slate-600">
-                        {(behavioralData as any).data_coverage.segmentable_customers} of{" "}
-                        {(behavioralData as any).data_coverage.total_customers} customers have behavioral data
-                        ({((behavioralData as any).data_coverage.coverage_rate * 100).toFixed(0)}% coverage)
-                      </div>
-                    )}
+                  {/* Profit Intelligence — the Sprint B killer cassettone that
+                      closes the P&L gap vs Lifetimely + Triple Whale. Full-width
+                      because the waterfall visualization needs the horizontal
+                      real estate and Net Profit is the most important number a
+                      merchant reads on this entire page. */}
+                  <div className="mt-6">
+                    <SectionHeading
+                      eyebrow="Profit Intelligence"
+                      title="What you actually keep"
+                    />
+                    <PnlReport
+                      data={pnlData}
+                      displayCurrency={displayCurrency}
+                    />
                   </div>
-                </section>
-              )}
 
-              {/* 10 — Price + Market Intelligence (compact 2-col) */}
-              <section>
-                <div className="mb-4">
-                  <div className="mb-1.5 flex items-center gap-2">
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-300/70">Intelligence</span>
-                    <span className="rounded-full border border-violet-400/30 bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-violet-300">Pro</span>
+                  {/* Gateway Products + Predicted LTV — the two killer cassettoni
+                      that competitors structurally cannot match */}
+                  <div className="mt-6 grid gap-4 xl:grid-cols-2">
+                    <GatewayProducts
+                      data={gatewayProductsData}
+                      displayCurrency={displayCurrency}
+                    />
+                    <PredictedLtv
+                      data={predictedLtvData}
+                      displayCurrency={displayCurrency}
+                    />
                   </div>
-                  <h2 className="mt-1 text-lg font-semibold text-white">Know your market position</h2>
-                  <p className="mt-1 max-w-lg text-[13px] text-slate-400">Competitive pricing analysis and market positioning per product — see exactly where you stand and what to change.</p>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
 
-                  {/* Price Intelligence */}
-                  <div id="section-price-intelligence">
-                    <ProGate tier={tier} onUpgradeClick={() => setUpgradeModalOpen(true)} label="Price Intelligence" teaser="See how your pricing compares to competitors — get specific reposition recommendations per product.">
-                      <div className="h-full rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
-                        <div className="mb-3 flex items-center justify-between">
-                          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Price Intelligence</span>
-                          <span className="rounded-full border border-violet-400/30 bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold text-violet-300">Pro</span>
-                        </div>
+                  {/* Price + Market Intelligence — inside Pro Intelligence.
+                      mt-10 breathing room so the Market Position heading
+                      doesn't stick to the Gateway/Predicted cassettoni above. */}
+                  <div className="mt-10">
+                    <SectionHeading
+                      eyebrow="Market Position"
+                      title="Know where you stand"
+                    />
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div id="section-price-intelligence">
+                      <div className="h-full rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
+                        <div className="mb-4 text-[16px] font-bold text-[#e8a04e]">Price Intelligence</div>
                         {priceIntel.length === 0 ? (
-                          <p className="text-[12px] text-slate-600">No pricing data yet.</p>
+                          <p className="text-[14px] text-slate-500">No pricing data yet.</p>
                         ) : (
                           <div className="space-y-3">
                             {priceIntel.slice(0, 3).map((item, i) => (
@@ -4461,28 +5144,21 @@ function PageInner() {
                                     </span>
                                   )}
                                 </div>
-                                <div className="truncate text-[12px] font-medium text-white">{item.product_name || "—"}</div>
+                                <div className="truncate text-[14px] font-medium text-white">{item.product_name || "—"}</div>
                                 {item.recommended_price_action && (
-                                  <div className="mt-0.5 text-[11px] text-slate-500">{String(item.recommended_price_action)}</div>
+                                  <div className="mt-0.5 text-[13px] text-slate-500">{String(item.recommended_price_action)}</div>
                                 )}
                               </div>
                             ))}
                           </div>
                         )}
                       </div>
-                    </ProGate>
-                  </div>
-
-                  {/* Market Intelligence */}
-                  <div id="section-market-intelligence">
-                    <ProGate tier={tier} onUpgradeClick={() => setUpgradeModalOpen(true)} label="Market Intelligence" teaser="Understand which products are unique, which face heavy competition, and where to focus your strategy.">
-                      <div className="h-full rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
-                        <div className="mb-3 flex items-center justify-between">
-                          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Market Intelligence</span>
-                          <span className="rounded-full border border-violet-400/30 bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold text-violet-300">Pro</span>
-                        </div>
+                    </div>
+                    <div id="section-market-intelligence">
+                      <div className="h-full rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
+                        <div className="mb-4 text-[16px] font-bold text-[#e8a04e]">Market Intelligence</div>
                         {marketIntel.length === 0 ? (
-                          <p className="text-[12px] text-slate-600">No market data yet.</p>
+                          <p className="text-[14px] text-slate-500">No market data yet.</p>
                         ) : (
                           <div className="space-y-3">
                             {marketIntel.slice(0, 3).map((item, i) => (
@@ -4494,29 +5170,687 @@ function PageInner() {
                                     </span>
                                   )}
                                 </div>
-                                <div className="truncate text-[12px] font-medium text-white">{item.product_name || "—"}</div>
+                                <div className="truncate text-[14px] font-medium text-white">{item.product_name || "—"}</div>
                                 {item.recommended_next_step && (
-                                  <div className="mt-0.5 text-[11px] text-slate-500">{prettyText(String(item.recommended_next_step))}</div>
+                                  <div className="mt-0.5 text-[13px] text-slate-500">{prettyText(String(item.recommended_next_step))}</div>
                                 )}
                               </div>
                             ))}
                           </div>
                         )}
                       </div>
-                    </ProGate>
+                    </div>
                   </div>
+                </section>
+              )}
 
-                </div>
-              </section>
+              {/* Pro — Behavioral DNA (restyled killer section) */}
+              {isProUser && behavioralData && (() => {
+                const insights = behavioralData.insights;
+                const byEngagement = behavioralData.segments.by_engagement;
+                const byVisit = behavioralData.segments.by_visit_pattern;
+                const bySource = behavioralData.segments.by_source;
+                const coverage = behavioralData.data_coverage;
+
+                // Helpers to find max avg_revenue per column so bars can be normalized
+                type BehSegment = typeof byEngagement[number];
+                const maxRev = (arr: readonly BehSegment[]) =>
+                  arr.length > 0 ? Math.max(...arr.map((s) => s.avg_revenue), 1) : 1;
+                const maxEng = maxRev(byEngagement);
+                const maxVis = maxRev(byVisit);
+                const maxSrc = maxRev(bySource);
+
+                // Color logic per engagement tier
+                const engagementColor = (level: string) => {
+                  if (level === "HIGH")   return "#34d399"; // emerald
+                  if (level === "MEDIUM") return "#e8a04e"; // amber
+                  if (level === "LOW")    return "#f87171"; // red
+                  return "#94a3b8";
+                };
+                const visitColor = (level: string) =>
+                  level === "REPEAT_VISITOR" ? "#34d399" : "#e8a04e";
+
+                // Pretty-label source codes
+                const sourceLabel = (code: string) => {
+                  const map: Record<string, string> = {
+                    SEARCH: "Search",
+                    SOCIAL: "Social",
+                    DIRECT: "Direct",
+                    EMAIL_SMS: "Email / SMS",
+                    REFERRAL: "Referral",
+                    PAID: "Paid ads",
+                    ORGANIC: "Organic",
+                    UNKNOWN: "Unknown",
+                    OTHER: "Other",
+                  };
+                  return map[code] ?? code;
+                };
+
+                type SegmentRow = {
+                  label: string;
+                  customers: number;
+                  avg_revenue: number;
+                  repeat_rate: number;
+                  color: string;
+                };
+
+                const renderSegmentCassettone = (
+                  eyebrow: string,
+                  headline: string,
+                  rows: SegmentRow[],
+                  maxR: number,
+                  emptyMsg: string,
+                ) => (
+                  <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
+                    <div className="mb-4">
+                      <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#d946ef]">
+                        {eyebrow}
+                      </div>
+                      <h4 className="mt-1 text-[13px] font-semibold text-white">{headline}</h4>
+                    </div>
+                    {rows.length === 0 ? (
+                      <p className="text-[11px] text-slate-600">{emptyMsg}</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {rows.map((row, i) => {
+                          const barWidth = Math.max(6, Math.round((row.avg_revenue / maxR) * 100));
+                          return (
+                            <div key={i}>
+                              <div className="mb-1.5 flex items-center justify-between text-[11px]">
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className="h-2 w-2 flex-shrink-0 rounded-full"
+                                    style={{ backgroundColor: row.color, boxShadow: `0 0 6px ${row.color}66` }}
+                                  />
+                                  <span className="font-semibold" style={{ color: row.color }}>
+                                    {row.label}
+                                  </span>
+                                  <span className="text-slate-600">{row.customers} cust</span>
+                                </div>
+                                <div className="tabular-nums">
+                                  <span className="font-bold text-white">
+                                    {formatDisplayMoney(row.avg_revenue, "USD", displayCurrency)}
+                                  </span>
+                                  <span className="ml-2 text-slate-500">
+                                    {Math.round(row.repeat_rate * 100)}% repeat
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="h-1 overflow-hidden rounded-full bg-white/[0.04]">
+                                <div
+                                  className="h-full rounded-full transition-all duration-500"
+                                  style={{
+                                    width: `${barWidth}%`,
+                                    background: `linear-gradient(90deg, ${row.color} 0%, ${row.color}99 100%)`,
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+
+                const engagementRows: SegmentRow[] = byEngagement.map((s) => ({
+                  label: s.segment === "HIGH" ? "High engagement" : s.segment === "MEDIUM" ? "Medium engagement" : "Low engagement",
+                  customers: s.customers,
+                  avg_revenue: s.avg_revenue,
+                  repeat_rate: s.repeat_rate,
+                  color: engagementColor(s.segment),
+                }));
+                const visitRows: SegmentRow[] = byVisit.map((s) => ({
+                  label: s.segment === "REPEAT_VISITOR" ? "Repeat visitors" : "Single visit",
+                  customers: s.customers,
+                  avg_revenue: s.avg_revenue,
+                  repeat_rate: s.repeat_rate,
+                  color: visitColor(s.segment),
+                }));
+                const sourceRows: SegmentRow[] = bySource.map((s) => ({
+                  label: sourceLabel(s.segment),
+                  customers: s.customers,
+                  avg_revenue: s.avg_revenue,
+                  repeat_rate: s.repeat_rate,
+                  color: "#c4b5fd", // lilac — consistent across sources (no hierarchy)
+                }));
+
+                // ─────────────────────────────────────────────────────────
+                // Moat hero computation — the single killer number that
+                // visualizes HedgeSpark's structural differentiator vs every
+                // other Shopify analytics tool: linking pre-purchase
+                // behavior to post-purchase revenue. Competitors can only
+                // tell you WHAT customers bought; we can tell you HOW they
+                // behaved before buying and how much more the high-engagement
+                // ones are worth. No other tool has both the behavioral
+                // tracking and the LTV attribution to compute this ratio.
+                // ─────────────────────────────────────────────────────────
+                const findTier = (name: string) =>
+                  byEngagement.find((s) => s.segment === name);
+                const highTier = findTier("HIGH");
+                const lowTier  = findTier("LOW") || findTier("MEDIUM");
+
+                // Moat is "live" only when we have both a HIGH tier and a
+                // comparison tier with real revenue on both. Otherwise we
+                // fall back to the original qualitative hero copy so the
+                // cassettone still renders gracefully for new merchants.
+                const moatIsLive = (
+                  highTier != null
+                  && lowTier != null
+                  && highTier.segment !== lowTier.segment
+                  && highTier.avg_revenue > 0
+                  && lowTier.avg_revenue > 0
+                  && highTier.customers >= 2
+                  && lowTier.customers >= 2
+                );
+                const moatRatio = moatIsLive
+                  ? highTier!.avg_revenue / lowTier!.avg_revenue
+                  : 0;
+                const moatTierLabel = lowTier
+                  ? (lowTier.segment === "MEDIUM" ? "medium-engagement" : "low-engagement")
+                  : "low-engagement";
+
+                return (
+                  <section id="section-behavioral-intelligence">
+                    <SectionHeading
+                      eyebrow="Behavioral DNA"
+                      title="What separates your buyers from your browsers"
+                    />
+
+                    {/* Moat hero — live number when we have enough data to
+                        compute it, qualitative copy otherwise. When live
+                        this is the most important visualization on the
+                        entire dashboard: it literally shows the moat
+                        competitors cannot replicate. */}
+                    <div
+                      className="mb-5 overflow-hidden rounded-2xl border"
+                      style={{
+                        borderColor: "rgba(217, 70, 239, 0.22)",
+                        background:
+                          "linear-gradient(135deg, rgba(217, 70, 239, 0.08) 0%, rgba(124, 58, 237, 0.04) 45%, rgba(217, 70, 239, 0.02) 100%)",
+                      }}
+                    >
+                      {moatIsLive ? (
+                        <div className="p-6">
+                          {/* Eyebrow */}
+                          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#d946ef]">
+                            The HedgeSpark moat
+                          </div>
+
+                          {/* Killer headline — the ratio right in the face */}
+                          <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                            <span className="text-[13px] font-medium text-slate-300">
+                              High-engagement buyers are worth
+                            </span>
+                            <span
+                              className="text-[44px] font-extrabold leading-none tabular-nums"
+                              style={{
+                                color: "#d946ef",
+                                textShadow: "0 0 28px rgba(217, 70, 239, 0.4)",
+                              }}
+                            >
+                              {moatRatio.toFixed(1)}×
+                            </span>
+                            <span className="text-[13px] font-medium text-slate-300">
+                              more than {moatTierLabel} buyers.
+                            </span>
+                          </div>
+
+                          {/* Double-bar visualization — dramatic, one image worth 1000 words */}
+                          <div className="mt-5 space-y-3">
+                            {/* HIGH bar */}
+                            <div>
+                              <div className="mb-1.5 flex items-center justify-between text-[11px]">
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className="h-2 w-2 rounded-full"
+                                    style={{
+                                      backgroundColor: "#d946ef",
+                                      boxShadow: "0 0 10px rgba(217, 70, 239, 0.7)",
+                                    }}
+                                  />
+                                  <span className="font-bold uppercase tracking-[0.08em] text-[#d946ef]">
+                                    High engagement
+                                  </span>
+                                  <span className="text-slate-500">
+                                    {highTier!.customers} customers
+                                  </span>
+                                </div>
+                                <span className="text-[16px] font-extrabold tabular-nums text-white">
+                                  {formatDisplayMoney(highTier!.avg_revenue, "USD", displayCurrency)}
+                                </span>
+                              </div>
+                              <div className="h-2.5 overflow-hidden rounded-full bg-white/[0.04]">
+                                <div
+                                  className="h-full rounded-full"
+                                  style={{
+                                    width: "100%",
+                                    background: "linear-gradient(90deg, #d946ef 0%, #a855f7 100%)",
+                                    boxShadow: "0 0 14px -2px rgba(217, 70, 239, 0.6)",
+                                  }}
+                                />
+                              </div>
+                            </div>
+
+                            {/* LOW/MEDIUM bar — scaled against HIGH to make the ratio visceral */}
+                            <div>
+                              <div className="mb-1.5 flex items-center justify-between text-[11px]">
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className="h-2 w-2 rounded-full bg-slate-500"
+                                  />
+                                  <span className="font-bold uppercase tracking-[0.08em] text-slate-400">
+                                    {lowTier!.segment === "MEDIUM" ? "Medium engagement" : "Low engagement"}
+                                  </span>
+                                  <span className="text-slate-500">
+                                    {lowTier!.customers} customers
+                                  </span>
+                                </div>
+                                <span className="text-[16px] font-extrabold tabular-nums text-slate-400">
+                                  {formatDisplayMoney(lowTier!.avg_revenue, "USD", displayCurrency)}
+                                </span>
+                              </div>
+                              <div className="h-2.5 overflow-hidden rounded-full bg-white/[0.04]">
+                                <div
+                                  className="h-full rounded-full"
+                                  style={{
+                                    width: `${Math.max(6, Math.round((lowTier!.avg_revenue / highTier!.avg_revenue) * 100))}%`,
+                                    background: "linear-gradient(90deg, #64748b 0%, #475569 100%)",
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Moat claim — the single sentence that no competitor can say */}
+                          <div className="mt-5 border-t border-white/[0.07] pt-4">
+                            <p className="text-[12px] leading-relaxed text-slate-300">
+                              <strong className="text-white">This is the HedgeSpark moat.</strong>{" "}
+                              Every other Shopify analytics tool segments customers by
+                              <em> what</em> they bought. We segment them by
+                              <strong className="text-white"> how they behaved before buying</strong> —
+                              linking scroll depth, dwell time, and visit pattern to real
+                              lifetime value. Structurally impossible to replicate without
+                              first-party behavioral tracking joined to order attribution.
+                            </p>
+                          </div>
+
+                          {/* Trust footer — every claim is measurable */}
+                          <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[10px] text-slate-500">
+                            <div className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.06] bg-white/[0.02] px-2.5 py-1">
+                              <span className="h-1 w-1 rounded-full bg-[#d946ef]" />
+                              <span>
+                                Measured from {coverage.segmentable_customers} identified customers
+                              </span>
+                            </div>
+                            <div className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.06] bg-white/[0.02] px-2.5 py-1">
+                              <span className="h-1 w-1 rounded-full bg-[#d946ef]" />
+                              <span>{behavioralData.window_days}-day window</span>
+                            </div>
+                            <div className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.06] bg-white/[0.02] px-2.5 py-1">
+                              <span className="h-1 w-1 rounded-full bg-[#d946ef]" />
+                              <span>First-party behavioral data, zero third-party cookies</span>
+                            </div>
+                          </div>
+
+                          {/* Surface the generator-driven narrative insights below the
+                              killer number — they add color without competing with
+                              the ratio's impact. */}
+                          {insights.length > 0 && (
+                            <div className="mt-4 space-y-1.5 border-t border-white/[0.06] pt-4">
+                              {insights.map((insight, i) => (
+                                <p key={i} className="text-[12px] leading-relaxed text-slate-400">
+                                  <span className="mr-2 text-[#d946ef]">›</span>
+                                  {insight}
+                                </p>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="p-5">
+                          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#d946ef]">
+                            The moat — what only HedgeSpark can show you
+                          </div>
+                          <p className="mt-1.5 text-[13px] leading-relaxed text-slate-300">
+                            Competitors segment customers by <em>what</em> they bought.
+                            HedgeSpark segments them by{" "}
+                            <strong className="text-white">how they behaved before buying</strong> —
+                            linking scroll depth, dwell time, and visit pattern to actual
+                            revenue outcomes. The killer ratio becomes visible here once we
+                            have 2+ customers in both a high-engagement and a low-engagement
+                            tier with real revenue on both sides.
+                          </p>
+                          {insights.length > 0 && (
+                            <div className="mt-4 space-y-1.5 border-t border-white/[0.06] pt-4">
+                              {insights.map((insight, i) => (
+                                <p key={i} className="text-[12px] leading-relaxed text-slate-400">
+                                  <span className="mr-2 text-[#d946ef]">›</span>
+                                  {insight}
+                                </p>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 3-column segment cassettoni */}
+                    <div className="grid gap-4 xl:grid-cols-3">
+                      {renderSegmentCassettone(
+                        "By Engagement",
+                        "Scroll + dwell + visits",
+                        engagementRows,
+                        maxEng,
+                        "Needs visitor behavior data to segment.",
+                      )}
+                      {renderSegmentCassettone(
+                        "By Visit Pattern",
+                        "Browsing before purchase",
+                        visitRows,
+                        maxVis,
+                        "Needs visitor session data.",
+                      )}
+                      {renderSegmentCassettone(
+                        "By Traffic Source",
+                        "Channel buyer quality",
+                        sourceRows,
+                        maxSrc,
+                        "Needs attributed orders.",
+                      )}
+                    </div>
+
+                    {/* Coverage indicator */}
+                    {coverage.total_customers > 0 && (
+                      <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/[0.06] bg-white/[0.02] px-3 py-1">
+                        <span
+                          className="h-1.5 w-1.5 rounded-full"
+                          style={{
+                            backgroundColor: coverage.coverage_rate > 0.7 ? "#34d399" : "#fb923c",
+                          }}
+                        />
+                        <span className="text-[10px] text-slate-400">
+                          {coverage.segmentable_customers} of {coverage.total_customers} customers have behavioral data
+                          ({Math.round(coverage.coverage_rate * 100)}% coverage)
+                        </span>
+                      </div>
+                    )}
+                  </section>
+                );
+              })()}
 
               {/* 11 — Settings / Integrations (all tiers) */}
               <section id="section-settings">
-                  <div className="mb-4">
-                    <div className="mb-1.5 flex items-center gap-2">
-                      <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-300/70">Settings</span>
+                  <SectionHeading
+                    eyebrow="Settings"
+                    title="Preferences &amp; integrations"
+                  />
+
+                  {/* Display currency card */}
+                  <div className="mb-4 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e8a04e]/10 text-[#e8a04e]">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="h-5 w-5">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-2.25 0-3-1.125-3-2.25s.75-2.25 3-2.25c.768 0 1.536.219 2.121.659l.879.659" />
+                            </svg>
+                          </div>
+                          <div>
+                            <span className="block text-[13px] font-semibold text-white">Display currency</span>
+                            <span className="block text-[11px] text-slate-500">
+                              How amounts are shown across the dashboard.
+                              {displayCurrency === "EUR" && " Values are converted from USD at a static rate of 0.92."}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* USD / EUR toggle */}
+                      <div className="inline-flex flex-shrink-0 rounded-xl border border-white/[0.08] bg-white/[0.02] p-1" role="radiogroup" aria-label="Display currency">
+                        {(["USD", "EUR"] as const).map((c) => {
+                          const isActive = displayCurrency === c;
+                          return (
+                            <button
+                              key={c}
+                              type="button"
+                              role="radio"
+                              aria-checked={isActive}
+                              onClick={() => setDisplayCurrency(c)}
+                              className={`relative rounded-lg px-5 py-2 text-[13px] font-bold transition-all duration-200 ${
+                                isActive
+                                  ? "bg-[#e8a04e]/15 text-[#e8a04e] shadow-[0_0_12px_-2px_rgba(232,160,78,0.35)]"
+                                  : "text-slate-500 hover:text-slate-300"
+                              }`}
+                            >
+                              <span className="mr-1.5 tabular-nums">
+                                {c === "USD" ? "$" : "€"}
+                              </span>
+                              {c}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                    <h2 className="mt-1 text-lg font-semibold text-white">Integrations</h2>
-                    <p className="mt-1 max-w-lg text-[13px] text-slate-400">Connect external platforms to power automated execution flows.</p>
+                  </div>
+
+                  {/* Cost Configuration card — powers Profit Intelligence.
+                      Every field is optional; empty = use module default. */}
+                  <div className="mb-4 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
+                    <div className="mb-4 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="h-5 w-5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.306a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
+                          </svg>
+                        </div>
+                        <div>
+                          <span className="block text-[13px] font-semibold text-white">Cost Configuration</span>
+                          <span className="block text-[11px] text-slate-500">
+                            Real costs per sale — powers Profit Intelligence precision.
+                          </span>
+                        </div>
+                      </div>
+                      {pnlData && (
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] ring-1 ${
+                            pnlData.precision === "exact"
+                              ? "bg-emerald-500/15 text-emerald-400 ring-emerald-400/30"
+                              : pnlData.precision === "refined"
+                              ? "bg-amber-500/15 text-amber-400 ring-amber-400/30"
+                              : "bg-white/5 text-slate-500 ring-white/10"
+                          }`}
+                        >
+                          {pnlData.precision}
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="mb-4 text-[11px] leading-relaxed text-slate-500">
+                      Override the default cost assumptions with your real numbers. Leave any
+                      field empty to keep the current default. Every saved field lifts your
+                      Profit Intelligence precision from <em>rough</em> toward <em>exact</em>.
+                    </p>
+
+                    {/* 5-field form */}
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      <label className="block">
+                        <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                          COGS %
+                        </span>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            step="0.1"
+                            min="0"
+                            max="100"
+                            value={costFormCogsPct}
+                            onChange={(e) => setCostFormCogsPct(e.target.value)}
+                            placeholder="40"
+                            className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 pr-8 text-[13px] text-white tabular-nums outline-none transition-colors focus:border-emerald-400/40 focus:bg-white/[0.05]"
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-slate-500">%</span>
+                        </div>
+                        <span className="mt-1 block text-[10px] text-slate-600">
+                          Cost of goods as % of revenue
+                        </span>
+                      </label>
+
+                      <label className="block">
+                        <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                          Shipping per order
+                        </span>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[12px] text-slate-500">
+                            {displayCurrency === "EUR" ? "€" : "$"}
+                          </span>
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            step="0.01"
+                            min="0"
+                            value={costFormShipping}
+                            onChange={(e) => setCostFormShipping(e.target.value)}
+                            placeholder="5.00"
+                            className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 pl-7 text-[13px] text-white tabular-nums outline-none transition-colors focus:border-emerald-400/40 focus:bg-white/[0.05]"
+                          />
+                        </div>
+                        <span className="mt-1 block text-[10px] text-slate-600">
+                          Fulfillment + carrier cost per order
+                        </span>
+                      </label>
+
+                      <label className="block">
+                        <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                          Ad spend / month
+                        </span>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[12px] text-slate-500">
+                            {displayCurrency === "EUR" ? "€" : "$"}
+                          </span>
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            step="1"
+                            min="0"
+                            value={costFormAdSpend}
+                            onChange={(e) => setCostFormAdSpend(e.target.value)}
+                            placeholder="0"
+                            className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 pl-7 text-[13px] text-white tabular-nums outline-none transition-colors focus:border-emerald-400/40 focus:bg-white/[0.05]"
+                          />
+                        </div>
+                        <span className="mt-1 block text-[10px] text-slate-600">
+                          Bridge until Meta + Google Ads connect
+                        </span>
+                      </label>
+
+                      <label className="block">
+                        <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                          Payment %
+                        </span>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            step="0.01"
+                            min="0"
+                            max="100"
+                            value={costFormPayPct}
+                            onChange={(e) => setCostFormPayPct(e.target.value)}
+                            placeholder="2.9"
+                            className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 pr-8 text-[13px] text-white tabular-nums outline-none transition-colors focus:border-emerald-400/40 focus:bg-white/[0.05]"
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-slate-500">%</span>
+                        </div>
+                        <span className="mt-1 block text-[10px] text-slate-600">
+                          Payment processor rate (Shopify default 2.9%)
+                        </span>
+                      </label>
+
+                      <label className="block">
+                        <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                          Payment flat
+                        </span>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[12px] text-slate-500">
+                            {displayCurrency === "EUR" ? "€" : "$"}
+                          </span>
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            step="0.01"
+                            min="0"
+                            value={costFormPayFlat}
+                            onChange={(e) => setCostFormPayFlat(e.target.value)}
+                            placeholder="0.30"
+                            className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 pl-7 text-[13px] text-white tabular-nums outline-none transition-colors focus:border-emerald-400/40 focus:bg-white/[0.05]"
+                          />
+                        </div>
+                        <span className="mt-1 block text-[10px] text-slate-600">
+                          Flat fee per order (Shopify default 0.30)
+                        </span>
+                      </label>
+                    </div>
+
+                    {/* Action row */}
+                    <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-h-[1.25rem] text-[11px]">
+                        {costSavedMsg && (
+                          <span className={costSavedMsg.type === "ok" ? "text-emerald-400" : "text-rose-400"}>
+                            {costSavedMsg.text}
+                          </span>
+                        )}
+                        {!costSavedMsg && costSyncMsg && (
+                          <span className={costSyncMsg.type === "ok" ? "text-emerald-400" : "text-rose-400"}>
+                            {costSyncMsg.text}
+                          </span>
+                        )}
+                        {!costSavedMsg && !costSyncMsg && costDefaults?.updated_at && (
+                          <span className="text-slate-600">
+                            Last updated {new Date(costDefaults.updated_at).toLocaleString()}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleShopifyCogsSync}
+                          disabled={costSyncing}
+                          title="Import real COGS from Shopify — reads inventory_items.cost for every product variant"
+                          className="inline-flex items-center gap-2 rounded-lg bg-white/[0.04] px-4 py-2 text-[12px] font-semibold text-slate-300 ring-1 ring-white/10 transition-colors hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {costSyncing ? (
+                            <>
+                              <span className="h-3 w-3 animate-spin rounded-full border-2 border-slate-400/40 border-t-slate-300" />
+                              Importing from Shopify…
+                            </>
+                          ) : (
+                            <>
+                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="h-3.5 w-3.5">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3" />
+                              </svg>
+                              Auto-import from Shopify
+                            </>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCostDefaultsSave}
+                          disabled={costSaving}
+                          className="inline-flex items-center gap-2 rounded-lg bg-emerald-500/20 px-4 py-2 text-[12px] font-semibold text-emerald-300 ring-1 ring-emerald-400/30 transition-colors hover:bg-emerald-500/25 hover:text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {costSaving ? (
+                            <>
+                              <span className="h-3 w-3 animate-spin rounded-full border-2 border-emerald-400/40 border-t-emerald-400" />
+                              Saving…
+                            </>
+                          ) : (
+                            "Save cost config"
+                          )}
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Klaviyo card */}
@@ -4729,7 +6063,7 @@ function PageInner() {
               </h2>
               <p className="mt-2 text-[13px] leading-relaxed text-slate-400">
                 {strongSignals.length > 0
-                  ? `Hedge Spark has found ${strongSignals.length} actionable insight${strongSignals.length === 1 ? "" : "s"} for your store. Keep your AI actions, daily briefs, and market intelligence.`
+                  ? `HedgeSpark found ${strongSignals.length} revenue opportunity${strongSignals.length === 1 ? "" : "ies"} on your store. Pro automatically turns findings into fixes.`
                   : "Keep your AI actions, daily briefs, and market intelligence active."}
               </p>
             </div>
@@ -4741,7 +6075,7 @@ function PageInner() {
               </div>
               <div className="space-y-2">
                 {[
-                  "AI action per signal",
+                  "AI action per finding",
                   "Full daily brief",
                   "Price & market intelligence",
                   "Revenue loss per product",

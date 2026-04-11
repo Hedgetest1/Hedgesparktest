@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --background: #080811;
+  --background: #07070f;
   --foreground: #e2e8f0;
   --hs-purple: #7c3aed;
   --hs-purple-dim: rgba(124, 58, 237, 0.15);
@@ -9,6 +9,19 @@
   --hs-gold: #fbbf24;
   --hs-surface: rgba(255, 255, 255, 0.04);
   --hs-border: rgba(255, 255, 255, 0.08);
+  --hs-card: #0e0e1a;
+  --hs-card-border: rgba(167, 139, 250, 0.08);
+  --hs-amber: #d4893a;
+  --hs-amber-dim: rgba(212, 137, 58, 0.15);
+}
+
+/* ── CTA gradient (amber → violet, matches email system) ── */
+.hs-cta-gradient {
+  background: linear-gradient(135deg, #d4893a 0%, #c47a3e 60%, #a855f7 100%);
+  background-color: #c47a3e;
+}
+.hs-cta-gradient:hover {
+  background: linear-gradient(135deg, #e8a04e 0%, #d4893a 60%, #b97cf7 100%);
 }
 
 @theme inline {
@@ -60,6 +73,13 @@ body {
 }
 .hs-float { animation: hs-float 3.5s ease-in-out infinite; }
 
+/* Gentle float — subtle breathing for the main logo */
+@keyframes hs-float-gentle {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-3px); }
+}
+.hs-float-gentle { animation: hs-float-gentle 4.5s ease-in-out infinite; }
+
 /* Pro gate shimmer border */
 @keyframes hs-shimmer {
   0%   { opacity: 0.3; }
@@ -68,9 +88,17 @@ body {
 }
 .hs-shimmer { animation: hs-shimmer 3s ease-in-out infinite; }
 
-/* Gradient text */
+/* Gradient text — purple accent */
 .hs-gradient-text {
   background: linear-gradient(135deg, #a78bfa 0%, #7c3aed 50%, #c4b5fd 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Brand wordmark gradient — matches logo: purple → magenta → orange */
+.hs-brand-gradient {
+  background: linear-gradient(135deg, #7c3aed 0%, #a855f7 25%, #c026d3 50%, #e8567a 75%, #f97316 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;

@@ -235,68 +235,61 @@ export function SignalCard({ signal, tier, onUpgradeClick }: Props) {
   const strengthPct = Math.round(strength * 100);
 
   return (
-    <div className={`hs-fade-up group rounded-2xl border p-4 transition-all duration-150 ${
+    <div className={`hs-fade-up group rounded-2xl border p-5 transition-all duration-200 ${
       isEarly
         ? "border-white/[0.05] bg-white/[0.015] opacity-85"
-        : "border-white/[0.07] bg-white/[0.03] hover:border-violet-400/25 hover:bg-white/[0.05] hover:shadow-[0_4px_20px_rgba(124,58,237,0.07)]"
+        : "border-white/[0.07] bg-white/[0.03] hover:border-[#d4893a]/20 hover:bg-white/[0.05] hover:shadow-[0_4px_24px_rgba(212,137,58,0.06)]"
     }`}>
       {/* Header row — signal type badge + early tag + relative time */}
-      <div className="mb-3 flex items-start justify-between gap-2">
-        <div className="flex items-center gap-1.5">
+      <div className="mb-4 flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2">
           <span
-            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ring-1 ${meta.bg} ${meta.text} ${meta.ring}`}
+            className={`rounded-lg px-3 py-1.5 text-[13px] font-bold uppercase tracking-wide ring-1 ${meta.bg} ${meta.text} ${meta.ring}`}
           >
             {meta.label}
           </span>
           {isEarly && (
-            <span className="rounded-full bg-white/[0.04] px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] text-slate-500 ring-1 ring-white/[0.06]">
+            <span className="rounded-lg bg-white/[0.04] px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500 ring-1 ring-white/[0.06]">
               Early
             </span>
           )}
         </div>
-        <span className="flex-shrink-0 text-[11px] text-slate-600">
+        <span className="flex-shrink-0 text-[13px] text-slate-500">
           {relativeTime(signal.detected_at)}
         </span>
       </div>
 
       {/* Primary text — human_label if available, else product_url */}
-      <div className={`mb-1 text-sm font-medium leading-snug ${isEarly ? "text-slate-300" : "text-slate-100"}`}>
+      <div className={`mb-1.5 text-[16px] font-semibold leading-snug ${isEarly ? "text-slate-300" : "text-white"}`}>
         {signal.human_label || signal.product_url || "—"}
       </div>
       {isEarly && (
-        <div className="mb-2 text-[10px] text-slate-600">Based on limited data</div>
+        <div className="mb-2 text-[13px] text-slate-500">Based on limited data</div>
       )}
 
       {/* Product URL as secondary meta when human_label is present */}
       {signal.human_label && signal.product_url && (
-        <div className="mb-2 truncate text-[11px] text-slate-600">
+        <div className="mb-2.5 truncate text-[13px] text-slate-500">
           {signal.product_url}
         </div>
       )}
 
-      {/*
-        Explanation — diagnostic text, visible in full for all tiers (Lite and Pro).
-
-        Lite boundary: explanation describes what is happening (diagnostic).
-        Pro boundary:  human_action below describes what to do (prescriptive).
-
-        Do not truncate or gate this field — it belongs in Lite.
-      */}
+      {/* Explanation — diagnostic text, visible for all tiers */}
       {!signal.human_label && signal.explanation && (
-        <p className="mb-3 text-[12px] leading-5 text-slate-500">
+        <p className="mb-4 text-[14px] leading-[1.6] text-slate-400">
           {signal.explanation}
         </p>
       )}
 
       {/* Signal strength bar */}
-      <div className="mb-3 space-y-1.5">
-        <div className="flex items-center justify-between text-[11px] text-slate-600">
-          <span>Signal strength</span>
-          <span className={`tabular-nums ${strengthPct >= 70 ? meta.text : ""}`}>
+      <div className="mb-4 space-y-2">
+        <div className="flex items-center justify-between text-[13px]">
+          <span className="font-medium text-slate-400">Signal strength</span>
+          <span className={`font-bold tabular-nums ${strengthPct >= 70 ? meta.text : "text-slate-300"}`}>
             {strengthPct}%
           </span>
         </div>
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.07]">
+        <div className="h-2.5 w-full overflow-hidden rounded-full bg-white/[0.07]">
           <div
             className={`h-full rounded-full transition-all duration-500 ${meta.bar} ${strengthPct >= 50 ? meta.glow : ""}`}
             style={{ width: `${strengthPct}%` }}
@@ -307,12 +300,17 @@ export function SignalCard({ signal, tier, onUpgradeClick }: Props) {
       {/* human_action — prescriptive content, Pro only */}
       {signal.human_action && (
         <ProGate tier={tier} onUpgradeClick={onUpgradeClick} label="recommended action">
-          <div className="rounded-xl border border-emerald-400/15 bg-emerald-500/5 px-3 py-2.5">
-            <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-300/80">
-              Action
-              <span className="ml-2 text-[10px] text-violet-400/70 border border-violet-400/20 px-1.5 py-[1px] rounded align-middle normal-case tracking-normal">PRO</span>
+          <div className="rounded-xl border border-emerald-400/15 bg-emerald-500/[0.05] px-4 py-3.5">
+            <div className="mb-1 flex items-center gap-2">
+              <svg className="h-4 w-4 text-emerald-400/70" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+              </svg>
+              <span className="text-[12px] font-bold uppercase tracking-[0.14em] text-emerald-300/80">
+                Recommended fix
+              </span>
+              <span className="rounded border border-[#d4893a]/25 bg-[#d4893a]/10 px-1.5 py-[2px] text-[10px] font-bold text-[#d4893a]/70">PRO</span>
             </div>
-            <p className="text-[12px] leading-4 text-slate-200">{signal.human_action}</p>
+            <p className="text-[14px] leading-[1.6] text-slate-200">{signal.human_action}</p>
           </div>
         </ProGate>
       )}

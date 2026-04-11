@@ -42,7 +42,7 @@ export function ProGate({
         aria-label={`Unlock ${label}`}
       >
         {/* Shimmer border effect */}
-        <div className="absolute inset-0 rounded-2xl border border-violet-400/[0.12] hs-shimmer" />
+        <div className="absolute inset-0 rounded-2xl border border-[#d4893a]/[0.12] hs-shimmer" />
 
         {/* Mascot + badge */}
         <div className="relative">
@@ -53,7 +53,7 @@ export function ProGate({
             height={48}
             className="opacity-90 transition-transform duration-200 group-hover:scale-105"
           />
-          <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border border-violet-400/40 bg-violet-500/30 text-[8px] font-bold text-violet-200">
+          <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border border-[#d4893a]/40 bg-[#d4893a]/30 text-[8px] font-bold text-[#e8a04e]">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-3 w-3">
               <path fillRule="evenodd" d="M12 1.5a5.25 5.25 0 00-5.25 5.25v3a3 3 0 00-3 3v6.75a3 3 0 003 3h10.5a3 3 0 003-3v-6.75a3 3 0 00-3-3v-3c0-2.9-2.35-5.25-5.25-5.25zm3.75 8.25v-3a3.75 3.75 0 10-7.5 0v3h7.5z" clipRule="evenodd" />
             </svg>
@@ -62,27 +62,27 @@ export function ProGate({
 
         {/* Text */}
         <div className="text-center">
-          <div className="mb-1.5 inline-flex items-center gap-1.5 rounded-full border border-violet-400/30 bg-violet-500/20 px-3 py-1 shadow-[0_0_16px_rgba(124,58,237,0.2)]">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-3 w-3 text-violet-300">
+          <div className="mb-1.5 inline-flex items-center gap-1.5 rounded-full border border-[#d4893a]/30 bg-[#d4893a]/20 px-3 py-1 shadow-[0_0_16px_rgba(212,137,58,0.2)]">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-3 w-3 text-[#e8a04e]">
               <path fillRule="evenodd" d="M9 4.5a.75.75 0 01.721.544l.813 2.846a3.75 3.75 0 002.576 2.576l2.846.813a.75.75 0 010 1.442l-2.846.813a3.75 3.75 0 00-2.576 2.576l-.813 2.846a.75.75 0 01-1.442 0l-.813-2.846a3.75 3.75 0 00-2.576-2.576l-2.846-.813a.75.75 0 010-1.442l2.846-.813A3.75 3.75 0 007.466 7.89l.813-2.846A.75.75 0 019 4.5z" clipRule="evenodd" />
             </svg>
-            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-violet-200">
+            <span className="text-[13px] font-bold uppercase tracking-[0.14em] text-[#e8a04e]">
               Pro
             </span>
           </div>
-          <div className="text-[13px] font-medium text-slate-300 transition-colors group-hover:text-white">
+          <div className="text-[15px] font-semibold text-slate-300 transition-colors group-hover:text-white">
             Unlock {label}
           </div>
           {teaser && (
-            <div className="mt-1 max-w-[240px] text-[11px] leading-[1.5] text-slate-500">
+            <div className="mt-1.5 max-w-[280px] text-[13px] leading-[1.5] text-slate-500">
               {teaser}
             </div>
           )}
         </div>
 
         {/* CTA */}
-        <button className="rounded-lg bg-violet-600/80 px-4 py-1.5 text-[11px] font-semibold text-white shadow-[0_0_12px_rgba(124,58,237,0.3)] transition-all duration-200 group-hover:bg-violet-500 group-hover:shadow-[0_0_20px_rgba(124,58,237,0.4)]">
-          Start free trial →
+        <button className="hs-cta-gradient rounded-xl px-6 py-2.5 text-[14px] font-bold text-white shadow-[0_0_16px_rgba(212,137,58,0.3)] transition-all duration-200 group-hover:shadow-[0_0_24px_rgba(212,137,58,0.4)]">
+          Start free trial &rarr;
         </button>
       </div>
     </div>

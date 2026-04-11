@@ -268,10 +268,10 @@ function PixelSetupHero({
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-[13px] font-semibold text-white">
-            Connect the purchase pixel
+            See which visitors actually buy
           </div>
           <p className="mt-1 text-[11px] text-slate-400 leading-relaxed">
-            This lets Hedge Spark see which visitors actually buy, so you get revenue attribution and purchase insights.
+            Connect the purchase pixel to see which products convert browsers into buyers — and which ones lose them.
           </p>
         </div>
         <span className="flex-shrink-0 rounded bg-amber-500/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-300">
@@ -293,7 +293,7 @@ function PixelSetupHero({
         <div className="flex items-start gap-3">
           <span className="mt-px flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-[10px] font-bold text-slate-400">2</span>
           <div className="text-[12px] text-slate-300">
-            Click <span className="font-medium text-white">&quot;Add custom pixel&quot;</span>, name it <span className="font-medium text-amber-200">Hedge Spark</span>
+            Click <span className="font-medium text-white">&quot;Add custom pixel&quot;</span>, name it <span className="font-medium text-amber-200">HedgeSpark</span>
           </div>
         </div>
 
@@ -352,33 +352,75 @@ function PixelSetupHero({
 // Welcome banner — shown once on fresh install
 // ---------------------------------------------------------------------------
 
-function WelcomeBanner({ onDismiss }: { onDismiss: () => void }) {
+function WelcomeBanner({ onDismiss, shopDomain }: { onDismiss: () => void; shopDomain?: string }) {
+  const [selfDetected, setSelfDetected] = useState(false);
+  const storeUrl = shopDomain
+    ? `https://${shopDomain}`
+    : null;
+
+  // Poll for the merchant's own visit appearing
+  useEffect(() => {
+    if (selfDetected || !shopDomain) return;
+    const interval = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/summary?shop=${shopDomain}`);
+        if (r.ok) {
+          const d = await r.json();
+          if ((d.total_visitors ?? 0) > 0) {
+            setSelfDetected(true);
+            clearInterval(interval);
+          }
+        }
+      } catch { /* ignore */ }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [shopDomain, selfDetected]);
+
   return (
     <div className="rounded-2xl border border-violet-400/15 bg-gradient-to-r from-violet-500/[0.06] to-transparent p-5">
       <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="text-[14px] font-semibold text-white">
-            Welcome to Hedge Spark
-          </div>
-          <p className="mt-1.5 text-[12px] text-slate-400 leading-relaxed max-w-lg">
-            Hedge Spark watches your store visitors and finds opportunities to increase your revenue.
-            No setup is needed from you — tracking starts automatically.
-          </p>
+        <div className="flex-1">
+          {selfDetected ? (
+            <>
+              <div className="flex items-center gap-2 text-[14px] font-semibold text-emerald-300">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                That&apos;s you — HedgeSpark is tracking your visitors
+              </div>
+              <p className="mt-1.5 text-[12px] text-slate-400 leading-relaxed max-w-lg">
+                Every visitor to your store is now tracked like this. Browse any product for 10 seconds
+                and watch the numbers update in real time above.
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="text-[14px] font-semibold text-white">
+                See it working — right now
+              </div>
+              <p className="mt-1.5 text-[12px] text-slate-400 leading-relaxed max-w-lg">
+                Open your store in a new tab and browse any product for 10 seconds.
+                Come back here — you&apos;ll see your visit appear in real time.
+              </p>
 
-          <div className="mt-4 flex flex-col gap-1.5">
-            <div className="flex items-center gap-2 text-[11px] text-slate-400">
-              <span className="h-1 w-1 rounded-full bg-emerald-400" />
-              Visitor tracking starts immediately
-            </div>
-            <div className="flex items-center gap-2 text-[11px] text-slate-400">
-              <span className="h-1 w-1 rounded-full bg-amber-400" />
-              First insights appear in about 10 minutes
-            </div>
-            <div className="flex items-center gap-2 text-[11px] text-slate-400">
-              <span className="h-1 w-1 rounded-full bg-violet-400" />
-              Full analysis builds over the first 24 hours
-            </div>
-          </div>
+              {storeUrl && (
+                <a
+                  href={storeUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-violet-600 px-4 py-2 text-[13px] font-semibold text-white shadow-[0_0_16px_rgba(124,58,237,0.25)] transition hover:bg-violet-500"
+                >
+                  Open my store
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                  </svg>
+                </a>
+              )}
+
+              <div className="mt-4 flex items-center gap-2 text-[10px] text-slate-600">
+                <span className="h-1 w-1 animate-pulse rounded-full bg-violet-400" />
+                Watching for your visit...
+              </div>
+            </>
+          )}
         </div>
 
         <button
@@ -406,11 +448,11 @@ function TimelineHint() {
       </span>
       <span className="flex items-center gap-1.5 text-[10px] text-slate-500">
         <span className="h-1 w-1 rounded-full bg-amber-400" />
-        First insights: ~10 min
+        First findings: typically under 10 min
       </span>
       <span className="flex items-center gap-1.5 text-[10px] text-slate-500">
         <span className="h-1 w-1 rounded-full bg-violet-400" />
-        Full analysis: 24 hours
+        Full analysis: ~24 hours
       </span>
     </div>
   );
@@ -802,7 +844,7 @@ export function OnboardingHub({
             </div>
             <div>
               <div className="text-[12px] font-semibold text-slate-300">
-                Setting up Hedge Spark...
+                Setting up HedgeSpark...
               </div>
               <div className="mt-1 space-y-1">
                 <SetupStep
@@ -892,7 +934,7 @@ export function OnboardingHub({
               rel="noopener noreferrer"
               className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-rose-500/20 px-3 py-1.5 text-[12px] font-semibold text-rose-200 ring-1 ring-rose-400/20 transition hover:bg-rose-500/30"
             >
-              Reinstall Hedge Spark
+              Reinstall HedgeSpark
             </a>
             {status.degraded_reasons.length > 0 && (
               <details className="mt-3">
@@ -965,7 +1007,7 @@ export function OnboardingHub({
               Tracking active
             </span>
             <span className="text-[12px] text-slate-500">
-              — your store is live on Hedge Spark
+              — your store is live on HedgeSpark
             </span>
           </div>
           <button
@@ -977,8 +1019,8 @@ export function OnboardingHub({
           </button>
         </div>
 
-        {/* Pro upsell — only when billing not active */}
-        {checks && !checks.billing_active && (() => {
+        {/* Pro upsell — only after first finding appears (not during onboarding) */}
+        {checks && !checks.billing_active && hasSignals && (() => {
           const hasTrial = trialDays > 0;
           const priceStr = price % 1 === 0 ? `$${price}` : `$${price.toFixed(2)}`;
           return (
@@ -987,13 +1029,13 @@ export function OnboardingHub({
                 <div>
                   <div className="text-[13px] font-semibold text-white">
                     {hasTrial
-                      ? `Try Pro free for ${trialDays} days`
-                      : "Upgrade to Pro — see what to do, not just what happened"}
+                      ? `We found ${signalCount} revenue opportunity${signalCount === 1 ? "" : "ies"}. Want us to fix ${signalCount === 1 ? "it" : "them"}?`
+                      : `${signalCount} opportunity${signalCount === 1 ? "" : "ies"} found — unlock AI-powered actions`}
                   </div>
                   <div className="mt-0.5 text-[12px] text-slate-500">
                     {hasTrial
-                      ? `AI actions, daily briefs, market intelligence. Then ${priceStr}/mo.`
-                      : "AI actions per product, daily briefs, market intelligence."}
+                      ? `Pro automatically turns findings into revenue. Free for ${trialDays} days, then ${priceStr}/mo.`
+                      : `AI actions per product, daily briefs, market intelligence. ${priceStr}/mo.`}
                     {checks.billing_charge_pending && (
                       <span className="ml-2 text-amber-400">
                         Upgrade pending — check your Shopify billing page.
@@ -1104,14 +1146,14 @@ export function OnboardingHub({
             }
           />
 
-          {/* 4. First insight */}
+          {/* 4. First finding */}
           <SetupStep
-            label="First insight"
+            label="First finding"
             detail={
               hasSignals
-                ? `${signalCount} insight${signalCount === 1 ? "" : "s"} found`
+                ? `${signalCount} finding${signalCount === 1 ? "" : "s"} on your store`
                 : hasVisitors
-                ? "Building your first insights — usually takes about 10 minutes"
+                ? "Analyzing your visitor behavior — typically under 10 minutes"
                 : ""
             }
             state={

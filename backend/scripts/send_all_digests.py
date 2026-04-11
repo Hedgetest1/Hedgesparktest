@@ -72,7 +72,8 @@ def main() -> None:
                     sent += 1
                     continue
 
-                ok = send_email(to=email, subject=subject, html=html, text=plain)
+                ok = send_email(to=email, subject=subject, html=html, text=plain,
+                               from_address="Hedge Spark <digest@hedgesparkhq.com>")
                 if ok:
                     print(f"  SENT {shop} → {email}")
                     sent += 1

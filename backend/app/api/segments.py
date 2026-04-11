@@ -78,6 +78,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
@@ -90,6 +91,60 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/pro", tags=["segments"])
 
 
+# ---------------------------------------------------------------------------
+# Response models — emitted into OpenAPI, consumed by dashboard codegen.
+# See reference_openapi_codegen.md memory for the migration pattern.
+# ---------------------------------------------------------------------------
+
+
+class SegmentVisitorDetail(BaseModel):
+    """One visitor inside a segment — pseudonymous, behavioral fingerprint only."""
+    visitor_id: str
+    behavioral_index: float
+    avg_scroll: float
+    avg_dwell_secs: float
+    visit_count: int
+
+
+class SegmentBlock(BaseModel):
+    """One tier (hot / warm / cold) of the audience segmentation."""
+    visitor_count: int
+    visitor_ids: list[str]
+    visitors: list[SegmentVisitorDetail] = Field(default_factory=list)
+    avg_behavioral_index: float | None = None
+    cvr_estimate: float | None = None
+    estimated_revenue_window: float
+    cvr_source: str
+
+
+class SegmentsMetaBlock(BaseModel):
+    """Calibration + AOV metadata for the segmentation report."""
+    calibration_state: str
+    calibration_base_cvr: float
+    converter_behavioral_mean: float
+    non_converter_behavioral_mean: float
+    discriminability: float
+    calibration_sample_size: int
+    calibration_converter_count: int
+    hot_threshold: float | None = None
+    warm_threshold: float | None = None
+    aov_used: float
+    aov_source: str
+    generated_at: str
+
+
+class SegmentsResponse(BaseModel):
+    """GET /pro/segments — Live Audience cassettone source."""
+    product_url: str
+    shop_domain: str
+    active_window_hours: int
+    total_active_visitors: int
+    hot: SegmentBlock
+    warm: SegmentBlock
+    cold: SegmentBlock
+    meta: SegmentsMetaBlock
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -98,7 +153,11 @@ def get_db():
         db.close()
 
 
-@router.get("/segments")
+@router.get(
+    "/segments",
+    response_model=SegmentsResponse,
+    response_model_exclude_none=False,
+)
 def get_audience_segments(
     shop: str = Depends(require_pro_session),
     product_url: str = Query(..., description="Canonical product path, e.g. /products/handle"),

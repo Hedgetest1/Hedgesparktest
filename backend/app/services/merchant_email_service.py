@@ -8,7 +8,7 @@ Handles all merchant-facing lifecycle emails:
     connection_issue   — store disconnected (72h cooldown)
 
 Public interface:
-    send_lifecycle_email(db, shop_domain, email_type, context) -> dict
+    submit_lifecycle_intent(db, shop_domain, email_type, context) -> dict
     get_email_history(db, shop_domain, limit) -> list[dict]
 
 Every call is logged to merchant_emails table regardless of outcome.
@@ -41,6 +41,7 @@ _COOLDOWNS: dict[str, str | int] = {
     "setup_incomplete": 259200,   # 72 hours
     "first_insight": "once",
     "connection_issue": 259200,   # 72 hours
+    "reengagement": 1209600,      # 14 days — matches silence detector dedup
 }
 
 _REDIS_PREFIX = "hs:memail:"
@@ -115,6 +116,30 @@ def _is_suppressed(
     return None
 
 
+_EMAIL_BUDGET_ALERTED = False  # in-process dedup for budget alerts
+
+
+def _alert_email_budget_once(usage: dict) -> None:
+    """Send a single Telegram alert when email budget is near/at exhaustion."""
+    global _EMAIL_BUDGET_ALERTED
+    if _EMAIL_BUDGET_ALERTED:
+        return
+    try:
+        from app.services.telegram_agent import send_message, is_configured
+        if is_configured():
+            sent = send_message(
+                f"*EMAIL BUDGET ALERT*\n\n"
+                f"Sent: {usage['sent']}/{usage['limit']} ({usage['pct']}%)\n"
+                f"Status: {usage['status']}\n\n"
+                f"Email sends will be blocked when limit is reached."
+            )
+            if sent:
+                _EMAIL_BUDGET_ALERTED = True
+                # Only mark alerted if message actually sent — retry next cycle otherwise
+    except Exception:
+        pass  # Don't set flag on failure — will retry next cycle
+
+
 def _mark_sent_in_redis(shop_domain: str, email_type: str) -> None:
     """Set Redis marker after successful send."""
     try:
@@ -132,32 +157,22 @@ def _mark_sent_in_redis(shop_domain: str, email_type: str) -> None:
 # Public API
 # ---------------------------------------------------------------------------
 
-def send_lifecycle_email(
+def submit_lifecycle_intent(
     db: Session,
     shop_domain: str,
     email_type: str,
     context: dict | None = None,
 ) -> dict:
     """
-    Send a lifecycle email to a merchant.
+    Submit a lifecycle email as an intent to the orchestrator.
 
-    Steps:
-        1. Look up merchant + contact_email
-        2. Check dedup/cooldown suppression
-        3. Render template
-        4. Send via Resend
-        5. Log result to merchant_emails table
-        6. Set Redis dedup marker
+    Same validation as send_lifecycle_email (merchant lookup, dedup, template
+    render) but does NOT send — instead submits an EmailIntent.
 
-    Returns:
-        {"status": "sent" | "suppressed" | "failed" | "no_email",
-         "reason": str | None}
-
-    Never raises — all errors are caught and logged.
+    Returns same shape as send_lifecycle_email for compatibility.
     """
     ctx = context or {}
 
-    # 1. Look up merchant
     merchant = (
         db.query(Merchant)
         .filter(Merchant.shop_domain == shop_domain)
@@ -168,21 +183,17 @@ def send_lifecycle_email(
 
     to_email = (merchant.contact_email or "").strip()
     if not to_email:
-        _log_email(db, shop_domain, email_type, None, None, "suppressed", "no_contact_email")
         return {"status": "no_email", "reason": "no_contact_email"}
 
-    # Skip uninstalled merchants
     if merchant.install_status != "active":
-        _log_email(db, shop_domain, email_type, to_email, None, "suppressed", "merchant_uninstalled")
         return {"status": "suppressed", "reason": "merchant_uninstalled"}
 
-    # 2. Dedup check
+    # Dedup check (still needed — orchestrator doesn't know about per-type cooldowns)
     suppression = _is_suppressed(db, shop_domain, email_type)
     if suppression:
-        _log_email(db, shop_domain, email_type, to_email, None, "suppressed", suppression)
         return {"status": "suppressed", "reason": suppression}
 
-    # 3. Render template
+    # Render template
     try:
         from app.services.email_templates import render_email
         shop_name = shop_domain.replace(".myshopify.com", "").replace("-", " ").title()
@@ -190,30 +201,28 @@ def send_lifecycle_email(
         subject, html, plain_text = render_email(email_type, ctx)
     except Exception as exc:
         log.error("merchant_email: template render failed type=%s shop=%s: %s", email_type, shop_domain, exc)
-        _log_email(db, shop_domain, email_type, to_email, None, "failed", f"template_error:{exc}")
-        return {"status": "failed", "reason": f"template_error"}
+        return {"status": "failed", "reason": "template_error"}
 
-    # 4. Send via Resend (lifecycle emails from dev@, not digest@)
-    try:
-        from app.core.email import send_email
-        sent = send_email(
-            to=to_email, subject=subject, html=html, text=plain_text,
-            from_address="Hedge Spark <dev@hedgesparkhq.com>",
-        )
-    except Exception as exc:
-        log.error("merchant_email: send error type=%s shop=%s: %s", email_type, shop_domain, exc)
-        _log_email(db, shop_domain, email_type, to_email, subject, "failed", f"send_error:{exc}")
-        return {"status": "failed", "reason": "send_error"}
+    # Submit intent
+    from app.services.email_orchestrator import EmailIntent, submit_intent
+    intent = EmailIntent(
+        shop_domain=shop_domain,
+        email_type=email_type,
+        to_email=to_email,
+        subject=subject,
+        html=html,
+        plain_text=plain_text,
+        from_address="HedgeSpark <dev@hedgesparkhq.com>",
+        producer="lifecycle",
+        context=ctx,
+    )
+    intent_id = submit_intent(db, intent)
+    return {"status": "queued", "reason": None, "intent_id": intent_id}
 
-    if sent:
-        _log_email(db, shop_domain, email_type, to_email, subject, "sent", None)
-        _mark_sent_in_redis(shop_domain, email_type)
-        log.info("merchant_email: sent type=%s to=%s shop=%s", email_type, to_email, shop_domain)
-        return {"status": "sent", "reason": None}
-    else:
-        _log_email(db, shop_domain, email_type, to_email, subject, "failed", "resend_rejected")
-        log.warning("merchant_email: failed type=%s to=%s shop=%s", email_type, to_email, shop_domain)
-        return {"status": "failed", "reason": "resend_rejected"}
+
+    # NOTE: send_lifecycle_email was removed. All lifecycle emails now go through
+    # submit_lifecycle_intent → orchestrator → governance → send_email.
+    # See submit_lifecycle_intent() above.
 
 
 def _log_email(
@@ -224,6 +233,7 @@ def _log_email(
     subject: str | None,
     status: str,
     suppressed_by: str | None,
+    resend_id: str | None = None,
 ) -> None:
     """Persist email attempt to merchant_emails table."""
     try:
@@ -234,6 +244,7 @@ def _log_email(
             subject=subject,
             status=status,
             suppressed_by=suppressed_by,
+            resend_id=resend_id,
         )
         db.add(entry)
         db.flush()

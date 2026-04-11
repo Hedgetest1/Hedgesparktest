@@ -40,12 +40,43 @@ To add a new alert type:
      (action stripped by the Lite route).
 """
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.core.database import engine
 from app.core.deps import require_merchant_session, require_pro_session
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
+
+
+# ---------------------------------------------------------------------------
+# Response models for /analytics/alerts (Lite) + /analytics/alerts/pro (Pro).
+# ---------------------------------------------------------------------------
+
+
+class LiteAlertRow(BaseModel):
+    """One Lite alert (diagnostic only — no action field)."""
+    type: str
+    message: str
+    priority: str
+
+
+class LiteAlertsResponse(BaseModel):
+    """GET /analytics/alerts — Lite diagnostic alert list."""
+    alerts: list[LiteAlertRow]
+
+
+class ProAlertRow(BaseModel):
+    """One Pro alert (diagnostic + prescriptive action)."""
+    type: str
+    message: str
+    priority: str
+    action: str
+
+
+class ProAlertsResponse(BaseModel):
+    """GET /analytics/alerts/pro — Pro alert list with prescriptive actions."""
+    alerts: list[ProAlertRow]
 
 # ---------------------------------------------------------------------------
 # Prescriptive action text per alert type — PRO ONLY.
@@ -163,7 +194,11 @@ def _build_alerts(shop: str) -> list[dict]:
 #
 # Diagnostic fields only. `action` is stripped at this boundary.
 # ---------------------------------------------------------------------------
-@router.get("/alerts")
+@router.get(
+    "/alerts",
+    response_model=LiteAlertsResponse,
+    response_model_exclude_none=False,
+)
 def alerts(
     shop: str = Depends(require_merchant_session),
 ):
@@ -189,7 +224,11 @@ def alerts(
 #
 # Full alert including `action`. Backend-enforced via require_pro_plan.
 # ---------------------------------------------------------------------------
-@router.get("/alerts/pro")
+@router.get(
+    "/alerts/pro",
+    response_model=ProAlertsResponse,
+    response_model_exclude_none=False,
+)
 def alerts_pro(
     shop: str = Depends(require_pro_session),
 ):

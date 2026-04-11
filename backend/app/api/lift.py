@@ -33,6 +33,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -48,6 +49,44 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/pro/lift", tags=["lift"])
 
 
+# ---------------------------------------------------------------------------
+# Response models — emitted into OpenAPI, consumed by dashboard codegen.
+# See reference_openapi_codegen.md memory for the migration pattern.
+# ---------------------------------------------------------------------------
+
+
+class LiftNudgeBreakdown(BaseModel):
+    """Per-nudge lift row inside the aggregate Lift Report."""
+    nudge_id: int
+    product_url: str
+    action_type: str
+    holdout_pct: int
+    exposed_count: int
+    holdout_count: int
+    exposed_cvr: float = Field(..., ge=0.0)
+    holdout_cvr: float = Field(..., ge=0.0)
+    lift_pct: float | None = None
+    attributed_revenue: float
+    currency: str
+
+
+class LiftReportResponse(BaseModel):
+    """GET /pro/lift aggregate response shape — feeds the Holdout Proof cassettone."""
+    has_experiment_data: bool
+    nudges_measured: int
+    total_exposed: int
+    total_holdout: int
+    exposed_cvr: float = Field(..., ge=0.0)
+    holdout_cvr: float = Field(..., ge=0.0)
+    lift_pct: float | None = None
+    attributed_revenue: float
+    currency: str
+    verdict: str
+    nudge_breakdown: list[LiftNudgeBreakdown]
+    window_hours: int
+    generated_at: str
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -56,7 +95,11 @@ def get_db():
         db.close()
 
 
-@router.get("")
+@router.get(
+    "",
+    response_model=LiftReportResponse,
+    response_model_exclude_none=False,
+)
 def get_store_lift_summary(
     window_hours: int = DEFAULT_ATTRIBUTION_WINDOW_HOURS,
     shop: str = Depends(require_pro_session),
@@ -130,7 +173,9 @@ def get_store_lift_summary(
         except Exception:
             continue
 
-        if not lift_report.get("has_holdout_data"):
+        # get_nudge_lift_report() returns `holdout_active` (bool).
+        # Field was historically called `has_holdout_data` — fixed 2026-04-10.
+        if not lift_report.get("holdout_active"):
             continue
 
         exp_count = int(lift_report.get("exposed_count", 0))

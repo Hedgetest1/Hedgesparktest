@@ -37,6 +37,10 @@ log = logging.getLogger("evolution_engine")
 
 _BACKEND_DIR = Path("/opt/wishspark/backend")
 
+# Module-level DB session override for weakness scoring. Set to an active
+# session to bypass creating a new one (used by tests for session isolation).
+_weakness_db_override = None  # type: ignore
+
 # Cooldown: no audit more than once per 6 days
 _AUDIT_COOLDOWN_SECONDS = 6 * 86400
 _last_audit_run: float | None = None
@@ -328,7 +332,7 @@ def _scan_feature_requests(db: Session) -> list[dict]:
 # Main audit runner
 # ---------------------------------------------------------------------------
 
-def _sort_by_weakness(proposals: list[dict]) -> list[dict]:
+def _sort_by_weakness(proposals: list[dict], db=None) -> list[dict]:
     """
     Sort proposals so weak-domain proposals come first.
     Proposals targeting domains with higher weakness scores are prioritized
@@ -338,11 +342,16 @@ def _sort_by_weakness(proposals: list[dict]) -> list[dict]:
     try:
         from app.services.loop_health import score_subsystem_weakness
         from app.services.project_brain import classify_file
-        from app.core.database import engine
-        from sqlalchemy.orm import Session as _Sess
-        # Use a read-only session for weakness query (no writes)
-        with _Sess(engine) as tmp_db:
-            ranking = score_subsystem_weakness(tmp_db, lookback_days=30)
+        if db is not None:
+            ranking = score_subsystem_weakness(db, lookback_days=30)
+        elif _weakness_db_override is not None:
+            ranking = score_subsystem_weakness(_weakness_db_override, lookback_days=30)
+        else:
+            from app.core.database import engine
+            from sqlalchemy.orm import Session as _Sess
+            # Use a read-only session for weakness query (no writes)
+            with _Sess(engine) as tmp_db:
+                ranking = score_subsystem_weakness(tmp_db, lookback_days=30)
         weakness_map = {w["domain"]: w["score"] for w in ranking}
     except Exception:
         return proposals  # fallback: keep original order
@@ -380,7 +389,12 @@ def run_evolution_audit(db: Session) -> dict:
     all_proposals.extend(_scan_worker_health(db))
     all_proposals.extend(_scan_unpinned_deps())
     all_proposals.extend(_scan_support_patterns(db))
-    all_proposals.extend(_scan_feature_requests(db))
+    # Phase-6 constraint: _scan_feature_requests is DISABLED. The system
+    # must perfect what we already have, not propose new product features
+    # from merchant requests. Feature direction remains a human decision.
+    # The function is retained for historical/operator queries but is no
+    # longer invoked from the autonomous audit path.
+    # all_proposals.extend(_scan_feature_requests(db))
 
     # Sort: weak-domain proposals first so they win dedup slots
     all_proposals = _sort_by_weakness(all_proposals)

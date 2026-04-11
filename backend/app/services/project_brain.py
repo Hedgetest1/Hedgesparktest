@@ -158,7 +158,14 @@ _DOMAIN_RULES: list[tuple[str, str]] = [
     # Worker infrastructure
     ("app/workers/", "workers"),
 
-    # Frontend / merchant-facing
+    # Frontend / merchant-facing — ordered from most-specific to catch-all.
+    # Billing/onboarding/auth flows in the dashboard are as critical as their
+    # backend counterparts: a broken checkout surface = revenue loss.
+    ("dashboard/src/app/components/billing", "frontend_billing"),
+    ("dashboard/src/app/components/onboarding", "frontend_onboarding"),
+    ("dashboard/src/app/components/auth", "frontend_auth"),
+    ("dashboard/src/app/install", "frontend_onboarding"),
+    ("dashboard/src/app/pricing", "frontend_billing"),
     ("dashboard/", "frontend"),
     ("app/api/merchant", "merchant_api"),
     ("app/api/brief", "merchant_api"),
@@ -218,7 +225,10 @@ _DOMAIN_CRITICALITY: dict[str, str] = {
     "observability": "low",
     "infra": "high",
     "migrations": "high",
-    "frontend": "medium",
+    "frontend": "high",
+    "frontend_billing": "critical",
+    "frontend_onboarding": "critical",
+    "frontend_auth": "critical",
     "tests": "low",
 }
 

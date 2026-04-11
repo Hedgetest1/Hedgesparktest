@@ -55,8 +55,22 @@ def format_digest(digest: dict) -> tuple[str, str]:
     if ww:
         lines += ["", "WHAT'S WORKING", f"  {ww['message']}"]
 
+    proof_report = digest.get("proof_report", {})
     proof = digest.get("proof", {})
-    if proof.get("improvements"):
+
+    if proof_report.get("has_proof"):
+        pr_revenue = proof_report.get("incremental_revenue", 0)
+        show_rev = proof_report.get("show_revenue", False)
+        lines += ["", "YOUR PROVEN IMPACT"]
+        if show_rev and pr_revenue > 0:
+            lines.append(f"  +{currency} {pr_revenue:,.0f} estimated incremental revenue")
+        lines.append(f"  {proof_report.get('headline', '')}")
+        lines.append(f"  {proof_report.get('detail', '')}")
+        conf = proof_report.get("confidence_label", "")
+        if conf:
+            lines.append(f"  Confidence: {conf}")
+        lines.append(f"  {proof_report.get('trust_note', '')}")
+    elif proof.get("improvements"):
         rev_delta = proof.get("total_revenue_delta", 0)
         lines += [
             "",
@@ -98,6 +112,15 @@ def format_digest(digest: dict) -> tuple[str, str]:
         ]
 
     # Lite-only upgrade teaser — specific, not generic
+    # SIP Intelligence Insights
+    sip_insights = digest.get("sip_insights", [])
+    if sip_insights:
+        lines += ["", "INTELLIGENCE INSIGHTS"]
+        for ins in sip_insights[:3]:
+            lines.append(f"  {ins.get('headline', '')}")
+            if ins.get("detail"):
+                lines.append(f"    {ins['detail']}")
+
     plan = digest.get("merchant_plan", "lite")
     if plan != "pro" and risk.get("opportunities"):
         top_opp = risk["opportunities"][0]
@@ -115,7 +138,7 @@ def format_digest(digest: dict) -> tuple[str, str]:
         f"View your dashboard: {plain_link}",
         "",
         "—",
-        "Hedge Spark · Revenue Intelligence for Shopify",
+        "HedgeSpark · Revenue Intelligence for Shopify",
     ]
     plain = "\n".join(lines)
 
@@ -142,7 +165,7 @@ def format_digest(digest: dict) -> tuple[str, str]:
         if cvr is not None:
             parts.append(f"<strong>{cvr}%</strong> conversion rate")
         if confidence == "early":
-            parts.append('<span style="color:#a16207;font-size:11px">early data</span>')
+            parts.append('<span style="color:#f59e0b;font-size:11px">early data</span>')
         visitor_html = (
             '<tr><td colspan="2" style="padding:12px 0 0;font-size:13px;color:#64748b;'
             f'border-top:1px solid #f1f5f9">{" &middot; ".join(parts)}</td></tr>'
@@ -153,9 +176,9 @@ def format_digest(digest: dict) -> tuple[str, str]:
     rec = digest.get("recommendation")
     if rec:
         rec_html = f"""
-        <div style="margin:20px 0;padding:16px 18px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:14px;line-height:1.6">
-            <strong style="color:#166534;font-size:14px">{rec['headline']}</strong>
-            <p style="margin:6px 0 0;color:#1e293b">{rec['body']}</p>
+        <div style="margin:20px 0;padding:16px 18px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.15);border-radius:8px;font-size:14px;line-height:1.6">
+            <strong style="color:#10b981;font-size:14px">{rec['headline']}</strong>
+            <p style="margin:6px 0 0;color:#c8d1dc">{rec['body']}</p>
         </div>
         """
 
@@ -164,20 +187,53 @@ def format_digest(digest: dict) -> tuple[str, str]:
     ww = digest.get("whats_working")
     if ww:
         working_html = f"""
-        <div style="margin:20px 0;padding:14px 18px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:14px;line-height:1.5">
-            <strong style="color:#166534">What's Working</strong>
-            <p style="margin:6px 0 0;color:#1e293b">{ww['message']}</p>
+        <div style="margin:20px 0;padding:14px 18px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.15);border-radius:8px;font-size:14px;line-height:1.5">
+            <strong style="color:#10b981">What's Working</strong>
+            <p style="margin:6px 0 0;color:#c8d1dc">{ww['message']}</p>
         </div>
         """
 
-    # --- Proof of impact ---
+    # --- Proof of impact (unified proof engine) ---
     proof_html = ""
+    proof_report = digest.get("proof_report", {})
     proof = digest.get("proof", {})
-    if proof.get("improvements"):
+
+    if proof_report.get("has_proof"):
+        pr_headline = proof_report.get("headline", "")
+        pr_detail = proof_report.get("detail", "")
+        pr_revenue = proof_report.get("incremental_revenue", 0)
+        pr_conf = proof_report.get("confidence_label", "")
+        pr_trust = proof_report.get("trust_note", "")
+        show_rev = proof_report.get("show_revenue", False)
+
+        revenue_block = ""
+        if show_rev and pr_revenue > 0:
+            revenue_block = f"""
+            <div style="margin:10px 0;text-align:center">
+                <span style="font-size:28px;font-weight:700;color:#059669">+{currency} {pr_revenue:,.0f}</span>
+                <div style="font-size:11px;color:#047857;margin-top:2px">estimated incremental revenue this week</div>
+            </div>
+            """
+
+        conf_badge = ""
+        if pr_conf:
+            conf_badge = f'<span style="display:inline-block;margin-left:8px;padding:2px 8px;background:#d1fae5;color:#065f46;border-radius:10px;font-size:10px;font-weight:600">{pr_conf}</span>'
+
+        proof_html = f"""
+        <div style="margin:20px 0;padding:16px 18px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;font-size:14px;line-height:1.5">
+            <strong style="color:#065f46">Your Proven Impact</strong>{conf_badge}
+            {revenue_block}
+            <p style="margin:8px 0 4px;color:#065f46;font-size:14px;font-weight:600">{pr_headline}</p>
+            <p style="margin:4px 0 0;color:#c8d1dc;font-size:13px">{pr_detail}</p>
+            <p style="margin:10px 0 0;color:#6b7280;font-size:11px;font-style:italic">{pr_trust}</p>
+        </div>
+        """
+    elif proof.get("improvements"):
+        # Fallback to legacy action proof if proof engine has no data
         rev_delta = proof.get("total_revenue_delta", 0)
         imp_rows = ""
         for imp in proof["improvements"][:2]:
-            imp_rows += f'<p style="margin:4px 0;color:#1e293b;font-size:13px">{imp["summary"]}</p>'
+            imp_rows += f'<p style="margin:4px 0;color:#c8d1dc;font-size:13px">{imp["summary"]}</p>'
         header_extra = ""
         if rev_delta > 0:
             header_extra = f' <span style="color:#16a34a;font-weight:700">+{currency} {rev_delta:,.2f}</span>'
@@ -189,6 +245,30 @@ def format_digest(digest: dict) -> tuple[str, str]:
         </div>
         """
 
+    # --- SIP Intelligence Insights ---
+    sip_html = ""
+    sip_insights = digest.get("sip_insights", [])
+    if sip_insights:
+        insight_items = ""
+        for ins in sip_insights[:3]:
+            headline = ins.get("headline", "")
+            detail = ins.get("detail", "")
+            insight_items += (
+                f'<div style="margin:10px 0;padding:10px 14px;background:rgba(167,139,250,0.06);'
+                f'border-left:3px solid rgba(167,139,250,0.3);border-radius:4px">'
+                f'<strong style="color:#c4b5fd;font-size:13px">{headline}</strong>'
+            )
+            if detail:
+                insight_items += f'<p style="margin:4px 0 0;color:#94a3b8;font-size:12px">{detail}</p>'
+            insight_items += '</div>'
+
+        sip_html = f"""
+        <h3 style="margin:24px 0 8px;font-size:15px;font-weight:700;color:#e2e8f0;text-transform:uppercase;letter-spacing:0.4px">
+            Intelligence Insights
+        </h3>
+        {insight_items}
+        """
+
     # --- Revenue at risk ---
     risk_html = ""
     if risk.get("opportunities"):
@@ -198,24 +278,24 @@ def format_digest(digest: dict) -> tuple[str, str]:
         impact_line = ""
         if top_rec > 0:
             impact_line = (
-                f'<p style="margin:4px 0 10px;font-size:13px;color:#166534;font-weight:600">'
+                f'<p style="margin:4px 0 10px;font-size:13px;color:#10b981;font-weight:600">'
                 f'Fixing the top issue could recover ~{currency} {top_rec:,.2f}</p>'
             )
         opp_rows = ""
         for opp in risk["opportunities"]:
             opp_rows += f"""
             <div style="padding:10px 0;border-bottom:1px solid #fde68a">
-                <strong style="color:#92400e">{opp['product_name']}</strong>
-                <p style="margin:4px 0 2px;color:#1e293b;font-size:13px">{opp['problem']}</p>
-                <p style="margin:0;color:#166534;font-size:13px">&rarr; {opp['action']}</p>
+                <strong style="color:#f59e0b">{opp['product_name']}</strong>
+                <p style="margin:4px 0 2px;color:#c8d1dc;font-size:13px">{opp['problem']}</p>
+                <p style="margin:0;color:#10b981;font-size:13px">&rarr; {opp['action']}</p>
             </div>"""
         risk_html = f"""
-        <div style="margin:20px 0;padding:16px 18px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:14px">
+        <div style="margin:20px 0;padding:16px 18px;background:rgba(245,158,11,0.08);border:1px solid #fde68a;border-radius:8px;font-size:14px">
             <div style="margin-bottom:4px">
-                <span style="font-size:13px;color:#92400e;font-weight:600">Revenue at Risk</span>
+                <span style="font-size:13px;color:#f59e0b;font-weight:600">Revenue at Risk</span>
                 <span style="float:right;font-size:18px;font-weight:700;color:#b45309">{currency} {total:,.2f}</span>
             </div>
-            <p style="margin:0 0 4px;font-size:12px;color:#a16207">{count} product{'s' if count != 1 else ''} need attention</p>
+            <p style="margin:0 0 4px;font-size:12px;color:#f59e0b">{count} product{'s' if count != 1 else ''} need attention</p>
             {impact_line}
             {opp_rows}
         </div>
@@ -226,7 +306,7 @@ def format_digest(digest: dict) -> tuple[str, str]:
     if digest.get("top_products"):
         rows = ""
         for i, p in enumerate(digest["top_products"]):
-            bg = "background:#f8fafc;" if i % 2 == 1 else ""
+            bg = "background:rgba(255,255,255,0.03);" if i % 2 == 1 else ""
             rows += (
                 f'<tr style="{bg}">'
                 f'<td style="padding:6px 12px 6px 0">{p["title"]}</td>'
@@ -236,7 +316,7 @@ def format_digest(digest: dict) -> tuple[str, str]:
                 f'{p["units"]} sold</td></tr>'
             )
         products_html = f"""
-        <h3 style="margin:24px 0 8px;font-size:14px;color:#334155">Top Products</h3>
+        <h3 style="margin:24px 0 8px;font-size:14px;color:#64748b">Top Products</h3>
         <table style="width:100%;font-size:14px;border-collapse:collapse">{rows}</table>
         """
 
@@ -245,8 +325,8 @@ def format_digest(digest: dict) -> tuple[str, str]:
     if digest.get("insight"):
         ins = digest["insight"]
         insight_html = f"""
-        <div style="margin:24px 0;padding:14px 16px;background:#fef3c7;border-left:4px solid #f59e0b;border-radius:4px;font-size:14px;line-height:1.5">
-            <strong style="color:#92400e">Opportunity:</strong> {ins['message']}
+        <div style="margin:24px 0;padding:14px 16px;background:rgba(245,158,11,0.06);border-left:4px solid #f59e0b;border-radius:4px;font-size:14px;line-height:1.5">
+            <strong style="color:#f59e0b">Opportunity:</strong> {ins['message']}
         </div>
         """
 
@@ -254,7 +334,7 @@ def format_digest(digest: dict) -> tuple[str, str]:
     fallback_html = ""
     if not digest.get("top_products") and not digest.get("insight"):
         fallback_html = """
-        <div style="margin:24px 0;padding:16px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;font-size:14px;color:#0c4a6e;line-height:1.5">
+        <div style="margin:24px 0;padding:16px;background:rgba(167,139,250,0.06);border:1px solid rgba(167,139,250,0.15);border-radius:8px;font-size:14px;color:#94a3b8;line-height:1.5">
             We're building your store's intelligence profile. As more visitor and order data flows in,
             this digest will include product-level performance and actionable recommendations.
         </div>
@@ -267,14 +347,14 @@ def format_digest(digest: dict) -> tuple[str, str]:
         others = risk["affected_products"] - 1
         others_text = f" and {others} other product{'s' if others > 1 else ''}" if others > 0 else ""
         upgrade_html = f"""
-        <div style="margin:20px 0;padding:14px 18px;background:#ede9fe;border:1px solid #c4b5fd;border-radius:8px;font-size:13px;line-height:1.6">
-            <strong style="color:#5b21b6">Pro Insight Available</strong>
-            <p style="margin:6px 0 0;color:#4c1d95">
+        <div style="margin:20px 0;padding:14px 18px;background:rgba(167,139,250,0.08);border:1px solid #c4b5fd;border-radius:8px;font-size:13px;line-height:1.6">
+            <strong style="color:#c4b5fd">Pro Insight Available</strong>
+            <p style="margin:6px 0 0;color:#a78bfa">
                 We found specific fixes for &ldquo;{top_opp['product_name']}&rdquo;{others_text}.
                 Upgrade to Pro to unlock exact actions and track whether they work.
             </p>
             <div style="margin-top:10px">
-                <a href="{_DASHBOARD_URL}?upgrade=1" style="display:inline-block;padding:8px 16px;background:#7c3aed;color:#ffffff;text-decoration:none;border-radius:5px;font-size:12px;font-weight:600">
+                <a href="{_DASHBOARD_URL}?upgrade=1" style="display:inline-block;padding:10px 20px;background:linear-gradient(135deg,#d4893a 0%,#a855f7 100%);background-color:#c47a3e;color:#ffffff;text-decoration:none;border-radius:8px;font-size:12px;font-weight:600">
                     Unlock Pro Actions
                 </a>
             </div>
@@ -291,33 +371,32 @@ def format_digest(digest: dict) -> tuple[str, str]:
 
     cta_html = f"""
     <div style="text-align:center;margin:28px 0 8px">
-        <a href="{cta_link}" style="display:inline-block;padding:12px 28px;background:#0f172a;color:#ffffff;text-decoration:none;border-radius:6px;font-size:14px;font-weight:600">
+        <a href="{cta_link}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#d4893a 0%,#a855f7 100%);background-color:#c47a3e;color:#ffffff;text-decoration:none;border-radius:10px;font-size:15px;font-weight:600;letter-spacing:0.3px">
             {cta_label}
         </a>
     </div>
     """
 
-    html = f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
-<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f8fafc">
-<div style="max-width:560px;margin:0 auto;padding:32px 24px">
+    # Build body content, then wrap in shared dark-theme wrapper
+    from app.services.email_templates import _wrap_html
 
-<h1 style="font-size:20px;color:#0f172a;margin:0 0 4px">Weekly Revenue Digest</h1>
+    body_inner = f"""
+<h2 style="margin:0 0 4px;font-size:20px;font-weight:700;color:#f1f5f9;letter-spacing:-0.2px">Weekly Revenue Digest</h2>
 <p style="font-size:13px;color:#64748b;margin:0 0 24px">{shop} &middot; {period}</p>
 
-<div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;padding:24px;margin-bottom:16px">
+<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:20px;margin-bottom:16px">
   <table style="width:100%;font-size:14px;border-collapse:collapse">
     <tr>
       <td style="padding:8px 0;color:#64748b">Revenue</td>
-      <td style="padding:8px 0;text-align:right;font-size:24px;font-weight:700;color:#0f172a">{currency} {tw['revenue']:,.2f}</td>
+      <td style="padding:8px 0;text-align:right;font-size:24px;font-weight:700;color:#f1f5f9">{currency} {tw['revenue']:,.2f}</td>
     </tr>
     <tr>
       <td style="padding:8px 0;color:#64748b">Orders</td>
-      <td style="padding:8px 0;text-align:right;font-weight:600;color:#0f172a">{tw['order_count']}</td>
+      <td style="padding:8px 0;text-align:right;font-weight:600;color:#f1f5f9">{tw['order_count']}</td>
     </tr>
     <tr>
       <td style="padding:8px 0;color:#64748b">Avg Order Value</td>
-      <td style="padding:8px 0;text-align:right;font-weight:600;color:#0f172a">{currency} {tw['aov']:,.2f}</td>
+      <td style="padding:8px 0;text-align:right;font-weight:600;color:#f1f5f9">{currency} {tw['aov']:,.2f}</td>
     </tr>
     {visitor_html}
   </table>
@@ -327,17 +406,16 @@ def format_digest(digest: dict) -> tuple[str, str]:
 {rec_html}
 {working_html}
 {proof_html}
+{sip_html}
 {risk_html}
 {products_html}
 {insight_html}
 {fallback_html}
 {upgrade_html}
 {cta_html}
+"""
 
-<p style="font-size:12px;color:#94a3b8;margin:24px 0 0;text-align:center">
-  Hedge Spark &middot; Revenue Intelligence for Shopify
-</p>
-
-</div></body></html>"""
+    subject_title = f"Weekly Revenue Digest — {shop}"
+    html = _wrap_html(subject_title, body_inner, show_logo=True)
 
     return html, plain

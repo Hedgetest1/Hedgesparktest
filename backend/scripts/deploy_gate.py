@@ -239,6 +239,44 @@ def run_postdeploy(auto_rollback: bool) -> int:
             return _execute_rollback(reason="crash_loop", detail=f"extra_restarts={new_restarts}")
         return 1
 
+    # VERSION VERIFY — the running process must report a git SHA that matches
+    # the on-disk HEAD. If it doesn't, pm2 restart was a no-op (process still
+    # running on stale code). Without this check, deploy.sh could report
+    # "success" while the old code was still live — exactly what happened in
+    # the 2026-04-11 session where 91h of uptime masked the lack of restart.
+    try:
+        reported_sha = (last_body.get("version") or {}).get("git_sha") or "unknown"
+        disk_sha = _current_commit()
+        if reported_sha == "unknown":
+            log.warning(
+                "deploy_gate POSTDEPLOY: /system/health did not report a git_sha — "
+                "version verification skipped. Upgrade the backend to a build "
+                "that exposes app.core.version.get_version_info()."
+            )
+        elif reported_sha != disk_sha:
+            log.error(
+                "deploy_gate POSTDEPLOY: VERSION MISMATCH — "
+                "running process reports sha=%s but disk HEAD is %s. "
+                "pm2 restart failed to load the new code.",
+                reported_sha[:12], disk_sha[:12],
+            )
+            if auto_rollback:
+                return _execute_rollback(
+                    reason="version_mismatch",
+                    detail=f"reported={reported_sha[:12]} disk={disk_sha[:12]}",
+                )
+            return 1
+        else:
+            log.info(
+                "deploy_gate POSTDEPLOY: version verified — running sha=%s",
+                reported_sha[:12],
+            )
+    except Exception as exc:
+        log.warning(
+            "deploy_gate POSTDEPLOY: version verification errored (non-fatal): %s",
+            exc,
+        )
+
     log.info("deploy_gate POSTDEPLOY: verification passed")
     return 0
 

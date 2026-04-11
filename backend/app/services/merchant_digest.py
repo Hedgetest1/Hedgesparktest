@@ -77,7 +77,9 @@ def _mark_digest_sent(shop_domain: str, week_key: str, success: bool):
 
 def run_merchant_digest_cycle(db: Session) -> dict:
     """
-    Process all eligible merchants and send weekly digests.
+    Process all eligible merchants and submit weekly digest intents.
+
+    All sends go through the email orchestrator.
 
     Eligibility:
       - install_status == "active"
@@ -90,70 +92,78 @@ def run_merchant_digest_cycle(db: Session) -> dict:
     week_key = _current_week_key()
     summary = {"processed": 0, "sent": 0, "skipped": 0, "failed": 0, "no_data": 0, "week": week_key}
 
-    # Get eligible merchants
-    merchants = (
-        db.query(Merchant)
-        .filter(
-            Merchant.install_status == "active",
-            Merchant.contact_email.isnot(None),
-            Merchant.contact_email != "",
-            Merchant.billing_active == True,
-        )
-        .all()
-    )
-
+    # Get eligible merchants — paginated to avoid memory spike at 10k+ merchants
     from app.services.onboarding import _ONBOARDING_BLOCKLIST
+    _BATCH_SIZE = 200
 
-    for m in merchants:
-        if m.shop_domain in _ONBOARDING_BLOCKLIST:
-            continue
+    offset = 0
+    while True:
+        merchants = (
+            db.query(Merchant)
+            .filter(
+                Merchant.install_status == "active",
+                Merchant.contact_email.isnot(None),
+                Merchant.contact_email != "",
+                Merchant.billing_active == True,
+            )
+            .order_by(Merchant.id)
+            .offset(offset)
+            .limit(_BATCH_SIZE)
+            .all()
+        )
+        if not merchants:
+            break
+        offset += _BATCH_SIZE
 
-        summary["processed"] += 1
-
-        # Dedup check
-        if _digest_sent_for_merchant(m.shop_domain, week_key):
-            summary["skipped"] += 1
-            continue
-
-        # Assemble digest
-        try:
-            from app.services.weekly_digest import assemble_digest
-            digest = assemble_digest(db, m.shop_domain, merchant_plan=m.plan or "lite")
-
-            if not digest:
-                summary["no_data"] += 1
-                _mark_digest_sent(m.shop_domain, week_key, success=True)  # no data = skip, don't retry
-                log.info("merchant_digest: %s — no data, skipping", m.shop_domain)
+        for m in merchants:
+            if m.shop_domain in _ONBOARDING_BLOCKLIST:
                 continue
 
-            # Format
-            from app.services.digest_formatter import format_digest
-            html, plain_text = format_digest(digest)
+            summary["processed"] += 1
 
-            # Send
-            from app.core.email import send_email
-            shop_name = m.shop_domain.replace(".myshopify.com", "").replace("-", " ").title()
-            subject = f"Your Weekly Intelligence — {shop_name}"
+            # Dedup check
+            if _digest_sent_for_merchant(m.shop_domain, week_key):
+                summary["skipped"] += 1
+                continue
 
-            sent = send_email(
-                to=m.contact_email,
-                subject=subject,
-                html=html,
-                text=plain_text,
-            )
+            # Assemble digest
+            try:
+                from app.services.weekly_digest import assemble_digest
+                digest = assemble_digest(db, m.shop_domain, merchant_plan=m.plan or "lite")
 
-            if sent:
-                summary["sent"] += 1
+                if not digest:
+                    summary["no_data"] += 1
+                    _mark_digest_sent(m.shop_domain, week_key, success=True)
+                    log.info("merchant_digest: %s — no data, skipping", m.shop_domain)
+                    continue
+
+                # Format
+                from app.services.digest_formatter import format_digest
+                html, plain_text = format_digest(digest)
+
+                # Submit intent to email orchestrator
+                shop_name = m.shop_domain.replace(".myshopify.com", "").replace("-", " ").title()
+                subject = f"Your Weekly Intelligence — {shop_name}"
+
+                from app.services.email_orchestrator import EmailIntent, submit_intent
+                intent = EmailIntent(
+                    shop_domain=m.shop_domain,
+                    email_type="weekly_digest",
+                    to_email=m.contact_email,
+                    subject=subject,
+                    html=html,
+                    plain_text=plain_text,
+                    from_address="HedgeSpark <digest@hedgesparkhq.com>",
+                    producer="merchant_digest",
+                )
+                submit_intent(db, intent)
                 _mark_digest_sent(m.shop_domain, week_key, success=True)
-                log.info("merchant_digest: sent to %s (%s)", m.shop_domain, m.contact_email)
-            else:
-                summary["failed"] += 1
-                # Don't mark as sent — will retry next cycle
-                log.warning("merchant_digest: send failed for %s (%s)", m.shop_domain, m.contact_email)
+                summary["sent"] += 1
+                log.info("merchant_digest: intent queued for %s (%s)", m.shop_domain, m.contact_email)
 
-        except Exception as exc:
-            summary["failed"] += 1
-            log.warning("merchant_digest: error for %s: %s", m.shop_domain, exc)
+            except Exception as exc:
+                summary["failed"] += 1
+                log.warning("merchant_digest: error for %s: %s", m.shop_domain, exc)
 
     if summary["processed"] > 0:
         log.info(

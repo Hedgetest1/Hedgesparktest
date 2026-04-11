@@ -379,11 +379,11 @@ from app.services.chat_voice import _pick, closing
 
 # Product knowledge base (deterministic — no LLM needed for known topics)
 _PRODUCT_ANSWERS: dict[str, str] = {
-    "signal": "Signals are automated insights Hedge Spark detects from your store data \u2014 like high-intent visitors, cart abandonment patterns, or pricing opportunities. Each signal includes a confidence level and a recommended action.",
+    "signal": "Signals are automated insights HedgeSpark detects from your store data \u2014 like high-intent visitors, cart abandonment patterns, or pricing opportunities. Each signal includes a confidence level and a recommended action.",
     "nudge": "Nudges are smart on-site messages shown to visitors based on their behavior \u2014 social proof, urgency cues, return visitor recognition. You configure them in the Nudges section.",
-    "tracker": "The Hedge Spark tracker is a lightweight JavaScript snippet on your store. It captures visitor behavior \u2014 page views, cart actions, purchase intent \u2014 and powers all insights and signals.",
-    "klaviyo": "Klaviyo integration pushes high-intent visitor events from Hedge Spark directly to your Klaviyo account for email/SMS targeting. Connect it in Settings \u2192 Integrations.",
-    "plan": "Hedge Spark offers Starter (free) with core signals and Pro with advanced analytics, AI nudges, live radar, and funnel analysis. You can upgrade anytime from the dashboard.",
+    "tracker": "The HedgeSpark tracker is a lightweight JavaScript snippet on your store. It captures visitor behavior \u2014 page views, cart actions, purchase intent \u2014 and powers all insights and signals.",
+    "klaviyo": "Klaviyo integration pushes high-intent visitor events from HedgeSpark directly to your Klaviyo account for email/SMS targeting. Connect it in Settings \u2192 Integrations.",
+    "plan": "HedgeSpark offers Starter (free) with core signals and Pro with advanced analytics, AI nudges, live radar, and funnel analysis. You can upgrade anytime from the dashboard.",
     "pro": "Pro unlocks: Funnel & Session analysis, AI Nudges, Advanced Attribution, Cohort Analysis, Click Heatmaps, and more. Upgrade from the dashboard.",
     "attribution": "Attribution tracks which traffic sources and campaigns drive the most valuable visitors and conversions in your store.",
     "funnel": "Funnel analysis shows where visitors drop off in your purchase flow \u2014 from landing to checkout \u2014 so you can identify and fix conversion bottlenecks.",
@@ -391,10 +391,10 @@ _PRODUCT_ANSWERS: dict[str, str] = {
     "live": "Live Radar shows real-time visitor activity on your store \u2014 who\u2019s browsing, what they\u2019re looking at, and their intent score.",
     "brief": "The Daily Brief is an AI-generated summary of your store\u2019s performance, key signals, and recommended actions for the day.",
     "revenue": "Revenue Radar tracks your store\u2019s revenue trends, identifies at-risk products, and surfaces pricing opportunities.",
-    "webhook": "Webhooks are automated notifications from Shopify to Hedge Spark when events happen (orders, uninstalls). They\u2019re set up automatically during installation.",
+    "webhook": "Webhooks are automated notifications from Shopify to HedgeSpark when events happen (orders, uninstalls). They\u2019re set up automatically during installation.",
     "script_tag": "Script tags are how the tracker gets loaded on your store pages. Installed automatically \u2014 if missing, the system can repair it.",
-    "setup": "After installing Hedge Spark, the system automatically registers webhooks, installs the tracker script, and starts collecting data. First insights appear within hours of your first visitors.",
-    "pixel": "The Hedge Spark pixel tracks purchase events on your checkout confirmation page. It powers revenue attribution and conversion measurement.",
+    "setup": "After installing HedgeSpark, the system automatically registers webhooks, installs the tracker script, and starts collecting data. First insights appear within hours of your first visitors.",
+    "pixel": "The HedgeSpark pixel tracks purchase events on your checkout confirmation page. It powers revenue attribution and conversion measurement.",
     "purchase": "Purchase tracking connects Shopify orders to visitor behavior. This enables revenue attribution, conversion measurement, and ROI analysis for your traffic sources.",
     "session": "Session Replay shows how individual visitors navigate your store \u2014 pages viewed, time spent, scroll depth, and cart interactions.",
     "cohort": "Cohort Analysis groups visitors by behavior (new vs. returning) and shows how each group converts over time.",
@@ -664,7 +664,7 @@ def _answer_product_question(message: str, shop_domain: str = "", db: Session | 
     # Fallback with store awareness
     if store and store.has_data:
         return (
-            f"I can explain any part of Hedge Spark. Your store has "
+            f"I can explain any part of HedgeSpark. Your store has "
             f"{store.visitors_7d} visitors this week"
             f"{f' and {store.orders_7d} orders' if store.has_revenue else ''}. "
             f"What are you curious about?"

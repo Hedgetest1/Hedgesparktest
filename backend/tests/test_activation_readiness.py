@@ -49,7 +49,8 @@ def test_approval_notification_falls_back_to_slack():
     mock_resp = MagicMock(status_code=200)
     with patch("app.services.telegram_agent.is_configured", return_value=False), \
          patch("app.core.alert_delivery._SLACK_URL", "https://hooks.slack.com/test"), \
-         patch("app.core.alert_delivery.httpx.post", return_value=mock_resp) as mock_post:
+         patch("app.core.alert_delivery.httpx.post", return_value=mock_resp) as mock_post, \
+         patch("app.core.notifier_guard.is_real_send_allowed", return_value=True):
         result = notify_approval_pending(
             approval_id=42, action_type="restart_worker", target_id="w",
         )

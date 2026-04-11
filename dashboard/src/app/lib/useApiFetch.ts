@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 /**
- * Lightweight data-fetching hook for Hedge Spark API endpoints.
+ * Lightweight data-fetching hook for HedgeSpark API endpoints.
  *
  * Handles: loading state, cleanup on unmount, session credentials, error swallowing.
  * Does NOT handle polling — callers that need polling still use their own useEffect.

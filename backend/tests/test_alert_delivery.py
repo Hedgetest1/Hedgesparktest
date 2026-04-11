@@ -52,7 +52,8 @@ def test_delivery_sends_when_url_configured():
     """With URL configured + eligible alert → POST to Slack."""
     mock_resp = MagicMock(status_code=200)
     with patch("app.core.alert_delivery._SLACK_URL", "https://hooks.slack.com/test"), \
-         patch("app.core.alert_delivery.httpx.post", return_value=mock_resp) as mock_post:
+         patch("app.core.alert_delivery.httpx.post", return_value=mock_resp) as mock_post, \
+         patch("app.core.notifier_guard.is_real_send_allowed", return_value=True):
         result = deliver_alert_externally(
             severity="critical", source="gdpr_processor",
             alert_type="gdpr_failure", summary="GDPR failed",
@@ -81,7 +82,8 @@ def test_delivery_sends_critical_regardless_of_type():
     """Critical severity → always delivered, even if type is not in the set."""
     mock_resp = MagicMock(status_code=200)
     with patch("app.core.alert_delivery._SLACK_URL", "https://hooks.slack.com/test"), \
-         patch("app.core.alert_delivery.httpx.post", return_value=mock_resp):
+         patch("app.core.alert_delivery.httpx.post", return_value=mock_resp), \
+         patch("app.core.notifier_guard.is_real_send_allowed", return_value=True):
         result = deliver_alert_externally(
             severity="critical", source="test",
             alert_type="unknown_but_critical", summary="critical alert",

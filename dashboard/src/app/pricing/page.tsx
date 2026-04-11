@@ -63,7 +63,7 @@ function CheckIcon({ dim }: { dim?: boolean }) {
       viewBox="0 0 24 24"
       strokeWidth={2.5}
       stroke="currentColor"
-      className={`h-3.5 w-3.5 flex-shrink-0 ${dim ? "text-slate-600" : "text-violet-400"}`}
+      className={`h-3.5 w-3.5 flex-shrink-0 ${dim ? "text-slate-600" : "text-[#d4893a]"}`}
     >
       <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
     </svg>
@@ -185,8 +185,8 @@ export default function PricingPage() {
             <ArrowLeftIcon />
             Back to dashboard
           </Link>
-          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-300/50">
-            Hedge Spark
+          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#c4b5fd]/50">
+            HedgeSpark
           </span>
         </div>
       </div>
@@ -195,7 +195,7 @@ export default function PricingPage() {
 
         {/* ── A. Hero ── */}
         <div className="hs-fade-up mb-10 text-center">
-          <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-300/70">
+          <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#e8a04e]/70">
             Plans &amp; Pricing
           </div>
           <h1 className="mb-3 text-[28px] font-semibold leading-tight text-white">
@@ -205,7 +205,7 @@ export default function PricingPage() {
             See exactly what to fix, what revenue is at risk, and where to act first.
           </p>
           <p className="mt-3 text-[13px] text-slate-600">
-            🦔 Hedge Spark is already tracking your store — Pro helps you act on what it finds.
+            🦔 HedgeSpark is already tracking your store — Pro helps you act on what it finds.
           </p>
         </div>
 
@@ -244,19 +244,19 @@ export default function PricingPage() {
           </div>
 
           {/* Pro */}
-          <div className="relative rounded-2xl border border-violet-400/30 bg-gradient-to-br from-violet-500/[0.08] to-transparent p-6 shadow-[0_0_48px_rgba(124,58,237,0.10)]">
+          <div className="relative rounded-2xl border border-[#d4893a]/30 bg-gradient-to-br from-[#d4893a]/[0.06] to-transparent p-6 shadow-[0_0_48px_rgba(212,137,58,0.08)]">
             <span
               className={`absolute -top-3 left-5 rounded-full border px-3 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
                 tier === "pro"
                   ? "border-white/10 bg-[#080811] text-slate-500"
-                  : "border-violet-400/30 bg-violet-500/20 text-violet-300"
+                  : "border-[#d4893a]/30 bg-[#d4893a]/20 text-[#e8a04e]"
               }`}
             >
               {tier === "pro" ? "Current plan" : "Recommended"}
             </span>
 
             <div className="mb-5">
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-violet-300/80">
+              <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#e8a04e]/80">
                 Pro
               </div>
               <div className="flex items-baseline gap-1">
@@ -264,7 +264,7 @@ export default function PricingPage() {
                 <span className="text-[13px] text-slate-500">/mo</span>
               </div>
               {hasTrial && (
-                <p className="mt-1.5 text-[12px] font-medium text-violet-300/80">
+                <p className="mt-1.5 text-[12px] font-medium text-[#e8a04e]/80">
                   {trialDays}-day free trial included
                 </p>
               )}
@@ -288,7 +288,7 @@ export default function PricingPage() {
               <button
                 onClick={handleUpgrade}
                 disabled={upgradeLoading}
-                className="mt-6 w-full rounded-xl bg-violet-600 py-2.5 text-sm font-semibold text-white shadow-[0_0_16px_rgba(124,58,237,0.35)] transition-colors hover:bg-violet-500 active:bg-violet-700 disabled:opacity-60"
+                className="mt-6 w-full rounded-xl bg-[#d4893a] py-2.5 text-sm font-semibold text-white shadow-[0_0_16px_rgba(124,58,237,0.35)] transition-colors hover:bg-[#e8a04e] active:bg-[#c47a3e] disabled:opacity-60"
               >
                 {upgradeLoading
                   ? "Opening Shopify billing…"
@@ -323,7 +323,7 @@ export default function PricingPage() {
                   <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-wide text-slate-600">
                     <th className="w-[46%] px-5 py-3 font-medium">Feature</th>
                     <th className="px-5 py-3 font-medium">Lite</th>
-                    <th className="px-5 py-3 font-medium text-violet-300/80">Pro</th>
+                    <th className="px-5 py-3 font-medium text-[#e8a04e]/80">Pro</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -363,7 +363,7 @@ export default function PricingPage() {
 
         {/* ── D. Urgency panel ── (only for Lite) */}
         {!isProUser && (
-          <div className="mb-10 rounded-2xl border border-violet-400/15 bg-violet-500/[0.05] px-6 py-5">
+          <div className="mb-10 rounded-2xl border border-[#d4893a]/15 bg-[#d4893a]/[0.05] px-6 py-5">
             <p className="text-[14px] font-medium text-slate-300">
               You already have signals waiting in your dashboard.
             </p>
@@ -387,7 +387,7 @@ export default function PricingPage() {
               <button
                 onClick={handleUpgrade}
                 disabled={upgradeLoading}
-                className="rounded-xl bg-violet-600 px-8 py-3 text-sm font-semibold text-white shadow-[0_0_20px_rgba(124,58,237,0.4)] transition-colors hover:bg-violet-500 active:bg-violet-700 disabled:opacity-60"
+                className="rounded-xl bg-[#d4893a] px-8 py-3 text-sm font-semibold text-white shadow-[0_0_20px_rgba(124,58,237,0.4)] transition-colors hover:bg-[#e8a04e] active:bg-[#c47a3e] disabled:opacity-60"
               >
                 {upgradeLoading
                   ? "Opening Shopify billing…"

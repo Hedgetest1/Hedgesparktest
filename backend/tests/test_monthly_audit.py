@@ -38,7 +38,9 @@ def test_cooldown_respected():
     original = audit_mod._last_audit_run
     try:
         audit_mod._last_audit_run = None
-        assert should_run_monthly_audit() is True
+        # Clear Redis cooldown key to ensure clean state
+        with patch("app.core.redis_client.cache_get", return_value=None):
+            assert should_run_monthly_audit() is True
 
         mark_monthly_audit_run()
         assert should_run_monthly_audit() is False
@@ -66,33 +68,44 @@ def test_cooldown_expired():
 def test_max_proposals_cap_enforced():
     """Parser must cap at MAX_PROPOSALS_PER_RUN."""
     proposals = [
-        {"title": f"Proposal {i}", "type": "architecture", "reasoning": "test",
-         "expected_impact": "test", "risk_level": "LEVEL_2"}
+        _valid_bet(title=f"Improve conversion nudge variant {i} for high-intent visitors")
         for i in range(20)
     ]
-    raw = json.dumps({"proposals": proposals})
+    raw = json.dumps({"bets": proposals})
     result = _parse_proposals(raw)
     assert len(result) <= MAX_PROPOSALS_PER_RUN
 
 
+def _valid_bet(**overrides):
+    """Build a proposal that passes all strict governance gates."""
+    base = {
+        "title": "Improve conversion nudge targeting for high-intent visitors",
+        "type": "performance",
+        "revenue_thesis": "Targeting high-intent visitors with nudges will increase CVR by 12% based on current 2.1% baseline, adding ~€300/month per active merchant",
+        "expected_impact": "Increase conversion rate by 12% across top 20 products based on current 2.1% baseline",
+        "risk_level": "LEVEL_2",
+        "rejected_alternatives": [
+            {"alternative": "Broader audience targeting", "why_rejected": "Lower precision leads to nudge fatigue and reduced trust"},
+            {"alternative": "Static discount banners", "why_rejected": "Margin erosion without behavioral evidence of purchase intent"},
+        ],
+    }
+    base.update(overrides)
+    return base
+
+
 def test_risk_level_enforced():
     """LEVEL_1 proposals are upgraded to LEVEL_3."""
-    raw = json.dumps({"proposals": [
-        {"title": "Bad level", "type": "performance", "reasoning": "r",
-         "expected_impact": "e", "risk_level": "LEVEL_1"},
-    ]})
+    raw = json.dumps({"bets": [_valid_bet(risk_level="LEVEL_1")]})
     result = _parse_proposals(raw)
+    assert len(result) == 1
     assert result[0]["risk_level"] == "LEVEL_3"
 
 
-def test_invalid_type_normalized():
-    """Invalid type defaults to architecture."""
-    raw = json.dumps({"proposals": [
-        {"title": "t", "type": "banana", "reasoning": "r",
-         "expected_impact": "e", "risk_level": "LEVEL_2"},
-    ]})
+def test_invalid_type_rejected():
+    """Invalid type is rejected (strict governance — no fallback to architecture)."""
+    raw = json.dumps({"bets": [_valid_bet(type="banana")]})
     result = _parse_proposals(raw)
-    assert result[0]["type"] == "architecture"
+    assert result == []
 
 
 def test_parse_invalid_json():
@@ -162,15 +175,11 @@ def test_audit_skipped_without_api_key(db):
 def test_audit_stores_proposals_on_success(db):
     """Successful LLM call stores proposals."""
     mock_response = json.dumps({
-        "proposals": [
-            {"title": "Improve caching", "type": "performance",
-             "reasoning": "Redis hit rate low", "expected_impact": "50% faster",
-             "risk_level": "LEVEL_2"},
-            {"title": "Split ops.py", "type": "architecture",
-             "reasoning": "File too large", "expected_impact": "Better maintainability",
-             "risk_level": "LEVEL_3"},
+        "bets": [
+            _valid_bet(title="Improve conversion nudge latency for high-intent cart visitors", type="performance"),
+            _valid_bet(title="Add holdout measurement to attribution funnel for causal lift", type="reliability"),
         ],
-        "summary": "System is healthy but caching needs attention",
+        "summary": "System is healthy but conversion path needs attention",
     })
 
     with patch("app.services.monthly_evolution_audit._call_opus", return_value=mock_response):
@@ -189,8 +198,7 @@ def test_audit_stores_proposals_on_success(db):
 def test_audit_creates_audit_log(db):
     """Successful audit writes audit_log entry."""
     mock_response = json.dumps({
-        "proposals": [{"title": "t", "type": "reliability", "reasoning": "r",
-                       "expected_impact": "e", "risk_level": "LEVEL_2"}],
+        "bets": [_valid_bet(title="Improve conversion nudge reliability for signal tracking")],
     })
 
     with patch("app.services.monthly_evolution_audit._call_opus", return_value=mock_response):
@@ -319,7 +327,8 @@ def test_send_message_success():
     mock_client.post.return_value = mock_resp
     mock_client.is_closed = False
     try:
-        with patch("app.services.telegram_agent._get_http_client", return_value=mock_client):
+        with patch("app.services.telegram_agent._get_http_client", return_value=mock_client), \
+             patch("app.core.notifier_guard.is_real_send_allowed", return_value=True):
             result = send_message("Hello")
             assert result  # truthy (42 or True)
             mock_client.post.assert_called_once()
@@ -330,7 +339,7 @@ def test_send_message_success():
 def test_handle_help_command():
     """Help command returns usage text."""
     result = handle_command("/help")
-    assert "Hedge Spark" in result
+    assert "HedgeSpark" in result
     assert "/status" in result
     assert "/costs" in result
 

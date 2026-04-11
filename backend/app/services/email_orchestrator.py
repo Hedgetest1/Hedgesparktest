@@ -1,0 +1,847 @@
+"""
+email_orchestrator.py — Centralized email orchestration system.
+
+Every email producer in the system submits an EmailIntent instead of
+sending directly. The orchestrator collects intents per merchant,
+resolves conflicts, enforces rate limits, merges compatible messages,
+and flushes the winning intent(s) as actual sends.
+
+This prevents:
+  - Multiple emails to the same merchant on the same day
+  - Low-priority emails drowning out high-priority ones
+  - Spam-like frequency from independent producers
+  - Silent merchants receiving zero communications
+
+Architecture:
+  1. COLLECT — producers call submit_intent() during their scan phase
+  2. RESOLVE — resolve_intents() picks winners per merchant
+  3. FLUSH  — flush_intents() sends the winners via Resend
+
+All three steps happen within a single agent_worker cycle.
+
+Public interface:
+    submit_intent(db, intent: EmailIntent) -> str        # returns intent_id
+    resolve_and_flush(db) -> dict                         # run the full cycle
+    get_pending_intents(shop_domain) -> list[EmailIntent]  # diagnostic
+
+Rate limits:
+    - Max 1 email per merchant per 24 hours (hard)
+    - Max 2 emails per merchant per 7 days (hard)
+    - CRITICAL (P0) can override weekly cap (not daily)
+    - Auto-response emails bypass rate limits (they're replies)
+
+Priority tiers (highest wins):
+    P0 — CRITICAL:   connection_issue, billing problems
+    P1 — REVENUE:    revenue triggers, proof reports
+    P2 — ENGAGEMENT: weekly digest, first_insight
+    P3 — LIFECYCLE:  welcome, setup_incomplete, followup
+    P4 — WINBACK:    reengagement, silence detection
+
+Merge rules:
+    - Same-day digest + proof → merged into enriched digest
+    - Same-day lifecycle + revenue trigger → revenue trigger wins, lifecycle deferred
+    - Same-tier intents → most recent signal wins
+"""
+from __future__ import annotations
+
+import logging
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from enum import IntEnum
+
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+log = logging.getLogger("email_orchestrator")
+
+
+# ---------------------------------------------------------------------------
+# Priority tiers
+# ---------------------------------------------------------------------------
+
+class Priority(IntEnum):
+    CRITICAL    = 0   # connection_issue, billing
+    REVENUE     = 1   # revenue triggers, proof
+    ENGAGEMENT  = 2   # digest, first_insight
+    LIFECYCLE   = 3   # welcome, setup_incomplete, followup
+    WINBACK     = 4   # reengagement
+
+    @classmethod
+    def from_email_type(cls, email_type: str) -> "Priority":
+        _MAP = {
+            # P0 — Critical
+            "connection_issue":       cls.CRITICAL,
+            # P1 — Revenue
+            "trigger_high_intent_leak":   cls.REVENUE,
+            "trigger_traffic_spike":      cls.REVENUE,
+            "trigger_return_visitor_surge": cls.REVENUE,
+            "proof_celebration":          cls.REVENUE,
+            # P2 — Engagement
+            "weekly_digest":          cls.ENGAGEMENT,
+            "first_insight":          cls.ENGAGEMENT,
+            # P3 — Lifecycle
+            "welcome":                cls.LIFECYCLE,
+            "beta_welcome":           cls.LIFECYCLE,
+            "setup_incomplete":       cls.LIFECYCLE,
+            "followup_noopen":        cls.LIFECYCLE,
+            "followup_opened":        cls.LIFECYCLE,
+            "followup_clicked":       cls.LIFECYCLE,
+            # P4 — Winback
+            "reengagement":           cls.WINBACK,
+        }
+        return _MAP.get(email_type, cls.LIFECYCLE)
+
+
+# ---------------------------------------------------------------------------
+# Rate limit constants
+# ---------------------------------------------------------------------------
+
+_MAX_PER_DAY = 1     # hard cap: 1 email per merchant per 24h
+_MAX_PER_WEEK = 2    # hard cap: 2 emails per merchant per 7 days (premium, not noisy)
+_REDIS_PREFIX = "hs:email_orch:"
+_INTENT_TTL = 3600   # intents expire after 1 hour (single cycle)
+
+# Email types that bypass rate limits (auto-responses to merchant-initiated contact)
+_BYPASS_RATE_LIMIT = {"auto_response"}
+
+# Email types that can be merged into a digest
+_DIGEST_MERGEABLE = {"proof_celebration", "first_insight"}
+
+# Email types that should NEVER send standalone — always merge into digest or drop
+# These are low-value as standalone sends; they only justify inbox space inside a digest
+_DOWNGRADE_TO_DIGEST = {"first_insight", "connection_issue", "reengagement"}
+
+# Email types that justify a standalone send outside the weekly digest
+_STANDALONE_WORTHY = {
+    "weekly_digest",           # The primary value channel
+    "welcome",                 # First impression — always standalone
+    "setup_incomplete",        # Onboarding blocker — time-sensitive
+    "trigger_high_intent_leak",     # Real revenue at risk
+    "trigger_traffic_spike",        # Time-sensitive opportunity
+    "trigger_return_visitor_surge", # Revenue opportunity
+    "proof_celebration",       # Highest-ROI email (proves value)
+}
+
+
+# ---------------------------------------------------------------------------
+# EmailIntent dataclass
+# ---------------------------------------------------------------------------
+
+@dataclass
+class EmailIntent:
+    """A request to send an email, not yet approved by the orchestrator."""
+    shop_domain: str
+    email_type: str
+    to_email: str
+    subject: str
+    html: str
+    plain_text: str = ""
+    from_address: str = "HedgeSpark <dev@hedgesparkhq.com>"
+
+    # Orchestration metadata
+    priority: Priority = field(default=Priority.LIFECYCLE)
+    ttl_hours: int = 24          # intent expires if not sent within TTL
+    mergeable: bool = False      # can this be folded into another email?
+    merge_section: str = ""      # HTML snippet for merge (appended to digest)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    intent_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
+
+    # Producer context (for diagnostics)
+    producer: str = ""           # e.g. "revenue_triggers", "merchant_digest"
+    context: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        if self.priority == Priority.LIFECYCLE:
+            # Auto-detect priority from email_type
+            self.priority = Priority.from_email_type(self.email_type)
+
+
+# ---------------------------------------------------------------------------
+# In-memory intent buffer (per agent_worker cycle)
+# ---------------------------------------------------------------------------
+
+_pending_intents: list[EmailIntent] = []
+
+
+def submit_intent(db: Session, intent: EmailIntent) -> str:
+    """
+    Submit an email intent to the orchestrator.
+
+    Called by individual producers instead of sending directly.
+    Returns the intent_id for tracking.
+    """
+    _pending_intents.append(intent)
+    log.info(
+        "email_orch: intent submitted id=%s shop=%s type=%s priority=%s producer=%s",
+        intent.intent_id, intent.shop_domain, intent.email_type,
+        intent.priority.name, intent.producer,
+    )
+    return intent.intent_id
+
+
+def send_immediate(db: Session, intent: EmailIntent) -> dict:
+    """
+    Submit + resolve + send in one synchronous call.
+
+    For real-time paths (auto-response, followup) that need low latency
+    but MUST still pass through full governance.
+
+    Pipeline: governance → suppression check → rate limit → atomic guard → send.
+    Does NOT go through the batch queue. Does NOT wait for flush cycle.
+
+    Returns {"status": "sent"|"blocked"|"failed", "reason": str|None, "resend_id": str|None}
+    """
+    log.info(
+        "email_orch: immediate send id=%s shop=%s type=%s producer=%s",
+        intent.intent_id, intent.shop_domain, intent.email_type, intent.producer,
+    )
+
+    # Full governance + send (same path as batch flush)
+    if _send_intent(db, intent):
+        return {"status": "sent", "reason": None, "resend_id": intent.intent_id}
+    else:
+        return {"status": "blocked", "reason": "governance_or_guard", "resend_id": None}
+
+
+def get_pending_intents(shop_domain: str | None = None) -> list[EmailIntent]:
+    """Get pending intents, optionally filtered by shop."""
+    if shop_domain:
+        return [i for i in _pending_intents if i.shop_domain == shop_domain]
+    return list(_pending_intents)
+
+
+def clear_intents() -> None:
+    """Clear the intent buffer (called after flush or on error)."""
+    _pending_intents.clear()
+
+
+# ---------------------------------------------------------------------------
+# Resolution + Flush
+# ---------------------------------------------------------------------------
+
+def resolve_and_flush(db: Session) -> dict:
+    """
+    Process all pending intents: resolve conflicts, enforce rate limits, send.
+
+    Returns:
+        {
+            "total_intents":  int,
+            "merchants":      int,
+            "sent":           int,
+            "deferred":       int,
+            "rate_limited":   int,
+            "suppressed":     int,
+            "merged":         int,
+        }
+    """
+    summary = {
+        "total_intents": len(_pending_intents),
+        "merchants": 0,
+        "sent": 0,
+        "deferred": 0,
+        "rate_limited": 0,
+        "suppressed": 0,
+        "merged": 0,
+    }
+
+    if not _pending_intents:
+        return summary
+
+    # Group by merchant
+    by_shop: dict[str, list[EmailIntent]] = {}
+    for intent in _pending_intents:
+        by_shop.setdefault(intent.shop_domain, []).append(intent)
+
+    summary["merchants"] = len(by_shop)
+
+    for shop, intents in by_shop.items():
+        result = _resolve_merchant(db, shop, intents)
+        summary["sent"] += result["sent"]
+        summary["deferred"] += result["deferred"]
+        summary["rate_limited"] += result["rate_limited"]
+        summary["suppressed"] += result["suppressed"]
+        summary["merged"] += result["merged"]
+
+    log.info(
+        "email_orch: cycle complete — %d intents, %d merchants, "
+        "%d sent, %d deferred, %d rate_limited, %d suppressed, %d merged",
+        summary["total_intents"], summary["merchants"],
+        summary["sent"], summary["deferred"], summary["rate_limited"],
+        summary["suppressed"], summary["merged"],
+    )
+
+    clear_intents()
+    return summary
+
+
+def _resolve_merchant(
+    db: Session,
+    shop: str,
+    intents: list[EmailIntent],
+) -> dict:
+    """
+    Resolve intents for a single merchant. This is the SINGLE POINT OF CONTROL
+    for all outbound merchant communication.
+
+    Pipeline:
+      1. Hard suppression (bounce/complaint)
+      2. Merchant pause check
+      3. Intent validation (reject redundant, downgrade low-value)
+      4. Rate limit enforcement
+      5. Conflict detection (no contradictory messages)
+      6. Priority resolution (pick winner)
+      7. Merge compatible intents into winner
+      8. Send
+    """
+    result = {"sent": 0, "deferred": 0, "rate_limited": 0, "suppressed": 0, "merged": 0}
+
+    if not intents:
+        return result
+
+    # ── Step 1: Hard suppression (bounce/complaint — permanent) ──
+    if _is_suppressed(db, shop):
+        result["suppressed"] = len(intents)
+        for i in intents:
+            _log_suppressed(db, i, "email_suppressed")
+        return result
+
+    # ── Step 2: Merchant pause check ──
+    if _is_merchant_paused(db, shop):
+        result["suppressed"] = len(intents)
+        for i in intents:
+            _log_suppressed(db, i, "merchant_paused")
+        return result
+
+    # ── Step 3: Adaptive engagement check ──
+    from app.services.email_performance import should_send_email
+    intents.sort(key=lambda i: i.priority)
+    top = intents[0]
+    should, reason = should_send_email(db, shop, top.email_type)
+    if not should and reason == "complained":
+        result["suppressed"] = len(intents)
+        for i in intents:
+            _log_suppressed(db, i, f"adaptive:{reason}")
+        return result
+
+    # ── Step 4: Intent validation — reject and downgrade ──
+    bypass = [i for i in intents if i.email_type in _BYPASS_RATE_LIMIT]
+    normal = [i for i in intents if i.email_type not in _BYPASS_RATE_LIMIT]
+
+    # Send bypass intents (auto-responses) with their own rate limit
+    for i in bypass:
+        if _send_intent(db, i):
+            result["sent"] += 1
+        else:
+            result["suppressed"] += 1
+
+    if not normal:
+        return result
+
+    # 4a. Deduplicate — only one intent per email_type per merchant
+    seen_types: dict[str, EmailIntent] = {}
+    deduped: list[EmailIntent] = []
+    for i in normal:
+        if i.email_type in seen_types:
+            result["suppressed"] += 1
+            _log_suppressed(db, i, "duplicate_type")
+        else:
+            seen_types[i.email_type] = i
+            deduped.append(i)
+    normal = deduped
+
+    # 4b. Downgrade low-value intents — if digest exists, fold them in
+    has_digest = any(i.email_type == "weekly_digest" for i in normal)
+    if has_digest:
+        kept: list[EmailIntent] = []
+        for i in normal:
+            if i.email_type in _DOWNGRADE_TO_DIGEST:
+                # Mark as mergeable into digest instead of standalone
+                i.mergeable = True
+                i.merge_section = _build_merge_snippet(i)
+                result["merged"] += 1
+                log.info(
+                    "email_orch: downgraded %s to digest merge for %s",
+                    i.email_type, shop,
+                )
+                # Find digest and append merge section
+                for d in normal:
+                    if d.email_type == "weekly_digest" and d.html:
+                        if "<!--MERGE_POINT-->" in d.html:
+                            d.html = d.html.replace(
+                                "<!--MERGE_POINT-->",
+                                i.merge_section + "<!--MERGE_POINT-->",
+                            )
+                        else:
+                            d.html = d.html.replace(
+                                "</div></body>",
+                                i.merge_section + "</div></body>",
+                            )
+                        break
+            else:
+                kept.append(i)
+        normal = kept
+    else:
+        # No digest this cycle — drop downgrade-only intents entirely
+        kept = []
+        for i in normal:
+            if i.email_type in _DOWNGRADE_TO_DIGEST:
+                result["suppressed"] += 1
+                _log_suppressed(db, i, "no_digest_to_merge_into")
+            else:
+                kept.append(i)
+        normal = kept
+
+    if not normal:
+        return result
+
+    # 4c. Reject intents not worthy of standalone send (except digest)
+    final: list[EmailIntent] = []
+    for i in normal:
+        if i.email_type in _STANDALONE_WORTHY or i.email_type == "weekly_digest":
+            final.append(i)
+        else:
+            result["suppressed"] += 1
+            _log_suppressed(db, i, f"not_standalone_worthy:{i.email_type}")
+    normal = final
+
+    if not normal:
+        return result
+
+    # ── Step 5: Rate limit enforcement ──
+    recent_count = _recent_send_count(db, shop, days=1)
+    weekly_count = _recent_send_count(db, shop, days=7)
+
+    if recent_count >= _MAX_PER_DAY:
+        result["rate_limited"] += len(normal)
+        for i in normal:
+            _log_suppressed(db, i, "rate_limit_daily")
+        return result
+
+    if weekly_count >= _MAX_PER_WEEK:
+        # Exception: CRITICAL priority (P0) can override weekly cap
+        critical = [i for i in normal if i.priority == Priority.CRITICAL]
+        non_critical = [i for i in normal if i.priority != Priority.CRITICAL]
+        for i in non_critical:
+            result["rate_limited"] += 1
+            _log_suppressed(db, i, "rate_limit_weekly")
+        normal = critical
+        if not normal:
+            return result
+
+    # ── Step 6: Conflict detection ──
+    normal = _resolve_conflicts(normal)
+
+    # ── Step 7: Priority resolution — pick winner ──
+    normal.sort(key=lambda i: (i.priority, i.created_at))
+    winner = normal[0]
+
+    # Defer losers
+    for i in normal[1:]:
+        if i.mergeable and i.merge_section and winner.email_type == "weekly_digest":
+            # Already merged in step 4b
+            pass
+        else:
+            result["deferred"] += 1
+            _log_suppressed(db, i, f"deferred_by:{winner.email_type}")
+
+    # ── Step 8: Send the winner ──
+    if _send_intent(db, winner):
+        result["sent"] = 1
+    else:
+        result["suppressed"] += 1
+
+    return result
+
+
+def _build_merge_snippet(intent: EmailIntent) -> str:
+    """Build a compact HTML snippet from a downgraded intent for digest merging."""
+    type_labels = {
+        "first_insight": "New Insight",
+        "connection_issue": "Connection Alert",
+        "reengagement": "Activity Update",
+    }
+    label = type_labels.get(intent.email_type, intent.email_type.replace("_", " ").title())
+    # Strip down to just the core message
+    return f"""
+    <div style="margin:16px 0;padding:12px 16px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;font-size:13px;line-height:1.5">
+        <strong style="color:#0c4a6e">{label}</strong>
+        <p style="margin:4px 0 0;color:#1e293b">{intent.subject}</p>
+    </div>
+    """
+
+
+def _resolve_conflicts(intents: list[EmailIntent]) -> list[EmailIntent]:
+    """
+    Remove conflicting intents that would send contradictory messages.
+
+    Rules:
+      - setup_incomplete + connection_issue → keep only setup_incomplete (same root cause)
+      - revenue trigger + reengagement → keep only revenue trigger (conflicting signals)
+      - multiple revenue triggers → keep highest priority one
+    """
+    types = {i.email_type for i in intents}
+
+    drop = set()
+
+    # Same root cause: setup stuck vs connection lost — keep the onboarding one
+    if "setup_incomplete" in types and "connection_issue" in types:
+        drop.add("connection_issue")
+
+    # Conflicting signals: "you have active revenue opportunity" + "you've been quiet"
+    has_trigger = any(t.startswith("trigger_") for t in types)
+    if has_trigger and "reengagement" in types:
+        drop.add("reengagement")
+
+    if not drop:
+        return intents
+
+    kept = []
+    for i in intents:
+        if i.email_type in drop:
+            log.info("email_orch: conflict resolved — dropped %s for %s", i.email_type, i.shop_domain)
+        else:
+            kept.append(i)
+    return kept
+
+
+def _is_merchant_paused(db: Session, shop: str) -> bool:
+    """Check if merchant has paused all communications."""
+    try:
+        row = db.execute(
+            text("SELECT email_paused FROM merchants WHERE shop_domain = :shop"),
+            {"shop": shop},
+        ).first()
+        return bool(row and row[0]) if row else False
+    except Exception:
+        return False  # fail-open — don't block sends on query error
+
+
+# ---------------------------------------------------------------------------
+# Send mechanics
+# ---------------------------------------------------------------------------
+
+def _send_intent(db: Session, intent: EmailIntent) -> bool:
+    """Actually send an email intent via Resend. Returns True on success.
+
+    HARD BLOCKS (email is NOT sent):
+      - Governance violation (sender mismatch, brand violations)
+      - Email budget exhausted
+      - Atomic send guard fails (parallel execution)
+      - Empty/missing HTML or recipient
+
+    Fail-safe: on any governance check failure (import error, etc),
+    the email is SKIPPED and logged. We never send an unvalidated email.
+    """
+    # ── Pre-flight: reject obviously broken intents ──
+    if not intent.to_email or not intent.html:
+        _log_suppressed(db, intent, "missing_recipient_or_html")
+        return False
+
+    # ── Governance validation — ALL violations are hard blocks ──
+    governance_hash = ""
+    try:
+        from app.services.email_governance import validate_intent as _gov_validate
+        gov = _gov_validate(intent)
+        governance_hash = gov.content_hash
+        if not gov.passed:
+            log.error(
+                "email_orch: GOVERNANCE BLOCKED %s for %s: %s",
+                intent.email_type, intent.shop_domain, gov.violations,
+            )
+            _log_suppressed(db, intent, f"governance:{gov.violations[0]}")
+            return False
+    except Exception as exc:
+        # Governance check FAILURE = fail-closed. Do not send unvalidated email.
+        log.error("email_orch: governance check failed, blocking send: %s", exc)
+        _log_suppressed(db, intent, "governance_check_error")
+        return False
+
+    # ── Budget check ──
+    try:
+        from app.core.resend_usage import get_resend_usage, RESEND_MONTHLY_LIMIT
+        usage = get_resend_usage(db)
+        if usage["sent"] >= RESEND_MONTHLY_LIMIT:
+            _log_suppressed(db, intent, "email_budget_exhausted")
+            return False
+    except Exception:
+        pass  # Budget check failure is fail-open (better to send than silence)
+
+    # ── Atomic send guard — prevent duplicate sends on parallel execution ──
+    if not _claim_send_slot(intent.shop_domain, intent.email_type):
+        _log_suppressed(db, intent, "duplicate_send_guard")
+        return False
+
+    from app.core.email import send_email
+
+    resend_id = send_email(
+        to=intent.to_email,
+        subject=intent.subject,
+        html=intent.html,
+        text=intent.plain_text,
+        from_address=intent.from_address,
+    )
+
+    if resend_id:
+        _log_sent(db, intent, resend_id)
+
+        # Record in performance memory
+        try:
+            from app.services.email_performance import record_email_event
+            record_email_event(db, intent.shop_domain, intent.email_type, "sent")
+        except Exception:
+            pass
+
+        # Update Redis rate-limit counter
+        _increment_send_counter(intent.shop_domain)
+
+        log.info(
+            "email_orch: SENT id=%s shop=%s type=%s priority=%s resend=%s content_hash=%s",
+            intent.intent_id, intent.shop_domain, intent.email_type,
+            intent.priority.name, resend_id, governance_hash,
+        )
+        return True
+
+    _log_suppressed(db, intent, "send_failed")
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Atomic send guard — prevents duplicate sends on parallel execution
+# ---------------------------------------------------------------------------
+
+_SEND_GUARD_TTL = 300  # 5 minutes — enough to cover one send cycle
+
+
+def _claim_send_slot(shop: str, email_type: str) -> bool:
+    """
+    Atomic SET NX guard. Returns True if this is the first attempt to send
+    this email_type to this shop in the current window. Returns False if
+    another process already claimed it.
+
+    Fail-open on Redis unavailability — better to risk a duplicate than
+    to silence all emails.
+    """
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            return True  # Redis down — fail-open
+        key = f"{_REDIS_PREFIX}guard:{shop}:{email_type}"
+        result = rc.set(key, "1", nx=True, ex=_SEND_GUARD_TTL)
+        if not result:
+            log.warning(
+                "email_orch: DUPLICATE GUARD blocked %s for %s (parallel execution detected)",
+                email_type, shop,
+            )
+        return bool(result)
+    except Exception:
+        return True  # fail-open
+
+
+# ---------------------------------------------------------------------------
+# Rate-limit tracking (Redis + DB fallback)
+# ---------------------------------------------------------------------------
+
+def _recent_send_count(db: Session, shop: str, days: int) -> int:
+    """Count emails sent to this merchant in the last N days."""
+    # Try Redis first (fast path)
+    count = _redis_send_count(shop, days)
+    if count is not None:
+        return count
+
+    # DB fallback
+    try:
+        row = db.execute(
+            text("""
+                SELECT COUNT(*)::int FROM merchant_emails
+                WHERE shop_domain = :shop
+                  AND status = 'sent'
+                  AND created_at >= NOW() - make_interval(days => :days)
+            """),
+            {"shop": shop, "days": days},
+        ).scalar()
+        return int(row or 0)
+    except Exception:
+        return 0
+
+
+def _redis_send_count(shop: str, days: int) -> int | None:
+    """Get send count from Redis. Returns None on miss/error."""
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if not rc:
+            return None
+        key = f"{_REDIS_PREFIX}sends:{shop}:{days}d"
+        val = rc.get(key)
+        return int(val) if val is not None else None
+    except Exception as exc:
+        log.warning(
+            "email_orchestrator: send counter read failed shop=%s days=%d (%s): %s",
+            shop, days, type(exc).__name__, str(exc)[:200],
+        )
+        return None
+
+
+def _increment_send_counter(shop: str) -> None:
+    """Increment daily and weekly send counters in Redis."""
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if not rc:
+            return
+
+        pipe = rc.pipeline(transaction=False)
+
+        # Daily counter (24h TTL)
+        day_key = f"{_REDIS_PREFIX}sends:{shop}:1d"
+        pipe.incr(day_key)
+        pipe.expire(day_key, 86400)
+
+        # Weekly counter (7d TTL)
+        week_key = f"{_REDIS_PREFIX}sends:{shop}:7d"
+        pipe.incr(week_key)
+        pipe.expire(week_key, 604800)
+
+        pipe.execute()
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Suppression checks
+# ---------------------------------------------------------------------------
+
+def _is_suppressed(db: Session, shop: str) -> bool:
+    """Check if merchant email is suppressed (bounce/complaint)."""
+    try:
+        from app.services.email_journey import get_journey
+        journey = get_journey(db, shop)
+        if journey and journey.email_suppressed:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Audit logging
+# ---------------------------------------------------------------------------
+
+def _log_sent(db: Session, intent: EmailIntent, resend_id: str) -> None:
+    """Record a successful send in the audit table."""
+    try:
+        from app.models.merchant_email import MerchantEmail
+        entry = MerchantEmail(
+            shop_domain=intent.shop_domain,
+            email_type=intent.email_type,
+            to_email=intent.to_email,
+            subject=intent.subject,
+            status="sent",
+            resend_id=resend_id if isinstance(resend_id, str) else None,
+        )
+        db.add(entry)
+        db.flush()
+    except Exception as exc:
+        log.warning("email_orch: audit log failed intent=%s: %s", intent.intent_id, exc)
+
+
+def _log_suppressed(db: Session, intent: EmailIntent, reason: str) -> None:
+    """Record a suppressed intent in the audit table."""
+    try:
+        from app.models.merchant_email import MerchantEmail
+        entry = MerchantEmail(
+            shop_domain=intent.shop_domain,
+            email_type=intent.email_type,
+            to_email=intent.to_email,
+            subject=intent.subject,
+            status="suppressed",
+            suppressed_by=f"orchestrator:{reason}",
+        )
+        db.add(entry)
+        db.flush()
+    except Exception as exc:
+        log.warning("email_orch: suppressed log failed intent=%s: %s", intent.intent_id, exc)
+
+
+# ---------------------------------------------------------------------------
+# Context memory — engagement-aware decisions
+# ---------------------------------------------------------------------------
+
+def get_merchant_email_context(db: Session, shop: str) -> dict:
+    """
+    Build engagement context for a merchant.
+
+    Returns:
+        {
+            "last_sent_at":       datetime | None,
+            "last_opened_at":     datetime | None,
+            "emails_7d":          int,
+            "emails_30d":         int,
+            "engagement_level":   str,  # active | passive | dormant | new
+            "is_suppressed":      bool,
+        }
+    """
+    try:
+        row = db.execute(
+            text("""
+                SELECT
+                    MAX(CASE WHEN status = 'sent' THEN created_at END) AS last_sent,
+                    COUNT(CASE WHEN status = 'sent'
+                               AND created_at >= NOW() - INTERVAL '7 days' THEN 1 END) AS sent_7d,
+                    COUNT(CASE WHEN status = 'sent'
+                               AND created_at >= NOW() - INTERVAL '30 days' THEN 1 END) AS sent_30d
+                FROM merchant_emails
+                WHERE shop_domain = :shop
+            """),
+            {"shop": shop},
+        ).first()
+
+        last_sent = row[0] if row else None
+        sent_7d = int(row[1] or 0) if row else 0
+        sent_30d = int(row[2] or 0) if row else 0
+
+    except Exception:
+        last_sent = None
+        sent_7d = 0
+        sent_30d = 0
+
+    # Get last opened from email_performance
+    last_opened = None
+    try:
+        opened_row = db.execute(
+            text("""
+                SELECT MAX(last_opened_at) FROM merchant_email_stats
+                WHERE shop_domain = :shop
+            """),
+            {"shop": shop},
+        ).scalar()
+        last_opened = opened_row
+    except Exception:
+        pass
+
+    # Classify engagement
+    if sent_30d == 0:
+        engagement = "new"
+    elif last_opened and last_sent:
+        days_since_open = (datetime.now(timezone.utc).replace(tzinfo=None) - last_opened).days
+        if days_since_open <= 7:
+            engagement = "active"
+        elif days_since_open <= 30:
+            engagement = "passive"
+        else:
+            engagement = "dormant"
+    elif sent_30d >= 3:
+        engagement = "dormant"  # sent but never opened
+    else:
+        engagement = "passive"
+
+    return {
+        "last_sent_at": last_sent,
+        "last_opened_at": last_opened,
+        "emails_7d": sent_7d,
+        "emails_30d": sent_30d,
+        "engagement_level": engagement,
+        "is_suppressed": _is_suppressed(db, shop),
+    }

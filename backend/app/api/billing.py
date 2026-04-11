@@ -53,7 +53,7 @@ Environment variables
 ---------------------
     SHOPIFY_PRO_PLAN_PRICE   float   Subscription price in USD (default: 29.00)
     SHOPIFY_PRO_PLAN_NAME    str     Charge name shown on Shopify billing page
-                                     (default: "Hedge Spark Pro")
+                                     (default: "HedgeSpark Pro")
     SHOPIFY_PRO_TRIAL_DAYS   int     Free trial days (default: 14)
     APP_URL                  str     Backend base URL — used to build return_url
     DASHBOARD_URL            str     Frontend URL — redirect destination after callback
@@ -86,7 +86,7 @@ router = APIRouter(prefix="/billing", tags=["billing"])
 _APP_URL:       str   = os.getenv("APP_URL",               "").rstrip("/")
 _DASHBOARD_URL: str   = os.getenv("DASHBOARD_URL",         "").rstrip("/")
 _PRO_PRICE:     float = float(os.getenv("SHOPIFY_PRO_PLAN_PRICE",  "49.00"))
-_PRO_NAME:      str   = os.getenv("SHOPIFY_PRO_PLAN_NAME", "Hedge Spark Pro")
+_PRO_NAME:      str   = os.getenv("SHOPIFY_PRO_PLAN_NAME", "HedgeSpark Pro")
 _TRIAL_DAYS:    int   = int(os.getenv("SHOPIFY_PRO_TRIAL_DAYS", "14"))
 
 _SHOPIFY_API_VERSION = "2024-01"

@@ -1,5 +1,5 @@
 """
-metrics.py — Lightweight Prometheus-compatible metrics for Hedge Spark.
+metrics.py — Lightweight Prometheus-compatible metrics for HedgeSpark.
 
 Provides request latency, worker cycle time, DB query time, cache hit rate,
 and error counters without adding a Prometheus client dependency.
@@ -268,5 +268,24 @@ def render_metrics() -> str:
     lines.append("# TYPE hs_errors_total counter")
     for error_type, counter in sorted(_error_count.items()):
         lines.append(f'hs_errors_total{{type="{error_type}"}} {counter.value}')
+
+    # DB connection pool gauges
+    try:
+        from app.core.database import engine
+        pool = engine.pool
+        lines.append("# HELP hs_db_pool_size Configured pool size")
+        lines.append("# TYPE hs_db_pool_size gauge")
+        lines.append(f"hs_db_pool_size {pool.size()}")
+        lines.append("# HELP hs_db_pool_checkedout Connections currently checked out")
+        lines.append("# TYPE hs_db_pool_checkedout gauge")
+        lines.append(f"hs_db_pool_checkedout {pool.checkedout()}")
+        lines.append("# HELP hs_db_pool_overflow Current overflow connections")
+        lines.append("# TYPE hs_db_pool_overflow gauge")
+        lines.append(f"hs_db_pool_overflow {pool.overflow()}")
+        lines.append("# HELP hs_db_pool_checkedin Idle connections in pool")
+        lines.append("# TYPE hs_db_pool_checkedin gauge")
+        lines.append(f"hs_db_pool_checkedin {pool.checkedin()}")
+    except Exception:
+        pass  # Pool metrics are best-effort
 
     return "\n".join(lines) + "\n"

@@ -1,5 +1,5 @@
 """
-Thin Redis cache layer for Hedge Spark.
+Thin Redis cache layer for HedgeSpark.
 
 Public interface
 ----------------
@@ -58,7 +58,7 @@ KEY_BRIEF = "hs:brief:{shop}"        # format with shop_domain
 TTL_SIGNALS = 300       # 5 minutes
 TTL_BRIEF = 86_400      # 24 hours
 KEY_AI_COMPOSE = "hs:ai_compose:{hash}"    # format with payload hash
-TTL_AI_COMPOSE = 3600   # 1 hour — same product + same signals = same copy
+TTL_AI_COMPOSE = 86400  # 24 hours — same product + same signals = same copy (saves LLM calls)
 KEY_DASHBOARD  = "hs:dash:{shop}"          # format with shop_domain
 TTL_DASHBOARD  = 60     # 60 seconds — dashboard data refreshes on aggregation cycle
 

@@ -1,22 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { apiClient, type paths } from "../lib/api-client";
 
-
-type Improvement = {
-  product_url: string;
-  action_type: string;
-  summary: string;
-  delta_cvr: number | null;
-  delta_revenue: number | null;
-  measured_at: string | null;
-};
-
-type ProofData = {
-  actions_measured: number;
-  improvements: Improvement[];
-  total_revenue_delta: number;
-};
+// Source of truth: GET /actions/proof → ActionProofSummaryResponse.
+type ProofData =
+  paths["/actions/proof"]["get"]["responses"]["200"]["content"]["application/json"];
 
 function shortProduct(url?: string): string {
   if (!url) return "a product";
@@ -32,7 +21,7 @@ function fmtDelta(value: number): string {
 }
 
 export function ProofHeroCard({
-  apiBase,
+  apiBase: _apiBase,
   shop,
 }: {
   apiBase: string;
@@ -41,20 +30,18 @@ export function ProofHeroCard({
   const [data, setData] = useState<ProofData | null>(null);
 
   useEffect(() => {
-    if (!shop || !apiBase) return;
+    if (!shop) return;
     let active = true;
 
-    fetch(`${apiBase}/actions/proof?shop=${encodeURIComponent(shop)}`, {
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      cache: "no-store",
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((json) => { if (active) setData(json); })
-      .catch(() => {})
+    apiClient
+      .GET("/actions/proof", { params: { query: {} } })
+      .then((res) => {
+        if (active && res.data != null) setData(res.data);
+      })
+      .catch(() => {});
 
     return () => { active = false; };
-  }, [apiBase, shop]);
+  }, [shop]);
 
   // Only render when there are actual improvements
   if (!data || data.improvements.length === 0) return null;

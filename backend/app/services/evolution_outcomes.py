@@ -95,6 +95,17 @@ def _measure_single(db: Session, candidate: BugFixCandidate) -> tuple[str, dict]
     before and after the apply.
 
     Returns (outcome_status, evidence_dict).
+
+    2026-04-11 fix for the "missing_tests false negative" bug:
+    Evolution-sourced candidates (e.g. adding a test file, reducing a
+    large file, clearing TODOs) are NOT measurable via system-wide
+    alert counts. Audit showed two applied test-coverage fixes being
+    marked 'ineffective' only because the system was noisy in the 48h
+    measurement window — the test file WAS successfully created, but
+    alerts_before=192 < alerts_after=409 (unrelated noise). We now
+    use a goal-scoped evaluator for evolution candidates, and only
+    fall back to the alert-counting heuristic when a clear source
+    alert_type exists.
     """
     applied = candidate.applied_at
     window = timedelta(hours=_MEASUREMENT_WINDOW_HOURS)
@@ -109,6 +120,17 @@ def _measure_single(db: Session, candidate: BugFixCandidate) -> tuple[str, dict]
     # contaminating effectiveness measurement.
     alert_type_filter = _extract_alert_type(db, candidate)
     worker_filter = _extract_worker_name(candidate)
+
+    # --- Evolution-sourced candidates: goal-scoped evaluation ---
+    # A candidate like "add missing test file" cannot be judged by
+    # counting system-wide ops_alerts. Judge it by whether the goal
+    # was achieved: the patch_files now exist on disk and the test
+    # file is valid. If we cannot make a direct goal observation,
+    # we return "inconclusive" rather than a false negative.
+    if candidate.source_type == "evolution":
+        goal_outcome, goal_evidence = _measure_evolution_goal(db, candidate)
+        if goal_outcome is not None:
+            return goal_outcome, goal_evidence
 
     # Count SCOPED ops_alerts in each window
     alerts_before = _count_alerts(db, before_start, before_end, alert_type_filter)
@@ -128,6 +150,13 @@ def _measure_single(db: Session, candidate: BugFixCandidate) -> tuple[str, dict]
         "scoped_to_worker": worker_filter,
     }
 
+    # Honesty gate: if the candidate has NO alert_type and NO worker
+    # scoping, comparing system-wide counts is meaningless. Return
+    # 'inconclusive' explicitly instead of false-negative 'ineffective'.
+    if not alert_type_filter and not worker_filter:
+        evidence["note"] = "unscoped_measurement_returns_inconclusive"
+        return "inconclusive", evidence
+
     # Classification logic:
     # - If alerts dropped >50% AND no increase in errors → effective
     # - If alerts increased or errors increased significantly → ineffective
@@ -145,6 +174,103 @@ def _measure_single(db: Session, candidate: BugFixCandidate) -> tuple[str, dict]
         return "ineffective", evidence
 
     return "inconclusive", evidence
+
+
+def _measure_evolution_goal(
+    db: Session, candidate: BugFixCandidate,
+) -> tuple[str | None, dict]:
+    """
+    Goal-scoped evaluator for evolution-sourced candidates.
+
+    Returns (outcome, evidence) where outcome is one of:
+      - "effective": the proposal's explicit goal was achieved
+      - "inconclusive": we can observe partial signal but not decisive
+      - None: no goal-scoped measurement available, caller should fall back
+
+    Why this exists: evolution proposals target specific, observable
+    code-level goals (add test file, reduce line count, remove TODOs).
+    System-wide alert counts are the wrong yardstick. Judge the actual
+    goal.
+    """
+    try:
+        ctx = json.loads(candidate.context_json or "{}")
+    except (ValueError, TypeError):
+        ctx = {}
+
+    proposal_type = (ctx.get("proposal_type") or "").lower()
+    target_file = ctx.get("target_file") or ""
+    patch_files_raw = candidate.patch_files or "[]"
+    try:
+        patch_files = json.loads(patch_files_raw)
+    except (ValueError, TypeError):
+        patch_files = []
+
+    evidence = {
+        "method": "goal_scoped",
+        "proposal_type": proposal_type,
+        "target_file": target_file,
+        "patch_files": patch_files,
+    }
+
+    import os
+    backend_dir = "/opt/wishspark/backend"
+
+    # Case 1: missing_tests — effective if the test file now exists
+    if "missing_test" in proposal_type or "test" in (candidate.title or "").lower():
+        if patch_files:
+            test_path = patch_files[0]
+            full_path = os.path.join(backend_dir, test_path)
+            if os.path.isfile(full_path):
+                try:
+                    size = os.path.getsize(full_path)
+                except Exception:
+                    size = 0
+                evidence["goal"] = "test_file_exists"
+                evidence["file_size_bytes"] = size
+                if size > 100:  # non-empty test file
+                    return "effective", evidence
+                evidence["note"] = "test_file_exists_but_empty"
+                return "inconclusive", evidence
+            evidence["goal"] = "test_file_missing_post_apply"
+            return "inconclusive", evidence
+        return None, evidence
+
+    # Case 2: large_file refactor — check if target_file shrunk
+    if "large_file" in proposal_type or "refactor" in proposal_type:
+        if target_file:
+            full_path = os.path.join(backend_dir, target_file)
+            if os.path.isfile(full_path):
+                try:
+                    with open(full_path) as f:
+                        lines = sum(1 for _ in f)
+                    evidence["goal"] = "file_line_count"
+                    evidence["current_lines"] = lines
+                    # Without a baseline we can't be sure, so inconclusive
+                    return "inconclusive", evidence
+                except Exception:
+                    pass
+        return None, evidence
+
+    # Case 3: TODO/FIXME cleanup — check remaining markers
+    if "todo" in proposal_type or "fixme" in proposal_type:
+        if target_file:
+            full_path = os.path.join(backend_dir, target_file)
+            if os.path.isfile(full_path):
+                try:
+                    with open(full_path) as f:
+                        content = f.read()
+                    remaining = content.upper().count("TODO") + content.upper().count("FIXME")
+                    evidence["goal"] = "todo_fixme_count"
+                    evidence["remaining_markers"] = remaining
+                    if remaining == 0:
+                        return "effective", evidence
+                    return "inconclusive", evidence
+                except Exception:
+                    pass
+        return None, evidence
+
+    # Unknown evolution type — let the caller fall back to alert-counting
+    return None, evidence
 
 
 def _extract_alert_type(db: Session, candidate: BugFixCandidate) -> str | None:
@@ -622,7 +748,7 @@ def _build_specific_resolution(candidate: BugFixCandidate, incident=None) -> str
     elif "webhook" in title.lower() or domain == "webhooks":
         parts.append("An issue with your Shopify data sync (webhooks) has been fixed.")
     elif "auth" in title.lower() or domain == "shopify_auth":
-        parts.append("A connection issue between your store and Hedge Spark has been resolved.")
+        parts.append("A connection issue between your store and HedgeSpark has been resolved.")
     elif title:
         # Use the candidate title directly (it's already descriptive)
         clean_title = title.split("]")[-1].strip() if "]" in title else title

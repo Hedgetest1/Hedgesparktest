@@ -146,7 +146,8 @@ def test_alert_delivery_status_sent_on_success(db):
     mock_resp = MagicMock(status_code=200)
     with patch.dict(os.environ, {"OPS_SLACK_WEBHOOK_URL": "https://hooks.slack.com/test"}, clear=False), \
          patch("app.core.alert_delivery._SLACK_URL", "https://hooks.slack.com/test"), \
-         patch("app.core.alert_delivery.httpx.post", return_value=mock_resp):
+         patch("app.core.alert_delivery.httpx.post", return_value=mock_resp), \
+         patch("app.core.notifier_guard.is_real_send_allowed", return_value=True):
         from app.services.alerting import write_alert
         alert = write_alert(
             db, severity="critical", source="test",

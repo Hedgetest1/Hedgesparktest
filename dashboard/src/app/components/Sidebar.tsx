@@ -155,29 +155,35 @@ export function Sidebar({
 
   return (
     <aside
-      className={`sticky top-0 flex h-screen flex-shrink-0 flex-col border-r border-white/[0.06] bg-[#060610] transition-[width] duration-200 ease-in-out ${
+      className={`sticky top-0 flex h-screen flex-shrink-0 flex-col border-r border-white/[0.06] bg-[#07070f] transition-[width] duration-200 ease-in-out ${
         collapsed ? "w-16" : "w-56"
       }`}
     >
       {/* Brand */}
-      <div className="flex h-14 flex-shrink-0 items-center gap-3 border-b border-white/[0.06] px-4">
-        <Image
-          src="/branding/hedgespark/spark.png"
-          alt="HedgeSpark"
-          width={30}
-          height={30}
-          className="flex-shrink-0"
-          priority
-        />
-        {!collapsed && (
-          <span className="text-[15px] font-bold tracking-tight text-white">
-            Hedge<span className="text-violet-400">Spark</span>
-          </span>
+      <div className="flex h-16 flex-shrink-0 items-center border-b border-white/[0.06] px-3">
+        {collapsed ? (
+          <Image
+            src="/branding/hedgespark/spark.png"
+            alt="HedgeSpark"
+            width={32}
+            height={32}
+            className="mx-auto flex-shrink-0"
+            priority
+          />
+        ) : (
+          <Image
+            src="/logo-beta-v2.png"
+            alt="HedgeSpark"
+            width={140}
+            height={58}
+            className="flex-shrink-0"
+            priority
+          />
         )}
       </div>
 
       {/* Nav */}
-      <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto py-3">
+      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto py-4">
         {NAV_ITEMS.map((item) => {
           const isActive = activeNavId === item.id;
           const isLocked = item.pro && tier === "lite";
@@ -187,9 +193,9 @@ export function Sidebar({
               ref={isActive ? activeRef : undefined}
               onClick={() => onNavigate(item.id)}
               title={collapsed ? item.label : undefined}
-              className={`mx-2 flex items-center gap-3 rounded-lg px-2 py-2.5 text-[13px] transition-all duration-150 ${
+              className={`mx-2 flex items-center gap-3 rounded-xl px-3 py-3 text-[15px] font-medium transition-all duration-150 ${
                 isActive
-                  ? "bg-violet-500/15 text-violet-300 shadow-[inset_0_0_0_1px_rgba(139,92,246,0.15)]"
+                  ? "bg-[#d4893a]/15 text-[#e8a04e] shadow-[inset_0_0_0_1px_rgba(212,137,58,0.18)]"
                   : isLocked
                   ? "text-slate-600 hover:bg-white/[0.03] hover:text-slate-500"
                   : "text-slate-400 hover:bg-white/[0.05] hover:text-slate-200"
@@ -200,14 +206,14 @@ export function Sidebar({
                 <span className="flex min-w-0 flex-1 items-center gap-2 truncate">
                   {item.label}
                   {isLocked && (
-                    <span className="rounded border border-violet-400/20 bg-violet-500/10 px-1.5 py-px text-[8px] font-semibold uppercase tracking-[0.08em] text-violet-400/60">
+                    <span className="rounded border border-[#d4893a]/20 bg-[#d4893a]/10 px-1.5 py-px text-[9px] font-bold uppercase tracking-[0.08em] text-[#d4893a]/60">
                       Pro
                     </span>
                   )}
                 </span>
               )}
               {isActive && !collapsed && (
-                <span className="ml-auto h-4 w-0.5 flex-shrink-0 rounded-full bg-violet-400/70" />
+                <span className="ml-auto h-5 w-[3px] flex-shrink-0 rounded-full bg-[#d4893a]" />
               )}
             </button>
           );

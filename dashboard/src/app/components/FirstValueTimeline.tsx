@@ -37,15 +37,15 @@ const STAGES: {
   detail: string;
 }[] = [
   { key: "visitors", label: "First visitors", eta: "~minutes", detail: "Your tracker is active and watching." },
-  { key: "insights", label: "First insights", eta: "~10 minutes", detail: "We'll surface the first opportunities." },
-  { key: "full", label: "Full analysis", eta: "~24 hours", detail: "Revenue-at-risk, funnels, forecasts live." },
+  { key: "insights", label: "First findings", eta: "typically under 10 min", detail: "We'll tell you which products need attention." },
+  { key: "full", label: "Full analysis", eta: "~24 hours", detail: "Revenue-at-risk, product funnels, and forecasts." },
 ];
 
 const STAGE_MESSAGES: Record<FirstValueStage, string> = {
   setup: "We're getting ready — finish setup to start receiving visitors.",
-  visitors: "Your store is live. We're watching for your first visitors.",
-  insights: "Visitors arriving. First insights in about 10 minutes.",
-  full: "Full analysis is active. Spark is working for your store.",
+  visitors: "Your store is live. Watching for your first visitors.",
+  insights: "Visitors arriving. Analyzing behavior to find your first revenue opportunity.",
+  full: "Full analysis is active. HedgeSpark is watching your store.",
 };
 
 function stageIndex(stage: FirstValueStage): number {

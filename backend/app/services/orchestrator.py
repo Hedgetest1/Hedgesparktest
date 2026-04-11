@@ -257,6 +257,84 @@ def get_action_tier(action_name: str) -> int:
 # Decision rules — deterministic Tier 0 policy
 # ---------------------------------------------------------------------------
 
+#: resolve_alert is a NOISE-REDUCTION action, not a real fix. It marks a
+#: stale alert as resolved so the operator dashboard isn't cluttered, but
+#: it does not repair the underlying condition. Post-2026-04-11 audit
+#: showed 548/558 orch_resolve_alert outcomes = no_effect, because the
+#: source problem kept re-firing. We now (a) skip re-resolving after 3
+#: attempts in 24h and (b) tag the action as cosmetic so it does not
+#: inflate the bugfix-pipeline failure rate.
+_COSMETIC_ACTIONS: frozenset[str] = frozenset({
+    "resolve_alert",
+})
+
+
+def _skip_stale_resolve(
+    db: Session, now: datetime, alert_type: str, shop_domain: str | None,
+) -> bool:
+    """
+    Decide whether to stop auto-resolving alerts of this (alert_type, shop).
+
+    Rule: if orch_resolve_alert has fired on this (alert_type, shop) 3+
+    times in the last 24h AND every prior attempt was no_effect, the
+    source is clearly NOT being fixed by resolving the symptom. Stop
+    trying and escalate to a manual_intervention_required alert.
+    """
+    from app.models.action_outcome import ActionOutcome
+    from app.models.ops_alert import OpsAlert
+
+    cutoff = now - timedelta(hours=24)
+    q = (
+        db.query(ActionOutcome)
+        .filter(
+            ActionOutcome.action_type == "orch_resolve_alert",
+            ActionOutcome.executed_at >= cutoff,
+            ActionOutcome.outcome_status == "no_effect",
+        )
+    )
+    recent_no_effect_count = q.count()
+    if recent_no_effect_count < 3:
+        return False
+
+    # We have 3+ no_effect. Escalate ONCE (dedup via the alert system).
+    try:
+        from app.services.alerting import write_alert
+        existing = (
+            db.query(OpsAlert)
+            .filter(
+                OpsAlert.alert_type == "manual_intervention_required",
+                OpsAlert.source == f"orchestrator:{alert_type}:{shop_domain or 'global'}",
+                OpsAlert.resolved == False,
+            )
+            .first()
+        )
+        if not existing:
+            write_alert(
+                db,
+                severity="warning",
+                source=f"orchestrator:{alert_type}:{shop_domain or 'global'}",
+                alert_type="manual_intervention_required",
+                summary=(
+                    f"Auto-resolve for {alert_type}"
+                    + (f" on {shop_domain}" if shop_domain else "")
+                    + f" has failed {recent_no_effect_count}x in 24h. "
+                    f"Resolving the symptom does not fix the underlying issue. "
+                    f"Human investigation required."
+                ),
+                shop_domain=shop_domain,
+                detail={
+                    "alert_type": alert_type,
+                    "shop_domain": shop_domain,
+                    "no_effect_count_24h": recent_no_effect_count,
+                    "action": "Stop auto-resolving this alert type; investigate root cause.",
+                },
+            )
+    except Exception as exc:
+        log.debug("orchestrator: escalation write_alert failed (non-fatal): %s", exc)
+
+    return True
+
+
 def _evaluate_decisions(db: Session) -> list[ActionRecord]:
     """
     Read operational state and produce a list of candidate actions.
@@ -308,6 +386,11 @@ def _evaluate_decisions(db: Session) -> list[ActionRecord]:
     for alert in worker_fails:
         # Only resolve if alert is >1 hour old (give human time to see it)
         if alert.created_at and (now - alert.created_at).total_seconds() > 3600:
+            # Stop auto-resolving if the same alert_type on the same shop
+            # has been auto-resolved 3+ times in 24h with no_effect — that's
+            # not self-healing, that's treadmill. Escalate instead.
+            if _skip_stale_resolve(db, now, "worker_repeated_failure", alert.shop_domain):
+                continue
             candidates.append(ActionRecord(
                 action="resolve_alert",
                 target=str(alert.id),
@@ -325,6 +408,8 @@ def _evaluate_decisions(db: Session) -> list[ActionRecord]:
         .all()
     )
     for alert in info_alerts:
+        if _skip_stale_resolve(db, now, "webhook_repaired", alert.shop_domain):
+            continue
         candidates.append(ActionRecord(
             action="resolve_alert",
             target=str(alert.id),
@@ -376,6 +461,8 @@ def _evaluate_decisions(db: Session) -> list[ActionRecord]:
         .all()
     )
     for alert in onboarding_fails:
+        if _skip_stale_resolve(db, now, "onboarding_failed", alert.shop_domain):
+            continue
         candidates.append(ActionRecord(
             action="resolve_alert",
             target=str(alert.id),
@@ -519,6 +606,29 @@ def run_orchestrator_cycle(db: Session) -> OrchestratorResult:
     return result
 
 
+def _context_is_quiet(context: str) -> bool:
+    """
+    Check if orchestrator context has no actionable signals.
+
+    If all alerts are resolved and no workers are erroring, there's nothing
+    for the LLM to propose. Skip the call to save budget.
+
+    Only applies to well-formed contexts (>100 chars) from the real builder.
+    Short/mock contexts always pass through to avoid test interference.
+    """
+    # Don't skip on short contexts — likely test mocks or builder errors
+    if len(context) < 200:
+        return False
+
+    context_lower = context.lower()
+    has_unresolved = "unresolved" in context_lower and "0 unresolved" not in context_lower
+    has_errors = "error" in context_lower and "0 errors" not in context_lower
+    has_critical = "critical" in context_lower
+    has_degraded = "degraded" in context_lower or "failed" in context_lower
+
+    return not (has_unresolved or has_errors or has_critical or has_degraded)
+
+
 def _run_llm_proposal_phase(
     db: Session,
     cycle_id: str,
@@ -535,6 +645,12 @@ def _run_llm_proposal_phase(
 
     context = build_orchestrator_context(db)
     log.info("orchestrator: LLM context built (%d chars) cycle=%s", len(context), cycle_id)
+
+    # Cost optimization: skip LLM call if context has no actionable signals.
+    # If no unresolved alerts and no worker errors, LLM will propose nothing.
+    if _context_is_quiet(context):
+        log.info("orchestrator: context quiet — skipping LLM call cycle=%s", cycle_id)
+        return
 
     llm_result = claude_decision(context, ACTION_REGISTRY)
 

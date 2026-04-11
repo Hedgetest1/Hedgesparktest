@@ -22,8 +22,9 @@ import time
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.core.database import engine
@@ -176,6 +177,17 @@ def system_health():
     except Exception:
         report["subsystems"]["ai_cache"] = {"status": "unavailable"}
 
+    # ── 6. Version — immutable snapshot of the running process ───────────
+    # Captured ONCE at module import so it reflects the code actually
+    # loaded by the running python process, not the disk at request time.
+    # This is how deploy_gate.py verifies that a pm2 restart actually
+    # loaded the new code (see scripts/deploy_gate.py postdeploy).
+    try:
+        from app.core.version import get_version_info
+        report["version"] = get_version_info()
+    except Exception:
+        report["version"] = {"git_sha": "unknown"}
+
     # ── Overall status ────────────────────────────────────────────────────
     if critical:
         report["status"] = "critical"
@@ -188,3 +200,89 @@ def system_health():
 
     status_code = 503 if critical else 200
     return JSONResponse(content=report, status_code=status_code)
+
+
+class MerchantSipStatusResponse(BaseModel):
+    """GET /merchant/sip-status — dashboard system status bar payload."""
+    data_points: int
+    confidence: str
+    trust_score: float
+    autonomy_level: int
+    signals_active: int
+    nudges_active: int
+
+
+@router.get(
+    "/merchant/sip-status",
+    response_model=MerchantSipStatusResponse,
+    response_model_exclude_none=False,
+)
+def merchant_sip_status(shop: str = ""):
+    """
+    Lightweight SIP status for the dashboard system status bar.
+    Returns data_points, confidence, active signals/nudges count.
+    Authenticated via session cookie (shop param for routing).
+    """
+    if not shop:
+        raise HTTPException(status_code=400, detail="missing shop")
+    try:
+        with engine.connect() as conn:
+            # SIP data
+            sip = conn.execute(
+                text("""
+                    SELECT data_points_total, confidence_level, trust_score, autonomy_level
+                    FROM store_intelligence_profiles WHERE shop_domain = :shop
+                """),
+                {"shop": shop},
+            ).fetchone()
+
+            # Active signals
+            signals = conn.execute(
+                text("SELECT COUNT(*) FROM opportunity_signals WHERE shop_domain = :shop AND expires_at > NOW()"),
+                {"shop": shop},
+            ).scalar() or 0
+
+            # Active nudges
+            nudges = conn.execute(
+                text("SELECT COUNT(*) FROM active_nudges WHERE shop_domain = :shop AND status = 'active'"),
+                {"shop": shop},
+            ).scalar() or 0
+
+        return {
+            "data_points": sip[0] if sip else 0,
+            "confidence": sip[1] if sip else "none",
+            "trust_score": round(float(sip[2]), 2) if sip and sip[2] else 0.5,
+            "autonomy_level": sip[3] if sip else 0,
+            "signals_active": signals,
+            "nudges_active": nudges,
+        }
+    except Exception:
+        return {
+            "data_points": 0, "confidence": "none", "trust_score": 0.5,
+            "autonomy_level": 0, "signals_active": 0, "nudges_active": 0,
+        }
+
+
+@router.get("/ops/signal-count-week")
+def signal_count_week():
+    """
+    Public endpoint: aggregate signal count over the last 7 days.
+    Used by the landing page for social proof. No auth required.
+    Lightweight — single COUNT query with index on detected_at.
+    """
+    try:
+        import time as _time
+        now_ms = int(_time.time() * 1000)
+        week_ago = now_ms - 7 * 86_400 * 1_000
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT COUNT(*) FROM events WHERE timestamp > :ts"),
+                {"ts": week_ago},
+            ).fetchone()
+        count = row[0] if row else 0
+        return JSONResponse(
+            content={"count": count},
+            headers={"Cache-Control": "public, max-age=300"},  # 5-min cache
+        )
+    except Exception:
+        return JSONResponse(content={"count": 0}, status_code=200)

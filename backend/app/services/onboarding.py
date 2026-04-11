@@ -66,6 +66,21 @@ def run_onboarding(db: Session, merchant: Merchant) -> OnboardingResult:
         result.error = "install_inactive"
         return result
 
+    # Backoff: skip if retry is scheduled for later
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if merchant.onboarding_next_retry_at and now < merchant.onboarding_next_retry_at:
+        result.status = "skipped"
+        result.error = "backoff_active"
+        return result
+
+    # Give up after 5 retries — escalate to operator
+    _MAX_RETRIES = 5
+    retry_count = merchant.onboarding_retry_count or 0
+    if retry_count >= _MAX_RETRIES and merchant.onboarding_status == "failed":
+        result.status = "skipped"
+        result.error = "max_retries_exceeded"
+        return result
+
     # Transition to configuring
     merchant.onboarding_status = "configuring"
     merchant.onboarding_error = None
@@ -114,12 +129,13 @@ def run_onboarding(db: Session, merchant: Merchant) -> OnboardingResult:
         result.status = "ready"
         log.info("onboarding: complete shop=%s steps=%s", merchant.shop_domain, result.steps_completed)
 
-        # Send welcome email (fire-and-forget, never blocks onboarding)
+        # Send welcome email via orchestrator (immediate mode, never blocks onboarding)
         try:
-            from app.services.merchant_email_service import send_lifecycle_email
-            send_lifecycle_email(db, merchant.shop_domain, "welcome")
+            from app.services.merchant_email_service import submit_lifecycle_intent
+            submit_lifecycle_intent(db, merchant.shop_domain, "welcome")
+            # Intent will be flushed by the next orchestrator cycle or agent_worker flush
         except Exception as exc:
-            log.warning("onboarding: welcome email failed (non-fatal): %s", exc)
+            log.warning("onboarding: welcome email intent failed (non-fatal): %s", exc)
 
         return result
 
@@ -129,26 +145,51 @@ def run_onboarding(db: Session, merchant: Merchant) -> OnboardingResult:
 
 
 def _fail(db: Session, merchant: Merchant, result: OnboardingResult, error: str) -> OnboardingResult:
-    """Mark onboarding as failed and write alert."""
+    """Mark onboarding as failed, set exponential backoff, and write alert."""
+    from datetime import timedelta
+
     merchant.onboarding_status = "failed"
     merchant.onboarding_error = error[:500]
+
+    # Exponential backoff: 1h, 4h, 12h, 24h, then give up
+    _BACKOFF_HOURS = [1, 4, 12, 24, 24]
+    retry_count = (merchant.onboarding_retry_count or 0) + 1
+    merchant.onboarding_retry_count = retry_count
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    if retry_count <= len(_BACKOFF_HOURS):
+        backoff_hours = _BACKOFF_HOURS[retry_count - 1]
+        merchant.onboarding_next_retry_at = now + timedelta(hours=backoff_hours)
+    else:
+        # Max retries exceeded — no more retries
+        merchant.onboarding_next_retry_at = None
+
     db.flush()
+
+    severity = "warning"
+    # Escalate to critical after 3+ retries
+    if retry_count >= 3:
+        severity = "critical" if retry_count >= 5 else "warning"
 
     from app.services.alerting import write_alert
     write_alert(
         db,
-        severity="warning",
+        severity=severity,
         source="onboarding",
         alert_type="onboarding_failed",
         shop_domain=merchant.shop_domain,
-        summary=f"Onboarding failed: {error}",
-        detail={"steps_completed": result.steps_completed, "error": error},
+        summary=f"Onboarding failed (attempt {retry_count}): {error}",
+        detail={"steps_completed": result.steps_completed, "error": error, "retry_count": retry_count},
     )
     db.flush()
 
     result.status = "failed"
     result.error = error
-    log.warning("onboarding: FAILED shop=%s error=%s steps=%s", merchant.shop_domain, error, result.steps_completed)
+    log.warning(
+        "onboarding: FAILED shop=%s error=%s retry=%d next_retry=%s",
+        merchant.shop_domain, error, retry_count,
+        merchant.onboarding_next_retry_at.isoformat() if merchant.onboarding_next_retry_at else "GIVEN_UP",
+    )
     return result
 
 

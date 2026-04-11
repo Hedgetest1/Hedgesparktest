@@ -91,7 +91,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, Index, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String, Text
 
 from app.core.database import Base
 
@@ -127,6 +127,13 @@ class ActiveNudge(Base):
 
     # Linkage
     action_task_id = Column(Integer, nullable=True)
+
+    # AI composition state — True when nudge has baseline variants and needs
+    # AI-composed replacements from the aggregation_worker loop
+    ai_compose_pending       = Column(Boolean, nullable=True, default=False)
+
+    # Bootstrap flag: manually-forced experiments excluded from SIP learning
+    is_bootstrap             = Column(Boolean, nullable=False, default=False)
 
     # Segment context at time of last refresh
     visitor_count            = Column(Integer, nullable=True)

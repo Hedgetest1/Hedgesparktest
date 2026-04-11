@@ -1,46 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { apiClient, getHeaders, type paths } from "../lib/api-client";
 
 // HeatmapCard — Scroll depth visualization from real behavioral data.
 //
-// WishSpark captures scroll_depth per visitor per product page.
+// HedgeSpark captures scroll_depth per visitor per product page.
 // This component aggregates that into a visual scroll map.
 //
 // Attacks Microsoft Clarity on their core proposition — but our data
 // is connected to conversion outcomes, not just visual session replay.
 //
-// Sources from: GET /pro/heatmap/top?shop=&hours=
+// Source of truth: GET /pro/heatmap/top → HeatmapTopResponse (fully typed).
 
-type ScrollBucket = {
-  label?: string;
-  range?: [number, number];
-  visitor_count?: number;
-  pct_of_viewers?: number;
-};
-
-type ScrollData = {
-  total_viewers?: number;
-  avg_scroll_depth?: number;
-  median_scroll_depth?: number;
-  buckets?: ScrollBucket[];
-  insight?: string;
-};
-
-type ProductHeatmap = {
-  product_url?: string;
-  total_viewers?: number;
-  avg_scroll_depth?: number;
-  deep_reader_pct?: number;
-  insight?: string;
-  buckets?: ScrollBucket[];
-};
-
-type HeatmapTopData = {
-  products?: ProductHeatmap[];
-  window_hours?: number;
-  generated_at?: string;
-};
+type HeatmapTopData =
+  paths["/pro/heatmap/top"]["get"]["responses"]["200"]["content"]["application/json"];
+type ScrollBucket = HeatmapTopData["products"][number]["buckets"][number];
 
 const BUCKET_COLORS = [
   { bg: "bg-sky-500/70",     text: "text-sky-300"    },
@@ -111,13 +86,11 @@ export function HeatmapCard({
     async function load() {
       try {
         setLoading(true);
-        const res = await fetch(
-          `${apiBase}/pro/heatmap/top?shop=${encodeURIComponent(shop)}&hours=72`,
-          { headers: apiHeaders(), credentials: "include", cache: "no-store" }
-        );
-        if (!res.ok) return;
-        const json = await res.json();
-        if (active) setData(json as HeatmapTopData);
+        const res = await apiClient.GET("/pro/heatmap/top", {
+          params: { query: { hours: 72 } },
+          headers: getHeaders(apiHeaders),
+        });
+        if (active && res.data != null) setData(res.data);
       } catch { /* silent */ }
       finally { if (active) setLoading(false); }
     }
@@ -145,20 +118,16 @@ export function HeatmapCard({
 
   return (
     <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
-      {/* Header */}
-      <div className="mb-4 flex items-start justify-between">
-        <div>
-          <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-            Scroll Intelligence
-          </div>
-          <h3 className="text-[14px] font-semibold text-white">Where visitors stop reading</h3>
-          <p className="mt-0.5 text-[11px] text-slate-500">
-            Real scroll depth per product — no session replay needed
-          </p>
+      {/* Header — internal Pro badge removed. Pro context is owned by the
+          parent SectionHeading / Pro Intelligence zone. */}
+      <div className="mb-4">
+        <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+          Scroll Intelligence
         </div>
-        <span className="rounded-full border border-violet-400/30 bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold text-violet-300">
-          Pro
-        </span>
+        <h3 className="text-[14px] font-semibold text-white">Where visitors stop reading</h3>
+        <p className="mt-0.5 text-[11px] text-slate-500">
+          Real scroll depth per product — no session replay needed
+        </p>
       </div>
 
       {products.length === 0 ? (

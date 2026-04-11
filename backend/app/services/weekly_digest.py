@@ -20,6 +20,7 @@ from app.services.signal_text import humanize_signal, humanize_action, humanize_
 from app.services.revenue_loss import calculate_expected_loss
 from app.services.revenue_metrics import get_shop_aov
 from app.services.action_proof import get_proof_summary
+from app.services.proof_engine import get_digest_proof
 
 log = logging.getLogger(__name__)
 
@@ -88,6 +89,9 @@ def assemble_digest(db: Session, shop_domain: str, merchant_plan: str = "lite") 
     # --- Proof of impact (closed-loop feedback) ---
     proof = get_proof_summary(db, shop_domain, days=30)
 
+    # --- Unified proof engine (revenue-centric, trust-calibrated) ---
+    proof_report = get_digest_proof(db, shop_domain)
+
     # --- Actionable recommendation ---
     # Primary: derive from the signal pipeline (same source as /revenue-radar)
     # Fallback: independent rule-based logic when no signals exist
@@ -136,7 +140,9 @@ def assemble_digest(db: Session, shop_domain: str, merchant_plan: str = "lite") 
         "revenue_at_risk": risk,
         "whats_working": whats_working,
         "proof": proof,
+        "proof_report": proof_report,
         "merchant_plan": merchant_plan,
+        "sip_insights": _get_sip_insights(db, shop_domain),
     }
 
 
@@ -169,7 +175,7 @@ def _shop_conversion_rate(db: Session, shop: str, days: int) -> float:
                     (SELECT COUNT(DISTINCT visitor_id)::float FROM events
                      WHERE shop_domain = :shop
                        AND timestamp > (EXTRACT(EPOCH FROM NOW()) * 1000
-                                        - :days * 86400000)::bigint) AS visitors
+                                        - CAST(:days AS bigint) * 86400000)::bigint) AS visitors
             """),
             {"shop": shop, "days": days},
         ).fetchone()
@@ -380,7 +386,7 @@ def _unique_visitors(db: Session, shop: str, days: int) -> int:
                 FROM events
                 WHERE shop_domain = :shop
                   AND timestamp > (EXTRACT(EPOCH FROM NOW()) * 1000
-                                   - :days * 86400000)::bigint
+                                   - CAST(:days AS bigint) * 86400000)::bigint
             """),
             {"shop": shop, "days": days},
         ).fetchone()
@@ -414,7 +420,11 @@ def _top_products(db: Session, shop: str, days: int) -> list[dict]:
             {"title": r[0], "revenue": round(float(r[1] or 0), 2), "units": int(r[2] or 0)}
             for r in rows
         ]
-    except Exception:
+    except Exception as exc:
+        log.warning(
+            "weekly_digest._top_products: shop=%s failed (%s): %s",
+            shop, type(exc).__name__, str(exc)[:200],
+        )
         return []
 
 
@@ -428,7 +438,11 @@ def _dominant_currency(db: Session, shop: str) -> str | None:
             {"shop": shop},
         ).fetchone()
         return str(row[0]) if row and row[0] else None
-    except Exception:
+    except Exception as exc:
+        log.warning(
+            "weekly_digest._dominant_currency: shop=%s failed (%s): %s",
+            shop, type(exc).__name__, str(exc)[:200],
+        )
         return None
 
 
@@ -442,7 +456,7 @@ def _high_intent_no_purchase(db: Session, shop: str, days: int) -> dict | None:
             text("""
                 WITH cutoff AS (
                     SELECT (EXTRACT(EPOCH FROM NOW()) * 1000
-                            - :days * 86400000)::bigint AS ts
+                            - CAST(:days AS bigint) * 86400000)::bigint AS ts
                 ),
                 atc AS (
                     SELECT product_url,
@@ -577,9 +591,9 @@ def _build_recommendation(
             "body": (
                 f"You had {orders} orders this week ({currency} {rev:,.2f} revenue) "
                 f"but we didn't track any visitor sessions. This usually means the "
-                f"Hedge Spark tracker script isn't loading on your storefront. "
+                f"HedgeSpark tracker script isn't loading on your storefront. "
                 f"Check Settings → Customer events in your Shopify admin, or run a "
-                f"repair from your Hedge Spark dashboard."
+                f"repair from your HedgeSpark dashboard."
             ),
         }
 
@@ -590,7 +604,7 @@ def _build_recommendation(
             "body": (
                 f"Your first tracked orders are in: {orders} orders for "
                 f"{currency} {rev:,.2f}. As more data flows in over the next "
-                f"few weeks, Hedge Spark will identify your highest-converting "
+                f"few weeks, HedgeSpark will identify your highest-converting "
                 f"products, flag checkout drop-offs, and surface revenue opportunities."
             ),
         }
@@ -611,7 +625,20 @@ def _build_recommendation(
         "headline": "Your week at a glance",
         "body": (
             f"You had {orders} orders totaling {currency} {rev:,.2f} this week. "
-            f"Open your Hedge Spark dashboard to explore per-product performance, "
+            f"Open your HedgeSpark dashboard to explore per-product performance, "
             f"traffic source quality, and visitor behavior patterns."
         ),
     }
+
+
+def _get_sip_insights(db: Session, shop_domain: str) -> list[dict]:
+    """Load SIP-powered intelligence insights for the weekly digest (non-fatal)."""
+    try:
+        from app.services.intelligence_report import generate_merchant_intelligence
+        return generate_merchant_intelligence(db, shop_domain)
+    except Exception as exc:
+        log.warning(
+            "weekly_digest._get_sip_insights: shop=%s failed (%s): %s",
+            shop_domain, type(exc).__name__, str(exc)[:200],
+        )
+        return []

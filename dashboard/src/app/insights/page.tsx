@@ -414,7 +414,7 @@ const priceJson = priceRes.ok ? await priceRes.json() : [];
           <SectionHeader
             eyebrow="Pro Overview"
             title="Intelligence snapshot"
-            description="The advanced layer of Hedge Spark: weekly behavior, live signals, AI decision support, and revenue leak detection."
+            description="The advanced layer of HedgeSpark: weekly behavior, live signals, AI decision support, and revenue leak detection."
           />
 
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -472,7 +472,7 @@ const priceJson = priceRes.ok ? await priceRes.json() : [];
           </div>
 
           {revenueLeaks.length === 0 ? (
-            <EmptyState text="No strong revenue leaks detected yet. As more behavioral data arrives, Hedge Spark will surface the first leakage points here." />
+            <EmptyState text="No strong revenue leaks detected yet. As more behavioral data arrives, HedgeSpark will surface the first leakage points here." />
           ) : (
             <div className="grid gap-4 xl:grid-cols-2">
               {revenueLeaks.map((item) => (
@@ -619,7 +619,7 @@ const priceJson = priceRes.ok ? await priceRes.json() : [];
           <SectionHeader
             eyebrow="Live Alerts"
             title="Signals requiring attention"
-            description="What Hedge Spark currently considers worth surfacing to the merchant."
+            description="What HedgeSpark currently considers worth surfacing to the merchant."
           />
 
           {alerts.length === 0 ? (
@@ -699,7 +699,7 @@ const priceJson = priceRes.ok ? await priceRes.json() : [];
           <SectionHeader
             eyebrow="Top Pages"
             title="Where users spend time"
-            description="Highest-traffic surfaces currently tracked by Hedge Spark."
+            description="Highest-traffic surfaces currently tracked by HedgeSpark."
           />
 
           {topPages.length === 0 ? (
@@ -812,7 +812,7 @@ const priceJson = priceRes.ok ? await priceRes.json() : [];
           <SectionHeader
             eyebrow="Live Opportunities"
             title="Current conversion opportunities"
-            description="Pages or products where Hedge Spark sees room to increase conversion pressure."
+            description="Pages or products where HedgeSpark sees room to increase conversion pressure."
           />
 
           {opportunities.length === 0 ? (

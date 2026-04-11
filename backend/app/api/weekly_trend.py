@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.core.database import engine
@@ -7,7 +8,25 @@ from app.core.deps import require_merchant_session
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
-@router.get("/weekly-trend")
+class WeeklyTrendDay(BaseModel):
+    """One day in the weekly trend series."""
+    day: str
+    visitors: int
+    page_views: int
+    clicks: int
+    hot_visitors: int
+
+
+class WeeklyTrendResponse(BaseModel):
+    """GET /analytics/weekly-trend — last 7 days of behavioral metrics."""
+    trend: list[WeeklyTrendDay]
+
+
+@router.get(
+    "/weekly-trend",
+    response_model=WeeklyTrendResponse,
+    response_model_exclude_none=False,
+)
 def weekly_trend(
     shop: str = Depends(require_merchant_session),
 ):

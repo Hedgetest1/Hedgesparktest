@@ -26,9 +26,13 @@ from app.models.evolution_proposal import EvolutionProposal
 
 
 def _bet(**overrides) -> dict:
+    # Phase-6: default type is an engineering category (_parse_proposals
+    # rejects business types post-hardening). Governance tests that check
+    # legacy check_type_valid() still use the broader governance allow-list
+    # directly; parser tests use this default which the Phase-6 gate accepts.
     base = {
-        "title": "Add return-visitor nudge on top PDPs",
-        "type": "conversion",
+        "title": "Fix return-visitor nudge delivery latency on top PDPs",
+        "type": "reliability",
         "revenue_thesis": "Return visitors see urgency banner → ATC up 8% → +€240/mo.",
         "rejected_alternatives": [
             {"alternative": "Price test", "why_rejected": "already tested, -3% CVR"},
@@ -48,9 +52,19 @@ def _bet(**overrides) -> dict:
 # STEP 1 — Invalid type → REJECT
 # ===========================================================================
 
-def test_type_valid_accepts_business_types():
-    for t in ("growth", "retention", "conversion", "experiment", "deprecate"):
-        assert check_type_valid({"type": t}) is None
+def test_type_valid_accepts_engineering_types_only_phase6():
+    """Phase-6 constraint: only engineering types pass the gate. Business
+    categories (growth/retention/conversion/experiment/product) are
+    rejected at the governance layer — single source of truth for
+    VALID_TYPES now lives here and is shared with monthly_evolution_audit."""
+    for t in ("architecture", "performance", "reliability", "deprecate"):
+        assert check_type_valid({"type": t}) is None, f"{t!r} must be accepted"
+
+    for t in ("growth", "retention", "conversion", "experiment", "product"):
+        err = check_type_valid({"type": t})
+        assert err is not None and err.startswith("invalid_type:"), (
+            f"{t!r} must be rejected by Phase-6 governance gate, got {err!r}"
+        )
 
 
 def test_type_valid_rejects_unknown():

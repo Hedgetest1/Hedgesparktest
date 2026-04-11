@@ -81,10 +81,10 @@ const TONE: Record<CardTone, { ring: string; glow: string; accent: string; label
     label: "text-rose-200/70",
   },
   opportunity: {
-    ring: "border-violet-500/20",
-    glow: "shadow-[0_0_40px_rgba(124,58,237,0.10)]",
-    accent: "text-violet-300",
-    label: "text-violet-200/70",
+    ring: "border-[#d4893a]/20",
+    glow: "shadow-[0_0_40px_rgba(212,137,58,0.10)]",
+    accent: "text-[#e8a04e]",
+    label: "text-[#e8a04e]/70",
   },
   intent: {
     ring: "border-emerald-500/20",
@@ -121,7 +121,7 @@ function FocusCard({
         t.ring,
         t.glow,
         interactive
-          ? "hover:border-white/20 hover:bg-white/[0.04] focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/40"
+          ? "hover:border-white/20 hover:bg-white/[0.04] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#d4893a]/40"
           : "",
       ].join(" ")}
     >
@@ -170,10 +170,10 @@ export default function SparkBrief({
   return (
     <section className="hs-fade-up">
       {/* ---------------- Summary strip ---------------- */}
-      <div className="relative mb-5 overflow-hidden rounded-2xl border border-white/[0.08] bg-gradient-to-br from-violet-500/[0.06] via-transparent to-transparent p-5 shadow-[0_0_48px_rgba(124,58,237,0.06)]">
+      <div className="relative mb-5 overflow-hidden rounded-2xl border border-white/[0.08] bg-gradient-to-br from-[#d4893a]/[0.05] via-transparent to-transparent p-5 shadow-[0_0_48px_rgba(212,137,58,0.06)]">
         <div className="flex items-start gap-4">
           {/* Spark mascot */}
-          <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/20 to-violet-600/5 ring-1 ring-violet-400/20">
+          <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#d4893a]/20 to-[#d4893a]/5 ring-1 ring-[#d4893a]/20">
             <Image
               src="/branding/hedgespark/spark.png"
               alt=""
@@ -184,7 +184,7 @@ export default function SparkBrief({
             />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-violet-300/80">
+            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-[#e8a04e]/80">
               Spark Brief
             </div>
             <p className="text-[15px] leading-relaxed text-slate-100">
@@ -196,7 +196,7 @@ export default function SparkBrief({
             </p>
             {!loading && nextStep && (
               <p className="mt-2 text-[13px] leading-relaxed text-slate-400">
-                <span className="text-violet-300">Suggested next:</span> {nextStep}
+                <span className="text-[#e8a04e]">Suggested next:</span> {nextStep}
               </p>
             )}
           </div>

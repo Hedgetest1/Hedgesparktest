@@ -12,6 +12,7 @@ Returns each step with:
 All computed directly from the events table — no separate funnel table needed.
 """
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.core.database import engine
@@ -20,13 +21,31 @@ from app.core.deps import require_merchant_session
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
+class FunnelStep(BaseModel):
+    """One step in the conversion funnel."""
+    step: str
+    label: str
+    count: int
+    pct: float | None = None
+    drop_off: float | None = None
+
+
+class FunnelResponse(BaseModel):
+    """GET /analytics/funnel — basic product_view → purchase conversion funnel."""
+    steps: list[FunnelStep]
+
+
 def _pct(numerator: int, denominator: int) -> float | None:
     if denominator == 0:
         return None
     return round((numerator / denominator) * 100, 1)
 
 
-@router.get("/funnel")
+@router.get(
+    "/funnel",
+    response_model=FunnelResponse,
+    response_model_exclude_none=False,
+)
 def conversion_funnel(
     shop: str = Depends(require_merchant_session),
 ):

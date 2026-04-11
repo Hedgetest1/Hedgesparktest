@@ -148,7 +148,7 @@ def test_shopify_connected_but_dead():
 
 def test_out_of_scope_response(db, merchant_a):
     result = process_message(db, SHOP_A, "tell me a joke")
-    assert "Hedge Spark" in result.message
+    assert "HedgeSpark" in result.message
     assert result.classification == "out_of_scope"
     assert result.incident_created is False
 

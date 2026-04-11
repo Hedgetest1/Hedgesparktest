@@ -54,14 +54,23 @@ def build_orchestrator_context(db: Session) -> str:
 def _build_alerts_section(db: Session, now: datetime) -> str:
     """Summarize unresolved ops_alerts."""
     cutoff = now - timedelta(hours=48)
+    # Use UNION to ensure each severity level is represented — prevents
+    # one severity (e.g. 50+ critical alerts) from drowning out others.
     rows = db.execute(text("""
-        SELECT severity, alert_type, shop_domain, summary, created_at
-        FROM ops_alerts
-        WHERE resolved = false AND created_at >= :cutoff
-        ORDER BY
-            CASE severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,
-            created_at DESC
-        LIMIT 20
+        (SELECT severity, alert_type, shop_domain, summary, created_at
+         FROM ops_alerts
+         WHERE resolved = false AND created_at >= :cutoff AND severity = 'critical'
+         ORDER BY created_at DESC LIMIT 20)
+        UNION ALL
+        (SELECT severity, alert_type, shop_domain, summary, created_at
+         FROM ops_alerts
+         WHERE resolved = false AND created_at >= :cutoff AND severity = 'warning'
+         ORDER BY created_at DESC LIMIT 15)
+        UNION ALL
+        (SELECT severity, alert_type, shop_domain, summary, created_at
+         FROM ops_alerts
+         WHERE resolved = false AND created_at >= :cutoff AND severity NOT IN ('critical', 'warning')
+         ORDER BY created_at DESC LIMIT 15)
     """), {"cutoff": cutoff}).fetchall()
 
     if not rows:
@@ -76,14 +85,30 @@ def _build_alerts_section(db: Session, now: datetime) -> str:
     lines.append(f"Unresolved (last 48h): {len(rows)} total — " +
                  ", ".join(f"{v} {k}" for k, v in sorted(counts.items())))
 
-    # Show top 5 with detail
-    for r in rows[:5]:
+    # Show top alerts with detail — ensure each severity gets representation.
+    # First, collect up to 3 per severity to avoid one severity drowning others.
+    shown: list = []
+    by_sev: dict[str, list] = {}
+    for r in rows:
+        by_sev.setdefault(r[0], []).append(r)
+    for sev in ["critical", "warning", "info"]:
+        shown.extend(by_sev.get(sev, [])[:3])
+    # If fewer than 5 total, pad from remaining rows
+    shown_set = set(id(r) for r in shown)
+    for r in rows:
+        if len(shown) >= 10:
+            break
+        if id(r) not in shown_set:
+            shown.append(r)
+            shown_set.add(id(r))
+
+    for r in shown:
         age_h = max(1, int((now - r[4]).total_seconds() / 3600)) if r[4] else 0
         shop = f" shop={r[2]}" if r[2] else ""
         lines.append(f"  [{r[0].upper()}] {r[1]}{shop} — {r[3]} ({age_h}h ago)")
 
-    if len(rows) > 5:
-        lines.append(f"  ... and {len(rows) - 5} more")
+    if len(rows) > len(shown):
+        lines.append(f"  ... and {len(rows) - len(shown)} more")
 
     return "\n".join(lines)
 

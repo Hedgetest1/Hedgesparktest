@@ -25,12 +25,23 @@ import re
 # Valid enums (shared with monthly_evolution_audit)
 # ---------------------------------------------------------------------------
 
+# Phase-6 constraint: autonomous evolution may only emit engineering-category
+# proposals — never feature bets. This is the single source of truth used by
+# both this governance module and monthly_evolution_audit._VALID_TYPES.
+# See project_self_healing_hardening.md for rationale.
 VALID_TYPES = {
-    # Business categories
-    "growth", "retention", "conversion", "experiment", "deprecate",
-    # Engineering categories
-    "architecture", "performance", "reliability", "product",
+    "architecture",   # structural improvements to existing code only
+    "performance",    # speed / resource usage of existing features
+    "reliability",    # robustness / error handling / test coverage
+    "deprecate",      # remove something that isn't working
 }
+
+# Block-list for defense in depth: any proposal claiming one of these types
+# is immediately rejected at every validation layer that imports VALID_TYPES.
+FORBIDDEN_TYPES = frozenset({
+    "growth", "retention", "conversion", "experiment", "product",
+    "feature", "ux", "onboarding_lift", "pricing",
+})
 
 VALID_COST_ESTIMATES = {"none", "small", "medium", "large"}
 

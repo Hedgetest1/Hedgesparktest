@@ -21,9 +21,12 @@ from app.services.monthly_evolution_audit import _parse_proposals
 
 
 def _bet(**overrides) -> dict:
+    # Phase-6: default type is an engineering category. Strategic alignment
+    # still scores off the text, which keeps conversion/nudge keywords for
+    # Tier-1 match; proposal-type discipline is an orthogonal layer.
     base = {
-        "title": "Add urgency nudge for return visitors on PDP",
-        "type": "conversion",
+        "title": "Fix urgency nudge delivery bug for return visitors on PDP",
+        "type": "reliability",
         "revenue_thesis": (
             "Return visitors on PDPs see urgency nudge → ATC +8% → recovers "
             "~€240/mo from visitors who would otherwise bounce at checkout."

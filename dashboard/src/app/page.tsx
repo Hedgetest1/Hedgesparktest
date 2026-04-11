@@ -1,29 +1,78 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 
-/* ── OAuth guard ── */
+/* ── OAuth guard (keep wiring) ── */
 function useOAuthRedirect() {
   const [ok, setOk] = useState(false);
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
-    if (p.get("shop") || p.get("installed") || p.get("billing") || p.get("section")) { window.location.href = `/app${window.location.search}`; return; }
+    if (p.get("shop") || p.get("installed") || p.get("billing") || p.get("section")) {
+      window.location.href = `/app${window.location.search}`;
+      return;
+    }
     setOk(true);
   }, []);
   return ok;
 }
 
-/* ── Reveal ── */
-function useReveal(threshold = 0.12) {
+/* ── Scroll reveal ── */
+function useReveal(threshold = 0.1) {
   const ref = useRef<HTMLDivElement>(null);
   const [v, setV] = useState(false);
-  useEffect(() => { const el = ref.current; if (!el) return; const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setV(true); io.disconnect(); } }, { threshold }); io.observe(el); return () => io.disconnect(); }, [threshold]);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([e]) => { if (e.isIntersecting) { setV(true); io.disconnect(); } },
+      { threshold },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [threshold]);
   return { ref, v };
 }
 
 function R({ children, className = "", d = 0 }: { children: React.ReactNode; className?: string; d?: number }) {
   const { ref, v } = useReveal();
-  return <div ref={ref} className={className} style={{ opacity: v ? 1 : 0, transform: v ? "none" : "translateY(24px)", transition: `opacity 0.6s cubic-bezier(0.16,1,0.3,1) ${d}s, transform 0.6s cubic-bezier(0.16,1,0.3,1) ${d}s` }}>{children}</div>;
+  return (
+    <div
+      ref={ref}
+      className={className}
+      style={{
+        opacity: v ? 1 : 0,
+        transform: v ? "none" : "translateY(32px)",
+        transition: `opacity 0.7s cubic-bezier(0.16,1,0.3,1) ${d}s, transform 0.7s cubic-bezier(0.16,1,0.3,1) ${d}s`,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+/* ── Shared ── */
+const INSTALL_URL = "/install";
+
+/* hex (#rrggbb) → rgba(r, g, b, a) — for inline styles with dynamic alpha */
+const alpha = (hex: string, a: number) => {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+};
+
+/* ── Live signal count ── */
+function useSignalCount() {
+  const [count, setCount] = useState<number | null>(null);
+  useEffect(() => {
+    const API = process.env.NEXT_PUBLIC_API_BASE_URL || "";
+    fetch(`${API}/ops/signal-count-week`, { signal: AbortSignal.timeout(4000) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.count) setCount(d.count); })
+      .catch(() => {});
+  }, []);
+  return count;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -31,25 +80,47 @@ function R({ children, className = "", d = 0 }: { children: React.ReactNode; cla
    ══════════════════════════════════════════════════════════════════════════════ */
 
 function Nav() {
-  const [s, setS] = useState(false);
-  useEffect(() => { const h = () => setS(window.scrollY > 24); window.addEventListener("scroll", h, { passive: true }); h(); return () => window.removeEventListener("scroll", h); }, []);
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const h = () => setScrolled(window.scrollY > 24);
+    window.addEventListener("scroll", h, { passive: true });
+    h();
+    return () => window.removeEventListener("scroll", h);
+  }, []);
+
   return (
-    <nav className={`fixed inset-x-0 top-0 z-50 transition-all duration-500 ${s ? "bg-[#080811]/80 shadow-[0_1px_60px_rgba(0,0,0,0.6)] backdrop-blur-2xl" : "bg-transparent"}`}
-      style={{ borderBottom: s ? "1px solid rgba(255,255,255,0.04)" : "1px solid transparent" }}>
-      <div className="mx-auto flex h-[4.25rem] max-w-[72rem] items-center justify-between px-6">
-        <a href="/" className="group flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500/20 to-violet-600/10 transition-transform duration-300 group-hover:scale-110">
-            <svg viewBox="0 0 20 20" className="h-4 w-4 text-violet-400" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 2L2 7l8 5 8-5-8-5zM2 13l8 5 8-5"/></svg>
-          </div>
-          <span className="text-[18px] font-bold tracking-tight text-white">Hedge<span className="text-violet-400">Spark</span></span>
-        </a>
-        <div className="flex items-center gap-1.5 sm:gap-4">
-          {[["#signals","Signals"],["#how","How it works"],["#pricing","Pricing"]].map(([h,l])=>(
-            <a key={h} href={h} className="hidden rounded-lg px-3 py-1.5 text-[13px] text-slate-400 transition-colors duration-200 hover:bg-white/[0.04] hover:text-white sm:block">{l}</a>
+    <nav
+      className={`fixed inset-x-0 top-0 z-50 transition-all duration-500 ${
+        scrolled
+          ? "bg-[#07070f]/90 shadow-[0_1px_60px_rgba(0,0,0,0.6)] backdrop-blur-2xl"
+          : "bg-transparent"
+      }`}
+      style={{ borderBottom: scrolled ? "1px solid rgba(255,255,255,0.04)" : "1px solid transparent" }}
+    >
+      <div className="mx-auto flex h-[4.5rem] max-w-[76rem] items-center justify-center px-6 lg:px-10">
+        <div className="flex items-center gap-3 sm:gap-5">
+          {[
+            ["/", "Home"],
+            ["#features", "Features"],
+            ["#how", "How it works"],
+            ["#example", "Example"],
+            ["#pricing", "Pricing"],
+            ["#faq", "FAQ"],
+            ["/app", "Dashboard"],
+          ].map(([h, l]) => (
+            <a
+              key={h}
+              href={h}
+              className="rounded-lg px-3 py-2 text-[15px] font-medium text-slate-300 transition-colors duration-200 hover:bg-white/[0.05] hover:text-white"
+            >
+              {l}
+            </a>
           ))}
-          <a href="/app" className="rounded-lg px-3 py-1.5 text-[13px] text-slate-400 transition-colors duration-200 hover:bg-white/[0.04] hover:text-white">Dashboard</a>
-          <a href="https://apps.shopify.com/" className="relative ml-1 overflow-hidden rounded-lg bg-violet-600 px-5 py-2 text-[13px] font-semibold text-white transition-all duration-300 hover:bg-violet-500 hover:shadow-[0_0_28px_rgba(124,58,237,0.4)]">
-            Install free
+          <a
+            href={INSTALL_URL}
+            className="hs-cta-gradient ml-4 rounded-xl px-6 py-2.5 text-[15px] font-bold text-white transition-all duration-300 hover:shadow-[0_0_32px_rgba(212,137,58,0.4)]"
+          >
+            Install on Shopify
           </a>
         </div>
       </div>
@@ -62,193 +133,411 @@ function Nav() {
    ══════════════════════════════════════════════════════════════════════════════ */
 
 function Hero() {
-  /* Mini sparkline bars (7 bars, descending pattern = "traffic but declining conversion") */
-  const spark = (h: number[]) => (
-    <svg viewBox="0 0 28 16" className="h-3 w-7" aria-hidden="true">
-      {h.map((v, i) => <rect key={i} x={i * 4} y={16 - v} width="3" height={v} rx="0.5" className="fill-slate-600/60" />)}
-    </svg>
-  );
-
   return (
-    <section className="relative overflow-hidden pb-20 pt-32 sm:pb-32 sm:pt-44">
-      {/* Ambient */}
+    <section className="relative overflow-hidden pb-16 pt-24 sm:pb-20 sm:pt-28">
+      {/* Ambient glow */}
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute left-1/2 top-[-18%] h-[800px] w-[1100px] -translate-x-1/2 rounded-full bg-violet-600/[0.08] blur-[180px]" />
-        <div className="absolute right-[-10%] top-[15%] h-[400px] w-[500px] rounded-full bg-cyan-400/[0.035] blur-[140px]" />
-        <div className="absolute left-[-6%] bottom-[5%] h-[250px] w-[350px] rounded-full bg-violet-500/[0.04] blur-[100px]" />
+        <div className="absolute left-1/2 top-[20%] h-[600px] w-[900px] -translate-x-1/2 rounded-full bg-[#d4893a]/[0.06] blur-[160px]" />
+        <div className="absolute left-[30%] top-[40%] h-[400px] w-[600px] -translate-x-1/2 rounded-full bg-[#7c3aed]/[0.04] blur-[140px]" />
       </div>
-      <div className="pointer-events-none absolute inset-0 opacity-[0.018]" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='48' height='48' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M48 0H0v48' fill='none' stroke='%23fff' stroke-width='.4'/%3E%3C/svg%3E\")", backgroundSize: "48px 48px" }} />
 
-      <div className="relative mx-auto max-w-[68rem] px-6">
+      <div className="relative mx-auto max-w-[72rem] px-6 lg:px-10">
+        {/* Logo */}
         <R className="flex justify-center">
-          <div className="inline-flex items-center gap-2.5 rounded-full border border-violet-400/10 bg-violet-500/[0.05] py-1.5 pl-1.5 pr-5">
-            <span className="rounded-full bg-violet-500/20 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.15em] text-violet-300">Shopify</span>
-            <span className="text-[13px] text-violet-200/60">Built for merchants who hate guessing</span>
+          <Image
+            src="/logo-beta-v2.png"
+            alt="HedgeSpark — AI Revenue Intelligence for Shopify"
+            width={450}
+            height={190}
+            className="hs-float-gentle -translate-x-[15px]"
+            priority
+          />
+        </R>
+
+        {/* Category eyebrow */}
+        <R d={0.04} className="mt-5 flex justify-center">
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/[0.07] bg-white/[0.025] px-3.5 py-1 backdrop-blur-sm">
+            <span className="relative flex h-1 w-1">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#e8a04e] opacity-75" />
+              <span className="relative inline-flex h-1 w-1 rounded-full bg-[#e8a04e]" />
+            </span>
+            <span className="text-[9.5px] font-semibold uppercase tracking-[0.18em] text-slate-300">
+              Shopify App
+            </span>
+            <span className="h-2 w-px bg-white/15" />
+            <span className="text-[9.5px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              AI Revenue Intelligence
+            </span>
           </div>
         </R>
 
-        <R d={0.06}>
-          <h1 className="mx-auto mt-8 max-w-[52rem] text-center text-[2.5rem] font-extrabold leading-[1.04] tracking-[-0.03em] text-white sm:text-[3.75rem] lg:text-[4.75rem]">
-            Right now, a visitor is leaving
-            <br />your best product.
+        {/* Headline */}
+        <R d={0.08}>
+          <h1 className="mx-auto mt-6 max-w-[52rem] text-center text-[2.75rem] font-extrabold leading-[1.05] tracking-[-0.03em] text-white sm:text-[4rem] lg:text-[5rem]">
+            Your store is leaking money.
             <br />
-            <span className="bg-gradient-to-r from-violet-400 via-violet-300 to-fuchsia-400 bg-clip-text text-transparent">You don&apos;t know why.</span>
+            <span className="text-slate-400">You don&apos;t know why.</span>
+            <br />
+            <span
+              style={{
+                background: "linear-gradient(90deg, #d4893a 0%, #e8a04e 30%, #a855f7 70%, #7c3aed 100%)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
+              }}
+            >
+              We show you where.
+            </span>
           </h1>
         </R>
 
-        <R d={0.1}>
-          <p className="mx-auto mt-7 max-w-[32rem] text-center text-[17px] leading-[1.75] text-slate-400">
-            Hedge Spark tells you which products lose money, why, and what to change.
-            <span className="text-slate-100"> Then it proves the fix worked.</span>
+        {/* Sub */}
+        <R d={0.12}>
+          <p className="mx-auto mt-7 max-w-[40rem] text-center text-[18px] leading-[1.65] text-slate-300">
+            <strong className="text-white">The AI revenue leak detector built for Shopify.</strong>{" "}
+            Finds products that get attention but don&apos;t sell. Stops the bleed.
+            Proves the recovery.
           </p>
         </R>
 
-        <R d={0.14} className="mt-11 flex flex-col items-center gap-3.5 sm:flex-row sm:justify-center">
-          <a href="https://apps.shopify.com/" className="group relative rounded-xl bg-violet-600 px-10 py-4 text-[15px] font-semibold text-white ring-1 ring-violet-500/30 transition-all duration-300 hover:bg-violet-500 hover:shadow-[0_4px_40px_rgba(124,58,237,0.4)]">
-            <span className="pointer-events-none absolute inset-0 rounded-xl bg-gradient-to-b from-white/[0.1] to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-            <span className="relative">Install free on Shopify</span>
+        {/* CTAs */}
+        <R d={0.14} className="mt-8 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
+          <a
+            href={INSTALL_URL}
+            className="hs-cta-gradient group rounded-2xl px-10 py-4 text-[16px] font-bold text-white transition-all duration-300 hover:shadow-[0_4px_50px_rgba(212,137,58,0.4)]"
+          >
+            Install on Shopify
           </a>
-          <a href="#signals" className="rounded-xl border border-white/[0.07] bg-white/[0.02] px-9 py-4 text-[15px] font-semibold text-slate-300 transition-all duration-300 hover:border-white/[0.14] hover:bg-white/[0.05] hover:text-white">
-            See real signals
+          <a
+            href="#how"
+            className="rounded-2xl border border-white/[0.1] bg-white/[0.03] px-10 py-4 text-[16px] font-semibold text-slate-200 transition-all duration-300 hover:border-white/[0.18] hover:bg-white/[0.06] hover:text-white"
+          >
+            See how it works
           </a>
         </R>
 
-        <R d={0.17} className="mt-5 text-center text-[13px] text-slate-600">Free forever. No credit card. 30-second install.</R>
+        <R d={0.18}>
+          <p className="mt-5 text-center text-[14px] text-slate-500">
+            Installs in 30 seconds. Tracking starts on the next visitor.
+          </p>
+        </R>
+      </div>
+    </section>
+  );
+}
 
-        {/* ── Chevron hint ── */}
-        <R d={0.2} className="mt-10 flex justify-center sm:mt-14">
-          <svg viewBox="0 0 24 24" className="h-5 w-5 text-slate-700" style={{ animation: "hs-bob 2.5s ease-in-out infinite" }} fill="none" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
+/* ══════════════════════════════════════════════════════════════════════════════
+   NUMBERS STRIP — social proof
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+function Numbers() {
+  const signalCount = useSignalCount();
+
+  const stats = [
+    { value: signalCount ? signalCount.toLocaleString() : "2,400+", label: "Signals detected this week", color: "text-[#d4893a]" },
+    { value: "5 min", label: "To first insight after install", color: "text-[#a855f7]" },
+    { value: "<5kb", label: "Zero impact on store speed", color: "text-emerald-400" },
+  ];
+
+  return (
+    <section className="relative border-y border-white/[0.04]">
+      <div className="mx-auto grid max-w-[72rem] divide-y divide-white/[0.04] px-6 sm:grid-cols-3 sm:divide-x sm:divide-y-0 lg:px-10">
+        {stats.map((s, i) => (
+          <R key={i} d={i * 0.06}>
+            <div className="flex flex-col items-center py-12 text-center sm:py-14">
+              <span className={`text-[3rem] font-extrabold tracking-tight ${s.color} sm:text-[3.5rem]`}>
+                {s.value}
+              </span>
+              <span className="mt-2 text-[16px] text-slate-400">{s.label}</span>
+            </div>
+          </R>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   THE PROBLEM — 3 big blocks
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+function Problem() {
+  const blocks = [
+    {
+      number: "200",
+      unit: "views",
+      highlight: "0 carts",
+      desc: "Your best product got 200 views today. Nobody added it to their cart. You didn't even notice.",
+      accent: "#d4893a",
+    },
+    {
+      number: "$193",
+      unit: "/day",
+      highlight: "at risk",
+      desc: "Right now, products in your store are losing money every single day. You just can't see which ones.",
+      accent: "#a855f7",
+    },
+    {
+      number: "0%",
+      unit: "proof",
+      highlight: "you guessed",
+      desc: "You changed the photo. Sales went up. Was it the photo — or just Tuesday? Without proof, every win is a guess.",
+      accent: "#7c3aed",
+    },
+  ];
+
+  return (
+    <section className="relative py-28 sm:py-36">
+      <div className="mx-auto max-w-[72rem] px-6 lg:px-10">
+        <R className="text-center">
+          <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#d4893a]">The problem</span>
+          <h2 className="mt-5 text-[2.25rem] font-extrabold leading-[1.1] text-white sm:text-[3rem] lg:text-[3.5rem]">
+            Your analytics show traffic.
+            <br />
+            <span className="text-slate-500">They don&apos;t show the money you&apos;re losing.</span>
+          </h2>
         </R>
 
-        {/* ════════════════════════════════════════════════════════════════════
-           PRODUCT PREVIEW — designed to feel like a real app window
-           ════════════════════════════════════════════════════════════════════ */}
-        <R d={0.24} className="mt-6 sm:mt-8">
-          <div className="mx-auto max-w-[54rem]" style={{ perspective: "1200px" }}>
-            <div style={{ transform: "rotateX(1.5deg)", transformOrigin: "bottom center" }}>
-              {/* Outer glow shell */}
-              <div className="rounded-2xl shadow-[0_20px_100px_-20px_rgba(124,58,237,0.2),0_8px_40px_-8px_rgba(0,0,0,0.5)]">
-                <div className="rounded-2xl bg-gradient-to-b from-white/[0.07] via-white/[0.03] to-white/[0.01] p-px">
-                  <div className="overflow-hidden rounded-[15px] bg-[#09091a]">
+        <div className="mt-16 grid gap-6 sm:grid-cols-3">
+          {blocks.map((b, i) => (
+            <R key={i} d={i * 0.08}>
+              <div className="group relative overflow-hidden rounded-3xl border border-white/[0.06] bg-[#0e0e1a] p-8 transition-all duration-400 hover:border-white/[0.12] hover:shadow-[0_8px_60px_-12px_rgba(0,0,0,0.5)] sm:p-10">
+                {/* Accent top bar */}
+                <div className="absolute inset-x-0 top-0 h-1 rounded-t-3xl" style={{ background: b.accent }} />
 
-                    {/* ── Window chrome ── */}
-                    <div className="flex items-center gap-2 border-b border-white/[0.04] bg-[#0c0c1c] px-4 py-2.5">
-                      <div className="flex gap-1.5">
-                        <div className="h-[9px] w-[9px] rounded-full bg-[#ff5f57]/80" />
-                        <div className="h-[9px] w-[9px] rounded-full bg-[#febc2e]/80" />
-                        <div className="h-[9px] w-[9px] rounded-full bg-[#28c840]/80" />
-                      </div>
-                      <div className="ml-3 flex-1 text-center">
-                        <span className="text-[11px] text-slate-600">app.hedgesparkhq.com</span>
-                      </div>
-                      <div className="w-[52px]" /> {/* balance */}
+                <div className="flex items-baseline gap-2">
+                  <span className="text-[3.5rem] font-extrabold tracking-tight text-white sm:text-[4rem]">{b.number}</span>
+                  <span className="text-[18px] font-semibold text-slate-500">{b.unit}</span>
+                </div>
+                <div className="mt-1 text-[15px] font-bold uppercase tracking-wide" style={{ color: b.accent }}>
+                  {b.highlight}
+                </div>
+                <p className="mt-5 text-[16px] leading-[1.7] text-slate-400">{b.desc}</p>
+              </div>
+            </R>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   FEATURES — what HedgeSpark actually does
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+function Features() {
+  return (
+    <section id="features" className="relative scroll-mt-20 py-28 sm:py-36">
+      {/* Subtle amber background tint */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#d4893a]/[0.02] via-transparent to-transparent" />
+
+      <div className="relative mx-auto max-w-[72rem] px-6 lg:px-10">
+        <R className="text-center">
+          <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#d4893a]">What HedgeSpark does</span>
+          <h2 className="mt-5 text-[2.25rem] font-extrabold leading-[1.1] text-white sm:text-[3rem] lg:text-[3.5rem]">
+            Three things no other tool does.
+          </h2>
+          <p className="mx-auto mt-6 max-w-[38rem] text-[18px] leading-[1.7] text-slate-400">
+            Most tools tell you what happened yesterday. HedgeSpark tells you what&apos;s broken right now, fixes it, and proves it worked.
+          </p>
+        </R>
+
+        {/* Feature 1 — Find */}
+        <R d={0.08}>
+          <div className="mt-20 grid items-center gap-10 lg:grid-cols-2 lg:gap-16">
+            <div>
+              <div className="inline-flex items-center gap-3 rounded-full border border-[#d4893a]/20 bg-[#d4893a]/[0.08] px-5 py-2">
+                <span className="text-[22px] font-extrabold text-[#d4893a]">1</span>
+                <span className="text-[15px] font-bold text-[#d4893a]">Find the problem</span>
+              </div>
+              <h3 className="mt-6 text-[1.75rem] font-bold leading-[1.2] text-white sm:text-[2rem]">
+                See which products get attention but don&apos;t sell
+              </h3>
+              <p className="mt-5 text-[17px] leading-[1.7] text-slate-400">
+                HedgeSpark watches every visitor. How far they scroll. How long they stay. Whether they come back. When a product gets lots of attention but zero carts — we flag it instantly.
+              </p>
+              <div className="mt-6 space-y-3">
+                {[
+                  "Checks every product every 5 minutes",
+                  "Shows you exactly what visitors do on each page",
+                  "Calculates how much money each problem costs you",
+                ].map((f) => (
+                  <div key={f} className="flex items-start gap-3">
+                    <svg className="mt-1 h-5 w-5 flex-shrink-0 text-[#d4893a]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                    </svg>
+                    <span className="text-[16px] text-slate-300">{f}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Signal card visual */}
+            <div className="rounded-3xl border border-white/[0.06] bg-[#0e0e1a] p-6 shadow-[0_20px_80px_-20px_rgba(0,0,0,0.5)] sm:p-8">
+              <div className="mb-5 flex items-center gap-2">
+                <div className="h-2.5 w-2.5 rounded-full bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.6)]" />
+                <span className="text-[14px] font-bold text-rose-300">Signal detected</span>
+              </div>
+              <div className="rounded-2xl border border-rose-500/10 bg-rose-500/[0.03] p-6">
+                <p className="text-[18px] font-bold text-white">Silk Pillowcase Set</p>
+                <div className="mt-4 grid grid-cols-3 gap-4">
+                  <div>
+                    <div className="text-[2rem] font-extrabold text-white">68</div>
+                    <div className="text-[14px] text-slate-500">views today</div>
+                  </div>
+                  <div>
+                    <div className="text-[2rem] font-extrabold text-rose-400">0</div>
+                    <div className="text-[14px] text-slate-500">add to carts</div>
+                  </div>
+                  <div>
+                    <div className="text-[2rem] font-extrabold text-[#d4893a]">$94</div>
+                    <div className="text-[14px] text-slate-500">lost per day</div>
+                  </div>
+                </div>
+                <div className="mt-5 rounded-xl border border-white/[0.04] bg-white/[0.02] p-4">
+                  <div className="flex items-center gap-2">
+                    <svg className="h-4 w-4 text-[#d4893a]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+                    </svg>
+                    <span className="text-[13px] font-bold text-[#d4893a]">Recommended fix</span>
+                  </div>
+                  <p className="mt-2 text-[15px] leading-relaxed text-slate-300">
+                    Replace hero image with lifestyle shot. Add sticky &ldquo;Add to Cart&rdquo; button visible on scroll.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </R>
+
+        {/* Feature 2 — Fix */}
+        <R d={0.08}>
+          <div className="mt-28 grid items-center gap-10 lg:grid-cols-2 lg:gap-16">
+            {/* Visual first on desktop */}
+            <div className="order-2 lg:order-1">
+              <div className="rounded-3xl border border-white/[0.06] bg-[#0e0e1a] p-6 shadow-[0_20px_80px_-20px_rgba(0,0,0,0.5)] sm:p-8">
+                <div className="mb-5 flex items-center gap-2">
+                  <div className="h-2.5 w-2.5 rounded-full bg-[#d4893a] shadow-[0_0_8px_rgba(212,137,58,0.6)]" />
+                  <span className="text-[14px] font-bold text-[#e8a04e]">Nudge deployed</span>
+                </div>
+                <div className="rounded-2xl border border-[#d4893a]/10 bg-[#d4893a]/[0.03] p-6">
+                  <p className="text-[15px] font-semibold text-slate-300">Social proof nudge — live on your store</p>
+                  <div className="mt-4 rounded-xl border border-white/[0.06] bg-white/[0.03] p-5">
+                    <p className="text-center text-[17px] italic text-white">
+                      &ldquo;14 people viewed this in the last 24 hours&rdquo;
+                    </p>
+                  </div>
+                  <div className="mt-5 grid grid-cols-2 gap-4">
+                    <div className="rounded-xl border border-white/[0.04] bg-white/[0.02] p-4 text-center">
+                      <div className="text-[1.5rem] font-extrabold text-white">80%</div>
+                      <div className="text-[14px] text-slate-500">see the nudge</div>
                     </div>
-
-                    {/* ── Tab bar ── */}
-                    <div className="flex items-center gap-0 border-b border-white/[0.04] bg-[#0b0b19]">
-                      {[
-                        { label: "Signals", active: true, count: "3" },
-                        { label: "Products", active: false, count: "12" },
-                        { label: "Sources", active: false },
-                      ].map((tab) => (
-                        <div key={tab.label} className={`relative px-5 py-3 text-[12px] font-medium transition-colors ${tab.active ? "text-white" : "text-slate-500"}`}>
-                          <span>{tab.label}</span>
-                          {tab.count && (
-                            <span className={`ml-1.5 rounded px-1 py-px text-[9px] font-bold tabular-nums ${tab.active ? "bg-violet-500/20 text-violet-300" : "bg-white/[0.04] text-slate-600"}`}>{tab.count}</span>
-                          )}
-                          {tab.active && <div className="absolute inset-x-0 bottom-0 h-[2px] bg-violet-500" />}
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* ── Dashboard body ── */}
-                    <div className="px-5 py-5 sm:px-7 sm:py-6">
-
-                      {/* KPI strip */}
-                      <div className="flex flex-wrap items-center gap-3">
-                        <div className="flex items-center gap-2">
-                          <div className="relative">
-                            <div className="h-2 w-2 rounded-full bg-emerald-400" />
-                            <div className="absolute inset-0 animate-ping rounded-full bg-emerald-400/40" style={{ animationDuration: "2.5s" }} />
-                          </div>
-                          <span className="text-[13px] font-semibold text-slate-100">Live</span>
-                        </div>
-                        <div className="h-4 w-px bg-white/[0.06]" />
-                        <span className="rounded-md bg-rose-500/10 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-rose-300 ring-1 ring-rose-500/15">3 flagged</span>
-                        <span className="rounded-md bg-white/[0.04] px-2 py-0.5 text-[11px] tabular-nums text-slate-400">147 visitors</span>
-                        <span className="ml-auto text-[12px] font-bold tabular-nums text-rose-400">$193/day at risk</span>
-                      </div>
-
-                      {/* Signal rows */}
-                      <div className="mt-5 space-y-1.5">
-                        {[
-                          { name: "Silk Pillowcase Set", code: "HIGH_TRAFFIC_NO_CART", desc: "68 views today, 0 add-to-carts", tag: "Fix CTA", c: "rose" as const, loss: "$94", bars: [12,14,13,11,10,8,6], action: "Replace hero image with lifestyle shot. Add sticky Add to Cart bar visible on scroll." },
-                          { name: "Ceramic Travel Mug", code: "HIGH_ENGAGEMENT_NO_ACTION", desc: "34s avg dwell, 72% scroll depth, 0 carts", tag: "Price issue", c: "amber" as const, loss: "$61", bars: [8,9,10,9,7,6,5], action: null },
-                          { name: "Midnight Candle Trio", code: "HIGH_RETURN_LOW_CONVERSION", desc: "12 return visitors this week, 1 cart", tag: "Urgency", c: "violet" as const, loss: "$38", bars: [5,6,7,8,7,6,4], action: null },
-                        ].map((r, idx) => {
-                          const palette = {
-                            rose: { bar: "bg-rose-400/70", dot: "bg-rose-400", glow: "shadow-[0_0_6px_rgba(251,113,133,0.5)]", badge: "bg-rose-500/10 text-rose-300 ring-1 ring-rose-500/20", actionBg: "border-rose-500/10 bg-rose-500/[0.04]", actionText: "text-rose-200/80" },
-                            amber: { bar: "bg-amber-400/70", dot: "bg-amber-400", glow: "shadow-[0_0_6px_rgba(251,191,36,0.5)]", badge: "bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/20", actionBg: "", actionText: "" },
-                            violet: { bar: "bg-violet-400/70", dot: "bg-violet-400", glow: "shadow-[0_0_6px_rgba(167,139,250,0.5)]", badge: "bg-violet-500/10 text-violet-300 ring-1 ring-violet-500/20", actionBg: "", actionText: "" },
-                          };
-                          const p = palette[r.c];
-                          return (
-                            <div key={r.name} className="group rounded-xl border border-white/[0.03] bg-white/[0.008] transition-all duration-300 hover:-translate-y-px hover:border-white/[0.08] hover:bg-white/[0.02] hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.4)]">
-                              <div className="flex items-center gap-0">
-                                {/* Severity bar */}
-                                <div className={`w-[3px] self-stretch rounded-l-xl ${p.bar}`} />
-                                {/* Content */}
-                                <div className="flex flex-1 items-center gap-4 px-4 py-3.5">
-                                  <div className={`h-2 w-2 flex-shrink-0 rounded-full ${p.dot} ${p.glow}`} />
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      <span className="text-[13px] font-semibold text-slate-100">{r.name}</span>
-                                      <span className={`rounded-md px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${p.badge}`}>{r.tag}</span>
-                                    </div>
-                                    <div className="mt-0.5 flex flex-wrap items-center gap-2">
-                                      <span className="font-mono text-[10px] text-slate-600">{r.code}</span>
-                                      <span className="hidden text-[11px] text-slate-500 sm:inline">{r.desc}</span>
-                                    </div>
-                                  </div>
-                                  {/* Right: loss + sparkline */}
-                                  <div className="hidden flex-shrink-0 items-center gap-3 sm:flex">
-                                    {spark(r.bars)}
-                                    <div className="text-right">
-                                      <div className="text-[14px] font-bold tabular-nums text-rose-400">{r.loss}</div>
-                                      <div className="text-[9px] text-slate-600">/day lost</div>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                              {/* Expanded action (first row only) */}
-                              {idx === 0 && r.action && (
-                                <div className={`mx-4 mb-3 rounded-lg border px-3 py-2.5 ${p.actionBg}`}>
-                                  <div className="flex items-start gap-2">
-                                    <svg className="mt-0.5 h-3 w-3 flex-shrink-0 text-rose-400/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" /></svg>
-                                    <div>
-                                      <div className="text-[10px] font-bold uppercase tracking-wider text-rose-300/50">Recommended action</div>
-                                      <div className={`mt-0.5 text-[12px] leading-relaxed ${p.actionText}`}>{r.action}</div>
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      {/* Footer */}
-                      <div className="mt-5 flex items-center justify-between border-t border-white/[0.04] pt-4">
-                        <div className="flex items-center gap-1.5">
-                          <svg className="h-3 w-3 text-slate-600" style={{ animation: "spin 4s linear infinite" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" /></svg>
-                          <span className="text-[10px] text-slate-600">Updated 8s ago</span>
-                        </div>
-                        <a href="/app" className="text-[11px] font-medium text-violet-400/70 transition-colors hover:text-violet-300">
-                          View all 12 products &rarr;
-                        </a>
-                      </div>
+                    <div className="rounded-xl border border-white/[0.04] bg-white/[0.02] p-4 text-center">
+                      <div className="text-[1.5rem] font-extrabold text-slate-500">20%</div>
+                      <div className="text-[14px] text-slate-500">control group</div>
                     </div>
                   </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="order-1 lg:order-2">
+              <div className="inline-flex items-center gap-3 rounded-full border border-[#a855f7]/20 bg-[#a855f7]/[0.08] px-5 py-2">
+                <span className="text-[22px] font-extrabold text-[#a855f7]">2</span>
+                <span className="text-[15px] font-bold text-[#a855f7]">Fix it automatically</span>
+              </div>
+              <h3 className="mt-6 text-[1.75rem] font-bold leading-[1.2] text-white sm:text-[2rem]">
+                Smart nudges deploy on their own
+              </h3>
+              <p className="mt-5 text-[17px] leading-[1.7] text-slate-400">
+                When HedgeSpark spots a problem, it doesn&apos;t just tell you — it can fix it. It deploys a small, targeted message on the product page to turn browsers into buyers.
+              </p>
+              <div className="mt-6 space-y-3">
+                {[
+                  "Social proof, urgency, and interest-based nudges",
+                  "Automatically keeps a control group to measure impact",
+                  "No code, no theme edits — it just works",
+                ].map((f) => (
+                  <div key={f} className="flex items-start gap-3">
+                    <svg className="mt-1 h-5 w-5 flex-shrink-0 text-[#a855f7]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                    </svg>
+                    <span className="text-[16px] text-slate-300">{f}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </R>
+
+        {/* Feature 3 — Prove */}
+        <R d={0.08}>
+          <div className="mt-28 grid items-center gap-10 lg:grid-cols-2 lg:gap-16">
+            <div>
+              <div className="inline-flex items-center gap-3 rounded-full border border-emerald-400/20 bg-emerald-500/[0.08] px-5 py-2">
+                <span className="text-[22px] font-extrabold text-emerald-400">3</span>
+                <span className="text-[15px] font-bold text-emerald-400">Prove it worked</span>
+              </div>
+              <h3 className="mt-6 text-[1.75rem] font-bold leading-[1.2] text-white sm:text-[2rem]">
+                Real numbers. Not guesses.
+              </h3>
+              <p className="mt-5 text-[17px] leading-[1.7] text-slate-400">
+                Remember that control group? We compare it against the visitors who saw your fix. If more people bought — we prove it with real math. Not vibes. Not &ldquo;revenue went up.&rdquo; Actual, statistical proof.
+              </p>
+              <div className="mt-6 space-y-3">
+                {[
+                  "Side-by-side comparison: fix vs. no fix",
+                  "Shows exactly how many extra sales your change drove",
+                  "Confidence level so you know it's real, not luck",
+                ].map((f) => (
+                  <div key={f} className="flex items-start gap-3">
+                    <svg className="mt-1 h-5 w-5 flex-shrink-0 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                    </svg>
+                    <span className="text-[16px] text-slate-300">{f}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Proof visual */}
+            <div className="rounded-3xl border border-white/[0.06] bg-[#0e0e1a] p-6 shadow-[0_20px_80px_-20px_rgba(0,0,0,0.5)] sm:p-8">
+              <div className="mb-6 text-[13px] font-bold uppercase tracking-[0.15em] text-slate-600">Lift report</div>
+
+              {/* Bar comparison */}
+              <div className="space-y-5">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[16px] text-slate-300">Saw your fix</span>
+                    <span className="text-[20px] font-extrabold tabular-nums text-emerald-400">4.2%</span>
+                  </div>
+                  <div className="mt-2 h-4 w-full overflow-hidden rounded-full bg-white/[0.04]">
+                    <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400" style={{ width: "84%" }} />
+                  </div>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[16px] text-slate-300">Control group</span>
+                    <span className="text-[20px] font-extrabold tabular-nums text-slate-500">3.1%</span>
+                  </div>
+                  <div className="mt-2 h-4 w-full overflow-hidden rounded-full bg-white/[0.04]">
+                    <div className="h-full rounded-full bg-slate-600" style={{ width: "62%" }} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-8 rounded-2xl border border-emerald-500/15 bg-emerald-500/[0.04] p-6 text-center">
+                <div className="text-[16px] text-slate-300">Your change drove</div>
+                <div className="mt-2 bg-gradient-to-r from-emerald-400 to-emerald-300 bg-clip-text text-[3.5rem] font-extrabold tabular-nums leading-none text-transparent">
+                  +35.5%
+                </div>
+                <div className="mt-1 text-[18px] font-semibold text-emerald-300">more sales</div>
+                <div className="mt-4 flex items-center justify-center gap-3">
+                  <span className="rounded-lg bg-emerald-500/15 px-3 py-1 text-[13px] font-bold text-emerald-300">
+                    Statistically proven
+                  </span>
+                  <span className="text-[14px] text-slate-500">1,240 visitors measured</span>
                 </div>
               </div>
             </div>
@@ -260,81 +549,95 @@ function Hero() {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   BLIND SPOTS
+   HOW IT WORKS — visual flow
    ══════════════════════════════════════════════════════════════════════════════ */
 
-function BlindSpots() {
-  return (
-    <section className="relative py-28">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
-      <div className="mx-auto max-w-[68rem] px-6">
-        <R className="mx-auto max-w-2xl text-center">
-          <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-rose-400/60">The blind spot</span>
-          <h2 className="mt-4 text-[1.75rem] font-bold leading-[1.15] text-white sm:text-[2.25rem]">
-            You sell products.
-            <br /><span className="text-slate-500">Your tools count pageviews.</span>
-          </h2>
-        </R>
-
-        <div className="mt-16 grid gap-[1px] overflow-hidden rounded-2xl border border-white/[0.04] bg-white/[0.025] sm:grid-cols-3">
-          {[
-            { t: "Two visitors. Same product.", d: "One scrolled 80% and read for 40 seconds. The other bounced in 3. Your analytics says: 2 pageviews. Same thing, right?" },
-            { t: "Products fail in silence.", d: "200 views. Zero add-to-carts. You won\u2019t notice for weeks. By then you\u2019ve spent another $500 driving traffic to a broken page." },
-            { t: "You changed something. Did it work?", d: "New photos. New price. New CTA. Revenue went up. Was it the change, or was it Tuesday? Without a control group, you\u2019re guessing." },
-          ].map((p, i) => (
-            <R key={i} d={i * 0.06}>
-              <div className="group h-full bg-[#080811] p-8 transition-colors duration-300 hover:bg-[#0a0a14]">
-                <h3 className="text-[15px] font-semibold text-white">{p.t}</h3>
-                <p className="mt-3 text-[13px] leading-[1.7] text-slate-500">{p.d}</p>
-              </div>
-            </R>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════════════════════
-   SIGNALS
-   ══════════════════════════════════════════════════════════════════════════════ */
-
-function Signals() {
-  const items = [
-    { code: "HIGH_TRAFFIC_NO_CART", l: "Traffic but no carts", d: "20+ views, zero add-to-carts. Something on this page is broken.", c: "rose" },
-    { code: "HIGH_ENGAGEMENT_NO_ACTION", l: "Interested but stuck", d: "They scroll deep and stay long. But don\u2019t buy. A specific friction is blocking them.", c: "amber" },
-    { code: "DEAD_TRAFFIC", l: "Dead on arrival", d: "Gone in under 5 seconds. First impression failed. Above-the-fold needs work.", c: "slate" },
-    { code: "HIGH_RETURN_LOW_CONVERSION", l: "Keeps coming back, won\u2019t buy", d: "5+ visits this week. Almost no carts. They want it. Something is stopping them.", c: "violet" },
-    { code: "LOW_CONVERSION_ATTENTION", l: "Weak conversion rate", d: "Getting traffic. Sub-2% cart rate. Not broken, just underperforming.", c: "cyan" },
-    { code: "TRAFFIC_SPIKE", l: "Sudden traffic spike", d: "Views jumped 1.5x. Something is driving traffic. Is the page ready?", c: "emerald" },
+function HowItWorks() {
+  const steps = [
+    {
+      icon: (
+        <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+        </svg>
+      ),
+      title: "Detect",
+      desc: "Watches every product, every 5 minutes. Flags what's broken.",
+      color: "#d4893a",
+      bg: "from-[#d4893a]/15 to-[#d4893a]/5",
+    },
+    {
+      icon: (
+        <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+        </svg>
+      ),
+      title: "Act",
+      desc: "Deploys a targeted fix. No code needed.",
+      color: "#a855f7",
+      bg: "from-[#a855f7]/15 to-[#a855f7]/5",
+    },
+    {
+      icon: (
+        <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+        </svg>
+      ),
+      title: "Prove",
+      desc: "Compares fix vs. control group. Shows real lift.",
+      color: "#34d399",
+      bg: "from-emerald-500/15 to-emerald-500/5",
+    },
+    {
+      icon: (
+        <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4.26 10.147a60.438 60.438 0 00-.491 6.347A48.62 48.62 0 0112 20.904a48.62 48.62 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.636 50.636 0 00-2.658-.813A59.906 59.906 0 0112 3.493a59.903 59.903 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0112 13.489a50.702 50.702 0 017.74-3.342M6.75 15a.75.75 0 100-1.5.75.75 0 000 1.5zm0 0v-3.675A55.378 55.378 0 0112 8.443m-7.007 11.55A5.981 5.981 0 006.75 15.75v-1.5" />
+        </svg>
+      ),
+      title: "Learn",
+      desc: "Gets smarter every week with your data.",
+      color: "#7c3aed",
+      bg: "from-[#7c3aed]/15 to-[#7c3aed]/5",
+    },
   ];
-  const dotColor: Record<string,string> = { rose: "bg-rose-400", amber: "bg-amber-400", violet: "bg-violet-400", cyan: "bg-cyan-400", emerald: "bg-emerald-400", slate: "bg-slate-400" };
-  const glowColor: Record<string,string> = { rose: "shadow-[0_0_6px_rgba(251,113,133,0.5)]", amber: "shadow-[0_0_6px_rgba(251,191,36,0.5)]", violet: "shadow-[0_0_6px_rgba(167,139,250,0.5)]", cyan: "shadow-[0_0_6px_rgba(34,211,238,0.4)]", emerald: "shadow-[0_0_6px_rgba(52,211,153,0.4)]", slate: "" };
 
   return (
-    <section id="signals" className="relative scroll-mt-20 py-28">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
-      <div className="mx-auto max-w-[68rem] px-6">
+    <section id="how" className="relative scroll-mt-20 py-20 sm:py-24">
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[#7c3aed]/[0.02] to-transparent" />
+
+      <div className="relative mx-auto max-w-[72rem] px-6 lg:px-10">
         <R className="text-center">
-          <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-violet-400/60">Detection engine</span>
-          <h2 className="mt-4 text-[1.75rem] font-bold text-white sm:text-[2.25rem]">
-            Your products are talking.<br />Here&apos;s what they&apos;re saying.
+          <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#a855f7]">How it works</span>
+          <h2 className="mt-5 text-[2.25rem] font-extrabold leading-[1.1] text-white sm:text-[3rem] lg:text-[3.5rem]">
+            Four steps. Fully automatic.
           </h2>
-          <p className="mx-auto mt-4 max-w-xl text-[15px] leading-relaxed text-slate-400">
-            Every 5 minutes, Hedge Spark checks every product against 8 behavioral rules.
-            When something is wrong, you get a signal with the problem and the fix.
+          <p className="mx-auto mt-6 max-w-[36rem] text-[18px] leading-[1.7] text-slate-400">
+            Most tools stop at step one. HedgeSpark runs the full loop — and it gets better every time.
           </p>
         </R>
-        <div className="mt-16 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
-          {items.map((s, i) => (
-            <R key={s.code} d={i * 0.04}>
-              <div className="group rounded-2xl border border-white/[0.04] bg-white/[0.012] p-6 transition-all duration-300 hover:border-white/[0.09] hover:bg-white/[0.025] hover:shadow-[0_4px_30px_-8px_rgba(0,0,0,0.3)]">
-                <div className="flex items-center gap-3">
-                  <div className={`h-2 w-2 rounded-full transition-transform duration-300 group-hover:scale-150 ${dotColor[s.c]} ${glowColor[s.c]}`} />
-                  <span className="text-[14px] font-semibold text-white">{s.l}</span>
+
+        <div className="mt-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          {steps.map((s, i) => (
+            <R key={s.title} d={i * 0.06}>
+              <div className="group relative flex h-full flex-col rounded-3xl border border-white/[0.06] bg-[#0e0e1a] p-8 transition-all duration-300 hover:border-white/[0.12] hover:shadow-[0_8px_40px_-8px_rgba(0,0,0,0.4)]">
+                {/* Icon */}
+                <div
+                  className={`flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br ${s.bg}`}
+                  style={{ color: s.color }}
+                >
+                  {s.icon}
                 </div>
-                <p className="mt-3 text-[12.5px] leading-[1.7] text-slate-500">{s.d}</p>
-                <div className="mt-4 font-mono text-[9px] tracking-[0.08em] text-slate-700 transition-colors duration-300 group-hover:text-slate-600">{s.code}</div>
+
+                {/* Arrow between cards */}
+                {i < 3 && (
+                  <div className="pointer-events-none absolute -right-3.5 top-[3.5rem] z-10 hidden lg:block" style={{ color: s.color }}>
+                    <svg width="24" height="14" viewBox="0 0 24 14" fill="none">
+                      <path d="M0 7h20M16 1l6 6-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
+                )}
+
+                <h3 className="mt-6 text-[20px] font-bold" style={{ color: s.color }}>{s.title}</h3>
+                <p className="mt-3 flex-1 text-[16px] leading-[1.65] text-slate-400">{s.desc}</p>
               </div>
             </R>
           ))}
@@ -345,129 +648,332 @@ function Signals() {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   BEHAVIORAL DEPTH
+   REAL EXAMPLE — one signal, one fix, proven in 7 days
    ══════════════════════════════════════════════════════════════════════════════ */
 
-function Depth() {
+function RealExample() {
   return (
-    <section className="relative py-28">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
-      <div className="pointer-events-none absolute inset-0"><div className="absolute left-1/2 top-1/2 h-[450px] w-[700px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-violet-600/[0.03] blur-[130px]" /></div>
-      <div className="relative mx-auto max-w-[68rem] px-6">
+    <section id="example" className="relative scroll-mt-20 py-20 sm:py-24">
+      <div className="mx-auto max-w-[72rem] px-6 lg:px-10">
         <R className="text-center">
-          <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-emerald-400/60">Behavioral layer</span>
-          <h2 className="mt-4 text-[1.75rem] font-bold text-white sm:text-[2.25rem]">
-            Most tools count clicks.<br />We read behavior.
+          <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#d4893a]">Real example</span>
+          <h2 className="mt-5 text-[2.25rem] font-extrabold leading-[1.1] text-white sm:text-[3rem]">
+            One product. One fix. 7 days.
           </h2>
+          <p className="mx-auto mt-6 max-w-[34rem] text-[18px] leading-[1.7] text-slate-400">
+            Here&apos;s what happened to a real store in its first week with HedgeSpark.
+          </p>
         </R>
-        <div className="mt-16 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {[
-            { v: "0\u2013100%", m: "Scroll depth", d: "Did they even see the CTA? Or did they leave before the fold?" },
-            { v: "Per second", m: "Dwell time", d: "3 seconds = not interested. 40 seconds = ready to buy. Big difference." },
-            { v: "HOT / WARM / COLD", m: "Visitor intent", d: "Scored on scroll + dwell + clicks. A HOT visitor at 70+ is money on the table." },
-            { v: "7-day window", m: "Return visits", d: "Someone came back 5 times and didn\u2019t buy. That\u2019s not loyalty. That\u2019s indecision." },
-          ].map((x, i) => (
-            <R key={x.m} d={i * 0.05}>
-              <div className="group rounded-2xl border border-white/[0.04] bg-white/[0.012] p-6 transition-all duration-300 hover:border-white/[0.09] hover:bg-white/[0.025]">
-                <div className="text-[20px] font-bold tracking-tight text-white transition-transform duration-300 group-hover:translate-x-0.5">{x.v}</div>
-                <div className="mt-1.5 text-[13px] font-semibold text-slate-300">{x.m}</div>
-                <p className="mt-2.5 text-[11.5px] leading-[1.7] text-slate-500">{x.d}</p>
-              </div>
-            </R>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
 
-/* ══════════════════════════════════════════════════════════════════════════════
-   HOW IT WORKS
-   ══════════════════════════════════════════════════════════════════════════════ */
+        <R d={0.08} className="mt-14">
+          <div className="rounded-3xl border border-white/[0.06] bg-[#0e0e1a] p-6 sm:p-10">
+            {/* Store context */}
+            <div className="mb-10 flex flex-wrap items-center gap-x-8 gap-y-3 text-[15px] text-slate-500">
+              <span>Home &amp; lifestyle store</span>
+              <span className="text-slate-700">&middot;</span>
+              <span>~4,200 monthly visitors</span>
+              <span className="text-slate-700">&middot;</span>
+              <span>23 products tracked</span>
+            </div>
 
-function How() {
-  return (
-    <section id="how" className="relative scroll-mt-20 py-28">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
-      <div className="mx-auto max-w-[60rem] px-6">
-        <R className="text-center">
-          <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-violet-400/60">How it works</span>
-          <h2 className="mt-4 text-[1.75rem] font-bold text-white sm:text-[2.25rem]">Install. Wait 10 minutes. See everything.</h2>
-        </R>
-        <div className="mt-16 grid gap-0 sm:grid-cols-3">
-          {[
-            { n: "1", t: "One-click install", d: "From the Shopify App Store. No code. No theme edits. Tracking starts on the next visitor.", tag: "30 sec" },
-            { n: "2", t: "Signals fire automatically", d: "Products get scored by conversion health. The engine runs every 5 minutes. Problems surface on their own.", tag: "~10 min" },
-            { n: "3", t: "Fix it. Prove it.", d: "Each signal comes with a specific action. After you act, the proof loop measures before vs. after. No more guessing.", tag: "Measured" },
-          ].map((s, i) => (
-            <R key={s.n} d={i * 0.08}>
-              <div className="relative flex flex-col items-center px-6 py-10 text-center">
-                {i < 2 && <div className="absolute right-0 top-[4rem] hidden h-px w-full bg-gradient-to-r from-transparent via-violet-500/15 to-transparent sm:block" />}
-                <div className="relative z-10 flex h-14 w-14 items-center justify-center rounded-2xl border border-violet-400/15 bg-gradient-to-br from-violet-500/[0.12] to-violet-600/[0.04] text-[18px] font-bold text-violet-400 shadow-[0_0_20px_-4px_rgba(124,58,237,0.15)] transition-shadow duration-300 hover:shadow-[0_0_30px_-4px_rgba(124,58,237,0.25)]">
-                  {s.n}
+            <div className="grid gap-8 lg:grid-cols-3">
+              {/* Day 1 */}
+              <div>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-500/10">
+                    <div className="h-3 w-3 rounded-full bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.6)]" />
+                  </div>
+                  <div>
+                    <div className="text-[14px] font-bold text-rose-400">Monday</div>
+                    <div className="text-[13px] text-slate-500">Signal detected</div>
+                  </div>
                 </div>
-                <h3 className="mt-6 text-[15px] font-semibold text-white">{s.t}</h3>
-                <p className="mt-2.5 text-[13px] leading-[1.65] text-slate-500">{s.d}</p>
-                <span className="mt-4 rounded-full border border-white/[0.05] bg-white/[0.02] px-3.5 py-1 text-[10px] font-medium text-slate-500">{s.tag}</span>
+                <div className="mt-5 rounded-2xl border border-rose-500/10 bg-rose-500/[0.02] p-5">
+                  <p className="text-[17px] font-bold text-white">Organic Cotton Throw</p>
+                  <div className="mt-4 space-y-2">
+                    <div className="flex justify-between text-[15px]">
+                      <span className="text-slate-400">Views per day</span>
+                      <span className="font-bold text-white">68</span>
+                    </div>
+                    <div className="flex justify-between text-[15px]">
+                      <span className="text-slate-400">Add to carts</span>
+                      <span className="font-bold text-rose-400">0</span>
+                    </div>
+                    <div className="flex justify-between text-[15px]">
+                      <span className="text-slate-400">Avg time on page</span>
+                      <span className="font-bold text-white">28s</span>
+                    </div>
+                  </div>
+                  <p className="mt-4 text-[15px] text-slate-400">
+                    People are interested. Nobody&apos;s buying.
+                  </p>
+                </div>
               </div>
-            </R>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
 
-/* ══════════════════════════════════════════════════════════════════════════════
-   PROOF
-   ══════════════════════════════════════════════════════════════════════════════ */
-
-function Proof() {
-  return (
-    <section className="relative py-28">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
-      <div className="mx-auto max-w-[68rem] px-6">
-        <div className="grid items-center gap-14 lg:grid-cols-2">
-          <R>
-            <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-amber-400/60">Proof engine</span>
-            <h2 className="mt-4 text-[1.75rem] font-bold leading-[1.15] text-white sm:text-[2.25rem]">
-              Did it actually work?
-              <br /><span className="text-slate-500">We prove it.</span>
-            </h2>
-            <p className="mt-6 text-[15px] leading-[1.75] text-slate-400">
-              When you act on a signal, Hedge Spark holds back a control group automatically.
-              <span className="text-slate-200"> Then it compares: did the visitors who saw your change convert more than those who didn&apos;t?</span>
-            </p>
-            <p className="mt-3 text-[14px] text-slate-500">Real incremental lift. Not correlation. Not vibes.</p>
-          </R>
-
-          <R d={0.1}>
-            <div className="rounded-2xl border border-white/[0.05] bg-gradient-to-b from-white/[0.02] to-transparent p-px shadow-[0_8px_60px_-12px_rgba(0,0,0,0.3)]">
-              <div className="rounded-[15px] bg-[#0a0a17] p-7">
-                <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-600">Lift report</div>
-                <div className="mt-6 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[13px] text-slate-400">Saw the change</span>
-                    <span className="text-[16px] font-bold tabular-nums text-emerald-400">4.2% CVR</span>
+              {/* Day 2 */}
+              <div>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#d4893a]/10">
+                    <div className="h-3 w-3 rounded-full bg-[#d4893a] shadow-[0_0_8px_rgba(212,137,58,0.6)]" />
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[13px] text-slate-400">Control group</span>
-                    <span className="text-[16px] font-bold tabular-nums text-slate-500">3.1% CVR</span>
+                  <div>
+                    <div className="text-[14px] font-bold text-[#d4893a]">Tuesday</div>
+                    <div className="text-[13px] text-slate-500">Nudge deployed</div>
                   </div>
-                  <div className="border-t border-white/[0.05] pt-5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[14px] font-semibold text-white">Your change drove</span>
-                      <span className="bg-gradient-to-r from-emerald-400 to-emerald-300 bg-clip-text text-[22px] font-bold tabular-nums text-transparent">+35.5% lift</span>
+                </div>
+                <div className="mt-5 rounded-2xl border border-[#d4893a]/10 bg-[#d4893a]/[0.02] p-5">
+                  <p className="text-[17px] font-bold text-white">Social proof nudge</p>
+                  <div className="mt-4 rounded-xl border border-white/[0.06] bg-white/[0.03] p-4">
+                    <p className="text-center text-[16px] italic text-white">
+                      &ldquo;14 people viewed this in the last 24 hours&rdquo;
+                    </p>
+                  </div>
+                  <div className="mt-4 space-y-2">
+                    <div className="flex justify-between text-[15px]">
+                      <span className="text-slate-400">See the nudge</span>
+                      <span className="font-bold text-white">80%</span>
                     </div>
-                    <div className="mt-2 flex items-center gap-2.5">
-                      <span className="rounded-md bg-emerald-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-300 ring-1 ring-emerald-500/20">Confident</span>
-                      <span className="text-[10px] text-slate-600">p &lt; 0.05 &middot; 1,240 visitors</span>
+                    <div className="flex justify-between text-[15px]">
+                      <span className="text-slate-400">Control group</span>
+                      <span className="font-bold text-slate-500">20%</span>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              {/* Day 7 */}
+              <div>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10">
+                    <div className="h-3 w-3 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
+                  </div>
+                  <div>
+                    <div className="text-[14px] font-bold text-emerald-400">Next Monday</div>
+                    <div className="text-[13px] text-slate-500">Lift confirmed</div>
+                  </div>
+                </div>
+                <div className="mt-5 rounded-2xl border border-emerald-500/10 bg-emerald-500/[0.02] p-5">
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-[15px]">
+                      <span className="text-slate-400">With nudge</span>
+                      <span className="font-bold text-emerald-400">3.1% bought</span>
+                    </div>
+                    <div className="flex justify-between text-[15px]">
+                      <span className="text-slate-400">Without nudge</span>
+                      <span className="font-bold text-slate-500">1.9% bought</span>
+                    </div>
+                  </div>
+                  <div className="mt-5 rounded-xl border border-emerald-500/15 bg-emerald-500/[0.04] p-4 text-center">
+                    <div className="text-[2.5rem] font-extrabold leading-none text-emerald-400">+63%</div>
+                    <div className="mt-1 text-[15px] font-semibold text-emerald-300">more sales</div>
+                  </div>
+                  <p className="mt-4 text-center text-[17px] font-bold text-white">
+                    $220/week recovered
+                  </p>
                 </div>
               </div>
             </div>
+
+            <div className="mt-10 rounded-2xl border border-[#d4893a]/10 bg-[#d4893a]/[0.03] p-6 text-center">
+              <p className="text-[18px] text-slate-300">
+                This happened in <strong className="text-white">7 days</strong>. On <strong className="text-white">one product</strong>. With <strong className="text-white">zero manual work</strong>.
+              </p>
+              <p className="mt-2 text-[17px] font-semibold text-[#d4893a]">
+                Your store has products like this right now.
+              </p>
+            </div>
+          </div>
+        </R>
+      </div>
+    </section>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   IT LEARNS
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+function Learns() {
+  // Maturity progression: red (raw) → orange → yellow → green (mature)
+  const weeks = [
+    { week: "Week 1", insight: "68 views, 0 carts on your Silk Pillowcase", desc: "Basic problems found across your catalog.", color: "#f87171" },
+    { week: "Week 2", insight: "Return visitors stall on items over $40", desc: "Price sensitivity patterns start to appear.", color: "#fb923c" },
+    { week: "Week 4", insight: "Instagram visitors convert 3x on lifestyle photos", desc: "Learns which traffic sources bring buyers vs. browsers.", color: "#facc15" },
+    { week: "Week 8", insight: "Instagram visitors who scroll past the fold hesitate at $45+ — 73% respond to social proof", desc: "Deep, compound intelligence unique to your store.", color: "#34d399" },
+  ];
+
+  return (
+    <section className="relative py-20 sm:py-24">
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[#c4b5fd]/[0.015] to-transparent" />
+
+      <div className="relative mx-auto max-w-[72rem] px-6 lg:px-10">
+        <div className="grid items-center gap-14 lg:grid-cols-2">
+          <R>
+            <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#c4b5fd]">It gets smarter</span>
+            <h2 className="mt-5 text-[2.25rem] font-extrabold leading-[1.1] text-white sm:text-[3rem]">
+              Week 1, it spots the obvious.
+              <br />
+              <span className="text-emerald-400">Week 8, it knows your store better than you do.</span>
+            </h2>
+            <p className="mt-6 text-[17px] leading-[1.7] text-slate-400">
+              Most Shopify tools run the same generic rules for every store. HedgeSpark builds a model specific to <em>your</em> visitors, <em>your</em> products, <em>your</em> price points.
+            </p>
+            <p className="mt-5 text-[17px] font-semibold leading-[1.7] text-slate-300">
+              Every week, the insights get sharper — because the system has more of your data to learn from.
+            </p>
           </R>
+
+          <R d={0.1}>
+            <div className="rounded-3xl border border-white/[0.06] bg-[#0e0e1a] p-6 sm:p-8">
+              <div className="flex items-center gap-3 mb-8">
+                <Image src="/branding/hedgespark/spark.png" alt="" width={28} height={28} className="hs-float" />
+                <span className="text-[14px] font-bold text-slate-500">Intelligence timeline</span>
+              </div>
+
+              <div className="space-y-0">
+                {weeks.map((w, i) => {
+                  const isLast = i === weeks.length - 1;
+                  const next = weeks[i + 1];
+                  return (
+                    <div key={w.week} className="relative flex gap-5">
+                      <div className="flex flex-col items-center">
+                        <div
+                          className="h-4 w-4 rounded-full border-2"
+                          style={{
+                            borderColor: w.color,
+                            backgroundColor: alpha(w.color, isLast ? 0.4 : 0.15),
+                            boxShadow: isLast ? `0 0 12px ${alpha(w.color, 0.5)}` : undefined,
+                          }}
+                        />
+                        {!isLast && (
+                          <div
+                            className="w-px flex-1"
+                            style={{
+                              background: `linear-gradient(to bottom, ${alpha(w.color, 0.35)}, ${alpha(next!.color, 0.35)})`,
+                            }}
+                          />
+                        )}
+                      </div>
+                      <div className={`pb-8 ${isLast ? "pb-0" : ""}`}>
+                        <div
+                          className="text-[13px] font-bold uppercase tracking-[0.12em]"
+                          style={{ color: isLast ? w.color : alpha(w.color, 0.7) }}
+                        >
+                          {w.week}
+                        </div>
+                        <p className={`mt-2 text-[15px] font-semibold leading-[1.5] ${
+                          isLast ? "text-white" : "text-slate-300"
+                        }`}>
+                          {w.insight}
+                        </p>
+                        <p className="mt-1 text-[14px] leading-[1.6] text-slate-500">{w.desc}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </R>
+        </div>
+
+        <R d={0.14}>
+          <div className="mt-14 rounded-2xl border border-[#d4893a]/15 bg-[#d4893a]/[0.04] p-6 text-center sm:p-8">
+            <p className="text-[18px] leading-[1.7] text-slate-300">
+              Every week you wait is a week the system can&apos;t learn from.
+              <br className="hidden sm:block" />
+              <strong className="text-white">Merchants who start today are 8 weeks ahead of merchants who start in 8 weeks.</strong>
+            </p>
+            <a
+              href={INSTALL_URL}
+              className="mt-5 inline-block text-[16px] font-bold text-[#d4893a] transition-colors hover:text-[#e8a04e]"
+            >
+              Start learning now &rarr;
+            </a>
+          </div>
+        </R>
+      </div>
+    </section>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   GET STARTED — 3 steps
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+function GetStarted() {
+  // Brand gradient progression: purple → magenta → orange.
+  // Slightly desaturated from the pure brand stops to feel premium, not neon.
+  const steps = [
+    { n: "1", t: "Install from Shopify", d: "One click. No code. No theme edits. Tracking starts on the next visitor.", time: "30 seconds", color: "#8b5cf6" },
+    { n: "2", t: "Signals start firing", d: "Products get scored by how well they convert. Problems surface automatically.", time: "~5 minutes", color: "#d946ef" },
+    { n: "3", t: "Fix. Prove. Repeat.", d: "Every signal carries a fix. Every outcome makes the model sharper.", time: "Ongoing", color: "#fb923c" },
+  ];
+
+  return (
+    <section className="relative py-20 sm:py-24">
+      {/* Subtle brand wash */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(ellipse 60% 50% at 50% 40%, rgba(217, 70, 239, 0.018) 0%, transparent 70%)",
+        }}
+      />
+
+      <div className="relative mx-auto max-w-[72rem] px-6 lg:px-10">
+        <R className="text-center">
+          <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#d4893a]">Get started</span>
+          <h2 className="mt-5 text-[2.25rem] font-extrabold leading-[1.1] text-white sm:text-[3rem]">
+            30 seconds to install.
+            <br />
+            <span style={{ color: "#e8a04e" }}>5 minutes to your first insight.</span>
+          </h2>
+        </R>
+
+        <div className="mt-16 grid items-stretch gap-8 sm:grid-cols-3">
+          {steps.map((s, i) => {
+            const next = steps[i + 1];
+            return (
+              <R key={s.n} d={i * 0.08} className="h-full">
+                <div className="relative flex h-full flex-col items-center text-center">
+                  {/* Connector line — full row, fades in/out at the badge.
+                      Last step fades to transparent (no next color). */}
+                  <div
+                    className="absolute right-0 top-[2.5rem] hidden h-px w-full sm:block"
+                    style={{
+                      background: next
+                        ? `linear-gradient(to right, ${alpha(s.color, 0)}, ${alpha(s.color, 0.3)}, ${alpha(next.color, 0.3)}, ${alpha(next.color, 0)})`
+                        : `linear-gradient(to right, ${alpha(s.color, 0)}, ${alpha(s.color, 0.3)}, ${alpha(s.color, 0)})`,
+                    }}
+                  />
+                  {/* Number badge */}
+                  <div
+                    className="relative z-10 flex h-20 w-20 items-center justify-center rounded-3xl border-2 text-[28px] font-extrabold transition-transform duration-300 hover:scale-105"
+                    style={{
+                      borderColor: alpha(s.color, 0.28),
+                      background: `linear-gradient(135deg, ${alpha(s.color, 0.12)}, ${alpha(next?.color ?? s.color, 0.025)})`,
+                      color: s.color,
+                      boxShadow: `0 0 24px -6px ${alpha(s.color, 0.2)}`,
+                    }}
+                  >
+                    {s.n}
+                  </div>
+                  <h3 className="mt-7 text-[19px] font-bold text-white">{s.t}</h3>
+                  <p className="mt-3 flex-1 text-[16px] leading-[1.65] text-slate-400">{s.d}</p>
+                  <span
+                    className="mt-5 rounded-full border px-4 py-1.5 text-[13px] font-bold"
+                    style={{
+                      borderColor: alpha(s.color, 0.22),
+                      backgroundColor: alpha(s.color, 0.06),
+                      color: s.color,
+                    }}
+                  >
+                    {s.time}
+                  </span>
+                </div>
+              </R>
+            );
+          })}
         </div>
       </div>
     </section>
@@ -479,54 +985,156 @@ function Proof() {
    ══════════════════════════════════════════════════════════════════════════════ */
 
 function Pricing() {
-  const check = <svg className="mt-0.5 h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>;
+  const check = (color: string) => (
+    <svg className={`mt-0.5 h-5 w-5 flex-shrink-0 ${color}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+    </svg>
+  );
 
   return (
-    <section id="pricing" className="relative scroll-mt-20 py-28">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
-      <div className="mx-auto max-w-[52rem] px-6">
+    <section id="pricing" className="relative scroll-mt-20 py-20 sm:py-24">
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[#d4893a]/[0.015] to-transparent" />
+
+      <div className="relative mx-auto max-w-[60rem] px-6 lg:px-10">
         <R className="text-center">
-          <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-violet-400/60">Pricing</span>
-          <h2 className="mt-4 text-[1.75rem] font-bold text-white sm:text-[2.25rem]">Lite sees the problems. Pro fixes them.</h2>
+          <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#d4893a]">Pricing</span>
+          <h2 className="mt-5 text-[2.25rem] font-extrabold leading-[1.1] text-white sm:text-[3rem]">
+            Start with intelligence.
+            <br />
+            <span style={{ color: "#34d399" }}>Start making money.</span>
+          </h2>
         </R>
+
         <div className="mt-16 grid gap-6 sm:grid-cols-2">
           {/* Lite */}
           <R d={0.04}>
-            <div className="flex h-full flex-col rounded-2xl border border-white/[0.05] bg-white/[0.012] p-8 transition-all duration-300 hover:border-white/[0.08]">
-              <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Lite</div>
-              <div className="mt-5 flex items-baseline gap-1.5">
-                <span className="text-[2.75rem] font-extrabold tracking-tight text-white">$0</span>
-                <span className="text-sm text-slate-600">forever</span>
+            <div className="flex h-full flex-col rounded-3xl border border-white/[0.06] bg-[#0e0e1a] p-8 transition-all duration-300 hover:border-white/[0.1] sm:p-10">
+              <div className="text-[14px] font-bold uppercase tracking-[0.18em] text-slate-400">Lite</div>
+              <div className="mt-6 flex items-baseline gap-2">
+                <span className="text-[3.5rem] font-extrabold tracking-tight text-white">$0</span>
+                <span className="text-[17px] text-slate-500">forever</span>
               </div>
-              <p className="mt-4 text-[14px] leading-relaxed text-slate-400">See what&apos;s wrong. Every product, every visitor, in real time.</p>
-              <ul className="mt-8 flex-1 space-y-3.5">
-                {["Visitor intent scoring (HOT / WARM / COLD)", "8 detection signals per product", "Scroll depth + dwell time data", "Daily intelligence brief", "Revenue at risk estimates", "Traffic source quality scores"].map((f) => (
-                  <li key={f} className="flex items-start gap-3 text-[13px] text-slate-300"><span className="text-emerald-400/70">{check}</span>{f}</li>
+              <p className="mt-5 text-[17px] leading-relaxed text-slate-400">
+                See what&apos;s wrong with every product. In real time.
+              </p>
+              <ul className="mt-8 flex-1 space-y-4">
+                {[
+                  "Visitor intent scoring (hot / warm / cold)",
+                  "8 detection signals per product",
+                  "Scroll depth + dwell time tracking",
+                  "Daily intelligence brief",
+                  "Revenue-at-risk estimates",
+                  "Traffic source quality",
+                ].map((f) => (
+                  <li key={f} className="flex items-start gap-3 text-[16px] text-slate-300">
+                    {check("text-emerald-400/70")}
+                    {f}
+                  </li>
                 ))}
               </ul>
-              <a href="https://apps.shopify.com/" className="mt-9 block rounded-xl border border-white/[0.07] bg-white/[0.02] py-3.5 text-center text-[14px] font-semibold text-slate-300 transition-all duration-300 hover:border-white/[0.12] hover:bg-white/[0.05] hover:text-white">Install free</a>
+              <a
+                href={INSTALL_URL}
+                className="mt-10 block rounded-2xl border border-white/[0.08] bg-white/[0.03] py-4 text-center text-[16px] font-bold text-slate-200 transition-all duration-300 hover:border-white/[0.14] hover:bg-white/[0.06] hover:text-white"
+              >
+                Install free
+              </a>
             </div>
           </R>
 
           {/* Pro */}
           <R d={0.1}>
-            <div className="relative flex h-full flex-col overflow-hidden rounded-2xl border border-violet-400/15 bg-gradient-to-b from-violet-500/[0.04] to-transparent p-8 transition-all duration-300 hover:border-violet-400/25">
-              {/* Badge */}
-              <div className="absolute -top-px left-8 rounded-b-lg bg-violet-600 px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-white shadow-[0_4px_20px_-4px_rgba(124,58,237,0.5)]">14-day free trial</div>
-              <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-violet-400">Pro</div>
-              <div className="mt-5 flex items-baseline gap-1.5">
-                <span className="text-[2.75rem] font-extrabold tracking-tight text-white">$49</span>
-                <span className="text-sm text-slate-500">/month</span>
+            <div className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-[#d4893a]/20 bg-gradient-to-b from-[#d4893a]/[0.04] to-transparent p-8 transition-all duration-300 hover:border-[#d4893a]/30 sm:p-10">
+              <div className="absolute -top-px left-8 rounded-b-xl bg-[#d4893a] px-5 py-2 text-[12px] font-bold uppercase tracking-[0.12em] text-white shadow-[0_4px_20px_-4px_rgba(212,137,58,0.5)]">
+                14-day free trial
               </div>
-              <p className="mt-4 text-[14px] leading-relaxed text-slate-400">Know what to <em className="not-italic text-slate-200">do</em> about it. And prove it worked.</p>
-              <ul className="mt-8 flex-1 space-y-3.5">
-                {["Everything in Lite", "Per-product action plans", "Conversion probability engine", "Holdout-based lift proof", "Revenue attribution (visitor \u2192 order)", "Market & price intelligence", "Before/after measurement", "Weekly email digest"].map((f) => (
-                  <li key={f} className="flex items-start gap-3 text-[13px] text-slate-200"><span className="text-violet-400">{check}</span>{f}</li>
+              <div className="text-[14px] font-bold uppercase tracking-[0.18em] text-[#d4893a]">Pro</div>
+              <div className="mt-6 flex items-baseline gap-2">
+                <span className="text-[3.5rem] font-extrabold tracking-tight text-white">$49</span>
+                <span className="text-[17px] text-slate-500">/month</span>
+              </div>
+              <p className="mt-5 text-[17px] leading-relaxed text-slate-400">
+                Find the problem. Fix it. Prove it worked. Watch it learn.
+              </p>
+              <p className="mt-2 text-[14px] text-slate-500">
+                One recovered signal typically pays for a full year.
+              </p>
+              <ul className="mt-8 flex-1 space-y-4">
+                {[
+                  "Everything in Lite",
+                  "Per-product action plans",
+                  "Automated nudge deployment",
+                  "Holdout-based proof of impact",
+                  "Revenue attribution (visitor to order)",
+                  "Self-learning model (gets smarter weekly)",
+                  "Before/after measurement",
+                  "Weekly email digest",
+                ].map((f) => (
+                  <li key={f} className={`flex items-start gap-3 text-[16px] ${f === "Everything in Lite" ? "text-slate-500" : "text-slate-200"}`}>
+                    {check("text-[#d4893a]")}
+                    {f}
+                  </li>
                 ))}
               </ul>
-              <a href="https://apps.shopify.com/" className="mt-9 block rounded-xl bg-violet-600 py-3.5 text-center text-[14px] font-semibold text-white shadow-[0_0_0_1px_rgba(124,58,237,0.3)] transition-all duration-300 hover:bg-violet-500 hover:shadow-[0_4px_40px_rgba(124,58,237,0.3)]">Start free trial</a>
+              <a
+                href={INSTALL_URL}
+                className="hs-cta-gradient mt-10 block rounded-2xl py-4 text-center text-[16px] font-bold text-white transition-all duration-300 hover:shadow-[0_4px_40px_rgba(212,137,58,0.3)]"
+              >
+                Start free trial
+              </a>
             </div>
           </R>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   FAQ
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+function FAQ() {
+  const items = [
+    {
+      q: "Will this slow down my store?",
+      a: "No. HedgeSpark is under 5kb. No theme changes. No render blocking. Your existing analytics scripts are heavier.",
+    },
+    {
+      q: "What data do you collect?",
+      a: "Only behavioral signals: scroll depth, dwell time, clicks, cart events. No personal data. No third-party sharing. GDPR compliant. Encrypted at rest.",
+    },
+    {
+      q: "How is this different from Google Analytics?",
+      a: "Analytics tells you what happened. HedgeSpark tells you what to do about it, does it, then proves whether it worked. One is a report. This is a system.",
+    },
+    {
+      q: "Do I need a developer?",
+      a: "No. One-click Shopify install. No code. No theme editor. Tracking starts on the next visitor.",
+    },
+    {
+      q: "What happens after the Pro trial?",
+      a: "You choose: keep Pro or drop to Lite. Lite is free forever — you keep all detection signals. You never lose visibility.",
+    },
+  ];
+
+  return (
+    <section id="faq" className="relative scroll-mt-20 py-20 sm:py-24">
+      <div className="mx-auto max-w-[48rem] px-6 lg:px-10">
+        <R className="text-center">
+          <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#d4893a]">Questions</span>
+          <h2 className="mt-5 text-[2.25rem] font-extrabold text-white sm:text-[3rem]">
+            Common questions
+          </h2>
+        </R>
+        <div className="mt-12 space-y-0 divide-y divide-white/[0.06]">
+          {items.map((item, i) => (
+            <R key={i} d={i * 0.04}>
+              <div className="py-8">
+                <h3 className="text-[18px] font-bold text-white">{item.q}</h3>
+                <p className="mt-3 text-[16px] leading-[1.7] text-slate-400">{item.a}</p>
+              </div>
+            </R>
+          ))}
         </div>
       </div>
     </section>
@@ -539,24 +1147,33 @@ function Pricing() {
 
 function FinalCTA() {
   return (
-    <section className="relative overflow-hidden py-32">
+    <section className="relative overflow-hidden py-32 sm:py-40">
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute left-1/2 top-1/2 h-[500px] w-[800px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-violet-600/[0.06] blur-[160px]" />
+        <div className="absolute left-1/2 top-1/2 h-[600px] w-[900px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#d4893a]/[0.06] blur-[180px]" />
+        <div className="absolute left-[60%] top-[60%] h-[400px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#7c3aed]/[0.04] blur-[140px]" />
       </div>
       <R>
-        <div className="relative mx-auto max-w-2xl px-6 text-center">
-          <h2 className="text-[1.75rem] font-bold leading-[1.15] text-white sm:text-[2.5rem]">
-            While you read this,<br />someone left your store.
+        <div className="relative mx-auto max-w-3xl px-6 text-center lg:px-10">
+          <h2 className="text-[2.25rem] font-extrabold leading-[1.1] text-white sm:text-[3rem] lg:text-[3.75rem]">
+            While you read this,
+            <br />
+            someone left your store.
           </h2>
-          <p className="mt-3 text-[1.75rem] font-bold leading-[1.15] text-slate-500 sm:text-[2.5rem]">You&apos;ll never know why.</p>
-          <p className="mt-7 text-[16px] text-slate-400">Unless you install Hedge Spark.</p>
-          <div className="mt-9">
-            <a href="https://apps.shopify.com/" className="group relative inline-block rounded-xl bg-violet-600 px-12 py-4.5 text-[15px] font-semibold text-white shadow-[0_0_0_1px_rgba(124,58,237,0.3)] transition-all duration-300 hover:bg-violet-500 hover:shadow-[0_4px_50px_rgba(124,58,237,0.35)]">
-              <span className="pointer-events-none absolute inset-0 rounded-xl bg-gradient-to-b from-white/[0.08] to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-              <span className="relative">Install free. First signal in 10 minutes.</span>
+          <p className="mt-6 text-[20px] leading-[1.5] text-slate-400 sm:text-[1.5rem]">
+            A competitor using HedgeSpark
+            <br className="hidden sm:block" />
+            would already know <span className="text-white font-semibold">why</span>.
+          </p>
+          <div className="mt-10">
+            <a
+              href={INSTALL_URL}
+              className="hs-cta-gradient group relative inline-block rounded-2xl px-14 py-5 text-[18px] font-bold text-white transition-all duration-300 hover:shadow-[0_4px_60px_rgba(212,137,58,0.4)]"
+            >
+              <span className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-b from-white/[0.08] to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+              <span className="relative">Install on Shopify</span>
             </a>
           </div>
-          <p className="mt-5 text-[12px] text-slate-600">Free Lite plan. No credit card. Cancel Pro anytime.</p>
+          <p className="mt-6 text-[15px] text-slate-500">Installs in 30 seconds. Tracking starts on the next visitor.</p>
         </div>
       </R>
     </section>
@@ -569,16 +1186,22 @@ function FinalCTA() {
 
 function Footer() {
   return (
-    <footer className="py-12" style={{ borderTop: "1px solid rgba(255,255,255,0.03)" }}>
-      <div className="mx-auto max-w-[72rem] px-6">
-        <div className="flex flex-col items-center justify-between gap-5 sm:flex-row">
-          <span className="text-[14px] font-semibold text-slate-700">Hedge<span className="text-violet-400/40">Spark</span></span>
-          <div className="flex items-center gap-8 text-[13px] text-slate-600">
-            <a href="/app" className="transition-colors duration-200 hover:text-slate-300">Dashboard</a>
-            <a href="/pricing" className="transition-colors duration-200 hover:text-slate-300">Pricing</a>
-            <a href="mailto:dev@hedgesparkhq.com" className="transition-colors duration-200 hover:text-slate-300">Support</a>
+    <footer className="border-t border-white/[0.04] py-14">
+      <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+        <div className="flex flex-col items-center justify-between gap-6 sm:flex-row">
+          <div className="flex items-center">
+            <span className="hs-brand-gradient text-[18px] font-extrabold tracking-tight">
+              HedgeSpark
+            </span>
           </div>
-          <span className="text-[12px] text-slate-700">&copy; {new Date().getFullYear()} Hedge Spark</span>
+          <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-2 text-[15px] text-slate-500">
+            <a href="/app" className="transition-colors duration-200 hover:text-white">Dashboard</a>
+            <a href="/pricing" className="transition-colors duration-200 hover:text-white">Pricing</a>
+            <a href="/privacy" className="transition-colors duration-200 hover:text-white">Privacy</a>
+            <a href="/terms" className="transition-colors duration-200 hover:text-white">Terms</a>
+            <a href="mailto:dev@hedgesparkhq.com" className="transition-colors duration-200 hover:text-white">Support</a>
+          </div>
+          <span className="text-[14px] text-slate-600">&copy; {new Date().getFullYear()} HedgeSpark</span>
         </div>
       </div>
     </footer>
@@ -592,16 +1215,20 @@ function Footer() {
 export default function LandingPage() {
   const ok = useOAuthRedirect();
   if (!ok) return null;
+
   return (
-    <div className="min-h-screen bg-[#080811] text-white antialiased">
+    <div className="min-h-screen bg-[#07070f] text-white antialiased">
       <Nav />
       <Hero />
-      <BlindSpots />
-      <Signals />
-      <Depth />
-      <How />
-      <Proof />
+      <Numbers />
+      <Problem />
+      <Features />
+      <HowItWorks />
+      <RealExample />
+      <Learns />
+      <GetStarted />
       <Pricing />
+      <FAQ />
       <FinalCTA />
       <Footer />
     </div>

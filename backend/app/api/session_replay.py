@@ -24,6 +24,7 @@ Latency: events appear within ~1 second of the visitor action.
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.core.database import engine
@@ -32,7 +33,29 @@ from app.core.deps import require_merchant_session
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
-@router.get("/sessions")
+class SessionTimelineRow(BaseModel):
+    """One visitor's behavioral session timeline."""
+    visitor_id: str
+    pages_visited: list[str]
+    total_duration_seconds: int
+    last_page: str | None = None
+    event_count: int
+    last_active_ts: int
+
+
+class SessionTimelineResponse(BaseModel):
+    """GET /analytics/sessions — last 10 behavioral session timelines."""
+    sessions: list[SessionTimelineRow]
+    surface_type: str
+    surface_note: str
+    generated_at: str
+
+
+@router.get(
+    "/sessions",
+    response_model=SessionTimelineResponse,
+    response_model_exclude_none=False,
+)
 def session_list(
     shop: str = Depends(require_merchant_session),
 ):
