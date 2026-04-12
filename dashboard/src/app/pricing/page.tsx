@@ -27,13 +27,20 @@ const LITE_FEATURES: string[] = [
 
 const PRO_FEATURES: string[] = [
   "Everything in Lite",
-  "Full product insights",
-  "Revenue loss per product",
-  "Full AI suggestions per signal",
-  "Full daily brief breakdown",
-  "Complete product list",
-  "Price intelligence",
-  "Market intelligence",
+  "Revenue at Risk Score (5 dimensions)",
+  "Revenue Autopsy per product",
+  "Abandoned intent detection",
+  "Automated nudges + holdout proof",
+  "Causal lift measurement (real A/B)",
+  "Cohort & LTV analysis",
+  "P&L intelligence per product",
+  "Scroll heatmaps per product",
+  "Price sensitivity detection",
+  "Peer benchmarks (anonymous)",
+  "Revenue Genome (source/segment DNA)",
+  "Goals, ROI tracking, risk forecast",
+  "Team collaboration + webhooks",
+  "Weekly email digest",
 ];
 
 type ComparisonRow = {
@@ -43,13 +50,24 @@ type ComparisonRow = {
 };
 
 const COMPARISON: ComparisonRow[] = [
-  { label: "Daily brief",         lite: "Headline only",  pro: "Full breakdown"  },
-  { label: "Product performance", lite: "Top 3 products", pro: "Full list"        },
-  { label: "Revenue loss",        lite: false,            pro: "Per product"     },
-  { label: "AI actions",          lite: false,            pro: "Included"        },
-  { label: "Full product list",   lite: false,            pro: "Included"        },
-  { label: "Price intelligence",  lite: false,            pro: "Included"        },
-  { label: "Market intelligence", lite: false,            pro: "Included"        },
+  { label: "Daily brief",             lite: "Headline only",  pro: "Full breakdown"       },
+  { label: "Product performance",     lite: "Top 3 products", pro: "Full catalog"          },
+  { label: "Revenue at Risk Score",   lite: "Estimate only",  pro: "5-dimension breakdown" },
+  { label: "Revenue Autopsy",         lite: false,            pro: "Per product"           },
+  { label: "Abandoned intent",        lite: false,            pro: "Scored visitors"       },
+  { label: "Automated nudges",        lite: false,            pro: "Deploy + measure"      },
+  { label: "Holdout proof (A/B)",     lite: false,            pro: "Causal lift"           },
+  { label: "Cohort & LTV analysis",   lite: false,            pro: "Multi-dimensional"     },
+  { label: "Scroll heatmaps",         lite: false,            pro: "Per product"           },
+  { label: "Price sensitivity",       lite: false,            pro: "Elasticity detection"  },
+  { label: "Peer benchmarks",         lite: false,            pro: "Anonymous comparison"  },
+  { label: "P&L intelligence",        lite: false,            pro: "Per product/channel"   },
+  { label: "Revenue Genome",          lite: false,            pro: "Source/segment DNA"    },
+  { label: "Goals & ROI tracking",    lite: false,            pro: "Set + measure"         },
+  { label: "Risk forecast",           lite: false,            pro: "Predictive"            },
+  { label: "Team + webhooks",         lite: false,            pro: "Collaborate + integrate"},
+  { label: "Refund loss tracking",    lite: false,            pro: "Trend analysis"        },
+  { label: "Weekly email digest",     lite: false,            pro: "Included"              },
 ];
 
 // ---------------------------------------------------------------------------

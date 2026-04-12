@@ -102,6 +102,7 @@ function Nav() {
           {[
             ["/", "Home"],
             ["#features", "Features"],
+            ["#intelligence", "Intelligence"],
             ["#how", "How it works"],
             ["#example", "Example"],
             ["#pricing", "Pricing"],
@@ -541,6 +542,194 @@ function Features() {
                 </div>
               </div>
             </div>
+          </div>
+        </R>
+      </div>
+    </section>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   PRO INTELLIGENCE STACK — showcase ~80% of dashboard capabilities
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+function ProStack() {
+  const categories = [
+    {
+      title: "Revenue Intelligence",
+      color: "#d4893a",
+      features: [
+        {
+          name: "Revenue at Risk Score",
+          desc: "Real-time dollar amount at risk across 5 dimensions: abandoned intent, refund decline, nudge gaps, peer underperformance, goal gaps.",
+          tag: "Live calculation",
+        },
+        {
+          name: "Revenue Autopsy",
+          desc: "Per-product loss forensics. See exactly where each product bleeds money and why.",
+          tag: "Per product",
+        },
+        {
+          name: "Abandoned Intent",
+          desc: "High-interest visitors who left without buying. Scored by scroll depth, dwell time, return visits.",
+          tag: "Behavioral",
+        },
+        {
+          name: "Refund Loss Tracking",
+          desc: "Products with rising return rates. Catches quality or expectation mismatches early.",
+          tag: "Trend analysis",
+        },
+      ],
+    },
+    {
+      title: "Behavioral Intelligence",
+      color: "#a855f7",
+      features: [
+        {
+          name: "Visitor Intent Scoring",
+          desc: "Every visitor classified as hot, warm, or cold based on real behavioral signals — not rules, real data.",
+          tag: "Per visitor",
+        },
+        {
+          name: "Scroll Heatmaps",
+          desc: "See exactly where visitors drop off on each product page. Per-product, per-device.",
+          tag: "Per product",
+        },
+        {
+          name: "Price Sensitivity",
+          desc: "Detects which products have price friction — visitors engage but bounce at the price point.",
+          tag: "Elasticity",
+        },
+        {
+          name: "Session Timeline",
+          desc: "Full behavioral replay per visitor: scroll, dwell, clicks, cart events, page flow.",
+          tag: "Per session",
+        },
+      ],
+    },
+    {
+      title: "Measurement & Proof",
+      color: "#34d399",
+      features: [
+        {
+          name: "Causal Lift",
+          desc: "Real A/B holdout measurement. Not correlation — actual causation with statistical confidence.",
+          tag: "Holdout proof",
+        },
+        {
+          name: "Peer Benchmarks",
+          desc: "Anonymous comparison against stores in your revenue band. See where you lag and where you lead.",
+          tag: "Anonymized",
+        },
+        {
+          name: "Revenue Genome",
+          desc: "DNA of your revenue — which sources, segments, and products actually drive profit.",
+          tag: "Composition",
+        },
+        {
+          name: "Shareable Proof Reports",
+          desc: "Public links proving ROI. Share with your team, investors, or clients.",
+          tag: "Public links",
+        },
+      ],
+    },
+    {
+      title: "Growth Intelligence",
+      color: "#7c3aed",
+      features: [
+        {
+          name: "Cohort & LTV Analysis",
+          desc: "Customer lifetime value by acquisition date, source, device, and behavior. Weekly and monthly cohorts.",
+          tag: "Multi-dimensional",
+        },
+        {
+          name: "P&L Intelligence",
+          desc: "Profitability per product and channel. Sync costs from Shopify or set them manually.",
+          tag: "Real costs",
+        },
+        {
+          name: "Goals & ROI Tracking",
+          desc: "Set revenue targets, track recovery ROI. See exactly what HedgeSpark earned back for you.",
+          tag: "Measurable",
+        },
+        {
+          name: "Risk Forecast",
+          desc: "Predicted churn and revenue decline. Flags products and segments heading for trouble.",
+          tag: "Predictive",
+        },
+      ],
+    },
+  ];
+
+  return (
+    <section id="intelligence" className="relative scroll-mt-20 py-28 sm:py-36">
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[#d4893a]/[0.015] to-transparent" />
+
+      <div className="relative mx-auto max-w-[76rem] px-6 lg:px-10">
+        <R className="text-center">
+          <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#d4893a]">Full intelligence stack</span>
+          <h2 className="mt-5 text-[2.25rem] font-extrabold leading-[1.1] text-white sm:text-[3rem] lg:text-[3.5rem]">
+            16 capabilities. Zero theater.
+          </h2>
+          <p className="mx-auto mt-6 max-w-[44rem] text-[18px] leading-[1.7] text-slate-400">
+            Every number in your dashboard is computed from real visitor behavior and real orders.
+            No demo data. No estimates. No placeholders.
+          </p>
+        </R>
+
+        <div className="mt-20 space-y-16">
+          {categories.map((cat, ci) => (
+            <R key={cat.title} d={ci * 0.06}>
+              <div>
+                <div className="mb-8 flex items-center gap-3">
+                  <div className="h-1 w-8 rounded-full" style={{ background: cat.color }} />
+                  <h3 className="text-[18px] font-bold" style={{ color: cat.color }}>{cat.title}</h3>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  {cat.features.map((f, fi) => (
+                    <div
+                      key={f.name}
+                      className="group relative flex flex-col rounded-2xl border border-white/[0.06] bg-[#0e0e1a] p-6 transition-all duration-300 hover:border-white/[0.12] hover:shadow-[0_8px_40px_-8px_rgba(0,0,0,0.4)]"
+                    >
+                      <div className="absolute inset-x-0 top-0 h-px rounded-t-2xl" style={{ background: `linear-gradient(90deg, transparent, ${alpha(cat.color, 0.3)}, transparent)` }} />
+                      <span
+                        className="mb-3 inline-flex w-fit rounded-md px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.1em]"
+                        style={{
+                          background: alpha(cat.color, 0.1),
+                          color: cat.color,
+                        }}
+                      >
+                        {f.tag}
+                      </span>
+                      <h4 className="text-[16px] font-bold text-white">{f.name}</h4>
+                      <p className="mt-2 flex-1 text-[14px] leading-[1.65] text-slate-400">{f.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </R>
+          ))}
+        </div>
+
+        {/* Operations row */}
+        <R d={0.3}>
+          <div className="mt-16 grid gap-4 sm:grid-cols-3">
+            {[
+              { name: "Team Collaboration", desc: "Invite your team. Comment on signals. @mention on actions.", color: "#d4893a" },
+              { name: "Webhook Integrations", desc: "Push signals to Slack, Klaviyo, or any endpoint. Test with one click.", color: "#a855f7" },
+              { name: "Automated Nudges", desc: "Social proof, urgency, return-visitor messages. Deploy and measure automatically.", color: "#34d399" },
+            ].map((f) => (
+              <div
+                key={f.name}
+                className="flex items-start gap-4 rounded-2xl border border-white/[0.06] bg-[#0e0e1a] p-6 transition-all duration-300 hover:border-white/[0.1]"
+              >
+                <div className="mt-0.5 h-2 w-2 flex-shrink-0 rounded-full" style={{ background: f.color }} />
+                <div>
+                  <h4 className="text-[15px] font-bold text-white">{f.name}</h4>
+                  <p className="mt-1 text-[14px] leading-[1.6] text-slate-400">{f.desc}</p>
+                </div>
+              </div>
+            ))}
           </div>
         </R>
       </div>
@@ -1061,12 +1250,19 @@ function Pricing() {
               <ul className="mt-8 flex-1 space-y-4">
                 {[
                   "Everything in Lite",
-                  "Per-product action plans",
-                  "Automated nudge deployment",
-                  "Holdout-based proof of impact",
-                  "Revenue attribution (visitor to order)",
-                  "Self-learning model (gets smarter weekly)",
-                  "Before/after measurement",
+                  "Revenue at Risk Score (5-dimension breakdown)",
+                  "Revenue Autopsy per product",
+                  "Abandoned intent detection",
+                  "Automated nudge deployment + holdout proof",
+                  "Causal lift measurement (real A/B, not guesses)",
+                  "Cohort & LTV analysis",
+                  "P&L intelligence per product",
+                  "Scroll heatmaps per product",
+                  "Price sensitivity detection",
+                  "Peer benchmarks (anonymous)",
+                  "Revenue Genome — source/segment composition",
+                  "Goals, ROI tracking, risk forecast",
+                  "Team collaboration + webhook integrations",
                   "Weekly email digest",
                 ].map((f) => (
                   <li key={f} className={`flex items-start gap-3 text-[16px] ${f === "Everything in Lite" ? "text-slate-500" : "text-slate-200"}`}>
@@ -1223,6 +1419,7 @@ export default function LandingPage() {
       <Numbers />
       <Problem />
       <Features />
+      <ProStack />
       <HowItWorks />
       <RealExample />
       <Learns />
