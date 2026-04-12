@@ -122,6 +122,7 @@ def test_auto_propose_sets_provider(db):
 
 def test_successful_apply_creates_commit(db):
     """Successful apply path calls git commit and stores SHA."""
+    from tests.conftest import make_git_safe_subprocess_mock
     c = BugFixCandidate(
         source_type="manual", source_ref="commit_test",
         title="Commit test", status="approved",
@@ -132,32 +133,18 @@ def test_successful_apply_creates_commit(db):
     db.add(c)
     db.flush()
 
-    def _mock_run(cmd, **kwargs):
-        m = MagicMock()
-        m.stdout = "all passed"
-        m.stderr = ""
-        m.returncode = 0
-        if "diff" in cmd and "--quiet" in cmd:
-            m.returncode = 0
-        elif "--check" in cmd:
-            m.returncode = 0
-        elif "apply" in cmd and "-R" not in cmd and "--check" not in cmd:
-            m.returncode = 0
-        elif "pytest" in " ".join(cmd):
-            m.returncode = 0
-        elif "add" in cmd and "-A" in cmd:
-            m.returncode = 0
-        elif "commit" in cmd:
-            m.returncode = 0
-        elif "rev-parse" in cmd:
-            m.stdout = "abc123def456"
-        elif "pm2" in cmd:
-            m.returncode = 0
-        return m
-
     mock_health = MagicMock(status_code=200)
 
-    with patch("subprocess.run", side_effect=_mock_run), \
+    # Mock the diff --cached --name-only check so our targeted git add
+    # verification sees exactly the files we expect (the patch's file list).
+    def _git_safe(cmd, **kw):
+        base = make_git_safe_subprocess_mock(commit_sha="abc123def456")
+        m = base(cmd, **kw)
+        if len(cmd) >= 4 and cmd[:4] == ["git", "diff", "--cached", "--name-only"]:
+            m.stdout = "app/services/test_file.py\n"
+        return m
+
+    with patch("subprocess.run", side_effect=_git_safe), \
          patch("httpx.get", return_value=mock_health):
         result = apply_bugfix_candidate(db, c.id)
 

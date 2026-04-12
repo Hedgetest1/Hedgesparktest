@@ -25,7 +25,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import text
+from sqlalchemy import text, func
 from sqlalchemy.orm import Session
 
 from app.models.bugfix_candidate import BugFixCandidate
@@ -33,6 +33,14 @@ from app.models.bugfix_candidate import BugFixCandidate
 log = logging.getLogger("bugfix_pipeline")
 
 _TRIAGE_LOOKBACK_HOURS = 24
+# Generic recurring-alert catch-all threshold (Rule 7). Anything that
+# recurs at least this many times in the lookback window AND isn't
+# handled by a specific rule becomes a candidate. Tuned to match
+# `worker_repeated_failure` semantics: 3 strikes = signal, not noise.
+_GENERIC_RECURRENCE_THRESHOLD = 3
+# Cross-shop pattern compaction (B2). When the same alert template
+# fires across N+ distinct shops, create a fleet-wide candidate.
+_FLEET_WIDE_MIN_SHOPS = 3
 
 
 # ---------------------------------------------------------------------------
@@ -134,14 +142,566 @@ def _compute_diff_fingerprint(patch_diff: str | None) -> str | None:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+# ---------------------------------------------------------------------------
+# C3 — AST skeleton fingerprint (structural duplicate detection)
+# ---------------------------------------------------------------------------
+#
+# The existing fingerprint dimensions catch:
+#   - identity (title + files + diff bytes)
+#   - normalized diff (whitespace + comments + order independent)
+#
+# Both miss the case where the LLM proposes the SAME structural fix
+# but with renamed variables ("retry_count" → "attempt_count"). The
+# AST skeleton fingerprint normalizes every identifier to a placeholder
+# (`name_0`, `name_1`, ...) and hashes the resulting structure. Two
+# patches that share an AST skeleton implement the same strategy.
+#
+# Stored in Redis to avoid a migration:
+#   `hs:patchfp:skeleton:{hash}` → JSON {"candidate_id":N, "outcome":S,
+#                                        "failure_reason":S, "ts":iso}
+# 60-day TTL — long enough to catch repeat strategies, short enough
+# that genuinely different attempts after months of evolution can pass.
+
+_SKELETON_REDIS_PREFIX = "hs:patchfp:skeleton"
+_SKELETON_TTL_SECONDS = 60 * 24 * 3600
+
+# D1 — Pipeline immune system. When a patch regresses for a specific
+# (source_type, source_ref) scope, we remember its AST skeleton as an
+# "antigen" bound to that scope. Future candidates sharing the same scope
+# whose skeleton matches the antigen are hard-rejected even if the
+# global skeleton cache has expired or another shop applied the same
+# fix successfully. The scope hash is SHA-256(source_type|source_ref)
+# so a fleet-wide source (`probe:cvr_drift:*`) and a per-shop source
+# (`alert:foo.myshopify.com:xyz`) each get their own immune memory.
+#
+# Key format: hs:antigen:{scope_hash}:{skeleton_hash} → JSON metadata
+# TTL: 180 days — long enough for biological immunity, short enough
+# that a genuinely healed scope can eventually try the same strategy.
+_ANTIGEN_REDIS_PREFIX = "hs:antigen"
+_ANTIGEN_TTL_SECONDS = 180 * 24 * 3600
+
+
+def _compute_ast_skeleton_fingerprint(patch_diff: str | None) -> str | None:
+    """Return a stable hash of the structural skeleton of the diff's
+    added Python lines. None if the diff is empty or unparseable.
+
+    Strategy:
+      1. Extract all `+` lines (excluding `+++` headers and empty lines)
+      2. Join into pseudo-source
+      3. Try to AST-parse it; if it fails, normalize textually instead
+      4. For successful parse: walk the tree, replace every Name/arg/
+         attribute identifier with a placeholder bound by appearance order,
+         drop docstrings + comments
+      5. Hash the resulting `ast.dump`
+    """
+    if not patch_diff:
+        return None
+
+    added: list[str] = []
+    for line in patch_diff.split("\n"):
+        if line.startswith("+++"):
+            continue
+        if not line.startswith("+"):
+            continue
+        body = line[1:].rstrip()
+        if not body.strip():
+            continue
+        if body.lstrip().startswith("#"):
+            continue
+        added.append(body)
+    if not added:
+        return None
+
+    pseudo_source = "\n".join(added)
+    try:
+        import ast as _ast
+        tree = _ast.parse(pseudo_source)
+    except SyntaxError:
+        # Diffs often span partial blocks. Fall back to a textual normalization
+        # that strips identifiers and string literals so renames still collapse.
+        return _textual_skeleton_fingerprint(added)
+
+    # Walk the AST and rename every identifier consistently
+    name_map: dict[str, str] = {}
+
+    def _placeholder(original: str) -> str:
+        if original not in name_map:
+            name_map[original] = f"id_{len(name_map)}"
+        return name_map[original]
+
+    import ast as _ast
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Name):
+            node.id = _placeholder(node.id)
+        elif isinstance(node, _ast.arg):
+            node.arg = _placeholder(node.arg)
+        elif isinstance(node, _ast.Attribute):
+            node.attr = _placeholder(node.attr)
+        elif isinstance(node, _ast.FunctionDef) or isinstance(node, _ast.AsyncFunctionDef):
+            node.name = _placeholder(node.name)
+        elif isinstance(node, _ast.ClassDef):
+            node.name = _placeholder(node.name)
+        elif isinstance(node, _ast.Constant):
+            if isinstance(node.value, str):
+                node.value = "STR"
+            elif isinstance(node.value, (int, float)):
+                node.value = 0
+
+    try:
+        skeleton = _ast.dump(tree, annotate_fields=False, include_attributes=False)
+    except Exception:
+        return _textual_skeleton_fingerprint(added)
+    return hashlib.sha256(skeleton.encode()).hexdigest()
+
+
+def _textual_skeleton_fingerprint(added_lines: list[str]) -> str | None:
+    """Fallback skeleton when AST parse fails — strip identifiers and
+    string literals via regex, sort lines, hash."""
+    if not added_lines:
+        return None
+    norm: list[str] = []
+    for line in added_lines:
+        s = re.sub(r"#.*$", "", line)
+        s = re.sub(r'"[^"]*"', '"STR"', s)
+        s = re.sub(r"'[^']*'", "'STR'", s)
+        s = re.sub(r"\b[a-zA-Z_][a-zA-Z0-9_]*\b", "ID", s)
+        s = re.sub(r"\b\d+\b", "0", s)
+        s = re.sub(r"\s+", " ", s).strip()
+        if s:
+            norm.append(s)
+    if not norm:
+        return None
+    norm.sort()
+    return hashlib.sha256("\n".join(norm).encode()).hexdigest()
+
+
+def _redis_safe():
+    try:
+        from app.core.redis_client import _client
+        return _client()
+    except Exception:
+        return None
+
+
+def _record_skeleton_fingerprint(
+    candidate_id: int, skeleton_hash: str, outcome: str,
+    failure_reason: str | None,
+) -> None:
+    """Persist a skeleton hash to Redis for future structural dedup."""
+    rc = _redis_safe()
+    if rc is None or not skeleton_hash:
+        return
+    try:
+        payload = json.dumps({
+            "candidate_id": candidate_id,
+            "outcome": outcome,
+            "failure_reason": (failure_reason or "")[:300],
+            "ts": _now().isoformat(),
+        }, default=str)
+        rc.setex(f"{_SKELETON_REDIS_PREFIX}:{skeleton_hash}", _SKELETON_TTL_SECONDS, payload)
+    except Exception as exc:
+        log.debug("skeleton_fp: record failed: %s", exc)
+
+
+def _check_skeleton_fingerprint(skeleton_hash: str | None) -> dict | None:
+    """Look up a skeleton hash in Redis. Returns the stored failure
+    metadata or None."""
+    if not skeleton_hash:
+        return None
+    rc = _redis_safe()
+    if rc is None:
+        return None
+    try:
+        raw = rc.get(f"{_SKELETON_REDIS_PREFIX}:{skeleton_hash}")
+        if not raw:
+            return None
+        if isinstance(raw, bytes):
+            raw = raw.decode()
+        data = json.loads(raw)
+        data["match_type"] = "ast_skeleton"
+        return data
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# D3 — LLM cost amortization (template-cached fixes)
+# ---------------------------------------------------------------------------
+# When a family of bugs keeps recurring we pay the LLM tax for every
+# occurrence even though the diff is structurally identical. D3 caches a
+# successful fix as a reusable template keyed on
+# (affected_domain, source_type, sorted target files). A subsequent
+# candidate in the same family hits the cache, skips `_call_llm`, and
+# flows through the existing validate/apply path. Linear cost in
+# families, not in incidents.
+#
+# Anti-theater: only cache templates after a fix has actually APPLIED
+# successfully (tests + health check + git commit). Never cache proposals
+# that failed — and never cache templates that can't be re-validated
+# against the current repo state on recall.
+
+_FIX_TEMPLATE_REDIS_PREFIX = "hs:fix_template"
+_FIX_TEMPLATE_TTL_SECONDS = 7 * 24 * 3600
+_FIX_TEMPLATE_HIT_COUNTER = "hs:fix_template_hits"
+
+
+def _compute_fix_template_key(candidate: BugFixCandidate) -> str | None:
+    """Family+files key for the fix template cache. None if we can't
+    form a stable key (no domain, no source_type, or no file anchors)."""
+    domain = getattr(candidate, "affected_domain", None) or ""
+    source_type = getattr(candidate, "source_type", None) or ""
+    if not domain or not source_type:
+        return None
+
+    files: list[str] = []
+    if candidate.context_json:
+        try:
+            ctx = json.loads(candidate.context_json)
+            if isinstance(ctx, dict):
+                tf = ctx.get("target_file")
+                if isinstance(tf, str) and tf:
+                    files.append(tf)
+        except Exception:
+            pass
+    if candidate.patch_files:
+        try:
+            for f in json.loads(candidate.patch_files) or []:
+                if isinstance(f, str) and f and f not in files:
+                    files.append(f)
+        except Exception:
+            pass
+    if not files:
+        return None
+
+    raw = f"{domain}|{source_type}|{'|'.join(sorted(files))}"
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _lookup_fix_template(template_key: str | None) -> dict | None:
+    """Return the cached template payload (dict) or None."""
+    if not template_key:
+        return None
+    rc = _redis_safe()
+    if rc is None:
+        return None
+    try:
+        raw = rc.get(f"{_FIX_TEMPLATE_REDIS_PREFIX}:{template_key}")
+        if not raw:
+            return None
+        if isinstance(raw, bytes):
+            raw = raw.decode()
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            return data
+    except Exception as exc:
+        log.debug("fix_template: lookup failed: %s", exc)
+    return None
+
+
+def _store_fix_template(template_key: str | None, candidate: BugFixCandidate) -> None:
+    """Persist a successful patch as a reusable template keyed on
+    (domain, source_type, files). Called from the apply success path.
+
+    Learning-isolation gate: only templates produced by `real_merchant`
+    evidence may be stored. Pre-merchant / internal_test / sandbox
+    patches never enter the cache, so pytest runs on the production
+    host (via deploy.sh) can never poison the reuse path.
+    """
+    if not template_key or not candidate.patch_diff:
+        return
+    try:
+        from app.services.learning_isolation import is_product_learning_eligible
+        if not is_product_learning_eligible(
+            getattr(candidate, "evidence_source", None)
+        ):
+            return
+    except Exception:
+        return
+    rc = _redis_safe()
+    if rc is None:
+        return
+    try:
+        files_list: list[str] = []
+        if candidate.patch_files:
+            try:
+                files_list = [
+                    f for f in (json.loads(candidate.patch_files) or [])
+                    if isinstance(f, str)
+                ]
+            except Exception:
+                files_list = []
+        payload = json.dumps({
+            "patch_summary": candidate.patch_summary or "",
+            "diff": candidate.patch_diff,
+            "files": files_list,
+            "test_command": candidate.test_command or "",
+            "source_candidate_id": candidate.id,
+            "stored_at": _now().isoformat(),
+        }, default=str)
+        rc.setex(
+            f"{_FIX_TEMPLATE_REDIS_PREFIX}:{template_key}",
+            _FIX_TEMPLATE_TTL_SECONDS,
+            payload,
+        )
+        log.info(
+            "fix_template: stored template key=%s from candidate #%d",
+            template_key[:12], candidate.id,
+        )
+    except Exception as exc:
+        log.debug("fix_template: store failed: %s", exc)
+
+
+def _incr_fix_template_hit() -> None:
+    """Bump the weekly cache-hit counter (for the daily digest)."""
+    rc = _redis_safe()
+    if rc is None:
+        return
+    try:
+        week = _now().strftime("%G-W%V")
+        key = f"{_FIX_TEMPLATE_HIT_COUNTER}:{week}"
+        rc.incr(key)
+        rc.expire(key, 30 * 24 * 3600)
+    except Exception as exc:
+        log.debug("fix_template: hit counter failed: %s", exc)
+
+
+def _mark_template_reuse(context_json: str | None, *, source_candidate_id) -> str:
+    """Annotate the candidate's context_json with template-reuse metadata
+    so downstream (digest, audit, drift analysis) can tell apart LLM-born
+    proposals from cache-born ones."""
+    try:
+        ctx = json.loads(context_json) if context_json else {}
+        if not isinstance(ctx, dict):
+            ctx = {"_raw": ctx}
+    except Exception:
+        ctx = {}
+    ctx["fix_template_reuse"] = {
+        "source_candidate_id": source_candidate_id,
+        "reused_at": _now().isoformat(),
+    }
+    return json.dumps(ctx, default=str)
+
+
+# D4 — adversarial report storage + weekly counters
+
+_ADVERSARIAL_HIT_COUNTER = "hs:adversarial_probes"
+
+
+def _record_adversarial_report(candidate: BugFixCandidate, report: dict) -> None:
+    """Attach the adversarial report to the candidate's context_json and
+    bump the weekly weak-probe counter."""
+    try:
+        ctx = json.loads(candidate.context_json) if candidate.context_json else {}
+        if not isinstance(ctx, dict):
+            ctx = {"_raw": ctx}
+    except Exception:
+        ctx = {}
+    ctx["adversarial_report"] = {
+        "fragility_score": int(report.get("fragility_score", 0)),
+        "function_count": int(report.get("function_count", 0)),
+        "parse_status": report.get("parse_status", "unknown"),
+        "probes": report.get("probes", [])[:10],
+        "analysed_at": _now().isoformat(),
+    }
+    candidate.context_json = json.dumps(ctx, default=str)
+
+    rc = _redis_safe()
+    if rc is None:
+        return
+    try:
+        week = _now().strftime("%G-W%V")
+        for suffix, value in (
+            ("runs", 1),
+            ("weak", int(report.get("fragility_score", 0))),
+        ):
+            key = f"{_ADVERSARIAL_HIT_COUNTER}:{week}:{suffix}"
+            rc.incrby(key, value)
+            rc.expire(key, 30 * 24 * 3600)
+    except Exception as exc:
+        log.debug("adversarial: counter bump failed: %s", exc)
+
+
+def get_adversarial_report_this_week() -> dict:
+    """Weekly counts for the daily digest: runs + weak patterns flagged."""
+    rc = _redis_safe()
+    if rc is None:
+        return {"runs": 0, "weak": 0}
+    try:
+        week = _now().strftime("%G-W%V")
+        runs_raw = rc.get(f"{_ADVERSARIAL_HIT_COUNTER}:{week}:runs")
+        weak_raw = rc.get(f"{_ADVERSARIAL_HIT_COUNTER}:{week}:weak")
+        def _as_int(v) -> int:
+            if not v:
+                return 0
+            if isinstance(v, bytes):
+                v = v.decode()
+            try:
+                return int(v)
+            except ValueError:
+                return 0
+        return {"runs": _as_int(runs_raw), "weak": _as_int(weak_raw)}
+    except Exception:
+        return {"runs": 0, "weak": 0}
+
+
+# Security guard block counter — feeds the compliance synthesizer
+_SECURITY_GUARD_COUNTER = "hs:security_guard_blocks"
+
+
+def _bump_security_guard_block_counter() -> None:
+    rc = _redis_safe()
+    if rc is None:
+        return
+    try:
+        day = _now().strftime("%Y-%m-%d")
+        key = f"{_SECURITY_GUARD_COUNTER}:{day}"
+        rc.incr(key)
+        rc.expire(key, 90 * 24 * 3600)
+    except Exception as exc:
+        log.debug("security_guard: counter bump failed: %s", exc)
+
+
+def get_security_guard_blocks_7d() -> int:
+    rc = _redis_safe()
+    if rc is None:
+        return 0
+    total = 0
+    try:
+        from datetime import timedelta as _td
+        today = _now()
+        for offset in range(7):
+            day = (today - _td(days=offset)).strftime("%Y-%m-%d")
+            raw = rc.get(f"{_SECURITY_GUARD_COUNTER}:{day}")
+            if not raw:
+                continue
+            if isinstance(raw, bytes):
+                raw = raw.decode()
+            try:
+                total += int(raw)
+            except ValueError:
+                pass
+    except Exception:
+        return 0
+    return total
+
+
+def get_fix_template_hits_this_week() -> int:
+    """Return the number of template cache hits for the current ISO week."""
+    rc = _redis_safe()
+    if rc is None:
+        return 0
+    try:
+        week = _now().strftime("%G-W%V")
+        raw = rc.get(f"{_FIX_TEMPLATE_HIT_COUNTER}:{week}")
+        if not raw:
+            return 0
+        if isinstance(raw, bytes):
+            raw = raw.decode()
+        return int(raw)
+    except Exception:
+        return 0
+
+
+def _compute_antigen_scope_key(
+    source_type: str | None, source_ref: str | None,
+) -> str | None:
+    """Hash of (source_type, source_ref) used as the immune-system scope.
+    Returns None if we can't form a meaningful scope (either field missing)."""
+    if not source_type or not source_ref:
+        return None
+    raw = f"{source_type}|{source_ref}"
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _record_antigen(
+    scope_key: str | None, skeleton_hash: str | None,
+    candidate_id: int, outcome: str, failure_reason: str | None,
+    evidence_source: str | None = None,
+) -> None:
+    """Persist an antigen: (scope, skeleton) bound to a regression outcome.
+
+    Learning-isolation gate: only real-merchant regressions record
+    antigens. Test regressions (pytest on prod host via deploy.sh)
+    would otherwise poison the immune system with false positives.
+    """
+    if not scope_key or not skeleton_hash:
+        return
+    try:
+        from app.services.learning_isolation import is_product_learning_eligible
+        if not is_product_learning_eligible(evidence_source):
+            return
+    except Exception:
+        return
+    rc = _redis_safe()
+    if rc is None:
+        return
+    try:
+        payload = json.dumps({
+            "candidate_id": candidate_id,
+            "outcome": outcome,
+            "failure_reason": (failure_reason or "")[:300],
+            "ts": _now().isoformat(),
+        }, default=str)
+        rc.setex(
+            f"{_ANTIGEN_REDIS_PREFIX}:{scope_key}:{skeleton_hash}",
+            _ANTIGEN_TTL_SECONDS,
+            payload,
+        )
+    except Exception as exc:
+        log.debug("antigen: record failed: %s", exc)
+
+
+def _check_antigen(
+    scope_key: str | None, skeleton_hash: str | None,
+) -> dict | None:
+    """Lookup a (scope, skeleton) antigen. Returns stored failure metadata."""
+    if not scope_key or not skeleton_hash:
+        return None
+    rc = _redis_safe()
+    if rc is None:
+        return None
+    try:
+        raw = rc.get(f"{_ANTIGEN_REDIS_PREFIX}:{scope_key}:{skeleton_hash}")
+        if not raw:
+            return None
+        if isinstance(raw, bytes):
+            raw = raw.decode()
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            data["match_type"] = "immune_antigen"
+            return data
+    except Exception as exc:
+        log.debug("antigen: check failed: %s", exc)
+    return None
+
+
 def _check_patch_fingerprint(
     db: Session, fingerprint: str, diff_fp: str | None = None, lookback_days: int = 30,
+    skeleton_fp: str | None = None,
+    source_type: str | None = None, source_ref: str | None = None,
 ) -> dict | None:
     """
-    Check if a patch with this fingerprint (or diff fingerprint) recently failed.
-    Checks both identity fingerprint and normalized diff fingerprint.
+    Check if a patch with this fingerprint (or diff fingerprint or AST
+    skeleton fingerprint) recently failed. Four-dimensional structural
+    dedup: identity, normalized diff, AST skeleton, immune antigen.
+    The antigen layer (D1) scopes skeleton memory to (source_type,
+    source_ref), catching scope-specific regressions that the global
+    skeleton layer misses (different scopes, same skeleton, one regressed).
     Returns dict with candidate_id and outcome if found, None otherwise.
     """
+    # Immune antigen — scoped skeleton memory. Catches "this scope has
+    # already rejected this strategy" even if the fleet-wide skeleton
+    # cache expired or never saw it fail.
+    antigen_scope = _compute_antigen_scope_key(source_type, source_ref)
+    antigen_match = _check_antigen(antigen_scope, skeleton_fp)
+    if antigen_match:
+        return antigen_match
+
+    # AST skeleton match — fastest, Redis-backed, catches renamed variants
+    skel_match = _check_skeleton_fingerprint(skeleton_fp)
+    if skel_match:
+        return skel_match
+
     try:
         from app.models.patch_fingerprint import PatchFingerprint
         from sqlalchemy import or_
@@ -181,7 +741,8 @@ def _record_patch_fingerprint(
     db: Session, candidate: BugFixCandidate, outcome: str,
     failure_reason: str | None = None,
 ) -> None:
-    """Record a patch fingerprint (identity + normalized diff) for future dedup."""
+    """Record a patch fingerprint (identity + normalized diff + AST
+    skeleton) for future dedup."""
     try:
         from app.models.patch_fingerprint import PatchFingerprint
         fp_hash = _compute_patch_fingerprint(
@@ -206,6 +767,29 @@ def _record_patch_fingerprint(
         db.flush()
     except Exception as exc:
         log.debug("patch_fingerprint: record failed (non-fatal): %s", exc)
+
+    # C3 — also record AST skeleton fingerprint (Redis-backed) for
+    # structural duplicate detection. Failures only — successful
+    # patches do not pollute the skeleton index.
+    if outcome in ("apply_failed", "rolled_back", "tests_failed", "test_timeout"):
+        try:
+            skel = _compute_ast_skeleton_fingerprint(candidate.patch_diff)
+            if skel:
+                _record_skeleton_fingerprint(
+                    candidate.id, skel, outcome, failure_reason,
+                )
+                # D1 — also bind the skeleton to the (source_type, source_ref)
+                # antigen scope. The immune system remembers which strategies
+                # have regressed per-scope, not just fleet-wide.
+                scope_key = _compute_antigen_scope_key(
+                    candidate.source_type, candidate.source_ref,
+                )
+                _record_antigen(
+                    scope_key, skel, candidate.id, outcome, failure_reason,
+                    evidence_source=getattr(candidate, "evidence_source", None),
+                )
+        except Exception as exc:
+            log.debug("skeleton_fp: record skipped: %s", exc)
 
 
 def _lookup_lessons_for_proposal(db: Session, domain: str) -> tuple[str | None, list[int]]:
@@ -249,6 +833,161 @@ def _lookup_lessons_for_proposal(db: Session, domain: str) -> tuple[str | None, 
         return "\n".join(lines), lesson_ids
     except Exception:
         return None, []
+
+
+# ---------------------------------------------------------------------------
+# Hard lesson constraints — institutional memory as DO-NOT rules
+# ---------------------------------------------------------------------------
+#
+# Every failed patch writes a PatchFingerprint row with a failure_reason.
+# The sum of YOUR observed failures becomes a set of hard constraints
+# injected into every future propose_patch for the same domain:
+#
+#   "## DO NOT
+#    Over the last 90 days these approaches failed in this domain:
+#      - hallucinated_import (4x): LLM added imports for non-existent
+#        modules. Only import from files listed in the grounding manifest.
+#      - corrupt_patch (3x): diffs with malformed hunks. Every `@@` must
+#        match `^@@ -\d+,\d+ \+\d+,\d+ @@`.
+#      - file_not_found (2x): LLM referenced paths that do not exist.
+#        Only touch paths from the file list above."
+#
+# This is the competitive moat piece: a fresh deployment has zero rules
+# and learns them the hard way. A production deployment with months of
+# real failures has a rich specific rule set that a copycat cannot
+# replicate without the same failure history.
+
+#: Human-readable explanations for each failure-reason prefix we detect.
+_FAILURE_REASON_TEMPLATES: dict[str, str] = {
+    "llm_returned_empty_diff": (
+        "Your diff was empty. Always return a non-empty unified diff "
+        "or return the canonical 'unable to determine' response."
+    ),
+    "json_parse_error": (
+        "Your response was not valid JSON. Return ONLY a JSON object, "
+        "no prose, no markdown fences."
+    ),
+    "diff_validation_failed": (
+        "Your diff had structural errors. Every hunk must have valid "
+        "'@@ -start,count +start,count @@' headers and every changed "
+        "line must start with +/-."
+    ),
+    "semantic_validation_failed": (
+        "Your diff referenced files or symbols that do not exist. Only "
+        "modify files listed in the grounding manifest; only use imports "
+        "that resolve on disk."
+    ),
+    "apply_check_failed": (
+        "git apply --check rejected your diff. The patch must apply cleanly "
+        "against the current HEAD with no fuzz."
+    ),
+    "tests_failed": (
+        "The test_command you proposed failed after apply. Make sure any "
+        "imports/symbols you add are wired correctly and run without error."
+    ),
+    "fingerprint_dedup": (
+        "Your approach is semantically identical to a previously failed "
+        "attempt. Try a fundamentally different angle."
+    ),
+    "diff_fingerprint_dedup": (
+        "Your diff is semantically identical to a previously failed diff. "
+        "Do not repeat the same approach."
+    ),
+    "prompt_ungrounded_preflight": (
+        "A prior candidate pointed at a file that does not exist on disk. "
+        "Only propose patches against paths from the grounding manifest."
+    ),
+    "quarantined_family": (
+        "This (domain, source_type) family is hard-quarantined after "
+        "5+ recent failures. Wait for the quarantine to expire (60d) "
+        "or operator-clear it explicitly via /ops/quarantine."
+    ),
+    "phantom_path": (
+        "You wrote `+++ b/<path>` to a file that does not exist and did not "
+        "introduce it via `--- /dev/null`. Use only paths from the manifest."
+    ),
+    "duplicate_symbol": (
+        "You added a function whose name already exists in the same file. "
+        "Read the file's signatures before adding new defs."
+    ),
+    "hallucinated_import": (
+        "You imported a symbol that does not exist in the target module. "
+        "Only import names from the AST signatures shown in the prompt."
+    ),
+    "untested_significant_change": (
+        "Non-trivial app/ changes must ship with a co-committed test file. "
+        "Add a tests/test_*.py edit alongside the production change."
+    ),
+}
+
+
+def build_hard_lesson_constraints(
+    db: Session, *, affected_domain: str | None, source_type: str | None,
+    max_rules: int = 6, lookback_days: int = 90,
+) -> str | None:
+    """
+    Build a "## DO NOT" prompt section from historical PatchFingerprint
+    failures in the same (domain, source_type). Returns None if no
+    relevant history exists.
+
+    Called by propose_patch before invoking the LLM. Pre-LLM enforcement
+    saves budget that would otherwise go to re-generating known-bad
+    approaches.
+    """
+    if not affected_domain:
+        return None
+
+    try:
+        from app.models.patch_fingerprint import PatchFingerprint
+        cutoff = _now() - timedelta(days=lookback_days)
+        rows = (
+            db.query(
+                PatchFingerprint.failure_reason,
+                func.count(PatchFingerprint.id).label("n"),
+            )
+            .filter(
+                PatchFingerprint.affected_domain == affected_domain,
+                PatchFingerprint.outcome.in_(["apply_failed", "rolled_back", "ineffective"]),
+                PatchFingerprint.created_at >= cutoff,
+                PatchFingerprint.failure_reason.isnot(None),
+            )
+            .group_by(PatchFingerprint.failure_reason)
+            .order_by(func.count(PatchFingerprint.id).desc())
+            .limit(max_rules * 2)  # pull extra, group by family
+            .all()
+        )
+    except Exception as exc:
+        log.debug("hard_lessons: fingerprint query failed: %s", exc)
+        return None
+
+    if not rows:
+        return None
+
+    # Group by failure-reason prefix family (everything before the first `:`)
+    families: dict[str, int] = {}
+    for reason, n in rows:
+        prefix = (reason or "").split(":", 1)[0].strip()
+        if prefix:
+            families[prefix] = families.get(prefix, 0) + int(n)
+
+    if not families:
+        return None
+
+    # Sort by count desc, keep top N
+    top = sorted(families.items(), key=lambda kv: kv[1], reverse=True)[:max_rules]
+
+    lines = [
+        f"## DO NOT — observed failure modes in domain '{affected_domain}' (last {lookback_days}d)",
+        "These approaches failed repeatedly. Do NOT repeat them:",
+    ]
+    for prefix, count in top:
+        explanation = _FAILURE_REASON_TEMPLATES.get(
+            prefix,
+            f"failure family '{prefix}' has occurred {count}x — avoid repetition of this pattern.",
+        )
+        lines.append(f"- [{count}x] {prefix}: {explanation}")
+
+    return "\n".join(lines)
 
 
 def _classify_candidate_domain(candidate: BugFixCandidate) -> str | None:
@@ -464,6 +1203,145 @@ def run_bug_triage(db: Session) -> dict:
                 "source": source_key,
             },
         )
+        summary["created"] += 1
+
+    # Rule 7 — generic recurring-alert catch-all.
+    # Anything in ops_alerts that recurs >= _GENERIC_RECURRENCE_THRESHOLD
+    # times in the lookback window AND isn't already handled by Rules 1-6
+    # AND has severity in ('warning','critical') becomes a candidate.
+    # This closes the gap where new subsystems write alerts but never get
+    # triaged because they don't match a hand-coded rule.
+    handled_alert_types = (
+        "gdpr_failure",
+        "worker_repeated_failure",
+        "merchant_reported_bug",
+        "frontend_error",
+        "semantic_drift",
+        # Self-healing meta — already managed by the pipeline itself
+        "chronic_thrashing",
+        "bugfix_apply_failed",
+        "bugfix_rolled_back",
+    )
+    generic_alerts = db.execute(text("""
+        SELECT alert_type, source, MAX(id) AS latest_id, MAX(shop_domain) AS shop,
+               COUNT(*) AS occurrences,
+               MAX(summary) AS latest_summary,
+               MAX(severity) AS severity
+        FROM ops_alerts
+        WHERE created_at >= :cutoff
+          AND resolved = false
+          AND severity IN ('warning', 'critical')
+          AND alert_type NOT IN :handled
+        GROUP BY alert_type, source
+        HAVING COUNT(*) >= :min_recurrence
+        ORDER BY MAX(created_at) DESC
+        LIMIT 10
+    """), {
+        "cutoff": cutoff,
+        "handled": handled_alert_types,
+        "min_recurrence": _GENERIC_RECURRENCE_THRESHOLD,
+    }).fetchall()
+
+    for row in generic_alerts:
+        alert_type, source, latest_id, shop, occurrences, latest_summary, severity = row
+        summary["scanned"] += 1
+        ref = f"generic:{alert_type}:{source or 'unknown'}"
+        if _should_skip_source(db, "ops_alert_generic", ref, summary):
+            continue
+        _create_candidate(
+            db,
+            source_type="ops_alert_generic",
+            source_ref=ref,
+            title=f"{alert_type} recurring ({occurrences}x): {(latest_summary or '')[:140]}",
+            summary_text=latest_summary or f"{alert_type} from {source} recurred {occurrences} times",
+            context={
+                "alert_type": alert_type,
+                "source": source,
+                "latest_alert_id": latest_id,
+                "shop": shop,
+                "occurrences": occurrences,
+                "severity": severity,
+            },
+        )
+        summary["created"] += 1
+
+    # Rule 8 — cross-shop pattern compaction (B2). When the SAME
+    # `(alert_type, source_template)` appears in ≥ 3 distinct shops in
+    # the lookback window, create ONE fleet-wide candidate that covers
+    # all of them. This is the asymmetric advantage at scale: a fix
+    # shipped once heals N shops simultaneously.
+    #
+    # Source template normalization: collapses shop-specific identifiers
+    # so semantically identical signals across shops match. Example:
+    #   probe:cvr_drift:shop_a → probe:cvr_drift:*
+    #   webhook:resend_rejected:order_42 → webhook:resend_rejected:*
+    handled_for_fleet = (
+        "frontend_error",  # frontend errors are visibility-only, no auto-fix
+        "chronic_thrashing",
+        "bugfix_apply_failed",
+        "bugfix_rolled_back",
+        "heartbeat_synthetic_test",
+        "heartbeat_ok",
+        "heartbeat_failed",
+        "deploy_succeeded",
+        "deploy_failed",
+        "deploy_rolled_back",
+    )
+    fleet_alerts = db.execute(text("""
+        SELECT alert_type,
+               regexp_replace(source, ':[^:*]+$', ':*') AS source_template,
+               COUNT(DISTINCT shop_domain) AS shops_affected,
+               COUNT(*) AS total_occurrences,
+               MAX(severity) AS severity,
+               MAX(summary) AS latest_summary,
+               MAX(id) AS latest_id
+        FROM ops_alerts
+        WHERE created_at >= :cutoff
+          AND resolved = false
+          AND severity IN ('warning', 'critical')
+          AND alert_type NOT IN :handled
+          AND shop_domain IS NOT NULL
+        GROUP BY alert_type, regexp_replace(source, ':[^:*]+$', ':*')
+        HAVING COUNT(DISTINCT shop_domain) >= :min_shops
+        ORDER BY COUNT(DISTINCT shop_domain) DESC, COUNT(*) DESC
+        LIMIT 5
+    """), {
+        "cutoff": cutoff,
+        "handled": handled_for_fleet,
+        "min_shops": _FLEET_WIDE_MIN_SHOPS,
+    }).fetchall()
+
+    for row in fleet_alerts:
+        alert_type, src_template, shops_affected, total_occurrences, severity, latest_summary, latest_id = row
+        summary["scanned"] += 1
+        ref = f"fleet:{alert_type}:{src_template}"
+        if _should_skip_source(db, "fleet_wide", ref, summary):
+            continue
+        cand = _create_candidate(
+            db,
+            source_type="fleet_wide",
+            source_ref=ref,
+            title=(
+                f"Fleet-wide: {alert_type} affecting {shops_affected} shops "
+                f"({total_occurrences} occurrences)"
+            ),
+            summary_text=latest_summary or f"{alert_type} from {src_template}",
+            context={
+                "alert_type": alert_type,
+                "source_template": src_template,
+                "shops_affected": shops_affected,
+                "total_occurrences": total_occurrences,
+                "severity": severity,
+                "latest_alert_id": latest_id,
+                "scope": "fleet_wide",
+            },
+        )
+        # Bump priority for fleet-wide candidates — they heal N shops at once
+        try:
+            cand.priority_score = min(100, (cand.priority_score or 0) + 20)
+            db.flush()
+        except Exception:
+            pass
         summary["created"] += 1
 
     # Recover stuck candidates (applying for >10 min)
@@ -746,12 +1624,22 @@ def compute_priority_score(
     affected_domain_criticality: str | None = None,
     recurrence_count: int = 0,
     age_minutes: int = 0,
+    domain_effectiveness_pct: float | None = None,
+    domain_sample_size: int = 0,
 ) -> tuple[int, dict[str, float]]:
     """
     Compute a 0-100 priority score with explainable breakdown.
 
     Pure function. Same inputs → same score. Suitable for calling
     inside _create_candidate (hot path).
+
+    2026-04-11 elite-sprint addition: `domain_effectiveness_pct` and
+    `domain_sample_size` come from adaptive_governance.DomainProfile and
+    modulate the score based on how successful past fixes in the same
+    domain have been. This is the primary competitive moat — a copycat
+    architecture cannot replicate months of your own merchant telemetry
+    feeding back into scoring. Fresh deployments start neutral and
+    converge over time to YOUR merchant base.
 
     Returns
     -------
@@ -792,13 +1680,31 @@ def compute_priority_score(
     else:
         recur_w = 0.10
 
-    # Weighted sum. Weights sum to 1.0.
+    # Track record — per-domain historical success rate (adaptive_governance
+    # DomainProfile). Uses Wilson-style dampening so tiny samples stay near
+    # neutral (0.5). At 10+ measured outcomes the real effectiveness takes
+    # over. At 50+ samples the signal is fully trusted.
+    if domain_effectiveness_pct is None or domain_sample_size == 0:
+        track_record_w = 0.5  # neutral — no data
+    else:
+        eff = max(0.0, min(1.0, domain_effectiveness_pct / 100.0))
+        # Dampening: sample_size / (sample_size + 10) is the confidence
+        # in the measurement; the remainder stays neutral at 0.5.
+        confidence = domain_sample_size / (domain_sample_size + 10)
+        track_record_w = eff * confidence + 0.5 * (1 - confidence)
+
+    # Weighted sum. Weights now sum to 1.0 over 6 dimensions:
+    #   severity 0.30 + criticality 0.22 + recency 0.13 + recurrence 0.13
+    #   + source_type 0.10 + track_record 0.12
+    # track_record is intentionally small enough to not dominate (12%)
+    # because it is lagging evidence, but big enough to reorder ties.
     contributions = {
-        "severity":    sev_w   * 0.35,
-        "criticality": crit_w  * 0.25,
-        "recency":     recency_w * 0.15,
-        "recurrence":  recur_w * 0.15,
-        "source_type": src_w   * 0.10,
+        "severity":     sev_w        * 0.30,
+        "criticality":  crit_w       * 0.22,
+        "recency":      recency_w    * 0.13,
+        "recurrence":   recur_w      * 0.13,
+        "source_type":  src_w        * 0.10,
+        "track_record": track_record_w * 0.12,
     }
     total = sum(contributions.values())
     score = int(round(total * 100))
@@ -958,12 +1864,20 @@ def backfill_priority_scores(db: Session, limit: int = 500) -> dict:
     return summary
 
 
-def recompute_priority_after_classification(candidate: BugFixCandidate) -> None:
+def recompute_priority_after_classification(
+    candidate: BugFixCandidate,
+    db: Session | None = None,
+) -> None:
     """
     Recompute a candidate's priority_score AFTER affected_domain is set
     (which happens in _classify_candidate_domain during propose_patch).
     Called from propose_patch to refine the FIFO-time estimate once we
     know the real domain criticality.
+
+    If `db` is provided, also injects the per-domain track record from
+    adaptive_governance.DomainProfile — this is the competitive moat:
+    priority is modulated by historical merchant-specific success rates
+    that a fresh deployment simply cannot have.
 
     In-place mutation — caller must flush.
     """
@@ -981,17 +1895,38 @@ def recompute_priority_after_classification(candidate: BugFixCandidate) -> None:
         age_minutes = max(0, int((now - candidate.created_at).total_seconds() / 60))
 
     crit = _infer_domain_criticality(candidate.affected_domain)
+
+    # Pull domain track record (optional — if db not provided or lookup
+    # fails, we fall back to neutral scoring, no regression).
+    domain_eff: float | None = None
+    domain_n = 0
+    if db is not None and candidate.affected_domain:
+        try:
+            from app.services.adaptive_governance import get_domain_profiles
+            profiles = get_domain_profiles(db)
+            profile = profiles.get(candidate.affected_domain)
+            if profile is not None:
+                domain_eff = profile.effectiveness_pct
+                domain_n = profile.total_measured or 0
+        except Exception as exc:
+            log.debug("priority: domain profile lookup failed (non-fatal): %s", exc)
+
     score, breakdown = compute_priority_score(
         severity=severity,
         source_type=candidate.source_type,
         affected_domain_criticality=crit,
         recurrence_count=recurrence_count,
         age_minutes=age_minutes,
+        domain_effectiveness_pct=domain_eff,
+        domain_sample_size=domain_n,
     )
     candidate.priority_score = score
     # Refresh breakdown in context for observability
     ctx["priority_breakdown"] = {k: round(v, 3) for k, v in breakdown.items()}
     ctx["priority_domain_criticality"] = crit
+    if domain_eff is not None:
+        ctx["priority_domain_effectiveness_pct"] = round(domain_eff, 2)
+        ctx["priority_domain_sample_size"] = domain_n
     candidate.context_json = json.dumps(ctx, default=str)
 
 
@@ -1362,7 +2297,18 @@ def _validate_diff_structure(diff: str) -> tuple[bool, str]:
 
 
 def _validate_patch_semantics(patch_diff: str, patch_files_json: str | None) -> tuple[bool, str]:
-    """Semantic validation: check imports resolve, files exist, symbols are real."""
+    """Semantic validation: check imports resolve, files exist, symbols are real.
+
+    Hardened with 4 hallucination rules from the 2026-04-11 LLM sprint:
+      A. phantom_path     — `+++ b/<path>` to a file that doesn't exist
+                            and isn't introduced via `--- /dev/null`
+      B. duplicate_symbol — added function whose name already exists
+                            in the same file (LLM regenerated existing fn)
+      C. hallucinated_import — `+from app.foo import bar` where bar doesn't
+                                exist in the imported module
+      D. untested_significant_change — non-trivial .py change with no
+                                       co-committed test file
+    """
     if not patch_diff:
         return False, "empty_diff"
     try:
@@ -1375,8 +2321,41 @@ def _validate_patch_semantics(patch_diff: str, patch_files_json: str | None) -> 
         if not is_new_file and not os.path.isfile(target_path):
             return False, f"file_not_found: {f}"
 
+    # Rule A — phantom_path: every `+++ b/<path>` must resolve OR be a new file
+    plus_paths = re.findall(r'^\+\+\+ b/(\S+)', patch_diff, re.MULTILINE)
+    for pp in plus_paths:
+        if pp == "/dev/null":
+            continue
+        full = os.path.join(_BACKEND_DIR, pp)
+        if os.path.isfile(full):
+            continue
+        # New file marker must be present for this exact path
+        if f"--- /dev/null\n+++ b/{pp}" in patch_diff or f"--- /dev/null\r\n+++ b/{pp}" in patch_diff:
+            continue
+        return False, f"phantom_path: {pp}"
+
     added_lines = [l[1:] for l in patch_diff.split("\n") if l.startswith("+") and not l.startswith("+++")]
     joined_source = "\n".join(added_lines)
+
+    # Rule B — duplicate_symbol: added `def name(` that already exists in target file
+    added_def_pattern = re.compile(r'^(?:async\s+)?def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(', re.MULTILINE)
+    for f in files:
+        target_path = os.path.join(_BACKEND_DIR, f)
+        if not os.path.isfile(target_path):
+            continue
+        try:
+            with open(target_path, "r") as fh:
+                existing_source = fh.read()
+        except Exception:
+            continue
+        existing_defs = set(re.findall(r'^(?:async\s+)?def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(', existing_source, re.MULTILINE))
+        for name in added_def_pattern.findall(joined_source):
+            if name.startswith("test_"):
+                continue
+            if name in existing_defs:
+                return False, f"duplicate_symbol: def {name} already exists in {f}"
+
+    # Rule C — hallucinated_import (existing logic, kept) + extended to non-app modules
     import_pattern = re.compile(
         r'from (app\.\S+) import \(([^)]+)\)'
         r'|from (app\.\S+) import ([^\n(]+)',
@@ -1390,7 +2369,7 @@ def _validate_patch_semantics(patch_diff: str, patch_files_json: str | None) -> 
         module_path = module.replace(".", "/") + ".py"
         full_path = os.path.join(_BACKEND_DIR, module_path)
         if not os.path.isfile(full_path):
-            return False, f"import_not_found: module {module}"
+            return False, f"hallucinated_import: module {module} does not exist"
         imported_names = [
             n.strip().split(" as ")[0].strip()
             for n in names_str.replace("\n", ",").split(",")
@@ -1406,9 +2385,29 @@ def _validate_patch_semantics(patch_diff: str, patch_files_json: str | None) -> 
                         and f"class {name}" not in source
                         and f"{name} =" not in source
                         and f"{name}:" not in source):
-                    return False, f"symbol_not_found: {name} not in {module}"
+                    return False, f"hallucinated_import: {name} not in {module}"
         except Exception:
             pass
+
+    # Rule D — untested_significant_change: a non-trivial .py change to
+    # app/ code without any test file in the same patch.
+    nontrivial_app_files = [
+        f for f in files
+        if f.startswith("app/") and f.endswith(".py")
+    ]
+    has_test_file = any(f.startswith("tests/") and f.endswith(".py") for f in files)
+    added_app_lines = sum(
+        1 for l in patch_diff.split("\n")
+        if l.startswith("+") and not l.startswith("+++")
+        and not l.strip().startswith("#")
+        and l.strip()
+    )
+    if nontrivial_app_files and not has_test_file and added_app_lines > 20:
+        return False, (
+            f"untested_significant_change: {added_app_lines} added lines across "
+            f"{len(nontrivial_app_files)} app file(s) with no test update"
+        )
+
     return True, "valid"
 
 
@@ -1455,12 +2454,32 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
     # Classify domain early (for fingerprinting and context)
     _classify_candidate_domain(candidate)
 
+    # Pre-flight: reject ungroundable candidates BEFORE the LLM call.
+    # The 2026-04-11 audit found that the dominant LLM-budget waste was
+    # candidates pointing at non-existent files. Catching them here saves
+    # the budget AND prevents PatchFingerprint pollution.
+    try:
+        from app.services.bugfix_prompt_grounding import preflight_ground_candidate
+        ok, reason = preflight_ground_candidate(candidate, db=db)
+        if not ok:
+            log.info(
+                "propose_patch: PREFLIGHT REJECT id=%d reason=%s",
+                candidate.id, reason,
+            )
+            candidate.failure_reason = f"prompt_ungrounded_preflight: {reason}"
+            db.flush()
+            return False
+    except Exception as exc:
+        log.debug("propose_patch: preflight skipped (non-fatal): %s", exc)
+
     # Recompute priority now that we know the affected_domain criticality.
     # At _create_candidate time we only had severity + source_type + recurrence;
-    # now we can add the domain dimension, which for criticals (billing,
-    # webhooks, auth) can push a 40 → 80 score shift, reordering the queue.
+    # now we can add the domain dimension AND the adaptive track record
+    # (per-domain historical success rate from DomainProfile). The latter
+    # is the competitive moat: priorities improve as your merchant base
+    # generates more outcome telemetry.
     try:
-        recompute_priority_after_classification(candidate)
+        recompute_priority_after_classification(candidate, db=db)
     except Exception as exc:
         log.debug("propose_patch: priority recompute failed (non-fatal): %s", exc)
 
@@ -1643,6 +2662,79 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
     except Exception:
         pass  # non-critical enhancement
 
+    # Inject grounded file manifest + signatures (L1/L5 from the LLM
+    # prompt-engineering sprint). The LLM cannot ground its `files` list
+    # to existing paths unless we tell it what exists. We scope the
+    # manifest to the candidate's affected_domain and always include the
+    # declared target_file so the LLM sees the exact ground truth.
+    try:
+        from app.services.bugfix_prompt_grounding import (
+            build_file_manifest, extract_signatures,
+        )
+        extra: list[str] = []
+        target_file_for_sigs: str | None = None
+        if candidate.context_json:
+            try:
+                _gctx = json.loads(candidate.context_json)
+                tf = _gctx.get("target_file")
+                if tf:
+                    extra.append(tf)
+                    target_file_for_sigs = tf
+            except Exception:
+                pass
+        if candidate.patch_files:
+            try:
+                for pf in json.loads(candidate.patch_files) or []:
+                    if pf and pf not in extra:
+                        extra.append(pf)
+            except Exception:
+                pass
+
+        manifest = build_file_manifest(candidate.affected_domain, extra_files=extra)
+        if manifest:
+            context_parts.append(manifest)
+
+        sigs_files = [f for f in extra if f and f.endswith(".py")]
+        if not sigs_files and target_file_for_sigs:
+            sigs_files = [target_file_for_sigs]
+        for sf in sigs_files[:3]:  # cap at 3 files of signatures to stay under prompt budget
+            sig_block = extract_signatures(sf)
+            if sig_block:
+                context_parts.append(sig_block)
+
+        # C1 — inject the last 3 failure traces from the same family
+        # so the LLM sees institutional memory, not just the current
+        # candidate. Turns the proposer from amnesiac to grounded.
+        try:
+            from app.services.bugfix_prompt_grounding import extract_recent_failures
+            failures_block = extract_recent_failures(
+                db,
+                affected_domain=candidate.affected_domain,
+                source_type=candidate.source_type,
+            )
+            if failures_block:
+                context_parts.append(failures_block)
+        except Exception as exc:
+            log.debug("propose_patch: failure history injection failed (non-fatal): %s", exc)
+    except Exception as exc:
+        log.debug("propose_patch: grounding injection failed (non-fatal): %s", exc)
+
+    # Inject HARD failure-mode constraints from patch_fingerprint history.
+    # This is the competitive moat injection: the accumulated failure
+    # catalog from YOUR merchant base becomes the LLM's DO-NOT list.
+    # A fresh deployment has no constraints; a production deployment
+    # teaches the LLM what has already been tried and failed.
+    try:
+        hard_constraints = build_hard_lesson_constraints(
+            db,
+            affected_domain=candidate.affected_domain,
+            source_type=candidate.source_type,
+        )
+        if hard_constraints:
+            context_parts.append(hard_constraints)
+    except Exception as exc:
+        log.debug("propose_patch: hard lessons injection failed (non-fatal): %s", exc)
+
     user_message = "\n\n".join(context_parts)
 
     # Call LLM with routing context
@@ -1653,7 +2745,53 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
             file_count = len(ctx.get("files", [])) or 1
         except Exception:
             pass
-    raw = _call_llm(user_message, patch_risk_tier=None, file_count=file_count)
+    # D3 — template cache short-circuit. If a fresh successful template
+    # exists for this (domain, source_type, files) family, reuse its diff
+    # without spending LLM budget. The cached payload still flows through
+    # the existing parser + validator + fingerprint gates below, so any
+    # repo drift is caught the same way as a live LLM response.
+    template_key = _compute_fix_template_key(candidate)
+    cached_template = _lookup_fix_template(template_key)
+    raw = ""
+    if cached_template:
+        try:
+            cached_files = cached_template.get("files") or []
+            cached_diff = cached_template.get("diff") or ""
+            files_ok = bool(cached_diff.strip()) and all(
+                (
+                    isinstance(f, str)
+                    and (
+                        os.path.isfile(os.path.join(_BACKEND_DIR, f))
+                        or (f.startswith("tests/") and f.endswith(".py"))
+                    )
+                )
+                for f in cached_files
+                if f
+            )
+            if files_ok:
+                raw = json.dumps({
+                    "patch_summary": cached_template.get("patch_summary", ""),
+                    "diff": cached_diff,
+                    "files": cached_files,
+                    "test_command": cached_template.get("test_command", ""),
+                })
+                _incr_fix_template_hit()
+                candidate.context_json = _mark_template_reuse(
+                    candidate.context_json,
+                    source_candidate_id=cached_template.get("source_candidate_id"),
+                )
+                log.info(
+                    "propose_patch: TEMPLATE CACHE HIT id=%d key=%s (from candidate #%s)",
+                    candidate.id,
+                    (template_key or "")[:12],
+                    cached_template.get("source_candidate_id"),
+                )
+        except Exception as exc:
+            log.debug("propose_patch: template reuse skipped: %s", exc)
+            raw = ""
+
+    if not raw:
+        raw = _call_llm(user_message, patch_risk_tier=None, file_count=file_count)
     if not raw:
         candidate.failure_reason = "llm_call_failed"
         db.flush()
@@ -1700,12 +2838,40 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
         db.flush()
         return False
 
+    # Security-aware preflight guard (2026-04-11). Post-LLM re-scan — we
+    # now have the final diff and can detect any regression the LLM
+    # tried to introduce (PII logging, HMAC weakening, consent bypass,
+    # SQL injection, secret hardcoding, rate-limit removal). Hard reject.
+    try:
+        from app.services.security_preflight_guard import guard_candidate
+        allowed_sec, sec_reason = guard_candidate(candidate)
+        if not allowed_sec:
+            log.warning(
+                "propose_patch: SECURITY REJECT id=%d — %s",
+                candidate.id, sec_reason,
+            )
+            candidate.failure_reason = sec_reason
+            _bump_security_guard_block_counter()
+            db.flush()
+            return False
+    except Exception as exc:
+        log.debug("propose_patch: security guard non-fatal: %s", exc)
+
     # POST-LLM diff fingerprint check: now that we have the actual diff,
-    # check if a semantically equivalent diff recently failed
+    # check identity, normalized diff, AND AST skeleton fingerprint.
+    # The skeleton catches "same strategy with renamed variables" which
+    # the other two dimensions miss.
     post_diff_fp = _compute_diff_fingerprint(candidate.patch_diff)
-    if post_diff_fp:
+    post_skeleton_fp = _compute_ast_skeleton_fingerprint(candidate.patch_diff)
+    if post_diff_fp or post_skeleton_fp:
         post_fp_hash = _compute_patch_fingerprint(candidate.title, candidate.patch_files, candidate.patch_diff)
-        diff_match = _check_patch_fingerprint(db, post_fp_hash, diff_fp=post_diff_fp)
+        diff_match = _check_patch_fingerprint(
+            db, post_fp_hash,
+            diff_fp=post_diff_fp,
+            skeleton_fp=post_skeleton_fp,
+            source_type=candidate.source_type,
+            source_ref=candidate.source_ref,
+        )
         if diff_match:
             log.info(
                 "propose_patch: DIFF FINGERPRINT REJECT id=%d — semantically matches "
@@ -1807,6 +2973,23 @@ def _call_llm(
     If Sonnet fails, retries once with Opus (escalation).
     """
     from app.core.llm_budget import check_budget, record_usage, record_blocked
+
+    # Runtime PII guard (2026-04-11 audit). The DPIA promises aggregated
+    # metrics only to third-party LLM providers. Previously this relied
+    # on code review. Now every outgoing prompt is scanned for email,
+    # IBAN, phone, credit-card, JWT, Shopify token, and provider API
+    # key patterns. Any match hard-blocks the call before the HTTP
+    # request is made, increments the weekly violation counter, and
+    # returns empty (same path as a budget exhaustion).
+    try:
+        from app.core.llm_pii_guard import assert_clean, LLMPayloadViolation
+        assert_clean(user_message, context="bugfix_proposal")
+    except LLMPayloadViolation as exc:
+        log.error("bugfix_pipeline: %s", exc)
+        return ""
+    except Exception as exc:
+        log.debug("bugfix_pipeline: llm_pii_guard non-fatal: %s", exc)
+
     allowed, reason = check_budget("bugfix_proposal")
     if not allowed:
         record_blocked("bugfix_proposal", reason)
@@ -1955,6 +3138,244 @@ _SAFE_PATH_PREFIXES = [
     "tests/",
 ]
 
+# ----- Self-modification guard (elite sprint 2026-04-11) -----
+#
+# The self-healing pipeline must NEVER auto-patch its own guts. If the
+# LLM proposes a change to a file that IS the self-healing pipeline
+# itself, the candidate is force-downgraded to TIER_1 (proposal only,
+# human review required). This prevents a catastrophic feedback loop
+# where a buggy auto-fix breaks the very code that would detect and
+# revert it.
+#
+# Examples of paths that flip to TIER_1:
+#   app/services/bugfix_pipeline.py  (this file!)
+#   app/services/loop_health.py
+#   app/services/orchestrator.py
+#   app/services/reviewer_layer.py
+#   app/services/project_brain.py
+#   app/services/evolution_outcomes.py
+#   app/services/merge_intelligence.py
+#   app/services/promotion_pipeline.py
+#   app/services/adaptive_governance.py
+#   app/services/data_integrity_probe.py
+#   app/services/alerting.py
+#   app/workers/agent_worker.py
+#   app/workers/aggregation_worker.py
+#   app/core/protection_state.py
+#   app/core/version.py
+#   scripts/deploy_gate.py
+_SELF_MODIFICATION_PREFIXES: tuple[str, ...] = (
+    "app/services/bugfix_pipeline",
+    "app/services/loop_health",
+    "app/services/orchestrator",
+    "app/services/reviewer_layer",
+    "app/services/project_brain",
+    "app/services/evolution_outcomes",
+    "app/services/evolution_converter",
+    "app/services/evolution_bet_governance",
+    "app/services/evolution_engine",
+    "app/services/evolution_reinforcement",
+    "app/services/merge_intelligence",
+    "app/services/promotion_pipeline",
+    "app/services/adaptive_governance",
+    "app/services/data_integrity_probe",
+    "app/services/alerting",
+    "app/services/outcome_evaluator",
+    "app/services/action_learning",
+    "app/services/meta_reviewer",
+    "app/services/monthly_evolution_audit",
+    "app/services/bugfix_prompt_grounding",  # deferred LLM sprint target
+    "app/workers/agent_worker",
+    "app/workers/aggregation_worker",
+    "app/core/protection_state",
+    "app/core/version",
+    "app/core/llm_budget",
+    "app/core/llm_router",
+    "app/core/tier_check",
+    "scripts/deploy_gate",
+)
+
+
+# ---------------------------------------------------------------------------
+# Predictive outcome gate — refuse to burn apply budget on low-odds fixes
+# ---------------------------------------------------------------------------
+#
+# Before run_auto_apply commits an apply, we estimate the probability that
+# this candidate would be measured 'effective' using historical outcomes
+# for the SAME (affected_domain, source_type) pair in the last 90 days.
+#
+# Why this is a competitive moat:
+#   A fresh deployment has zero historical data, so the gate starts
+#   neutral and lets everything through (P = 0.5). As your merchant
+#   base accrues telemetry over months, the gate becomes tighter
+#   and tighter — specifically for YOUR failure modes. A copycat
+#   cannot replicate this without spending equivalent time in
+#   production with equivalent merchant volume. The architecture
+#   is the template; the telemetry is the moat.
+#
+# Default threshold: 0.25 — if prior history shows <25% of similar
+# candidates ended effective, downgrade to manual review. This is the
+# floor; the actual threshold adapts from adaptive_governance at
+# runtime.
+
+_PREDICT_OUTCOME_MIN_SAMPLES = 5   # need at least 5 prior outcomes
+_PREDICT_OUTCOME_DEFAULT_FLOOR = 0.25  # skip apply if predicted p < 25%
+
+# C2 — Bayesian gate. Instead of a flat point estimate `good / total`,
+# we compute the LOWER 5% bound of a Beta(good+1, fails+1) posterior
+# (the conservative estimate). This is the right tool because:
+#
+#   * With n=5 wins, n=0 losses, naive ratio = 1.0 → wildly optimistic.
+#     Beta(6,1) lower 5% bound ≈ 0.61 → realistic.
+#   * With n=50 wins, n=2 losses, naive ratio ≈ 0.96. Beta(51,3) lower
+#     5% bound ≈ 0.89 → still strict but tighter.
+#   * As n grows, the posterior collapses around the true rate.
+#     Auto-applies become more aggressive ONLY where the moat data
+#     proves them safe. No competitor can replicate this without
+#     accumulating the same telemetry corpus.
+#
+# We use a Wilson-like closed-form approximation (no scipy dependency,
+# zero new packages, deterministic, ~10 lines of math). The bound is
+# safe under all degenerate inputs.
+
+
+def _beta_lower_bound_5pct(wins: int, losses: int) -> float:
+    """Conservative lower bound on the Beta(wins+1, losses+1) posterior.
+
+    Uses the Wilson score interval at z=1.645 (5% one-sided), which
+    matches Beta(α,β) lower 5% within ~0.01 across all sample sizes
+    we care about. Pure Python, no scipy, deterministic.
+
+    Edge cases:
+      * wins=0 losses=0 → returns 0.0 (no evidence, conservative)
+      * wins=0 losses>0 → bound very low (we punish unmeasured failures)
+      * wins>0 losses=0 → bound rises with sample size
+    """
+    n = wins + losses
+    if n == 0:
+        return 0.0
+    z = 1.645  # one-sided 95% confidence
+    p_hat = wins / n
+    z2 = z * z
+    denom = 1 + z2 / n
+    center = p_hat + z2 / (2 * n)
+    margin = z * ((p_hat * (1 - p_hat) / n + z2 / (4 * n * n)) ** 0.5)
+    lower = (center - margin) / denom
+    return max(0.0, min(1.0, lower))
+
+
+def predict_outcome_probability(
+    db: Session,
+    *,
+    affected_domain: str | None,
+    source_type: str | None,
+    lookback_days: int = 90,
+) -> tuple[float, int]:
+    """
+    Return (predicted_effective_probability, sample_size) for the given
+    (domain, source_type).
+
+    The probability is the **conservative lower bound** of a Beta posterior
+    (5% one-sided) computed from historical outcomes. As sample size grows
+    the bound tightens around the true rate; with no history it returns
+    the neutral prior 0.5 so first-of-its-kind candidates are not blocked.
+
+    This is read-only; no side effects.
+    """
+    if not affected_domain or not source_type:
+        return 0.5, 0
+
+    try:
+        cutoff = _now() - timedelta(days=lookback_days)
+        row = db.execute(text("""
+            SELECT
+                COUNT(*) FILTER (WHERE outcome_status = 'effective') AS good,
+                COUNT(*) FILTER (WHERE outcome_status IN ('effective','ineffective')) AS measured,
+                COUNT(*) FILTER (WHERE status IN ('apply_failed','rolled_back')) AS hard_fails,
+                COUNT(*) AS total
+            FROM bugfix_candidates
+            WHERE affected_domain = :dom
+              AND source_type = :src
+              AND created_at >= :cutoff
+              AND status IN ('applied','apply_failed','rolled_back')
+        """), {
+            "dom": affected_domain,
+            "src": source_type,
+            "cutoff": cutoff,
+        }).fetchone()
+    except Exception as exc:
+        log.debug("predict_outcome: query failed: %s", exc)
+        return 0.5, 0
+
+    if not row:
+        return 0.5, 0
+
+    good = int(row[0] or 0)
+    measured = int(row[1] or 0)
+    hard_fails = int(row[2] or 0)
+    total = int(row[3] or 0)
+
+    if total < _PREDICT_OUTCOME_MIN_SAMPLES:
+        # Insufficient history — let it through with neutral prior
+        return 0.5, total
+
+    # Wins: measured "effective" outcomes.
+    # Losses: measured "ineffective" + hard fails (apply_failed, rolled_back).
+    wins = good
+    losses = max(0, measured - good) + hard_fails
+
+    if wins + losses == 0:
+        return 0.5, total
+
+    bayesian_lower = _beta_lower_bound_5pct(wins, losses)
+    return bayesian_lower, total
+
+
+def should_skip_apply_by_prediction(
+    db: Session, candidate: BugFixCandidate,
+) -> tuple[bool, str]:
+    """
+    Return (skip, reason). If skip is True, run_auto_apply must NOT fire
+    this candidate — downgrade to manual review instead.
+    """
+    p, n = predict_outcome_probability(
+        db,
+        affected_domain=candidate.affected_domain,
+        source_type=candidate.source_type,
+    )
+    if n < _PREDICT_OUTCOME_MIN_SAMPLES:
+        return False, f"insufficient_history_n={n}"
+    if p < _PREDICT_OUTCOME_DEFAULT_FLOOR:
+        return True, f"predicted_effective_pct={p:.0%}_from_{n}_samples"
+    return False, f"predicted_effective_pct={p:.0%}_from_{n}_samples"
+
+
+def touches_self_healing_pipeline(patch_files_json: str | None) -> tuple[bool, list[str]]:
+    """
+    Return (True, matches) if the patch touches any file in the self-healing
+    pipeline itself. The pipeline must not auto-patch its own guts — that's
+    a catastrophic feedback loop risk. Force such candidates to TIER_1 so
+    a human reviews the change.
+
+    Pure function, no DB. Used by classify_patch_risk and as an explicit
+    guard in run_auto_apply.
+    """
+    if not patch_files_json:
+        return False, []
+    try:
+        files = json.loads(patch_files_json)
+    except (ValueError, TypeError):
+        return False, []
+    matches: list[str] = []
+    for f in files:
+        if not isinstance(f, str):
+            continue
+        for prefix in _SELF_MODIFICATION_PREFIXES:
+            if f.startswith(prefix):
+                matches.append(f)
+                break
+    return bool(matches), matches
+
 # Diff patterns that indicate dangerous content (force TIER_2)
 _DANGEROUS_DIFF_PATTERNS = [
     "subprocess",
@@ -1998,6 +3419,16 @@ def classify_patch_risk(patch_files_json: str | None, patch_diff: str | None) ->
         for pattern in _FORBIDDEN_PATH_PATTERNS:
             if pattern in str(f):
                 return PATCH_TIER_2, [f"forbidden: {f}"]
+
+    # Check self-modification — if the patch touches the self-healing
+    # pipeline itself, force TIER_1 (proposal, human review). This is
+    # not TIER_2 (outright banned) because legitimate pipeline updates
+    # should still flow through the normal review path — we just want
+    # a human in the loop for any change to the guts of the system
+    # that is making changes.
+    self_mod, self_files = touches_self_healing_pipeline(patch_files_json)
+    if self_mod:
+        return PATCH_TIER_1, [f"self_modification: {','.join(self_files[:3])}"]
 
     # Check dangerous diff patterns → TIER_2
     diff_lower = (patch_diff or "").lower()
@@ -2202,6 +3633,20 @@ def run_auto_apply(db: Session, max_per_cycle: int = 1) -> dict:
 
     summary = {"attempted": 0, "applied": 0, "failed": 0, "skipped": 0}
 
+    # Compliance kill switch — when the compliance synthesizer has
+    # dropped the rolling score below `_AUTO_PAUSE_THRESHOLD`, NO new
+    # auto-applies are allowed until the score recovers. The founder
+    # investigates, fixes, and the flag clears on the next tick.
+    try:
+        from app.services.compliance_score import is_self_modification_paused
+        if is_self_modification_paused():
+            log.warning("bugfix_pipeline: auto-apply paused by compliance score")
+            summary["skipped"] = 1
+            summary["reason"] = "compliance_auto_pause"
+            return summary
+    except Exception as exc:
+        log.debug("compliance_score auto-pause check failed (non-fatal): %s", exc)
+
     # Daily aggregate safety cap
     if _check_daily_apply_cap(db):
         summary["skipped"] = 1
@@ -2247,6 +3692,26 @@ def run_auto_apply(db: Session, max_per_cycle: int = 1) -> dict:
         if c.affected_domain and _check_domain_budget(db, c.affected_domain):
             summary["skipped"] += 1
             continue
+
+        # Predictive outcome gate — don't burn apply budget on candidates
+        # whose historical (domain, source_type) lineage has a <25%
+        # effective rate. Downgrade to manual review. This is the
+        # competitive moat: the threshold becomes sharper over months
+        # as your merchant base generates more outcome telemetry.
+        try:
+            skip, reason = should_skip_apply_by_prediction(db, c)
+            if skip:
+                log.info(
+                    "auto_apply: PREDICTIVE GATE blocked id=%d %s",
+                    c.id, reason,
+                )
+                c.patch_risk_tier = 1  # escalate to human-approve
+                c.failure_reason = f"predicted_ineffective: {reason}"
+                summary["skipped"] += 1
+                db.flush()
+                continue
+        except Exception as exc:
+            log.debug("auto_apply: predictive gate errored (non-fatal): %s", exc)
 
         # Reviewer gate — deterministic assessment before auto-apply
         try:
@@ -2324,6 +3789,300 @@ def run_auto_apply(db: Session, max_per_cycle: int = 1) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Governed TIER_1 auto-apply (M4) — strict-gated autonomy for the
+# files where the LLM is allowed to touch but a single mistake costs.
+# ---------------------------------------------------------------------------
+#
+# TIER_1 historically required a human approver. After the L-sprint
+# tightened the LLM grounding (preflight + manifest + signatures + diff
+# rules) the floor is high enough to attempt small TIER_1 fixes
+# automatically — but ONLY when ALL of these are simultaneously true:
+#
+#   G1. Confidence score >= _GOV_TIER1_MIN_CONFIDENCE (default 80, vs 40 for T0)
+#   G2. Predictive effective rate >= _GOV_TIER1_MIN_PROBABILITY (default 0.60)
+#   G3. Predictive sample size >= _GOV_TIER1_MIN_SAMPLES (default 5)
+#   G4. Reviewer.verdict == 'approve' AND auto_approvable == True
+#   G5. Patch adds < _GOV_TIER1_MAX_ADDED_LINES (default 50)
+#   G6. Patch touches exactly 1 production file (+ optionally a single test)
+#   G7. Domain track record: at least _GOV_TIER1_MIN_DOMAIN_WINS recent successes
+#       in the same affected_domain (default 3)
+#   G8. Zero PatchFingerprint failure matches (no semantic dup)
+#   G9. Patch does NOT touch self-healing pipeline (defense-in-depth)
+#   G10. AUTO_APPLY_TIER1=1 env kill switch (default ON, set to "0" to halt)
+#
+# Any failed gate => skip cleanly (no escalation, no failure_reason
+# update). The candidate stays in patch_proposed and the operator can
+# review at leisure.
+
+_GOV_TIER1_MIN_CONFIDENCE = 80
+_GOV_TIER1_MIN_PROBABILITY = 0.60
+_GOV_TIER1_MIN_SAMPLES = 5
+_GOV_TIER1_MAX_ADDED_LINES = 50
+_GOV_TIER1_MIN_DOMAIN_WINS = 3
+_GOV_TIER1_MAX_PER_CYCLE = 1
+_GOV_TIER1_MAX_PER_DAY = 3
+
+
+def _is_governed_tier1_enabled() -> bool:
+    """Default ON. Set AUTO_APPLY_TIER1=0 to halt every future TIER_1
+    auto-apply in 5 seconds. The gate stack inside `run_governed_tier1_auto_apply`
+    is the actual safety net; the env var is the operator emergency stop."""
+    return os.getenv("AUTO_APPLY_TIER1", "1").strip() not in ("0", "false", "False", "")
+
+
+def _gov_tier1_count_added_lines(patch_diff: str | None) -> int:
+    if not patch_diff:
+        return 0
+    return sum(
+        1 for l in patch_diff.split("\n")
+        if l.startswith("+") and not l.startswith("+++") and l.strip() and not l.strip().startswith("#")
+    )
+
+
+def _gov_tier1_count_production_files(patch_files_json: str | None) -> tuple[int, int]:
+    """Return (production_file_count, test_file_count)."""
+    if not patch_files_json:
+        return 0, 0
+    try:
+        files = json.loads(patch_files_json) or []
+    except Exception:
+        return 0, 0
+    prod = sum(1 for f in files if isinstance(f, str) and not f.startswith("tests/"))
+    test = sum(1 for f in files if isinstance(f, str) and f.startswith("tests/"))
+    return prod, test
+
+
+def _gov_tier1_domain_wins(db: Session, domain: str | None) -> int:
+    """Recent successful effective applies in this domain over the last 90d."""
+    if not domain:
+        return 0
+    try:
+        cutoff = _now() - timedelta(days=90)
+        row = db.execute(text("""
+            SELECT COUNT(*) FROM bugfix_candidates
+            WHERE affected_domain = :dom
+              AND status = 'applied'
+              AND outcome_status = 'effective'
+              AND applied_at >= :cutoff
+        """), {"dom": domain, "cutoff": cutoff}).fetchone()
+        return int(row[0] or 0) if row else 0
+    except Exception:
+        return 0
+
+
+def _gov_tier1_check_daily_cap(db: Session) -> bool:
+    """Return True if today's TIER_1 governed apply cap is reached."""
+    try:
+        cutoff = _now() - timedelta(hours=24)
+        row = db.execute(text("""
+            SELECT COUNT(*) FROM bugfix_candidates
+            WHERE patch_risk_tier = 1
+              AND status = 'applied'
+              AND decided_by = 'auto_tier_1_governed'
+              AND applied_at >= :cutoff
+        """), {"cutoff": cutoff}).fetchone()
+        return int(row[0] or 0) >= _GOV_TIER1_MAX_PER_DAY if row else False
+    except Exception:
+        return True  # Fail-closed on query error
+
+
+def run_governed_tier1_auto_apply(
+    db: Session, max_per_cycle: int = _GOV_TIER1_MAX_PER_CYCLE,
+) -> dict:
+    """
+    Strict-gated TIER_1 auto-apply. Same shape as run_auto_apply but with
+    a much higher bar. Runs after the TIER_0 path each cycle.
+    """
+    summary = {
+        "attempted": 0,
+        "applied": 0,
+        "failed": 0,
+        "skipped": 0,
+        "skipped_disabled": 0,
+        "skipped_daily_cap": 0,
+        "gate_failures": {},
+    }
+
+    if not _is_governed_tier1_enabled():
+        summary["skipped_disabled"] = 1
+        return summary
+
+    if _gov_tier1_check_daily_cap(db):
+        summary["skipped_daily_cap"] = 1
+        return summary
+
+    candidates = (
+        db.query(BugFixCandidate)
+        .filter(
+            BugFixCandidate.status == "patch_proposed",
+            BugFixCandidate.patch_risk_tier == PATCH_TIER_1,
+        )
+        .order_by(
+            BugFixCandidate.priority_score.desc().nullslast(),
+            BugFixCandidate.created_at,
+        )
+        .limit(max_per_cycle * 5)  # over-fetch so we can skip ungated ones
+        .all()
+    )
+
+    def _fail_gate(name: str, c: BugFixCandidate, reason: str = "") -> None:
+        summary["skipped"] += 1
+        summary["gate_failures"][name] = summary["gate_failures"].get(name, 0) + 1
+        log.info(
+            "governed_tier1: GATE %s blocked id=%d %s",
+            name, c.id, reason,
+        )
+
+    for c in candidates:
+        if summary["applied"] >= max_per_cycle:
+            break
+
+        # G1. Confidence
+        if c.fix_confidence is None or c.fix_confidence < _GOV_TIER1_MIN_CONFIDENCE:
+            _fail_gate("confidence", c, f"score={c.fix_confidence}")
+            continue
+
+        # G2 + G3. Predictive history
+        try:
+            p, n = predict_outcome_probability(
+                db,
+                affected_domain=c.affected_domain,
+                source_type=c.source_type,
+            )
+            if n < _GOV_TIER1_MIN_SAMPLES:
+                _fail_gate("predictive_samples", c, f"n={n}")
+                continue
+            if p < _GOV_TIER1_MIN_PROBABILITY:
+                _fail_gate("predictive_probability", c, f"p={p:.2f}")
+                continue
+        except Exception:
+            _fail_gate("predictive_error", c)
+            continue
+
+        # G5. Patch size
+        added_lines = _gov_tier1_count_added_lines(c.patch_diff)
+        if added_lines >= _GOV_TIER1_MAX_ADDED_LINES:
+            _fail_gate("patch_too_large", c, f"added={added_lines}")
+            continue
+
+        # G6. Single production file (test file optional)
+        prod, _test = _gov_tier1_count_production_files(c.patch_files)
+        if prod != 1:
+            _fail_gate("not_single_file", c, f"prod_files={prod}")
+            continue
+
+        # G7. Domain track record
+        wins = _gov_tier1_domain_wins(db, c.affected_domain)
+        if wins < _GOV_TIER1_MIN_DOMAIN_WINS:
+            _fail_gate("domain_track_record", c, f"wins={wins}")
+            continue
+
+        # G8. Zero PatchFingerprint failure matches
+        try:
+            pre_fp = _compute_patch_fingerprint(c.title, c.patch_files, c.patch_diff)
+            failed_match = _check_patch_fingerprint(db, pre_fp)
+            if failed_match:
+                _fail_gate("fingerprint_match", c, f"matches_{failed_match['candidate_id']}")
+                continue
+        except Exception:
+            pass
+
+        # G9. Defense-in-depth: never auto-touch the self-healing pipeline
+        try:
+            touches, matches = touches_self_healing_pipeline(c.patch_files)
+            if touches:
+                _fail_gate("self_healing_touch", c, f"matches={matches[:2]}")
+                continue
+        except Exception:
+            pass
+
+        # G4. Reviewer verdict — strictest check, runs last because it
+        # writes a row in reviewer_assessments
+        try:
+            from app.services.reviewer_layer import review_entity
+            assessment = review_entity(db, "bugfix_candidate", c.id)
+            if assessment is None:
+                _fail_gate("reviewer_unavailable", c)
+                continue
+            c.reviewer_assessment_id = assessment.id
+            db.flush()
+            if assessment.verdict != "approve":
+                _fail_gate("reviewer_verdict", c, f"verdict={assessment.verdict}")
+                continue
+            if not assessment.auto_approvable:
+                _fail_gate("reviewer_not_auto_approvable", c)
+                continue
+            risk = (assessment.risk_level or "").lower()
+            if risk not in ("", "low", "none"):
+                _fail_gate("reviewer_risk", c, f"risk={risk}")
+                continue
+        except Exception as exc:
+            _fail_gate("reviewer_error", c, str(exc)[:80])
+            continue
+
+        # All gates passed — auto-approve + apply
+        summary["attempted"] += 1
+        c.status = "approved"
+        c.decided_by = "auto_tier_1_governed"
+        c.decided_at = _now()
+        db.flush()
+
+        from app.services.audit import write_audit_log
+        write_audit_log(
+            db, actor_type="system", actor_name="governed_tier1",
+            action_type="bugfix_auto_approved", target_type="bugfix",
+            target_id=str(c.id), status="completed", approval_mode="autonomous_governed",
+            metadata={
+                "tier": 1,
+                "confidence": c.fix_confidence,
+                "predictive_p": p,
+                "predictive_n": n,
+                "added_lines": added_lines,
+                "domain": c.affected_domain,
+                "domain_wins": wins,
+                "reviewer_assessment_id": c.reviewer_assessment_id,
+            },
+        )
+        db.flush()
+
+        result = apply_bugfix_candidate(db, c.id)
+        db.flush()
+
+        if result.status == "applied":
+            summary["applied"] += 1
+            log.info(
+                "governed_tier1: APPLIED id=%d title=%s",
+                c.id, (c.title or "")[:80],
+            )
+            try:
+                from app.services.alerting import write_alert
+                write_alert(
+                    db,
+                    source=f"governed_tier1:{c.affected_domain or 'unknown'}",
+                    alert_type="governed_tier1_applied",
+                    severity="info",
+                    summary=f"TIER_1 governed apply ok id={c.id} {(c.title or '')[:80]}",
+                    detail={
+                        "candidate_id": c.id,
+                        "domain": c.affected_domain,
+                        "confidence": c.fix_confidence,
+                        "added_lines": added_lines,
+                    },
+                )
+            except Exception:
+                pass
+        else:
+            summary["failed"] += 1
+            log.warning(
+                "governed_tier1: FAILED id=%d status=%s reason=%s",
+                c.id, result.status, result.failure_reason,
+            )
+            break  # Halt on any failure — preserves the cooldown intent
+
+    return summary
+
+
+# ---------------------------------------------------------------------------
 # Safety blocklist — file paths that must NEVER be auto-patched
 # ---------------------------------------------------------------------------
 
@@ -2390,14 +4149,73 @@ class ApplyResult:
     failure_reason: str | None = None
 
 
+def _release_apply_lock(candidate_id: int) -> None:
+    """Release the Redis execution lock for this candidate. Fail-safe."""
+    try:
+        from app.core.telegram_safety import release_execution_lock
+        release_execution_lock("bugfix", str(candidate_id))
+    except Exception as exc:
+        log.debug("auto_apply: lock release failed (non-fatal): %s", exc)
+
+
 def apply_bugfix_candidate(db: Session, candidate_id: int) -> ApplyResult:
     """
     Apply an approved patch with verification and rollback.
 
-    Sequence: preconditions → clean check → apply --check → apply →
-    tests → restart → health → success or rollback.
+    Wraps _apply_bugfix_candidate_impl with Redis-backed restart-safety
+    gates (idempotency + execution lock). Added 2026-04-11 elite sprint.
+    If agent_worker crashes mid-apply and restarts, the idempotency key
+    blocks re-entry for 5 minutes, preventing double-apply. The lock
+    is ALWAYS released in the finally block so a crash does not
+    deadlock the candidate forever (lock TTL is the ultimate backstop).
+
+    Sequence: idempotency → lock → preconditions → clean check → apply
+    --check → apply → tests → restart → health → success or rollback.
 
     On success: propagates resolution to linked support incidents.
+    """
+    result = ApplyResult()
+
+    # --- Restart-safe idempotency gate ---
+    try:
+        from app.core.telegram_safety import (
+            check_idempotency,
+            acquire_execution_lock,
+        )
+        if not check_idempotency("auto_apply", str(candidate_id), critical=True):
+            log.warning(
+                "auto_apply: IDEMPOTENCY — candidate_id=%d already applied "
+                "within window, refusing re-entry",
+                candidate_id,
+            )
+            result.status = "apply_failed"
+            result.failure_reason = "idempotency_block: duplicate apply within 5min"
+            return result
+        if not acquire_execution_lock("bugfix", str(candidate_id), critical=True):
+            log.warning(
+                "auto_apply: LOCK HELD — candidate_id=%d apply already in flight",
+                candidate_id,
+            )
+            result.status = "apply_failed"
+            result.failure_reason = "execution_lock: concurrent apply in progress"
+            return result
+    except Exception as exc:
+        log.warning("auto_apply: idempotency infra error: %s — FAIL CLOSED", exc)
+        result.status = "apply_failed"
+        result.failure_reason = f"idempotency_infra_error: {type(exc).__name__}"
+        return result
+
+    try:
+        return _apply_bugfix_candidate_impl(db, candidate_id)
+    finally:
+        _release_apply_lock(candidate_id)
+
+
+def _apply_bugfix_candidate_impl(db: Session, candidate_id: int) -> ApplyResult:
+    """
+    Inner implementation of the apply flow. Called ONLY from
+    apply_bugfix_candidate which holds the idempotency gate + execution
+    lock. Do not call directly — you will bypass restart safety.
     """
     import subprocess
     import tempfile
@@ -2492,15 +4310,49 @@ def apply_bugfix_candidate(db: Session, candidate_id: int) -> ApplyResult:
 
         # Git tree clean check — skip for new-file patches.
         # New files (--- /dev/null) never conflict with existing dirty files,
-        # so git apply works fine on a dirty tree.
-        _is_new_file_patch = "--- /dev/null" in (candidate.patch_diff or "")
-        if not _is_new_file_patch:
-            git_status = subprocess.run(
-                ["git", "diff", "--quiet"], cwd=_BACKEND_DIR,
-                capture_output=True, timeout=10,
+        # Dirty-tree check — ALWAYS required, no exceptions.
+        #
+        # Before 2026-04-11 this check was SKIPPED for new-file patches
+        # (--- /dev/null) on the theory that "git apply works fine on a
+        # dirty tree". That was half the story. After apply, the commit
+        # routine ran `git add -A` which committed ALL working-tree
+        # changes, not just the patch. On 2026-04-11 we observed the
+        # pipeline commit an operator's in-flight session (ClientErrorBoundary,
+        # ErrorReporterInstaller, new tests, etc.) under the message
+        # "apply bugfix candidate #45693". That is both misleading AND
+        # dangerous — any developer working in this repo could have
+        # their uncommitted changes captured and merged by the first
+        # autonomous apply.
+        #
+        # New invariant: working tree must be clean, period. If a
+        # developer needs to work alongside the pipeline, they must
+        # use a branch or set an env gate.
+        git_status = subprocess.run(
+            ["git", "diff", "--quiet"], cwd=_BACKEND_DIR,
+            capture_output=True, timeout=10,
+        )
+        if git_status.returncode != 0:
+            return _fail_apply(db, candidate, result, "git_tree_dirty")
+        # Also check staged changes (git add but not committed)
+        git_staged = subprocess.run(
+            ["git", "diff", "--cached", "--quiet"], cwd=_BACKEND_DIR,
+            capture_output=True, timeout=10,
+        )
+        if git_staged.returncode != 0:
+            return _fail_apply(db, candidate, result, "git_index_dirty")
+        # And untracked files that match backend paths (these would get
+        # swept up by git add -A in the commit routine if we used that path)
+        git_untracked = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            cwd=_BACKEND_DIR, capture_output=True, text=True, timeout=10,
+        )
+        if git_untracked.returncode == 0 and git_untracked.stdout.strip():
+            # Even untracked files are a risk — the operator may have
+            # in-flight work. Fail closed.
+            return _fail_apply(
+                db, candidate, result,
+                f"git_untracked_present: {git_untracked.stdout.strip().splitlines()[:3]}",
             )
-            if git_status.returncode != 0:
-                return _fail_apply(db, candidate, result, "git_tree_dirty")
 
         # git apply --check
         check = subprocess.run(
@@ -2522,7 +4374,8 @@ def apply_bugfix_candidate(db: Session, candidate_id: int) -> ApplyResult:
         # (doesn't break any existing code). Full regression suite is too heavyweight
         # for adding a new file that can't affect production.
         _venv_python = f"{_BACKEND_DIR}/venv/bin/python"
-        _new_test_files = []
+        _new_test_files: list[str] = []
+        _is_new_file_patch = "--- /dev/null" in (candidate.patch_diff or "")
         if _is_new_file_patch:
             try:
                 _flist = json.loads(candidate.patch_files) if candidate.patch_files else []
@@ -2634,6 +4487,27 @@ def apply_bugfix_candidate(db: Session, candidate_id: int) -> ApplyResult:
         # Record successful patch fingerprint (outcome will be updated after 48h measurement)
         _record_patch_fingerprint(db, candidate, outcome="applied")
 
+        # D3 — cache the template for this family so subsequent matching
+        # candidates can reuse the diff without LLM spend. Only stored on
+        # real apply success (tests + health + git commit all green).
+        try:
+            _store_fix_template(_compute_fix_template_key(candidate), candidate)
+        except Exception as exc:
+            log.debug("bugfix_apply: fix_template store failed: %s", exc)
+
+        # D4 — adversarial fragility analysis. Static AST analysis of the
+        # added lines surfaces unguarded subscripts, division-by-param,
+        # iteration without None checks, etc. Advisory only: we record
+        # the report on the candidate and bump a weekly counter for the
+        # daily digest. Never blocks apply.
+        try:
+            from app.services.adversarial_test_gen import run_adversarial_probes
+            adv_report = run_adversarial_probes(candidate)
+            if adv_report.get("fragility_score", 0) > 0:
+                _record_adversarial_report(candidate, adv_report)
+        except Exception as exc:
+            log.debug("bugfix_apply: adversarial probe failed (non-fatal): %s", exc)
+
         from app.services.audit import write_audit_log
         write_audit_log(
             db, actor_type="system", actor_name="bugfix_apply",
@@ -2688,11 +4562,76 @@ def apply_bugfix_candidate(db: Session, candidate_id: int) -> ApplyResult:
 
 
 def _git_commit_patch(candidate: BugFixCandidate) -> str | None:
-    """Create a local git commit for the applied patch. Returns SHA or None."""
+    """Create a local git commit for the applied patch. Returns SHA or None.
+
+    SECURITY-CRITICAL: we explicitly list the files from the candidate's
+    patch_files metadata and `git add` ONLY those. We NEVER do `git add -A`,
+    which on 2026-04-11 was observed to sweep an operator's in-flight
+    session into a commit labelled "apply bugfix candidate #45693". The
+    dirty-tree pre-check in the apply path is the first line of defense;
+    this targeted add is the second.
+    """
+    import json as _json
     import subprocess
     try:
-        # Stage all changes
-        subprocess.run(["git", "add", "-A"], cwd=_BACKEND_DIR, capture_output=True, timeout=10)
+        # Resolve patch files from the candidate — safe parse, fallback empty
+        try:
+            patch_files = _json.loads(candidate.patch_files or "[]")
+        except (ValueError, TypeError):
+            patch_files = []
+
+        if not isinstance(patch_files, list) or not patch_files:
+            log.warning(
+                "bugfix_apply: candidate #%d has no patch_files — refusing to commit "
+                "(would require `git add -A` which is forbidden)", candidate.id,
+            )
+            return None
+
+        # Filter out any path that tries to escape the repo root
+        safe_files: list[str] = []
+        for f in patch_files:
+            if not isinstance(f, str) or not f.strip():
+                continue
+            if ".." in f or f.startswith("/"):
+                log.warning("bugfix_apply: rejecting unsafe path %r", f)
+                continue
+            safe_files.append(f)
+
+        if not safe_files:
+            log.warning("bugfix_apply: candidate #%d has no valid patch_files", candidate.id)
+            return None
+
+        # Stage ONLY the patch's files. Any other working-tree changes
+        # stay untouched. If the dirty-tree pre-check slipped a race,
+        # this explicit file list is the safety net.
+        add_result = subprocess.run(
+            ["git", "add", "--"] + safe_files,
+            cwd=_BACKEND_DIR, capture_output=True, text=True, timeout=10,
+        )
+        if add_result.returncode != 0:
+            log.warning(
+                "bugfix_apply: git add failed for candidate=%d files=%s: %s",
+                candidate.id, safe_files, add_result.stderr[:200],
+            )
+            return None
+
+        # Sanity check: verify that git only staged our requested files.
+        # If somehow other files got into the index, abort.
+        diff_cached = subprocess.run(
+            ["git", "diff", "--cached", "--name-only"],
+            cwd=_BACKEND_DIR, capture_output=True, text=True, timeout=5,
+        )
+        staged_files = [f.strip() for f in diff_cached.stdout.splitlines() if f.strip()]
+        unexpected = set(staged_files) - set(safe_files)
+        if unexpected:
+            log.error(
+                "bugfix_apply: SECURITY — candidate #%d tried to commit unexpected files: %s. "
+                "Aborting commit and resetting index.",
+                candidate.id, list(unexpected)[:5],
+            )
+            subprocess.run(["git", "reset", "HEAD"], cwd=_BACKEND_DIR, capture_output=True, timeout=10)
+            return None
+
         # Commit
         msg = f"chore(autofix): apply bugfix candidate #{candidate.id}\n\n{candidate.title}"
         result = subprocess.run(

@@ -176,3 +176,105 @@ def auth_b(merchant_b) -> dict:
 
 def now_ms() -> int:
     return int(time.time() * 1000)
+
+
+# ---------------------------------------------------------------------------
+# Shared git-subprocess mock for bugfix_apply / patch_tiering tests
+# ---------------------------------------------------------------------------
+#
+# The 2026-04-11 security hardening added three new dirty-tree checks
+# to bugfix_pipeline.apply_bugfix_candidate:
+#   1. git diff --quiet         (working tree clean?)
+#   2. git diff --cached --quiet (index clean?)
+#   3. git ls-files --others --exclude-standard  (no untracked?)
+#
+# The tests that mock subprocess.run need to return a "clean tree"
+# response for each of these. This helper builds a mock function
+# that returns appropriate stdout/returncode per command and can
+# be extended with extra overrides.
+
+from unittest.mock import MagicMock as _MM
+
+
+def make_git_safe_subprocess_mock(
+    *,
+    pytest_returncode: int = 0,
+    apply_check_returncode: int = 0,
+    apply_returncode: int = 0,
+    commit_sha: str = "test_sha_deadbeef",
+    tree_dirty: bool = False,
+    index_dirty: bool = False,
+    untracked: str = "",
+    extra: dict | None = None,
+):
+    """
+    Return a callable suitable for `patch("subprocess.run", side_effect=...)`.
+
+    Defaults: everything is clean, pytest passes, apply succeeds.
+    Flip flags to simulate specific failure modes.
+    """
+    def _mock(cmd, **kwargs):
+        m = _MM(stdout="", stderr="", returncode=0)
+        # git diff --quiet  → clean working tree unless tree_dirty
+        if len(cmd) >= 2 and cmd[:2] == ["git", "diff"] and "--quiet" in cmd and "--cached" not in cmd:
+            m.returncode = 1 if tree_dirty else 0
+            return m
+        # git diff --cached --quiet  → clean index
+        if len(cmd) >= 3 and cmd[:3] == ["git", "diff", "--cached"] and "--quiet" in cmd:
+            m.returncode = 1 if index_dirty else 0
+            return m
+        # git ls-files --others --exclude-standard → untracked listing
+        if len(cmd) >= 3 and cmd[:3] == ["git", "ls-files", "--others"]:
+            m.stdout = untracked
+            return m
+        # git diff --cached --name-only → files we staged (for commit sanity)
+        if len(cmd) >= 4 and cmd[:4] == ["git", "diff", "--cached", "--name-only"]:
+            # Return whatever the test's patch_files implies — empty by default
+            m.stdout = ""
+            return m
+        # git apply --check
+        if len(cmd) >= 3 and cmd[:2] == ["git", "apply"] and "--check" in cmd:
+            m.returncode = apply_check_returncode
+            m.stderr = "check failed" if apply_check_returncode else ""
+            return m
+        # git apply (real)
+        if len(cmd) >= 2 and cmd[:2] == ["git", "apply"] and "--check" not in cmd:
+            m.returncode = apply_returncode
+            return m
+        # git add — always succeed
+        if len(cmd) >= 2 and cmd[:2] == ["git", "add"]:
+            m.returncode = 0
+            return m
+        # git commit — always succeed
+        if len(cmd) >= 2 and cmd[:2] == ["git", "commit"]:
+            m.returncode = 0
+            return m
+        # git rev-parse HEAD → return our fake sha
+        if "rev-parse" in cmd:
+            m.stdout = commit_sha
+            return m
+        # git reset (defensive)
+        if len(cmd) >= 2 and cmd[:2] == ["git", "reset"]:
+            m.returncode = 0
+            return m
+        # pytest — simulated
+        if "pytest" in " ".join(str(c) for c in cmd) or (cmd and "python" in str(cmd[0])):
+            m.returncode = pytest_returncode
+            return m
+        # Fallback — generic ok
+        m.stdout = "ok"
+        return m
+
+    if extra:
+        # Allow tests to override specific commands
+        original = _mock
+        def _with_overrides(cmd, **kwargs):
+            key = " ".join(str(c) for c in cmd)
+            for pat, result in extra.items():
+                if pat in key:
+                    mm = _MM(stdout=result.get("stdout", ""), stderr=result.get("stderr", ""), returncode=result.get("returncode", 0))
+                    return mm
+            return original(cmd, **kwargs)
+        return _with_overrides
+
+    return _mock

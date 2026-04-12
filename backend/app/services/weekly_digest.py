@@ -122,6 +122,22 @@ def assemble_digest(db: Session, shop_domain: str, merchant_plan: str = "lite") 
     # We still show it but flag it as "estimated (early data)".
     data_confidence = "solid" if visitors >= 30 else "early" if visitors >= 5 else "minimal"
 
+    # --- A3: enrich with killer features (RARS hero, peer benchmarks,
+    # product decline, goal progress, risk forecast). Each section is
+    # individually wrapped in try/except so the digest still ships even
+    # if one signal source is empty or fails.
+    rars_hero = _safe_get_rars(db, shop_domain)
+    rars_forecast = _safe_get_risk_forecast(shop_domain)
+    peer_benchmarks = _safe_get_benchmarks(db, shop_domain)
+    product_decline = _safe_get_refund_loss(db, shop_domain)
+    goal_progress = _safe_get_goal_progress(db, shop_domain)
+
+    # Killer feature sections (R-series, 2026-04-12)
+    revenue_autopsy = _safe_get_revenue_autopsy(db, shop_domain)
+    abandoned_intent = _safe_get_abandoned_intent(db, shop_domain)
+    price_sensitivity = _safe_get_price_sensitivity(db, shop_domain)
+    causal_lift = _safe_get_causal_lift(db, shop_domain)
+
     return {
         "shop_domain": shop_domain,
         "generated_at": now.isoformat() + "Z",
@@ -143,7 +159,179 @@ def assemble_digest(db: Session, shop_domain: str, merchant_plan: str = "lite") 
         "proof_report": proof_report,
         "merchant_plan": merchant_plan,
         "sip_insights": _get_sip_insights(db, shop_domain),
+        # Killer feature sections (A3, 2026-04-11)
+        "rars_hero": rars_hero,
+        "rars_forecast": rars_forecast,
+        "peer_benchmarks": peer_benchmarks,
+        "product_decline": product_decline,
+        "goal_progress": goal_progress,
+        # R-series features (2026-04-12)
+        "revenue_autopsy": revenue_autopsy,
+        "abandoned_intent": abandoned_intent,
+        "price_sensitivity": price_sensitivity,
+        "causal_lift": causal_lift,
     }
+
+
+# ---------------------------------------------------------------------------
+# Killer feature wrappers — each is fail-soft and returns None on failure
+# so the digest never breaks because one signal source is empty.
+# ---------------------------------------------------------------------------
+
+
+def _safe_get_rars(db: Session, shop_domain: str) -> dict | None:
+    try:
+        from app.services.revenue_at_risk import get_revenue_at_risk
+        report = get_revenue_at_risk(db, shop_domain)
+        if not isinstance(report, dict):
+            return None
+        # Strip internal debug field if present
+        report.pop("_prevent_evidence", None)
+        if (report.get("total_at_risk_eur") or 0) <= 0 and not report.get("components"):
+            return None
+        return report
+    except Exception:
+        return None
+
+
+def _safe_get_risk_forecast(shop_domain: str) -> dict | None:
+    try:
+        from app.services.risk_forecast import get_risk_forecast
+        result = get_risk_forecast(shop_domain)
+        if not isinstance(result, dict):
+            return None
+        if result.get("status") != "ok":
+            return None  # insufficient history → don't render forecast
+        return result
+    except Exception:
+        return None
+
+
+def _safe_get_benchmarks(db: Session, shop_domain: str) -> dict | None:
+    try:
+        from app.services.benchmarks import get_merchant_benchmark_report
+        report = get_merchant_benchmark_report(db, shop_domain)
+        if not isinstance(report, dict):
+            return None
+        if int(report.get("peer_count") or 0) < 10:
+            return None  # k-anonymity floor
+        return report
+    except Exception:
+        return None
+
+
+def _safe_get_refund_loss(db: Session, shop_domain: str) -> dict | None:
+    try:
+        from app.services.refund_loss import get_refund_loss_report
+        report = get_refund_loss_report(db, shop_domain)
+        if not isinstance(report, dict):
+            return None
+        if int(report.get("product_count") or 0) == 0:
+            return None
+        return report
+    except Exception:
+        return None
+
+
+def _safe_get_goal_progress(db: Session, shop_domain: str) -> list[dict] | None:
+    try:
+        from app.services.goals import compute_goal_progress
+        progress = compute_goal_progress(db, shop_domain)
+        if not progress:
+            return None
+        return [
+            {
+                "metric": p.metric,
+                "target_value": p.target_value,
+                "current_value": p.current_value,
+                "projected_value": p.projected_value,
+                "status": p.status,
+                "progress_pct": (
+                    round(p.current_value / p.target_value * 100, 1)
+                    if p.target_value else 0
+                ),
+            }
+            for p in progress
+        ]
+    except Exception:
+        return None
+
+
+def _safe_get_revenue_autopsy(db: Session, shop_domain: str) -> dict | None:
+    try:
+        from app.services.revenue_autopsy import compute_product_autopsy
+        report = compute_product_autopsy(db, shop_domain)
+        if not report or not report.get("products"):
+            return None
+        # Only include if there are declining products
+        declining = [p for p in report["products"] if p["direction"] == "declining"]
+        if not declining:
+            return None
+        return {
+            "headline": report["headline"],
+            "declining_count": report["summary"]["declining_count"],
+            "total_loss_per_week": report["summary"]["total_loss_per_week"],
+            "top_decline_cause": report["summary"]["top_decline_cause"],
+            "top_product": declining[0]["product_name"] if declining else None,
+        }
+    except Exception:
+        return None
+
+
+def _safe_get_abandoned_intent(db: Session, shop_domain: str) -> dict | None:
+    try:
+        from app.services.abandoned_intent import compute_abandoned_intent
+        report = compute_abandoned_intent(db, shop_domain)
+        if not report or not report.get("products"):
+            return None
+        top = report["products"][0]
+        return {
+            "headline": report["headline"],
+            "top_product": top["product_name"],
+            "abandon_rate": top["abandon_rate_pct"],
+            "leak_point": top["leak_label"],
+            "buyer_avg_products": report["session_insights"].get("buyer_avg_products_viewed", 0),
+            "nonbuyer_avg_products": report["session_insights"].get("nonbuyer_avg_products_viewed", 0),
+        }
+    except Exception:
+        return None
+
+
+def _safe_get_price_sensitivity(db: Session, shop_domain: str) -> dict | None:
+    try:
+        from app.services.price_sensitivity import compute_price_sensitivity
+        report = compute_price_sensitivity(db, shop_domain)
+        if not report or not report.get("bands"):
+            return None
+        barrier_products = report.get("products", [])
+        if not barrier_products:
+            return None
+        return {
+            "headline": report["headline"],
+            "barrier_count": len(barrier_products),
+            "top_barrier": barrier_products[0]["product_name"] if barrier_products else None,
+        }
+    except Exception:
+        return None
+
+
+def _safe_get_causal_lift(db: Session, shop_domain: str) -> dict | None:
+    try:
+        from app.services.causal_intervention_engine import measure_nudge_lift
+        report = measure_nudge_lift(db, shop_domain)
+        if not report or report.get("nudges_measured", 0) == 0:
+            return None
+        if report.get("confidence", 0) < 80:
+            return None  # only show statistically significant results
+        return {
+            "lift_pct": report["total_lift_pct"],
+            "attributed_revenue": report["attributed_revenue_eur"],
+            "confidence": report["confidence"],
+            "nudges_measured": report["nudges_measured"],
+            "detail": report["detail"],
+        }
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------

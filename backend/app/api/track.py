@@ -36,6 +36,7 @@ returns None for non-product values, so garbage never reaches the DB.
 """
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -169,6 +170,91 @@ class TrackPayload(BaseModel):
 
     # Per-merchant pixel secret — validated on purchase events to prevent spoofing.
     pixel_secret: Optional[str] = None
+
+    # GDPR consent gating (Art. 6 lawful basis, Art. 7 consent).
+    # The storefront script SHOULD pass `gdpr_consent_given=True` after the
+    # visitor has accepted the shop's consent banner. The field is optional
+    # for backwards compatibility with the current tracker build; once the
+    # tracker ships with consent support, this default will tighten to
+    # "must be explicitly set" for EU storefronts.
+    #
+    #   True  → event is ingested as usual.
+    #   False → event is SILENTLY DROPPED (204 so scanners can't infer
+    #           the gate exists, but no data is persisted).
+    #   None  → legacy path — currently allowed (see `_CONSENT_STRICT`).
+    gdpr_consent_given: Optional[bool] = None
+    # Two-letter country hint from the tracker (e.g. "IT", "DE"). Used to
+    # scope the strict-consent gate to EU/EEA visitors only — shops outside
+    # the EU don't need explicit consent.
+    consent_region: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# GDPR consent gating
+# ---------------------------------------------------------------------------
+
+# EU + EEA country codes. When `consent_region` matches any of these AND
+# `gdpr_consent_given is False`, the event is dropped. When
+# `gdpr_consent_given is None` (legacy tracker), we fall back to the
+# global toggle `_CONSENT_STRICT`.
+_EU_EEA_COUNTRIES = frozenset({
+    "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR",
+    "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL",
+    "PL", "PT", "RO", "SK", "SI", "ES", "SE",
+    "IS", "LI", "NO",  # EEA
+})
+
+
+def _consent_allows_ingestion(payload: "TrackPayload", request=None) -> bool:
+    """Return True when the event may be persisted under the shop's
+    lawful basis.
+
+    Decision tree:
+      1. Explicit `gdpr_consent_given=True` → allow.
+      2. Explicit `gdpr_consent_given=False` → deny.
+      3. Browser-level Global Privacy Control signal (`Sec-GPC: 1`)
+         OR legacy `DNT: 1` header → deny. Required for CCPA/CPRA
+         compliance in California and honored under the same logic
+         worldwide.
+      4. Otherwise (legacy tracker without the field) → allow for
+         backwards compatibility. Once the tracker ships consent
+         support, legacy missing-field traffic can be tightened via
+         `TRACK_CONSENT_STRICT=1`.
+    """
+    if payload.gdpr_consent_given is True:
+        return True
+    if payload.gdpr_consent_given is False:
+        return False
+
+    if request is not None:
+        try:
+            sec_gpc = request.headers.get("sec-gpc", "").strip()
+            dnt = request.headers.get("dnt", "").strip()
+            if sec_gpc == "1" or dnt == "1":
+                return False
+        except Exception:
+            pass
+
+    if os.getenv("TRACK_CONSENT_STRICT", "").strip() == "1":
+        return False
+    return True
+
+
+def _bump_consent_metric(accepted: bool) -> None:
+    """Track consent-denied vs consent-accepted counts for the
+    compliance synthesizer. Redis-only, 30d retention."""
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            return
+        from datetime import datetime as _dt, timezone as _tz
+        day = _dt.now(_tz.utc).strftime("%Y-%m-%d")
+        key = f"hs:consent:{day}:{'accepted' if accepted else 'denied'}"
+        rc.incr(key)
+        rc.expire(key, 30 * 24 * 3600)
+    except Exception:
+        pass
 
 
 def _check_per_shop_rate(request, shop_domain: str) -> bool:
@@ -547,6 +633,16 @@ def track_event(request: Request, payload: TrackPayload, db: Session = Depends(g
             status_code=400,
             detail="Invalid event_type.",
         )
+
+    # GDPR Art. 6/7 + CCPA/CPRA (Sec-GPC + DNT) consent gate
+    # (2026-04-11 audit). When the tracker reports explicit denial OR
+    # the browser sends Global Privacy Control, we silently drop the
+    # event (200 with an ignored marker — never 400, so scanners
+    # can't map the gate).
+    if not _consent_allows_ingestion(payload, request=request):
+        _bump_consent_metric(accepted=False)
+        return {"status": "ignored", "reason": "consent_denied"}
+    _bump_consent_metric(accepted=True)
 
     # Anti-abuse: verify the shop is a known installed merchant.
     # This prevents attackers from fabricating events for arbitrary domains.

@@ -51,13 +51,25 @@ def _verify_webhook(payload: str, headers: dict) -> None:
     """
     Verify Resend webhook signature using the SDK.
 
-    Raises HTTPException(401) on failure.
-    No-ops if RESEND_WEBHOOK_SECRET is not set (dev mode warning).
+    Raises HTTPException on failure:
+      * 503 if `RESEND_WEBHOOK_SECRET` is unset — fail closed. Previously
+        this path silently accepted every request, allowing anyone to
+        inject inbound email events (email journey manipulation,
+        fake alerts). The misconfiguration is now loud and refuses
+        traffic until the secret is provisioned.
+      * 401 if the signature is invalid or the SDK raises.
     """
     secret = _get_webhook_secret()
     if not secret:
-        log.warning("resend_webhooks: RESEND_WEBHOOK_SECRET not set — skipping verification (UNSAFE)")
-        return
+        log.error(
+            "resend_webhooks: RESEND_WEBHOOK_SECRET not set — refusing "
+            "webhook traffic. Configure the secret in .env before "
+            "reenabling Resend inbound routing."
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Webhook verification not configured",
+        )
 
     try:
         import resend
@@ -140,7 +152,11 @@ async def resend_inbound_webhook(
     )
 
     if not is_sentry:
-        log.info("resend_webhooks: non-Sentry email from=%s subject=%r — storing anyway", from_addr, subject[:80])
+        from app.core.privacy import mask_email
+        log.info(
+            "resend_webhooks: non-Sentry email from=%s subject=%r — storing anyway",
+            mask_email(from_addr), subject[:80],
+        )
         # Still ingest — could be useful for future support email triage
 
     # Ingest into triage pipeline
@@ -351,6 +367,33 @@ async def resend_event_webhook(
             )
         except Exception as exc:
             log.warning("resend_events: DB suppression failed: %s", exc)
+
+        # Feed deliverability problems into the self-healing pipeline.
+        # Bounce/complaint signals deliverability bugs (broken templates,
+        # bad sender reputation, wrong addresses) — exactly what the
+        # generic Rule 7 catch-all is built to triage.
+        try:
+            from app.services.alerting import write_alert
+            severity = "critical" if event_type == "complained" else "warning"
+            write_alert(
+                db,
+                source=f"resend:{email_type_resolved or 'unknown'}",
+                alert_type=f"email_{event_type}",
+                severity=severity,
+                shop_domain=shop_domain,
+                summary=(
+                    f"Email {event_type} for {to_email or shop_domain} "
+                    f"(type={email_type_resolved or 'unknown'})"
+                ),
+                detail={
+                    "event_type": event_type,
+                    "to_email": to_email,
+                    "email_type": email_type_resolved,
+                    "resend_id": resend_email_id,
+                },
+            )
+        except Exception as exc:
+            log.debug("resend_events: write_alert failed (non-fatal): %s", exc)
 
     try:
         db.commit()

@@ -26,18 +26,71 @@ Setup: Set the Telegram webhook URL to POST /telegram/webhook
 from __future__ import annotations
 
 import asyncio
+import hmac as _hmac
 import logging
+import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 log = logging.getLogger("telegram_webhook")
 
 router = APIRouter(prefix="/telegram", tags=["telegram"])
+
+
+# ---------------------------------------------------------------------------
+# Webhook signature verification (2026-04-11 security audit).
+#
+# Telegram lets you set a secret_token when registering the webhook; every
+# incoming request then carries `X-Telegram-Bot-Api-Secret-Token`. If we
+# never set the header-based secret, the endpoint is reachable by anyone
+# who finds the URL and can spoof operator commands (approve, reject,
+# apply bugfix, deploy, …).
+#
+# Behaviour:
+#   * `TELEGRAM_WEBHOOK_SECRET` unset → log CRITICAL + refuse traffic.
+#     Previously this was a silent pass-through.
+#   * Header present AND matches → allow.
+#   * Header missing or mismatch → 401.
+#
+# The comparison uses `hmac.compare_digest` so we don't leak the secret
+# via timing. The check runs BEFORE any body parsing, authorization, or
+# command routing.
+# ---------------------------------------------------------------------------
+_WEBHOOK_SECRET_ENV = "TELEGRAM_WEBHOOK_SECRET"
+
+
+def _load_webhook_secret() -> str:
+    return os.getenv(_WEBHOOK_SECRET_ENV, "").strip()
+
+
+def _verify_telegram_signature(request: Request) -> None:
+    """Raise HTTPException on anything other than a valid signature."""
+    secret = _load_webhook_secret()
+    if not secret:
+        log.error(
+            "telegram_webhook: %s not set — refusing traffic. Set the "
+            "secret_token when registering the webhook via setWebhook "
+            "and mirror it in the env.",
+            _WEBHOOK_SECRET_ENV,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Telegram webhook signing not configured",
+        )
+    provided = request.headers.get("x-telegram-bot-api-secret-token", "")
+    if not provided or not _hmac.compare_digest(provided, secret):
+        log.warning(
+            "telegram_webhook: rejected request with bad/missing signature"
+        )
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid Telegram webhook signature",
+        )
 
 # Commands that are read-only and fast enough to return inline.
 # These skip the separate sendMessage API call entirely.
@@ -85,6 +138,9 @@ async def telegram_webhook(request: Request):
     NOTE: No Depends(get_db) here.  Each command handler creates its own
     session inside its thread.
     """
+    # Security gate — always first, always fail-closed.
+    _verify_telegram_signature(request)
+
     try:
         body = await request.json()
     except Exception:

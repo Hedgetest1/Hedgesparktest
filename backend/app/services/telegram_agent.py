@@ -1915,6 +1915,77 @@ def send_monthly_report(proposals: list[dict], system_summary: dict) -> bool:
         for w in warnings[:3]:
             lines.append(f"\u2022 {w}")
 
+    # Market intelligence from AI Lab (fail-soft)
+    try:
+        import psycopg2
+        import psycopg2.extras
+        ailab_conn = psycopg2.connect(
+            host="localhost", port=5432, dbname="ailab",
+            user="aiuser", password="aipassword",
+            connect_timeout=3,
+        )
+        try:
+            cur = ailab_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("""
+                SELECT title, hedgespark_action, relevance_score
+                FROM market_ideas
+                WHERE status = 'new'
+                ORDER BY relevance_score DESC, evidence_count DESC
+                LIMIT 5
+            """)
+            ideas = cur.fetchall()
+
+            cur.execute("""
+                SELECT pain_category, COUNT(*) as cnt
+                FROM pain_points
+                WHERE hedgespark_relevant
+                  AND created_at > NOW() - INTERVAL '30 days'
+                GROUP BY pain_category
+                ORDER BY cnt DESC LIMIT 5
+            """)
+            pains = cur.fetchall()
+
+            cur.close()
+        finally:
+            ailab_conn.close()
+
+        if ideas or pains:
+            lines.append("")
+            lines.append("*Market Intelligence (AI Lab):*")
+            if pains:
+                pain_str = ", ".join(f"{p['pain_category']}({p['cnt']})" for p in pains[:3])
+                lines.append(f"\u2022 Top pain areas: {pain_str}")
+            if ideas:
+                lines.append("\u2022 Top opportunities:")
+                for idea in ideas[:3]:
+                    lines.append(f"  [{idea['relevance_score']}/100] {idea['title']}")
+
+            # Mark reported
+            try:
+                mark_conn = psycopg2.connect(
+                    host="localhost", port=5432, dbname="ailab",
+                    user="aiuser", password="aipassword",
+                    connect_timeout=3,
+                )
+                try:
+                    mark_cur = mark_conn.cursor()
+                    idea_titles = [i["title"] for i in ideas]
+                    if idea_titles:
+                        mark_cur.execute(
+                            "UPDATE market_ideas SET status = 'reported', reported_at = NOW() "
+                            "WHERE title = ANY(%s) AND status = 'new'",
+                            (idea_titles,),
+                        )
+                        mark_conn.commit()
+                    mark_cur.close()
+                finally:
+                    mark_conn.close()
+            except Exception:
+                pass  # non-critical
+
+    except Exception:
+        pass  # AI Lab unavailable — report ships without market intel
+
     lines.extend([
         "",
         "Reply with:",
@@ -2018,16 +2089,30 @@ def send_scaling_alert(recommendation: dict, forecast: dict) -> bool:
 
 def build_daily_digest(db) -> str:
     """
-    Build the ONE daily message that tells the operator everything they need to know.
-    Includes: CTO health, issues, pending actions, budget, pipeline state, commands.
-    """
-    from datetime import datetime, timezone
-    from zoneinfo import ZoneInfo
-    now_rome = datetime.now(ZoneInfo("Europe/Rome"))
+    The ONE morning newspaper. Tells the founder how the autonomous
+    pipeline performed in the last 24h, what's happening with revenue,
+    and what (if anything) actually needs them.
 
-    # --- CTO Health (from Redis cache or live) ---
+    Design intent (M1+M2, 2026-04-11):
+      * Zero approve/apply buttons for TIER_0 / TIER_1 — those are
+        already automatic. Buttons there only created false urgency.
+      * One TIER_2 line if any candidate is pending review (rare event).
+      * 24h pipeline activity counters: applied, rolled_back, blocked.
+      * Deploy events from auto_deploy.
+      * RARS today vs 7d avg + 7d forecast.
+      * Top 3 fixes shipped + top 3 recurring untriaged alerts.
+    """
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    from sqlalchemy import text as sql_text
+
+    now_rome = datetime.now(ZoneInfo("Europe/Rome"))
+    cutoff_24h = datetime.utcnow() - timedelta(hours=24)
+    action_buttons: list[list[dict]] = []
+
+    # --- CTO Health snapshot ---
     overall_status = "OK"
-    health_lines = []
+    health_lines: list[str] = []
     try:
         from app.core.redis_client import cache_get
         health = cache_get("hs:system_health")
@@ -2035,19 +2120,16 @@ def build_daily_digest(db) -> str:
             from app.services.system_health_synthesizer import synthesize_health
             h = synthesize_health(db)
             health = h.to_dict()
-
         cto_status = health.get("overall_status", "unknown")
         if cto_status == "critical":
             overall_status = "CRITICAL"
         elif cto_status == "degraded":
             overall_status = "WARNING"
-
         for d in health.get("dimensions", []):
             if d["status"] != "healthy" or d["trend"] == "worsening":
                 icon = {"critical": "\U0001f534", "degraded": "\U0001f7e1"}.get(d["status"], "\U0001f7e2")
                 trend = {"worsening": "\u2191", "improving": "\u2193", "stable": "\u2192"}[d["trend"]]
                 health_lines.append(f"  {icon} {d['name']}: {d['detail']} {trend}")
-
         if health.get("top_issues"):
             for issue in health["top_issues"][:3]:
                 health_lines.append(f"  \u26a0\ufe0f {issue}")
@@ -2055,44 +2137,146 @@ def build_daily_digest(db) -> str:
         overall_status = "WARNING"
         health_lines.append("  Health data unavailable")
 
-    # --- Build message ---
     status_emoji = "\u2705" if overall_status == "OK" else ("\u26a0\ufe0f" if overall_status == "WARNING" else "\U0001f534")
     lines = [
-        f"*Daily Digest* \u2014 HedgeSpark",
+        "*Daily Digest* \u2014 HedgeSpark",
         f"{now_rome.strftime('%A %d %B, %H:%M')} (Rome)",
         f"{status_emoji} *Status: {overall_status}*",
         "",
     ]
 
-    # Health dimensions (only non-healthy)
     if health_lines:
         lines.append("*Health:*")
         lines.extend(health_lines)
         lines.append("")
 
-    # --- Alerts + incidents ---
+    # --- 24h pipeline activity (applied / rolled_back / blocked) ---
     try:
-        from sqlalchemy import text
-        alert_row = db.execute(text(
-            "SELECT COUNT(*) FROM ops_alerts WHERE resolved = false"
-        )).fetchone()
-        active_alerts = alert_row[0] if alert_row else 0
-
-        incident_row = db.execute(text(
-            "SELECT COUNT(*) FROM support_incidents WHERE status IN ('open', 'triaged', 'investigating')"
-        )).fetchone()
-        active_incidents = incident_row[0] if incident_row else 0
-
-        if active_alerts > 0 or active_incidents > 0:
-            lines.append(f"*Open:* {active_alerts} alerts, {active_incidents} incidents")
-            # Add cleanup button
-            action_buttons.append([
-                {"text": f"Cleanup all ({active_alerts + active_incidents} items)", "callback_data": "/cleanup"},
-            ])
+        applied_24h = db.execute(sql_text("""
+            SELECT COUNT(*) FROM bugfix_candidates
+            WHERE status = 'applied' AND applied_at >= :cutoff
+        """), {"cutoff": cutoff_24h}).scalar() or 0
+        rolled_back_24h = db.execute(sql_text("""
+            SELECT COUNT(*) FROM bugfix_candidates
+            WHERE status = 'rolled_back' AND applied_at >= :cutoff
+        """), {"cutoff": cutoff_24h}).scalar() or 0
+        blocked_tier2_24h = db.execute(sql_text("""
+            SELECT COUNT(*) FROM bugfix_candidates
+            WHERE patch_risk_tier = 2 AND created_at >= :cutoff
+        """), {"cutoff": cutoff_24h}).scalar() or 0
+        lines.append(
+            f"*Pipeline 24h:* applied {applied_24h} \u00b7 rolled_back {rolled_back_24h} "
+            f"\u00b7 TIER\\_2 blocked {blocked_tier2_24h}"
+        )
     except Exception:
-        lines.append("*Alerts:* unavailable")
+        pass
 
-    # 3. LLM budget
+    # --- Deploy events 24h ---
+    try:
+        deploy_rows = db.execute(sql_text("""
+            SELECT alert_type, COUNT(*) FROM ops_alerts
+            WHERE alert_type IN ('deploy_succeeded','deploy_failed','deploy_rolled_back')
+              AND created_at >= :cutoff
+            GROUP BY alert_type
+        """), {"cutoff": cutoff_24h}).fetchall()
+        if deploy_rows:
+            counts = {r[0]: r[1] for r in deploy_rows}
+            lines.append(
+                f"*Deploys 24h:* ok {counts.get('deploy_succeeded', 0)} "
+                f"\u00b7 failed {counts.get('deploy_failed', 0)} "
+                f"\u00b7 rolled_back {counts.get('deploy_rolled_back', 0)}"
+            )
+            if counts.get('deploy_rolled_back', 0) and overall_status == "OK":
+                overall_status = "WARNING"
+    except Exception:
+        pass
+
+    # --- Top 3 fixes shipped (most recent applied) ---
+    try:
+        top_fixes = db.execute(sql_text("""
+            SELECT id, title, affected_domain
+            FROM bugfix_candidates
+            WHERE status = 'applied' AND applied_at >= :cutoff
+            ORDER BY applied_at DESC
+            LIMIT 3
+        """), {"cutoff": cutoff_24h}).fetchall()
+        if top_fixes:
+            lines.append("")
+            lines.append("*Top fixes shipped:*")
+            for f in top_fixes:
+                domain = f[2] or "?"
+                lines.append(f"  \u2705 #{f[0]} [{domain}] {(f[1] or '')[:70]}")
+    except Exception:
+        pass
+
+    # --- Top 3 recurring untriaged alerts (early warning) ---
+    try:
+        recurring = db.execute(sql_text("""
+            SELECT alert_type, source, COUNT(*) AS n, MAX(severity) AS sev
+            FROM ops_alerts
+            WHERE created_at >= :cutoff
+              AND resolved = false
+              AND severity IN ('warning','critical')
+              AND alert_type NOT IN (
+                  'deploy_succeeded','deploy_failed','deploy_rolled_back',
+                  'chronic_thrashing','bugfix_apply_failed','bugfix_rolled_back'
+              )
+            GROUP BY alert_type, source
+            HAVING COUNT(*) >= 2
+            ORDER BY n DESC
+            LIMIT 3
+        """), {"cutoff": cutoff_24h}).fetchall()
+        if recurring:
+            lines.append("")
+            lines.append("*Top recurring alerts:*")
+            for r in recurring:
+                emoji = "\U0001f534" if r[3] == "critical" else "\u26a0\ufe0f"
+                lines.append(f"  {emoji} {r[0]} ({r[2]}x) \u2014 {(r[1] or '?')[:50]}")
+    except Exception:
+        pass
+
+    # --- RARS movement + 7d forecast (founder loves seeing the hero number) ---
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            keys = rc.keys("hs:rars_history:v1:*") or []
+            if keys:
+                import json as _json
+                totals_today: list[float] = []
+                totals_7d: list[float] = []
+                forecast_total = 0.0
+                shops_with_history = 0
+                for k in keys[:50]:
+                    raw = rc.get(k)
+                    if not raw:
+                        continue
+                    try:
+                        history = _json.loads(raw)
+                    except Exception:
+                        continue
+                    if not isinstance(history, list) or not history:
+                        continue
+                    last = history[-1]
+                    totals_today.append(float(last.get("total_at_risk_eur") or 0))
+                    week = history[-7:] if len(history) >= 2 else history
+                    avg = sum(float(h.get("total_at_risk_eur") or 0) for h in week) / max(1, len(week))
+                    totals_7d.append(avg)
+                    shops_with_history += 1
+                if shops_with_history:
+                    today_sum = sum(totals_today)
+                    week_sum = sum(totals_7d)
+                    delta = today_sum - week_sum
+                    arrow = "\u2191" if delta > 0 else ("\u2193" if delta < 0 else "\u2192")
+                    lines.append("")
+                    lines.append(
+                        f"*RARS:* today \u20ac{today_sum:.0f} {arrow} "
+                        f"(7d avg \u20ac{week_sum:.0f}) across {shops_with_history} shops"
+                    )
+    except Exception:
+        pass
+
+    # --- LLM budget ---
     try:
         from app.core.llm_budget import get_usage_summary
         budget = get_usage_summary()
@@ -2101,105 +2285,215 @@ def build_daily_digest(db) -> str:
         remaining = budget.get("monthly_remaining_eur", cap)
         cap_reached = budget.get("monthly_cap_reached", False)
         blocked = budget.get("blocked_today", 0)
-
         lines.append("")
-        lines.append(f"*LLM Budget:*")
+        lines.append("*LLM Budget:*")
         lines.append(f"  Spent: \u20ac{spent:.3f} / \u20ac{cap:.2f} ({remaining:.3f} remaining)")
         if cap_reached:
-            lines.append(f"  \u26a0\ufe0f *CAP REACHED* \u2014 LLM calls blocked")
+            lines.append("  \u26a0\ufe0f *CAP REACHED* \u2014 LLM calls blocked")
             if overall_status == "OK":
                 overall_status = "WARNING"
         if blocked > 0:
             lines.append(f"  Blocked today: {blocked}")
-
-        # 429 state
         for provider, state in budget.get("provider_429_state", {}).items():
             if state.get("total_429s", 0) > 0:
                 lines.append(f"  {provider}: {state['total_429s']} rate limits today")
+        try:
+            from app.services.bugfix_pipeline import get_fix_template_hits_this_week
+            tpl_hits = get_fix_template_hits_this_week()
+            if tpl_hits > 0:
+                lines.append(
+                    f"  Template cache hits: {tpl_hits} this week "
+                    f"(LLM calls amortized)"
+                )
+        except Exception:
+            pass
+        try:
+            from app.services.bugfix_pipeline import get_adversarial_report_this_week
+            adv = get_adversarial_report_this_week()
+            if adv.get("runs", 0) > 0:
+                lines.append(
+                    f"  Adversarial probes: {adv['runs']} runs \u00b7 "
+                    f"{adv['weak']} weak patterns flagged"
+                )
+        except Exception:
+            pass
     except Exception:
         lines.append("")
         lines.append("*LLM Budget:* unavailable")
 
-    # 3b. Resend email usage
+    # --- Resend usage ---
     try:
         from app.core.resend_usage import get_resend_usage
         ru = get_resend_usage(db)
-        label = {"ok": "OK", "warning": "⚠️ HIGH", "critical": "🔴 CRITICAL"}[ru["status"]]
-        lines.append(f"*Resend:* {ru['sent']} / {ru['limit']} emails ({ru['pct']:.0f}%) — {label}")
+        label = {"ok": "OK", "warning": "\u26a0\ufe0f HIGH", "critical": "\U0001f534 CRITICAL"}[ru["status"]]
+        lines.append(f"*Resend:* {ru['sent']} / {ru['limit']} emails ({ru['pct']:.0f}%) \u2014 {label}")
         if ru["status"] == "critical" and overall_status == "OK":
             overall_status = "WARNING"
     except Exception:
         lines.append("*Resend:* unavailable")
 
-    # 4. Bugfix pipeline
+    # --- Open issues count (informational, no buttons) ---
     try:
-        from sqlalchemy import text as sql_text
-        pipeline = db.execute(sql_text("""
-            SELECT status, COUNT(*) FROM bugfix_candidates
-            WHERE status NOT IN ('discarded', 'closed')
-            GROUP BY status ORDER BY COUNT(*) DESC
+        active_alerts = db.execute(sql_text(
+            "SELECT COUNT(*) FROM ops_alerts WHERE resolved = false"
+        )).scalar() or 0
+        active_incidents = db.execute(sql_text(
+            "SELECT COUNT(*) FROM support_incidents "
+            "WHERE status IN ('open', 'triaged', 'investigating')"
+        )).scalar() or 0
+        if active_alerts or active_incidents:
+            lines.append(f"*Open:* {active_alerts} alerts \u00b7 {active_incidents} incidents")
+    except Exception:
+        pass
+
+    # --- TIER_2 review queue — the ONLY place a button still appears,
+    #     and only when something is actually waiting on a human decision.
+    try:
+        tier2_pending = db.execute(sql_text("""
+            SELECT id, title FROM bugfix_candidates
+            WHERE status = 'patch_proposed' AND patch_risk_tier = 2
+            ORDER BY created_at DESC LIMIT 3
         """)).fetchall()
-        if pipeline:
-            parts = [f"{r[0]}={r[1]}" for r in pipeline]
-            lines.append(f"*Pipeline:* {', '.join(parts)}")
+        if tier2_pending:
+            lines.append("")
+            lines.append("*TIER\\_2 review needed (rare):*")
+            for t in tier2_pending:
+                lines.append(f"  \U0001f512 #{t[0]} {(t[1] or '')[:70]}")
+            lines.append("  Review at /ops/bugfixes in dashboard \u2014 not from Telegram.")
     except Exception:
         pass
 
-    # 5. Pending actions — things that need operator attention
-    action_buttons = []
+    # --- Holdout-measured savings (B1 — the killer marketing claim) ---
     try:
-        from sqlalchemy import text as sql_text3
-        # Bugfixes awaiting approval
-        proposed = db.execute(sql_text3(
-            "SELECT id, title FROM bugfix_candidates WHERE status = 'patch_proposed' ORDER BY created_at LIMIT 3"
-        )).fetchall()
-        for p in proposed:
-            lines.append(f"\U0001f449 Bugfix #{p.id} needs approval: {(p.title or '')[:60]}")
-            action_buttons.append([
-                {"text": f"Approve #{p.id}", "callback_data": f"/bugfix_approve {p.id}"},
-                {"text": f"Apply #{p.id}", "callback_data": f"/bugfix_apply {p.id}"},
-            ])
-
-        # Bugfixes approved but not applied
-        approved = db.execute(sql_text3(
-            "SELECT id, title FROM bugfix_candidates WHERE status = 'approved' ORDER BY created_at LIMIT 3"
-        )).fetchall()
-        for a in approved:
-            lines.append(f"\u23f3 Bugfix #{a.id} approved, waiting to apply: {(a.title or '')[:60]}")
-            action_buttons.append([
-                {"text": f"Apply #{a.id}", "callback_data": f"/bugfix_apply {a.id}"},
-            ])
-
-        # Pending action approvals
-        pending = db.execute(sql_text3(
-            "SELECT id, action_type, target_id FROM action_approvals WHERE status = 'pending' ORDER BY created_at LIMIT 3"
-        )).fetchall()
-        for pa in pending:
-            lines.append(f"\U0001f6a8 Action #{pa.id} pending: {pa.action_type} on {pa.target_id or 'system'}")
-            action_buttons.append([
-                {"text": f"Approve #{pa.id}", "callback_data": f"/approve {pa.id}"},
-            ])
+        from app.services.fix_holdout_measurement import get_weekly_proven_savings
+        this_week = get_weekly_proven_savings(week_offset=0)
+        last_week = get_weekly_proven_savings(week_offset=1)
+        if this_week > 0 or last_week > 0:
+            lines.append(
+                f"*Proven savings:* this week \u20ac{this_week:.0f} \u00b7 "
+                f"last week \u20ac{last_week:.0f} (holdout-measured, p<0.05)"
+            )
     except Exception:
         pass
 
-    # 6. Merchants
+    # --- Compliance score (security + GDPR rolling grade) ---
     try:
-        from sqlalchemy import text as sql_text2
-        merch_row = db.execute(sql_text2(
-            "SELECT COUNT(*), COUNT(*) FILTER (WHERE billing_active = true) FROM merchants WHERE install_status = 'active'"
+        from app.services.compliance_score import (
+            compute_compliance_score,
+            get_cached_compliance_score,
+        )
+        compliance = get_cached_compliance_score() or compute_compliance_score(db)
+        grade = compliance.get("grade", "?")
+        score_val = compliance.get("score", 0)
+        emoji = "\U0001f7e2" if score_val >= 90 else ("\u26a0\ufe0f" if score_val >= 70 else "\U0001f534")
+        lines.append("")
+        lines.append(f"*Compliance:* {emoji} {score_val}/100 ({grade})")
+        if compliance.get("violations"):
+            for v in compliance["violations"][:3]:
+                lines.append(f"  \u00b7 {v['component']}: {v['detail'][:60]}")
+        if score_val < 70 and overall_status == "OK":
+            overall_status = "WARNING"
+    except Exception:
+        pass
+
+    # --- Regulatory updates (worldwide DPA monitoring) ---
+    try:
+        from app.services.regulatory_feed_monitor import get_recent_updates
+        from app.services.regulatory_watch import get_regulatory_summary
+        reg_items = get_recent_updates(days=7)
+        reg_summary = get_regulatory_summary()
+        unreviewed = [i for i in reg_items if not i.get("resolved")]
+        if unreviewed:
+            lines.append("")
+            lines.append(f"*Regulatory Updates:* {len(unreviewed)} new (7d)")
+            for item in unreviewed[:3]:
+                lines.append(f"  \u00b7 {(item['summary'] or '')[:80]}")
+            if len(unreviewed) > 3:
+                lines.append(f"  ... and {len(unreviewed) - 3} more")
+        lines.append(
+            f"*Reg Watch:* {reg_summary['total_rules']} rules across "
+            f"{', '.join(reg_summary['regulations_covered'][:4])}"
+        )
+    except Exception:
+        pass
+
+    # --- Pipeline heartbeat (proves the system is alive) ---
+    try:
+        hb_rows = db.execute(sql_text("""
+            SELECT alert_type, COUNT(*) FROM ops_alerts
+            WHERE alert_type IN ('heartbeat_ok', 'heartbeat_failed')
+              AND created_at >= :cutoff
+            GROUP BY alert_type
+        """), {"cutoff": cutoff_24h}).fetchall()
+        if hb_rows:
+            counts = {r[0]: r[1] for r in hb_rows}
+            ok = counts.get("heartbeat_ok", 0)
+            fail = counts.get("heartbeat_failed", 0)
+            total = ok + fail
+            if fail > 0:
+                lines.append(
+                    f"*Heartbeat 24h:* \U0001f534 {ok}/{total} ok ({fail} failures)"
+                )
+                if overall_status == "OK":
+                    overall_status = "WARNING"
+            else:
+                lines.append(f"*Heartbeat 24h:* \u2705 {ok}/{total} ok")
+        else:
+            lines.append("*Heartbeat 24h:* \u26a0\ufe0f no probes (worker may be stalled)")
+            if overall_status == "OK":
+                overall_status = "WARNING"
+    except Exception:
+        pass
+
+    # --- Self-healing health snapshot ---
+    try:
+        from app.services.loop_health import get_loop_health_snapshot
+        snap = get_loop_health_snapshot(db)
+        if isinstance(snap, dict):
+            thrash = snap.get("thrash_score") or 0
+            organic = snap.get("organic_repairs_30d") or 0
+            if thrash or organic:
+                lines.append("")
+                lines.append(
+                    f"*Self-healing:* {organic} organic fixes/30d \u00b7 thrash score {thrash}"
+                )
+    except Exception:
+        pass
+
+    # --- Merchants ---
+    try:
+        merch_row = db.execute(sql_text(
+            "SELECT COUNT(*), COUNT(*) FILTER (WHERE billing_active = true) "
+            "FROM merchants WHERE install_status = 'active'"
         )).fetchone()
         if merch_row:
-            lines.append(f"*Merchants:* {merch_row[0]} active, {merch_row[1]} paying")
+            lines.append(f"*Merchants:* {merch_row[0]} active \u00b7 {merch_row[1]} paying")
+    except Exception:
+        pass
+
+    # --- Merchant churn alerts (R7) ---
+    try:
+        from app.services.merchant_churn_predictor import compute_churn_report
+        churn = compute_churn_report(db)
+        if churn.get("critical_count", 0) > 0 or churn.get("high_count", 0) > 0:
+            lines.append("")
+            lines.append("*Churn Risk:*")
+            if churn["critical_count"] > 0:
+                lines.append(f"  \U0001f534 {churn['critical_count']} CRITICAL — immediate outreach needed")
+            if churn["high_count"] > 0:
+                lines.append(f"  \U0001f7e1 {churn['high_count']} HIGH risk merchants")
+            for m in churn.get("merchants", [])[:3]:
+                if m["risk_level"] in ("critical", "high"):
+                    top_signal = m["signals"][0]["signal"] if m.get("signals") else ""
+                    lines.append(f"  \u2022 {m['shop_domain']}: {m['churn_risk_score']}/100 ({top_signal})")
     except Exception:
         pass
 
     lines.append("")
-    lines.append("/status /costs /bugfixes /incidents")
+    lines.append("_Pipeline running autonomously. /status /costs /bugfixes /incidents_")
 
-    # Store buttons for caller to use
     _digest_buttons_cache.clear()
     _digest_buttons_cache.extend(action_buttons)
-
     return "\n".join(lines)
 
 
@@ -2216,4 +2510,141 @@ def send_daily_digest(db) -> bool:
         return send_message(message)
     except Exception as exc:
         log.warning("telegram_agent: daily digest failed: %s", exc)
+        return False
+
+
+# ---------------------------------------------------------------------------
+# B4 — Weekly TIER_2 batch review (Monday morning, single message)
+# ---------------------------------------------------------------------------
+
+def build_tier2_weekly_review(db) -> tuple[str, list[list[dict]]]:
+    """Compose the Monday-morning TIER_2 batch review.
+
+    Lists every BugFixCandidate(patch_risk_tier=2, status='patch_proposed')
+    of the past 7 days with a one-line summary + the reviewer assessment
+    risk_level. Provides ONE batch-approve and ONE batch-reject button
+    for the entire group, plus dashboard links for individual review.
+    """
+    from datetime import datetime as _dt, timedelta as _td
+    from sqlalchemy import text as sql_text
+    from zoneinfo import ZoneInfo
+
+    rome_now = _dt.now(ZoneInfo("Europe/Rome"))
+    cutoff = _dt.utcnow() - _td(days=7)
+
+    try:
+        rows = db.execute(sql_text("""
+            SELECT bc.id, bc.title, bc.affected_domain, bc.created_at,
+                   bc.fix_confidence, ra.risk_level, ra.verdict
+            FROM bugfix_candidates bc
+            LEFT JOIN reviewer_assessments ra ON ra.id = bc.reviewer_assessment_id
+            WHERE bc.patch_risk_tier = 2
+              AND bc.status = 'patch_proposed'
+              AND bc.created_at >= :cutoff
+            ORDER BY bc.created_at DESC
+            LIMIT 20
+        """), {"cutoff": cutoff}).fetchall()
+    except Exception as exc:
+        log.warning("tier2_weekly_review: query failed: %s", exc)
+        return "", []
+
+    if not rows:
+        return "", []
+
+    lines = [
+        "*TIER\\_2 Weekly Review* \u2014 HedgeSpark",
+        f"{rome_now.strftime('%A %d %B, %H:%M')} (Rome)",
+        f"\U0001f512 *{len(rows)} TIER\\_2 candidate{'s' if len(rows) != 1 else ''} pending* (last 7d)",
+        "",
+        "These touch sensitive paths (auth, billing, encryption, webhooks, migrations).",
+        "Review each one, then batch-approve or batch-reject.",
+        "",
+    ]
+
+    candidate_ids: list[int] = []
+    try:
+        from app.services.operator_prediction import predict_decision_for_candidate
+        from app.models.bugfix_candidate import BugFixCandidate
+    except Exception:
+        predict_decision_for_candidate = None  # type: ignore[assignment]
+        BugFixCandidate = None  # type: ignore[assignment]
+
+    for r in rows:
+        cid = r[0]
+        title = (r[1] or "")[:80]
+        domain = r[2] or "?"
+        confidence = r[4] or 0
+        risk = (r[5] or "?")
+        verdict = (r[6] or "?")
+        candidate_ids.append(cid)
+
+        risk_emoji = {
+            "low": "\U0001f7e2",
+            "medium": "\U0001f7e1",
+            "high": "\U0001f534",
+        }.get(risk, "\u26aa")
+
+        # D6 — operator answer prediction. Query the historical audit-log
+        # distribution for this file-pattern / domain and surface the
+        # suggested action inline so the founder can read down the list
+        # and tap batch-approve with confidence.
+        prediction_badge = ""
+        if predict_decision_for_candidate and BugFixCandidate is not None:
+            try:
+                bc = db.query(BugFixCandidate).get(cid)
+                if bc is not None:
+                    pred = predict_decision_for_candidate(db, bc)
+                    rec = pred.get("recommendation", "unknown")
+                    if rec == "approve":
+                        prediction_badge = (
+                            f" \u2192 \u2705 likely approve "
+                            f"({int(pred['posterior_mean'] * 100)}%, n={pred['sample_size']})"
+                        )
+                    elif rec == "reject":
+                        prediction_badge = (
+                            f" \u2192 \u274c likely reject "
+                            f"({int((1 - pred['posterior_mean']) * 100)}%, n={pred['sample_size']})"
+                        )
+            except Exception:
+                pass
+
+        lines.append(
+            f"  {risk_emoji} *#{cid}* [{domain}] conf={confidence}% \u00b7 reviewer={verdict}{prediction_badge}"
+        )
+        lines.append(f"     {title}")
+
+    lines.append("")
+    lines.append("_Tap a button to act on the batch, or open dashboard for individual review._")
+    lines.append("[Open dashboard \u2192](https://app.hedgesparkhq.com/ops/bugfixes?filter=tier2)")
+
+    # ONE batch-approve + ONE batch-reject button covering all listed ids.
+    # Individual review still happens via the dashboard link.
+    ids_csv = ",".join(str(c) for c in candidate_ids)
+    buttons = [[
+        {
+            "text": f"\u2705 Batch approve all ({len(candidate_ids)})",
+            "callback_data": f"/tier2_batch_approve {ids_csv}",
+        },
+        {
+            "text": f"\u274c Batch reject all",
+            "callback_data": f"/tier2_batch_reject {ids_csv}",
+        },
+    ]]
+
+    return "\n".join(lines), buttons
+
+
+def send_tier2_weekly_review(db) -> bool:
+    """Build and send the TIER_2 weekly batch. Returns True if a message
+    was sent, False if there was nothing pending or send failed."""
+    try:
+        message, buttons = build_tier2_weekly_review(db)
+        if not message:
+            log.info("tier2_weekly_review: nothing to send")
+            return False
+        if buttons:
+            return send_message_with_buttons(message, buttons)
+        return send_message(message)
+    except Exception as exc:
+        log.warning("tier2_weekly_review: failed: %s", exc)
         return False

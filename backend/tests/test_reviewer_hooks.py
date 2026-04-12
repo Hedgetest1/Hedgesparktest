@@ -74,12 +74,17 @@ def test_reviewer_allows_auto_apply_safe_domain(db, brain):
     """Bugfix in safe domain with TIER_0 is allowed by reviewer."""
     from app.services.bugfix_pipeline import run_auto_apply, PATCH_TIER_0, apply_bugfix_candidate
 
+    # source_type='manual' + affected_domain 'observability' keeps the
+    # candidate out of the predictive-gate lookup (no historical 'manual'
+    # rows exist in the dev DB for this domain, so the gate stays neutral).
     c = BugFixCandidate(
-        source_type="evolution", source_ref="test_allow_1",
+        source_type="manual", source_ref="test_allow_1",
         title="Fix test coverage", status="patch_proposed",
         patch_files=json.dumps(["tests/test_something.py"]),
         patch_diff="--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new",
         patch_risk_tier=PATCH_TIER_0,
+        priority_score=100,  # win ORDER BY against pre-committed dev DB rows
+        affected_domain="observability",
     )
     db.add(c)
     db.flush()

@@ -61,14 +61,22 @@ def _make_promo(db, candidate: BugFixCandidate, *, status="pushed",
 # Env kill-switch
 # ---------------------------------------------------------------------------
 
-def test_auto_merge_disabled_by_default(db, monkeypatch):
-    monkeypatch.delenv("AUTO_MERGE_TIER0", raising=False)
+def test_auto_merge_kill_switch_disables(db, monkeypatch):
+    """Default is now ON (M3 sprint, 2026-04-11). Set AUTO_MERGE_TIER0=0
+    to halt every future auto-merge."""
+    monkeypatch.setenv("AUTO_MERGE_TIER0", "0")
     assert _is_auto_merge_enabled() is False
     c = _make_applied_candidate(db)
     _make_promo(db, c)
     result = run_auto_merge(db)
     assert result["merged"] == 0
     assert result["skipped_disabled"] == 1
+
+
+def test_auto_merge_default_on(monkeypatch):
+    """Default-ON contract — env var unset means enabled."""
+    monkeypatch.delenv("AUTO_MERGE_TIER0", raising=False)
+    assert _is_auto_merge_enabled() is True
 
 
 def test_auto_merge_enabled_when_flag_set(monkeypatch):

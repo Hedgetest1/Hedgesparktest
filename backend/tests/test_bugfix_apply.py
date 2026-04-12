@@ -127,25 +127,16 @@ def test_dirty_git_tree_blocks_apply(db):
 
 def test_apply_check_failure_blocks(db):
     """git apply --check failure → apply_failed."""
+    from tests.conftest import make_git_safe_subprocess_mock
     c = _make_approved(db)
 
-    call_count = [0]
-    def _mock_run(cmd, **kwargs):
-        call_count[0] += 1
-        m = MagicMock()
-        if "diff" in cmd and "--quiet" in cmd:
-            m.returncode = 0  # clean tree
-        elif "--check" in cmd:
-            m.returncode = 1  # check fails
-            m.stderr = "patch does not apply"
-        else:
-            m.returncode = 0
-        return m
-
-    with patch("subprocess.run", side_effect=_mock_run):
+    with patch(
+        "subprocess.run",
+        side_effect=make_git_safe_subprocess_mock(apply_check_returncode=1),
+    ):
         result = apply_bugfix_candidate(db, c.id)
     assert result.status == "apply_failed"
-    assert "check" in result.failure_reason.lower()
+    assert "check" in (result.failure_reason or "").lower()
 
 
 # ---------------------------------------------------------------------------
@@ -154,34 +145,17 @@ def test_apply_check_failure_blocks(db):
 
 def test_failed_tests_trigger_rollback(db):
     """Tests fail after apply → rolled_back."""
+    from tests.conftest import make_git_safe_subprocess_mock
     c = _make_approved(db)
 
-    call_count = [0]
-    def _mock_run(cmd, **kwargs):
-        call_count[0] += 1
-        m = MagicMock()
-        m.stdout = "output"
-        m.stderr = ""
-        if "diff" in cmd and "--quiet" in cmd:
-            m.returncode = 0
-        elif "--check" in cmd:
-            m.returncode = 0
-        elif "apply" in cmd and "-R" not in cmd and "--check" not in cmd:
-            m.returncode = 0  # apply succeeds
-        elif "pytest" in " ".join(cmd):
-            m.returncode = 1  # tests fail
-            m.stdout = "FAILED"
-        elif "-R" in cmd:
-            m.returncode = 0  # rollback succeeds
-        else:
-            m.returncode = 0
-        return m
-
-    with patch("subprocess.run", side_effect=_mock_run):
+    with patch(
+        "subprocess.run",
+        side_effect=make_git_safe_subprocess_mock(pytest_returncode=1),
+    ):
         result = apply_bugfix_candidate(db, c.id)
 
     assert result.status == "rolled_back"
-    assert "tests_failed" in result.failure_reason
+    assert "tests_failed" in (result.failure_reason or "")
     db.refresh(c)
     assert c.status == "rolled_back"
 

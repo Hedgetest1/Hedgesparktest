@@ -386,6 +386,79 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Consent gating (2026-04-11 worldwide compliance audit)
+  //
+  // The tracker reads consent state from three independent sources, in
+  // priority order, and passes the resulting flag to the backend with
+  // every event. The backend then enforces the decision — this layer
+  // just surfaces the visitor's choice.
+  //
+  //   1. `window.hsConsent.given` — explicit merchant integration with
+  //      their own cookie banner. Shape: `{ given: boolean, region?: string }`.
+  //      Merchants who ship a banner can set this on DOMContentLoaded.
+  //
+  //   2. `localStorage['hs_consent']` — legacy fallback for merchants
+  //      who use our default cookie flag. Values: "1" (given), "0"
+  //      (denied), or absent (unknown).
+  //
+  //   3. Browser-level signals — Global Privacy Control
+  //      (`navigator.globalPrivacyControl === true`) and legacy Do
+  //      Not Track (`navigator.doNotTrack === "1"`). Either one sets
+  //      denied. Required for CCPA/CPRA in California and honored
+  //      elsewhere as a belt-and-braces opt-out path.
+  //
+  // Decision tree:
+  //   hsConsent.given === true    → gdpr_consent_given = true
+  //   hsConsent.given === false   → gdpr_consent_given = false
+  //   localStorage hs_consent=1   → gdpr_consent_given = true
+  //   localStorage hs_consent=0   → gdpr_consent_given = false
+  //   Sec-GPC / DNT = 1           → gdpr_consent_given = false
+  //   otherwise                   → gdpr_consent_given omitted (legacy)
+  //
+  // The region (`consent_region`) is read from `hsConsent.region` or
+  // a `hs_region` meta tag if present. It's a two-letter country code
+  // used by the backend to scope EU-specific enforcement.
+  // ---------------------------------------------------------------------------
+  function detectConsent() {
+    try {
+      var cfg = window.hsConsent || null;
+      var region = null;
+      if (cfg && typeof cfg.region === "string") {
+        region = cfg.region.toUpperCase().slice(0, 2);
+      } else {
+        var regionMeta = document.querySelector('meta[name="hs_region"]');
+        if (regionMeta && regionMeta.content) {
+          region = (regionMeta.content || "").toUpperCase().slice(0, 2);
+        }
+      }
+
+      if (cfg && typeof cfg.given === "boolean") {
+        return { given: cfg.given, region: region };
+      }
+
+      try {
+        var ls = window.localStorage && window.localStorage.getItem("hs_consent");
+        if (ls === "1") return { given: true, region: region };
+        if (ls === "0") return { given: false, region: region };
+      } catch (_) {}
+
+      // Browser-level opt-out — Sec-GPC and legacy DNT
+      try {
+        if (navigator && navigator.globalPrivacyControl === true) {
+          return { given: false, region: region };
+        }
+        if (navigator && (navigator.doNotTrack === "1" || window.doNotTrack === "1")) {
+          return { given: false, region: region };
+        }
+      } catch (_) {}
+
+      return { given: null, region: region };
+    } catch (_) {
+      return { given: null, region: null };
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Payload builder
   // ---------------------------------------------------------------------------
   function buildPayload(eventType, extra) {
@@ -394,6 +467,7 @@
     // don't send a spurious field on page_view / dwell_time events from
     // non-product pages where ShopifyAnalytics.meta.product may be stale.
     var productId  = productUrl ? detectProductId() : null;
+    var consent    = detectConsent();
     var payload = {
       shop_domain:   SHOP_DOMAIN,
       visitor_id:    visitorId,
@@ -414,6 +488,15 @@
       shopify_y:     _shopifyY,
       device_type:   /Mobi|Android/i.test(navigator.userAgent) ? "mobile" : "desktop",
     };
+    // Only include consent field when we have a definitive signal — the
+    // backend treats `undefined` as legacy (allow) and explicit boolean
+    // as modern (enforce).
+    if (consent.given === true || consent.given === false) {
+      payload.gdpr_consent_given = consent.given;
+    }
+    if (consent.region) {
+      payload.consent_region = consent.region;
+    }
     if (extra) {
       for (var k in extra) {
         if (Object.prototype.hasOwnProperty.call(extra, k)) {
@@ -423,6 +506,20 @@
     }
     return payload;
   }
+
+  // Public API — merchants can call this after their cookie banner
+  // resolves. It flushes any queued events and updates the in-page
+  // consent cache immediately.
+  window.hsSetConsent = function (given, region) {
+    try {
+      window.hsConsent = window.hsConsent || {};
+      window.hsConsent.given = !!given;
+      if (typeof region === "string") {
+        window.hsConsent.region = region;
+      }
+      try { window.localStorage.setItem("hs_consent", given ? "1" : "0"); } catch (_) {}
+    } catch (_) {}
+  };
 
   // ---------------------------------------------------------------------------
   // Transport layer

@@ -75,6 +75,8 @@ from app.models.daily_brief import DailyBrief
 from app.api.agent import router as agent_router
 from app.api.brief import router as brief_router
 from app.api.merchant import router as merchant_router
+from app.api.merchant_export import router as merchant_export_router
+from app.api.merchant_privacy import router as merchant_privacy_router
 from app.api.tracker import router as tracker_router
 from app.api.live_visitors import router as live_visitors_router
 from app.api.top_pages import router as top_pages_router
@@ -99,6 +101,8 @@ from app.api.source_quality import router as source_quality_router
 from app.api.actions import router as actions_router
 from app.api.action_tasks import router as action_tasks_router
 from app.api.webhooks import router as webhooks_router
+from app.api.shopify_refunds import router as shopify_refunds_router
+from app.api.shopify_flow_schema import router as shopify_flow_schema_router
 from app.api.track_purchase import router as track_purchase_router
 from app.api.segments import router as segments_router
 from app.models.shop_order import ShopOrder  # noqa: F401 — ensures table is created
@@ -147,6 +151,22 @@ from app.api.setup import router as setup_router
 from app.api.onboarding import router as onboarding_router
 from app.api.ops import router as ops_router
 from app.api.frontend_errors import router as frontend_errors_router
+from app.api.benchmarks import router as benchmarks_router
+from app.api.refund_loss import router as refund_loss_router
+from app.api.revenue_autopsy import router as revenue_autopsy_router
+from app.api.abandoned_intent import router as abandoned_intent_router
+from app.api.price_sensitivity import router as price_sensitivity_router
+from app.api.causal_lift import router as causal_lift_router
+from app.api.merchant_churn import router as merchant_churn_router
+from app.api.revenue_genome import router as revenue_genome_router
+from app.api.goals import router as goals_router
+from app.api.revenue_at_risk import router as rars_router
+from app.api.risk_forecast import router as risk_forecast_router
+from app.api.annotations import router as annotations_router
+from app.api.segment_compare import router as segment_compare_router
+from app.api.roi_report import router as roi_report_router
+from app.api.signal_webhooks import router as signal_webhooks_router
+from app.api.team import router as team_router
 from app.api.health import router as health_router
 from app.api.orders import router as orders_router
 from app.api.pnl import router as pnl_router
@@ -156,6 +176,8 @@ from app.api.telegram_webhook import router as telegram_webhook_router
 from app.api.chat_support import router as chat_support_router
 from app.api.resend_webhooks import router as resend_webhooks_router
 from app.api.sentry_webhooks import router as sentry_webhooks_router
+from app.api.legal_pages import router as legal_pages_router
+from app.api.consent_banner import router as consent_banner_router
 
 _startup_log = logging.getLogger("wishspark.startup")
 
@@ -168,6 +190,18 @@ app = FastAPI(title="HedgeSpark API", docs_url=None, redoc_url=None)
 #   4. https://*.myshopify.com             — Shopify classic admin (embedded app iframe)
 # allow_credentials=True is required because the dashboard sends the
 # hs_session httpOnly cookie with every fetch (credentials: "include").
+#
+# CORS hardening (2026-04-11 audit):
+#   * `allow_credentials=True` + wildcards is an anti-pattern. Explicit
+#     allowlists force rejection of any header/method that wasn't
+#     declared here, which is the whole point of CORS.
+#   * The dashboard only sends `Content-Type: application/json`; session
+#     state rides on the httpOnly `hs_session` cookie. No X-API-Key,
+#     no custom auth headers. `Authorization` is kept on the list only
+#     for future Shopify embed-app signed JWT flows.
+#   * Methods are narrowed to the verbs actually used by the app.
+#   * `expose_headers=[]` — the dashboard never reads response headers
+#     (grep-confirmed), so nothing needs to be exposed to JS.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -177,9 +211,9 @@ app.add_middleware(
     ],
     allow_origin_regex=r"https://[a-zA-Z0-9\-]+\.myshopify\.com",
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+    expose_headers=[],
 )
 
 # Rate limiting — sliding window, in-process, zero dependencies.
@@ -265,26 +299,72 @@ async def csrf_guard_middleware(request: Request, call_next):
 # ---------------------------------------------------------------------------
 # Security headers — applied to every response.
 #
-# Omitted: Content-Security-Policy (requires careful audit of all inline
-# styles/scripts in Shopify embedded context before enabling).
+# Backend API is almost entirely JSON. The only HTML response path is the
+# OAuth callback redirect (handled by Starlette's RedirectResponse).
+# For JSON endpoints we set a strict "deny everything" CSP because any
+# content executing in the context of an API response is an exploit.
+# For the OAuth callback redirect we use a looser CSP that allows the
+# Shopify admin origin to receive the redirect.
 #
-# X-Frame-Options is SAMEORIGIN — safe because the dashboard runs on our
-# own domain.  Shopify embeds use their own App Bridge framing; the API
-# responses going to the embedded iframe don't need to be frameable.
+# X-Frame-Options: DENY everywhere — the API must never be framed.
+# The dashboard (separate Next.js app) sets its own frame-ancestors.
+#
+# The `_TRACKER_HEADERS_EXEMPT` set is only for storefront tracker paths,
+# which run on merchant domains; they need CORS and DO NOT need HSTS
+# (their origin may not be HTTPS on dev shops).
 # ---------------------------------------------------------------------------
-_SECURITY_HEADERS_EXEMPT = frozenset({"/track", "/track/batch", "/nudge/event"})
+_TRACKER_HEADERS_EXEMPT = frozenset({"/track", "/track/batch", "/nudge/event"})
+
+# Strict CSP for JSON API responses — any rendered content is a sign
+# of compromise. `default-src 'none'` blocks every content type, and
+# `frame-ancestors 'none'` is defense-in-depth on top of X-Frame-Options.
+_STRICT_API_CSP = (
+    "default-src 'none'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'none'; "
+    "form-action 'none'"
+)
 
 
 @app.middleware("http")
 async def security_headers_middleware(request: Request, call_next):
     response = await call_next(request)
+    path = request.url.path
+
+    # Always-on baseline headers
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-    # HSTS — only on non-storefront paths (storefront scripts load over merchant's domain)
-    if not any(request.url.path.startswith(p) for p in _SECURITY_HEADERS_EXEMPT):
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Permissions-Policy"] = (
+        "camera=(), microphone=(), geolocation=(), interest-cohort=(), "
+        "browsing-topics=(), payment=(), usb=(), midi=()"
+    )
+
+    # Storefront tracker paths run on merchant domains; they must not
+    # set HSTS or frame-denial headers — those would break embedded
+    # storefronts or force HTTPS upgrade on dev environments.
+    if any(path.startswith(p) for p in _TRACKER_HEADERS_EXEMPT):
+        return response
+
+    # HSTS with preload eligibility — we're on our own domains here.
+    response.headers["Strict-Transport-Security"] = (
+        "max-age=63072000; includeSubDomains; preload"
+    )
+
+    # Frame protection: the API must never be frameable. The dashboard
+    # is a separate Next.js app with its own frame-ancestors policy.
+    response.headers["X-Frame-Options"] = "DENY"
+
+    # CSP — strict by default. OAuth callback uses a redirect response
+    # (3xx) whose body is ignored by browsers, so the strict CSP is
+    # safe there too.
+    response.headers["Content-Security-Policy"] = _STRICT_API_CSP
+
+    # Cross-origin isolation headers — Spectre mitigations + tight
+    # process isolation. `same-origin` on COOP prevents cross-origin
+    # popups from sharing our browsing context.
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    response.headers["Cross-Origin-Resource-Policy"] = "same-site"
+
     return response
 
 
@@ -315,6 +395,8 @@ app.include_router(weekly_trend_router)
 # auth_router removed — see shopify_oauth_router
 app.include_router(brief_router)
 app.include_router(merchant_router)
+app.include_router(merchant_export_router)
+app.include_router(merchant_privacy_router)
 app.include_router(product_metrics_router)
 app.include_router(store_intelligence_router)
 app.include_router(execution_actions_router)
@@ -326,6 +408,8 @@ app.include_router(source_quality_router)
 app.include_router(actions_router)
 app.include_router(action_tasks_router)
 app.include_router(webhooks_router)
+app.include_router(shopify_refunds_router)
+app.include_router(shopify_flow_schema_router)
 app.include_router(track_purchase_router)
 app.include_router(segments_router)
 app.include_router(nudges_router)
@@ -353,7 +437,25 @@ app.include_router(chat_support_router)
 app.include_router(resend_webhooks_router)
 app.include_router(sentry_webhooks_router)
 app.include_router(ops_router)
+app.include_router(legal_pages_router)
+app.include_router(consent_banner_router)
 app.include_router(frontend_errors_router)
+app.include_router(benchmarks_router)
+app.include_router(refund_loss_router)
+app.include_router(goals_router)
+app.include_router(rars_router)
+app.include_router(risk_forecast_router)
+app.include_router(annotations_router)
+app.include_router(segment_compare_router)
+app.include_router(roi_report_router)
+app.include_router(signal_webhooks_router)
+app.include_router(team_router)
+app.include_router(revenue_autopsy_router)
+app.include_router(abandoned_intent_router)
+app.include_router(price_sensitivity_router)
+app.include_router(causal_lift_router)
+app.include_router(merchant_churn_router)
+app.include_router(revenue_genome_router)
 
 
 # ---------------------------------------------------------------------------

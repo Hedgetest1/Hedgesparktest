@@ -321,7 +321,8 @@ def process_inbound(
     # 0. Self-loop prevention — never process our own emails
     sender_normalized = _normalize_email(from_email)
     if sender_normalized in _OWN_ADDRESSES:
-        log.info("inbound_email: ignoring email from own address %s", sender_normalized)
+        from app.core.privacy import mask_email
+        log.info("inbound_email: ignoring email from own address %s", mask_email(sender_normalized))
         return {"status": "ignored", "id": None, "classification": "noise", "routing_action": "self_loop_blocked"}
 
     # 1. Dedup — generate synthetic message_id when absent

@@ -139,6 +139,21 @@ def claude_decision(
 
 Analyze the system state and propose actions if needed. Return strict JSON."""
 
+    # Runtime PII guard — refuse to send anything that looks like
+    # merchant contact info, customer email, JWT, or provider API key.
+    try:
+        from app.core.llm_pii_guard import assert_clean, LLMPayloadViolation
+        assert_clean(user_message, context="orchestrator")
+    except LLMPayloadViolation as exc:
+        log.error("orchestrator_llm: %s", exc)
+        return LLMDecisionResult(
+            assessment="LLM call blocked by PII guard",
+            error="llm_pii_guard_block",
+            model_used="none",
+        )
+    except Exception:
+        pass
+
     # Route model selection
     from app.core.llm_router import select_model
     sel = select_model(

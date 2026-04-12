@@ -603,6 +603,33 @@ def _send_intent(db: Session, intent: EmailIntent) -> bool:
         return True
 
     _log_suppressed(db, intent, "send_failed")
+
+    # Feed delivery failures into the self-healing pipeline.
+    # send_email returning empty resend_id means Resend rejected the
+    # request — broken template, bad sender, network failure. The
+    # generic Rule 7 catch-all triages recurring instances.
+    try:
+        from app.services.alerting import write_alert
+        write_alert(
+            db,
+            source=f"email_orchestrator:{intent.email_type}",
+            alert_type="email_send_failed",
+            severity="warning",
+            shop_domain=intent.shop_domain,
+            summary=(
+                f"Resend rejected email type={intent.email_type} "
+                f"to={intent.to_email} (producer={intent.producer})"
+            ),
+            detail={
+                "intent_id": intent.intent_id,
+                "email_type": intent.email_type,
+                "to_email": intent.to_email,
+                "producer": intent.producer,
+            },
+        )
+    except Exception as exc:
+        log.debug("email_orch: write_alert failed (non-fatal): %s", exc)
+
     return False
 
 

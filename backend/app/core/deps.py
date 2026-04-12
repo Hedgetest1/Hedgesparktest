@@ -160,8 +160,13 @@ def require_operator(
         raise HTTPException(status_code=503, detail="Operator access not configured.")
     if not x_api_key:
         raise HTTPException(status_code=401, detail="Invalid operator key.")
-    if x_api_key == _OPERATOR_KEY:
+    # Timing-safe comparison (2026-04-11 security audit): `==` on strings
+    # short-circuits at the first differing byte, leaking key length and
+    # character positions to a timing attacker. `hmac.compare_digest` is
+    # constant-time for equal-length inputs.
+    import hmac as _hmac
+    if _hmac.compare_digest(x_api_key, _OPERATOR_KEY):
         return True
-    if _OPERATOR_KEY_PREV and x_api_key == _OPERATOR_KEY_PREV:
+    if _OPERATOR_KEY_PREV and _hmac.compare_digest(x_api_key, _OPERATOR_KEY_PREV):
         return True
     raise HTTPException(status_code=401, detail="Invalid operator key.")

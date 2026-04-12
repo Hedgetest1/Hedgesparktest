@@ -208,6 +208,50 @@ def test_aov_stable_no_finding(db):
 # End-to-end: probe → ops_alert → triage → BugFixCandidate
 # ---------------------------------------------------------------------------
 
+def test_merchant_baseline_requires_minimum_history(db):
+    """A shop with <21 days of history returns None from get_merchant_baseline."""
+    from app.services.data_integrity_probe import get_merchant_baseline
+    shop = "baseline-scant.myshopify.com"
+    _mk_merchant(db, shop)
+    # Only 5 orders across 5 days — below the _MIN_BASELINE_DAYS threshold
+    for i in range(5):
+        _mk_order(db, shop, days_ago=i, price=100.0, suffix=f"scant_{i}")
+    db.flush()
+    assert get_merchant_baseline(db, shop) is None
+
+
+def test_merchant_baseline_computes_mean_and_stdev(db):
+    """With enough history, baseline returns mean + stdev + weekday mults."""
+    from app.services.data_integrity_probe import _compute_merchant_baseline
+    shop = "baseline-ok.myshopify.com"
+    _mk_merchant(db, shop)
+    # Spread 30 days of orders, one per day with varying price
+    for i in range(30):
+        price = 80.0 + (i % 7) * 10  # cyclic weekday variation
+        _mk_order(db, shop, days_ago=i + 1, price=price, suffix=f"baseline_{i}")
+    db.flush()
+
+    baseline = _compute_merchant_baseline(db, shop)
+    assert baseline is not None
+    assert baseline["sample_size_days"] >= 21
+    assert baseline["mean"] > 0
+    assert baseline["stdev"] >= 0
+    assert "weekday_multipliers" in baseline
+    assert len(baseline["weekday_multipliers"]) == 7
+
+
+def test_merchant_anomaly_skipped_without_history(db):
+    """Insufficient baseline → no anomaly finding."""
+    from app.services.data_integrity_probe import _check_merchant_anomaly
+    shop = "anomaly-fresh.myshopify.com"
+    _mk_merchant(db, shop)
+    # Only 10 days of history
+    for i in range(10):
+        _mk_order(db, shop, days_ago=i + 1, price=100.0, suffix=f"fresh_{i}")
+    db.flush()
+    assert _check_merchant_anomaly(db, shop) is None
+
+
 def test_probe_writes_semantic_drift_alert_and_triage_promotes_to_candidate(db):
     """Full flow: silent corruption → alert → candidate. The essential test."""
     shop = "e2e-drift.myshopify.com"

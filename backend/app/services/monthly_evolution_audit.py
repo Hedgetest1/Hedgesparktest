@@ -470,6 +470,93 @@ def _build_action_effectiveness(db: Session) -> str:
         return f"Action effectiveness unavailable: {exc}"
 
 
+def _build_market_intelligence() -> str:
+    """
+    Market intelligence from AI Lab — external signal for strategic bets.
+
+    Reads the AI Lab database (separate PostgreSQL instance) to surface
+    pain points and ideas discovered from Reddit, GitHub, HN, and Shopify
+    App Store. Fail-soft: if AI Lab DB is unreachable, this returns a
+    one-liner and the audit proceeds without market context.
+    """
+    try:
+        import psycopg2
+        import psycopg2.extras
+        conn = psycopg2.connect(
+            host="localhost", port=5432, dbname="ailab",
+            user="aiuser", password="aipassword",
+            connect_timeout=5,
+        )
+        try:
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+            # Top pain categories (30d)
+            cur.execute("""
+                SELECT pain_category, COUNT(*) as cnt,
+                       ROUND(AVG(severity)::numeric, 1) as avg_severity,
+                       COUNT(*) FILTER (WHERE hedgespark_relevant) as relevant
+                FROM pain_points
+                WHERE created_at > NOW() - INTERVAL '30 days'
+                GROUP BY pain_category
+                ORDER BY cnt DESC LIMIT 8
+            """)
+            pains = cur.fetchall()
+
+            # Top market ideas (new, by relevance)
+            cur.execute("""
+                SELECT title, category, hedgespark_action, relevance_score, evidence_count
+                FROM market_ideas
+                WHERE status = 'new'
+                ORDER BY relevance_score DESC, evidence_count DESC
+                LIMIT 5
+            """)
+            ideas = cur.fetchall()
+
+            # Source coverage (30d)
+            cur.execute("""
+                SELECT source, COUNT(*) as cnt
+                FROM opportunities
+                WHERE discovered_at > NOW() - INTERVAL '30 days'
+                GROUP BY source ORDER BY cnt DESC
+            """)
+            sources = cur.fetchall()
+
+            cur.close()
+        finally:
+            conn.close()
+
+        if not pains and not ideas:
+            return "Market intelligence (AI Lab): No data collected yet."
+
+        lines = ["Market intelligence (AI Lab — external signals from Reddit/GitHub/HN/Shopify):"]
+
+        if sources:
+            src_str = ", ".join(f"{s['source']}={s['cnt']}" for s in sources)
+            lines.append(f"  Sources (30d): {src_str}")
+
+        if pains:
+            lines.append("  Top merchant pain categories (30d):")
+            for p in pains:
+                rel_tag = f" [{p['relevant']} HS-relevant]" if p['relevant'] else ""
+                lines.append(
+                    f"    {p['pain_category']}: {p['cnt']} mentions, "
+                    f"severity {p['avg_severity']}/5{rel_tag}"
+                )
+
+        if ideas:
+            lines.append("  Top market ideas (unreported):")
+            for i in ideas:
+                lines.append(
+                    f"    [{i['relevance_score']}/100] {i['title']}: "
+                    f"{i['hedgespark_action']}"
+                )
+
+        return "\n".join(lines)
+
+    except Exception as exc:
+        return f"Market intelligence unavailable: {exc}"
+
+
 # ---------------------------------------------------------------------------
 # LLM call (Opus, budget-guarded)
 # ---------------------------------------------------------------------------
@@ -616,6 +703,17 @@ def _call_opus(context: str) -> str:
         return ""
 
     from app.core.llm_router import OPUS
+
+    # Runtime PII guard — monthly audit aggregates system state which
+    # should be structural metrics only. Any PII leak here is a bug.
+    try:
+        from app.core.llm_pii_guard import assert_clean, LLMPayloadViolation
+        assert_clean(context, context="monthly_opus_audit")
+    except LLMPayloadViolation as exc:
+        log.error("monthly_audit: %s", exc)
+        return ""
+    except Exception:
+        pass
 
     try:
         resp = httpx.post(
@@ -913,6 +1011,8 @@ def run_monthly_opus_audit(db: Session) -> dict:
         _build_action_effectiveness(db),
         "",
         _build_system_metrics(db),
+        "",
+        _build_market_intelligence(),
     ]
     context = "\n".join(context_parts)
 

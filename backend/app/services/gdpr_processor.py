@@ -326,15 +326,127 @@ def _process_customers_data_request(db: Session, req: GdprRequest) -> str:
         ]
 
     summary = json.dumps(export, default=str)
+    from app.core.privacy import mask_email
     log.info(
         "gdpr_processor: data export complete request_id=%d shop=%s "
-        "visitors=%d orders=%d events=%d",
+        "visitors=%d orders=%d events=%d recipient=%s",
         req.id, shop,
         len(visitor_ids),
         len(export["data"].get("orders", [])),
         len(export["data"].get("events", [])),
+        mask_email(email),
     )
+
+    # Auto-delivery (GDPR Art. 15 — "electronic form", "without undue delay").
+    # Previously the artifact sat in `result_summary` waiting for a human
+    # operator to manually email it. We now ship it to the customer via
+    # the governed email orchestrator, with the export inlined as HTML.
+    # Failures are non-fatal: the artifact still persists in
+    # `result_summary` so the operator has a manual-delivery fallback.
+    if email:
+        try:
+            delivered = _deliver_customer_export(
+                db=db,
+                customer_email=email,
+                shop_domain=shop,
+                export_json=summary,
+                request_id=req.id,
+            )
+            export["delivery"] = {
+                "status": "sent" if delivered else "failed",
+                "channel": "email_orchestrator",
+                "recipient_hash": _hash_email(email),
+            }
+            summary = json.dumps(export, default=str)
+        except Exception as exc:
+            log.warning(
+                "gdpr_processor: auto-delivery failed request_id=%d: %s",
+                req.id, exc,
+            )
+    else:
+        log.info(
+            "gdpr_processor: no customer_email on request_id=%d — "
+            "artifact remains in result_summary for operator retrieval",
+            req.id,
+        )
+
     return summary
+
+
+def _hash_email(email: str) -> str:
+    """Short stable hash for audit logs — proves a specific address was
+    served without persisting the plaintext in logs/audit."""
+    import hashlib
+    return hashlib.sha256((email or "").encode()).hexdigest()[:16]
+
+
+def _deliver_customer_export(
+    *, db, customer_email: str, shop_domain: str,
+    export_json: str, request_id: int,
+) -> bool:
+    """Send the GDPR data export to the data subject via the governed
+    email orchestrator. The orchestrator handles suppression lists,
+    rate limiting, audit logging, and bounce tracking — the same
+    guarantees every other user-facing email gets.
+
+    Delivery is synchronous (`send_immediate`) because the 30-day
+    Art. 15 SLA does not tolerate queue delays. The export is inlined
+    in the HTML body as a `<pre>` block. Returns True on a send.
+    """
+    try:
+        from app.services.email_orchestrator import EmailIntent, send_immediate
+    except Exception as exc:
+        log.warning("gdpr_processor: email orchestrator unavailable: %s", exc)
+        return False
+
+    subject = f"Your HedgeSpark data export (request #{request_id})"
+    body_text = (
+        f"Hello,\n\n"
+        f"You requested a copy of the personal data that HedgeSpark holds "
+        f"for you in connection with {shop_domain}. The full export is "
+        f"inlined below in JSON format.\n\n"
+        f"If any of the information is incorrect you may request "
+        f"rectification (GDPR Art. 16) or erasure (Art. 17) by replying "
+        f"to this email or contacting privacy@hedgesparkhq.com.\n\n"
+        f"— HedgeSpark Privacy Team\n\n"
+        f"---\n{export_json}\n"
+    )
+    # Cap the HTML inline preview so we never emit multi-MB emails.
+    # Shopify's data volumes make 200KB a very generous ceiling.
+    inline_html = export_json[:200_000]
+    body_html = (
+        f"<p>Hello,</p>"
+        f"<p>You requested a copy of the personal data that HedgeSpark "
+        f"holds for you in connection with <strong>{shop_domain}</strong>. "
+        f"The full export is inlined below in JSON format.</p>"
+        f"<p>If any of the information is incorrect you may request "
+        f"rectification (GDPR Art. 16) or erasure (Art. 17) by replying "
+        f"to this email or contacting "
+        f"<a href='mailto:privacy@hedgesparkhq.com'>privacy@hedgesparkhq.com</a>.</p>"
+        f"<p>— HedgeSpark Privacy Team</p>"
+        f"<hr/><pre style='white-space:pre-wrap;font-size:11px'>"
+        f"{inline_html}</pre>"
+    )
+
+    try:
+        result = send_immediate(
+            db,
+            EmailIntent(
+                shop_domain=shop_domain,
+                email_type="gdpr_export",
+                to_email=customer_email,
+                subject=subject,
+                html=body_html,
+                plain_text=body_text,
+                from_address="HedgeSpark Privacy <privacy@hedgesparkhq.com>",
+                producer="gdpr_processor",
+                context={"request_id": request_id},
+            ),
+        )
+        return bool(result) and result.get("status") == "sent"
+    except Exception as exc:
+        log.warning("gdpr_processor: orchestrator send failed: %s", exc)
+        return False
 
 
 def _process_shop_redact(db: Session, req: GdprRequest) -> str:

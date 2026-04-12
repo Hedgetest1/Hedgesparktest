@@ -226,10 +226,27 @@ def _run_onboarding_health():
     """Check onboarding pipeline health + funnel friction detection."""
     db = SessionLocal()
     try:
-        from app.services.onboarding_health import write_onboarding_alerts
+        from app.services.onboarding_health import write_onboarding_alerts, run_drift_action_loop
         result = write_onboarding_alerts(db)
         if result["alerts_written"] > 0:
             log(f"onboarding_health: alerts={result['alerts_written']} stuck={result['stuck']} pixel_abandon={result['pixel_abandon']}")
+
+        # Drift action loop (A2): closes the H6 detect-only gap by
+        # actually re-engaging drifters via email_orchestrator. Honors
+        # per-shop weekly cooldown internally so it's safe to call
+        # every cycle.
+        try:
+            drift_loop = run_drift_action_loop(db)
+            if drift_loop.get("sent") or drift_loop.get("escalated"):
+                log(
+                    f"onboarding_health: drift_loop sent={drift_loop['sent']} "
+                    f"escalated={drift_loop['escalated']} "
+                    f"drifters={drift_loop['drifters']}"
+                )
+            db.commit()
+        except Exception as exc:
+            log(f"onboarding_health: drift loop error (non-fatal): {exc}")
+            db.rollback()
     except Exception as exc:
         log(f"onboarding_health error (non-fatal): {exc}")
         db.rollback()
@@ -254,22 +271,38 @@ def _run_bug_triage(auto_apply_paused: bool = False):
     """Scan for new bug-worthy events, create candidates, auto-propose, auto-apply, auto-promote."""
     db = SessionLocal()
     try:
-        from app.services.bugfix_pipeline import run_bug_triage, run_auto_propose, run_auto_apply
-        from app.services.promotion_pipeline import run_auto_promotion, run_auto_merge
+        from app.services.bugfix_pipeline import (
+            run_bug_triage, run_auto_propose, run_auto_apply,
+            run_governed_tier1_auto_apply,
+        )
+        from app.services.promotion_pipeline import (
+            run_auto_promotion, run_auto_merge, run_auto_deploy,
+        )
 
-        # Build phase list — skip auto_apply, auto_promotion, and auto_merge
-        # when the circuit breaker is tripped. auto_merge is also gated by
-        # AUTO_MERGE_TIER0 env flag (default off) inside promotion_pipeline.
+        # Build phase list — skip auto_apply, auto_promotion, auto_merge and
+        # auto_deploy when the circuit breaker is tripped. Each post-merge
+        # phase has its own env kill-switch (AUTO_MERGE_TIER0, AUTO_DEPLOY_PAUSED).
         phases = [
             ("triage", lambda: run_bug_triage(db)),
             ("auto_propose", lambda: run_auto_propose(db)),
         ]
         if not auto_apply_paused:
             phases.append(("auto_apply", lambda: run_auto_apply(db)))
+            phases.append(("governed_tier1", lambda: run_governed_tier1_auto_apply(db)))
             phases.append(("auto_promotion", lambda: run_auto_promotion(db)))
             phases.append(("auto_merge", lambda: run_auto_merge(db)))
+            phases.append(("auto_deploy", lambda: run_auto_deploy(db)))
         else:
             log("bug_triage: auto_apply PAUSED by circuit breaker — triage and propose continue")
+
+        # Pipeline liveness probe — runs every cycle but honors a 1-hour
+        # internal cooldown. Tests the data plane end-to-end (alert →
+        # triage → candidate → cleanup) so a silent regression surfaces
+        # in the next daily digest. Runs regardless of circuit breaker
+        # state because we still want to know the data plane is alive
+        # when apply is paused.
+        from app.services.pipeline_heartbeat import run_heartbeat
+        phases.append(("heartbeat", lambda: run_heartbeat(db)))
 
         # Each phase is isolated — one failure does not kill the others
         for phase_name, phase_fn in phases:
@@ -719,6 +752,225 @@ def _run_daily_digest():
         db.close()
 
 
+def _run_breach_classifier():
+    """Classify security alerts as breach candidates and start the
+    GDPR Art. 33 72h clock automatically."""
+    db = SessionLocal()
+    try:
+        from app.services.breach_notification import process_breach_candidates
+        report = process_breach_candidates(db)
+        if report.get("new_response_alerts", 0) > 0:
+            log(
+                f"breach_notification: raised {report['new_response_alerts']} "
+                f"new breach_response_required alert(s) — "
+                f"{report['classified']} classified"
+            )
+    except Exception as exc:
+        log(f"breach_notification error (non-fatal): {exc}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
+def _run_audit_log_integrity_check():
+    """Daily audit_log hash-chain verification. Rate-limited via Redis."""
+    today = _today_rome()
+    redis_key = f"hs:audit_log_check:day:{today}"
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None and rc.get(redis_key):
+            return
+    except Exception:
+        rc = None
+
+    db = SessionLocal()
+    try:
+        from app.services.audit import enforce_chain_integrity
+        result = enforce_chain_integrity(db)
+        if rc is not None:
+            try:
+                rc.setex(redis_key, 48 * 3600, "1")
+            except Exception:
+                pass
+        if result["violations"]:
+            log(
+                f"audit_log: TAMPERING DETECTED "
+                f"{len(result['violations'])} violations"
+            )
+    except Exception as exc:
+        log(f"audit_log integrity error (non-fatal): {exc}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
+def _run_uninstall_erasure_watchdog():
+    """Self-heal missing shop/redact webhooks — GDPR Art. 17 belt-and-braces."""
+    db = SessionLocal()
+    try:
+        from app.services.uninstall_erasure import run_uninstall_erasure_watchdog
+        report = run_uninstall_erasure_watchdog(db)
+        if report.get("self_healed", 0) > 0:
+            log(
+                f"uninstall_erasure: SELF-HEALED {report['self_healed']} "
+                f"shop(s) whose 48h grace elapsed without shop/redact"
+            )
+    except Exception as exc:
+        log(f"uninstall_erasure error (non-fatal): {exc}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
+def _run_security_heartbeat():
+    """Hourly synthetic probes of the security surface. Self-rate-limited."""
+    db = SessionLocal()
+    try:
+        from app.services.security_heartbeat import run_security_heartbeat
+        report = run_security_heartbeat(db)
+        if report.get("failed", 0) > 0:
+            log(
+                f"security_heartbeat: FAILED={report['failed']} "
+                f"passed={report['passed']} total={report['total']}"
+            )
+    except Exception as exc:
+        log(f"security_heartbeat error (non-fatal): {exc}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
+def _run_gdpr_sla_enforcement():
+    """Per-cycle guardrail — every pending GdprRequest is checked
+    against its deadline. Missing deadlines fire CRITICAL alerts.
+    Dedup via ops_alert row identity so we don't flood the channel.
+    """
+    db = SessionLocal()
+    try:
+        from app.services.gdpr_sla import enforce_sla
+        report = enforce_sla(db)
+        if report.get("new_alerts", 0) > 0:
+            log(
+                f"gdpr_sla: BREACH violations={report['violations']} "
+                f"new_alerts={report['new_alerts']}"
+            )
+    except Exception as exc:
+        log(f"gdpr_sla error (non-fatal): {exc}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
+def _run_data_retention():
+    """GDPR Art. 5(1)(e) retention sweep — runs ONCE per calendar day
+    (Europe/Rome) so we never keep visitor behavioral data past its TTL.
+
+    Kill switch: DATA_RETENTION_PAUSED=1.
+    Tunables: DATA_RETENTION_EVENTS_DAYS, DATA_RETENTION_VPS_DAYS.
+    """
+    today = _today_rome()
+    redis_key = f"hs:data_retention:day:{today}"
+    rc = None
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None and rc.get(redis_key):
+            return
+    except Exception:
+        rc = None
+
+    db = SessionLocal()
+    try:
+        from app.services.data_retention import run_retention_sweep
+        report = run_retention_sweep(db)
+        if rc is not None:
+            try:
+                rc.setex(redis_key, 48 * 3600, "1")
+            except Exception:
+                pass
+        if report.get("events_deleted") or report.get("vps_deleted"):
+            log(
+                f"data_retention: events_deleted={report['events_deleted']} "
+                f"vps_deleted={report['vps_deleted']}"
+            )
+    except Exception as exc:
+        log(f"data_retention error (non-fatal): {exc}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
+def _run_pipeline_self_upgrade():
+    """D5 — weekly pip-audit scan. Surfaces Python dep advisories as
+    TIER_2 BugFixCandidates that flow through the normal governance
+    pipeline. Gated to Monday 04:00-05:00 UTC and deduped per-week via
+    worker_state.last_self_upgrade_week. Kill switch: SELF_UPGRADE_PAUSED=1.
+    """
+    if os.environ.get("SELF_UPGRADE_PAUSED", "").strip() == "1":
+        return
+
+    now_utc = datetime.now(timezone.utc)
+    if now_utc.weekday() != 0 or now_utc.hour != 4:
+        return
+
+    week_key = now_utc.strftime("%G-W%V")
+    redis_key = f"hs:self_upgrade:week:{week_key}"
+
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None and rc.get(redis_key):
+            return
+    except Exception:
+        rc = None
+
+    db = SessionLocal()
+    try:
+        from app.services.pipeline_self_upgrade import run_self_upgrade_scan
+        report = run_self_upgrade_scan(db)
+        db.commit()
+
+        if rc is not None:
+            try:
+                rc.setex(redis_key, 14 * 24 * 3600, "1")
+            except Exception:
+                pass
+
+        if report.get("vulnerabilities_found", 0) > 0:
+            log(
+                f"self_upgrade: found={report['vulnerabilities_found']} "
+                f"created={report['candidates_created']} "
+                f"deduped={report['candidates_skipped_dedup']}"
+            )
+    except Exception as exc:
+        log(f"self_upgrade error (non-fatal): {exc}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
 def _run_merchant_digest():
     """Send weekly email digests to eligible merchants (Monday only, Europe/Rome)."""
     from app.services.merchant_digest import _is_monday_rome, run_merchant_digest_cycle
@@ -737,6 +989,32 @@ def _run_merchant_digest():
         db.rollback()
     finally:
         db.close()
+
+    # B4 — TIER_2 weekly batch review (same Monday gate as merchant digest).
+    # Single Telegram message with the operator's pending TIER_2 candidates.
+    # Redis dedup key prevents double-sends if the worker cycles twice on
+    # Monday morning.
+    db2 = SessionLocal()
+    try:
+        from app.services.telegram_agent import send_tier2_weekly_review
+        from app.core.redis_client import _client
+        rc = _client()
+        from datetime import datetime as _dt
+        from zoneinfo import ZoneInfo as _Zi
+        rome_now = _dt.now(_Zi("Europe/Rome"))
+        week_key = rome_now.strftime("%G-W%V")
+        dedup_key = f"hs:tier2_weekly:{week_key}"
+        if rc is not None and rc.get(dedup_key):
+            return
+        sent = send_tier2_weekly_review(db2)
+        if sent and rc is not None:
+            rc.setex(dedup_key, 8 * 24 * 3600, "1")
+        if sent:
+            log("tier2_weekly_review: sent")
+    except Exception as exc:
+        log(f"tier2_weekly_review error (non-fatal): {exc}")
+    finally:
+        db2.close()
 
 
 def _run_lifecycle_emails():
@@ -1377,6 +1655,50 @@ def _run_approved_reminders():
         log(f"approved_reminder error (non-fatal): {exc}")
 
 
+def _run_regulatory_feed_monitor():
+    """Fetch RSS feeds from worldwide DPAs and regulatory bodies.
+    Keyword-matches new items and emits regulatory_update alerts.
+    24h internal cooldown — safe to call every cycle."""
+    try:
+        from app.services.regulatory_feed_monitor import run_feed_monitor
+        report = run_feed_monitor()
+        if report.get("skipped"):
+            return
+        if report.get("items_new", 0) > 0:
+            log(
+                f"regulatory_feed: {report['items_new']} new items from "
+                f"{report['feeds_checked']} feeds, {report['items_stored']} stored"
+            )
+    except Exception as exc:
+        log(f"regulatory_feed error (non-fatal): {exc}")
+
+
+def _run_regulatory_watch():
+    """Worldwide regulatory compliance audit — deterministic checks
+    against the live codebase and system state. Emits compliance_gap
+    alerts that the bugfix pipeline can triage. 6h internal cooldown."""
+    db = SessionLocal()
+    try:
+        from app.services.regulatory_watch import run_regulatory_audit
+        report = run_regulatory_audit(db)
+        if report.get("skipped"):
+            return
+        if report.get("failed", 0) > 0 or report.get("auto_resolved", 0) > 0:
+            log(
+                f"regulatory_watch: {report['passed']}/{report['total_rules']} passed, "
+                f"{report['failed']} failed, {report.get('new_alerts', 0)} new alerts, "
+                f"{report.get('auto_resolved', 0)} auto-resolved"
+            )
+    except Exception as exc:
+        log(f"regulatory_watch error (non-fatal): {exc}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
 def run_cycle():
     started_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -1470,6 +1792,50 @@ def run_cycle():
 
     # Phase 7d: Weekly merchant email digest (Monday, Europe/Rome)
     _run_merchant_digest()
+
+    # Phase 7d-bis: Pipeline self-upgrade scan (D5) — weekly pip-audit
+    # sweep that surfaces CVEs as TIER_2 dep_upgrade candidates. Gated
+    # to Monday 04:00-05:00 UTC so at most one run per week.
+    _run_pipeline_self_upgrade()
+
+    # Phase 7d-ter: GDPR data retention sweep — daily, Europe/Rome.
+    # Deletes events/visitor_purchase_sessions past their retention TTL.
+    _run_data_retention()
+
+    # Phase 7d-quater: GDPR SLA enforcement — every cycle. Emits CRITICAL
+    # ops_alerts for any GdprRequest past its computed deadline
+    # (shop_redact 48h, customer requests 30d).
+    _run_gdpr_sla_enforcement()
+
+    # Phase 7d-quinquies: Security synthetic heartbeat — hourly
+    # self-attack probes. Fails loudly if OAuth / webhook / consent /
+    # ops auth / export session rejections are missing.
+    _run_security_heartbeat()
+
+    # Phase 7d-sexies: Uninstall erasure watchdog — belt-and-braces
+    # GDPR Art. 17 guarantee. Creates a shop_redact GdprRequest for any
+    # uninstalled shop whose 48h grace has elapsed without Shopify
+    # delivering shop/redact.
+    _run_uninstall_erasure_watchdog()
+
+    # Phase 7d-septies: Audit log integrity check — daily chain walk
+    # that emits a CRITICAL alert on any tampering evidence.
+    _run_audit_log_integrity_check()
+
+    # Phase 7d-octies: Breach notification classifier — turns known
+    # breach signatures into `breach_response_required` alerts with
+    # GDPR Art. 33 clock started. Runs every cycle; dedup is row-level.
+    _run_breach_classifier()
+
+    # Phase 7d-nonies: Regulatory watch — worldwide compliance audit.
+    # Deterministic checks against the live codebase + state. Emits
+    # compliance_gap alerts that feed into the bugfix pipeline. 6h cooldown.
+    _run_regulatory_watch()
+
+    # Phase 7d-decies: Regulatory feed monitor — fetches RSS feeds from
+    # worldwide DPAs and regulatory bodies. Keyword-matches new items
+    # and emits regulatory_update alerts. 24h cooldown.
+    _run_regulatory_feed_monitor()
 
     # Phase 7e: Lifecycle emails (setup_incomplete, first_insight, connection_issue)
     _run_lifecycle_emails()

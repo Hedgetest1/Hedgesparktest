@@ -390,8 +390,15 @@ async def callback(
         log.warning("shopify_oauth: HMAC failed shop=%s", shop)
         return Response("Invalid HMAC signature.", status_code=400)
 
-    if state and not _consume_nonce(shop, state):
-        log.warning("shopify_oauth: state/nonce invalid or expired shop=%s", shop)
+    # CSRF hardening (2026-04-11 security audit): state MUST be present AND
+    # consumed. Previously the check was `if state and not _consume_nonce(...)`,
+    # meaning a callback arriving without a state parameter skipped nonce
+    # validation entirely — an attacker could forge the OAuth callback
+    # (HMAC still had to pass, but HMAC is a deterministic function of the
+    # query string and any party that reached this endpoint via an open
+    # redirect could replay).
+    if not state or not _consume_nonce(shop, state):
+        log.warning("shopify_oauth: state/nonce missing, invalid, or expired shop=%s", shop)
         return Response("Invalid or expired state.", status_code=400)
 
     plaintext_token = await _exchange_code_for_token(shop, code)

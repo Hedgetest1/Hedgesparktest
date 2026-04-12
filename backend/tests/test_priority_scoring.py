@@ -167,12 +167,59 @@ def test_create_candidate_populates_priority_score(db):
     # Critical severity + recurrence 3 should yield a reasonably high score
     assert c.priority_score >= 45
 
-    # context carries the breakdown for ops explainability
+    # context carries the breakdown for ops explainability — now 6 dims
     ctx = json.loads(c.context_json)
     assert "priority_breakdown" in ctx
     assert set(ctx["priority_breakdown"].keys()) == {
-        "severity", "criticality", "recency", "recurrence", "source_type",
+        "severity", "criticality", "recency", "recurrence", "source_type", "track_record",
     }
+
+
+def test_track_record_neutral_with_no_samples():
+    """A domain with zero historical samples contributes neutrally."""
+    with_none, bdwn_none = compute_priority_score(
+        severity="warning", source_type="ops_alert",
+        affected_domain_criticality="medium", recurrence_count=0, age_minutes=10,
+        domain_effectiveness_pct=None, domain_sample_size=0,
+    )
+    # track_record contribution is 0.5 * 0.12 = 0.06
+    assert abs(bdwn_none["track_record"] - 0.06) < 0.01
+
+
+def test_track_record_rewards_proven_domain():
+    """A domain with 50+ samples and 80% effectiveness boosts the score."""
+    with_strong, bdwn_strong = compute_priority_score(
+        severity="warning", source_type="ops_alert",
+        affected_domain_criticality="medium", recurrence_count=0, age_minutes=10,
+        domain_effectiveness_pct=80.0, domain_sample_size=50,
+    )
+    with_weak, bdwn_weak = compute_priority_score(
+        severity="warning", source_type="ops_alert",
+        affected_domain_criticality="medium", recurrence_count=0, age_minutes=10,
+        domain_effectiveness_pct=10.0, domain_sample_size=50,
+    )
+    assert with_strong > with_weak
+    # The strong domain's track_record contribution should be clearly higher
+    assert bdwn_strong["track_record"] > bdwn_weak["track_record"]
+
+
+def test_track_record_dampens_with_small_sample():
+    """2 samples of 100% effectiveness contribute LESS than 100 samples of
+    70% — small samples are not trusted."""
+    with_tiny, bdwn_tiny = compute_priority_score(
+        severity="warning", source_type="ops_alert",
+        affected_domain_criticality="medium", recurrence_count=0, age_minutes=10,
+        domain_effectiveness_pct=100.0, domain_sample_size=2,
+    )
+    with_large, bdwn_large = compute_priority_score(
+        severity="warning", source_type="ops_alert",
+        affected_domain_criticality="medium", recurrence_count=0, age_minutes=10,
+        domain_effectiveness_pct=70.0, domain_sample_size=100,
+    )
+    assert bdwn_large["track_record"] > bdwn_tiny["track_record"], (
+        "large sample at 70% must outweigh tiny sample at 100% — "
+        "dampening prevents false confidence from lucky streaks"
+    )
 
 
 def test_recompute_after_classification_updates_score(db):

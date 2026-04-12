@@ -504,12 +504,74 @@ def review_entity(
             concerns.append(note)
 
     # Step 4: Compute blocking concerns (hard blockers)
+    # 2026-04-11 elite sprint: added deterministic blockers that exercise
+    # the reviewer's gate. Audit showed 50 approve / 0 reject in 90d — the
+    # old blocking list was too narrow (only TIER_2 + terminal status).
+    # These new blockers make the reviewer actually reject risky candidates.
     blocking = []
     if entity["type"] == "bugfix_candidate":
         if entity.get("risk_tier") == 2:
             blocking.append("TIER_2 patch — never auto-approvable by policy")
         if entity.get("status") in ("rejected", "apply_failed", "rolled_back"):
             blocking.append(f"Entity is in terminal status: {entity['status']}")
+
+        # Elite block 1: large-diff protection — diffs over 200 changed
+        # lines have a much higher regression risk and deserve eyes.
+        patch_diff = entity.get("patch_diff") or ""
+        if patch_diff:
+            changed_lines = sum(
+                1 for line in patch_diff.split("\n")
+                if line.startswith("+") or line.startswith("-")
+            )
+            if changed_lines > 200:
+                blocking.append(
+                    f"Diff too large for auto-approval: {changed_lines} changed lines (>200)"
+                )
+
+        # Elite block 2: self-modification guard — the reviewer joins the
+        # bugfix_pipeline.touches_self_healing_pipeline check. Defense in
+        # depth: if classify_patch_risk missed it or a future refactor
+        # weakens that check, the reviewer still catches it.
+        try:
+            from app.services.bugfix_pipeline import touches_self_healing_pipeline
+            files_list = entity.get("files") or []
+            if files_list:
+                self_mod, self_files = touches_self_healing_pipeline(json.dumps(files_list))
+                if self_mod:
+                    blocking.append(
+                        "Patch touches self-healing pipeline files — human review required"
+                    )
+        except Exception:
+            pass
+
+        # Elite block 3: prior-failure fingerprint match — if 3+ prior
+        # candidates in the same (domain, source_type) have apply_failed
+        # or rolled_back, this one is likely to fail too. Downgrade to
+        # human review instead of burning budget.
+        try:
+            from app.models.patch_fingerprint import PatchFingerprint
+            from datetime import timedelta
+            cutoff = _now() - timedelta(days=90)
+            source_type = entity.get("source_type") or ""
+            candidate_domain = domains[0] if domains else None
+            if candidate_domain and source_type:
+                prior_failures = (
+                    db.query(PatchFingerprint)
+                    .filter(
+                        PatchFingerprint.affected_domain == candidate_domain,
+                        PatchFingerprint.outcome.in_(["apply_failed", "rolled_back"]),
+                        PatchFingerprint.created_at >= cutoff,
+                    )
+                    .count()
+                )
+                if prior_failures >= 3:
+                    blocking.append(
+                        f"Prior failure pattern: {prior_failures} candidates in "
+                        f"domain '{candidate_domain}' have failed in 90d — "
+                        "new approach needed, not auto-approvable"
+                    )
+        except Exception:
+            pass
 
     if entity["type"] == "model_upgrade":
         if entity.get("eval_result") == "fail":

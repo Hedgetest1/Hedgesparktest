@@ -158,6 +158,18 @@ _DOMAIN_RULES: list[tuple[str, str]] = [
     # Worker infrastructure
     ("app/workers/", "workers"),
 
+    # Competitive feature services — added in the 2026-04-11 killer sprint
+    ("app/services/benchmarks", "benchmarks"),
+    ("app/api/benchmarks", "benchmarks"),
+    ("app/services/refund_loss", "refund_loss"),
+    ("app/api/refund_loss", "refund_loss"),
+    ("app/services/goals", "goals"),
+    ("app/api/goals", "goals"),
+    ("app/services/revenue_at_risk", "rars"),
+    ("app/api/revenue_at_risk", "rars"),
+    ("app/services/annotations", "annotations"),
+    ("app/api/annotations", "annotations"),
+
     # Frontend / merchant-facing — ordered from most-specific to catch-all.
     # Billing/onboarding/auth flows in the dashboard are as critical as their
     # backend counterparts: a broken checkout surface = revenue loss.
@@ -229,6 +241,12 @@ _DOMAIN_CRITICALITY: dict[str, str] = {
     "frontend_billing": "critical",
     "frontend_onboarding": "critical",
     "frontend_auth": "critical",
+    # Killer feature sprint domains — the hero features of the product
+    "benchmarks": "high",       # peer comparison — critical demo feature
+    "refund_loss": "medium",    # loss detection module
+    "goals": "medium",          # merchant target tracking
+    "rars": "high",             # THE hero number of the dashboard
+    "annotations": "low",       # UX enhancement
     "tests": "low",
 }
 

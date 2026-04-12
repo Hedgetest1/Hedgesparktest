@@ -37,6 +37,23 @@ import { Sparkline } from "../components/Sparkline";
 import { GatewayProducts } from "../components/GatewayProducts";
 import { PredictedLtv } from "../components/PredictedLtv";
 import { PnlReport } from "../components/PnlReport";
+// Killer feature components (2026-04-11 sprint) — loss-framed hero + drill-downs
+import { RevenueAtRiskHero } from "../components/RevenueAtRiskHero";
+import { PeerBenchmarksCard } from "../components/PeerBenchmarksCard";
+import { ProductsInDecline } from "../components/ProductsInDecline";
+import { MonthlyTargetsCard } from "../components/MonthlyTargetsCard";
+import { MonthlyROICard } from "../components/MonthlyROICard";
+import { TimelineNotes } from "../components/TimelineNotes";
+import { CompareProductsCard } from "../components/CompareProductsCard";
+import { ConnectToolsPanel } from "../components/ConnectToolsPanel";
+import { YourTeamPanel } from "../components/YourTeamPanel";
+
+// R-series killer features (2026-04-12)
+import { RevenueAutopsyCard } from "../components/RevenueAutopsyCard";
+import { AbandonedIntentCard } from "../components/AbandonedIntentCard";
+import { PriceSensitivityCard } from "../components/PriceSensitivityCard";
+import { CausalLiftCard } from "../components/CausalLiftCard";
+import { RevenueGenomeCard } from "../components/RevenueGenomeCard";
 import {
   type DisplayCurrency,
   formatDisplayMoney,
@@ -2748,6 +2765,10 @@ function PageInner() {
   const [costSyncing,      setCostSyncing]      = useState(false);
   const [costSyncMsg,      setCostSyncMsg]      = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
+  // Privacy — Art. 22 automated-targeting opt-out toggle
+  const [privacyOptedOut,  setPrivacyOptedOut]  = useState(false);
+  const [privacyLoading,   setPrivacyLoading]   = useState(false);
+
   // Fetch current cost defaults when shop resolves.
   useEffect(() => {
     if (!shop) return;
@@ -2789,6 +2810,42 @@ function PageInner() {
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shop]);
+
+  // Fetch privacy preferences (Art. 22 opt-out state)
+  useEffect(() => {
+    if (!shop) return;
+    let active = true;
+    fetch(`${API_BASE}/merchant/privacy/preferences`, {
+      credentials: "include",
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (active && d.opt_out_automated_targeting != null) {
+          setPrivacyOptedOut(!!d.opt_out_automated_targeting);
+        }
+      })
+      .catch(() => {});
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shop]);
+
+  async function handlePrivacyToggle() {
+    if (!shop || privacyLoading) return;
+    setPrivacyLoading(true);
+    const endpoint = privacyOptedOut ? "/merchant/unobject" : "/merchant/object";
+    try {
+      const res = await fetch(`${API_BASE}${endpoint}`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (res.ok) {
+        setPrivacyOptedOut(!privacyOptedOut);
+      }
+    } catch {}
+    setPrivacyLoading(false);
+  }
 
   // Save handler — PATCH the row, refresh cached cost defaults, re-fetch P&L
   // so the cassettone updates without a page reload.
@@ -3625,6 +3682,47 @@ function PageInner() {
                 apiBase={API_BASE}
                 shop={shop}
               />
+
+              {/* ═══ REVENUE AT RISK HERO — the new #1 headline ═══ */}
+              <RevenueAtRiskHero
+                apiBase={API_BASE}
+                shop={shop}
+                isProUser={isProUser}
+                onUpgrade={() => setUpgradeModalOpen(true)}
+              />
+
+              {/* ═══ REVENUE GENOME — the DNA of your revenue ═══ */}
+              {isProUser && (
+                <RevenueGenomeCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+              )}
+
+              {/* ═══ KILLER FEATURE GRID — drill-downs from the RARS hero ═══ */}
+              {isProUser && (
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  <PeerBenchmarksCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  <ProductsInDecline apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  <MonthlyTargetsCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  <MonthlyROICard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                </div>
+              )}
+
+              {/* ═══ DEEP INTELLIGENCE GRID — R-series features ═══ */}
+              {isProUser && (
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  <RevenueAutopsyCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  <AbandonedIntentCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  <PriceSensitivityCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  <CausalLiftCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                </div>
+              )}
+
+              {/* ═══ SECONDARY WIDGETS — smaller but useful ═══ */}
+              {isProUser && (
+                <>
+                  <TimelineNotes apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  <CompareProductsCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                </>
+              )}
 
               {/* ═══ TOP SIGNAL CARD — only strong signals (not early) ═══ */}
               {strongSignals.length > 0 && strongSignals[0] && (
@@ -6003,6 +6101,60 @@ function PageInner() {
                       <span className="text-[11px] text-violet-300/70">
                         Connect now &mdash; upgrade to <button onClick={() => setUpgradeModalOpen(true)} className="font-semibold text-violet-300 underline decoration-violet-400/30 underline-offset-2 transition-colors hover:text-violet-200">Pro</button> to unlock automated flows and AI-driven actions.
                       </span>
+                    </div>
+                  )}
+
+                  {/* Privacy — Art. 22 automated targeting opt-out */}
+                  <div className="mb-4 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-500/10 text-violet-400">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="h-5 w-5">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+                            </svg>
+                          </div>
+                          <div>
+                            <span className="block text-[13px] font-semibold text-white">Automated targeting</span>
+                            <span className="block text-[11px] text-slate-500">
+                              {privacyOptedOut
+                                ? "Opted out — AI scoring, nudge composition, and automated targeting are disabled for your store."
+                                : "Enabled — HedgeSpark uses AI to score visitors, compose nudges, and target recommendations."}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={!privacyOptedOut}
+                        disabled={privacyLoading}
+                        onClick={handlePrivacyToggle}
+                        className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                          privacyOptedOut
+                            ? "bg-white/[0.08]"
+                            : "bg-violet-500/60"
+                        } ${privacyLoading ? "opacity-50 cursor-wait" : ""}`}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ease-in-out ${
+                            privacyOptedOut ? "translate-x-0.5" : "translate-x-[22px]"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                    <p className="mt-3 text-[10px] leading-relaxed text-slate-600">
+                      GDPR Art. 22 &amp; CCPA §1798.120 — you can opt out of automated decision-making
+                      and profiling at any time. This disables AI-powered features but does not affect
+                      basic analytics. You can re-enable it whenever you want.
+                    </p>
+                  </div>
+
+                  {/* Killer sprint settings: outbound webhooks + team collab (Pro only) */}
+                  {isProUser && (
+                    <div className="mt-4 space-y-4">
+                      <ConnectToolsPanel apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                      <YourTeamPanel apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                     </div>
                   )}
               </section>

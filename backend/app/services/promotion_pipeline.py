@@ -653,8 +653,15 @@ def run_auto_promotion(db: Session, max_per_cycle: int = 1) -> dict:
 # ---------------------------------------------------------------------------
 
 def _is_auto_merge_enabled() -> bool:
-    """Auto-merge is off by default. Enable via AUTO_MERGE_TIER0=1."""
-    return os.getenv("AUTO_MERGE_TIER0", "").strip() == "1"
+    """Auto-merge for TIER_0 fixes. ON by default — set
+    AUTO_MERGE_TIER0=0 to disable in an emergency.
+
+    The gate stack inside `_is_auto_mergeable` (cooldown, merge_intelligence,
+    forbidden paths, reviewer risk) is the actual safety net; the env
+    var is the operator kill-switch.
+    """
+    val = os.getenv("AUTO_MERGE_TIER0", "1").strip()
+    return val not in ("0", "false", "False", "")
 
 
 def _is_auto_merge_on_cooldown() -> bool:
@@ -871,3 +878,443 @@ def _notify_promotion(promo: AutoFixPromotion, event: str) -> None:
         promo.notified_at = _now()
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Auto-deploy after merge — closes the very last loop
+# ---------------------------------------------------------------------------
+#
+# After `merge_promotion` finalizes a PR, the merged commit is on `origin/main`
+# but production still runs the previous SHA. Historically the operator had to
+# `git pull && pm2 restart` manually — that human gate was the real reason
+# "the system felt asleep for days". This module turns it into a fully gated
+# automatic step.
+#
+# Safety stack (any failing gate aborts the deploy):
+#   1. AUTO_DEPLOY_PAUSED env kill-switch
+#   2. Per-cycle cap + 20-min cooldown between consecutive deploys
+#   3. deploy_gate.py --preflight (health, cooldown, last-good commit)
+#   4. Subprocess git pull (fails closed on conflicts)
+#   5. pm2 restart of backend + dashboard (agent_worker is a separate process,
+#      so it does not commit suicide by restarting wishspark-backend)
+#   6. deploy_gate.py --postdeploy --auto-rollback (health-poll, log-spike,
+#      auto-rollback on failure)
+#   7. Per-promotion idempotency via Redis (`hs:deploy:promotion:{id}`)
+#   8. write_alert ops_alert on every outcome (deploy_succeeded / deploy_failed
+#      / deploy_rolled_back) so the daily digest sees it.
+
+_AUTO_DEPLOY_COOLDOWN_S = 20 * 60
+_AUTO_DEPLOY_MAX_PER_CYCLE = 1
+_AUTO_DEPLOY_REPO = "/opt/wishspark"
+_AUTO_DEPLOY_GATE_SCRIPT = "/opt/wishspark/backend/scripts/deploy_gate.py"
+_AUTO_DEPLOY_PROCESSES = ("wishspark-backend", "wishspark-dashboard")
+_auto_deploy_last: float | None = None
+
+
+def _is_auto_deploy_enabled() -> bool:
+    """Auto-deploy is ON by default. Set AUTO_DEPLOY_PAUSED=1 to halt
+    every future deploy in 5 seconds (operator emergency stop)."""
+    if os.getenv("AUTO_DEPLOY_PAUSED", "").strip() == "1":
+        return False
+    return True
+
+
+def _is_auto_deploy_on_cooldown() -> bool:
+    global _auto_deploy_last
+    if _auto_deploy_last is None:
+        return False
+    return (_time.monotonic() - _auto_deploy_last) < _AUTO_DEPLOY_COOLDOWN_S
+
+
+def _mark_auto_deploy_done() -> None:
+    global _auto_deploy_last
+    _auto_deploy_last = _time.monotonic()
+
+
+def _deploy_marker_key(promo_id: int) -> str:
+    return f"hs:deploy:promotion:{promo_id}"
+
+
+def _is_promotion_already_deployed(promo_id: int) -> bool:
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            return False
+        return bool(rc.exists(_deploy_marker_key(promo_id)))
+    except Exception:
+        return False
+
+
+def _mark_promotion_deployed(promo_id: int, sha: str) -> None:
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            return
+        rc.setex(_deploy_marker_key(promo_id), 90 * 24 * 3600, sha)
+    except Exception:
+        pass
+
+
+def _shell(cmd: list[str], *, timeout: int = 120) -> tuple[int, str]:
+    """Run a shell command, return (rc, combined_output_first_2k_chars)."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=_AUTO_DEPLOY_REPO,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        out = ((result.stdout or "") + (result.stderr or ""))[:2000]
+        return result.returncode, out
+    except subprocess.TimeoutExpired:
+        return 124, f"TIMEOUT after {timeout}s"
+    except Exception as exc:
+        return 1, f"{type(exc).__name__}: {exc}"
+
+
+def _deploy_one_promotion(db: Session, promo: AutoFixPromotion) -> dict:
+    """Deploy a single merged promotion. Returns a structured result.
+
+    On success: Redis marker set, ops_alert(deploy_succeeded) written.
+    On failure: ops_alert(deploy_failed) written, no marker so the next
+    cycle can retry once the underlying issue is resolved.
+    On rollback: ops_alert(deploy_rolled_back) written, marker still
+    set so we don't loop on the same broken promotion.
+    """
+    result = {
+        "promo_id": promo.id,
+        "status": "unknown",
+        "preflight_rc": None,
+        "git_pull_rc": None,
+        "pm2_rc": None,
+        "postdeploy_rc": None,
+        "rolled_back": False,
+        "error": None,
+    }
+
+    from app.services.alerting import write_alert
+
+    # 1. Preflight gate (health, cooldown, stores last_good_commit)
+    rc, out = _shell(["python3", _AUTO_DEPLOY_GATE_SCRIPT, "--preflight"], timeout=120)
+    result["preflight_rc"] = rc
+    if rc != 0:
+        result["status"] = "preflight_blocked"
+        result["error"] = out
+        try:
+            write_alert(
+                db,
+                source=f"auto_deploy:promo_{promo.id}",
+                alert_type="deploy_failed",
+                severity="warning",
+                summary=f"Auto-deploy preflight blocked promo {promo.id}",
+                detail={"phase": "preflight", "rc": rc, "output": out},
+            )
+        except Exception:
+            pass
+        return result
+
+    # 2. git pull origin main — fails closed on merge conflict / dirty tree
+    rc, out = _shell(["git", "pull", "--ff-only", "origin", "main"], timeout=60)
+    result["git_pull_rc"] = rc
+    if rc != 0:
+        result["status"] = "git_pull_failed"
+        result["error"] = out
+        try:
+            write_alert(
+                db,
+                source=f"auto_deploy:promo_{promo.id}",
+                alert_type="deploy_failed",
+                severity="critical",
+                summary=f"Auto-deploy git pull failed promo {promo.id}",
+                detail={"phase": "git_pull", "rc": rc, "output": out},
+            )
+        except Exception:
+            pass
+        return result
+
+    # 3. Restart backend + dashboard processes (agent_worker is a sibling
+    #    process under PM2, so it does NOT commit suicide here)
+    rc, out = _shell(["pm2", "restart", *_AUTO_DEPLOY_PROCESSES, "--update-env"], timeout=60)
+    result["pm2_rc"] = rc
+    if rc != 0:
+        result["status"] = "pm2_restart_failed"
+        result["error"] = out
+        try:
+            write_alert(
+                db,
+                source=f"auto_deploy:promo_{promo.id}",
+                alert_type="deploy_failed",
+                severity="critical",
+                summary=f"Auto-deploy pm2 restart failed promo {promo.id}",
+                detail={"phase": "pm2_restart", "rc": rc, "output": out},
+            )
+        except Exception:
+            pass
+        return result
+
+    # 4. Postdeploy gate with auto-rollback enabled
+    rc, out = _shell(
+        ["python3", _AUTO_DEPLOY_GATE_SCRIPT, "--postdeploy", "--auto-rollback"],
+        timeout=180,
+    )
+    result["postdeploy_rc"] = rc
+    if rc != 0:
+        # deploy_gate already attempted git reset + pm2 restart on its side
+        result["status"] = "postdeploy_failed_rolled_back"
+        result["rolled_back"] = True
+        result["error"] = out
+        _mark_promotion_deployed(promo.id, promo.merge_commit_sha or "")
+        try:
+            write_alert(
+                db,
+                source=f"auto_deploy:promo_{promo.id}",
+                alert_type="deploy_rolled_back",
+                severity="critical",
+                summary=f"Auto-deploy postdeploy failed → rolled back promo {promo.id}",
+                detail={"phase": "postdeploy", "rc": rc, "output": out},
+            )
+        except Exception:
+            pass
+        return result
+
+    # SUCCESS path
+    _mark_promotion_deployed(promo.id, promo.merge_commit_sha or "")
+    result["status"] = "deployed"
+    try:
+        write_alert(
+            db,
+            source=f"auto_deploy:promo_{promo.id}",
+            alert_type="deploy_succeeded",
+            severity="info",
+            summary=(
+                f"Auto-deploy ok promo={promo.id} "
+                f"sha={(promo.merge_commit_sha or '')[:12]} "
+                f"branch={promo.branch_name or '?'}"
+            ),
+            detail={
+                "promo_id": promo.id,
+                "merge_commit_sha": promo.merge_commit_sha,
+                "branch": promo.branch_name,
+                "candidate_id": promo.bugfix_candidate_id,
+            },
+        )
+    except Exception:
+        pass
+    return result
+
+
+_AUTO_DEPLOY_BATCH_MAX_SIZE = 5  # never restart for more than 5 fixes at once
+
+
+def _deploy_batch(db: Session, promos: list[AutoFixPromotion]) -> dict:
+    """C4 — Deploy N merged promotions in a single git pull + pm2 restart.
+
+    Atomic semantics:
+      * One preflight gate covers all
+      * Single git pull --ff-only — picks up every merged commit
+      * Single pm2 restart — single restart event for the operator
+      * One postdeploy gate — if it fails, ALL batched promotions are
+        marked rolled_back (the deploy_gate auto-rollback reverts every
+        commit since last_good_commit, which covers them all)
+      * Per-promotion idempotency markers set on success
+
+    Returns summary keyed by individual promotion ids so the caller can
+    map outcomes back to candidates.
+    """
+    from app.services.alerting import write_alert
+
+    batch_ids = [p.id for p in promos]
+    summary = {
+        "promo_ids": batch_ids,
+        "size": len(promos),
+        "status": "unknown",
+        "preflight_rc": None,
+        "git_pull_rc": None,
+        "pm2_rc": None,
+        "postdeploy_rc": None,
+        "rolled_back": False,
+        "error": None,
+    }
+
+    # 1. Preflight (covers the whole batch)
+    rc, out = _shell(["python3", _AUTO_DEPLOY_GATE_SCRIPT, "--preflight"], timeout=120)
+    summary["preflight_rc"] = rc
+    if rc != 0:
+        summary["status"] = "preflight_blocked"
+        summary["error"] = out
+        try:
+            write_alert(
+                db, source=f"auto_deploy:batch_{len(promos)}",
+                alert_type="deploy_failed", severity="warning",
+                summary=f"Auto-deploy batch ({len(promos)} promos) preflight blocked",
+                detail={"phase": "preflight", "rc": rc, "output": out, "batch_ids": batch_ids},
+            )
+        except Exception:
+            pass
+        return summary
+
+    # 2. Single git pull picks up every merged commit
+    rc, out = _shell(["git", "pull", "--ff-only", "origin", "main"], timeout=60)
+    summary["git_pull_rc"] = rc
+    if rc != 0:
+        summary["status"] = "git_pull_failed"
+        summary["error"] = out
+        try:
+            write_alert(
+                db, source=f"auto_deploy:batch_{len(promos)}",
+                alert_type="deploy_failed", severity="critical",
+                summary=f"Auto-deploy batch ({len(promos)} promos) git pull failed",
+                detail={"phase": "git_pull", "rc": rc, "output": out, "batch_ids": batch_ids},
+            )
+        except Exception:
+            pass
+        return summary
+
+    # 3. Single pm2 restart for the whole batch
+    rc, out = _shell(["pm2", "restart", *_AUTO_DEPLOY_PROCESSES, "--update-env"], timeout=60)
+    summary["pm2_rc"] = rc
+    if rc != 0:
+        summary["status"] = "pm2_restart_failed"
+        summary["error"] = out
+        try:
+            write_alert(
+                db, source=f"auto_deploy:batch_{len(promos)}",
+                alert_type="deploy_failed", severity="critical",
+                summary=f"Auto-deploy batch ({len(promos)} promos) pm2 restart failed",
+                detail={"phase": "pm2_restart", "rc": rc, "output": out, "batch_ids": batch_ids},
+            )
+        except Exception:
+            pass
+        return summary
+
+    # 4. Postdeploy gate covers the whole batch — auto-rollback reverts
+    # every commit since last_good_commit, which is correct for batched.
+    rc, out = _shell(
+        ["python3", _AUTO_DEPLOY_GATE_SCRIPT, "--postdeploy", "--auto-rollback"],
+        timeout=180,
+    )
+    summary["postdeploy_rc"] = rc
+    if rc != 0:
+        summary["status"] = "postdeploy_failed_rolled_back"
+        summary["rolled_back"] = True
+        summary["error"] = out
+        # All batched promotions get the marker so we don't loop on the
+        # same broken batch forever
+        for promo in promos:
+            _mark_promotion_deployed(promo.id, promo.merge_commit_sha or "")
+        try:
+            write_alert(
+                db, source=f"auto_deploy:batch_{len(promos)}",
+                alert_type="deploy_rolled_back", severity="critical",
+                summary=(
+                    f"Auto-deploy batch ({len(promos)} promos) postdeploy "
+                    f"failed → rolled back"
+                ),
+                detail={"phase": "postdeploy", "rc": rc, "output": out, "batch_ids": batch_ids},
+            )
+        except Exception:
+            pass
+        return summary
+
+    # SUCCESS — mark every promotion deployed
+    for promo in promos:
+        _mark_promotion_deployed(promo.id, promo.merge_commit_sha or "")
+    summary["status"] = "deployed"
+    try:
+        write_alert(
+            db, source=f"auto_deploy:batch_{len(promos)}",
+            alert_type="deploy_succeeded", severity="info",
+            summary=(
+                f"Auto-deploy batch ok: {len(promos)} fixes shipped "
+                f"in 1 restart"
+            ),
+            detail={"batch_ids": batch_ids, "size": len(promos)},
+        )
+    except Exception:
+        pass
+    return summary
+
+
+def run_auto_deploy(db: Session, max_per_cycle: int = _AUTO_DEPLOY_MAX_PER_CYCLE) -> dict:
+    """Pull merged promotions into production. Idempotent + rate-limited.
+
+    C4 — batched: collect every undeployed merged promotion (up to
+    `_AUTO_DEPLOY_BATCH_MAX_SIZE`) and deploy them in a single git pull +
+    pm2 restart. Less restart churn, atomic rollback semantics.
+
+    Called from agent_worker after `run_auto_merge`.
+    """
+    summary = {
+        "considered": 0,
+        "deployed": 0,
+        "rolled_back": 0,
+        "failed": 0,
+        "skipped_disabled": 0,
+        "skipped_cooldown": 0,
+        "skipped_already_deployed": 0,
+        "batch_size": 0,
+        "results": [],
+    }
+
+    if not _is_auto_deploy_enabled():
+        summary["skipped_disabled"] += 1
+        return summary
+    if _is_auto_deploy_on_cooldown():
+        summary["skipped_cooldown"] += 1
+        return summary
+
+    candidates = (
+        db.query(AutoFixPromotion)
+        .filter(
+            AutoFixPromotion.status == "merged",
+            AutoFixPromotion.merge_commit_sha.isnot(None),
+        )
+        .order_by(AutoFixPromotion.merged_at.asc())
+        .limit(_AUTO_DEPLOY_BATCH_MAX_SIZE * 2)  # over-fetch to filter already-deployed
+        .all()
+    )
+
+    # Filter out already-deployed promotions
+    deployable: list[AutoFixPromotion] = []
+    for promo in candidates:
+        if _is_promotion_already_deployed(promo.id):
+            summary["skipped_already_deployed"] += 1
+            continue
+        deployable.append(promo)
+        if len(deployable) >= _AUTO_DEPLOY_BATCH_MAX_SIZE:
+            break
+
+    if not deployable:
+        return summary
+
+    summary["considered"] = len(deployable)
+    summary["batch_size"] = len(deployable)
+
+    result = _deploy_batch(db, deployable)
+    summary["results"].append(result)
+
+    if result["status"] == "deployed":
+        summary["deployed"] = len(deployable)
+        _mark_auto_deploy_done()
+    elif result["rolled_back"]:
+        summary["rolled_back"] = len(deployable)
+        _mark_auto_deploy_done()
+    else:
+        summary["failed"] = len(deployable)
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    if summary["deployed"] or summary["rolled_back"] or summary["failed"]:
+        log.info(
+            "auto_deploy: batch=%d deployed=%d rolled_back=%d failed=%d",
+            summary["batch_size"], summary["deployed"],
+            summary["rolled_back"], summary["failed"],
+        )
+    return summary

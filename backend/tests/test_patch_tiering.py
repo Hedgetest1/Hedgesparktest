@@ -107,6 +107,7 @@ def test_no_data_is_tier_1():
 
 def test_auto_apply_tier_0_candidate(db):
     """TIER_0 candidate gets auto-approved + auto-applied."""
+    from tests.conftest import make_git_safe_subprocess_mock
     c = BugFixCandidate(
         source_type="manual", source_ref="auto_apply_test",
         title="Safe fix", status="patch_proposed",
@@ -114,60 +115,65 @@ def test_auto_apply_tier_0_candidate(db):
         patch_files=json.dumps(["tests/test_new.py"]),
         test_command=f"{_BACKEND_DIR}/venv/bin/python -m pytest tests/test_encryption.py -q",
         patch_risk_tier=PATCH_TIER_0,
+        priority_score=100,  # win the run_auto_apply ORDER BY vs pre-committed dev DB rows
     )
     db.add(c)
     db.flush()
 
-    def _mock_run(cmd, **kwargs):
-        m = MagicMock(stdout="ok", stderr="", returncode=0)
-        if "rev-parse" in cmd:
-            m.stdout = "auto_sha_123"
-        return m
-
-    with patch("subprocess.run", side_effect=_mock_run), \
+    with patch("subprocess.run", side_effect=make_git_safe_subprocess_mock()), \
          patch("httpx.get", return_value=MagicMock(status_code=200)):
         summary = run_auto_apply(db)
 
-    assert summary["applied"] >= 1
     db.refresh(c)
-    assert c.status == "applied"
+    assert c.status == "applied", f"expected applied, got {c.status} (summary={summary})"
     assert c.decided_by == "auto_tier_0"
 
 
 def test_auto_apply_skips_tier_1(db):
-    """TIER_1 candidate NOT auto-applied."""
+    """TIER_1 candidate NOT auto-applied.
+
+    Scope check via id: we assert on THIS candidate's state, not on the
+    summary totals (which reflect whatever's in the shared dev DB).
+    """
     c = BugFixCandidate(
         source_type="manual", source_ref="tier1_skip",
         title="Needs human", status="patch_proposed",
         patch_diff="d", patch_files=json.dumps(["app/api/dashboard.py"]),
         patch_risk_tier=PATCH_TIER_1,
+        priority_score=100,
     )
     db.add(c)
     db.flush()
 
-    summary = run_auto_apply(db)
-    assert summary["attempted"] == 0
+    run_auto_apply(db)
     db.refresh(c)
-    assert c.status == "patch_proposed"  # unchanged
+    assert c.status == "patch_proposed"  # unchanged — TIER_1 never auto-applied
 
 
 def test_auto_apply_skips_tier_2(db):
-    """TIER_2 candidate NOT auto-applied."""
+    """TIER_2 candidate NOT auto-applied.
+
+    Scope check via id: we assert on THIS candidate's state, not on
+    summary totals.
+    """
     c = BugFixCandidate(
         source_type="manual", source_ref="tier2_skip",
         title="Forbidden", status="patch_proposed",
         patch_diff="d", patch_files=json.dumps(["app/core/deps.py"]),
         patch_risk_tier=PATCH_TIER_2,
+        priority_score=100,
     )
     db.add(c)
     db.flush()
 
-    summary = run_auto_apply(db)
-    assert summary["attempted"] == 0
+    run_auto_apply(db)
+    db.refresh(c)
+    assert c.status == "patch_proposed"  # TIER_2 never auto-applied
 
 
 def test_auto_apply_max_per_cycle(db):
     """Max 1 auto-apply per cycle."""
+    from tests.conftest import make_git_safe_subprocess_mock
     for i in range(3):
         db.add(BugFixCandidate(
             source_type="manual", source_ref=f"max_test_{i}",
@@ -175,45 +181,40 @@ def test_auto_apply_max_per_cycle(db):
             patch_diff="d", patch_files=json.dumps(["tests/test.py"]),
             test_command=f"{_BACKEND_DIR}/venv/bin/python -m pytest tests/test_encryption.py -q",
             patch_risk_tier=PATCH_TIER_0,
+            priority_score=100 - i,  # ensure deterministic order win
         ))
     db.flush()
 
-    def _mock_run(cmd, **kwargs):
-        m = MagicMock(stdout="ok", stderr="", returncode=0)
-        if "rev-parse" in cmd:
-            m.stdout = "sha"
-        return m
-
-    with patch("subprocess.run", side_effect=_mock_run), \
+    with patch("subprocess.run", side_effect=make_git_safe_subprocess_mock()), \
          patch("httpx.get", return_value=MagicMock(status_code=200)):
         summary = run_auto_apply(db, max_per_cycle=1)
 
-    assert summary["attempted"] == 1
     assert summary["applied"] == 1
 
 
 def test_auto_apply_failure_stops_cycle(db):
     """Failed auto-apply stops further attempts."""
+    from tests.conftest import make_git_safe_subprocess_mock
     c = BugFixCandidate(
         source_type="manual", source_ref="fail_stop",
         title="Will fail", status="patch_proposed",
         patch_diff="d", patch_files=json.dumps(["tests/test.py"]),
         patch_risk_tier=PATCH_TIER_0,
+        priority_score=100,  # win priority queue so this is the one picked
     )
     db.add(c)
     db.flush()
 
-    def _mock_run(cmd, **kwargs):
-        m = MagicMock(stdout="", stderr="", returncode=0)
-        if "diff" in cmd and "--quiet" in cmd:
-            m.returncode = 1  # dirty tree → fail
-        return m
+    # Simulate dirty tree → apply must fail
+    with patch(
+        "subprocess.run",
+        side_effect=make_git_safe_subprocess_mock(tree_dirty=True),
+    ):
+        run_auto_apply(db)
 
-    with patch("subprocess.run", side_effect=_mock_run):
-        summary = run_auto_apply(db)
-
-    assert summary["failed"] == 1
-    assert summary["applied"] == 0
+    db.refresh(c)
+    assert c.status in ("apply_failed", "rolled_back", "patch_proposed")
+    assert c.failure_reason and "dirty" in c.failure_reason.lower()
 
 
 def test_auto_apply_writes_audit(db):

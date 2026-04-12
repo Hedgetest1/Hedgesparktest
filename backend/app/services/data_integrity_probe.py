@@ -100,6 +100,173 @@ class ProbeResult:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Merchant-specific baselines (2026-04-11 addition)
+# ---------------------------------------------------------------------------
+#
+# Uniform thresholds across merchants are wrong. Christmas orders on a
+# gift shop are normal; on a B2B office-supply shop they are anomalous.
+# A per-merchant baseline is computed from 90d history and adjusted for
+# weekday seasonality, so each shop's "normal" is its own pattern.
+#
+# For each (shop, metric) we compute:
+#   - mean and stdev over 90d history
+#   - a weekday multiplier (Mon=0.9, Tue=1.0, ..., Sat=1.3, Sun=0.8)
+#     derived from the shop's own per-weekday average
+#
+# An anomaly is triggered when:
+#   |current_value - expected_baseline_today| > 2.5 * stdev
+#
+# Cached 24h per shop in Redis. Pure computation, no LLM.
+
+_BASELINE_CACHE_TTL = 24 * 3600
+_BASELINE_CACHE_PREFIX = "hs:merchant_baseline:v1"
+_MIN_BASELINE_DAYS = 21  # need at least 3 weeks of history to trust seasonality
+_ANOMALY_STDEV_THRESHOLD = 2.5
+
+
+def _compute_merchant_baseline(db: Session, shop: str) -> dict | None:
+    """
+    Return {mean, stdev, weekday_multipliers} for a shop's daily revenue.
+    None if insufficient history.
+    """
+    import statistics
+
+    now = _now()
+    cutoff = now - timedelta(days=90)
+    rows = db.execute(text("""
+        SELECT
+            DATE(created_at) AS day,
+            EXTRACT(DOW FROM created_at)::int AS dow,
+            SUM(total_price) AS revenue
+        FROM shop_orders
+        WHERE shop_domain = :shop
+          AND created_at >= :cutoff
+        GROUP BY day, dow
+        ORDER BY day
+    """), {"shop": shop, "cutoff": cutoff}).fetchall()
+
+    if len(rows) < _MIN_BASELINE_DAYS:
+        return None
+
+    revenues = [float(r[2] or 0) for r in rows]
+    mean = statistics.mean(revenues) if revenues else 0.0
+    stdev = statistics.stdev(revenues) if len(revenues) >= 2 else 0.0
+
+    # Per-weekday multiplier: average revenue per weekday / overall mean
+    by_dow: dict[int, list[float]] = {}
+    for r in rows:
+        by_dow.setdefault(int(r[1]), []).append(float(r[2] or 0))
+    weekday_multipliers: dict[int, float] = {}
+    for dow in range(7):
+        day_vals = by_dow.get(dow, [])
+        if day_vals and mean > 0:
+            weekday_multipliers[dow] = round(statistics.mean(day_vals) / mean, 3)
+        else:
+            weekday_multipliers[dow] = 1.0
+
+    return {
+        "mean": round(mean, 2),
+        "stdev": round(stdev, 2),
+        "weekday_multipliers": weekday_multipliers,
+        "sample_size_days": len(rows),
+    }
+
+
+def get_merchant_baseline(db: Session, shop: str) -> dict | None:
+    """Cached baseline accessor. Returns None if insufficient history."""
+    import hashlib
+    key = f"{_BASELINE_CACHE_PREFIX}:{hashlib.md5(shop.encode()).hexdigest()[:16]}"
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            import json as _json
+            cached = rc.get(key)
+            if cached:
+                return _json.loads(cached)
+    except Exception:
+        pass
+
+    baseline = _compute_merchant_baseline(db, shop)
+    if baseline is None:
+        return None
+
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            import json as _json
+            rc.setex(key, _BASELINE_CACHE_TTL, _json.dumps(baseline))
+    except Exception:
+        pass
+
+    return baseline
+
+
+def _check_merchant_anomaly(db: Session, shop: str) -> DriftFinding | None:
+    """
+    Per-merchant seasonality-adjusted anomaly detector. Only triggers
+    when the shop has enough history AND the deviation is >2.5 stdev
+    from the shop's own normal for today's weekday.
+    """
+    baseline = get_merchant_baseline(db, shop)
+    if baseline is None:
+        return None
+
+    now = _now()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    row = db.execute(text("""
+        SELECT COALESCE(SUM(total_price), 0)
+        FROM shop_orders
+        WHERE shop_domain = :shop AND created_at >= :start
+    """), {"shop": shop, "start": today_start}).fetchone()
+    if not row:
+        return None
+
+    today_revenue = float(row[0] or 0)
+    if today_revenue == 0:
+        return None  # no orders yet today — not an anomaly
+
+    dow = today_start.weekday()
+    # Python weekday: Mon=0..Sun=6. Postgres DOW: Sun=0..Sat=6. Adjust:
+    pg_dow = (dow + 1) % 7
+    weekday_mult = baseline["weekday_multipliers"].get(str(pg_dow), baseline["weekday_multipliers"].get(pg_dow, 1.0))
+    expected = baseline["mean"] * float(weekday_mult)
+    stdev = baseline["stdev"]
+    if stdev == 0:
+        return None
+
+    deviation = today_revenue - expected
+    stdev_multiple = abs(deviation) / stdev
+    if stdev_multiple < _ANOMALY_STDEV_THRESHOLD:
+        return None
+
+    direction = "spike" if deviation > 0 else "drop"
+    severity = "critical" if stdev_multiple >= 4.0 else "warning"
+
+    return DriftFinding(
+        check="merchant_anomaly",
+        shop_domain=shop,
+        severity=severity,
+        summary=(
+            f"Today's revenue on {shop} is a {direction}: "
+            f"€{today_revenue:.0f} vs shop's seasonality-adjusted "
+            f"expected €{expected:.0f} ({stdev_multiple:.1f}σ {direction})"
+        ),
+        detail={
+            "today_revenue": round(today_revenue, 2),
+            "expected_today": round(expected, 2),
+            "weekday_multiplier": weekday_mult,
+            "deviation_stdev_multiples": round(stdev_multiple, 2),
+            "baseline_mean": baseline["mean"],
+            "baseline_stdev": stdev,
+            "sample_size_days": baseline["sample_size_days"],
+            "direction": direction,
+        },
+    )
+
+
 def _active_shops(db: Session, limit: int) -> list[str]:
     """Return active shop domains that had at least 1 order in the last 30 days.
     Filters to merchants that could produce meaningful signals."""
@@ -415,6 +582,7 @@ def run_probe(db: Session, max_shops: int = _MAX_MERCHANTS_PER_CYCLE) -> ProbeRe
         ("attribution_drift", _check_attribution_drift),
         ("order_collapse",    _check_order_collapse),
         ("aov_drift",         _check_aov_drift),
+        ("merchant_anomaly",  _check_merchant_anomaly),
     )
 
     for shop in shops:

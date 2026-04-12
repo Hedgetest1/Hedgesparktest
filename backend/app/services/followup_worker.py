@@ -263,10 +263,15 @@ def _send_one_followup(
         record_followup_sent(db, shop_domain, variant, intent.intent_id)
 
         summary["sent"] += 1
+        from app.core.privacy import mask_email
         log.info(
             "followup_worker: sent variant=%s to=%s shop=%s",
-            variant, to_email, shop_domain,
+            variant, mask_email(to_email), shop_domain,
         )
     else:
         summary["failed"] += 1
-        log.warning("followup_worker: blocked variant=%s to=%s shop=%s", variant, to_email, shop_domain)
+        from app.core.privacy import mask_email
+        log.warning(
+            "followup_worker: blocked variant=%s to=%s shop=%s",
+            variant, mask_email(to_email), shop_domain,
+        )

@@ -147,6 +147,37 @@ def get_llm_budget(
     return get_usage_summary()
 
 
+@router.get("/compliance")
+def get_compliance_score(
+    force_refresh: bool = Query(default=False),
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Return the live security + GDPR compliance score.
+
+    Components:
+      * security_probes       — security heartbeat pass rate
+      * gdpr_sla              — active SLA breach count
+      * consent_rate          — 7d tracker consent ratio
+      * retention_sweep       — last sweep freshness
+      * security_guard_wall   — preflight guard health
+      * learning_isolation    — evidence_source gate status
+      * pii_masking_coverage  — static PII-in-log scan
+
+    Passing `force_refresh=true` recomputes instead of reading the cache.
+    The daily digest renders a one-line summary built from the same data.
+    """
+    from app.services.compliance_score import (
+        compute_compliance_score,
+        get_cached_compliance_score,
+    )
+    if not force_refresh:
+        cached = get_cached_compliance_score()
+        if cached is not None:
+            return cached
+    return compute_compliance_score(db)
+
+
 # ---------------------------------------------------------------------------
 # Ops Alerts
 # ---------------------------------------------------------------------------

@@ -1,0 +1,198 @@
+"use client";
+
+/**
+ * PeerBenchmarksCard — "You vs. Similar Shops"
+ *
+ * Shows the merchant's percentile rank against peers in their revenue band
+ * for 4 metrics (revenue, AOV, orders/day, growth). Loss-framed: every
+ * row has a "recover by moving to p75" € estimate.
+ *
+ * Data source: GET /pro/benchmarks. Privacy: minimum 10 peers per band,
+ * below that an explicit insufficient-data note.
+ */
+
+import { useEffect, useState } from "react";
+
+type BenchmarkMetric = {
+  value: number;
+  band: string;
+  peer_count: number;
+  percentile_rank: number;
+  p25: number;
+  p50: number;
+  p75: number;
+  p90: number;
+  recovery_to_p75_eur: number;
+  status: string;
+  narrative: string;
+};
+
+type BenchmarkData = {
+  shop_domain: string;
+  band: string | null;
+  peer_count: number;
+  metrics: Record<string, BenchmarkMetric>;
+  total_recovery_potential_eur: number;
+  generated_at: string | null;
+  note?: string | null;
+  error?: string | null;
+};
+
+const METRIC_LABELS: Record<string, string> = {
+  monthly_revenue: "Monthly revenue",
+  aov: "Average order value",
+  orders_per_day: "Orders per day",
+  revenue_growth_30d_pct: "Revenue growth",
+};
+
+function fmtMoney(n: number): string {
+  if (n === 0) return "€0";
+  const absN = Math.abs(n);
+  if (absN >= 1000) return "€" + (absN / 1000).toFixed(absN >= 10_000 ? 0 : 1) + "k";
+  return "€" + Math.round(absN);
+}
+
+function fmtMetricValue(metric: string, v: number): string {
+  if (metric === "revenue_growth_30d_pct") return v.toFixed(0) + "%";
+  if (metric === "orders_per_day") return v.toFixed(1);
+  if (metric === "monthly_revenue" || metric === "aov") return fmtMoney(v);
+  return String(Math.round(v));
+}
+
+function statusColor(status: string): string {
+  switch (status) {
+    case "top_decile":   return "#34d399"; // emerald
+    case "top_quartile": return "#a3e635"; // lime
+    case "above_median": return "#fbbf24"; // amber
+    case "below_median": return "#f87171"; // rose
+    default:             return "#94a3b8";
+  }
+}
+
+export function PeerBenchmarksCard({
+  apiBase,
+  shop,
+  isProUser,
+}: {
+  apiBase: string;
+  shop: string;
+  isProUser: boolean;
+}) {
+  const [data, setData] = useState<BenchmarkData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!apiBase || !shop || !isProUser) { setLoading(false); return; }
+    let active = true;
+    setLoading(true);
+    fetch(`${apiBase}/pro/benchmarks`, {
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((j: BenchmarkData) => { if (active) setData(j); })
+      .catch(() => { if (active) setData(null); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [apiBase, shop, isProUser]);
+
+  if (!isProUser) return null;
+
+  if (loading) {
+    return (
+      <div className="animate-pulse rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
+        <div className="h-3 w-32 rounded bg-white/[0.06]" />
+        <div className="mt-3 space-y-2">
+          {[0, 1, 2, 3].map((i) => (<div key={i} className="h-10 rounded bg-white/[0.04]" />))}
+        </div>
+      </div>
+    );
+  }
+
+  if (!data || data.error || data.note) {
+    return (
+      <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
+        <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[#d4893a]">
+          You vs. Similar Shops
+        </div>
+        <h3 className="text-[15px] font-bold text-white">How you compare to peers</h3>
+        <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
+          {data?.note || "Comparison not available yet — we need at least 10 similar shops in your revenue band. Keep running — this activates automatically."}
+        </p>
+      </div>
+    );
+  }
+
+  const entries = Object.entries(data.metrics);
+  const totalRecovery = data.total_recovery_potential_eur || 0;
+
+  return (
+    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
+      <div className="mb-3 flex items-start justify-between">
+        <div>
+          <div className="mb-0.5 text-[10px] font-bold uppercase tracking-[0.18em] text-[#d4893a]">
+            You vs. Similar Shops
+          </div>
+          <h3 className="text-[15px] font-bold text-white">How you compare to peers</h3>
+          <p className="mt-1 text-[11px] text-slate-500">
+            {data.peer_count} shops in the <span className="font-semibold text-slate-300">{data.band}</span> revenue band
+          </p>
+        </div>
+        {totalRecovery > 0 && (
+          <div className="flex-shrink-0 rounded-lg border border-amber-400/20 bg-amber-500/[0.06] px-3 py-2 text-right">
+            <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-amber-400">
+              Could recover
+            </div>
+            <div className="text-[18px] font-extrabold tabular-nums text-amber-300">
+              {fmtMoney(totalRecovery)}/mo
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        {entries.map(([metric, m]) => {
+          const color = statusColor(m.status);
+          const rank = Math.round(m.percentile_rank);
+          return (
+            <div key={metric} className="rounded-xl border border-white/[0.04] bg-white/[0.015] p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[12px] font-semibold text-slate-200">
+                      {METRIC_LABELS[metric] || metric}
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      you: <span className="font-mono tabular-nums text-slate-300">{fmtMetricValue(metric, m.value)}</span>
+                    </span>
+                  </div>
+                  <div className="mt-1 text-[10px] text-slate-500">
+                    p25 {fmtMetricValue(metric, m.p25)} · p50 {fmtMetricValue(metric, m.p50)} · p75 {fmtMetricValue(metric, m.p75)}
+                  </div>
+                </div>
+                <div
+                  className="flex-shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold tabular-nums"
+                  style={{ color, background: color + "20", border: `1px solid ${color}40` }}
+                >
+                  p{rank}
+                </div>
+              </div>
+              {/* Rank bar */}
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.05]">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{ width: `${Math.min(100, rank)}%`, background: color }}
+                />
+              </div>
+              {m.recovery_to_p75_eur > 0 && (
+                <div className="mt-1.5 text-[10px] text-amber-300">
+                  → moving to p75 = <span className="font-semibold">+{fmtMoney(m.recovery_to_p75_eur)}/mo</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

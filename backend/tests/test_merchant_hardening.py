@@ -160,6 +160,17 @@ def test_ai_nudge_compose_upgrades_pending_and_clears_flag(db, monkeypatch):
         "app.services.nudge_composer.compose_nudge_variants",
         _mock_compose,
     )
+    # Gate added in commit 482e292 — protection_state reads live LLM
+    # budget / Redis / worker_state. Tests must mock it to OK so the
+    # worker path exercises the composition logic under test.
+    monkeypatch.setattr(
+        "app.core.protection_state.protection_state",
+        lambda *a, **k: {
+            "level": "OK",
+            "protective_actions": [],
+            "subsystems": {"llm": {"level": "ok"}},
+        },
+    )
 
     upgraded = _run_ai_nudge_compose(db)
     db.flush()
@@ -212,6 +223,17 @@ def test_ai_nudge_compose_respects_batch_cap(db, monkeypatch):
         "app.services.nudge_composer.compose_nudge_variants",
         _mock_compose,
     )
+    # Gate added in commit 482e292 — protection_state reads live LLM
+    # budget / Redis / worker_state. Tests must mock it to OK so the
+    # worker path exercises the composition logic under test.
+    monkeypatch.setattr(
+        "app.core.protection_state.protection_state",
+        lambda *a, **k: {
+            "level": "OK",
+            "protective_actions": [],
+            "subsystems": {"llm": {"level": "ok"}},
+        },
+    )
 
     upgraded = _run_ai_nudge_compose(db)
     assert upgraded == 5  # hard cap
@@ -248,6 +270,14 @@ def test_ai_nudge_compose_clears_flag_on_composer_failure(db, monkeypatch):
     monkeypatch.setattr(
         "app.services.nudge_composer.compose_nudge_variants",
         _empty_compose,
+    )
+    monkeypatch.setattr(
+        "app.core.protection_state.protection_state",
+        lambda *a, **k: {
+            "level": "OK",
+            "protective_actions": [],
+            "subsystems": {"llm": {"level": "ok"}},
+        },
     )
 
     _run_ai_nudge_compose(db)
