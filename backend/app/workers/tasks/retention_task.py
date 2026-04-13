@@ -100,10 +100,17 @@ def run_nudge_event_retention(conn) -> int:
 
 
 def run_worker_log_retention(conn) -> int:
-    """Delete worker_log entries older than WORKER_LOG_RETENTION_DAYS."""
+    """
+    Delete worker_log entries older than WORKER_LOG_RETENTION_DAYS.
+
+    NB: column is `started_at` (not `created_at`) — the original
+    aggregation_worker.py had a typo that meant this retention job had
+    been silently failing for months, deleting nothing and filling the
+    error log. Fixed 2026-04-13 as part of the post-refactor bug sweep.
+    """
     cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=WORKER_LOG_RETENTION_DAYS)
     result = conn.execute(
-        text("DELETE FROM worker_log WHERE created_at < :cutoff"),
+        text("DELETE FROM worker_log WHERE started_at < :cutoff"),
         {"cutoff": cutoff},
     )
     return result.rowcount
