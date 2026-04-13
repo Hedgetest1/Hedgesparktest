@@ -22,28 +22,68 @@ def _base_causal(hyps=None):
     return {"hypotheses": hyps or []}
 
 
-def test_sleep_confidence_all_clear():
-    score, label = nsa._compute_sleep_confidence(
+def test_sleep_confidence_all_clear_capped_uncalibrated(monkeypatch):
+    """All signals green → raw 100 but capped at 85 pre-calibration."""
+    from app.services import night_shift_calibration as nsc
+    monkeypatch.setattr(nsc, "is_calibrated", lambda shop: False)
+    monkeypatch.setattr(nsc, "observation_count", lambda shop: 5)
+
+    score, label, prov = nsa._compute_sleep_confidence(
         fusion_alert_count=0,
         critical_alerts=0,
+        warning_alerts=0,
         prevented_eur_24h=5.0,
         rars_total=0.0,
-        has_causal_hypothesis=False,
+        has_causal_hypothesis=True,
+        shop_domain="test.myshopify.com",
     )
-    assert score == 100
-    assert label == "full autonomy"
+    assert prov["raw_score"] == 100
+    assert score == 85  # capped
+    assert "uncalibrated" in label
+    assert not prov["calibrated"]
+    # Every named contribution is present
+    names = {c["name"] for c in prov["contributions"]}
+    assert {"baseline", "no_critical_alerts", "low_warning_load", "low_rars_total",
+            "prevention_evidence", "causal_known", "data_fresh"}.issubset(names)
 
 
-def test_sleep_confidence_critical_drops_hard():
-    score, label = nsa._compute_sleep_confidence(
+def test_sleep_confidence_critical_drops_hard(monkeypatch):
+    from app.services import night_shift_calibration as nsc
+    monkeypatch.setattr(nsc, "is_calibrated", lambda shop: False)
+    monkeypatch.setattr(nsc, "observation_count", lambda shop: 0)
+
+    score, label, prov = nsa._compute_sleep_confidence(
         fusion_alert_count=4,
         critical_alerts=2,
+        warning_alerts=2,
         prevented_eur_24h=0.0,
         rars_total=1200.0,
         has_causal_hypothesis=True,
+        shop_domain="test.myshopify.com",
     )
-    assert score == 40
-    assert label == "human-in-loop"
+    # baseline 30 + causal 10 + data_fresh 10 + low_warn 10 = 60  (critical, rars, prevention = 0)
+    assert score == 60
+    assert "guided autonomy" in label or "uncalibrated" in label
+
+
+def test_sleep_confidence_calibrated_path_uncapped(monkeypatch):
+    """Once calibrated, the cap lifts and full autonomy label is reachable."""
+    from app.services import night_shift_calibration as nsc
+    monkeypatch.setattr(nsc, "is_calibrated", lambda shop: True)
+    monkeypatch.setattr(nsc, "observation_count", lambda shop: 100)
+
+    score, label, prov = nsa._compute_sleep_confidence(
+        fusion_alert_count=0,
+        critical_alerts=0,
+        warning_alerts=0,
+        prevented_eur_24h=5.0,
+        rars_total=0.0,
+        has_causal_hypothesis=True,
+        shop_domain="test.myshopify.com",
+    )
+    assert score == 100
+    assert label == "full autonomy"
+    assert prov["calibrated"] is True
 
 
 def test_pick_top_action_prefers_rars_largest():

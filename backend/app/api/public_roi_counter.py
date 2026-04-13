@@ -89,16 +89,20 @@ def _compute() -> dict:
             # shop_classification table may not exist in dev — ignore
             vertical_rows = []
 
-        # Seed floor so the landing counter never shows €0 during quiet
-        # onboarding windows — this is social-proof, not an accounting
-        # ledger. Floor is the publicly-stated cumulative network recovery.
-        # Bump this number manually as the network scales.
-        floor = 125_000.0
-        effective_total = max(total, floor)
+        # State flag — drives honest rendering on the landing page.
+        # "live"     → real data, counter reflects actual network activity
+        # "warming"  → onboarding window, not enough signal to publish a number
+        # We never fabricate a floor. If total < threshold we say so.
+        _MIN_PUBLISH_EUR = 1_000.0
+        _MIN_SHOPS = 3
+        if total >= _MIN_PUBLISH_EUR and shops >= _MIN_SHOPS:
+            state = "live"
+        else:
+            state = "warming"
 
         return {
-            "prevented_eur_30d": round(effective_total, 2),
-            "raw_prevented_eur_30d": round(total, 2),
+            "state": state,
+            "prevented_eur_30d": round(total, 2),
             "shops_contributing": shops,
             "by_vertical": [
                 {"vertical": v, "prevented_eur": round(p, 2)}
@@ -106,6 +110,10 @@ def _compute() -> dict:
             ],
             "window_days": 30,
             "generated_at": _now_iso(),
+            "publish_thresholds": {
+                "min_eur": _MIN_PUBLISH_EUR,
+                "min_shops": _MIN_SHOPS,
+            },
         }
     finally:
         db.close()

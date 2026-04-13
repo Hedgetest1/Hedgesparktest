@@ -1,5 +1,5 @@
 # WishSpark Auto Context
-Auto-generated: 2026-04-13T14:00:01.936399 UTC
+Auto-generated: 2026-04-13T15:00:01.131818 UTC
 
 ## Project Root
 /opt/wishspark
@@ -25,6 +25,7 @@ Auto-generated: 2026-04-13T14:00:01.936399 UTC
 /backend/app/api/anomaly_fusion.py
 /backend/app/api/attribution.py
 /backend/app/api/auth.py
+/backend/app/api/auth_posture.py
 /backend/app/api/benchmarks.py
 /backend/app/api/benchmarks_vertical.py
 /backend/app/api/billing.py
@@ -46,6 +47,7 @@ Auto-generated: 2026-04-13T14:00:01.936399 UTC
 /backend/app/api/decision_engine.py
 /backend/app/api/events.py
 /backend/app/api/execution_actions.py
+/backend/app/api/feature_flags_admin.py
 /backend/app/api/forecasts.py
 /backend/app/api/frontend_errors.py
 /backend/app/api/funnel.py
@@ -112,6 +114,7 @@ Auto-generated: 2026-04-13T14:00:01.936399 UTC
 /backend/app/api/shopify_oauth.py
 /backend/app/api/shopify_refunds.py
 /backend/app/api/signal_webhooks.py
+/backend/app/api/slo_api.py
 /backend/app/api/source_quality.py
 /backend/app/api/store_intelligence.py
 /backend/app/api/storefront_preview.py
@@ -231,6 +234,7 @@ Auto-generated: 2026-04-13T14:00:01.936399 UTC
 /backend/app/services/monthly_evolution_audit.py
 /backend/app/services/mta_engine.py
 /backend/app/services/night_shift_agent.py
+/backend/app/services/night_shift_calibration.py
 /backend/app/services/nudge_composer.py
 /backend/app/services/nudge_dna.py
 /backend/app/services/nudge_engine.py
@@ -350,6 +354,7 @@ Auto-generated: 2026-04-13T14:00:01.936399 UTC
 /backend/app/models/merge_outcome.py
 /backend/app/models/meta_review.py
 /backend/app/models/model_upgrade.py
+/backend/app/models/night_shift_report.py
 /backend/app/models/nudge_event.py
 /backend/app/models/nudge_impression_daily.py
 /backend/app/models/onboarding_event.py
@@ -390,6 +395,7 @@ Auto-generated: 2026-04-13T14:00:01.936399 UTC
 /agency
 /app
 /app/groups
+/app/marketplace
 /cookies
 /insights
 /install

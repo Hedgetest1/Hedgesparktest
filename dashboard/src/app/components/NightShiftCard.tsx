@@ -35,6 +35,15 @@ type JournalEntry = {
   weight: number;
 };
 
+type Provenance = {
+  raw_score: number;
+  capped_score: number;
+  calibrated: boolean;
+  observations: number;
+  cap_reason: string | null;
+  contributions: Array<{ name: string; points: number; reason: string }>;
+};
+
 type NightShiftReport = {
   shop_domain: string;
   day: string;
@@ -50,6 +59,7 @@ type NightShiftReport = {
     prevented_24h_eur: number;
     fusion_alert_count: number;
     critical_alerts: number;
+    sleep_confidence_provenance?: Provenance;
   };
   status: "quiet" | "active" | "alarm" | string;
 };
@@ -133,6 +143,8 @@ export function NightShiftCard({
 
   const accent = STATUS_ACCENT[data.status] || STATUS_ACCENT.quiet;
   const confidencePct = Math.max(0, Math.min(100, data.sleep_confidence));
+  const prov = data.metrics?.sleep_confidence_provenance;
+  const isCalibrated = prov?.calibrated ?? false;
 
   const applyAction = async () => {
     if (!data.top_action || applying || applied) return;
@@ -182,9 +194,18 @@ export function NightShiftCard({
             className="rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wide tabular-nums"
             style={{ color: accent.pill, background: accent.pillBg, border: `1px solid ${accent.pill}40` }}
             aria-label={`Sleep confidence ${confidencePct} out of 100`}
+            title={prov?.cap_reason || undefined}
           >
             {confidencePct}/100 · {data.sleep_confidence_label}
           </div>
+          {!isCalibrated && prov && (
+            <div
+              className="mt-1 text-right text-[9px] font-semibold uppercase tracking-wide text-amber-300/80"
+              title="Calibration collects 30 matched observations before we trust a 'full autonomy' label. This is the honest default."
+            >
+              Score uncalibrated · {prov.observations} obs
+            </div>
+          )}
           <div className="mt-2 h-1 w-32 overflow-hidden rounded-full bg-white/[0.05]" aria-hidden="true">
             <div
               className="h-full rounded-full transition-all duration-700"

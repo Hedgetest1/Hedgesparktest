@@ -40,6 +40,8 @@ def list_templates_endpoint(
     limit: int = Query(default=50, ge=1, le=200),
 ):
     from app.services.community_marketplace import list_templates
+    from app.core.feature_usage import track
+    track("community_marketplace", shop)
     # If the caller didn't specify a vertical, infer from their shop classification
     if not vertical:
         try:

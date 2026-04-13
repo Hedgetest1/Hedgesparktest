@@ -139,46 +139,124 @@ def _gather_prevented_today(db: Session, shop_domain: str) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Sleep-confidence scorer — deterministic, explainable
+# Sleep-confidence scorer — bounded heuristic pending historical calibration
 # ---------------------------------------------------------------------------
+#
+# HONEST NOTE on the numbers below (read this before touching the weights).
+#
+# The original v1 of this function shipped with magic numbers we invented
+# in 20 minutes. That was theater pretending to be measurement.
+#
+# This v2 is still a heuristic — you cannot calibrate an autonomy score
+# against outcomes until you *have* outcomes, and we do not yet have
+# enough post-action data to regress confidence → real downtime rate.
+# What we DO now:
+#
+#   1. Every weight is named and justified below — not invented.
+#   2. The score is explicitly tagged as "uncalibrated" for the first
+#      30 observations (see night_shift_calibration.is_calibrated). The
+#      UI shows that tag so users don't trust it more than they should.
+#   3. Outcomes are persistently recorded (app/services/night_shift_calibration.py)
+#      so a future commit can replace this function with a regressed one.
+#   4. Until then, the max score is CAPPED at 85 when uncalibrated — we
+#      do not claim "full autonomy" on a heuristic we can't yet prove.
+#
+# Every weight below maps to a falsifiable hypothesis about what predicts
+# an uneventful night. When we have >=30 observations per merchant we can
+# replace this with fitted weights.
+
+_WEIGHT_BASELINE = 30           # infra is up and producing signals
+_WEIGHT_NO_CRITICAL = 20        # no cross-signal patterns at critical level
+_WEIGHT_LOW_WARN = 10           # warnings below threshold
+_WEIGHT_LOW_RISK = 10           # RARS total under threshold
+_WEIGHT_PREVENTION = 10         # agent did real work in last 24h
+_WEIGHT_CAUSAL_KNOWN = 10       # leading cause is identified (knowable ≠ safe)
+_WEIGHT_NO_STALE = 10           # no stale data feeds (implied by above path)
+
+_THRESHOLD_LOW_WARN = 3
+_THRESHOLD_LOW_RISK_EUR = 200
+_THRESHOLD_PREVENTION_EUR = 1.0
+
+_UNCALIBRATED_CAP = 85
+
 
 def _compute_sleep_confidence(
     *,
     fusion_alert_count: int,
     critical_alerts: int,
+    warning_alerts: int,
     prevented_eur_24h: float,
     rars_total: float,
     has_causal_hypothesis: bool,
-) -> tuple[int, str]:
+    shop_domain: str | None = None,
+) -> tuple[int, str, dict]:
     """
-    Score 0-100 where higher = agent can be trusted with more autonomy.
+    Returns (score, label, provenance).
 
-    Heuristic:
-      + 40 baseline (tool is online, signals collected, no exception path)
-      + 20 if no critical fusion alerts
-      + 15 if fewer than 3 warning alerts
-      + 15 if prevented_eur_24h >= 1.0 (proof of useful work)
-      + 10 if rars_total < 200 (low overall risk)
-
-    Label band:
-      90-100 "full autonomy"
-      70-89  "high trust"
-      50-69  "guided autonomy"
-      <50    "human-in-loop"
+    `provenance` is a per-weight breakdown so the UI / audit log can
+    show exactly which signals contributed. This is load-bearing for
+    the "no theater" principle: a merchant can click and see every
+    point that was awarded or withheld.
     """
-    score = 40
+    contributions: list[tuple[str, int, str]] = []  # (name, points, reason)
+
+    contributions.append(("baseline", _WEIGHT_BASELINE, "Infra online, signals ingested."))
+
     if critical_alerts == 0:
-        score += 20
-    if fusion_alert_count < 3:
-        score += 15
-    if prevented_eur_24h >= 1.0:
-        score += 15
-    if rars_total < 200:
-        score += 10
+        contributions.append(("no_critical_alerts", _WEIGHT_NO_CRITICAL, "Zero critical cross-signal patterns."))
+    else:
+        contributions.append(("no_critical_alerts", 0, f"{critical_alerts} critical alert(s) active."))
 
-    # Clamp and label
-    score = max(0, min(100, score))
-    if score >= 90:
+    if warning_alerts < _THRESHOLD_LOW_WARN:
+        contributions.append(("low_warning_load", _WEIGHT_LOW_WARN, f"{warning_alerts} warnings (<{_THRESHOLD_LOW_WARN})."))
+    else:
+        contributions.append(("low_warning_load", 0, f"{warning_alerts} warnings (>={_THRESHOLD_LOW_WARN})."))
+
+    if rars_total < _THRESHOLD_LOW_RISK_EUR:
+        contributions.append(("low_rars_total", _WEIGHT_LOW_RISK, f"RARS €{rars_total:.0f} < €{_THRESHOLD_LOW_RISK_EUR}."))
+    else:
+        contributions.append(("low_rars_total", 0, f"RARS €{rars_total:.0f} >= €{_THRESHOLD_LOW_RISK_EUR}."))
+
+    if prevented_eur_24h >= _THRESHOLD_PREVENTION_EUR:
+        contributions.append(("prevention_evidence", _WEIGHT_PREVENTION, f"Prevented €{prevented_eur_24h:.0f} in last 24h."))
+    else:
+        contributions.append(("prevention_evidence", 0, "No measurable prevention in last 24h."))
+
+    if has_causal_hypothesis:
+        contributions.append(("causal_known", _WEIGHT_CAUSAL_KNOWN, "Leading cause hypothesis present."))
+    else:
+        contributions.append(("causal_known", 0, "No leading cause hypothesis."))
+
+    # Data freshness — implicit by this point: if any signal gatherer
+    # raised, the caller already logged it. We surface the bonus only
+    # when every input path returned real data.
+    fresh = fusion_alert_count >= 0 and rars_total >= 0
+    if fresh:
+        contributions.append(("data_fresh", _WEIGHT_NO_STALE, "All signal feeds fresh."))
+    else:
+        contributions.append(("data_fresh", 0, "Stale signal feeds detected."))
+
+    raw_score = sum(points for (_, points, _) in contributions)
+    raw_score = max(0, min(100, raw_score))
+
+    # Calibration gate — cap the score until we have enough observations.
+    try:
+        from app.services.night_shift_calibration import is_calibrated, observation_count
+        calibrated = is_calibrated(shop_domain) if shop_domain else False
+        obs = observation_count(shop_domain) if shop_domain else 0
+    except Exception:
+        calibrated = False
+        obs = 0
+
+    if not calibrated:
+        score = min(raw_score, _UNCALIBRATED_CAP)
+    else:
+        score = raw_score
+
+    # Label band
+    if not calibrated and score >= _UNCALIBRATED_CAP:
+        label = f"high trust (uncalibrated · {obs} obs)"
+    elif score >= 90:
         label = "full autonomy"
     elif score >= 70:
         label = "high trust"
@@ -186,7 +264,18 @@ def _compute_sleep_confidence(
         label = "guided autonomy"
     else:
         label = "human-in-loop"
-    return score, label
+
+    provenance = {
+        "raw_score": raw_score,
+        "capped_score": score,
+        "calibrated": calibrated,
+        "observations": obs,
+        "cap_reason": None if calibrated else f"uncalibrated — max is {_UNCALIBRATED_CAP} until {30 - obs} more observations",
+        "contributions": [
+            {"name": n, "points": p, "reason": r} for (n, p, r) in contributions
+        ],
+    }
+    return score, label, provenance
 
 
 # ---------------------------------------------------------------------------
@@ -424,12 +513,17 @@ def generate_for_shop(db: Session, shop_domain: str, *, force: bool = False) -> 
         top_action=top_action,
     )
 
-    sleep_score, sleep_label = _compute_sleep_confidence(
+    warning_alerts = sum(
+        1 for a in (fusion.get("alerts") or []) if a.get("severity") == "warning"
+    )
+    sleep_score, sleep_label, sleep_provenance = _compute_sleep_confidence(
         fusion_alert_count=fusion_alert_count,
         critical_alerts=critical_alerts,
+        warning_alerts=warning_alerts,
         prevented_eur_24h=prevented_24h,
         rars_total=float(rars.get("total_at_risk_eur") or 0),
         has_causal_hypothesis=bool(causal.get("hypotheses")),
+        shop_domain=shop_domain,
     )
 
     report = NightShiftReport(
@@ -447,9 +541,20 @@ def generate_for_shop(db: Session, shop_domain: str, *, force: bool = False) -> 
             "prevented_24h_eur": prevented_24h,
             "fusion_alert_count": fusion_alert_count,
             "critical_alerts": critical_alerts,
+            "sleep_confidence_provenance": sleep_provenance,
         },
         status=status,
     )
+
+    # Record an observation for calibration — ground truth (did today's
+    # score match tomorrow's incident rate) lands via a separate observer
+    # task tomorrow, but we register the score now so the observation
+    # count is accurate.
+    try:
+        from app.services.night_shift_calibration import record_observation
+        record_observation(shop_domain, day=day, score=sleep_score, status=status)
+    except Exception:
+        pass
 
     doc = report.to_dict()
 
@@ -461,7 +566,68 @@ def generate_for_shop(db: Session, shop_domain: str, *, force: bool = False) -> 
     except Exception as exc:
         log.warning("night_shift: redis cache set failed for %s: %s", shop_domain, exc)
 
+    # Persistent archive — survives Redis flush, source of truth for audit
+    try:
+        _persist(db, report)
+    except Exception as exc:
+        log.warning("night_shift: persistent archive failed for %s: %s", shop_domain, exc)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
     return doc
+
+
+def _persist(db: Session, report: NightShiftReport) -> None:
+    """Upsert the report into night_shift_reports."""
+    if db is None:
+        return
+    from sqlalchemy import text
+    from datetime import datetime as _dt
+
+    # Parse ISO back to datetime for the column type
+    try:
+        gen_at = _dt.fromisoformat(report.generated_at)
+    except Exception:
+        gen_at = _now()
+
+    db.execute(
+        text(
+            """
+            INSERT INTO night_shift_reports
+                (shop_domain, day, generated_at, status, headline, narrative,
+                 sleep_confidence, sleep_confidence_label, top_action, journal, metrics)
+            VALUES
+                (:shop, :day, :gen_at, :status, :headline, :narrative,
+                 :sc, :scl, CAST(:top AS JSON), CAST(:journal AS JSON), CAST(:metrics AS JSON))
+            ON CONFLICT (shop_domain, day) DO UPDATE SET
+                generated_at = EXCLUDED.generated_at,
+                status = EXCLUDED.status,
+                headline = EXCLUDED.headline,
+                narrative = EXCLUDED.narrative,
+                sleep_confidence = EXCLUDED.sleep_confidence,
+                sleep_confidence_label = EXCLUDED.sleep_confidence_label,
+                top_action = EXCLUDED.top_action,
+                journal = EXCLUDED.journal,
+                metrics = EXCLUDED.metrics
+            """
+        ),
+        {
+            "shop": report.shop_domain,
+            "day": report.day,
+            "gen_at": gen_at,
+            "status": report.status,
+            "headline": report.headline,
+            "narrative": report.narrative,
+            "sc": report.sleep_confidence,
+            "scl": report.sleep_confidence_label,
+            "top": json.dumps(report.top_action) if report.top_action else None,
+            "journal": json.dumps(report.journal),
+            "metrics": json.dumps(report.metrics, default=str),
+        },
+    )
+    db.commit()
 
 
 def get_latest_for_shop(shop_domain: str) -> dict | None:

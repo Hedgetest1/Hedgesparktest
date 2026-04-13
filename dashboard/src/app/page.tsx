@@ -78,6 +78,7 @@ function useSignalCount() {
 
 /* ── Live network ROI counter (Phase Ω⁵) ── */
 type RoiCounterDoc = {
+  state: "live" | "warming";
   prevented_eur_30d: number;
   shops_contributing: number;
   by_vertical: Array<{ vertical: string; prevented_eur: number }>;
@@ -144,12 +145,54 @@ function useCountUp(target: number, durationMs = 1200): number {
 
 function RoiCounterBanner() {
   const { doc, live } = useRoiCounter();
-  const target = Math.round(doc?.prevented_eur_30d ?? 125000);
+  const isLive = doc?.state === "live";
+  const target = isLive ? Math.round(doc?.prevented_eur_30d ?? 0) : 0;
   const animated = useCountUp(target);
   const [hovering, setHovering] = useState(false);
 
   const formatted = new Intl.NumberFormat("en-US").format(animated);
   const topVerticals = (doc?.by_vertical ?? []).slice(0, 5);
+
+  // Honesty-first rendering. When the network is still warming up, we do
+  // NOT show a fabricated number. We tell the truth: the network is
+  // launching, be the first. That IS the social proof for an early-stage
+  // premium product — "we don't bullshit".
+  if (!doc || !isLive) {
+    return (
+      <R d={0.1}>
+        <div className="mx-auto mt-10 max-w-[48rem] px-6">
+          <div
+            role="figure"
+            aria-label="HedgeSpark network launching — no fabricated numbers"
+            className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 backdrop-blur"
+          >
+            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#d4893a]/40 to-transparent" />
+            <div className="flex flex-col items-center text-center">
+              <div className="mb-1 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#d4893a]">
+                <span className="relative inline-flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#d4893a]/60" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[#d4893a]" />
+                </span>
+                Network launching · Be one of the first
+              </div>
+              <h2 className="mt-3 max-w-xl text-[20px] font-bold leading-snug text-white sm:text-[24px]">
+                We refuse to fabricate a counter.
+              </h2>
+              <p className="mt-3 max-w-md text-[13px] leading-relaxed text-slate-400">
+                Other tools dress landing pages with inflated &ldquo;recovered&rdquo; totals on day one.
+                Ours stays honest — the counter here goes live the moment real merchants recover real money.
+                {doc && (
+                  <span className="mt-2 block text-[11px] text-slate-500">
+                    Currently tracking {doc.shops_contributing} active merchant{doc.shops_contributing === 1 ? "" : "s"}.
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+        </div>
+      </R>
+    );
+  }
 
   return (
     <R d={0.1}>
@@ -177,7 +220,7 @@ function RoiCounterBanner() {
               €{formatted}
             </div>
             <div className="mt-2 text-[13px] text-slate-400">
-              recovered across {doc?.shops_contributing ?? 0} Shopify merchants
+              recovered across {doc.shops_contributing} Shopify merchant{doc.shops_contributing === 1 ? "" : "s"}
             </div>
           </div>
 
@@ -383,8 +426,14 @@ function Hero() {
 function Numbers() {
   const signalCount = useSignalCount();
 
+  // Honesty rule: only surface numbers we can verify at render time.
+  // If the live signal count is null (API down or warming up), we do NOT
+  // fall back to a fabricated "2,400+". We fall back to a claim that is
+  // true by construction.
   const stats = [
-    { value: signalCount ? signalCount.toLocaleString() : "2,400+", label: "Signals detected this week", color: "text-[#d4893a]" },
+    signalCount
+      ? { value: signalCount.toLocaleString(), label: "Signals detected this week", color: "text-[#d4893a]" }
+      : { value: "Every visit", label: "Tracked from day one", color: "text-[#d4893a]" },
     { value: "5 min", label: "To first insight after install", color: "text-[#a855f7]" },
     { value: "<5kb", label: "Zero impact on store speed", color: "text-emerald-400" },
   ];
@@ -818,10 +867,11 @@ function ProStack() {
         <R className="text-center">
           <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#d4893a]">Full intelligence stack</span>
           <h2 className="mt-5 text-[2.25rem] font-extrabold leading-[1.1] text-white sm:text-[3rem] lg:text-[3.5rem]">
-            16 capabilities. Zero theater.
+            16 capabilities. Every one wired to real data.
           </h2>
           <p className="mx-auto mt-6 max-w-[44rem] text-[18px] leading-[1.7] text-slate-400">
-            Every number in your dashboard is computed from real visitor behavior and real orders.
+            Every number in your dashboard is computed from real visitor behavior and real orders in your store.
+            If a capability needs more data to be reliable, the UI says so instead of guessing.
             No demo data. No estimates. No placeholders.
           </p>
         </R>

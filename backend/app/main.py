@@ -166,7 +166,12 @@ from app.api.community_marketplace import router as community_marketplace_router
 from app.api.realtime_stream import router as realtime_stream_router
 from app.api.night_shift import router as night_shift_router
 from app.api.public_roi_counter import router as public_roi_counter_router
+from app.api.feature_flags_admin import router as feature_flags_admin_router
+from app.api.slo_api import router as slo_api_router
+from app.api.auth_posture import router as auth_posture_router
+from app.api.feature_usage_api import router as feature_usage_router
 from app.models.community_template import CommunityTemplate, CommunityTemplateClone  # noqa: F401
+from app.models.night_shift_report import NightShiftReport as NightShiftReportModel  # noqa: F401
 from app.models.merchant_group import MerchantGroup, MerchantGroupMember  # noqa: F401
 from app.models.agency import Agency, AgencyClient  # noqa: F401
 from app.models.outbound_webhook import OutboundWebhookSubscription, OutboundWebhookDelivery  # noqa: F401
@@ -360,6 +365,47 @@ _STRICT_API_CSP = (
 
 
 @app.middleware("http")
+async def slo_timing_middleware(request: Request, call_next):
+    """Record per-route timing into the SLO observability layer.
+
+    Runs unconditionally. Never raises into the request path — any
+    internal failure logs and continues.
+    """
+    import time as _time
+    started = _time.monotonic()
+    try:
+        response = await call_next(request)
+        status = response.status_code
+    except Exception:
+        # Still record the timing for a thrown exception (status 500)
+        dur_ms = (_time.monotonic() - started) * 1000
+        try:
+            from app.core.slo import record_timing
+            record_timing(
+                route=request.url.path,
+                method=request.method,
+                status=500,
+                duration_ms=dur_ms,
+            )
+        except Exception:
+            pass
+        raise
+
+    try:
+        from app.core.slo import record_timing
+        dur_ms = (_time.monotonic() - started) * 1000
+        record_timing(
+            route=request.url.path,
+            method=request.method,
+            status=status,
+            duration_ms=dur_ms,
+        )
+    except Exception:
+        pass
+    return response
+
+
+@app.middleware("http")
 async def security_headers_middleware(request: Request, call_next):
     response = await call_next(request)
     path = request.url.path
@@ -502,6 +548,10 @@ app.include_router(community_marketplace_router)
 app.include_router(realtime_stream_router)
 app.include_router(night_shift_router)
 app.include_router(public_roi_counter_router)
+app.include_router(feature_flags_admin_router)
+app.include_router(slo_api_router)
+app.include_router(auth_posture_router)
+app.include_router(feature_usage_router)
 app.include_router(refund_loss_router)
 app.include_router(goals_router)
 app.include_router(rars_router)

@@ -27,6 +27,8 @@ def get_latest(
     the morning card is never empty.
     """
     from app.services.night_shift_agent import get_latest_for_shop, generate_for_shop
+    from app.core.feature_usage import track
+    track("night_shift_agent", shop)
     doc = get_latest_for_shop(shop)
     if doc is None:
         doc = generate_for_shop(db, shop, force=False)
@@ -41,6 +43,42 @@ def force_run(
     """Force a fresh run, bypassing the per-day cache."""
     from app.services.night_shift_agent import generate_for_shop
     return generate_for_shop(db, shop, force=True)
+
+
+@router.get("/pro/night-shift/history")
+def get_history(
+    shop: str = Depends(require_pro_session),
+    db: Session = Depends(get_db),
+    limit: int = 14,
+):
+    """Return the most recent N nights from persistent archive."""
+    from sqlalchemy import text
+    rows = db.execute(
+        text(
+            """
+            SELECT day, status, headline, sleep_confidence, sleep_confidence_label, generated_at
+            FROM night_shift_reports
+            WHERE shop_domain = :shop
+            ORDER BY day DESC
+            LIMIT :lim
+            """
+        ),
+        {"shop": shop, "lim": max(1, min(60, limit))},
+    ).fetchall()
+    return {
+        "shop_domain": shop,
+        "reports": [
+            {
+                "day": r[0],
+                "status": r[1],
+                "headline": r[2],
+                "sleep_confidence": r[3],
+                "sleep_confidence_label": r[4],
+                "generated_at": r[5].isoformat() if r[5] else None,
+            }
+            for r in rows
+        ],
+    }
 
 
 @router.post("/pro/night-shift/apply")

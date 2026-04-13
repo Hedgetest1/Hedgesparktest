@@ -1,5 +1,5 @@
 # WishSpark Server Context
-Auto-generated: 2026-04-13T14:00:01.928455 UTC
+Auto-generated: 2026-04-13T15:00:01.129093 UTC
 
 ## Base Path
 /opt/wishspark
@@ -24,6 +24,7 @@ Process Manager: PM2
 /backend/app/api/anomaly_fusion.py
 /backend/app/api/attribution.py
 /backend/app/api/auth.py
+/backend/app/api/auth_posture.py
 /backend/app/api/benchmarks.py
 /backend/app/api/benchmarks_vertical.py
 /backend/app/api/billing.py
@@ -45,6 +46,7 @@ Process Manager: PM2
 /backend/app/api/decision_engine.py
 /backend/app/api/events.py
 /backend/app/api/execution_actions.py
+/backend/app/api/feature_flags_admin.py
 /backend/app/api/forecasts.py
 /backend/app/api/frontend_errors.py
 /backend/app/api/funnel.py
@@ -111,6 +113,7 @@ Process Manager: PM2
 /backend/app/api/shopify_oauth.py
 /backend/app/api/shopify_refunds.py
 /backend/app/api/signal_webhooks.py
+/backend/app/api/slo_api.py
 /backend/app/api/source_quality.py
 /backend/app/api/store_intelligence.py
 /backend/app/api/storefront_preview.py
@@ -230,6 +233,7 @@ Process Manager: PM2
 /backend/app/services/monthly_evolution_audit.py
 /backend/app/services/mta_engine.py
 /backend/app/services/night_shift_agent.py
+/backend/app/services/night_shift_calibration.py
 /backend/app/services/nudge_composer.py
 /backend/app/services/nudge_dna.py
 /backend/app/services/nudge_engine.py
@@ -349,6 +353,7 @@ Process Manager: PM2
 /backend/app/models/merge_outcome.py
 /backend/app/models/meta_review.py
 /backend/app/models/model_upgrade.py
+/backend/app/models/night_shift_report.py
 /backend/app/models/nudge_event.py
 /backend/app/models/nudge_impression_daily.py
 /backend/app/models/onboarding_event.py
@@ -550,6 +555,7 @@ Process Manager: PM2
 /backend/app/api/billing.py :: @router.get("/callback")
 /backend/app/api/night_shift.py :: @router.get("/pro/night-shift/latest")
 /backend/app/api/night_shift.py :: @router.post("/pro/night-shift/run")
+/backend/app/api/night_shift.py :: @router.get("/pro/night-shift/history")
 /backend/app/api/night_shift.py :: @router.post("/pro/night-shift/apply")
 /backend/app/api/track_purchase.py :: @router.post("/track/purchase-confirmed")
 /backend/app/api/live_alerts.py :: @router.get(
@@ -581,6 +587,9 @@ Process Manager: PM2
 /backend/app/api/merchant_privacy.py :: @router.post("/unobject")
 /backend/app/api/revenue_genome.py :: @router.get("/pro/revenue-genome")
 /backend/app/api/segment_compare.py :: @router.get(
+/backend/app/api/slo_api.py :: @router.get("/ops/slo")
+/backend/app/api/slo_api.py :: @router.get("/ops/slo/{name}")
+/backend/app/api/slo_api.py :: @router.get("/ops/slo/routes/inspect")
 /backend/app/api/klaviyo.py :: @router.get("/segment")
 /backend/app/api/klaviyo.py :: @router.post("/push")
 /backend/app/api/benchmarks.py :: @router.get(
@@ -653,6 +662,7 @@ Process Manager: PM2
 /backend/app/api/orders.py :: @router.get(
 /backend/app/api/heatmap.py :: @router.get(
 /backend/app/api/heatmap.py :: @router.get(
+/backend/app/api/auth_posture.py :: @router.get("/ops/auth/posture")
 /backend/app/api/compliance_evidence.py :: @router.get("/soc2")
 /backend/app/api/compliance_evidence.py :: @router.get("/evidence")
 /backend/app/api/auth.py :: @router.get("/install")
@@ -678,6 +688,9 @@ Process Manager: PM2
 /backend/app/api/cac_ltv.py :: @router.get("/cac-ltv", response_model=CacLtvResponse)
 /backend/app/api/margin_guard_api.py :: @router.get("/snapshot", response_model=MarginSnapshot)
 /backend/app/api/margin_guard_api.py :: @router.get("/check", response_model=MarginCheckResponse)
+/backend/app/api/feature_flags_admin.py :: @router.get("/ops/flags")
+/backend/app/api/feature_flags_admin.py :: @router.get("/ops/flags/{name}")
+/backend/app/api/feature_flags_admin.py :: @router.post("/ops/flags/{name}")
 /backend/app/api/benchmarks_vertical.py :: @router.get("/pro/benchmarks/vertical")
 /backend/app/api/benchmarks_vertical.py :: @router.get("/pro/vertical", response_model=VerticalSelfResponse)
 /backend/app/api/benchmarks_vertical.py :: @router.get("/ops/benchmarks/pool")
@@ -751,6 +764,7 @@ Process Manager: PM2
 /agency
 /app
 /app/groups
+/app/marketplace
 /cookies
 /insights
 /install

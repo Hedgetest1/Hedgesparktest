@@ -1,0 +1,200 @@
+"""
+slo.py — Service Level Objectives + live latency observability.
+
+Records per-route request timing in Redis with rolling windows. Computes
+p50/p95/p99 on demand. Exposes an SLO definition catalogue and evaluates
+error-budget burn so ops sees WHAT to act on, not just "slow".
+
+Design notes
+------------
+- Zero dependencies: Redis ZSETs only. If Redis is down, everything
+  fails open (the middleware never raises).
+- Two windows per route: 5-minute and 60-minute. Quantiles computed
+  client-side on ingest — no ranged scripts, no Lua.
+- Sampling: every request. Footprint is ~24 bytes per observation.
+  At 100 req/s that's ~86MB per day per route; we TTL hot windows to
+  2 hours so the footprint is bounded regardless of scale.
+
+Public API
+----------
+    record_timing(route, method, status, duration_ms) -> None
+    route_stats(route, window="5m") -> dict
+    slo_report() -> list[dict]  (per-SLO error budget state)
+"""
+from __future__ import annotations
+
+import logging
+import math
+import time
+from dataclasses import dataclass
+
+log = logging.getLogger("slo")
+
+_TTL_SECONDS = 2 * 3600  # 2 hours — keeps memory bounded
+
+# Windows we track for every route. Key format:
+#   hs:slo:tm:{window}:{route}   — ZSET of (timestamp.ms, duration_ms)
+#   hs:slo:count:{window}:{route}:ok|err
+_WINDOWS = {
+    "5m": 300,
+    "60m": 3600,
+}
+
+
+def _redis():
+    try:
+        from app.core.redis_client import _client
+        return _client()
+    except Exception:
+        return None
+
+
+def record_timing(route: str, method: str, status: int, duration_ms: float) -> None:
+    """Log one request observation. Never raises."""
+    rc = _redis()
+    if rc is None:
+        return
+    try:
+        now_ms = int(time.time() * 1000)
+        ok = 200 <= status < 500  # 4xx counts as ok for availability purposes
+        for window_name, window_seconds in _WINDOWS.items():
+            cutoff_ms = now_ms - (window_seconds * 1000)
+            key_tm = f"hs:slo:tm:{window_name}:{method}:{route}"
+            key_ok = f"hs:slo:ok:{window_name}:{method}:{route}"
+            key_err = f"hs:slo:err:{window_name}:{method}:{route}"
+            # Use pipe to avoid N round-trips
+            pipe = rc.pipeline()
+            pipe.zadd(key_tm, {f"{now_ms}:{duration_ms:.2f}": now_ms})
+            pipe.zremrangebyscore(key_tm, 0, cutoff_ms)
+            pipe.expire(key_tm, _TTL_SECONDS)
+            pipe.incr(key_ok if ok else key_err)
+            pipe.expire(key_ok if ok else key_err, _TTL_SECONDS)
+            pipe.execute()
+    except Exception as exc:
+        log.debug("slo: record failed: %s", exc)
+
+
+def _quantile(values: list[float], q: float) -> float:
+    if not values:
+        return 0.0
+    if len(values) == 1:
+        return values[0]
+    s = sorted(values)
+    idx = q * (len(s) - 1)
+    lo = math.floor(idx)
+    hi = math.ceil(idx)
+    if lo == hi:
+        return s[int(idx)]
+    return s[lo] + (s[hi] - s[lo]) * (idx - lo)
+
+
+def route_stats(route: str, method: str = "GET", window: str = "5m") -> dict:
+    """Return per-route latency + error rate for the selected window."""
+    rc = _redis()
+    if rc is None or window not in _WINDOWS:
+        return {"route": route, "method": method, "window": window, "ok": 0, "err": 0, "p50": 0, "p95": 0, "p99": 0}
+    try:
+        key_tm = f"hs:slo:tm:{window}:{method}:{route}"
+        key_ok = f"hs:slo:ok:{window}:{method}:{route}"
+        key_err = f"hs:slo:err:{window}:{method}:{route}"
+        members = rc.zrange(key_tm, 0, -1)
+        durations: list[float] = []
+        for m in members:
+            if isinstance(m, bytes):
+                m = m.decode()
+            try:
+                _, dur = m.split(":", 1)
+                durations.append(float(dur))
+            except ValueError:
+                continue
+        ok = int(rc.get(key_ok) or 0)
+        err = int(rc.get(key_err) or 0)
+        total = ok + err
+        return {
+            "route": route,
+            "method": method,
+            "window": window,
+            "ok": ok,
+            "err": err,
+            "total": total,
+            "error_rate_pct": round((err / total * 100) if total else 0, 2),
+            "p50_ms": round(_quantile(durations, 0.50), 1),
+            "p95_ms": round(_quantile(durations, 0.95), 1),
+            "p99_ms": round(_quantile(durations, 0.99), 1),
+            "observations": len(durations),
+        }
+    except Exception as exc:
+        log.warning("slo: route_stats failed: %s", exc)
+        return {"route": route, "window": window, "error": str(exc)[:200]}
+
+
+# ---------------------------------------------------------------------------
+# SLO catalogue — critical-path routes with explicit targets
+# ---------------------------------------------------------------------------
+#
+# Error budget math: 99.5% over 60m window → error budget is 0.5% of requests.
+# Burn rate = current_error_rate / allowed_error_rate.
+# burn_rate > 2 → warning; > 10 → critical.
+
+@dataclass(frozen=True)
+class SLO:
+    name: str
+    route: str
+    method: str
+    availability_target_pct: float  # e.g. 99.5
+    latency_p95_target_ms: float    # e.g. 500
+
+
+CATALOGUE: list[SLO] = [
+    SLO("pro_rars",         "/pro/rars",                  "GET", 99.5, 800),
+    SLO("pro_causal",       "/pro/causal/explain",        "GET", 99.0, 1500),
+    SLO("pro_anomalies",    "/pro/anomalies/fusion",      "GET", 99.0, 1500),
+    SLO("pro_night_shift",  "/pro/night-shift/latest",    "GET", 99.5, 800),
+    SLO("track",            "/track",                     "POST", 99.9, 200),
+    SLO("webhooks",         "/webhooks/shopify",          "POST", 99.9, 400),
+    SLO("system_health",    "/system/health",             "GET", 99.9, 300),
+]
+
+
+def slo_report() -> list[dict]:
+    """Evaluate every SLO in the catalogue against the live 60m window."""
+    out = []
+    for slo in CATALOGUE:
+        stats = route_stats(slo.route, method=slo.method, window="60m")
+        availability = 100.0 - float(stats.get("error_rate_pct", 0))
+        p95 = float(stats.get("p95_ms", 0))
+        obs = int(stats.get("observations", 0) or 0)
+
+        # Error budget burn — how many standard deviations over the allowed error rate
+        allowed_err_pct = max(0.0001, 100.0 - slo.availability_target_pct)
+        burn_rate = (float(stats.get("error_rate_pct", 0))) / allowed_err_pct if obs > 0 else 0
+
+        if obs < 10:
+            health = "insufficient_data"
+        elif availability < slo.availability_target_pct - 1:
+            health = "breach"
+        elif burn_rate > 10:
+            health = "critical_burn"
+        elif burn_rate > 2:
+            health = "warning_burn"
+        elif p95 > slo.latency_p95_target_ms * 1.5:
+            health = "latency_breach"
+        elif p95 > slo.latency_p95_target_ms:
+            health = "latency_warning"
+        else:
+            health = "healthy"
+
+        out.append({
+            "name": slo.name,
+            "route": slo.route,
+            "method": slo.method,
+            "availability_pct": round(availability, 2),
+            "availability_target_pct": slo.availability_target_pct,
+            "p95_ms": p95,
+            "p95_target_ms": slo.latency_p95_target_ms,
+            "error_rate_pct": stats.get("error_rate_pct", 0),
+            "burn_rate": round(burn_rate, 2),
+            "observations": obs,
+            "health": health,
+        })
+    return out

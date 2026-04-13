@@ -2073,22 +2073,22 @@ def _run_cycle_inner() -> None:
             except Exception as exc:
                 log(f"store_metrics: top-level error (non-fatal): {exc}")
 
-        # Night Shift Agent — runs once per UTC day at 02:00
+        # Phase Ω⁶ — extracted task modules (night_shift, rollout_promotion)
         try:
-            from app.services.night_shift_agent import (
-                should_run_nightly_now,
-                run_nightly_for_all_pro,
-            )
-            if should_run_nightly_now():
-                ns_db = SessionLocal()
-                try:
-                    n_reports = run_nightly_for_all_pro(ns_db)
-                    if n_reports > 0:
-                        log(f"night_shift_agent: generated {n_reports} report(s)")
-                finally:
-                    ns_db.close()
+            from app.workers.tasks import night_shift_task
+            if night_shift_task.is_due():
+                night_shift_task.run()
         except Exception as exc:
-            log(f"night_shift_agent error (non-fatal): {exc}")
+            log(f"night_shift_task error (non-fatal): {exc}")
+
+        try:
+            from app.workers.tasks import rollout_promotion_task
+            if rollout_promotion_task.is_due():
+                res = rollout_promotion_task.run()
+                if res.get("promoted", 0) > 0:
+                    log(f"rollout_promotion: promoted {res['promoted']} flag(s)")
+        except Exception as exc:
+            log(f"rollout_promotion_task error (non-fatal): {exc}")
 
         # Commerce Intelligence Graph — cross-store aggregation (daily)
         global _last_cig_run

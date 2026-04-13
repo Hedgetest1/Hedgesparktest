@@ -6,8 +6,8 @@ from unittest.mock import patch
 from app.api import public_roi_counter as prc
 
 
-def test_compute_always_returns_shape(monkeypatch):
-    """Even if the DB totally fails, the endpoint returns the structured shape."""
+def test_compute_returns_honest_warming_state_on_db_failure(monkeypatch):
+    """No fake floor. DB failure → warming state with real (zero) numbers."""
     class FailingSession:
         def execute(self, *a, **kw):
             raise RuntimeError("db down")
@@ -17,12 +17,32 @@ def test_compute_always_returns_shape(monkeypatch):
     monkeypatch.setattr("app.core.database.SessionLocal", lambda: FailingSession())
 
     doc = prc._compute()
-    assert "prevented_eur_30d" in doc
-    assert "shops_contributing" in doc
-    assert "by_vertical" in doc
-    assert "window_days" in doc
-    # Floor is enforced so the landing page is never €0
-    assert doc["prevented_eur_30d"] >= 125_000
+    assert doc["state"] == "warming"
+    assert doc["prevented_eur_30d"] == 0
+    assert doc["shops_contributing"] == 0
+    assert "publish_thresholds" in doc
+
+
+def test_compute_live_state_when_above_threshold(monkeypatch):
+    """When real data is above threshold, state flips to live."""
+    class RealSession:
+        def __init__(self):
+            self.calls = 0
+        def execute(self, *a, **kw):
+            self.calls += 1
+            class R:
+                def fetchone(self):
+                    return (50_000.0, 5)
+                def fetchall(self):
+                    return []
+            return R()
+        def close(self): pass
+
+    monkeypatch.setattr("app.core.database.SessionLocal", lambda: RealSession())
+    doc = prc._compute()
+    assert doc["state"] == "live"
+    assert doc["prevented_eur_30d"] == 50_000
+    assert doc["shops_contributing"] == 5
 
 
 def test_get_cached_or_compute_uses_cache(monkeypatch):

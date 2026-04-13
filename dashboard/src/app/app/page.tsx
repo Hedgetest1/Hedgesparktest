@@ -42,6 +42,7 @@ import { RevenueAtRiskHero } from "../components/RevenueAtRiskHero";
 import { PeerBenchmarksCard } from "../components/PeerBenchmarksCard";
 import { CausalWhyCard } from "../components/CausalWhyCard";
 import { NightShiftCard } from "../components/NightShiftCard";
+import { CountUp } from "./_components/CountUp";
 import { AnomalyFusionCard } from "../components/AnomalyFusionCard";
 import { VerticalBenchmarksCard } from "../components/VerticalBenchmarksCard";
 import { AskHedgeSparkCard } from "../components/AskHedgeSparkCard";
@@ -798,37 +799,7 @@ function shortUrl(url: string): string {
 // ---------------------------------------------------------------------------
 // Count-up animation component
 // ---------------------------------------------------------------------------
-function CountUp({
-  value,
-  format = (v: number) => v.toLocaleString(),
-}: {
-  value: number;
-  format?: (v: number) => string;
-}) {
-  const [display, setDisplay] = useState(0);
-  const prevRef = useRef(0);
-  const rafRef = useRef<number>(0);
-
-  useEffect(() => {
-    const start = prevRef.current;
-    prevRef.current = value;
-    if (start === value) return;
-
-    const began = Date.now();
-    const duration = 520;
-
-    function step() {
-      const progress = Math.min((Date.now() - began) / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 3);
-      setDisplay(Math.round(start + (value - start) * eased));
-      if (progress < 1) rafRef.current = requestAnimationFrame(step);
-    }
-    rafRef.current = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [value]);
-
-  return <>{format(display)}</>;
-}
+// CountUp extracted to _components/CountUp.tsx (Phase Ω⁶ split)
 
 // ---------------------------------------------------------------------------
 // Small UI atoms
