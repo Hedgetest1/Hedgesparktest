@@ -115,25 +115,54 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
 
     breakdown: list[dict] = []
 
-    # --- 1. Action Outcomes (nudge lift from action_outcomes table) ---
+    # --- 1. Nudge lift from autonomous_actions (holdout-measured) ---
+    # autonomous_actions is the real source for holdout-measured nudge
+    # lift: treatment_cvr vs control_cvr → lift_pct → revenue impact.
+    # (The former query scanned action_outcomes for revenue_delta_eur
+    # columns that don't exist there — that was a ghost table schema.)
+    saved_30d_actions = 0.0
     try:
-        saved_30d_actions = float(
-            db.execute(
-                sql_text(
-                    """
-                    SELECT COALESCE(SUM(revenue_delta_eur), 0)
-                    FROM action_outcomes
-                    WHERE shop_domain = :shop
-                      AND status = 'measured'
-                      AND outcome = 'improved'
-                      AND measured_at >= :cutoff
-                      AND revenue_delta_eur > 0
-                    """
-                ),
-                {"shop": shop, "cutoff": c_30d},
-            ).scalar()
-            or 0
-        )
+        row = db.execute(
+            sql_text(
+                """
+                SELECT
+                    COALESCE(SUM(
+                        CASE
+                            WHEN treatment_cvr IS NOT NULL
+                             AND control_cvr IS NOT NULL
+                             AND control_cvr > 0
+                             AND visitors_measured > 0
+                            THEN (treatment_cvr - control_cvr) * visitors_measured
+                            ELSE 0
+                        END
+                    ), 0) AS cvr_lift_visitors
+                FROM autonomous_actions
+                WHERE shop_domain = :shop
+                  AND outcome IN ('win', 'measured')
+                  AND measurement_end >= :cutoff
+                """
+            ),
+            {"shop": shop, "cutoff": c_30d},
+        ).fetchone()
+        # Multiply by shop AOV to get €; fall back to 50 if unknown
+        lift_visitors = float(row[0] or 0) if row else 0.0
+        if lift_visitors > 0:
+            try:
+                aov_row = db.execute(
+                    sql_text(
+                        """
+                        SELECT COALESCE(AVG(total_price), 50)
+                        FROM shop_orders
+                        WHERE shop_domain = :shop
+                          AND created_at >= NOW() - INTERVAL '30 days'
+                        """
+                    ),
+                    {"shop": shop},
+                ).scalar()
+                aov = float(aov_row or 50)
+            except Exception:
+                aov = 50.0
+            saved_30d_actions = round(lift_visitors * aov, 2)
     except Exception:
         saved_30d_actions = 0.0
 
@@ -213,45 +242,60 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
             }
         )
 
-    # --- 5. 7d savings (subset of 30d, for the delta trend) ---
-    try:
-        saved_7d = float(
-            db.execute(
+    # --- 5. 7d savings (current vs previous week, for delta trend) ---
+    # Re-use the same autonomous_actions → CVR lift → € formula for two
+    # windows so the delta badge reflects real week-over-week momentum.
+    def _cvr_lift_eur_window(c_start, c_end=None):
+        try:
+            where = "AND measurement_end >= :start"
+            params = {"shop": shop, "start": c_start}
+            if c_end is not None:
+                where += " AND measurement_end < :end"
+                params["end"] = c_end
+            row = db.execute(
                 sql_text(
-                    """
-                    SELECT COALESCE(SUM(revenue_delta_eur), 0)
-                    FROM action_outcomes
+                    f"""
+                    SELECT COALESCE(SUM(
+                        CASE
+                            WHEN treatment_cvr IS NOT NULL
+                             AND control_cvr IS NOT NULL
+                             AND control_cvr > 0
+                             AND visitors_measured > 0
+                            THEN (treatment_cvr - control_cvr) * visitors_measured
+                            ELSE 0
+                        END
+                    ), 0)
+                    FROM autonomous_actions
                     WHERE shop_domain = :shop
-                      AND status = 'measured'
-                      AND outcome = 'improved'
-                      AND measured_at >= :c7
-                      AND revenue_delta_eur > 0
+                      AND outcome IN ('win', 'measured')
+                      {where}
                     """
                 ),
-                {"shop": shop, "c7": c_7d},
+                params,
             ).scalar()
-            or 0
-        )
-        saved_prior_7d = float(
-            db.execute(
-                sql_text(
-                    """
-                    SELECT COALESCE(SUM(revenue_delta_eur), 0)
-                    FROM action_outcomes
-                    WHERE shop_domain = :shop
-                      AND status = 'measured'
-                      AND outcome = 'improved'
-                      AND measured_at >= :c14 AND measured_at < :c7
-                      AND revenue_delta_eur > 0
-                    """
-                ),
-                {"shop": shop, "c14": c_14d, "c7": c_7d},
-            ).scalar()
-            or 0
-        )
-    except Exception:
-        saved_7d = 0.0
-        saved_prior_7d = 0.0
+            lift_visitors = float(row or 0)
+            if lift_visitors <= 0:
+                return 0.0
+            aov = float(
+                db.execute(
+                    sql_text(
+                        """
+                        SELECT COALESCE(AVG(total_price), 50)
+                        FROM shop_orders
+                        WHERE shop_domain = :shop
+                          AND created_at >= NOW() - INTERVAL '30 days'
+                        """
+                    ),
+                    {"shop": shop},
+                ).scalar()
+                or 50
+            )
+            return round(lift_visitors * aov, 2)
+        except Exception:
+            return 0.0
+
+    saved_7d = _cvr_lift_eur_window(c_7d)
+    saved_prior_7d = _cvr_lift_eur_window(c_14d, c_7d)
 
     delta_pct: float | None = None
     if saved_prior_7d > 0:
@@ -260,22 +304,46 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
     total_30d = saved_30d_actions + saved_30d_trust + prevented_rars_30d
 
     # --- 6. All-time total (observational — cheaper query) ---
+    # autonomous_actions is the canonical measured-nudge-lift source.
+    # The former query used action_outcomes.revenue_delta_eur which
+    # never existed on that table.
     try:
-        total_all_time = float(
-            db.execute(
-                sql_text(
-                    """
-                    SELECT COALESCE(SUM(revenue_delta_eur), 0)
-                    FROM action_outcomes
+        row = db.execute(
+            sql_text(
+                """
+                SELECT COALESCE(SUM(
+                    CASE
+                        WHEN treatment_cvr IS NOT NULL
+                         AND control_cvr IS NOT NULL
+                         AND control_cvr > 0
+                         AND visitors_measured > 0
+                        THEN (treatment_cvr - control_cvr) * visitors_measured
+                        ELSE 0
+                    END
+                ), 0)
+                FROM autonomous_actions
+                WHERE shop_domain = :shop
+                  AND outcome IN ('win', 'measured')
+                """
+            ),
+            {"shop": shop},
+        ).scalar()
+        lift_visitors_all = float(row or 0)
+        # Re-use the 30d AOV heuristic for the conversion
+        aov_all = 50.0
+        try:
+            aov_row = db.execute(
+                sql_text("""
+                    SELECT COALESCE(AVG(total_price), 50)
+                    FROM shop_orders
                     WHERE shop_domain = :shop
-                      AND outcome = 'improved'
-                      AND revenue_delta_eur > 0
-                    """
-                ),
+                """),
                 {"shop": shop},
             ).scalar()
-            or 0
-        )
+            aov_all = float(aov_row or 50)
+        except Exception:
+            pass
+        total_all_time = round(lift_visitors_all * aov_all, 2)
     except Exception:
         total_all_time = total_30d
 
@@ -301,31 +369,53 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
     total_all_time = max(total_all_time + total_all_time_trust, total_30d)
 
     # --- 7. Top win (single biggest effective action in last 30d) ---
+    # Source: autonomous_actions rows with the highest (treatment_cvr -
+    # control_cvr) * visitors_measured product. AOV multiplier turns
+    # the visitor-lift count into an € estimate.
     top_win_dict: dict | None = None
     try:
         row = db.execute(
             sql_text(
                 """
-                SELECT ao.action_type, ao.revenue_delta_eur, ao.measured_at, at.product_url
-                FROM action_outcomes ao
-                LEFT JOIN action_tasks at ON at.id = ao.action_task_id
-                WHERE ao.shop_domain = :shop
-                  AND ao.status = 'measured'
-                  AND ao.outcome = 'improved'
-                  AND ao.measured_at >= :c30
-                  AND ao.revenue_delta_eur > 0
-                ORDER BY ao.revenue_delta_eur DESC
+                SELECT
+                    action_type,
+                    product_url,
+                    measurement_end,
+                    (treatment_cvr - control_cvr) * visitors_measured AS lift_visitors
+                FROM autonomous_actions
+                WHERE shop_domain = :shop
+                  AND outcome IN ('win', 'measured')
+                  AND measurement_end >= :c30
+                  AND treatment_cvr IS NOT NULL
+                  AND control_cvr IS NOT NULL
+                  AND control_cvr > 0
+                  AND visitors_measured > 0
+                ORDER BY lift_visitors DESC
                 LIMIT 1
                 """
             ),
             {"shop": shop, "c30": c_30d},
         ).fetchone()
-        if row:
-            product = (row[3] or "").replace("/products/", "") or "your store"
+        if row and float(row[3] or 0) > 0:
+            aov_for_top = 50.0
+            try:
+                aov_row = db.execute(
+                    sql_text("""
+                        SELECT COALESCE(AVG(total_price), 50)
+                        FROM shop_orders
+                        WHERE shop_domain = :shop
+                          AND created_at >= NOW() - INTERVAL '30 days'
+                    """),
+                    {"shop": shop},
+                ).scalar()
+                aov_for_top = float(aov_row or 50)
+            except Exception:
+                pass
+            product = (row[1] or "").replace("/products/", "") or "your store"
             top_win_dict = {
                 "title": f"{row[0]} on {product[:40]}",
-                "amount_eur": float(row[1] or 0),
-                "narrative": f"Biggest single win in the last 30 days",
+                "amount_eur": round(float(row[3]) * aov_for_top, 2),
+                "narrative": "Biggest single win in the last 30 days",
                 "when": row[2].isoformat() if row[2] else "",
             }
     except Exception:
