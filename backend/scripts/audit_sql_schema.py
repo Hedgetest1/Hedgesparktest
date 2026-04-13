@@ -59,11 +59,31 @@ _TABLE_NAME_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Reserved / CTE-local / builtin pseudo-tables we never want to flag
+# Reserved / CTE-local / builtin pseudo-tables we never want to flag.
+# The regex captures tokens after FROM/JOIN/INTO — anything in this set is
+# a SQL keyword / function / aliased column that the regex misread.
 _SKIP_TABLES = {
+    # Built-in pseudo-tables
     "select", "values", "unnest", "generate_series", "jsonb_array_elements",
     "jsonb_each", "jsonb_array_elements_text", "json_array_elements",
     "pg_catalog", "information_schema", "dual",
+    # PG functions that appear in FROM clauses
+    "now", "to_timestamp", "to_char", "extract", "date_trunc", "date_part",
+    "coalesce", "nullif", "case", "cast", "count", "sum", "avg", "min", "max",
+    "abs", "round", "floor", "ceil", "greatest", "least", "array_agg",
+    "json_agg", "jsonb_agg", "json_build_object", "jsonb_build_object",
+    # PG types (INTO <type> doesn't happen but FROM sometimes picks up casts)
+    "int", "bigint", "smallint", "real", "float", "double", "numeric",
+    "text", "varchar", "char", "boolean", "bool", "json", "jsonb", "uuid",
+    "timestamp", "timestamptz", "date", "time", "interval", "bytea",
+    # SQL keywords that can appear right after FROM/INTO by accident
+    "set", "when", "then", "else", "end", "true", "false", "null",
+    "conflict", "do", "nothing", "returning", "between", "distinct",
+    "where", "group", "order", "having", "limit", "offset", "union",
+    # CTE-adjacent: columns named like timestamps that appear in projection
+    "confirmed_at", "exposed_at", "created_at", "updated_at", "deleted_at",
+    "executed_at", "evaluated_at", "started_at", "finished_at",
+    "measurement_start", "measurement_end",
 }
 
 

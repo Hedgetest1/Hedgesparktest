@@ -30,6 +30,9 @@ _COLUMN_SKIPLIST = {
     "now", "count", "coalesce", "sum", "extract", "case", "date", "min", "max",
     "avg", "cast", "round", "to_timestamp", "floor", "ceil", "abs", "true",
     "false", "null", "json_agg", "json_build_object", "jsonb_array_elements",
+    "jsonb_array_length", "jsonb_typeof", "jsonb_path_query", "array_length",
+    "array_agg", "string_agg", "length", "char_length", "upper", "lower",
+    "trim", "replace", "substring", "position", "nullif", "greatest", "least",
     "from", "where", "and", "or", "not", "in", "on", "as", "with", "union",
     "all", "distinct", "order", "by", "limit", "offset", "group", "having",
     "select", "update", "set", "insert", "into", "delete", "values",
@@ -86,16 +89,42 @@ def find_simple_from_table(sql: str) -> str | None:
 
 
 def find_column_refs_in_where(sql: str) -> set[str]:
-    """Columns used unqualified in WHERE/SET after the main table."""
-    # Strip string literals
+    """
+    Columns used unqualified in WHERE/SET inside the MAIN query only.
+
+    To avoid false positives from subqueries on a different table (e.g.
+    `FROM events e WHERE ... (SELECT ... FROM shop_orders WHERE created_at
+    >= ...)`), we only look at WHERE clauses at paren depth 0 relative to
+    the main SELECT.
+    """
     cleaned = re.sub(r"'[^']*'", "''", sql)
-    # Find `column = :param` or `column IS [NOT] NULL` patterns
+    # Walk char-by-char, tracking paren depth. Collect only the slices of
+    # the SQL at depth 0.
+    top_level_pieces: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    for ch in cleaned:
+        if ch == "(":
+            if depth == 0:
+                top_level_pieces.append("".join(buf))
+                buf = []
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                buf = []
+        else:
+            if depth == 0:
+                buf.append(ch)
+    top_level_pieces.append("".join(buf))
+    top_level_sql = " ".join(top_level_pieces)
+
     matches: set[str] = set()
     pat = re.compile(
         r"(?:WHERE|AND|OR)\s+([a-zA-Z_][\w]*?)\s*(?:=|<>|<=|>=|<|>|\sIS\s|\sIN\s|\sLIKE\s|\sBETWEEN\s)",
         re.IGNORECASE,
     )
-    for m in pat.finditer(cleaned):
+    for m in pat.finditer(top_level_sql):
         col = m.group(1).lower()
         if col not in _COLUMN_SKIPLIST:
             matches.add(col)
