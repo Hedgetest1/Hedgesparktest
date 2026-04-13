@@ -110,6 +110,8 @@ ALLOWLIST: set[str] = {
     "services/share_engine.py",
     # Global stale-alert auto-resolver — resolves network-wide by severity
     "services/alerting.py",
+    # Phase Ω⁷ — Competitor Playbook is cross-tenant by design (peer stats)
+    "api/playbook.py",
 }
 
 

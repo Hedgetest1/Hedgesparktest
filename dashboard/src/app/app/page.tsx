@@ -68,6 +68,9 @@ import {
   intentDotClass,
 } from "./_lib/formatters";
 import { AnomalyFusionCard } from "../components/AnomalyFusionCard";
+import { AnomalyReplayCard } from "../components/AnomalyReplayCard";
+import { CounterfactualExplorerCard } from "../components/CounterfactualExplorerCard";
+import { CompetitorPlaybookCard } from "../components/CompetitorPlaybookCard";
 import { VerticalBenchmarksCard } from "../components/VerticalBenchmarksCard";
 import { AskHedgeSparkCard } from "../components/AskHedgeSparkCard";
 import { IntegrationsCard } from "../components/IntegrationsCard";
@@ -2465,6 +2468,17 @@ function PageInner() {
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <CausalWhyCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <AnomalyFusionCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                </div>
+              )}
+
+              {/* ═══ PHASE Ω⁷ — THE UNREACHABLE THREE ═══ */}
+              {isProUser && (
+                <AnomalyReplayCard apiBase={API_BASE} isProUser={isProUser} />
+              )}
+              {isProUser && (
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  <CounterfactualExplorerCard apiBase={API_BASE} isProUser={isProUser} />
+                  <CompetitorPlaybookCard apiBase={API_BASE} isProUser={isProUser} />
                 </div>
               )}
 

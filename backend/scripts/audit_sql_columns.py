@@ -57,16 +57,24 @@ _SQL_CALL = re.compile(
 )
 
 
+def _strip_sql_comments(sql: str) -> str:
+    """Remove SQL line + block comments before parsing."""
+    sql = re.sub(r"--[^\n]*", "", sql)
+    sql = re.sub(r"/\*.*?\*/", "", sql, flags=re.DOTALL)
+    return sql
+
+
 def extract_sql_blocks(path: pathlib.Path) -> list[tuple[int, str]]:
     try:
         src = path.read_text()
     except Exception:
         return []
-    return [
-        (src.count("\n", 0, m.start()) + 1, m.group("body").strip())
-        for m in _SQL_CALL.finditer(src)
-        if len(m.group("body").strip()) >= 6
-    ]
+    out = []
+    for m in _SQL_CALL.finditer(src):
+        body = _strip_sql_comments(m.group("body")).strip()
+        if len(body) >= 6:
+            out.append((src.count("\n", 0, m.start()) + 1, body))
+    return out
 
 
 def find_simple_from_table(sql: str) -> str | None:

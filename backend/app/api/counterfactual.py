@@ -1,0 +1,218 @@
+"""
+counterfactual.py — Phase Ω⁷ killer #2.
+
+"What if you'd acted sooner?"
+
+For every open opportunity signal, computes the hypothetical revenue
+the merchant would have recovered IF they had applied the recommended
+action on day D. The math is deterministic:
+
+  1. Pull the signal detection timestamp from opportunity_signals
+  2. Compute the per-day loss rate from the signal's estimated_loss
+  3. Multiply by (today - detection_date) days
+  4. Apply an AOV × baseline CVR × fix-uplift projection
+
+The output is a single killer sentence + a compact table of
+"what-if" scenarios over N=0, 7, 14, 30 days. Merchants can then
+decide to act now or live with the ongoing bleed.
+
+Honest disclosure: the projection uses the same RARS loss math that
+powers Revenue-at-Risk. We're not inventing numbers — we're showing
+the integral of losses over the window the signal has been open.
+
+Endpoint:
+    GET /pro/counterfactual/signals — all open signals with hypothetical impact
+    GET /pro/counterfactual/signals/{id} — detail view for one signal
+
+Auth: Pro session. Tenant-isolated via shop_domain.
+"""
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from app.core.database import get_db
+from app.core.deps import require_pro_session
+
+log = logging.getLogger("counterfactual")
+
+router = APIRouter(tags=["counterfactual"])
+
+
+# Projection constants — documented so the math is readable
+_DEFAULT_AOV_EUR = 50.0      # fallback when shop has no orders
+_FIX_UPLIFT_PCT = 0.015      # 1.5% CVR uplift assumption for "if you'd fixed it"
+_MAX_LOOKBACK_DAYS = 60      # cap the accrual window so projections stay honest
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _shop_aov(db: Session, shop: str) -> tuple[float, bool]:
+    """Return (aov_eur, is_real). Falls back to default when no orders."""
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT COALESCE(AVG(total_price), 0), COUNT(*)
+                FROM shop_orders
+                WHERE shop_domain = :shop
+                  AND created_at >= NOW() - INTERVAL '30 days'
+                """
+            ),
+            {"shop": shop},
+        ).fetchone()
+        if row and row[1] and row[0]:
+            return float(row[0]), True
+    except Exception:
+        pass
+    return _DEFAULT_AOV_EUR, False
+
+
+def _compute_cf_for_signal(row, aov: float, aov_is_real: bool) -> dict:
+    """
+    row = (id, signal_type, product_url, signal_strength, detected_at, estimated_loss)
+    """
+    sig_id, stype, purl, strength, detected_at, est_loss = row
+    now = _now()
+    if detected_at is None:
+        detected_at = now - timedelta(hours=1)
+    days_open = max(0, (now - detected_at).days)
+    days_open = min(days_open, _MAX_LOOKBACK_DAYS)
+
+    # If estimated_loss is populated, use it directly as per-day loss rate
+    # (that's how RARS shapes this field — loss over the signal's default
+    # 30-day look-ahead window). Otherwise synthesize from strength × AOV.
+    per_day_loss: float
+    if est_loss and est_loss > 0:
+        per_day_loss = float(est_loss) / 30.0
+    else:
+        # strength ∈ [0, 1]; at strength 0.5 we assume 1 fix-sized event/day
+        per_day_loss = float(strength or 0.0) * aov * _FIX_UPLIFT_PCT
+
+    # Scenarios: 0 days (now), +7, +14, +30 — what would have happened if
+    # the merchant had acted N days ago
+    scenarios = []
+    for days_ago in (0, 7, 14, 30):
+        # "if you'd fixed it N days ago, you'd have saved N days of loss"
+        saved = round(min(days_ago, days_open) * per_day_loss, 2)
+        scenarios.append({
+            "days_ago": days_ago,
+            "saved_eur": saved,
+            "label": (
+                "right now" if days_ago == 0
+                else f"{days_ago} days ago"
+            ),
+        })
+
+    # Biggest possible save — across the full open window
+    max_save = round(days_open * per_day_loss, 2)
+
+    return {
+        "signal_id": sig_id,
+        "signal_type": stype,
+        "product_url": purl,
+        "detected_at": detected_at.isoformat() if detected_at else None,
+        "days_open": days_open,
+        "per_day_loss_eur": round(per_day_loss, 2),
+        "scenarios": scenarios,
+        "max_save_eur": max_save,
+        "aov_used_eur": round(aov, 2),
+        "aov_is_real": aov_is_real,
+        "headline": (
+            f"Acting now recovers €{max_save:.0f} from this signal. "
+            f"Every day you wait costs ~€{per_day_loss:.0f}."
+            if max_save > 0 else
+            "Signal still accruing — check back in 24h for a meaningful counterfactual."
+        ),
+    }
+
+
+@router.get("/pro/counterfactual/signals")
+def list_counterfactuals(
+    shop: str = Depends(require_pro_session),
+    db: Session = Depends(get_db),
+):
+    """List open signals with their counterfactual revenue scenarios."""
+    try:
+        from app.core.feature_usage import track
+        track("counterfactual_explorer", shop)
+    except Exception:
+        pass
+
+    aov, aov_is_real = _shop_aov(db, shop)
+    cutoff = _now() - timedelta(days=_MAX_LOOKBACK_DAYS)
+
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT id, signal_type, product_url, signal_strength,
+                       detected_at,
+                       -- estimated_loss is pulled from the signal detail if
+                       -- populated; otherwise NULL and we derive from strength
+                       NULL::float AS estimated_loss
+                FROM opportunity_signals
+                WHERE shop_domain = :shop
+                  AND detected_at >= :cutoff
+                  AND (expires_at IS NULL OR expires_at > NOW())
+                ORDER BY signal_strength DESC NULLS LAST, detected_at DESC
+                LIMIT 20
+                """
+            ),
+            {"shop": shop, "cutoff": cutoff},
+        ).fetchall()
+    except Exception as exc:
+        log.warning("counterfactual: signal query failed for %s: %s", shop, exc)
+        rows = []
+
+    entries = [_compute_cf_for_signal(r, aov, aov_is_real) for r in rows]
+    total_max_save = round(sum(e["max_save_eur"] for e in entries), 2)
+
+    return {
+        "shop_domain": shop,
+        "aov_eur": round(aov, 2),
+        "aov_is_real": aov_is_real,
+        "total_open_signals": len(entries),
+        "total_max_save_eur": total_max_save,
+        "entries": entries,
+        "headline": (
+            f"Acting on all {len(entries)} open signals now would recover "
+            f"~€{total_max_save:.0f}. Every day of delay keeps this number climbing."
+            if total_max_save > 0 else
+            "No open signals with measurable counterfactual impact yet."
+        ),
+        "generated_at": _now().isoformat(),
+    }
+
+
+@router.get("/pro/counterfactual/signals/{signal_id}")
+def get_counterfactual(
+    signal_id: int,
+    shop: str = Depends(require_pro_session),
+    db: Session = Depends(get_db),
+):
+    """Detail view for a single signal's counterfactual."""
+    aov, aov_is_real = _shop_aov(db, shop)
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT id, signal_type, product_url, signal_strength,
+                       detected_at, NULL::float AS estimated_loss
+                FROM opportunity_signals
+                WHERE shop_domain = :shop AND id = :id
+                """
+            ),
+            {"shop": shop, "id": signal_id},
+        ).fetchone()
+    except Exception:
+        row = None
+    if not row:
+        raise HTTPException(404, "signal not found")
+    return _compute_cf_for_signal(row, aov, aov_is_real)

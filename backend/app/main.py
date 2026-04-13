@@ -170,6 +170,9 @@ from app.api.feature_flags_admin import router as feature_flags_admin_router
 from app.api.slo_api import router as slo_api_router
 from app.api.auth_posture import router as auth_posture_router
 from app.api.feature_usage_api import router as feature_usage_router
+from app.api.anomaly_replay import router as anomaly_replay_router
+from app.api.counterfactual import router as counterfactual_router
+from app.api.playbook import router as playbook_router
 from app.models.community_template import CommunityTemplate, CommunityTemplateClone  # noqa: F401
 from app.models.night_shift_report import NightShiftReport as NightShiftReportModel  # noqa: F401
 from app.models.merchant_group import MerchantGroup, MerchantGroupMember  # noqa: F401
@@ -552,6 +555,9 @@ app.include_router(feature_flags_admin_router)
 app.include_router(slo_api_router)
 app.include_router(auth_posture_router)
 app.include_router(feature_usage_router)
+app.include_router(anomaly_replay_router)
+app.include_router(counterfactual_router)
+app.include_router(playbook_router)
 app.include_router(refund_loss_router)
 app.include_router(goals_router)
 app.include_router(rars_router)

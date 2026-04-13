@@ -87,6 +87,14 @@ _SKIP_TABLES = {
 }
 
 
+def _strip_sql_comments(sql: str) -> str:
+    """Remove `-- ...` line comments and `/* ... */` block comments so the
+    regex doesn't misread words-after-a-dash as identifiers."""
+    sql = re.sub(r"--[^\n]*", "", sql)
+    sql = re.sub(r"/\*.*?\*/", "", sql, flags=re.DOTALL)
+    return sql
+
+
 def extract_sql_blocks(path: pathlib.Path) -> list[tuple[int, str]]:
     try:
         src = path.read_text()
@@ -95,7 +103,7 @@ def extract_sql_blocks(path: pathlib.Path) -> list[tuple[int, str]]:
     out: list[tuple[int, str]] = []
     for m in _SQL_CALL.finditer(src):
         line_no = src.count("\n", 0, m.start()) + 1
-        body = m.group("body").strip()
+        body = _strip_sql_comments(m.group("body")).strip()
         if len(body) < 6:
             continue
         out.append((line_no, body))

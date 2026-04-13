@@ -59,6 +59,10 @@ REGISTRY: list[FeatureRegistration] = [
     FeatureRegistration("rule_builder", "Custom rule builder", "2026-04-12"),
     FeatureRegistration("agency_mode", "White-label agency dashboard", "2026-04-13"),
     FeatureRegistration("merchant_groups", "Multi-store groups", "2026-04-13"),
+    # Phase Ω⁷ — the Unreachable Three
+    FeatureRegistration("anomaly_replay", "Anomaly event-window replay", "2026-04-13"),
+    FeatureRegistration("counterfactual_explorer", "Counterfactual revenue scenarios", "2026-04-13"),
+    FeatureRegistration("competitor_playbook", "Peer playbook for signal action outcomes", "2026-04-13"),
 ]
 
 
