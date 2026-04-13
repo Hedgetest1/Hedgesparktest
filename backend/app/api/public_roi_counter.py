@@ -8,12 +8,19 @@ The landing page renders a big live counter:
 
     €1,247,830 prevented across the HedgeSpark network this month
 
-It's social proof you cannot fake — it's computed from real merchant
-action_executions. Verticals breakdown is available on hover.
+It's social proof you cannot fake — it's computed from the per-shop
+Revenue-at-Risk Score (RARS) `prevented_eur_this_month` field that
+every Pro merchant's monthly ROI report already reads. No fabricated
+floors, no silent fallbacks — if we can't publish a real number, we
+return state="warming" and let the landing surface that honestly.
 
-Caching: the aggregate is expensive to compute (scans action_executions
-for every merchant) so we cache it in Redis with a 10-minute TTL. The
-SSE endpoint reads that cache — it never hits the DB on tick.
+Original implementation scanned a non-existent `action_executions`
+table (bug fixed 2026-04-13 post-refactor audit). The real numbers
+live in the RARS compute path.
+
+Caching: iterating every Pro merchant + computing RARS per shop is
+expensive, so we cache the aggregate in Redis with a 10-min TTL. The
+SSE ticker reads that cache — it never hits the DB on tick.
 """
 from __future__ import annotations
 
@@ -41,53 +48,73 @@ def _now_iso() -> str:
 
 def _compute() -> dict:
     """
-    Expensive path — scan action_executions, group by vertical if
-    available, sum prevented € over last 30 days.
+    Real path — iterate every active Pro merchant, pull their RARS
+    report, sum the `prevented_eur_this_month` field. Group by vertical
+    via the vertical_classifier service.
+
+    This is intentionally expensive (one RARS compute per shop) so the
+    10-minute Redis cache is load-bearing. For scale past ~200 Pro
+    merchants we should switch to a materialized view; for now, this
+    is honest, real, and cached.
     """
     from app.core.database import SessionLocal
     db = SessionLocal()
     try:
-        try:
-            total_row = db.execute(
-                text(
-                    """
-                    SELECT COALESCE(SUM(CAST(COALESCE(impact_eur, 0) AS FLOAT)), 0) AS total,
-                           COUNT(DISTINCT shop_domain) AS shops
-                    FROM action_executions
-                    WHERE status = 'confirmed'
-                      AND executed_at >= NOW() - INTERVAL '30 days'
-                    """
-                )
-            ).fetchone()
-            total = float(total_row[0] or 0) if total_row else 0.0
-            shops = int(total_row[1] or 0) if total_row else 0
-        except Exception as exc:
-            log.warning("public_roi: total compute failed: %s", exc)
-            total, shops = 0.0, 0
+        total = 0.0
+        shops = 0
+        vertical_totals: dict[str, float] = {}
 
-        vertical_rows: list[tuple[str, float]] = []
         try:
-            rows = db.execute(
-                text(
-                    """
-                    SELECT
-                      COALESCE(sc.vertical, 'other') AS vertical,
-                      COALESCE(SUM(CAST(COALESCE(ae.impact_eur, 0) AS FLOAT)), 0) AS recovered
-                    FROM action_executions ae
-                    LEFT JOIN shop_classification sc
-                           ON sc.shop_domain = ae.shop_domain
-                    WHERE ae.status = 'confirmed'
-                      AND ae.executed_at >= NOW() - INTERVAL '30 days'
-                    GROUP BY 1
-                    ORDER BY recovered DESC
-                    LIMIT 8
-                    """
+            from app.models.merchant import Merchant
+            from app.services.revenue_at_risk import get_revenue_at_risk
+            try:
+                from app.services.vertical_classifier import get_vertical
+            except Exception:
+                get_vertical = None  # type: ignore
+
+            pro_merchants = (
+                db.query(Merchant)
+                .filter(
+                    Merchant.plan == "pro",
+                    Merchant.billing_active == True,  # noqa: E712
+                    Merchant.install_status == "active",
                 )
-            ).fetchall()
-            vertical_rows = [(r[0], float(r[1] or 0)) for r in rows if float(r[1] or 0) > 0]
-        except Exception:
-            # shop_classification table may not exist in dev — ignore
-            vertical_rows = []
+                .all()
+            )
+
+            for m in pro_merchants:
+                shop = m.shop_domain
+                if not shop:
+                    continue
+                try:
+                    rars = get_revenue_at_risk(db, shop) or {}
+                    prevented = float(rars.get("prevented_eur_this_month") or 0.0)
+                except Exception as exc:
+                    log.warning("public_roi: rars failed for %s: %s", shop, exc)
+                    continue
+
+                if prevented <= 0:
+                    continue
+
+                total += prevented
+                shops += 1
+
+                vertical = "other"
+                if get_vertical is not None:
+                    try:
+                        vertical = get_vertical(db, shop) or "other"
+                    except Exception:
+                        pass
+                vertical_totals[vertical] = vertical_totals.get(vertical, 0.0) + prevented
+
+        except Exception as exc:
+            log.warning("public_roi: merchant iteration failed: %s", exc)
+
+        vertical_rows = sorted(
+            vertical_totals.items(),
+            key=lambda kv: kv[1],
+            reverse=True,
+        )[:8]
 
         # State flag — drives honest rendering on the landing page.
         # "live"     → real data, counter reflects actual network activity

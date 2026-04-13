@@ -25,24 +25,35 @@ def test_compute_returns_honest_warming_state_on_db_failure(monkeypatch):
 
 def test_compute_live_state_when_above_threshold(monkeypatch):
     """When real data is above threshold, state flips to live."""
-    class RealSession:
-        def __init__(self):
-            self.calls = 0
-        def execute(self, *a, **kw):
-            self.calls += 1
-            class R:
-                def fetchone(self):
-                    return (50_000.0, 5)
-                def fetchall(self):
-                    return []
-            return R()
+    class FakeMerchant:
+        def __init__(self, shop):
+            self.shop_domain = shop
+
+    class FakeQuery:
+        def __init__(self, rows):
+            self.rows = rows
+        def filter(self, *a, **kw): return self
+        def all(self): return self.rows
+
+    class FakeSession:
+        def query(self, model):
+            return FakeQuery([FakeMerchant(f"shop{i}.myshopify.com") for i in range(5)])
         def close(self): pass
 
-    monkeypatch.setattr("app.core.database.SessionLocal", lambda: RealSession())
+    monkeypatch.setattr("app.core.database.SessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(
+        "app.services.revenue_at_risk.get_revenue_at_risk",
+        lambda db, shop: {"prevented_eur_this_month": 15_000.0},
+    )
+    monkeypatch.setattr(
+        "app.services.vertical_classifier.get_vertical",
+        lambda db, shop: "beauty",
+    )
     doc = prc._compute()
     assert doc["state"] == "live"
-    assert doc["prevented_eur_30d"] == 50_000
+    assert doc["prevented_eur_30d"] == 75_000.0
     assert doc["shops_contributing"] == 5
+    assert doc["by_vertical"] == [{"vertical": "beauty", "prevented_eur": 75_000.0}]
 
 
 def test_get_cached_or_compute_uses_cache(monkeypatch):
