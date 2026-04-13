@@ -27,9 +27,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from starlette.responses import StreamingResponse
 
@@ -43,13 +44,31 @@ _TICK_SECONDS = 10
 _HEARTBEAT_INTERVAL = 25  # browsers timeout EventSource around 30s of silence
 _MAX_TICKS_PER_CONNECTION = 360  # 1 hour at 10s ticks → forces clean reconnect
 
+# Connection-count gate — SSE holds a DB session + coroutine per client.
+# At 10k merchants we cannot let this grow unbounded, so we cap per-process
+# live connections and cache snapshots so a second concurrent viewer of the
+# same shop reuses the previous tick's payload instead of re-querying.
+_MAX_LIVE_CONNECTIONS = 500
+_SNAPSHOT_CACHE_TTL_S = 8.0  # must be < _TICK_SECONDS so we refresh each tick
+_active_connections = 0
+_snapshot_cache: dict[str, tuple[float, dict]] = {}
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
 def _build_snapshot(shop: str) -> dict:
-    """Compose one snapshot. Opens its own DB session for isolation."""
+    """Compose one snapshot. Opens its own DB session for isolation.
+
+    Cached per-shop for _SNAPSHOT_CACHE_TTL_S so that multiple concurrent
+    viewers of the same dashboard share one heavy query pass per tick.
+    """
+    now = time.monotonic()
+    cached = _snapshot_cache.get(shop)
+    if cached is not None and (now - cached[0]) < _SNAPSHOT_CACHE_TTL_S:
+        return cached[1]
+
     db: Session = SessionLocal()
     try:
         try:
@@ -93,7 +112,7 @@ def _build_snapshot(shop: str) -> dict:
         except Exception:
             ns_sig = None
 
-        return {
+        snapshot = {
             "shop_domain": shop,
             "ts": _now_iso(),
             "fusion": {
@@ -105,36 +124,48 @@ def _build_snapshot(shop: str) -> dict:
             "benchmarks": vb_sig,
             "night_shift": ns_sig,
         }
+        _snapshot_cache[shop] = (now, snapshot)
+        # Bound cache size — LRU-style eviction, cheap at this scale
+        if len(_snapshot_cache) > 2000:
+            oldest = sorted(_snapshot_cache.items(), key=lambda kv: kv[1][0])[:500]
+            for k, _ in oldest:
+                _snapshot_cache.pop(k, None)
+        return snapshot
     finally:
         db.close()
 
 
 async def _event_stream(shop: str):
     """Async generator yielding SSE-formatted bytes."""
-    yield f"event: hello\ndata: {json.dumps({'ts': _now_iso()})}\n\n".encode()
+    global _active_connections
+    _active_connections += 1
+    try:
+        yield f"event: hello\ndata: {json.dumps({'ts': _now_iso()})}\n\n".encode()
 
-    ticks = 0
-    last_heartbeat = 0.0
-    while ticks < _MAX_TICKS_PER_CONNECTION:
-        try:
-            snapshot = _build_snapshot(shop)
-            payload = json.dumps(snapshot, default=str)
-            yield f"event: snapshot\ndata: {payload}\n\n".encode()
-        except Exception as exc:
-            err = json.dumps({"error": str(exc)[:200]})
-            yield f"event: error\ndata: {err}\n\n".encode()
+        ticks = 0
+        last_heartbeat = 0.0
+        while ticks < _MAX_TICKS_PER_CONNECTION:
+            try:
+                snapshot = _build_snapshot(shop)
+                payload = json.dumps(snapshot, default=str)
+                yield f"event: snapshot\ndata: {payload}\n\n".encode()
+            except Exception as exc:
+                err = json.dumps({"error": str(exc)[:200]})
+                yield f"event: error\ndata: {err}\n\n".encode()
 
-        # Heartbeat every 25s to keep proxies + browsers happy
-        await asyncio.sleep(_TICK_SECONDS)
-        last_heartbeat += _TICK_SECONDS
-        if last_heartbeat >= _HEARTBEAT_INTERVAL:
-            yield f"event: heartbeat\ndata: {_now_iso()}\n\n".encode()
-            last_heartbeat = 0.0
+            # Heartbeat every 25s to keep proxies + browsers happy
+            await asyncio.sleep(_TICK_SECONDS)
+            last_heartbeat += _TICK_SECONDS
+            if last_heartbeat >= _HEARTBEAT_INTERVAL:
+                yield f"event: heartbeat\ndata: {_now_iso()}\n\n".encode()
+                last_heartbeat = 0.0
 
-        ticks += 1
+            ticks += 1
 
-    # Force browser to reconnect after the cap — keeps memory bounded
-    yield f"event: rotate\ndata: {json.dumps({'reason': 'tick_cap', 'ts': _now_iso()})}\n\n".encode()
+        # Force browser to reconnect after the cap — keeps memory bounded
+        yield f"event: rotate\ndata: {json.dumps({'reason': 'tick_cap', 'ts': _now_iso()})}\n\n".encode()
+    finally:
+        _active_connections -= 1
 
 
 @router.get("/pro/stream/dashboard")
@@ -144,6 +175,12 @@ async def stream_dashboard(shop: str = Depends(require_pro_session)):
     with credentials (`{ withCredentials: true }`) to send the session
     cookie.
     """
+    if _active_connections >= _MAX_LIVE_CONNECTIONS:
+        raise HTTPException(
+            status_code=503,
+            detail="Live stream at capacity — please fall back to polling.",
+            headers={"Retry-After": "30"},
+        )
     return StreamingResponse(
         _event_stream(shop),
         media_type="text/event-stream",

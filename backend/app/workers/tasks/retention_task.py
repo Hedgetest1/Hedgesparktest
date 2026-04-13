@@ -60,8 +60,18 @@ def mark_retention_done() -> None:
 
 
 def get_distinct_shops(conn) -> list[str]:
+    """Return all shops to run retention for.
+
+    Historical implementation did `SELECT DISTINCT shop_domain FROM events`
+    which requires a full index-scan on events. At 10k merchants × 100M
+    events this becomes a multi-second scan every 24h. The merchants table
+    is the authoritative list of shops and is 4+ orders of magnitude smaller,
+    so we query it directly. Uninstalled shops still have their events
+    retention-cleaned because we keep the row (with uninstalled_at set)
+    rather than deleting it.
+    """
     result = conn.execute(
-        text("SELECT DISTINCT shop_domain FROM events WHERE shop_domain IS NOT NULL")
+        text("SELECT shop_domain FROM merchants WHERE shop_domain IS NOT NULL")
     )
     return [row.shop_domain for row in result.fetchall()]
 

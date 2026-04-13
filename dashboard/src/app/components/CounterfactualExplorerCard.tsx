@@ -12,7 +12,8 @@
  * Source: GET /pro/counterfactual/signals
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { CardError, CardSkeleton, useCardFetch } from "./_CardStates";
 
 type Scenario = {
   days_ago: number;
@@ -63,34 +64,24 @@ export function CounterfactualExplorerCard({
   apiBase: string;
   isProUser: boolean;
 }) {
-  const [data, setData] = useState<CfResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data, state, retry } = useCardFetch<CfResponse>({
+    url: `${apiBase}/pro/counterfactual/signals`,
+    enabled: isProUser && !!apiBase,
+    isEmpty: (d) => !d.entries?.length,
+  });
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
-  useEffect(() => {
-    if (!isProUser || !apiBase) { setLoading(false); return; }
-    let active = true;
-    setLoading(true);
-    fetch(`${apiBase}/pro/counterfactual/signals`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j: CfResponse | null) => { if (active && j) setData(j); })
-      .catch(() => {})
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [apiBase, isProUser]);
-
   if (!isProUser) return null;
-
-  if (loading) {
+  if (state === "loading") return <CardSkeleton label="Loading counterfactual explorer" />;
+  if (state === "error")
     return (
-      <div className="animate-pulse rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
-        <div className="h-3 w-48 rounded bg-white/[0.06]" />
-        <div className="mt-3 h-16 rounded bg-white/[0.04]" />
-      </div>
+      <CardError
+        label="Counterfactual explorer failed to load"
+        message="Couldn't reach the signal loss projection — your revenue tracking is unaffected."
+        onRetry={retry}
+      />
     );
-  }
-
-  if (!data || data.entries.length === 0) {
+  if (!data || state === "empty") {
     return (
       <section className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
         <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[#d4893a]">

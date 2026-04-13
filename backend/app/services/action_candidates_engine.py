@@ -37,7 +37,6 @@ Ranking formula
 """
 from __future__ import annotations
 
-import threading
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -61,18 +60,24 @@ from app.services.revenue_loss import calculate_expected_loss
 from app.services.revenue_metrics import get_shop_aov
 
 # ---------------------------------------------------------------------------
-# Signal refresh concurrency guard
+# Signal refresh concurrency guard — 10k merchant scale
 #
-# Prevents thundering-herd: if N requests arrive simultaneously when signals
-# are stale, only ONE triggers the refresh; the others skip it and serve
-# whatever signals currently exist (possibly slightly stale — acceptable).
+# v2 approach (Apr 2026): a per-process thread-safe dict kept throwing a
+# global meta-lock at every request regardless of whether a refresh was
+# actually needed. At 10k merchants × N concurrent requests each, that
+# global lock serializes the entire fleet through one mutex.
 #
-# Uses a simple per-shop lock dict.  The lock is acquired only during the
-# brief check-and-set on _refresh_in_progress; the actual signal refresh runs
-# outside the lock (so it doesn't block other shops or the check itself).
+# Fix: lock-free fast path via a per-shop epoch read. If the last refresh
+# is within cooldown, we return immediately without touching ANY lock
+# (dict reads are atomic under the GIL, so reading `_refresh_last_run`
+# without synchronization is safe — the worst case is a stale read that
+# triggers one extra refresh, which is still gated by the Redis SETNX
+# claim below).
+#
+# The actual inter-process dedup is done by a Redis SETNX claim, which
+# works across uvicorn workers too — unlike threading.Lock which is
+# process-local and useless once you fork.
 # ---------------------------------------------------------------------------
-_refresh_locks: dict[str, threading.Lock] = {}
-_refresh_locks_meta: threading.Lock = threading.Lock()
 _refresh_last_run: dict[str, float] = {}   # shop → epoch seconds of last refresh
 
 # Minimum seconds between signal refreshes per shop.
@@ -84,33 +89,39 @@ _REFRESH_COOLDOWN_SECS: float = 30.0
 def _maybe_refresh_signals(shop_domain: str) -> None:
     """
     Trigger get_or_refresh_signals() for *shop_domain* at most once per
-    _REFRESH_COOLDOWN_SECS across concurrent requests.
+    _REFRESH_COOLDOWN_SECS across concurrent requests AND processes.
 
-    If a refresh is already in-flight for this shop, the current caller skips
-    it.  Signals from the last completed refresh are used instead — they are
-    never more than SIGNAL_TTL_HOURS old by the opportunity engine's own
-    staleness check.
+    Fast path: lock-free cooldown check. Only if the cooldown has elapsed
+    do we attempt a Redis SETNX claim (cross-process atomic). Fallback to
+    no claim if Redis is unavailable — degrades to per-process dedup only.
     """
-    with _refresh_locks_meta:
-        if shop_domain not in _refresh_locks:
-            _refresh_locks[shop_domain] = threading.Lock()
-        lock = _refresh_locks[shop_domain]
+    # Lock-free cooldown gate — atomic dict read under GIL.
+    last = _refresh_last_run.get(shop_domain, 0.0)
+    if time.monotonic() - last < _REFRESH_COOLDOWN_SECS:
+        return
 
-    # Non-blocking try — if another thread holds the lock, skip the refresh.
-    acquired = lock.acquire(blocking=False)
-    if not acquired:
+    # Cross-process claim via Redis SETNX. TTL slightly longer than cooldown
+    # so a crashed claimant frees the lock automatically.
+    claimed = True
+    try:
+        from app.core.redis_client import redis_client
+        key = f"hs:refresh_claim:{shop_domain}"
+        claimed = bool(redis_client.set(key, "1", nx=True, ex=int(_REFRESH_COOLDOWN_SECS) + 10))
+    except Exception:
+        pass  # Redis down — fall through and let per-process dict dedup
+
+    if not claimed:
+        # Another process already doing the refresh — bump our local epoch
+        # so we skip for the cooldown window.
+        _refresh_last_run[shop_domain] = time.monotonic()
         return
 
     try:
-        last = _refresh_last_run.get(shop_domain, 0.0)
-        if time.monotonic() - last < _REFRESH_COOLDOWN_SECS:
-            return   # cooldown not elapsed — skip
         get_or_refresh_signals(shop_domain)
-        _refresh_last_run[shop_domain] = time.monotonic()
     except Exception:
         pass  # signal refresh failures are non-fatal; stale signals degrade gracefully
     finally:
-        lock.release()
+        _refresh_last_run[shop_domain] = time.monotonic()
 
 # ---------------------------------------------------------------------------
 # Signal → action type mapping

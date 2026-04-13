@@ -50,11 +50,25 @@ _MAX_LOOKBACK_DAYS = 60      # cap the accrual window so projections stay honest
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.utcnow()
+
+
+def _as_naive_utc(dt: datetime | None) -> datetime | None:
+    """Coerce a datetime to naive UTC — DB rows may come back aware or naive
+    depending on column type, and mixing them raises TypeError in arithmetic."""
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
 
 
 def _shop_aov(db: Session, shop: str) -> tuple[float, bool]:
-    """Return (aov_eur, is_real). Falls back to default when no orders."""
+    """Return (aov_eur, is_real). Falls back to default when no orders.
+
+    We deliberately catch only SQLAlchemyError so that coding bugs (NameError,
+    KeyError, etc.) surface instead of being silently swallowed."""
+    from sqlalchemy.exc import SQLAlchemyError
     try:
         row = db.execute(
             text(
@@ -69,8 +83,8 @@ def _shop_aov(db: Session, shop: str) -> tuple[float, bool]:
         ).fetchone()
         if row and row[1] and row[0]:
             return float(row[0]), True
-    except Exception:
-        pass
+    except SQLAlchemyError as exc:
+        log.warning("counterfactual: aov lookup failed for %s: %s", shop, exc)
     return _DEFAULT_AOV_EUR, False
 
 
@@ -80,6 +94,7 @@ def _compute_cf_for_signal(row, aov: float, aov_is_real: bool) -> dict:
     """
     sig_id, stype, purl, strength, detected_at, est_loss = row
     now = _now()
+    detected_at = _as_naive_utc(detected_at)
     if detected_at is None:
         detected_at = now - timedelta(hours=1)
     days_open = max(0, (now - detected_at).days)

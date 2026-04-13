@@ -46,7 +46,7 @@ _LOOKBACK_DAYS = 90
 
 
 def _now():
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.utcnow()
 
 
 @router.get("/pro/playbook/{signal_type}")
@@ -110,7 +110,10 @@ def get_playbook_for_signal(
     except Exception as exc:
         log.warning("playbook: action aggregation failed: %s", exc)
 
-    # Flatten: group by action_type so each row shows {wins, no_effect, unknown}
+    # Flatten: group by action_type so each row shows {wins, no_effect, unknown}.
+    # We compute a *weighted* avg_lift across outcomes using shop_count as the
+    # weight — a naive (a+b)/2 would ignore the fact that "win" outcome may have
+    # 100 shops and "no_effect" only 2, badly skewing the reported lift.
     by_action: dict[str, dict] = {}
     for r in rows:
         action_type = r[0] or "unknown"
@@ -119,21 +122,30 @@ def get_playbook_for_signal(
         avg_lift = float(r[3]) if r[3] is not None else None
         bucket = by_action.setdefault(
             action_type,
-            {"action_type": action_type, "total_shops": 0, "outcomes": {}, "avg_lift": None, "best_lift": None},
+            {
+                "action_type": action_type,
+                "total_shops": 0,
+                "outcomes": {},
+                "avg_lift": None,
+                "best_lift": None,
+                "_lift_weighted_sum": 0.0,
+                "_lift_weight": 0,
+            },
         )
         bucket["outcomes"][outcome] = shop_count
         bucket["total_shops"] += shop_count
-        # Take the highest observed lift for this action (any outcome)
         if avg_lift is not None:
             cur_best = bucket["best_lift"]
             if cur_best is None or avg_lift > cur_best:
                 bucket["best_lift"] = avg_lift
-        # Compute weighted mean across outcomes for avg_lift
-        if avg_lift is not None:
-            existing = bucket["avg_lift"]
-            bucket["avg_lift"] = (
-                avg_lift if existing is None else (existing + avg_lift) / 2
-            )
+            bucket["_lift_weighted_sum"] += avg_lift * shop_count
+            bucket["_lift_weight"] += shop_count
+
+    # Finalize weighted mean and strip scratch fields
+    for b in by_action.values():
+        w = b.pop("_lift_weight", 0)
+        s = b.pop("_lift_weighted_sum", 0.0)
+        b["avg_lift"] = (s / w) if w > 0 else None
 
     # Sort by total_shops desc
     playbook_entries = sorted(

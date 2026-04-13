@@ -14,6 +14,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { CardError } from "./_CardStates";
 
 type ReplayEvent = {
   ts_ms: number;
@@ -55,18 +56,21 @@ export function AnomalyReplayCard({
 }) {
   const [data, setData] = useState<ReplayResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [hadError, setHadError] = useState(false);
   const [minutes, setMinutes] = useState(60);
 
   const load = async (mins: number) => {
     setLoading(true);
+    setHadError(false);
     try {
       const r = await fetch(
         `${apiBase}/pro/anomalies/${encodeURIComponent(pattern)}/replay?minutes=${mins}`,
         { credentials: "include" },
       );
-      if (r.ok) setData(await r.json());
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setData(await r.json());
     } catch {
-      /* silent */
+      setHadError(true);
     } finally {
       setLoading(false);
     }
@@ -78,6 +82,16 @@ export function AnomalyReplayCard({
   }, [apiBase, isProUser, minutes, pattern]);
 
   if (!isProUser) return null;
+
+  if (hadError && !data) {
+    return (
+      <CardError
+        label="Anomaly replay failed to load"
+        message="Couldn't reconstruct the event window right now — try a different time range or retry."
+        onRetry={() => void load(minutes)}
+      />
+    );
+  }
 
   const maxCount = data?.timeline.reduce((m, t) => Math.max(m, t.count), 0) || 1;
 
@@ -99,13 +113,20 @@ export function AnomalyReplayCard({
             The event window around the most recent detected pattern — every visitor, every source.
           </p>
         </div>
-        <div className="flex flex-shrink-0 items-center gap-1 rounded-lg border border-white/10 bg-white/[0.02] p-1">
+        <div
+          className="flex flex-shrink-0 items-center gap-1 rounded-lg border border-white/10 bg-white/[0.02] p-1"
+          role="radiogroup"
+          aria-label="Replay time window"
+        >
           {[30, 60, 120, 240].map((m) => (
             <button
               key={m}
               type="button"
               onClick={() => setMinutes(m)}
-              className={`rounded-md px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide transition-colors ${
+              role="radio"
+              aria-checked={minutes === m}
+              aria-label={`Show last ${m < 60 ? `${m} minutes` : `${m / 60} hours`}`}
+              className={`rounded-md px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/60 ${
                 minutes === m
                   ? "bg-amber-500/15 text-amber-300"
                   : "text-slate-500 hover:text-slate-300"

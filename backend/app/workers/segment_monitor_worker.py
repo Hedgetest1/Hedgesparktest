@@ -109,6 +109,15 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 WORKER_NAME = "segment_monitor_worker"
 SLEEP_SECONDS = 300              # 5 minutes between cycles
 
+# Per-cycle shop budget — at 10k Pro merchants a synchronous loop cannot
+# finish within the 5-minute cycle. We process a bounded batch each cycle and
+# use a Redis-backed cursor so the next cycle picks up where we left off,
+# guaranteeing every shop gets scanned in at most
+#   (total_shops / MAX_SHOPS_PER_CYCLE) * SLEEP_SECONDS
+# wall-clock time. At 10k/500 = 20 cycles × 5min = 100min full-fleet coverage.
+MAX_SHOPS_PER_CYCLE = 500
+CYCLE_TIME_BUDGET_S = 240  # hard stop at 4min to guarantee heartbeat before 5min cycle
+
 # Hot segment trigger thresholds
 MIN_HOT_VISITORS = 3             # minimum hot visitor count to trigger
 MIN_REVENUE_WINDOW = 50.0        # minimum estimated revenue window ($) to trigger
@@ -147,16 +156,57 @@ def log(msg: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _get_pro_shops(db: Session) -> list[str]:
-    """Return shop_domain list for all active Pro merchants."""
+    """Return shop_domain list for all active Pro merchants (sorted for cursor stability)."""
     rows = (
         db.query(Merchant.shop_domain)
         .filter(
             Merchant.plan == "pro",
             Merchant.billing_active == True,  # noqa: E712
         )
+        .order_by(Merchant.shop_domain.asc())
         .all()
     )
     return [r.shop_domain for r in rows]
+
+
+_CURSOR_KEY = "hs:segmon:cursor"
+
+
+def _load_cursor() -> int:
+    try:
+        from app.core.redis_client import redis_client
+        v = redis_client.get(_CURSOR_KEY)
+        return int(v) if v else 0
+    except Exception:
+        return 0
+
+
+def _save_cursor(pos: int) -> None:
+    try:
+        from app.core.redis_client import redis_client
+        redis_client.set(_CURSOR_KEY, str(pos), ex=86400)
+    except Exception:
+        pass
+
+
+def _batch_for_cycle(all_shops: list[str]) -> tuple[list[str], int]:
+    """Slice the shop list into this cycle's batch using a round-robin cursor.
+
+    Returns (batch, next_cursor_position). At <= MAX_SHOPS_PER_CYCLE shops
+    total, this returns the entire list every cycle (no batching needed).
+    """
+    if len(all_shops) <= MAX_SHOPS_PER_CYCLE:
+        return all_shops, 0
+    start = _load_cursor() % len(all_shops)
+    end = start + MAX_SHOPS_PER_CYCLE
+    if end <= len(all_shops):
+        batch = all_shops[start:end]
+        next_pos = end % len(all_shops)
+    else:
+        # Wrap around
+        batch = all_shops[start:] + all_shops[: end - len(all_shops)]
+        next_pos = end - len(all_shops)
+    return batch, next_pos
 
 
 # ---------------------------------------------------------------------------
@@ -404,16 +454,25 @@ def run_cycle() -> None:
     products_scanned = 0
     last_error: str | None = None
 
+    cycle_start = time.monotonic()
     db = SessionLocal()
     try:
         pro_shops = _get_pro_shops(db)
-        log(f"pro shops found: {len(pro_shops)}")
+        batch, next_cursor = _batch_for_cycle(pro_shops)
+        log(
+            f"pro shops found: {len(pro_shops)} "
+            f"(this cycle batch: {len(batch)}, next cursor: {next_cursor})"
+        )
 
         if not pro_shops:
             log("no active Pro shops — nothing to scan")
             return
 
-        for shop_domain in pro_shops:
+        for shop_domain in batch:
+            # Honor the time budget — stop cleanly rather than miss the heartbeat
+            if time.monotonic() - cycle_start > CYCLE_TIME_BUDGET_S:
+                log(f"time budget reached at shop {shops_scanned}/{len(batch)} — stopping")
+                break
             shops_scanned += 1
             active_products = _get_active_products_for_shop(db, shop_domain)
             log(
@@ -438,6 +497,10 @@ def run_cycle() -> None:
                 elif result == "error":
                     products_error += 1
                     last_error = f"{shop_domain} | {product_url}"
+
+        # Advance cursor only on successful batch completion so a crash
+        # re-runs the same range rather than skipping shops.
+        _save_cursor(next_cursor)
 
         log(
             f"cycle complete — "

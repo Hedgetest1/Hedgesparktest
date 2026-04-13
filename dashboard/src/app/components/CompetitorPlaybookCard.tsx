@@ -12,7 +12,7 @@
  * Source: GET /pro/playbook/{signal_type}
  */
 
-import { useEffect, useState } from "react";
+import { CardError, CardSkeleton, useCardFetch } from "./_CardStates";
 
 type PlaybookEntry = {
   action_type: string;
@@ -50,32 +50,21 @@ export function CompetitorPlaybookCard({
   isProUser: boolean;
   signalType?: string;
 }) {
-  const [data, setData] = useState<PlaybookResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (!isProUser || !apiBase) { setLoading(false); return; }
-    let active = true;
-    setLoading(true);
-    fetch(`${apiBase}/pro/playbook/${encodeURIComponent(signalType)}`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j: PlaybookResponse | null) => { if (active && j) setData(j); })
-      .catch(() => {})
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [apiBase, isProUser, signalType]);
+  const { data, state, retry } = useCardFetch<PlaybookResponse>({
+    url: `${apiBase}/pro/playbook/${encodeURIComponent(signalType)}`,
+    enabled: isProUser && !!apiBase,
+  });
 
   if (!isProUser) return null;
-
-  if (loading) {
+  if (state === "loading") return <CardSkeleton label="Loading peer playbook" />;
+  if (state === "error")
     return (
-      <div className="animate-pulse rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
-        <div className="h-3 w-44 rounded bg-white/[0.06]" />
-        <div className="mt-3 h-20 rounded bg-white/[0.04]" />
-      </div>
+      <CardError
+        label="Peer playbook failed to load"
+        message="Couldn't reach the peer playbook network — the rest of your dashboard is unaffected."
+        onRetry={retry}
+      />
     );
-  }
-
   if (!data) return null;
 
   const isWarming = data.state === "warming";
@@ -84,6 +73,7 @@ export function CompetitorPlaybookCard({
     <section
       className="rounded-2xl border border-violet-400/15 bg-violet-500/[0.03] p-5"
       aria-labelledby="playbook-heading"
+      role="region"
     >
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -98,7 +88,10 @@ export function CompetitorPlaybookCard({
           </p>
         </div>
         {!isWarming && data.success_rate_pct != null && (
-          <div className="flex-shrink-0 rounded-xl border border-violet-400/25 bg-violet-500/[0.08] px-3 py-2 text-right">
+          <div
+            className="flex-shrink-0 rounded-xl border border-violet-400/25 bg-violet-500/[0.08] px-3 py-2 text-right"
+            aria-label={`Network win rate ${data.success_rate_pct}%`}
+          >
             <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-violet-300">
               Network win rate
             </div>
@@ -114,12 +107,20 @@ export function CompetitorPlaybookCard({
       </p>
 
       {isWarming ? (
-        <div className="rounded-xl border border-dashed border-white/[0.08] bg-white/[0.01] px-4 py-6 text-center text-[11px] text-slate-500">
-          {data.total_peers} peer merchant{data.total_peers === 1 ? "" : "s"} tracked ·{" "}
-          need {data.min_required} for a reliable playbook
+        <div className="rounded-xl border border-dashed border-violet-400/20 bg-violet-500/[0.02] px-4 py-6 text-center">
+          <div className="text-[12px] font-semibold text-violet-200">
+            Peer pool warming up
+          </div>
+          <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
+            Tracking {data.total_peers} peer merchant{data.total_peers === 1 ? "" : "s"} so far ·
+            need {data.min_required} for a reliable playbook.
+          </p>
+          <div className="mt-2 inline-block rounded-full bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-300">
+            New peer data every 24h — come back tomorrow
+          </div>
         </div>
       ) : (
-        <ul className="space-y-2">
+        <ul className="space-y-2" aria-label="Peer action playbook entries">
           {data.entries.slice(0, 6).map((entry) => {
             const wins = entry.outcomes["win"] || 0;
             const total = entry.total_shops || 1;
@@ -128,6 +129,7 @@ export function CompetitorPlaybookCard({
               <li
                 key={entry.action_type}
                 className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3"
+                aria-label={`${prettyAction(entry.action_type)} — ${entry.total_shops} peers, ${winRate}% win rate`}
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
