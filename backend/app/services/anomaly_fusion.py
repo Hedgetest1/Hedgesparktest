@@ -96,26 +96,35 @@ def _signal_revenue_drop(db: Session, shop: str) -> AtomicSignal | None:
 
 
 def _signal_refund_spike(db: Session, shop: str) -> AtomicSignal | None:
-    """48h refund count vs prior 14-day average."""
+    """
+    48h refund count vs prior 14-day average.
+
+    Reads from the Redis-backed refund_ingest store (there is no
+    shop_refunds Postgres table — the old query was referencing a
+    ghost schema, silently caught, and the refund_spike signal has
+    been dead since launch). Fixed 2026-04-13.
+    """
     now = _now()
     try:
-        rows = db.execute(text("""
-            SELECT
-                SUM(CASE WHEN refunded_at >= :recent THEN 1 ELSE 0 END) AS recent_n,
-                SUM(CASE WHEN refunded_at < :recent AND refunded_at >= :baseline THEN 1 ELSE 0 END) AS prior_n
-            FROM shop_refunds
-            WHERE shop_domain = :shop AND refunded_at >= :baseline
-        """), {
-            "shop": shop,
-            "recent": now - timedelta(hours=48),
-            "baseline": now - timedelta(days=16),
-        }).first()
+        from app.services.refund_ingest import list_recent_refunds
+        recent_rows = list_recent_refunds(shop, days=16)
     except Exception:
         return None
-    if not rows:
+    if not recent_rows:
         return None
-    recent_n = int(rows[0] or 0)
-    prior_n = int(rows[1] or 0)
+
+    recent_cutoff = now - timedelta(hours=48)
+    recent_n = 0
+    prior_n = 0
+    for r in recent_rows:
+        try:
+            ts = datetime.fromisoformat(str(r.get("created_at", "")).replace("Z", ""))
+        except Exception:
+            continue
+        if ts >= recent_cutoff:
+            recent_n += 1
+        else:
+            prior_n += 1
     if recent_n < 3:
         return None  # noise floor
     daily_avg = prior_n / 14.0 * 2  # convert to 48h equivalent

@@ -203,7 +203,7 @@ def compute_churn_score(db: Session, shop_domain: str) -> dict:
     try:
         journey_row = db.execute(text("""
             SELECT current_stage
-            FROM merchant_journey_state
+            FROM merchant_journey_states
             WHERE shop_domain = :shop
             ORDER BY id DESC LIMIT 1
         """), {"shop": shop_domain}).fetchone()

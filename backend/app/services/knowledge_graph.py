@@ -167,38 +167,42 @@ def _pull_orders(db: Session, kg: MerchantKG, lookback_days: int = 60) -> None:
 
 def _pull_refunds(db: Session, kg: MerchantKG, lookback_days: int = 60) -> None:
     """
-    Refunds live in `shop_orders` extension or a separate refund table —
-    here we tolerate both. Falls back gracefully if neither exists.
+    Refunds live in Redis, populated by the Shopify `refunds/create` webhook
+    through app.services.refund_ingest. There is NO shop_refunds Postgres
+    table — the old query here was referencing a ghost schema and silently
+    returning under try/except, meaning the merchant knowledge graph has
+    never contained refund nodes. Fixed 2026-04-13 during the post-refactor
+    latent-bug hunt.
     """
-    cutoff = _now() - timedelta(days=lookback_days)
     try:
-        rows = db.execute(text("""
-            SELECT id, order_id, refund_amount, refunded_at, reason
-            FROM shop_refunds
-            WHERE shop_domain = :shop AND refunded_at >= :cut
-            ORDER BY refunded_at DESC
-            LIMIT 1000
-        """), {"shop": kg.shop_domain, "cut": cutoff}).fetchall()
+        from app.services.refund_ingest import list_recent_refunds
+        rows = list_recent_refunds(kg.shop_domain, days=lookback_days)
     except Exception:
-        return  # table absent — refunds get pulled from another path
+        return
 
     for r in rows:
-        ref_key = f"refund::{r[0]}"
+        refund_id = r.get("refund_id")
+        if not refund_id:
+            continue
+        ref_key = f"refund::{refund_id}"
         kg.add_node(KGNode(
             entity_type="refund",
-            entity_id=str(r[0]),
+            entity_id=str(refund_id),
             attrs={
-                "amount": float(r[2] or 0),
-                "reason": r[4],
-                "refunded_at": r[3].isoformat() if r[3] else None,
+                "amount": float(r.get("amount_eur") or 0),
+                "reason": r.get("reason"),
+                "refunded_at": r.get("created_at"),
+                "product_id": r.get("product_id") or None,
+                "product_title": r.get("product_title") or None,
             },
         ))
-        if r[1]:
-            order_key = f"order::{r[1]}"
+        order_id = r.get("order_id")
+        if order_id:
+            order_key = f"order::{order_id}"
             if order_key in kg.nodes:
                 kg.add_edge(KGEdge(
                     src=ref_key, dst=order_key, edge_type="refunds",
-                    weight=float(r[2] or 0),
+                    weight=float(r.get("amount_eur") or 0),
                 ))
 
 
