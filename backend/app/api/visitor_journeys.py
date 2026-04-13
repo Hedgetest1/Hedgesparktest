@@ -138,29 +138,50 @@ def get_visitor_journeys(
 
     journeys: list[VisitorJourney] = []
 
-    for visitor_id, order_id, confirmed_at, total_price in order_rows:
-        if len(journeys) >= limit:
-            break
-        if not visitor_id or not confirmed_at:
-            continue
+    # Single batch query for touches across all visitors — avoids an N+1
+    # that fires one SELECT per visitor on every call to this endpoint.
+    # At limit=50 that's 50× reduction to 1× regardless of request size.
+    candidate_visitors = [
+        (vid, oid, cat, tp)
+        for (vid, oid, cat, tp) in order_rows
+        if vid and cat
+    ][: limit * 3]
 
+    if candidate_visitors:
+        visitor_ids = [v[0] for v in candidate_visitors]
         try:
-            touches = db.execute(
+            touch_rows = db.execute(
                 sql_text(
                     """
-                    SELECT source_type, utm_campaign, timestamp
+                    SELECT visitor_id, source_type, utm_campaign, timestamp
                     FROM events
                     WHERE shop_domain = :shop
-                      AND visitor_id = :vid
+                      AND visitor_id = ANY(:vids)
                       AND source_type IS NOT NULL
-                    ORDER BY timestamp ASC
-                    LIMIT 50
+                    ORDER BY visitor_id, timestamp ASC
                     """
                 ),
-                {"shop": shop, "vid": visitor_id},
+                {"shop": shop, "vids": visitor_ids},
             ).fetchall()
-        except Exception:
-            continue
+        except Exception as exc:
+            log.warning("visitor_journeys: batch touch query failed: %s", exc)
+            touch_rows = []
+
+        # Group touches by visitor_id (caller sorted by the DB)
+        touches_by_visitor: dict[str, list[tuple]] = {}
+        for vid, source_type, campaign, ts_ms in touch_rows:
+            if not vid:
+                continue
+            touches_by_visitor.setdefault(vid, []).append(
+                (source_type, campaign, ts_ms)
+            )
+    else:
+        touches_by_visitor = {}
+
+    for visitor_id, order_id, confirmed_at, total_price in candidate_visitors:
+        if len(journeys) >= limit:
+            break
+        touches = touches_by_visitor.get(visitor_id, [])[:50]  # per-visitor cap
 
         # Filter + dedupe + convert
         purchase_ms = int(confirmed_at.timestamp() * 1000)

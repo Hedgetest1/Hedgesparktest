@@ -2149,31 +2149,51 @@ def build_daily_digest(db) -> str:
     ]
 
     # ── 2. REVENUE ──
+    # Operator daily digest — the revenue aggregate spans the whole network
+    # on purpose (founder's personal view). We GROUP BY currency so the
+    # summary reports per-currency totals rather than silently adding €
+    # and $ together. Previously the code summed total_price across all
+    # currencies and picked a random "most recent order" currency symbol,
+    # which produced arithmetically wrong totals for any multi-currency
+    # network state.
     try:
-        tw = db.execute(sql_text(
-            "SELECT COALESCE(SUM(total_price), 0), COUNT(*) "
-            "FROM shop_orders WHERE created_at >= :c"
-        ), {"c": cutoff_7d}).fetchone()
-        lw = db.execute(sql_text(
-            "SELECT COALESCE(SUM(total_price), 0), COUNT(*) "
-            "FROM shop_orders WHERE created_at >= :s AND created_at < :e"
-        ), {"s": cutoff_14d, "e": cutoff_7d}).fetchone()
+        rows_tw = db.execute(sql_text(
+            "SELECT COALESCE(currency, 'EUR') AS ccy, "
+            "       COALESCE(SUM(total_price), 0) AS total, "
+            "       COUNT(*) AS orders "
+            "FROM shop_orders "
+            "WHERE created_at >= :c "
+            "GROUP BY 1 "
+            "ORDER BY total DESC"
+        ), {"c": cutoff_7d}).fetchall()
+        rows_lw = db.execute(sql_text(
+            "SELECT COALESCE(currency, 'EUR') AS ccy, "
+            "       COALESCE(SUM(total_price), 0) AS total, "
+            "       COUNT(*) AS orders "
+            "FROM shop_orders "
+            "WHERE created_at >= :s AND created_at < :e "
+            "GROUP BY 1"
+        ), {"s": cutoff_14d, "e": cutoff_7d}).fetchall()
 
-        rev_tw, orders_tw = float(tw[0]), int(tw[1])
-        rev_lw, orders_lw = float(lw[0]), int(lw[1])
+        # Use the highest-volume currency as the "primary" number for the
+        # compact summary, and list the rest as a secondary line.
+        primary_tw = rows_tw[0] if rows_tw else None
+        rev_tw = float(primary_tw[1]) if primary_tw else 0.0
+        orders_tw = int(primary_tw[2]) if primary_tw else 0
+        primary_ccy_code = str(primary_tw[0]).upper() if primary_tw else "EUR"
 
-        # Determine currency from most recent order
-        currency = "\u20ac"
-        try:
-            cur_row = db.execute(sql_text(
-                "SELECT currency FROM shop_orders ORDER BY created_at DESC LIMIT 1"
-            )).fetchone()
-            if cur_row and cur_row[0]:
-                currency = {"EUR": "\u20ac", "USD": "$", "GBP": "\u00a3"}.get(
-                    cur_row[0].upper(), cur_row[0]
-                )
-        except Exception:
-            pass
+        # Match previous-window row for the same currency
+        rev_lw = 0.0
+        orders_lw = 0
+        for r in rows_lw:
+            if str(r[0]).upper() == primary_ccy_code:
+                rev_lw = float(r[1])
+                orders_lw = int(r[2])
+                break
+
+        currency = {"EUR": "\u20ac", "USD": "$", "GBP": "\u00a3"}.get(
+            primary_ccy_code, primary_ccy_code + " "
+        )
 
         lines.append("")
         lines.append(f"\U0001f4b0 *Revenue*")
