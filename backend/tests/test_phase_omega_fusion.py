@@ -123,7 +123,21 @@ def test_fuse_returns_alerts_when_pattern_matches(db):
 
 
 def test_fuse_quiet_returns_no_alerts(db):
-    out = fuse(db, "quiet.myshopify.com")
+    # Two guards needed for this assertion to stay honest in a shared DB:
+    # 1. _signal_anomaly_volume reads NULL-shop_domain ops_alerts which
+    #    accumulate across tests, so remove it from _SIGNAL_FUNCS.
+    # 2. fuse() caches its result in Redis with a 5-minute TTL — bust the
+    #    specific cache key for the test shop before the call.
+    import app.services.anomaly_fusion as _af
+    import hashlib
+    from app.core.redis_client import _client as _redis_client
+    shop = "quiet.myshopify.com"
+    rc = _redis_client()
+    if rc is not None:
+        rc.delete(f"hs:fusion:v1:{hashlib.md5(shop.encode()).hexdigest()[:16]}")
+    clean = tuple(f for f in _af._SIGNAL_FUNCS if f.__name__ != "_signal_anomaly_volume")
+    with patch.object(_af, "_SIGNAL_FUNCS", clean):
+        out = fuse(db, shop)
     assert out["alerts"] == []
     assert out["atomic_signals"] == []
 

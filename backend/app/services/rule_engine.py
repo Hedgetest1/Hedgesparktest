@@ -186,21 +186,20 @@ def _run_action(
             return True, "ok"
 
         if kind == "write_note":
-            # Persist as an annotation against the shop
-            from sqlalchemy import text as sql_text
-            db.execute(
-                sql_text(
-                    """
-                    INSERT INTO annotations (shop_domain, author, body, created_at)
-                    VALUES (:s, :a, :b, now())
-                    ON CONFLICT DO NOTHING
-                    """
-                ),
-                {
-                    "s": shop_domain,
-                    "a": f"rule:{rule.id}",
-                    "b": action.get("body", rule.name),
-                },
+            # Annotations live in Redis (see app.services.annotations).
+            # The old path tried to INSERT INTO a Postgres `annotations`
+            # table that never existed, silently crashed, and the
+            # `write_note` rule action has been dead since launch.
+            from datetime import datetime, timezone
+            from app.services.annotations import create_annotation
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            create_annotation(
+                shop_domain,
+                date=today,
+                label=(action.get("body") or rule.name)[:120],
+                description=f"Automatically authored by rule {rule.id}",
+                category=action.get("category", "other"),
+                author=f"rule:{rule.id}",
             )
             return True, "ok"
 

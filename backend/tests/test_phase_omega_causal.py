@@ -102,7 +102,20 @@ def test_explain_returns_hypotheses_when_signals_fire(db):
 
 
 def test_explain_quiet_returns_healthy(db):
-    out = explain(db, "quiet-shop.myshopify.com")
+    # Two guards for the shared test DB:
+    # 1. Remove _signal_anomaly_volume (reads global NULL-shop alerts).
+    # 2. Bust fuse() Redis cache for this shop before invoking explain().
+    from unittest.mock import patch
+    import hashlib
+    import app.services.anomaly_fusion as _af
+    from app.core.redis_client import _client as _redis_client
+    shop = "quiet-shop.myshopify.com"
+    rc = _redis_client()
+    if rc is not None:
+        rc.delete(f"hs:fusion:v1:{hashlib.md5(shop.encode()).hexdigest()[:16]}")
+    clean = tuple(f for f in _af._SIGNAL_FUNCS if f.__name__ != "_signal_anomaly_volume")
+    with patch.object(_af, "_SIGNAL_FUNCS", clean):
+        out = explain(db, shop)
     assert out["hypotheses"] == []
     assert "healthy" in out["narrative"].lower()
 

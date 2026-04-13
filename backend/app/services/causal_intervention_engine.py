@@ -188,14 +188,18 @@ def measure_recommendation_impact(db: Session, shop_domain: str) -> dict:
     """
     now = _now()
 
-    # Actions taken
+    # Actions taken — source is autonomous_actions, the real table for
+    # completed/measured nudges. The previous query pointed at a ghost
+    # `action_log` table and always returned zero, meaning the
+    # pre/post revenue measurement (quasi-experimental fallback for
+    # non-holdout interventions) has been dead since launch.
     actions = db.execute(text("""
-        SELECT action_type, created_at
-        FROM action_log
+        SELECT action_type, COALESCE(deployed_at, created_at) AS action_at
+        FROM autonomous_actions
         WHERE shop_domain = :shop
-          AND status = 'completed'
-          AND created_at >= :cutoff
-        ORDER BY created_at
+          AND outcome IN ('win', 'measured', 'no_effect')
+          AND COALESCE(deployed_at, created_at) >= :cutoff
+        ORDER BY action_at
     """), {"shop": shop_domain, "cutoff": now - timedelta(days=60)}).fetchall()
 
     if not actions:
