@@ -1,5 +1,5 @@
 # WishSpark Auto Context
-Auto-generated: 2026-04-13T15:00:01.131818 UTC
+Auto-generated: 2026-04-13T16:00:01.304738 UTC
 
 ## Project Root
 /opt/wishspark
@@ -48,6 +48,7 @@ Auto-generated: 2026-04-13T15:00:01.131818 UTC
 /backend/app/api/events.py
 /backend/app/api/execution_actions.py
 /backend/app/api/feature_flags_admin.py
+/backend/app/api/feature_usage_api.py
 /backend/app/api/forecasts.py
 /backend/app/api/frontend_errors.py
 /backend/app/api/funnel.py

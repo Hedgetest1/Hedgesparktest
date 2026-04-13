@@ -1,5 +1,5 @@
 # WishSpark Server Context
-Auto-generated: 2026-04-13T15:00:01.129093 UTC
+Auto-generated: 2026-04-13T16:00:01.302382 UTC
 
 ## Base Path
 /opt/wishspark
@@ -47,6 +47,7 @@ Process Manager: PM2
 /backend/app/api/events.py
 /backend/app/api/execution_actions.py
 /backend/app/api/feature_flags_admin.py
+/backend/app/api/feature_usage_api.py
 /backend/app/api/forecasts.py
 /backend/app/api/frontend_errors.py
 /backend/app/api/funnel.py
@@ -638,6 +639,8 @@ Process Manager: PM2
 /backend/app/api/ads.py :: @router.delete("/pro/ads/connect/{network}")
 /backend/app/api/ads.py :: @router.post("/pro/ads/sync")
 /backend/app/api/ads.py :: @router.get("/pro/ads/spend")
+/backend/app/api/feature_usage_api.py :: @router.get("/ops/features")
+/backend/app/api/feature_usage_api.py :: @router.get("/ops/features/dormant")
 /backend/app/api/merchant.py :: @router.get(
 /backend/app/api/merchant.py :: @router.get(
 /backend/app/api/merchant.py :: @router.get("/activation")
