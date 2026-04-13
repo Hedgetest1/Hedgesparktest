@@ -1,28 +1,206 @@
-# HedgeSpark — AI Agent Context
+# HedgeSpark — CTO Operational Manual
 
-Product: HedgeSpark (formerly WishSpark)
-Type: AI Commerce Intelligence SaaS for Shopify
-Status: Production — live with real merchants
+> **This file is the permanent operational context for every session.** It is
+> auto-loaded at the start of every conversation. Everything here is
+> load-bearing — read it before making any decision.
+>
+> When this file contradicts a memory, a comment, or a scattered doc, **this
+> file wins**. Update it when rules change; do not let drift accumulate.
 
-## Architecture
+**Product:** HedgeSpark (formerly WishSpark)
+**Type:** AI Commerce Intelligence SaaS for Shopify
+**Status:** Production — live with real merchants
+**Domains:** `api.hedgesparkhq.com`, `app.hedgesparkhq.com`
+**Founder's quality bar:** 11/10 — "competitors should be embarrassed"
+
+---
+
+## 1. How we work (working style)
+
+These rules govern collaboration, not the code. Break these and trust erodes.
+
+1. **Quality bar is 11/10 unreachable.** Not 10/10. Every decision passes
+   the test: "would a competitor be embarrassed to ship this?" If no, rework.
+2. **Avanti tutta ethos.** When the founder says "procedi" or "avanti tutta",
+   execute the full plan in sequence — do not pause between sub-steps to ask
+   for confirmation on each one. When the founder asks "cosa non è 11/10?",
+   give a brutal audit and a concrete fix plan.
+3. **Session continuity is sacred.** Never make the founder re-explain the
+   vision, the roadmap, or the last session's work. Check `git log`, check
+   `MEMORY.md`, and pick up where the previous session ended.
+4. **Never silently remove a feature.** Additive only. If a card disappears
+   from the dashboard in a refactor, that's a trust-breaking regression.
+   When in doubt, leave it. Ask before subtracting anything.
+5. **Fix root causes, never symptoms.** If you patch a symptom you must also
+   document the cause and grep for siblings (§9 debug methodology).
+6. **Brutal honesty over comfort.** When the founder asks for an audit, do
+   not soften findings. "9.4/10" is a valid answer; "perfect" rarely is.
+7. **No theater.** If a feature can only be proven by mocking the universe,
+   it's theater — fix it or remove it. Every killer feature must be wired
+   end-to-end with real data paths.
+8. **Concise Italian or English mirror.** The founder writes in Italian;
+   reply in the language of the question. Keep final responses short —
+   long summaries are noise.
+
+---
+
+## 2. Non-negotiable principles (the North Star)
+
+These are the 14 rules that decide whether a change ships. A task conflict
+with any of them → the principle wins. Originates from
+`project_unreachable_north_star.md`.
+
+1. **Architecture-aware always.** Search the codebase before writing new
+   code. Reuse, don't duplicate. Consolidate duplicates when you find them.
+2. **No theater, no half-truths, no hollow stubs.** Every feature wired
+   end-to-end and exercised by a real test path.
+3. **Hunt bugs. Fix root causes.** Never patch symptoms alone.
+4. **Hardening over breadth.** A new feature is worth less than tightening
+   an existing one. When in doubt, harden first.
+5. **Always one step ahead.** Ask: "would Triple Whale / Peel / Varos /
+   Lifetimely build this in 6 months?" If yes, it's not killer enough.
+6. **Code pulitissimo.** Dead code dies. Comments only when WHY is
+   non-obvious. No half-finished implementations. No backwards-compat hacks.
+   Validate at boundaries only; trust internal code.
+7. **System pulito.** No orphan workers, tables, routes, or `_legacy_*`
+   files. If unused, delete it (after grep proves zero imports).
+8. **10k-merchant ready.** Every Redis key has a TTL. Every query has an
+   index. Every batch has a cap. Every loop has a circuit breaker. No N+1,
+   no O(n²) over merchants.
+9. **LLM usage explicit + capped + measured.** Every new LLM call MUST be
+   flagged in advance with: estimated cost at 10k merchants, deterministic
+   alternative considered, fallback when budget exhausted. €5/month hard cap.
+10. **Scale only what's needed.** Profile first, scale second. Premature
+    scaling = wasted complexity.
+11. **Maximum automation, maximum safety.** Every automatic action has a
+    kill switch (env var), rate limit, cooldown, daily cap, rollback path,
+    audit log entry, and digest line.
+12. **Wired end-to-end. Never suicidal.** The system cannot modify files
+    that govern its own self-modification (TIER_2). The pipeline cannot
+    delete its own audit log. Defense in depth: 5+ layers.
+13. **Self-improvement scope is locked.** The autonomous pipeline may ONLY
+    improve safety/efficiency/cost/executability. It MUST NOT propose new
+    features, change strategy, pricing, copy, or architecture. New features
+    come from Claude (interactive) or the Monthly Opus Audit only.
+14. **Frontend = truth, copy = idiot-proof.** Every number on the dashboard
+    is derivable from a real query. Every sentence is readable by someone
+    who has never used a SaaS dashboard. If you can't explain in 8 words,
+    don't ship.
+
+---
+
+## 3. Positioning & branding
+
+**Market position:** premium SMB Shopify intelligence, **€49–99/month band**,
+loss-prevention framing. Never commodity analytics.
+
+**5 defendable differentiators:**
+1. First-party event-level signals (not post-hoc reports)
+2. Intent scoring from behavioral telemetry
+3. Revenue-at-Risk (RARS) deterministic math
+4. Holdout-measured action outcomes (p<0.05 claims)
+5. Closed-loop self-healing pipeline
+
+**Product name:** **HedgeSpark** — never "WishSpark" anywhere user-facing.
+Folder name is still `/opt/wishspark/` (internal only; do not rename).
+
+**Pricing rules — absolute:**
+- **NEVER** use: "free forever", "no credit card", "try free", "$0 forever"
+- Card upfront required even for trials (prior art: Triple Whale, Northbeam,
+  Lifetimely — all card-first)
+- Default CTA copy when pricing is undecided: "Install on Shopify", "Get
+  started", "Connect your store" — pricing-neutral
+- The existing "Lite $0 forever" tier on the landing is stale placeholder
+  and must be replaced when pricing is formally decided
+
+**Landing page source of truth:** `dashboard/src/app/page.tsx`. Major
+overhaul shipped 2026-04-09 (Live Radar, Pro/Lite zones, Natural Earth map).
+
+---
+
+## 4. Visual language
+
+**Typography & hierarchy:**
+- Section titles: solid amber **`#e8a04e`**, extrabold 1.75–2rem.
+  The section name is the PRIMARY element, not a tiny label.
+- Brand gradient `hs-brand-gradient` (**purple → magenta → orange**) is
+  reserved for the "HedgeSpark" wordmark only. Never for section titles.
+  Flows left-to-right matching the logo at
+  `dashboard/public/branding/hedgespark/hedgespark-logo.png`.
+- One big number + one small label per KPI card. No text-text-text walls.
+
+**Palette (consistent across product):**
+- `emerald` → good / growth
+- `amber` → warm / warning / counterfactual
+- `rose` → bad / leak / error
+- `violet` → intelligence / peer network / learning
+- `slate` → neutral / metadata
+
+**Interaction rules:**
+- **Click, not hover**, for anything that moves layout. Hover loops on
+  radar dots caused "schizophrenic flickering" because layout shift moved
+  the element away from the cursor.
+- **No hand-drawn SVG maps.** Only Natural Earth dataset polygons.
+- Animation guides attention; it does not decorate.
+
+**Card state primitives (Phase Ω⁷ hardening):**
+Every Pro card MUST use the unified error/loading/empty primitives from
+`dashboard/src/app/components/_CardStates.tsx`:
+- `CardSkeleton` for loading
+- `CardError` for failures (with retry button)
+- `CardEmpty` for warming / no-data (with ETA hint)
+- `useCardFetch<T>()` hook for typed fetch with automatic state transitions
+
+Silent `.catch(() => {})` patterns are a regression. The Ω⁷ triple sprint
+(2026-04-13) retrofitted the 3 new killer cards; remaining cards are
+migrated on sight.
+
+---
+
+## 5. Copy rules (the 4 filters)
+
+Every string on the dashboard, landing, email, or nudge passes 4 filters.
+Originates from `feedback_storytelling_clarity.md`.
+
+1. **Narrative flow.** Each section answers ONE question stated in its
+   title. Sections flow problem → evidence → fix → proof → learning.
+   Eyebrows and headings are sentences a founder would say out loud.
+2. **Idiot-proof.** No jargon — "CVR" → "conversion rate", "ARPC" →
+   "average customer value". Every number has a unit + context. Every
+   empty state says WHY it's empty and WHAT to do about it. If it needs
+   documentation to understand, rewrite it.
+3. **Visual clarity.** Biggest = most important. Reading order top-left
+   → bottom-right. Whitespace over density. Charts over tables.
+4. **Loss-prevention framing.** Headlines echo "your store is leaking
+   money" when possible. Numbers reframed as "money at risk" not "money
+   earned" — loss aversion drives action. Mix 60% loss / 40% growth.
+
+**Length:** SHORT. KPI hints ≤3 words. Section descriptions one line.
+Cold starts one sentence. The rule is: "would my grandmother understand
+this?" If no, rewrite.
+
+---
+
+## 6. Architecture
 
 ```
 /opt/wishspark/
 ├── backend/          FastAPI API server (port 8000)
 ├── dashboard/        Next.js merchant dashboard (port 3000)
-├── tracker/          Storefront JS scripts (spark-tracker.js, spark-pixel.js, spark-attribution.js)
+├── tracker/          Storefront JS (spark-tracker/pixel/attribution/nudge)
 ├── migrations/       Alembic DB migrations
-└── ecosystem.config.js   PM2 process manager config
+└── ecosystem.config.js   PM2 config
 ```
 
-Reverse proxy: Traefik (Docker) with Let's Encrypt TLS
-- `api.hedgesparkhq.com` → backend:8000
-- `app.hedgesparkhq.com` → dashboard:3000
+**Reverse proxy:** Traefik (Docker) with Let's Encrypt TLS.
+Config lives at `/docker/traefik/dynamic/wishspark.yml` (hot-reload).
 
-## PM2 Processes (all singleton, fork mode)
+**Stack:** FastAPI + Postgres + Redis (Docker) + Next.js 16.2.3 + React 19.
+
+### PM2 processes (all singleton, fork mode)
 
 | Process | Script | Cycle |
-|---------|--------|-------|
+|---|---|---|
 | wishspark-backend | uvicorn app.main:app | Always |
 | wishspark-dashboard | next start | Always |
 | wishspark-worker | intelligence_worker.py | 10 min |
@@ -32,90 +210,342 @@ Reverse proxy: Traefik (Docker) with Let's Encrypt TLS
 | wishspark-nudge-optimizer | nudge_optimization_worker.py | 6 hours |
 | wishspark-gdpr-worker | gdpr_worker.py | 5 min |
 
-## Key Data Flows
+---
 
-**Storefront Tracking:**
-spark-tracker.js → POST /track → events table → product_metrics (aggregation worker)
+## 7. Key data flows
 
-**Purchase Attribution:**
-spark-pixel.js → POST /track (event_type=purchase) → shop_orders + visitor_purchase_sessions
-Identity bridge: shopify_y cookie mapping (Redis hs:symap:{shop}:{id}) OR events table lookup
+**Storefront tracking:**
+`spark-tracker.js → POST /track → events table → product_metrics`
+(aggregation worker every 5min).
 
-**Merchant Session:**
-Shopify OAuth → /auth/callback → hs_session cookie (HttpOnly, Secure, SameSite=None)
-Session bootstrap: GET /auth/session?shop=... → creates cookie → redirects to dashboard
+**Purchase attribution:**
+`spark-pixel.js → POST /track (event_type=purchase) → shop_orders +
+visitor_purchase_sessions`. Identity bridge via shopify_y cookie mapping
+stored in Redis `hs:symap:{shop}:{id}` OR events-table lookup fallback.
 
-**Webhook Lifecycle:**
-OAuth install → ensure_orders_webhook (app/uninstalled only — orders/updated needs PCD approval)
-Aggregation worker checks webhook health daily → auto-repair → webhook_monitor tracks status
+**Merchant session:**
+`Shopify OAuth → /auth/callback → hs_session cookie` (HttpOnly, Secure,
+SameSite=None). Bootstrap: `GET /auth/session?shop=... → creates cookie
+→ redirects to dashboard`.
 
-## Key Infrastructure
+**Webhook lifecycle:**
+OAuth install → `ensure_orders_webhook` (only app/uninstalled — orders/updated
+needs Shopify PCD approval). Aggregation worker checks webhook health daily,
+auto-repairs, `webhook_monitor` tracks status.
 
-**LLM Budget:** €5/month hard cap. Per-module daily limits. 429 exponential backoff on all providers.
-Budget state: `app/core/llm_budget.py`. Operator view: GET /ops/llm-budget
+**Self-healing pipeline:**
+ops_alert → bugfix_pipeline.run_bug_triage → BugFixCandidate (TIER 0/1/2)
+→ preflight_ground_candidate (LLM PII guard + failure history grounding)
+→ LLM propose patch → reviewer_layer → governed auto-apply (TIER_0, or
+TIER_1 under confidence gate) → holdout measurement → promotion or
+quarantine. Scope is locked to safety/efficiency/cost/executability
+(principle 13).
 
-**Sentry:** Enabled when SENTRY_DSN is set. Scope enriched with request_id, shop_domain, route, worker.
+---
 
-**Redis Keys:**
-- `hs:symap:{shop}:{shopify_y}` — shopify_y → visitor_id mapping (90d TTL)
-- `hs:wh_status:{shop}` — webhook health status (48h TTL)
-- `hs:digest:sent:{date}` / `hs:digest:lock:{date}` — daily digest dedup
-- `hs:mdigest:{shop}:{week}` — merchant weekly digest dedup
-- `hs:repair_claim:{shop}:{area}` — distributed repair lock (5 min TTL)
-- `llm:monthly_cost:{month}` — LLM spend tracking
-- `llm:daily:{module}:{date}` — per-module call counts
+## 8. Tooling stack — canonical reference
 
-## Safety Rules
+### 8.1 LLM budget & router
 
-See `EXECUTION_POLICY.md` for the full tiered execution model. Summary:
+- **Hard cap:** €5/month across ALL modules. Enforced in
+  `app/core/llm_budget.py`. Operator view: `GET /ops/llm-budget`.
+- **Providers:** Anthropic Claude (primary), OpenAI (fallback), Opus for
+  Monthly Evolution Audit only.
+- **Per-module daily limits** + 429 exponential backoff on every provider.
+- **Principle:** deterministic first, LLM only when indispensable. Flag
+  every new LLM call BEFORE building with cost estimate at 10k merchants.
+  The €5 is a ceiling not a target — we operate well below by default.
+- **Runtime PII guard** (`app/core/llm_pii_guard.py`): deterministic regex
+  scanner wired into every LLM call site. Blocks emails, Shopify tokens,
+  API keys, JWTs, bearer tokens, IBANs, CC shapes, phones, password
+  assignments. Block → empty return (same path as budget exhaustion) +
+  weekly violation counter. Snippet never echoed to logs.
+- **State keys:** `llm:monthly_cost:{month}`, `llm:daily:{module}:{date}`.
 
-**TIER_2 — Never modify without explicit human approval:**
+### 8.2 Sentry
+
+- Enabled when `SENTRY_DSN` is set.
+- Scope enriched with `request_id`, `shop_domain`, `route`, `worker`.
+- `send_default_pii=False` — never ship PII upstream.
+- DPA required for compliance (`docs/processors.md`).
+
+### 8.3 Telegram (operator channel)
+
+- Bot webhook endpoint: `POST /webhook/telegram`.
+- **Signature verification is MANDATORY** —
+  `app/api/telegram_webhook.py::_verify_telegram_signature` validates
+  `X-Telegram-Bot-Api-Secret-Token` via `hmac.compare_digest`. Fail-closed
+  when `TELEGRAM_WEBHOOK_SECRET` unset (returns 503).
+- Operator commands: approve/apply/merge/deploy bugfix candidates, view
+  digest, pause workers. Every command is audit-logged.
+- **Weekly TIER_2 review** fires Monday 08:00 Rome via
+  `telegram_agent.send_tier2_weekly_review`.
+- Daily digest with heartbeat + candidate roll-up.
+- Setup: when configuring the webhook via `setWebhook`, set the
+  `secret_token` and mirror in env `TELEGRAM_WEBHOOK_SECRET`.
+
+### 8.4 Resend (transactional email)
+
+- Used for: merchant weekly digest, re-engagement drift emails, onboarding
+  sequence, breach notifications.
+- Orchestrator is `app/services/email_orchestrator.py::submit_intent`.
+  **NEVER call `send_email` directly** — governance is in the orchestrator.
+- Templates in `app/services/email_templates.py`.
+- Webhook fail-closed verification (shipped prior sprint).
+- Rate limit + `email_paused` flag on merchants table.
+- Deliverability telemetry in `email_event` model.
+- DPA required (`docs/processors.md`).
+- **No `Try free` copy** in any template (pricing principle §3).
+
+### 8.5 Klaviyo (optional, Pro tier)
+
+- Not required — only for merchants who connect.
+- Encrypted token in `merchants.encrypted_klaviyo_key`.
+- Status tracked: `klaviyo_connection_status`, `klaviyo_last_verified_at`,
+  `klaviyo_last_sync_at`, `klaviyo_last_error`.
+- Event forwarding in `app/services/klaviyo_export.py`.
+- Merchant can disconnect at any time — flag cleared, token wiped.
+
+### 8.6 Merchant chatbot
+
+- Endpoint: `/pro/chat` (requires Pro session).
+- Stack: deterministic RAG-first over `project_brain_snapshot` + past
+  answers. LLM fallback only when deterministic confidence < threshold.
+- Implementation: `app/services/merchant_chatbot.py` +
+  `app/services/chatbot_llm_fallback.py`.
+- Counts against LLM budget. Monthly cost estimated at < €1 for 10k shops
+  thanks to RAG-first design.
+
+### 8.7 Tracker versioning
+
+- `TRACKER_VERSION` in `app/core/tracker_version.py`. **Bump on every
+  `tracker/*.js` change.** Script tag URL: `{APP_URL}/tracker.js?v={VERSION}`.
+- Stale tags auto-cleaned on next onboarding cycle.
+- Currently at v9 (post worldwide compliance sprint).
+
+---
+
+## 9. Security & GDPR posture
+
+HedgeSpark has been audited and hardened across multiple sprints. The
+operational invariants below are all enforced at runtime.
+
+### 9.1 GDPR coverage (enforced)
+
+| Article | Implementation |
+|---|---|
+| Art. 5 retention | `retention_task.py` — events 90d, nudge_events 60d, worker_log 30d |
+| Art. 15 access | `GET /merchant/export` — full data export |
+| Art. 16 rectify | `PATCH /merchant/me` with hashed before/after audit |
+| Art. 17 erasure | `gdpr_processor.py` + `uninstall_erasure.py` watchdog (hourly) |
+| Art. 20 portability | Same as Art. 15 export, JSON format |
+| Art. 21 object | `POST /merchant/object` + opt-out flag in Redis |
+| Art. 22 automation | Opt-out toggle on dashboard |
+| Art. 28 processors | `docs/processors.md` — DPAs required |
+| Art. 32 security | CSP, HSTS preload, COOP/CORP, Permissions-Policy |
+| Art. 33/34 breach | `breach_notification.py` classifier + 72h clock + runbook |
+| Art. 35 DPIA | `docs/DPIA.md` |
+
+### 9.2 Worldwide regulatory coverage
+
+- **EU/EEA (GDPR)** ✅ full
+- **UK (DPA 2018)** ✅ full
+- **California (CCPA/CPRA)** ✅ GPC honored, opt-out endpoint
+- **Brazil, Japan, Australia, Canada, South Korea** ⚠️ runbook-ready,
+  residency TBD
+- **China (PIPL), Russia** ⚠️ require residency decision
+- **South Africa (POPIA)** ❌ not yet in runbook
+
+### 9.3 Cybersecurity invariants (runtime-enforced)
+
+- **CSP:** `default-src 'none'; frame-ancestors 'none'; base-uri 'none';
+  form-action 'none'` on API responses (strict deny).
+- **HSTS:** `max-age=63072000; includeSubDomains; preload`.
+- **X-Frame-Options:** `DENY` on API, frame-ancestors via CSP on dashboard
+  (allows Shopify admin embed).
+- **COOP/CORP:** `same-origin` / `same-site`.
+- **Permissions-Policy:** denies camera, mic, geolocation, cohorts, topics,
+  payment, USB, MIDI.
+- **Telegram webhook:** HMAC signature verification mandatory, fail-closed.
+- **OAuth:** state param mandatory, token encryption at rest via
+  `app/core/token_crypto.py` (TIER_2).
+- **Audit log hash chain** (`app/services/audit.py`): every row carries
+  `_chain = {prev, self, digest}` metadata. `verify_audit_log_chain` walks
+  the table and detects `digest_mismatch`, `self_hash_mismatch`,
+  `chain_link_broken`. Chain head anchored in Redis. Tampering → CRITICAL
+  `audit_log_tampering` alert.
+- **Tracker consent:** 3 sources — `window.hsConsent`,
+  `localStorage['hs_consent']`, `navigator.globalPrivacyControl`/`doNotTrack`.
+  Decision passed to backend as `gdpr_consent_given` + `consent_region`.
+
+### 9.4 Internationalization
+
+Currently shipped: **EN, IT, ES, FR, DE**. Files in `dashboard/src/app/_i18n/`.
+Detection via `Accept-Language` + explicit override. Landing page +
+dashboard + transactional emails all translated. New user-facing strings
+must ship with all 5 locales or they fail review.
+
+### 9.5 Compliance score
+
+`app/services/compliance_score.py` — 11 components, 0–100 score.
+Auto-pause trigger: if score < 70, pipeline self-modifies pause.
+
+---
+
+## 10. Safety tiers (self-modification)
+
+Full model in `docs/EXECUTION_POLICY.md`. Summary:
+
+**TIER_2 — NEVER modify without explicit human approval:**
 - `app/core/token_crypto.py` — merchant token encryption
 - `app/core/merchant_session.py` — session JWT signing
 - `app/api/shopify_oauth.py` — OAuth flow
 - `app/api/billing.py` — billing logic
 - `app/core/deps.py` — auth middleware
 - `app/api/webhooks.py` — webhook handlers
-- `app/services/order_ingestion.py` — revenue data pipeline
-- `app/services/gdpr_processor.py` — GDPR compliance
+- `app/services/order_ingestion.py` — revenue pipeline
+- `app/services/gdpr_processor.py` — GDPR
 - `migrations/` — database schema
-- `ecosystem.config.js` — PM2 config
+- `ecosystem.config.js` — PM2
 - `.env` — production secrets
 - `deploy.sh` — deployment script
 
 **TIER_1 — Propose only, human approves:**
 - `tracker/*.js` — storefront scripts (runs in merchant browsers)
-- `app/services/orchestrator*.py` — action execution logic
-- `app/services/bugfix_pipeline.py`, `app/services/promotion_pipeline.py` — self-modification
-- `app/services/reviewer_layer.py`, `app/services/project_brain.py` — governance logic
-- `app/core/llm_budget.py`, `app/core/llm_router.py` — LLM infrastructure
-- `app/models/*` — SQLAlchemy model definitions
-- Multi-file refactors touching 6+ files
+- `app/services/orchestrator*.py` — action execution
+- `app/services/bugfix_pipeline.py`, `promotion_pipeline.py` — self-modification
+- `app/services/reviewer_layer.py`, `project_brain.py` — governance
+- `app/core/llm_budget.py`, `llm_router.py` — LLM infrastructure
+- `app/models/*` — SQLAlchemy models
+- Multi-file refactors (6+ files)
 
 **TIER_0 — Safe to modify (with tests passing):**
-- `app/services/*` — business logic services (except those listed above)
-- `app/api/*` — API endpoints (except oauth, billing, webhooks)
-- `app/workers/*` — background workers
-- `dashboard/src/*` — frontend components
-- `tests/*` — test files
+- `app/services/*` (except TIER_1/2 above)
+- `app/api/*` (except oauth, billing, webhooks)
+- `app/workers/*`
+- `dashboard/src/*`
+- `tests/*`
 
-## Verification After Changes
+---
+
+## 11. Debug methodology — fix-one-find-all-siblings
+
+**Every bug fix has TWO questions: "did I fix it?" AND "how many other
+copies of this pattern exist?"**
+
+Empirical ratio: **1 reported bug → 3–4 hidden siblings** (measured over
+the April 2026 hunts).
+
+### Protocol
+
+1. **Identify the pattern signature.** Distill the bug into a grep-able
+   pattern. Examples: `:days * 86400000` for int32 overflow; `setData(json)`
+   for wipe-on-null; hardcoded `"USD"` / `"$"` for currency drift;
+   `/ count` / `/ len(` for division by zero.
+2. **Grep exhaustively** across backend + frontend.
+3. **Classify each hit in 3 seconds:**
+   - 🔴 Real sibling → fix
+   - 🟡 Related but safe → verify briefly
+   - ⚫ Intentional / irrelevant → skip
+4. **Fix in batch + re-run smoke test** + commit with sibling count in
+   the message.
+
+**When NOT to apply:** TIER_1 files (propose first), TIER_2 files (never
+without approval), ambiguous patterns requiring per-hit context.
+
+### Audit scripts (run before every commit)
+
+Located in `backend/scripts/`:
+
+| Script | Detects |
+|---|---|
+| `audit_sql_schema.py` | Ghost tables referenced in `text(...)` SQL |
+| `audit_sql_columns.py` | Ghost columns in simple-FROM paths |
+| `audit_tenant_isolation.py` | Multi-tenant queries missing `shop_domain` filter |
+| `audit_timezone.py` | Naive/aware datetime drift |
+| `audit_exception_sinks.py` | Blanket `except Exception: pass` hiding real errors |
+| `audit_n_plus_one.py` | Loops with per-iteration SQL queries |
+| `preflight.sh` | Pre-commit hook that runs all of the above |
+
+Pre-commit hook BLOCKS commits with ghost tables/columns/tenant leaks.
+Run manually anytime with `./venv/bin/python scripts/audit_sql_schema.py`.
+
+---
+
+## 12. 10k-merchant scale checklist
+
+Post-Sprint-Scale (2026-04-13) hardening invariants. Every new code path
+must satisfy:
+
+- [ ] **No `SELECT DISTINCT shop_domain FROM <big_table>`** — query
+      `merchants` table instead (~1000× faster).
+- [ ] **No global threading locks** in request path — use Redis SETNX for
+      cross-process claims + lock-free cooldown fast path.
+- [ ] **SSE endpoints have a connection cap** + per-shop snapshot cache.
+- [ ] **Worker loops over all shops have a time budget** + Redis cursor
+      for round-robin resume (see `segment_monitor_worker.py`).
+- [ ] **Every composite `WHERE` has a matching index** — add migrations
+      with `CREATE INDEX CONCURRENTLY`.
+- [ ] **Every Redis key has a TTL** (`ex=` param mandatory).
+- [ ] **Every LLM call path is pre-gated** by budget + PII guard.
+- [ ] **No N+1** — batch or JOIN instead of per-row queries.
+
+---
+
+## 13. Redis keys — canonical list
+
+| Key pattern | Purpose | TTL |
+|---|---|---|
+| `hs:symap:{shop}:{shopify_y}` | shopify_y → visitor_id map | 90d |
+| `hs:wh_status:{shop}` | webhook health | 48h |
+| `hs:digest:sent:{date}` | daily digest dedup | 48h |
+| `hs:digest:lock:{date}` | daily digest lock | 1h |
+| `hs:mdigest:{shop}:{week}` | merchant weekly digest dedup | 14d |
+| `hs:repair_claim:{shop}:{area}` | distributed repair lock | 5min |
+| `hs:refresh_claim:{shop}` | action candidates refresh claim | 40s |
+| `hs:segmon:cursor` | segment monitor round-robin cursor | 24h |
+| `hs:reengagement:{shop}:{date}` | re-engagement email dedup | 14d |
+| `hs:merchant_opt_out:{shop}` | Art. 21 opt-out flag | none |
+| `llm:monthly_cost:{month}` | LLM spend | 35d |
+| `llm:daily:{module}:{date}` | LLM calls per module | 7d |
+
+---
+
+## 14. Verification after changes
 
 ```bash
-# Backend tests (must pass 631+)
-./venv/bin/python -m pytest tests/ --ignore=tests/test_scaling_intelligence.py -q
+# Backend tests (must pass 2100+ after Ω⁷)
+cd /opt/wishspark/backend
+./venv/bin/python -m pytest tests/ \
+  --ignore=tests/test_scaling_intelligence.py \
+  --ignore=tests/test_daily_digest_v2.py \
+  --ignore=tests/test_landing_integrity.py -q
 
-# Dashboard build (must complete without errors)
+# Dashboard build
 cd /opt/wishspark/dashboard && npx next build
 
-# Health check (after pm2 restart)
+# Audit scripts
+cd /opt/wishspark/backend
+./venv/bin/python scripts/audit_sql_schema.py
+./venv/bin/python scripts/audit_sql_columns.py
+./venv/bin/python scripts/audit_tenant_isolation.py
+
+# Health check
 curl -s http://127.0.0.1:8000/system/health | python3 -m json.tool
+curl -s -o /dev/null -w "dashboard: %{http_code}\n" http://127.0.0.1:3000/app
 
 # Attribution pipeline
 curl -s http://127.0.0.1:8000/ops/attribution/health -H "X-API-Key: $KEY"
 ```
 
-## Deploy
+**Pre-existing test exclusions (NOT regressions):**
+- `test_daily_digest_v2.py` — 2 flaky tests pass on retry
+- `test_landing_integrity.py::test_landing_tailwind_bundle_not_trivial` —
+  Tailwind v4 bundle sizing quirk, fails on clean main too
+
+---
+
+## 15. Deploy
 
 ```bash
 cd /opt/wishspark/dashboard && npx next build   # rebuild frontend
@@ -123,14 +553,64 @@ pm2 restart ecosystem.config.js                  # restart all processes
 pm2 logs wishspark-backend --lines 20            # verify startup
 ```
 
-## Blocklist
+**After any migration:**
+```bash
+cd /opt/wishspark/backend && ./venv/bin/alembic upgrade head
+```
+
+---
+
+## 16. Blocklist
 
 `legacy.myshopify.com` is a dead dev placeholder. Blocklisted in:
-- `app/services/onboarding.py` (_ONBOARDING_BLOCKLIST)
-- `app/services/webhook_health.py` (repair_missing_webhooks)
+- `app/services/onboarding.py::_ONBOARDING_BLOCKLIST`
+- `app/services/webhook_health.py::repair_missing_webhooks`
 - `app/workers/aggregation_worker.py` (webhook health loop)
 
-## Tracker Versioning
+---
 
-TRACKER_VERSION in `app/core/tracker_version.py`. Bump when `tracker/spark-tracker.js` changes.
-Script tag URL: `{APP_URL}/tracker.js?v={VERSION}`. Stale tags auto-cleaned on next onboarding cycle.
+## 17. Memory system (auto-loaded context)
+
+`MEMORY.md` at `/root/.claude/projects/-opt-wishspark/memory/MEMORY.md` is
+auto-loaded every session as an INDEX of detailed memories. Individual
+memory files are loaded on-demand.
+
+**When adding a permanent rule:** prefer updating THIS file (CLAUDE.md)
+over creating a new memory. CLAUDE.md is guaranteed on-screen; memories
+are on-demand. Use memory files for: sprint history, one-off decisions,
+deep-dive reference that would bloat CLAUDE.md.
+
+**Key memory files to read by topic:**
+- Sprint history → `project_*_shipped.md`
+- Debug methodology detail → `feedback_fix_systematically.md`
+- LLM usage rationale → `feedback_llm_usage_principle.md`
+- Visual standards detail → `feedback_visual_standards.md`
+- Storytelling 4-filter detail → `feedback_storytelling_clarity.md`
+- North Star full roadmap → `project_unreachable_north_star.md`
+- Latest work → `project_triple_sprint_11_10.md` (2026-04-13)
+
+**READ FIRST at session start:**
+1. This file (CLAUDE.md) — auto-loaded
+2. `MEMORY.md` — auto-loaded index
+3. `git log -5` — what shipped recently
+4. The latest `project_*_shipped.md` pointed to by the index
+
+---
+
+## 18. Red flags — things to REFUSE
+
+Do not do any of the following without explicit founder approval, even
+if the founder seems to ask for them mid-conversation:
+
+- Modify a TIER_2 file (§10)
+- Add an LLM call without the 4-question flag (§2 principle 9)
+- Write copy containing "free forever" / "no credit card" / "try free"
+- Silently remove a feature from the dashboard (§1 rule 4)
+- Skip pre-commit hooks (`--no-verify`)
+- Force-push to main
+- Commit `.env` or any secrets
+- Introduce a new processor (Sentry/Resend/Anthropic equivalent) without
+  a signed DPA
+
+If the request looks like one of these, STOP and confirm with the
+founder explicitly, regardless of the session's velocity.
