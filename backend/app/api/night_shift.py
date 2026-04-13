@@ -99,22 +99,22 @@ def apply_action(
     if not top:
         raise HTTPException(400, "No suggested action in the latest report")
 
-    # Fire an audit trail entry; existing orchestrator layers can pick it up
+    # Fire an audit trail entry via the canonical write_audit_log helper
+    # so we stay on the same column contract the rest of the codebase uses.
     try:
-        from sqlalchemy import text
-        db.execute(
-            text(
-                """
-                INSERT INTO audit_log (shop_domain, actor, action, target, detail, created_at)
-                VALUES (:shop, 'night_shift_agent', 'apply_suggested_action',
-                        :target, :detail, NOW())
-                """
-            ),
-            {
-                "shop": shop,
-                "target": top.get("kind") or "night_shift_action",
-                "detail": __import__("json").dumps(top),
-            },
+        from app.services.audit import write_audit_log
+        write_audit_log(
+            db,
+            actor_type="worker",
+            actor_name="night_shift_agent",
+            action_type="apply_suggested_action",
+            target_type=top.get("kind") or "night_shift_action",
+            target_id=str(top.get("source") or top.get("label") or "unknown")[:256],
+            shop_domain=shop,
+            before_state=None,
+            after_state=top,
+            status="completed",
+            approval_mode="human_approved",
         )
         db.commit()
     except Exception:

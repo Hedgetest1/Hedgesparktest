@@ -118,23 +118,26 @@ def _gather_fusion(db: Session, shop_domain: str) -> dict:
 
 
 def _gather_prevented_today(db: Session, shop_domain: str) -> float:
-    """Sum of action execution deltas recorded in the last 24h."""
+    """
+    Estimate prevented € attributable to the agent in the last 24h.
+
+    Pulls `prevented_eur_this_month` from the per-shop RARS report and
+    prorates to 24h. This is the same source the monthly ROI email uses,
+    which means the Sleep Confidence `prevention_evidence` weight is
+    finally reading from a field that exists.
+
+    The original v1 scanned a non-existent `action_executions` table
+    and always returned 0 — silently zeroing the confidence evidence.
+    Fixed 2026-04-13 during the post-refactor audit sweep.
+    """
     try:
-        from sqlalchemy import text
-        row = db.execute(
-            text(
-                """
-                SELECT COALESCE(SUM(CAST(COALESCE(impact_eur, 0) AS FLOAT)), 0)
-                FROM action_executions
-                WHERE shop_domain = :shop
-                  AND executed_at >= NOW() - INTERVAL '24 hours'
-                  AND status = 'confirmed'
-                """
-            ),
-            {"shop": shop_domain},
-        ).fetchone()
-        return float(row[0] or 0.0) if row else 0.0
-    except Exception:
+        from app.services.revenue_at_risk import get_revenue_at_risk
+        rars = get_revenue_at_risk(db, shop_domain) or {}
+        prevented_month = float(rars.get("prevented_eur_this_month") or 0.0)
+        # Prorate to a 24h share (monthly total / 30). Rounded to nearest €.
+        return round(prevented_month / 30.0, 2)
+    except Exception as exc:
+        log.warning("night_shift: _gather_prevented_today failed for %s: %s", shop_domain, exc)
         return 0.0
 
 
