@@ -14,35 +14,35 @@ from app.services.webhook_health import (
 
 def test_should_run_webhook_check_first_time():
     """First run ever (None) → should run."""
-    import app.workers.aggregation_worker as aw
-    original = aw._last_webhook_check
+    from app.workers.tasks import webhook_health_task as wht
+    original = wht._last_run
     try:
-        aw._last_webhook_check = None
-        assert aw._should_run_webhook_check() is True
+        wht._last_run = None
+        assert wht.should_run() is True
     finally:
-        aw._last_webhook_check = original
+        wht._last_run = original
 
 
 def test_should_not_run_within_24h():
     """Run 1 second ago → should NOT run."""
-    import app.workers.aggregation_worker as aw
-    original = aw._last_webhook_check
+    from app.workers.tasks import webhook_health_task as wht
+    original = wht._last_run
     try:
-        aw._last_webhook_check = time.monotonic() - 1
-        assert aw._should_run_webhook_check() is False
+        wht._last_run = time.monotonic() - 1
+        assert wht.should_run() is False
     finally:
-        aw._last_webhook_check = original
+        wht._last_run = original
 
 
 def test_should_run_after_24h():
     """Run 25 hours ago → should run."""
-    import app.workers.aggregation_worker as aw
-    original = aw._last_webhook_check
+    from app.workers.tasks import webhook_health_task as wht
+    original = wht._last_run
     try:
-        aw._last_webhook_check = time.monotonic() - (25 * 3600)
-        assert aw._should_run_webhook_check() is True
+        wht._last_run = time.monotonic() - (25 * 3600)
+        assert wht.should_run() is True
     finally:
-        aw._last_webhook_check = original
+        wht._last_run = original
 
 
 # ---------------------------------------------------------------------------

@@ -121,14 +121,14 @@ def test_delivery_handles_network_error_gracefully():
 def test_watchdog_scheduling_guard():
     """Watchdog guard respects interval."""
     import time
-    import app.workers.aggregation_worker as aw
-    original = aw._last_watchdog_run
+    from app.workers.tasks import watchdog_task as wt
+    original = wt._last_run
     try:
-        aw._last_watchdog_run = None
-        assert aw._should_run_watchdog() is True
-        aw._last_watchdog_run = time.monotonic() - 1
-        assert aw._should_run_watchdog() is False
-        aw._last_watchdog_run = time.monotonic() - 7200
-        assert aw._should_run_watchdog() is True
+        wt._last_run = None
+        assert wt.should_run() is True
+        wt._last_run = time.monotonic() - 1
+        assert wt.should_run() is False
+        wt._last_run = time.monotonic() - 7200
+        assert wt.should_run() is True
     finally:
-        aw._last_watchdog_run = original
+        wt._last_run = original
