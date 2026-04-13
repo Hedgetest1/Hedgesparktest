@@ -720,8 +720,13 @@ deep-dive reference that would bloat CLAUDE.md.
 **READ FIRST at session start:**
 1. This file (CLAUDE.md) — auto-loaded
 2. `MEMORY.md` — auto-loaded index
-3. `git log -5` — what shipped recently
-4. The latest `project_*_shipped.md` pointed to by the index
+3. 🚀 **`project_beta_launch_master_plan.md`** — active master plan for
+   the beta launch sprint. Contains the self-audit, Lite/Pro partition
+   proposal, Opzione A sprint stages 1-4, unit economics voices to
+   collect, legal Italia checklist, `<ExplainerDrawer>` primitive spec,
+   Night Shift Timeline spec. **This is the current work; start here.**
+4. `git log -5` — what shipped recently
+5. The latest `project_*_shipped.md` pointed to by the index
 
 ---
 
