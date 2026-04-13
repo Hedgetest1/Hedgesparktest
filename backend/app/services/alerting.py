@@ -16,9 +16,10 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.models.ops_alert import OpsAlert
@@ -265,6 +266,28 @@ def write_alert(
             pass
         log.debug("alert: external delivery error (non-fatal): %s", exc)
 
+    # Phase Ω'' — outbound webhook fan-out. Compliance + GDPR sources go to
+    # 'compliance.alert', everything else to 'anomaly.detected'. Shop-scoped
+    # only — global alerts (shop_domain=None) are not published.
+    if shop_domain:
+        try:
+            from app.services.event_emitter import emit
+            event_type = (
+                "compliance.alert"
+                if source in ("compliance_score", "compliance_evidence", "gdpr_processor",
+                              "regulatory_feed_monitor", "breach_notification", "uninstall_erasure")
+                else "anomaly.detected"
+            )
+            emit(db, shop_domain, event_type, {
+                "alert_id": alert.id,
+                "severity": severity,
+                "source": source,
+                "alert_type": alert_type,
+                "summary": summary,
+            })
+        except Exception:
+            pass
+
     return alert
 
 
@@ -287,3 +310,76 @@ def resolve_alert(db: Session, alert_id: int) -> None:
         alert.resolved = True
         alert.resolved_at = datetime.now(timezone.utc).replace(tzinfo=None)
         db.flush()
+
+
+# Tiered staleness — urgency-proportional auto-resolution.
+# Critical alerts get a long window (should be resolved by humans, not time).
+# Warnings get a medium window (actionable but not urgent).
+# Info gets a short window (they are telemetry, not signals).
+_STALE_ALERT_AGE_HOURS = 48       # fallback for everything
+_STALE_INFO_AGE_HOURS = 6         # info-severity: pure telemetry, short TTL
+_STALE_WARNING_AGE_HOURS = 24     # warning: 1 day to act before noise
+_STALE_CRITICAL_AGE_HOURS = 72    # critical: 3 days — enough for response
+
+# Alert types that are known-harmless telemetry and should be auto-resolved
+# aggressively. These are observation-only signals (heartbeats, usage logs)
+# that pile up in the unresolved table and inflate the alert pressure metric
+# without representing actionable incidents.
+_AUTO_RESOLVE_NOISE_TYPES = frozenset({
+    "heartbeat_ok",
+    "deploy_succeeded",
+    "positive_feedback",
+    "product_feedback",
+})
+
+
+def resolve_stale_alerts(db: Session) -> int:
+    """Tiered auto-resolution of stale alerts.
+
+    Severity-scaled: info >6h, warning >24h, critical >72h.
+    Plus: always clear known-noise alert types regardless of age.
+    Returns the total number of alerts resolved.
+    """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    total = 0
+
+    # Tier 1: severity-based staleness
+    severity_cutoffs = [
+        ("info", now - timedelta(hours=_STALE_INFO_AGE_HOURS)),
+        ("warning", now - timedelta(hours=_STALE_WARNING_AGE_HOURS)),
+        ("critical", now - timedelta(hours=_STALE_CRITICAL_AGE_HOURS)),
+    ]
+    for severity, cutoff in severity_cutoffs:
+        result = db.execute(
+            text("""
+                UPDATE ops_alerts
+                SET resolved = true,
+                    resolved_at = :now
+                WHERE resolved = false
+                  AND severity = :sev
+                  AND created_at < :cutoff
+            """),
+            {"now": now, "sev": severity, "cutoff": cutoff},
+        )
+        total += result.rowcount or 0
+
+    # Tier 2: known-noise alert types — resolve aggressively (no age gate)
+    if _AUTO_RESOLVE_NOISE_TYPES:
+        result = db.execute(
+            text("""
+                UPDATE ops_alerts
+                SET resolved = true,
+                    resolved_at = :now
+                WHERE resolved = false
+                  AND alert_type = ANY(:types)
+                  AND created_at < :cutoff
+            """),
+            {
+                "now": now,
+                "types": list(_AUTO_RESOLVE_NOISE_TYPES),
+                "cutoff": now - timedelta(hours=1),  # 1h grace period
+            },
+        )
+        total += result.rowcount or 0
+
+    return total

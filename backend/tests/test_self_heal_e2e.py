@@ -121,7 +121,13 @@ def test_self_heal_e2e_triage_to_merge_decision(db, monkeypatch):
     # then mock merge_promotion so we do not actually call gh cli.
     monkeypatch.setenv("AUTO_MERGE_TIER0", "1")
     import app.services.promotion_pipeline as pp
-    pp._auto_merge_last = None
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc:
+            rc.delete(pp._AUTO_MERGE_COOLDOWN_REDIS_KEY)
+    except Exception:
+        pass
 
     with patch(
         "app.services.promotion_pipeline.merge_promotion",
@@ -182,7 +188,13 @@ def test_self_heal_e2e_blocks_merge_on_forbidden_path(db, monkeypatch):
 
     monkeypatch.setenv("AUTO_MERGE_TIER0", "1")
     import app.services.promotion_pipeline as pp
-    pp._auto_merge_last = None
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc:
+            rc.delete(pp._AUTO_MERGE_COOLDOWN_REDIS_KEY)
+    except Exception:
+        pass
 
     with patch(
         "app.services.promotion_pipeline.merge_promotion",

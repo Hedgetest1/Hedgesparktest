@@ -137,6 +137,16 @@ def run_onboarding(db: Session, merchant: Merchant) -> OnboardingResult:
         except Exception as exc:
             log.warning("onboarding: welcome email intent failed (non-fatal): %s", exc)
 
+        # α3 killer feature — Instant Intelligence: kick off 90d order
+        # backfill so the merchant sees real numbers on first login, not
+        # "we're collecting data". Async, never blocks onboarding.
+        try:
+            from app.services.instant_onboarding import trigger_instant_intelligence_async
+            trigger_instant_intelligence_async(merchant.shop_domain)
+            log.info("onboarding: instant intelligence triggered for %s", merchant.shop_domain)
+        except Exception as exc:
+            log.warning("onboarding: instant intelligence trigger failed (non-fatal): %s", exc)
+
         return result
 
     except Exception as exc:

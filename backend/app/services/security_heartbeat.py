@@ -193,12 +193,12 @@ def _probe_track_consent_denied(client: httpx.Client) -> dict:
 
 
 def _probe_shopify_webhook_bad_hmac(client: httpx.Client) -> dict:
-    """Expect: 401. Success = rejected."""
+    """Expect: 401/403 (rejected by HMAC check). Success = rejected."""
     body = b'{"id":123}'
     bad_hmac = hmac.new(b"wrong-secret", body, hashlib.sha256).digest()
     import base64
     resp = client.post(
-        "/webhooks/shopify/orders-updated",
+        "/webhooks/shopify/orders",  # canonical path — matches webhooks.py
         content=body,
         headers={
             "X-Shopify-Hmac-Sha256": base64.b64encode(bad_hmac).decode(),
@@ -211,7 +211,7 @@ def _probe_shopify_webhook_bad_hmac(client: httpx.Client) -> dict:
         "probe": "shopify_webhook_bad_hmac",
         "status": resp.status_code,
         "passed": resp.status_code in (401, 403, 400),
-        "expectation": "4xx HMAC failure",
+        "expectation": "4xx HMAC failure (401/403)",
     }
 
 

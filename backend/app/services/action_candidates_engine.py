@@ -19,7 +19,6 @@ Data sources consumed
 
 V1 Action Types
 ---------------
-  CRO_FIX              page/funnel broken — fix the experience first
   SCARCITY_NUDGE       deep engagement + unique product — inject urgency/scarcity
   PRICE_TEST           price is the friction point — test a reduction
   RETARGET_HOT_TRAFFIC return visitors not converting — close the loop
@@ -119,10 +118,6 @@ def _maybe_refresh_signals(shop_domain: str) -> None:
 # Signal types not listed are ignored in v1 (no candidate produced).
 # ---------------------------------------------------------------------------
 _SIGNAL_TO_ACTION: dict[str, str] = {
-    # Traffic quality failures → fix the page experience first
-    "HIGH_TRAFFIC_NO_CART":       "CRO_FIX",
-    "LOW_CONVERSION_ATTENTION":   "CRO_FIX",
-    "DEAD_TRAFFIC":               "CRO_FIX",
     # Deep engagement with no action → scarcity / uniqueness nudge
     "HIGH_ENGAGEMENT_NO_ACTION":  "SCARCITY_NUDGE",
     "SCROLL_HIGH_NO_CLICK":       "SCARCITY_NUDGE",
@@ -137,10 +132,6 @@ _SIGNAL_TO_ACTION: dict[str, str] = {
 # Defined here (not via humanize_action()) because v1 action types do not
 # map 1:1 to the signal_text signal types. Imperative, one sentence each.
 _ACTION_HINTS: dict[str, str] = {
-    "CRO_FIX": (
-        "Audit the page experience — check load speed, above-the-fold content, "
-        "and the primary CTA. Visitors are arriving but not engaging."
-    ),
     "SCARCITY_NUDGE": (
         "Add a scarcity or social proof element — 'Only X left', a recent-purchase "
         "notification, or a limited-time label. Visitors are reading deeply but not committing."
@@ -219,13 +210,6 @@ def _build_reason(
     scroll = float(metrics.get("avg_scroll_24h") or 0)
     returns = int(metrics.get("return_visitor_count_7d") or 0)
 
-    if action_type == "CRO_FIX":
-        dwell_str = f"{dwell:.1f}s avg dwell" if dwell else "very low dwell time"
-        return (
-            f"{v24} views in 24h, {cart} added to cart. "
-            f"{dwell_str} — the page is not converting attention."
-        )
-
     if action_type == "SCARCITY_NUDGE":
         scroll_str = f"avg scroll {scroll:.0f}%" if scroll else "deep scroll engagement"
         u_score = int(upd.get("uniqueness_score") or 0)
@@ -260,6 +244,11 @@ def _build_reason(
 # Main engine function
 # ---------------------------------------------------------------------------
 
+_ACTION_BLOCKLIST = frozenset({
+    "legacy.myshopify.com",
+})
+
+
 def generate_action_candidates(shop_domain: str, db: Session) -> list[dict]:
     """
     Generate a ranked list of Pro action candidates from existing data sources.
@@ -269,6 +258,9 @@ def generate_action_candidates(shop_domain: str, db: Session) -> list[dict]:
 
     No side effects. No DB writes. No caching.
     """
+    if shop_domain in _ACTION_BLOCKLIST:
+        return []
+
     now = datetime.now(tz=timezone.utc).replace(tzinfo=None)
     params: dict[str, Any] = {"shop": shop_domain}
 
@@ -436,16 +428,7 @@ def generate_action_candidates(shop_domain: str, db: Session) -> list[dict]:
         uniqueness_score  = float(upd.get("uniqueness_score") or 0)
         conf_score_pi     = float(pi.get("confidence_score") or 0)
 
-        if action_type == "CRO_FIX":
-            # Gate: meaningful traffic AND a clear attention failure
-            if views_24h < 20:
-                continue
-            if avg_dwell >= 10 and cart_24h > 0:
-                continue  # dwell is acceptable AND some conversions exist — not a CRO failure
-            confidence = _clamp(base_strength)
-            urgency    = _clamp(min(views_24h / 2.0, 100.0), 0.0, 100.0)
-
-        elif action_type == "SCARCITY_NUDGE":
+        if action_type == "SCARCITY_NUDGE":
             # Gate: uniqueness must be confirmed — don't inject scarcity for comparable products
             if uniqueness_status != "UNIQUE_LIKELY" or uniqueness_score < 70:
                 continue

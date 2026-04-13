@@ -1,4 +1,10 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
+
+export const viewport: Viewport = {
+  themeColor: "#d4893a",
+  width: "device-width",
+  initialScale: 1,
+};
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ErrorReporterInstaller } from "./components/ErrorReporterInstaller";
@@ -42,6 +48,12 @@ export const metadata: Metadata = {
     description:
       "Find the money you're silently losing. Stop the bleed. Prove the recovery.",
   },
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    title: "Hedge Spark",
+    statusBarStyle: "black-translucent",
+  },
 };
 
 const softwareApplicationJsonLd = {
@@ -78,6 +90,22 @@ export default function RootLayout({
             __html: JSON.stringify(softwareApplicationJsonLd),
           }}
         />
+        {/* PWA — service worker registration */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator && window.location.protocol === 'https:') {
+                window.addEventListener('load', function () {
+                  navigator.serviceWorker.register('/sw.js').catch(function(){});
+                });
+              }
+            `.trim(),
+          }}
+        />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-title" content="Hedge Spark" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <link rel="apple-touch-icon" href="/logo-beta-v2.png" />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}

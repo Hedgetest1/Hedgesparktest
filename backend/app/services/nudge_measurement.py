@@ -310,6 +310,22 @@ def record_nudge_event(
             (metadata or {}).get("copy_variant", "unknown"),
             ev.id,
         )
+
+        # Phase Ω'' — outbound webhook fan-out for genuine first impressions
+        # and dismissals. Skipped for clicks (covered by trust contract events)
+        # and for null-visitor events (already excluded from attribution).
+        if visitor_id and event_type in ("shown", "dismissed"):
+            try:
+                from app.services.event_emitter import emit
+                emit(db, shop_domain, "nudge.fired" if event_type == "shown" else "nudge.dismissed", {
+                    "nudge_id": nudge_id,
+                    "product_url": product_url,
+                    "event_type": event_type,
+                    "event_id": ev.id,
+                })
+            except Exception:
+                pass
+
         return ev
 
     except Exception as exc:

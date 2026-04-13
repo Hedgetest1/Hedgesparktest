@@ -1,0 +1,167 @@
+"""
+public_status.py — Phase Ω' public status page backend.
+
+  GET /public/status — anonymized, cache-friendly snapshot of system
+                       health for the public status page. No PII, no
+                       merchant data, no shop counts.
+
+The shape is intentionally tight: status dots + uptime % + last incident.
+Cached 60s in Redis to absorb traffic from the public page.
+"""
+from __future__ import annotations
+
+import logging
+import time
+from datetime import datetime, timezone
+
+from fastapi import APIRouter
+from sqlalchemy import text
+
+from app.core.database import engine
+
+router = APIRouter(tags=["public_status"])
+log = logging.getLogger(__name__)
+
+_CACHE_KEY = "hs:public_status:v1"
+_CACHE_TTL = 60
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+@router.get("/public/status")
+def get_public_status():
+    """Public, unauthenticated, cache-friendly status snapshot."""
+    # Try cache
+    try:
+        from app.core.redis_client import _client
+        import json as _j
+        rc = _client()
+        if rc is not None:
+            cached = rc.get(_CACHE_KEY)
+            if cached:
+                return _j.loads(cached)
+    except Exception:
+        rc = None
+
+    components: list[dict] = []
+    incidents: list[dict] = []
+
+    # API
+    try:
+        t0 = time.monotonic()
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        latency_ms = round((time.monotonic() - t0) * 1000, 1)
+        components.append({
+            "name": "API",
+            "status": "operational" if latency_ms < 250 else "degraded",
+            "latency_ms": latency_ms,
+        })
+    except Exception:
+        components.append({"name": "API", "status": "outage", "latency_ms": None})
+
+    # Database
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        components.append({"name": "Database", "status": "operational"})
+    except Exception:
+        components.append({"name": "Database", "status": "outage"})
+
+    # Workers — read worker_state freshness
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT worker_name, last_run_at FROM worker_state
+                ORDER BY worker_name
+            """)).fetchall()
+        worker_status = "operational"
+        worker_count = len(rows)
+        stale = 0
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        for r in rows:
+            last = r[1]
+            if last is None:
+                stale += 1
+                continue
+            age = (now - last).total_seconds()
+            if age > 3600:  # 1h staleness floor
+                stale += 1
+        if stale > worker_count / 2:
+            worker_status = "outage"
+        elif stale > 0:
+            worker_status = "degraded"
+        components.append({
+            "name": "Background workers",
+            "status": worker_status,
+            "stale_count": stale,
+            "total_count": worker_count,
+        })
+    except Exception:
+        components.append({"name": "Background workers", "status": "unknown"})
+
+    # Self-healing pipeline
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(text("""
+                SELECT COUNT(*) FROM ops_alerts
+                WHERE created_at >= NOW() - INTERVAL '24 hours'
+                  AND severity = 'critical'
+            """)).first()
+        critical_24h = int(row[0] or 0) if row else 0
+        components.append({
+            "name": "Self-healing pipeline",
+            "status": "operational" if critical_24h == 0 else "degraded",
+            "critical_24h": critical_24h,
+        })
+    except Exception:
+        components.append({"name": "Self-healing pipeline", "status": "unknown"})
+
+    # Recent incidents — last 7 days, critical only
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT created_at, source, summary
+                FROM ops_alerts
+                WHERE created_at >= NOW() - INTERVAL '7 days'
+                  AND severity = 'critical'
+                ORDER BY created_at DESC
+                LIMIT 5
+            """)).fetchall()
+        for r in rows:
+            incidents.append({
+                "at": r[0].isoformat() if r[0] else None,
+                "component": r[1],
+                "summary": (r[2] or "")[:140],
+            })
+    except Exception:
+        pass
+
+    # Overall status
+    statuses = [c.get("status") for c in components]
+    if "outage" in statuses:
+        overall = "outage"
+    elif "degraded" in statuses:
+        overall = "degraded"
+    elif "unknown" in statuses:
+        overall = "degraded"
+    else:
+        overall = "operational"
+
+    result = {
+        "overall": overall,
+        "components": components,
+        "incidents": incidents,
+        "checked_at": _now_iso(),
+    }
+
+    if rc is not None:
+        try:
+            import json as _j
+            rc.setex(_CACHE_KEY, _CACHE_TTL, _j.dumps(result, default=str))
+        except Exception:
+            pass
+
+    return result

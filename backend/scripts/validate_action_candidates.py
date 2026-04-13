@@ -16,12 +16,11 @@ Run from the backend directory with the project venv:
 Expected sparse output
 ----------------------
 At the time of writing, only legacy.myshopify.com has live data.
-The engine will produce at most 1 candidate (CRO_FIX on /products/alpha)
-because price_intelligence, unique_product_detection, and visitor_product_state
-still use old full-URL product keys that don't match the path-style keys in
-opportunity_signals and product_metrics.
+The engine will produce candidates based on opportunity signals mapped to
+action types (SCARCITY_NUDGE, RETARGET_HOT_TRAFFIC, etc.).
 
-This is a known data state — not a bug in the engine.
+Output depends on data availability — price_intelligence, unique_product_detection,
+and visitor_product_state must have matching product keys.
 Once product_url is normalised across all tables, the full candidate set will
 appear here automatically with no changes to this script.
 """

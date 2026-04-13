@@ -53,20 +53,20 @@ class TestActionAgent:
         assert summary["executed"] == 1
 
     def test_approval_required_action_queues(self, db):
-        """CRO_FIX tasks are queued for approval, not auto-executed."""
+        """PRICE_TEST tasks are queued for approval, not auto-executed."""
         from app.models.action_task import ActionTask
         from app.services.action_agent import _process_task
 
         task = ActionTask(
             shop_domain="approval-test.myshopify.com",
-            product_url="/products/cro-product",
-            action_type="CRO_FIX",
+            product_url="/products/price-product",
+            action_type="PRICE_TEST",
             status="pending",
             urgency=60.0,
             confidence=0.7,
-            source_candidate={"signal_type": "high_traffic_no_cart"},
+            source_candidate={"signal_type": "price_sensitivity"},
             task_payload={
-                "suggested_fixes": [{"fix": "Add product reviews", "priority": "high"}],
+                "suggested_tests": [{"variant": "10% discount", "priority": "high"}],
             },
         )
         db.add(task)
@@ -96,7 +96,7 @@ class TestActionAgent:
         # (executing tasks are excluded by the SQLAlchemy filter)
         # This is a design verification, not an integration test
         assert "SCARCITY_NUDGE" in _AUTO_EXECUTABLE_TYPES
-        assert "CRO_FIX" in _APPROVAL_REQUIRED_TYPES
+        assert "PRICE_TEST" in _APPROVAL_REQUIRED_TYPES
 
     def test_risk_classification(self):
         """Verify action types are correctly classified by risk."""
@@ -104,7 +104,6 @@ class TestActionAgent:
 
         assert "SCARCITY_NUDGE" in _AUTO_EXECUTABLE_TYPES
         assert "RETARGET_HOT_TRAFFIC" in _AUTO_EXECUTABLE_TYPES
-        assert "CRO_FIX" in _APPROVAL_REQUIRED_TYPES
         assert "PRICE_TEST" in _APPROVAL_REQUIRED_TYPES
         assert "FLASH_INCENTIVE" in _APPROVAL_REQUIRED_TYPES
 

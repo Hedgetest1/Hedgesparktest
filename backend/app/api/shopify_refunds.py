@@ -78,4 +78,21 @@ async def refund_created(
     except Exception:
         pass
 
+    # Phase Ω''' — outbound webhook fan-out for merchant-subscribable
+    # refund.processed events. Opens a short-lived db session because
+    # this webhook handler is request-scoped and has no Depends(get_db).
+    try:
+        from app.core.database import SessionLocal
+        from app.services.event_emitter import emit
+        with SessionLocal() as _db:
+            emit(_db, x_shopify_shop_domain, "refund.processed", {
+                "refund_id": str(payload.get("id") or ""),
+                "order_id": str(payload.get("order_id") or ""),
+                "rows_stored": added,
+                "amount_eur": float(payload.get("transactions", [{}])[0].get("amount") or 0)
+                              if payload.get("transactions") else 0.0,
+            })
+    except Exception:
+        pass
+
     return {"ok": True, "stored_rows": added}

@@ -152,6 +152,23 @@ from app.api.onboarding import router as onboarding_router
 from app.api.ops import router as ops_router
 from app.api.frontend_errors import router as frontend_errors_router
 from app.api.benchmarks import router as benchmarks_router
+from app.api.benchmarks_vertical import router as benchmarks_vertical_router
+from app.api.knowledge_graph import router as knowledge_graph_router
+from app.api.outbound_webhooks import router as outbound_webhooks_router
+from app.api.ads import router as ads_router
+from app.api.anomaly_fusion import router as anomaly_fusion_router
+from app.api.causal_explainer import router as causal_explainer_router
+from app.api.public_status import router as public_status_router
+from app.api.merchant_groups import router as merchant_groups_router
+from app.api.agency import router as agency_router
+from app.api.storefront_preview import router as storefront_preview_router
+from app.api.community_marketplace import router as community_marketplace_router
+from app.api.realtime_stream import router as realtime_stream_router
+from app.models.community_template import CommunityTemplate, CommunityTemplateClone  # noqa: F401
+from app.models.merchant_group import MerchantGroup, MerchantGroupMember  # noqa: F401
+from app.models.agency import Agency, AgencyClient  # noqa: F401
+from app.models.outbound_webhook import OutboundWebhookSubscription, OutboundWebhookDelivery  # noqa: F401
+from app.models.ad_spend import AdSpendDaily, AdConnection  # noqa: F401
 from app.api.refund_loss import router as refund_loss_router
 from app.api.revenue_autopsy import router as revenue_autopsy_router
 from app.api.abandoned_intent import router as abandoned_intent_router
@@ -171,6 +188,20 @@ from app.api.health import router as health_router
 from app.api.orders import router as orders_router
 from app.api.pnl import router as pnl_router
 from app.api.cost_config import router as cost_config_router
+from app.api.trust_contracts import router as trust_contracts_router
+from app.api.roi_hero import router as roi_hero_router
+from app.api.instant_intelligence import router as instant_intelligence_router
+from app.api.daily_narrative import router as daily_narrative_router
+from app.api.cac_ltv import router as cac_ltv_router
+from app.api.mta import router as mta_router
+from app.api.margin_guard_api import router as margin_guard_router
+from app.api.visitor_journeys import router as visitor_journeys_router
+from app.api.forecasts import router as forecasts_router
+from app.api.compliance_evidence import router as compliance_evidence_router
+from app.api.merchant_rules import router as merchant_rules_router
+from app.api.public_events import router as public_events_router
+from app.api.customer_churn import router as customer_churn_router
+from app.api.nudge_dna import router as nudge_dna_router
 from app.api.integrations import router as integrations_router
 from app.api.telegram_webhook import router as telegram_webhook_router
 from app.api.chat_support import router as chat_support_router
@@ -431,6 +462,20 @@ app.include_router(health_router)
 app.include_router(orders_router)
 app.include_router(pnl_router)
 app.include_router(cost_config_router)
+app.include_router(trust_contracts_router)
+app.include_router(roi_hero_router)
+app.include_router(instant_intelligence_router)
+app.include_router(daily_narrative_router)
+app.include_router(cac_ltv_router)
+app.include_router(mta_router)
+app.include_router(margin_guard_router)
+app.include_router(visitor_journeys_router)
+app.include_router(forecasts_router)
+app.include_router(compliance_evidence_router)
+app.include_router(merchant_rules_router)
+app.include_router(public_events_router)
+app.include_router(customer_churn_router)
+app.include_router(nudge_dna_router)
 app.include_router(integrations_router)
 app.include_router(telegram_webhook_router)
 app.include_router(chat_support_router)
@@ -441,6 +486,18 @@ app.include_router(legal_pages_router)
 app.include_router(consent_banner_router)
 app.include_router(frontend_errors_router)
 app.include_router(benchmarks_router)
+app.include_router(benchmarks_vertical_router)
+app.include_router(knowledge_graph_router)
+app.include_router(outbound_webhooks_router)
+app.include_router(ads_router)
+app.include_router(anomaly_fusion_router)
+app.include_router(causal_explainer_router)
+app.include_router(public_status_router)
+app.include_router(merchant_groups_router)
+app.include_router(agency_router)
+app.include_router(storefront_preview_router)
+app.include_router(community_marketplace_router)
+app.include_router(realtime_stream_router)
 app.include_router(refund_loss_router)
 app.include_router(goals_router)
 app.include_router(rars_router)

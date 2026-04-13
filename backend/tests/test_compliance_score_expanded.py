@@ -64,8 +64,15 @@ def test_audit_log_integrity_zero_on_tampering():
 
 
 def test_breach_response_latency_full_when_no_alerts(db):
-    """breach_response_latency gives full score when no open alerts."""
+    """breach_response_latency gives full score when no open breach alerts."""
     from app.services.compliance_score import _score_breach_response_latency, _WEIGHTS
+    from app.models.ops_alert import OpsAlert
+    # Resolve any pre-existing breach alerts so the test starts clean
+    db.query(OpsAlert).filter(
+        OpsAlert.alert_type == "breach_response_required",
+        OpsAlert.resolved == False,  # noqa: E712
+    ).update({"resolved": True})
+    db.flush()
     result = _score_breach_response_latency(db)
     assert result["score"] == _WEIGHTS["breach_response_latency"]
 

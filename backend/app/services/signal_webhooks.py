@@ -141,6 +141,61 @@ def _key_delivery(event_id: str) -> str:
     return f"{_REDIS_KEY_DELIVERY}:{event_id}"
 
 
+# --- Per-endpoint circuit breaker ---
+# After N consecutive failures, open the circuit and stop delivering for
+# `_CIRCUIT_OPEN_TTL_S`. Prevents a single broken endpoint from flooding
+# the alert pipeline.
+_CIRCUIT_FAIL_THRESHOLD = 5       # consecutive failures to trip
+_CIRCUIT_OPEN_TTL_S = 1800        # 30-minute cooldown once tripped
+_CIRCUIT_FAIL_COUNTER_TTL_S = 3600 # reset counter after 1h of no failures
+
+
+def _circuit_fail_key(webhook_id: str) -> str:
+    return f"hs:webhook_circuit:fails:{webhook_id}"
+
+
+def _circuit_open_key(webhook_id: str) -> str:
+    return f"hs:webhook_circuit:open:{webhook_id}"
+
+
+def _is_webhook_circuit_open(webhook_id: str) -> bool:
+    rc = _redis()
+    if rc is None:
+        return False
+    try:
+        return bool(rc.exists(_circuit_open_key(webhook_id)))
+    except Exception:
+        return False
+
+
+def _record_webhook_failure(webhook_id: str) -> int:
+    """Increment failure counter. Trip the circuit if threshold reached.
+    Returns the current failure count (post-increment)."""
+    rc = _redis()
+    if rc is None:
+        return 0
+    try:
+        key = _circuit_fail_key(webhook_id)
+        count = rc.incr(key)
+        rc.expire(key, _CIRCUIT_FAIL_COUNTER_TTL_S)
+        if count >= _CIRCUIT_FAIL_THRESHOLD:
+            rc.setex(_circuit_open_key(webhook_id), _CIRCUIT_OPEN_TTL_S, "1")
+            rc.delete(key)  # reset counter — next check restarts fresh
+        return int(count)
+    except Exception:
+        return 0
+
+
+def _record_webhook_success(webhook_id: str) -> None:
+    rc = _redis()
+    if rc is None:
+        return
+    try:
+        rc.delete(_circuit_fail_key(webhook_id))
+    except Exception:
+        pass
+
+
 def list_webhooks(shop_domain: str) -> list[WebhookConfig]:
     rc = _redis()
     if rc is None:
@@ -368,6 +423,17 @@ def emit_signal(
     for wh in webhooks:
         event_id = f"hs_{uuid.uuid4().hex[:16]}"
 
+        # Circuit breaker — skip delivery if this endpoint is in cooldown
+        if _is_webhook_circuit_open(wh.id):
+            results.append(DeliveryResult(
+                webhook_id=wh.id,
+                event_id=event_id,
+                event_type=event_type,
+                status="skipped",
+                error="circuit_open",
+            ))
+            continue
+
         # Idempotency — skip if we already attempted this event_id on this webhook
         rc = _redis()
         if rc is not None:
@@ -450,6 +516,12 @@ def emit_signal(
                 )
         except Exception:
             pass
+
+        # Update circuit breaker based on outcome
+        if delivered:
+            _record_webhook_success(wh.id)
+        else:
+            _record_webhook_failure(wh.id)
 
         results.append(DeliveryResult(
             webhook_id=wh.id,

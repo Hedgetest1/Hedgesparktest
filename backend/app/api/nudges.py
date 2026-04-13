@@ -172,15 +172,20 @@ def _assign_variant(
     visitor_id: str,
     nudge_id:   int,
     variants:   list[dict],
+    *,
+    shop_domain: str | None = None,
+    context_hints: dict | None = None,
 ) -> dict:
     """
-    Assign a copy variant deterministically using MD5(visitor_id:nudge_id).
+    Assign a copy variant.
 
-    Properties:
-      - Stable: same visitor always gets same variant for same nudge
-      - Uniform: expected 50/50 split across large visitor populations
-      - Fast: single hash, no DB storage needed
-      - Independent of holdout assignment (different hash key namespace)
+    Default strategy: deterministic MD5(visitor_id:nudge_id) — stable,
+    uniform, fast, test-friendly.
+
+    δ1 bandit strategy (opt-in via env NUDGE_BANDIT_ENABLED=1):
+      Thompson Sampling per (shop × context × variant) — learns which
+      variant wins for each (device, source, category, tod) context,
+      while keeping stability per visitor via a visitor-derived RNG seed.
 
     Returns one variant dict: {"variant_name": str, "copy_config": dict}
     """
@@ -188,6 +193,35 @@ def _assign_variant(
         return {}
     if len(variants) == 1:
         return variants[0]
+
+    import os as _os
+    bandit_on = _os.getenv("NUDGE_BANDIT_ENABLED", "0").strip() in ("1", "true", "True")
+
+    if bandit_on and shop_domain:
+        try:
+            import random as _random
+            from app.services.contextual_bandit import select_variant as _bandit_select, make_context as _bandit_ctx
+            ctx = _bandit_ctx(
+                device=(context_hints or {}).get("device"),
+                source=(context_hints or {}).get("source"),
+                category=(context_hints or {}).get("category"),
+            )
+            # Visitor-seeded RNG keeps the assignment stable per visitor
+            # given the same bandit state — same visitor sees same variant
+            # until the bandit learns enough to flip it.
+            seed = int(
+                hashlib.md5(f"{visitor_id}:{nudge_id}".encode("utf-8")).hexdigest()[:8],
+                16,
+            )
+            rng = _random.Random(seed)
+            variant_names = [v["variant_name"] for v in variants if v.get("variant_name")]
+            if variant_names:
+                chosen = _bandit_select(shop_domain, ctx, variant_names, rng=rng)
+                for v in variants:
+                    if v.get("variant_name") == chosen:
+                        return v
+        except Exception:
+            pass  # Fall through to deterministic default
 
     key    = f"{visitor_id}:{nudge_id}".encode("utf-8")
     digest = hashlib.md5(key).hexdigest()

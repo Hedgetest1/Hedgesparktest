@@ -15,7 +15,6 @@ Risk levels:
         - SCARCITY_NUDGE: Creates storefront nudge with A/B + holdout
         - RETARGET_HOT_TRAFFIC: Creates "return visitor" nudge variant
     APPROVAL (TIER_1):
-        - CRO_FIX: Suggests page changes (merchant must act)
         - PRICE_TEST: Suggests compare-at price change
         - FLASH_INCENTIVE: Time-limited offer (merchant must approve)
 
@@ -43,11 +42,12 @@ AGENT_ID = "action_agent_v1"
 _AUTO_EXECUTABLE_TYPES = {"SCARCITY_NUDGE", "RETARGET_HOT_TRAFFIC"}
 
 # Action types that require merchant/operator approval
-_APPROVAL_REQUIRED_TYPES = {"CRO_FIX", "PRICE_TEST", "FLASH_INCENTIVE"}
+_APPROVAL_REQUIRED_TYPES = {"PRICE_TEST", "FLASH_INCENTIVE"}
 
 _MAX_TASKS_PER_CYCLE = 10
 _MAX_NUDGES_PER_MERCHANT_PER_DAY = 3  # prevent single merchant from dominating cycle
 _REDIS_NUDGE_CAP_PREFIX = "hs:nudge_cap:"
+_SHOP_BLOCKLIST = frozenset({"legacy.myshopify.com"})
 
 
 def _now():
@@ -77,6 +77,12 @@ def run_action_cycle(db: Session) -> dict:
         return summary
 
     for task in pending:
+        if task.shop_domain in _SHOP_BLOCKLIST:
+            log.info("action_agent: skip task %d — blocklisted shop %s", task.id, task.shop_domain)
+            task.status = "rejected"
+            db.flush()
+            summary["skipped"] += 1
+            continue
         try:
             _process_task(db, task, summary)
             db.flush()
@@ -102,8 +108,33 @@ def _process_task(db: Session, task: ActionTask, summary: dict) -> None:
     summary["claimed"] += 1
     action_type = task.action_type
 
+    # --- Trust Contract gate: checks quotas, bounds, auto-pause, confidence ---
+    # If a contract exists and authorizes this action, we skip the approval
+    # queue even for normally-approval-required types. If no contract, we
+    # fall back to the original legacy behavior (auto-execute low-risk,
+    # queue high-risk).
+    from app.services.trust_contract import (
+        can_execute as trust_can_execute,
+        record_execution as trust_record_execution,
+        get_active_contract,
+    )
+
+    task_payload = task.task_payload or {}
+    task_confidence = float(task.confidence or 0.0)
+    task_discount = task_payload.get("discount_pct")
+    trust_result = trust_can_execute(
+        db,
+        shop_domain=task.shop_domain,
+        action_type=action_type,
+        confidence=task_confidence,
+        discount_pct=float(task_discount) if task_discount is not None else None,
+        has_holdout=True,  # the system always includes holdout for auto-exec
+        target_url=task.product_url,
+    )
+
     if action_type in _AUTO_EXECUTABLE_TYPES:
-        # Per-merchant daily nudge cap
+        # Low-risk path — always try to execute. Trust contract is
+        # optional but, if present, contributes to quota tracking.
         if not _check_nudge_cap(task.shop_domain):
             log.info("action_agent: daily nudge cap reached for %s, deferring task %d", task.shop_domain, task.id)
             summary["skipped"] += 1
@@ -117,11 +148,29 @@ def _process_task(db: Session, task: ActionTask, summary: dict) -> None:
                 "outcome": "PASS",
                 "agent_id": AGENT_ID,
                 "summary": f"Nudge created for {task.product_url}",
+                "trust_contract": trust_result.contract_id,
             }))
             summary["executed"] += 1
 
             # Create outcome record for measurement
             _create_outcome(db, task)
+
+            # Record under trust contract if one was in force
+            if trust_result.allowed and trust_result.contract_id is not None:
+                try:
+                    contract = get_active_contract(db, task.shop_domain, action_type)
+                    if contract is not None:
+                        trust_record_execution(
+                            db,
+                            contract=contract,
+                            target_url=task.product_url,
+                            confidence=task_confidence,
+                            discount_pct=float(task_discount) if task_discount is not None else None,
+                            holdout_pct=20,
+                            params=task_payload,
+                        )
+                except Exception as exc:
+                    log.warning("action_agent: trust log failed: %s", exc)
         else:
             transition_task(db, task, "failed", _json.dumps({
                 "outcome": "ERROR",
@@ -131,13 +180,125 @@ def _process_task(db: Session, task: ActionTask, summary: dict) -> None:
             summary["failed"] += 1
 
     elif action_type in _APPROVAL_REQUIRED_TYPES:
-        # Queue for approval
-        _queue_for_approval(db, task)
-        summary["approval_queued"] += 1
+        # High-risk path — approval required UNLESS a trust contract
+        # authorizes autonomous execution within guardrails.
+        if trust_result.allowed:
+            log.info(
+                "action_agent: trust contract #%s authorizes %s auto-execute on task %d (remaining today=%s, week=%s)",
+                trust_result.contract_id, action_type, task.id,
+                trust_result.remaining_today, trust_result.remaining_week,
+            )
+            success = _execute_high_risk_action_under_trust(db, task, trust_result.contract_id)
+            import json as _json
+            if success:
+                transition_task(db, task, "done", _json.dumps({
+                    "outcome": "PASS",
+                    "agent_id": AGENT_ID,
+                    "summary": f"Autonomous execution under trust contract #{trust_result.contract_id}",
+                    "trust_contract": trust_result.contract_id,
+                    "approval_mode": "delegated_autonomous",
+                }))
+                summary["executed"] += 1
+                _create_outcome(db, task)
+                try:
+                    contract = get_active_contract(db, task.shop_domain, action_type)
+                    if contract is not None:
+                        trust_record_execution(
+                            db,
+                            contract=contract,
+                            target_url=task.product_url,
+                            confidence=task_confidence,
+                            discount_pct=float(task_discount) if task_discount is not None else None,
+                            holdout_pct=20,
+                            params=task_payload,
+                        )
+                except Exception as exc:
+                    log.warning("action_agent: trust log failed: %s", exc)
+            else:
+                transition_task(db, task, "failed", _json.dumps({
+                    "outcome": "ERROR",
+                    "agent_id": AGENT_ID,
+                    "summary": "Trust-authorized execution failed",
+                }))
+                summary["failed"] += 1
+                # Emit triage alert so the pipeline can learn from failed
+                # trust-delegated executions.
+                try:
+                    from app.services.alerting import write_alert
+                    write_alert(
+                        db,
+                        severity="warning",
+                        source=f"action_agent:trust:{task.shop_domain}",
+                        alert_type="trust_action_failed",
+                        summary=(
+                            f"Trust-authorized {task.action_type} failed on "
+                            f"{task.shop_domain} — contract #{trust_result.contract_id}"
+                        ),
+                        shop_domain=task.shop_domain,
+                        detail={
+                            "action_type": task.action_type,
+                            "task_id": task.id,
+                            "contract_id": trust_result.contract_id,
+                        },
+                    )
+                except Exception:
+                    pass
+        else:
+            log.info(
+                "action_agent: no trust for %s on %s (%s) — queuing for approval",
+                action_type, task.shop_domain, trust_result.reason,
+            )
+            _queue_for_approval(db, task)
+            summary["approval_queued"] += 1
 
     else:
         log.warning("action_agent: unknown action type %s on task %d", action_type, task.id)
         summary["skipped"] += 1
+
+
+def _execute_high_risk_action_under_trust(
+    db: Session, task: ActionTask, contract_id: int | None
+) -> bool:
+    """Execute a PRICE_TEST / FLASH_INCENTIVE task when authorized by a
+    trust contract. Currently wires through the same nudge creation path
+    as low-risk actions — the high-risk payload (price override, discount
+    code, etc.) lives in task.task_payload and is handed to the nudge
+    engine so the storefront renders a time-limited banner the visitor
+    sees. A future pass can split this into dedicated executors.
+    """
+    from app.services.nudge_engine import create_or_refresh_nudge
+
+    payload = task.task_payload or {}
+    segment_ctx = payload.get("segment_context", {})
+    visitor_count = segment_ctx.get("visitor_count", 0)
+    revenue_window = segment_ctx.get("estimated_revenue_window")
+    calibration_state = segment_ctx.get("calibration_state")
+
+    try:
+        nudge, created = create_or_refresh_nudge(
+            db=db,
+            shop_domain=task.shop_domain,
+            product_url=task.product_url,
+            action_type=task.action_type,
+            trigger_source=f"{AGENT_ID}:trust_contract:{contract_id}",
+            visitor_count=visitor_count,
+            revenue_window=revenue_window,
+            calibration_state=calibration_state,
+            action_task_id=task.id,
+            holdout_pct=20,
+        )
+        log.info(
+            "action_agent: trust-authorized nudge %s for %s/%s (task=%d, contract=%s)",
+            "created" if created else "refreshed",
+            task.shop_domain, task.product_url, task.id, contract_id,
+        )
+        return True
+    except Exception as exc:
+        log.error(
+            "action_agent: trust-authorized execution failed task=%d shop=%s: %s",
+            task.id, task.shop_domain, exc,
+        )
+        return False
 
 
 def _execute_nudge_action(db: Session, task: ActionTask) -> bool:
@@ -276,12 +437,17 @@ def _summarize_task(task: ActionTask) -> str:
 
 
 def _check_nudge_cap(shop_domain: str) -> bool:
-    """Check per-merchant daily nudge creation cap. Returns True if under cap."""
+    """Check per-merchant daily nudge creation cap. Returns True if under cap.
+
+    Fail-closed: if Redis is unavailable, returns False and writes an
+    ops_alert so the operator knows nudges are being held.
+    """
     try:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
-            return True  # fail-open
+            log.warning("action_agent: nudge cap — Redis unavailable, fail-closed for %s", shop_domain)
+            return False  # fail-closed
         key = f"{_REDIS_NUDGE_CAP_PREFIX}{shop_domain}"
         count = rc.get(key)
         if count is not None and int(count) >= _MAX_NUDGES_PER_MERCHANT_PER_DAY:
@@ -292,4 +458,5 @@ def _check_nudge_cap(shop_domain: str) -> bool:
         pipe.execute()
         return True
     except Exception:
-        return True  # fail-open
+        log.warning("action_agent: nudge cap check failed, fail-closed for %s", shop_domain)
+        return False  # fail-closed

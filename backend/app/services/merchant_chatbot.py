@@ -526,7 +526,18 @@ def process_message(db: Session, shop_domain: str, message: str) -> ChatResponse
     elif cls.classification == "feature_request":
         response_text = _pick(voice.FEATURE_REQUEST, message, shop_domain)
     elif cls.classification == "unclassified":
-        response_text = _pick(voice.UNCLASSIFIED, message, shop_domain)
+        # β5 — LLM fallback with RAG. Tries Haiku grounded on merchant
+        # snapshot; silently falls back to deterministic template on any
+        # failure, budget exhaustion, or hallucination detection.
+        try:
+            from app.services.chatbot_llm_fallback import try_llm_fallback
+            llm_result = try_llm_fallback(db, shop_domain=shop_domain, message=message)
+            if llm_result.success and llm_result.answer:
+                response_text = llm_result.answer
+            else:
+                response_text = _pick(voice.UNCLASSIFIED, message, shop_domain)
+        except Exception:
+            response_text = _pick(voice.UNCLASSIFIED, message, shop_domain)
     else:
         response_text = _pick(voice.GENERIC_FALLBACK, message, shop_domain)
 

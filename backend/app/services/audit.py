@@ -81,7 +81,20 @@ def write_audit_log(
         status=status,
         approval_mode=approval_mode,
     )
-    prev_hash = _load_chain_head(db)
+
+    # Serialize audit log writes across all workers to prevent chain link
+    # races. Two workers reading prev_hash from Redis simultaneously would
+    # both write rows with the same prev, breaking verification. The
+    # advisory lock is held for the duration of the current transaction
+    # and is the cheapest way to enforce a single global writer.
+    # Lock key: hash("hs:audit_log:chain_head") truncated to int64.
+    try:
+        from sqlalchemy import text as _sql_text
+        db.execute(_sql_text("SELECT pg_advisory_xact_lock(7421889543210176881)"))
+    except Exception as exc:
+        log.debug("audit: advisory lock failed (non-fatal, falling through): %s", exc)
+
+    prev_hash = _load_chain_head_from_db(db)
     chain_hash = _chain(prev_hash, row_digest)
 
     merged_metadata: dict = dict(metadata) if isinstance(metadata, dict) else {}
@@ -159,6 +172,30 @@ def _chain(prev_hash: str, row_digest: str) -> str:
     return hashlib.sha256(
         (prev_hash + "|" + row_digest).encode("utf-8")
     ).hexdigest()
+
+
+def _load_chain_head_from_db(db: Session) -> str:
+    """Return the chain head from the DB only — authoritative.
+
+    Used inside write_audit_log() while holding the advisory lock. Redis
+    is NOT consulted because stale Redis state could return an old head
+    between workers, which is exactly the race we're preventing.
+    """
+    try:
+        last = (
+            db.query(AuditLog)
+            .order_by(AuditLog.id.desc())
+            .limit(1)
+            .first()
+        )
+        if last is None:
+            return _GENESIS_HASH
+        parsed = _parse_chain_metadata(last.metadata_json)
+        if parsed and parsed.get("self"):
+            return parsed["self"]
+    except Exception as exc:
+        log.debug("audit: DB chain head lookup failed: %s", exc)
+    return _GENESIS_HASH
 
 
 def _load_chain_head(db: Session) -> str:
@@ -332,38 +369,93 @@ def verify_audit_log_chain(
     return report
 
 
+# Redis key set for row IDs quarantined as "known_damaged". Once an operator
+# has acknowledged a chain break and decided not to heal it (historical
+# damage, irreversible), the row ID is added here and excluded from future
+# verification runs. This prevents perpetual re-alerting on damage that
+# will never be fixed.
+_QUARANTINE_REDIS_KEY = "hs:audit_log:quarantined_row_ids"
+
+
+def get_quarantined_row_ids() -> set[int]:
+    """Return the set of row IDs marked as known-damaged (quarantined)."""
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            return set()
+        raw = rc.smembers(_QUARANTINE_REDIS_KEY)
+        if not raw:
+            return set()
+        return {int(x.decode() if isinstance(x, bytes) else x) for x in raw}
+    except Exception:
+        return set()
+
+
+def quarantine_row_ids(row_ids: list[int] | set[int]) -> int:
+    """Mark row IDs as known-damaged. They will be skipped by future chain
+    verification. Returns the number of rows newly quarantined."""
+    if not row_ids:
+        return 0
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            return 0
+        added = rc.sadd(_QUARANTINE_REDIS_KEY, *[str(int(i)) for i in row_ids])
+        return int(added or 0)
+    except Exception as exc:
+        log.warning("audit: quarantine write failed: %s", exc)
+        return 0
+
+
 def enforce_chain_integrity(db: Session) -> dict[str, Any]:
     """Run `verify_audit_log_chain` and, on violations, emit a CRITICAL
-    ops_alert so the pipeline's compliance score drops immediately.
+    ops_alert via write_alert() so the dedup window collapses repeats.
+
+    Quarantined (known-damaged) rows are filtered out before alerting, so
+    historical unfixable chain damage does not keep re-emitting noise.
     Intended for the agent worker daily phase."""
-    from app.models.ops_alert import OpsAlert
+    from app.services.alerting import write_alert
 
     result = verify_audit_log_chain(db)
-    if result["violations"]:
+
+    # Filter out known-damaged rows — they are historical tampering that
+    # cannot be healed without rewriting history (which would be worse).
+    quarantined = get_quarantined_row_ids()
+    if quarantined:
+        actionable = [v for v in result["violations"] if v["row_id"] not in quarantined]
+    else:
+        actionable = result["violations"]
+
+    if actionable:
+        # Fingerprint the specific set of broken rows so write_alert dedup
+        # can aggregate "same damage" but still surface "new damage".
+        row_ids_sorted = sorted(v["row_id"] for v in actionable)
+        fingerprint = ",".join(str(i) for i in row_ids_sorted[:10])
         try:
-            db.add(OpsAlert(
-                severity="critical",
-                source="audit_log_chain",
+            write_alert(
+                db=db,
                 alert_type="audit_log_tampering",
-                shop_domain=None,
-                summary=(
-                    f"Audit log tampering detected: "
-                    f"{len(result['violations'])} row(s) mismatch chain"
-                ),
-                detail=(
-                    "The audit_log hash chain verification failed. "
-                    "The first few offending row ids are: "
-                    f"{[v['row_id'] for v in result['violations'][:5]]}. "
-                    "Investigate immediately — this indicates either a "
-                    "row modification or deletion by a non-audit path."
-                ),
-                resolved=False,
-            ))
-            db.commit()
+                source=f"audit_log_chain:{fingerprint}",
+                severity="critical",
+                detail={
+                    "violation_count": len(actionable),
+                    "row_ids": row_ids_sorted[:5],
+                    "message": (
+                        f"Audit log tampering detected: {len(actionable)} "
+                        f"row(s) mismatch chain. First offenders: "
+                        f"{row_ids_sorted[:5]}. Investigate — row modification "
+                        f"or deletion by a non-audit path. If historical and "
+                        f"unfixable, add to quarantine via "
+                        f"quarantine_row_ids() to silence."
+                    ),
+                },
+            )
         except Exception as exc:
             log.warning("audit: tampering alert write failed: %s", exc)
-            try:
-                db.rollback()
-            except Exception:
-                pass
+
+    # Report still includes the raw violations so operators can see them.
+    result["quarantined_count"] = len(quarantined)
+    result["actionable_violations"] = actionable
     return result

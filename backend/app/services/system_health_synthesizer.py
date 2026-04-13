@@ -49,30 +49,34 @@ log = logging.getLogger("cto_signal")
 # ---------------------------------------------------------------------------
 
 _SIGNAL_COOLDOWN_SECONDS = 3600  # 1 hour between identical signals
-_TELEGRAM_COOLDOWN_SECONDS = 900  # 15 min between any Telegram message
+_TELEGRAM_COOLDOWN_TRANSITION_SECONDS = 300  # 5 min cooldown for state transitions
+_TELEGRAM_COOLDOWN_REPEAT_CRITICAL_SECONDS = 14400  # 4 hours for repeat CRITICAL
 
 
 def _now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _should_send_telegram(current_status: str, prev_status: str | None) -> bool:
+def _should_send_telegram(current_status: str, prev_status: str | None) -> tuple[bool, str]:
     """
-    Only send Telegram when status CHANGES or is critical.
+    Decide whether to send Telegram and which cooldown to use.
+    Returns (should_send, cooldown_type).
     - healthy → healthy: silence
-    - healthy → degraded: send
-    - degraded → degraded: silence (already known)
-    - degraded → critical: send (escalation)
-    - critical → critical: send once per hour (via cooldown)
+    - healthy → degraded: send (transition)
+    - degraded → degraded: silence
+    - degraded → critical: send (transition, urgent)
+    - critical → critical: send with 4h cooldown (repeat_critical)
     - any → healthy: send (recovery)
     """
     if prev_status is None:
-        return current_status != "healthy"
+        if current_status != "healthy":
+            return True, "transition"
+        return False, ""
     if current_status != prev_status:
-        return True  # state transition always sends
+        return True, "transition"  # state transition always sends
     if current_status == "critical":
-        return True  # critical repeats (cooldown handles dedup)
-    return False
+        return True, "repeat_critical"  # repeat uses long cooldown
+    return False, ""
 
 
 # ---------------------------------------------------------------------------
@@ -179,17 +183,30 @@ def synthesize_health(db: Session) -> SystemHealthState:
             log.debug("cto_signal: %s failed: %s", fn.__name__, exc)
 
     # --- Synthesize overall (strict logic, no creative interpretation) ---
-    critical_count = sum(1 for d in dimensions if d.status == "critical")
-    degraded_count = sum(1 for d in dimensions if d.status == "degraded")
-    worsening_count = sum(1 for d in dimensions if d.trend == "worsening")
+    # Separate founder-actionable dimensions from ops-only metrics.
+    # Alert accumulation and fix success rate are operational signals that
+    # should not wake the founder — they are visible in /status and the
+    # daily digest instead.
+    _OPS_ONLY_DIMENSIONS = {"alerts", "fix_rate"}
+    actionable_dims = [d for d in dimensions if d.name not in _OPS_ONLY_DIMENSIONS]
+    ops_dims = [d for d in dimensions if d.name in _OPS_ONLY_DIMENSIONS]
 
-    if critical_count >= 2:
+    actionable_critical = sum(1 for d in actionable_dims if d.status == "critical")
+    actionable_degraded = sum(1 for d in actionable_dims if d.status == "degraded")
+    actionable_worsening = sum(1 for d in actionable_dims if d.trend == "worsening")
+    ops_critical = sum(1 for d in ops_dims if d.status == "critical")
+
+    if actionable_critical >= 2:
         state.overall_status = "critical"
-    elif critical_count == 1 and (degraded_count >= 1 or worsening_count >= 2):
+    elif actionable_critical == 1 and (actionable_degraded >= 1 or actionable_worsening >= 2):
         state.overall_status = "critical"
-    elif critical_count >= 1 or degraded_count >= 2:
+    elif actionable_critical >= 1 or actionable_degraded >= 2:
         state.overall_status = "degraded"
-    elif degraded_count == 1 and worsening_count >= 1:
+    elif actionable_degraded == 1 and actionable_worsening >= 1:
+        state.overall_status = "degraded"
+    elif ops_critical > 0:
+        # Ops-only issues don't escalate to CRITICAL, but mark as degraded
+        # so the founder sees a yellow flag in /status, not red Telegram spam.
         state.overall_status = "degraded"
     else:
         state.overall_status = "healthy"
@@ -240,18 +257,37 @@ def send_telegram_signal(state: SystemHealthState) -> bool:
     Send CTO signal to Telegram with cooldown dedup.
     Returns True if sent, False if suppressed.
     """
-    if not _should_send_telegram(state.overall_status, state.previous_status):
+    should_send, cooldown_type = _should_send_telegram(state.overall_status, state.previous_status)
+    if not should_send:
         return False
 
-    # Cooldown check via Redis
+    # Pick cooldown duration based on signal type
+    cooldown_seconds = (
+        _TELEGRAM_COOLDOWN_REPEAT_CRITICAL_SECONDS
+        if cooldown_type == "repeat_critical"
+        else _TELEGRAM_COOLDOWN_TRANSITION_SECONDS
+    )
+    cooldown_key = f"hs:cto_signal_cooldown:{cooldown_type}"
+
+    # Cooldown check via Redis (with file-based fallback)
     try:
         from app.core.redis_client import cache_get, cache_set
-        cooldown_key = "hs:cto_signal_cooldown"
         if cache_get(cooldown_key) is not None:
             return False  # within cooldown window
-        cache_set(cooldown_key, True, _TELEGRAM_COOLDOWN_SECONDS)
+        cache_set(cooldown_key, True, cooldown_seconds)
     except Exception:
-        pass  # Redis down — proceed without dedup
+        # Redis down — use file-based cooldown to prevent spam
+        import tempfile, os, time as _time
+        cooldown_file = os.path.join(tempfile.gettempdir(), f"hs_cto_{cooldown_type}")
+        try:
+            if os.path.exists(cooldown_file):
+                mtime = os.path.getmtime(cooldown_file)
+                if _time.time() - mtime < cooldown_seconds:
+                    return False  # within file-based cooldown
+            with open(cooldown_file, "w") as f:
+                f.write(str(_time.time()))
+        except Exception:
+            pass  # last resort: allow send
 
     try:
         from app.services.telegram_agent import send_message, is_configured
@@ -485,31 +521,50 @@ def _assess_fix_effectiveness(db: Session, now: datetime) -> HealthDimension:
 
 
 def _assess_alert_pressure(db: Session, now: datetime) -> HealthDimension:
-    """Unresolved alert volume with 24h trend."""
-    current = db.execute(text("""
-        SELECT COUNT(*) AS total,
-               COALESCE(SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END), 0) AS crit
-        FROM ops_alerts WHERE resolved = false
+    """Unresolved alert volume with 24h trend.
+
+    Uses DISTINCT (source, alert_type) pairs in the last 24h to assess
+    pressure — recurring dedup'd rows for the same issue should not
+    inflate the count and keep the system perpetually critical.
+    """
+    # Distinct alert TYPES in last 24h — group by alert_type only,
+    # not source (sources include unique IDs like breach:42523 or
+    # signal_webhooks:UUID that inflate the count for the same issue class).
+    distinct = db.execute(text("""
+        SELECT COUNT(DISTINCT alert_type) AS issue_count,
+               COUNT(DISTINCT CASE WHEN severity = 'critical'
+                     THEN alert_type END) AS crit_issues
+        FROM ops_alerts
+        WHERE resolved = false AND created_at >= :cutoff
+    """), {"cutoff": now - timedelta(hours=24)}).fetchone()
+
+    # Total unresolved (for informational detail only)
+    total_row = db.execute(text("""
+        SELECT COUNT(*) FROM ops_alerts WHERE resolved = false
     """)).fetchone()
 
-    # Trend: alerts created in last 24h vs 24-48h
+    # Trend: new distinct types in last 24h vs 24-48h
     recent_created = db.execute(text("""
-        SELECT COUNT(*) FROM ops_alerts WHERE created_at >= :c
+        SELECT COUNT(DISTINCT alert_type)
+        FROM ops_alerts WHERE created_at >= :c
     """), {"c": now - timedelta(hours=24)}).fetchone()
 
     prev_created = db.execute(text("""
-        SELECT COUNT(*) FROM ops_alerts
+        SELECT COUNT(DISTINCT alert_type)
+        FROM ops_alerts
         WHERE created_at >= :p AND created_at < :c
     """), {"p": now - timedelta(hours=48), "c": now - timedelta(hours=24)}).fetchone()
 
-    total = int(current.total or 0)
-    crit = int(current.crit or 0)
+    issues = int(distinct.issue_count or 0)
+    crit_issues = int(distinct.crit_issues or 0)
+    total_all = int(total_row[0] or 0)
     new_r = int(recent_created[0] or 0)
     new_p = int(prev_created[0] or 0)
 
-    if crit > 3 or total > 30:
+    # Status based on DISTINCT issue types, not raw row count
+    if crit_issues > 5 or issues > 20:
         status = "critical"
-    elif crit > 0 or total > 15:
+    elif crit_issues > 2 or issues > 10:
         status = "degraded"
     else:
         status = "healthy"
@@ -519,9 +574,9 @@ def _assess_alert_pressure(db: Session, now: datetime) -> HealthDimension:
     return HealthDimension(
         name="alerts",
         status=status,
-        value=float(total),
+        value=float(issues),
         trend=trend,
-        detail=f"{total} unresolved ({crit} critical), {new_r} new (24h)",
+        detail=f"{issues} active issues ({crit_issues} critical), {new_r} new types (24h), {total_all} total rows",
     )
 
 

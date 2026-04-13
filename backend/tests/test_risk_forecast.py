@@ -40,7 +40,7 @@ def _seed_history(shop: str, values: list[float]) -> bool:
 
 def test_linear_regression_perfect_line():
     points = [(0, 0), (1, 10), (2, 20), (3, 30)]
-    slope, intercept, r2 = _linear_regression(points)
+    slope, intercept, r2, _rse = _linear_regression(points)
     assert slope == pytest.approx(10.0)
     assert intercept == pytest.approx(0.0)
     assert r2 == pytest.approx(1.0)
@@ -48,7 +48,7 @@ def test_linear_regression_perfect_line():
 
 def test_linear_regression_flat_line():
     points = [(0, 5), (1, 5), (2, 5), (3, 5)]
-    slope, intercept, r2 = _linear_regression(points)
+    slope, intercept, r2, _rse = _linear_regression(points)
     assert slope == pytest.approx(0.0)
     assert intercept == pytest.approx(5.0)
 

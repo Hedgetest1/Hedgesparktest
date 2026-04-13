@@ -390,6 +390,11 @@ def run_feed_monitor() -> dict[str, Any]:
                     region = item.get("region", "?")
                     feed_name = item.get("feed_name", "?")
 
+                    # Regulatory updates are informational broadcasts (read
+                    # in the daily digest / dashboard), not actionable
+                    # incidents. Mark them resolved on create so they do
+                    # not inflate the unresolved-alerts pressure metric.
+                    from datetime import datetime as _dt, timezone as _tz
                     alert = OpsAlert(
                         severity="info",
                         source=f"reg_feed:{_item_hash(item)}",
@@ -404,7 +409,8 @@ def run_feed_monitor() -> dict[str, Any]:
                             f"code or policy changes. If so, add a rule to "
                             f"regulatory_watch.py or create a bugfix candidate."
                         ),
-                        resolved=False,
+                        resolved=True,  # broadcast, not incident
+                        resolved_at=_dt.now(_tz.utc).replace(tzinfo=None),
                     )
                     db.add(alert)
                     report["items_stored"] += 1

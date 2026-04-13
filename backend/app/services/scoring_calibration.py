@@ -924,7 +924,12 @@ def run_self_evaluation(db: Session) -> SelfEvalReport:
         recommendations=recommendations,
     )
 
-    if degradation_detected:
+    # Minimum sample gate: statistics on <10 outcomes are noise, not signal.
+    # Suppress the degradation alert below the confidence threshold.
+    _MIN_OUTCOMES_FOR_ALERT = 10
+    sample_sufficient = total_outcomes >= _MIN_OUTCOMES_FOR_ALERT
+
+    if degradation_detected and sample_sufficient:
         log.warning(
             "self_eval: DEGRADATION DETECTED — %s",
             "; ".join(degradation_reasons),
@@ -942,6 +947,11 @@ def run_self_evaluation(db: Session) -> SelfEvalReport:
             )
         except Exception:
             pass
+    elif degradation_detected and not sample_sufficient:
+        log.info(
+            "self_eval: degradation signal suppressed (only %d outcomes, need %d)",
+            total_outcomes, _MIN_OUTCOMES_FOR_ALERT,
+        )
     else:
         log.info(
             "self_eval: healthy — effectiveness=%s%% confidence_accuracy=%s%% outcomes=%d",

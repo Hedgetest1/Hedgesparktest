@@ -210,7 +210,7 @@ def _record_outcome(
         "status": status,
     }
     try:
-        write_alert(
+        alert = write_alert(
             db,
             severity=severity,
             source="pipeline_heartbeat",
@@ -218,6 +218,15 @@ def _record_outcome(
             summary=summary,
             detail=detail,
         )
+        # heartbeat_ok is telemetry, not an actionable incident. Mark it
+        # resolved immediately so it stays as an event log entry without
+        # inflating the unresolved-alerts dimension. heartbeat_failed
+        # remains unresolved (it's a real operational signal).
+        if status == "ok" and alert is not None:
+            from datetime import datetime as _dt, timezone as _tz
+            alert.resolved = True
+            alert.resolved_at = _dt.now(_tz.utc).replace(tzinfo=None)
+            db.flush()
     except Exception as exc:
         log.warning("heartbeat: failed to record outcome: %s", exc)
 

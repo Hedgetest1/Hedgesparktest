@@ -33,6 +33,9 @@ from app.models.cig import CigCohort, CigMerchantMapping
 from app.models.share_event import PublicProofShare, ShareEvent
 from app.models.shop_cost_defaults import ShopCostDefaults
 from app.models.product_cost import ProductCost
+from app.models.trust_contract import TrustContract, TrustExecutionLog
+from app.models.analytics_event import AnalyticsEvent
+from app.models.merchant_rule import MerchantRule
 
 __all__ = [
     "ActiveNudge",
@@ -73,4 +76,8 @@ __all__ = [
     "ShareEvent",
     "ShopCostDefaults",
     "ProductCost",
+    "TrustContract",
+    "TrustExecutionLog",
+    "AnalyticsEvent",
+    "MerchantRule",
 ]

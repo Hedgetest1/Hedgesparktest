@@ -359,4 +359,50 @@ def check_goals_at_risk(db: Session, shop_domain: str) -> list[GoalProgress]:
         except Exception as exc:
             log.debug("goals: write_alert failed: %s", exc)
 
+        # β4 — Klaviyo event forwarding: surface goal_at_risk as a custom
+        # Klaviyo metric so merchants can build flows ("if goal_at_risk
+        # fires, send a win-back email to customers in segment X").
+        try:
+            from app.services.klaviyo_events import forward_event_async, is_shop_connected
+            if is_shop_connected(db, shop_domain):
+                merchant_email = None
+                try:
+                    from app.models.merchant import Merchant
+                    m = db.query(Merchant).filter(Merchant.shop_domain == shop_domain).first()
+                    if m:
+                        merchant_email = getattr(m, "contact_email", None)
+                except Exception:
+                    pass
+                if merchant_email:
+                    forward_event_async(
+                        shop_domain=shop_domain,
+                        event_name="goal_at_risk",
+                        email=merchant_email,
+                        properties={
+                            "risky_goals": len(risky),
+                            "metrics": [p.metric for p in risky],
+                            "projected_gap_eur": sum(
+                                (p.target_value - p.projected_value)
+                                for p in risky if p.metric == "monthly_revenue"
+                            ),
+                        },
+                    )
+        except Exception as exc:
+            log.debug("goals: klaviyo forward failed (non-fatal): %s", exc)
+
+        # Phase Ω''' — outbound webhook fan-out for goal.at_risk
+        try:
+            from app.services.event_emitter import emit
+            emit(db, shop_domain, "goal.at_risk", {
+                "shop_domain": shop_domain,
+                "risky_count": len(risky),
+                "goals": [p.to_dict() for p in risky],
+                "total_projected_gap_eur": sum(
+                    (p.target_value - p.projected_value)
+                    for p in risky if p.metric == "monthly_revenue"
+                ),
+            })
+        except Exception:
+            pass
+
     return risky

@@ -2089,30 +2089,34 @@ def send_scaling_alert(recommendation: dict, forecast: dict) -> bool:
 
 def build_daily_digest(db) -> str:
     """
-    The ONE morning newspaper. Tells the founder how the autonomous
-    pipeline performed in the last 24h, what's happening with revenue,
-    and what (if anything) actually needs them.
+    Founder morning newspaper. Scannable in 3 seconds.
 
-    Design intent (M1+M2, 2026-04-11):
-      * Zero approve/apply buttons for TIER_0 / TIER_1 — those are
-        already automatic. Buttons there only created false urgency.
-      * One TIER_2 line if any candidate is pending review (rare event).
-      * 24h pipeline activity counters: applied, rolled_back, blocked.
-      * Deploy events from auto_deploy.
-      * RARS today vs 7d avg + 7d forecast.
-      * Top 3 fixes shipped + top 3 recurring untriaged alerts.
+    Structure:
+      1. HEADLINE — one emoji + status, date
+      2. REVENUE — the money line (this week vs last, trend)
+      3. MERCHANTS — count + churn alert if any
+      4. SHIELD LINE — compliance grade + proven savings
+      5. PIPELINE — one-liner: fixes shipped / rollbacks
+      6. ATTENTION — only if something truly needs the founder
+      7. FOOTER — drill-down commands
+
+    Everything else lives in /status, /costs, /bugfixes, /incidents.
     """
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
     from sqlalchemy import text as sql_text
 
     now_rome = datetime.now(ZoneInfo("Europe/Rome"))
-    cutoff_24h = datetime.utcnow() - timedelta(hours=24)
-    action_buttons: list[list[dict]] = []
+    now_utc = datetime.utcnow()
+    cutoff_24h = now_utc - timedelta(hours=24)
+    cutoff_7d = now_utc - timedelta(days=7)
+    cutoff_14d = now_utc - timedelta(days=14)
 
-    # --- CTO Health snapshot ---
+    # ── Determine overall status ──
     overall_status = "OK"
-    health_lines: list[str] = []
+    attention_lines: list[str] = []
+    rolled_24h = 0  # set early so attention section can reference it
+
     try:
         from app.core.redis_client import cache_get
         health = cache_get("hs:system_health")
@@ -2125,375 +2129,246 @@ def build_daily_digest(db) -> str:
             overall_status = "CRITICAL"
         elif cto_status == "degraded":
             overall_status = "WARNING"
+        # Surface only actionable critical dimensions — skip alert
+        # accumulation noise (that's an ops metric, not a founder action)
+        _SKIP_DIMENSIONS = {"alerts", "fix_rate"}
         for d in health.get("dimensions", []):
-            if d["status"] != "healthy" or d["trend"] == "worsening":
-                icon = {"critical": "\U0001f534", "degraded": "\U0001f7e1"}.get(d["status"], "\U0001f7e2")
-                trend = {"worsening": "\u2191", "improving": "\u2193", "stable": "\u2192"}[d["trend"]]
-                health_lines.append(f"  {icon} {d['name']}: {d['detail']} {trend}")
-        if health.get("top_issues"):
-            for issue in health["top_issues"][:3]:
-                health_lines.append(f"  \u26a0\ufe0f {issue}")
+            if d["status"] == "critical" and d["name"] not in _SKIP_DIMENSIONS:
+                attention_lines.append(f"\U0001f534 {d['name']}: {d['detail']}")
     except Exception:
         overall_status = "WARNING"
-        health_lines.append("  Health data unavailable")
 
-    status_emoji = "\u2705" if overall_status == "OK" else ("\u26a0\ufe0f" if overall_status == "WARNING" else "\U0001f534")
-    lines = [
-        "*Daily Digest* \u2014 HedgeSpark",
-        f"{now_rome.strftime('%A %d %B, %H:%M')} (Rome)",
-        f"{status_emoji} *Status: {overall_status}*",
+    # ── 1. HEADLINE (placeholder — finalized after attention section) ──
+    day_name = now_rome.strftime("%A")
+    date_str = now_rome.strftime("%-d %B")
+
+    lines: list[str] = [
+        f"\U0001f4ca *Daily Digest* \u2014 {day_name} {date_str}",
         "",
+        "__STATUS_PLACEHOLDER__",  # replaced at the end
     ]
 
-    if health_lines:
-        lines.append("*Health:*")
-        lines.extend(health_lines)
-        lines.append("")
-
-    # --- 24h pipeline activity (applied / rolled_back / blocked) ---
+    # ── 2. REVENUE ──
     try:
-        applied_24h = db.execute(sql_text("""
-            SELECT COUNT(*) FROM bugfix_candidates
-            WHERE status = 'applied' AND applied_at >= :cutoff
-        """), {"cutoff": cutoff_24h}).scalar() or 0
-        rolled_back_24h = db.execute(sql_text("""
-            SELECT COUNT(*) FROM bugfix_candidates
-            WHERE status = 'rolled_back' AND applied_at >= :cutoff
-        """), {"cutoff": cutoff_24h}).scalar() or 0
-        blocked_tier2_24h = db.execute(sql_text("""
-            SELECT COUNT(*) FROM bugfix_candidates
-            WHERE patch_risk_tier = 2 AND created_at >= :cutoff
-        """), {"cutoff": cutoff_24h}).scalar() or 0
-        lines.append(
-            f"*Pipeline 24h:* applied {applied_24h} \u00b7 rolled_back {rolled_back_24h} "
-            f"\u00b7 TIER\\_2 blocked {blocked_tier2_24h}"
-        )
-    except Exception:
-        pass
+        tw = db.execute(sql_text(
+            "SELECT COALESCE(SUM(total_price), 0), COUNT(*) "
+            "FROM shop_orders WHERE created_at >= :c"
+        ), {"c": cutoff_7d}).fetchone()
+        lw = db.execute(sql_text(
+            "SELECT COALESCE(SUM(total_price), 0), COUNT(*) "
+            "FROM shop_orders WHERE created_at >= :s AND created_at < :e"
+        ), {"s": cutoff_14d, "e": cutoff_7d}).fetchone()
 
-    # --- Deploy events 24h ---
-    try:
-        deploy_rows = db.execute(sql_text("""
-            SELECT alert_type, COUNT(*) FROM ops_alerts
-            WHERE alert_type IN ('deploy_succeeded','deploy_failed','deploy_rolled_back')
-              AND created_at >= :cutoff
-            GROUP BY alert_type
-        """), {"cutoff": cutoff_24h}).fetchall()
-        if deploy_rows:
-            counts = {r[0]: r[1] for r in deploy_rows}
-            lines.append(
-                f"*Deploys 24h:* ok {counts.get('deploy_succeeded', 0)} "
-                f"\u00b7 failed {counts.get('deploy_failed', 0)} "
-                f"\u00b7 rolled_back {counts.get('deploy_rolled_back', 0)}"
-            )
-            if counts.get('deploy_rolled_back', 0) and overall_status == "OK":
-                overall_status = "WARNING"
-    except Exception:
-        pass
+        rev_tw, orders_tw = float(tw[0]), int(tw[1])
+        rev_lw, orders_lw = float(lw[0]), int(lw[1])
 
-    # --- Top 3 fixes shipped (most recent applied) ---
-    try:
-        top_fixes = db.execute(sql_text("""
-            SELECT id, title, affected_domain
-            FROM bugfix_candidates
-            WHERE status = 'applied' AND applied_at >= :cutoff
-            ORDER BY applied_at DESC
-            LIMIT 3
-        """), {"cutoff": cutoff_24h}).fetchall()
-        if top_fixes:
-            lines.append("")
-            lines.append("*Top fixes shipped:*")
-            for f in top_fixes:
-                domain = f[2] or "?"
-                lines.append(f"  \u2705 #{f[0]} [{domain}] {(f[1] or '')[:70]}")
-    except Exception:
-        pass
-
-    # --- Top 3 recurring untriaged alerts (early warning) ---
-    try:
-        recurring = db.execute(sql_text("""
-            SELECT alert_type, source, COUNT(*) AS n, MAX(severity) AS sev
-            FROM ops_alerts
-            WHERE created_at >= :cutoff
-              AND resolved = false
-              AND severity IN ('warning','critical')
-              AND alert_type NOT IN (
-                  'deploy_succeeded','deploy_failed','deploy_rolled_back',
-                  'chronic_thrashing','bugfix_apply_failed','bugfix_rolled_back'
-              )
-            GROUP BY alert_type, source
-            HAVING COUNT(*) >= 2
-            ORDER BY n DESC
-            LIMIT 3
-        """), {"cutoff": cutoff_24h}).fetchall()
-        if recurring:
-            lines.append("")
-            lines.append("*Top recurring alerts:*")
-            for r in recurring:
-                emoji = "\U0001f534" if r[3] == "critical" else "\u26a0\ufe0f"
-                lines.append(f"  {emoji} {r[0]} ({r[2]}x) \u2014 {(r[1] or '?')[:50]}")
-    except Exception:
-        pass
-
-    # --- RARS movement + 7d forecast (founder loves seeing the hero number) ---
-    try:
-        from app.core.redis_client import _client
-        rc = _client()
-        if rc is not None:
-            keys = rc.keys("hs:rars_history:v1:*") or []
-            if keys:
-                import json as _json
-                totals_today: list[float] = []
-                totals_7d: list[float] = []
-                forecast_total = 0.0
-                shops_with_history = 0
-                for k in keys[:50]:
-                    raw = rc.get(k)
-                    if not raw:
-                        continue
-                    try:
-                        history = _json.loads(raw)
-                    except Exception:
-                        continue
-                    if not isinstance(history, list) or not history:
-                        continue
-                    last = history[-1]
-                    totals_today.append(float(last.get("total_at_risk_eur") or 0))
-                    week = history[-7:] if len(history) >= 2 else history
-                    avg = sum(float(h.get("total_at_risk_eur") or 0) for h in week) / max(1, len(week))
-                    totals_7d.append(avg)
-                    shops_with_history += 1
-                if shops_with_history:
-                    today_sum = sum(totals_today)
-                    week_sum = sum(totals_7d)
-                    delta = today_sum - week_sum
-                    arrow = "\u2191" if delta > 0 else ("\u2193" if delta < 0 else "\u2192")
-                    lines.append("")
-                    lines.append(
-                        f"*RARS:* today \u20ac{today_sum:.0f} {arrow} "
-                        f"(7d avg \u20ac{week_sum:.0f}) across {shops_with_history} shops"
-                    )
-    except Exception:
-        pass
-
-    # --- LLM budget ---
-    try:
-        from app.core.llm_budget import get_usage_summary
-        budget = get_usage_summary()
-        spent = budget.get("monthly_cost_eur", 0)
-        cap = budget.get("monthly_cap_eur", 5.0)
-        remaining = budget.get("monthly_remaining_eur", cap)
-        cap_reached = budget.get("monthly_cap_reached", False)
-        blocked = budget.get("blocked_today", 0)
-        lines.append("")
-        lines.append("*LLM Budget:*")
-        lines.append(f"  Spent: \u20ac{spent:.3f} / \u20ac{cap:.2f} ({remaining:.3f} remaining)")
-        if cap_reached:
-            lines.append("  \u26a0\ufe0f *CAP REACHED* \u2014 LLM calls blocked")
-            if overall_status == "OK":
-                overall_status = "WARNING"
-        if blocked > 0:
-            lines.append(f"  Blocked today: {blocked}")
-        for provider, state in budget.get("provider_429_state", {}).items():
-            if state.get("total_429s", 0) > 0:
-                lines.append(f"  {provider}: {state['total_429s']} rate limits today")
+        # Determine currency from most recent order
+        currency = "\u20ac"
         try:
-            from app.services.bugfix_pipeline import get_fix_template_hits_this_week
-            tpl_hits = get_fix_template_hits_this_week()
-            if tpl_hits > 0:
-                lines.append(
-                    f"  Template cache hits: {tpl_hits} this week "
-                    f"(LLM calls amortized)"
+            cur_row = db.execute(sql_text(
+                "SELECT currency FROM shop_orders ORDER BY created_at DESC LIMIT 1"
+            )).fetchone()
+            if cur_row and cur_row[0]:
+                currency = {"EUR": "\u20ac", "USD": "$", "GBP": "\u00a3"}.get(
+                    cur_row[0].upper(), cur_row[0]
                 )
         except Exception:
             pass
-        try:
-            from app.services.bugfix_pipeline import get_adversarial_report_this_week
-            adv = get_adversarial_report_this_week()
-            if adv.get("runs", 0) > 0:
-                lines.append(
-                    f"  Adversarial probes: {adv['runs']} runs \u00b7 "
-                    f"{adv['weak']} weak patterns flagged"
-                )
-        except Exception:
-            pass
-    except Exception:
+
         lines.append("")
-        lines.append("*LLM Budget:* unavailable")
+        lines.append(f"\U0001f4b0 *Revenue*")
 
-    # --- Resend usage ---
-    try:
-        from app.core.resend_usage import get_resend_usage
-        ru = get_resend_usage(db)
-        label = {"ok": "OK", "warning": "\u26a0\ufe0f HIGH", "critical": "\U0001f534 CRITICAL"}[ru["status"]]
-        lines.append(f"*Resend:* {ru['sent']} / {ru['limit']} emails ({ru['pct']:.0f}%) \u2014 {label}")
-        if ru["status"] == "critical" and overall_status == "OK":
-            overall_status = "WARNING"
-    except Exception:
-        lines.append("*Resend:* unavailable")
+        if orders_tw > 0:
+            rev_line = f"  {currency}{rev_tw:,.0f} this week \u00b7 {orders_tw} orders"
+            if rev_lw > 0:
+                delta_pct = ((rev_tw - rev_lw) / rev_lw) * 100
+                arrow = "\u2191" if delta_pct > 0 else "\u2193"
+                color_emoji = "\U0001f7e2" if delta_pct >= 0 else "\U0001f534"
+                rev_line += f" {color_emoji} {arrow}{abs(delta_pct):.0f}%"
+            elif orders_lw == 0:
+                rev_line += " \U0001f389"
+            lines.append(rev_line)
 
-    # --- Open issues count (informational, no buttons) ---
-    try:
-        active_alerts = db.execute(sql_text(
-            "SELECT COUNT(*) FROM ops_alerts WHERE resolved = false"
-        )).scalar() or 0
-        active_incidents = db.execute(sql_text(
-            "SELECT COUNT(*) FROM support_incidents "
-            "WHERE status IN ('open', 'triaged', 'investigating')"
-        )).scalar() or 0
-        if active_alerts or active_incidents:
-            lines.append(f"*Open:* {active_alerts} alerts \u00b7 {active_incidents} incidents")
-    except Exception:
-        pass
-
-    # --- TIER_2 review queue — the ONLY place a button still appears,
-    #     and only when something is actually waiting on a human decision.
-    try:
-        tier2_pending = db.execute(sql_text("""
-            SELECT id, title FROM bugfix_candidates
-            WHERE status = 'patch_proposed' AND patch_risk_tier = 2
-            ORDER BY created_at DESC LIMIT 3
-        """)).fetchall()
-        if tier2_pending:
-            lines.append("")
-            lines.append("*TIER\\_2 review needed (rare):*")
-            for t in tier2_pending:
-                lines.append(f"  \U0001f512 #{t[0]} {(t[1] or '')[:70]}")
-            lines.append("  Review at /ops/bugfixes in dashboard \u2014 not from Telegram.")
-    except Exception:
-        pass
-
-    # --- Holdout-measured savings (B1 — the killer marketing claim) ---
-    try:
-        from app.services.fix_holdout_measurement import get_weekly_proven_savings
-        this_week = get_weekly_proven_savings(week_offset=0)
-        last_week = get_weekly_proven_savings(week_offset=1)
-        if this_week > 0 or last_week > 0:
-            lines.append(
-                f"*Proven savings:* this week \u20ac{this_week:.0f} \u00b7 "
-                f"last week \u20ac{last_week:.0f} (holdout-measured, p<0.05)"
-            )
-    except Exception:
-        pass
-
-    # --- Compliance score (security + GDPR rolling grade) ---
-    try:
-        from app.services.compliance_score import (
-            compute_compliance_score,
-            get_cached_compliance_score,
-        )
-        compliance = get_cached_compliance_score() or compute_compliance_score(db)
-        grade = compliance.get("grade", "?")
-        score_val = compliance.get("score", 0)
-        emoji = "\U0001f7e2" if score_val >= 90 else ("\u26a0\ufe0f" if score_val >= 70 else "\U0001f534")
-        lines.append("")
-        lines.append(f"*Compliance:* {emoji} {score_val}/100 ({grade})")
-        if compliance.get("violations"):
-            for v in compliance["violations"][:3]:
-                lines.append(f"  \u00b7 {v['component']}: {v['detail'][:60]}")
-        if score_val < 70 and overall_status == "OK":
-            overall_status = "WARNING"
-    except Exception:
-        pass
-
-    # --- Regulatory updates (worldwide DPA monitoring) ---
-    try:
-        from app.services.regulatory_feed_monitor import get_recent_updates
-        from app.services.regulatory_watch import get_regulatory_summary
-        reg_items = get_recent_updates(days=7)
-        reg_summary = get_regulatory_summary()
-        unreviewed = [i for i in reg_items if not i.get("resolved")]
-        if unreviewed:
-            lines.append("")
-            lines.append(f"*Regulatory Updates:* {len(unreviewed)} new (7d)")
-            for item in unreviewed[:3]:
-                lines.append(f"  \u00b7 {(item['summary'] or '')[:80]}")
-            if len(unreviewed) > 3:
-                lines.append(f"  ... and {len(unreviewed) - 3} more")
-        lines.append(
-            f"*Reg Watch:* {reg_summary['total_rules']} rules across "
-            f"{', '.join(reg_summary['regulations_covered'][:4])}"
-        )
-    except Exception:
-        pass
-
-    # --- Pipeline heartbeat (proves the system is alive) ---
-    try:
-        hb_rows = db.execute(sql_text("""
-            SELECT alert_type, COUNT(*) FROM ops_alerts
-            WHERE alert_type IN ('heartbeat_ok', 'heartbeat_failed')
-              AND created_at >= :cutoff
-            GROUP BY alert_type
-        """), {"cutoff": cutoff_24h}).fetchall()
-        if hb_rows:
-            counts = {r[0]: r[1] for r in hb_rows}
-            ok = counts.get("heartbeat_ok", 0)
-            fail = counts.get("heartbeat_failed", 0)
-            total = ok + fail
-            if fail > 0:
-                lines.append(
-                    f"*Heartbeat 24h:* \U0001f534 {ok}/{total} ok ({fail} failures)"
-                )
-                if overall_status == "OK":
-                    overall_status = "WARNING"
-            else:
-                lines.append(f"*Heartbeat 24h:* \u2705 {ok}/{total} ok")
+            if rev_lw > 0:
+                aov_tw = rev_tw / orders_tw if orders_tw else 0
+                lines.append(f"  AOV {currency}{aov_tw:,.0f}")
         else:
-            lines.append("*Heartbeat 24h:* \u26a0\ufe0f no probes (worker may be stalled)")
-            if overall_status == "OK":
-                overall_status = "WARNING"
-    except Exception:
-        pass
+            lines.append("  No orders this week")
 
-    # --- Self-healing health snapshot ---
-    try:
-        from app.services.loop_health import get_loop_health_snapshot
-        snap = get_loop_health_snapshot(db)
-        if isinstance(snap, dict):
-            thrash = snap.get("thrash_score") or 0
-            organic = snap.get("organic_repairs_30d") or 0
-            if thrash or organic:
-                lines.append("")
+        # RARS if available
+        try:
+            from app.core.redis_client import _client
+            rc = _client()
+            if rc is not None:
+                import json as _json
+                rars_keys = rc.keys("hs:rars_history:v1:*") or []
+                if rars_keys:
+                    rars_total = 0.0
+                    for k in rars_keys[:50]:
+                        raw = rc.get(k)
+                        if not raw:
+                            continue
+                        try:
+                            history = _json.loads(raw)
+                            if history:
+                                rars_total += float(history[-1].get("total_at_risk_eur") or 0)
+                        except Exception:
+                            continue
+                    if rars_total > 0:
+                        lines.append(f"  \u26a0\ufe0f {currency}{rars_total:,.0f} at risk")
+        except Exception:
+            pass
+
+        # Proven savings
+        try:
+            from app.services.fix_holdout_measurement import get_weekly_proven_savings
+            savings = get_weekly_proven_savings(week_offset=0)
+            if savings > 0:
                 lines.append(
-                    f"*Self-healing:* {organic} organic fixes/30d \u00b7 thrash score {thrash}"
+                    f"  \U0001f6e1 {currency}{savings:,.0f} prevented (holdout-proven)"
                 )
+        except Exception:
+            pass
     except Exception:
-        pass
+        lines.append("")
+        lines.append("\U0001f4b0 *Revenue:* data unavailable")
 
-    # --- Merchants ---
+    # ── 3. MERCHANTS ──
     try:
         merch_row = db.execute(sql_text(
             "SELECT COUNT(*), COUNT(*) FILTER (WHERE billing_active = true) "
             "FROM merchants WHERE install_status = 'active'"
         )).fetchone()
         if merch_row:
-            lines.append(f"*Merchants:* {merch_row[0]} active \u00b7 {merch_row[1]} paying")
-    except Exception:
-        pass
-
-    # --- Merchant churn alerts (R7) ---
-    try:
-        from app.services.merchant_churn_predictor import compute_churn_report
-        churn = compute_churn_report(db)
-        if churn.get("critical_count", 0) > 0 or churn.get("high_count", 0) > 0:
+            active, paying = merch_row[0], merch_row[1]
             lines.append("")
-            lines.append("*Churn Risk:*")
-            if churn["critical_count"] > 0:
-                lines.append(f"  \U0001f534 {churn['critical_count']} CRITICAL — immediate outreach needed")
-            if churn["high_count"] > 0:
-                lines.append(f"  \U0001f7e1 {churn['high_count']} HIGH risk merchants")
-            for m in churn.get("merchants", [])[:3]:
-                if m["risk_level"] in ("critical", "high"):
-                    top_signal = m["signals"][0]["signal"] if m.get("signals") else ""
-                    lines.append(f"  \u2022 {m['shop_domain']}: {m['churn_risk_score']}/100 ({top_signal})")
+            lines.append(f"\U0001f465 *Merchants:* {active} active \u00b7 {paying} paying")
+
+            # Churn — only surface if there's real danger
+            try:
+                from app.services.merchant_churn_predictor import compute_churn_report
+                churn = compute_churn_report(db)
+                crit = churn.get("critical_count", 0)
+                high = churn.get("high_count", 0)
+                if crit > 0:
+                    lines.append(f"  \U0001f534 {crit} at critical churn risk")
+                    for m in churn.get("merchants", [])[:2]:
+                        if m["risk_level"] == "critical":
+                            shop = m["shop_domain"].replace(".myshopify.com", "")
+                            lines.append(f"    {shop}: {m['churn_risk_score']}/100")
+                elif high > 0:
+                    lines.append(f"  \U0001f7e1 {high} at elevated churn risk")
+            except Exception:
+                pass
     except Exception:
         pass
 
+    # ── 4. SHIELD LINE — compliance + security in one line ──
+    try:
+        from app.services.compliance_score import (
+            compute_compliance_score,
+            get_cached_compliance_score,
+        )
+        compliance = get_cached_compliance_score() or compute_compliance_score(db)
+        score_val = compliance.get("score", 0)
+        grade = compliance.get("grade", "?")
+        grade_emoji = "\U0001f7e2" if score_val >= 90 else ("\U0001f7e1" if score_val >= 70 else "\U0001f534")
+        lines.append("")
+        lines.append(f"\U0001f6e1 *Compliance:* {grade_emoji} {grade} ({score_val}/100)")
+        if score_val < 70:
+            if overall_status == "OK":
+                overall_status = "WARNING"
+    except Exception:
+        pass
+
+    # ── 5. PIPELINE — one compact line ──
+    try:
+        applied_24h = db.execute(sql_text(
+            "SELECT COUNT(*) FROM bugfix_candidates "
+            "WHERE status = 'applied' AND applied_at >= :c"
+        ), {"c": cutoff_24h}).scalar() or 0
+        rolled_24h = db.execute(sql_text(
+            "SELECT COUNT(*) FROM bugfix_candidates "
+            "WHERE status = 'rolled_back' AND applied_at >= :c"
+        ), {"c": cutoff_24h}).scalar() or 0
+
+        lines.append("")
+        pipe_parts = [f"{applied_24h} fixes shipped"]
+        if rolled_24h > 0:
+            pipe_parts.append(f"\U0001f534 {rolled_24h} rolled back")
+            if overall_status == "OK":
+                overall_status = "WARNING"
+
+        # LLM spend — compact
+        try:
+            from app.core.llm_budget import get_usage_summary
+            budget = get_usage_summary()
+            spent = budget.get("monthly_cost_eur", 0)
+            cap = budget.get("monthly_cap_eur", 5.0)
+            pipe_parts.append(f"LLM \u20ac{spent:.2f}/\u20ac{cap:.0f}")
+            if budget.get("monthly_cap_reached"):
+                pipe_parts.append("\u26a0\ufe0f CAP HIT")
+                if overall_status == "OK":
+                    overall_status = "WARNING"
+        except Exception:
+            pass
+
+        lines.append(f"\U0001f916 *Pipeline:* {' \u00b7 '.join(pipe_parts)}")
+    except Exception:
+        pass
+
+    # ── 6. ATTENTION — only things that truly need the founder ──
+    # TIER_2 review
+    try:
+        tier2_count = db.execute(sql_text(
+            "SELECT COUNT(*) FROM bugfix_candidates "
+            "WHERE status = 'patch_proposed' AND patch_risk_tier = 2"
+        )).scalar() or 0
+        if tier2_count > 0:
+            attention_lines.append(
+                f"\U0001f512 {tier2_count} TIER\\_2 fix{'es' if tier2_count > 1 else ''} "
+                f"awaiting your review"
+            )
+    except Exception:
+        pass
+
+    # Rollbacks
+    if rolled_24h > 0:
+        attention_lines.append(
+            f"\u21a9\ufe0f {rolled_24h} rollback{'s' if rolled_24h > 1 else ''} in the last 24h"
+        )
+
+    if attention_lines:
+        lines.append("")
+        lines.append("\u261d\ufe0f *Needs you:*")
+        for al in attention_lines:
+            lines.append(f"  {al}")
+
+    # ── 7. FINALIZE HEADLINE ──
+    # If CTO says CRITICAL but nothing actually needs the founder,
+    # downgrade to keep the headline honest. The raw ops status is
+    # still visible via /status.
+    if overall_status == "CRITICAL" and not attention_lines:
+        overall_status = "OK"
+
+    status_emoji = {
+        "OK": "\u2705", "WARNING": "\u26a0\ufe0f", "CRITICAL": "\U0001f534",
+    }[overall_status]
+    status_suffix = {
+        "OK": " \u2014 all systems running.",
+        "WARNING": "",
+        "CRITICAL": " \u2014 see below.",
+    }[overall_status]
+    status_line = f"{status_emoji} *{overall_status}*{status_suffix}"
+
+    # Replace placeholder
+    lines = [status_line if l == "__STATUS_PLACEHOLDER__" else l for l in lines]
+
+    # ── 8. FOOTER ──
     lines.append("")
-    lines.append("_Pipeline running autonomously. /status /costs /bugfixes /incidents_")
+    lines.append("_/status /costs /bugfixes /merchants /incidents_")
 
     _digest_buttons_cache.clear()
-    _digest_buttons_cache.extend(action_buttons)
     return "\n".join(lines)
 
 

@@ -59,6 +59,11 @@ def _make_full_setup(db, ci_passed=True, tier=0, applied=True, has_pr=True):
 
 def test_recommend_merge_all_gates_pass(db):
     """All gates pass → recommend=True."""
+    # Delete pre-existing critical alerts that would fail gate 6
+    # (gate checks count, not resolved flag)
+    from app.models.ops_alert import OpsAlert
+    db.query(OpsAlert).filter(OpsAlert.severity == "critical").delete()
+    db.flush()
     c, p = _make_full_setup(db)
     rec = compute_merge_recommendation(db, p.id)
     assert rec.recommend is True
@@ -145,6 +150,14 @@ def test_merge_outcome_dedup(db):
 
 def test_evaluate_healthy(db):
     """No regressions → healthy."""
+    from app.models.ops_alert import OpsAlert
+    # Clear pre-existing state that would interfere
+    db.query(MergeOutcome).filter(
+        MergeOutcome.evaluation_status == "pending",
+    ).update({"evaluation_status": "skipped_by_test"})
+    db.query(OpsAlert).filter(OpsAlert.severity == "critical").delete()
+    db.flush()
+
     c, p = _make_full_setup(db)
     outcome = MergeOutcome(
         promotion_id=p.id, bugfix_candidate_id=c.id,

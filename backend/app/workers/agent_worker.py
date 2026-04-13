@@ -1,4 +1,5 @@
 import logging
+import os
 import sys
 import time
 import json
@@ -394,6 +395,21 @@ def _run_bugfix_outcome_eval():
         db.commit()
         if esc_summary["escalated"] > 0:
             log(f"rollback_watchdog: escalated={esc_summary['escalated']} checked={esc_summary['checked']}")
+
+        # π2 — trust contract outcome measurement (48h post-execution).
+        # Measures revenue delta, auto-pauses chronically ineffective contracts.
+        try:
+            from app.services.trust_outcome_measurement import measure_pending_trust_executions
+            trust_summary = measure_pending_trust_executions(db)
+            if trust_summary["measured"] > 0:
+                log(
+                    f"trust_outcomes: measured={trust_summary['measured']} "
+                    f"effective={trust_summary['effective']} "
+                    f"ineffective={trust_summary['ineffective']} "
+                    f"paused={trust_summary['auto_paused_contracts']}"
+                )
+        except Exception as exc:
+            log(f"trust_outcomes error (non-fatal): {exc}")
     except Exception as exc:
         log(f"bugfix_outcomes error (non-fatal): {exc}")
         db.rollback()
@@ -1482,6 +1498,25 @@ def _check_circuit_breaker() -> bool:
         db.close()
 
 
+def _run_stale_alert_cleanup():
+    """Auto-resolve alerts older than 72h to prevent historical backlog spam."""
+    db = SessionLocal()
+    try:
+        from app.services.alerting import resolve_stale_alerts
+        resolved = resolve_stale_alerts(db)
+        db.commit()
+        if resolved > 0:
+            log(f"stale_alert_cleanup: auto-resolved {resolved} alerts older than 48h")
+    except Exception as exc:
+        log(f"stale_alert_cleanup error (non-fatal): {exc}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
 def _run_cto_health_check():
     """
     Phase 0: CTO Signal Layer.
@@ -1543,10 +1578,29 @@ def _run_approval_expiry_sweep():
             "WHERE status = 'pending' AND expires_at < now() "
             "RETURNING id"
         ))
-        expired = len(result.fetchall())
+        expired_ids = [r[0] for r in result.fetchall()]
+        if expired_ids:
+            try:
+                from app.services.alerting import write_alert
+                write_alert(
+                    db,
+                    alert_type="approval_expired_unhandled",
+                    source="agent_worker",
+                    severity="warning",
+                    detail={
+                        "expired_count": len(expired_ids),
+                        "approval_ids": expired_ids[:10],
+                        "message": (
+                            f"{len(expired_ids)} action approval(s) expired without "
+                            f"operator review. Check /approvals or Telegram /incidents."
+                        ),
+                    },
+                )
+            except Exception:
+                pass
         db.commit()
-        if expired > 0:
-            log(f"approval_expiry_sweep: expired={expired}")
+        if expired_ids:
+            log(f"approval_expiry_sweep: expired={len(expired_ids)}, escalated to ops_alert")
     except Exception as exc:
         log(f"approval_expiry_sweep error (non-fatal): {exc}")
         try:
@@ -1699,8 +1753,126 @@ def _run_regulatory_watch():
         db.close()
 
 
+_STANDBY_REDIS_KEY = "hs:self_heal_standby"
+# Phases that actively change code/state — gated by standby.
+# Detection/observation phases (health, cleanup, digest) still run so the
+# system remains observable while paused.
+_STANDBY_SKIPPED_PHASES = {
+    "bug_triage", "auto_propose", "auto_apply", "auto_merge",
+    "evolution_audit", "evolution_conversion", "model_upgrade_scan",
+    "pipeline_self_upgrade",
+}
+
+
+def is_self_heal_in_standby() -> bool:
+    """Return True if the self-heal pipeline is in operator-requested standby.
+
+    Controlled via Redis key `hs:self_heal_standby`. When set, code-mutating
+    phases are skipped but observation/health phases continue, so the
+    founder can verify health while changes are paused.
+    """
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            return False
+        return rc.exists(_STANDBY_REDIS_KEY) > 0
+    except Exception:
+        return False
+
+
+def set_self_heal_standby(enabled: bool, reason: str = "") -> bool:
+    """Enter or exit self-heal standby. Returns True on success.
+
+    Standby is a soft pause: triage / propose / apply / merge / evolution
+    phases are skipped. Health checks, digests, cleanup, and the heartbeat
+    continue so the founder can monitor the paused state.
+    """
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            return False
+        if enabled:
+            import json as _json
+            payload = _json.dumps({
+                "reason": reason or "standby",
+                "entered_at": datetime.now(timezone.utc).isoformat(),
+            })
+            rc.set(_STANDBY_REDIS_KEY, payload)
+        else:
+            rc.delete(_STANDBY_REDIS_KEY)
+        return True
+    except Exception as exc:
+        log(f"set_self_heal_standby error: {exc}")
+        return False
+
+
+def _run_analytics_retention():
+    """β6: prune analytics_events older than retention window.
+    Runs at most once per day — checked via Redis key."""
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None and rc.exists("hs:event_bus:cleanup_today"):
+            return
+    except Exception:
+        rc = None
+
+    db = SessionLocal()
+    try:
+        from app.services.event_bus import cleanup_old_events
+        deleted = cleanup_old_events(db)
+        if deleted > 0:
+            log(f"event_bus_cleanup: deleted {deleted} old rows")
+        if rc is not None:
+            try:
+                rc.setex("hs:event_bus:cleanup_today", 86400, "1")
+            except Exception:
+                pass
+    except Exception as exc:
+        log(f"event_bus_cleanup error (non-fatal): {exc}")
+    finally:
+        db.close()
+
+
+def _run_worker_watchdog():
+    """α5: resurrect PM2 workers that have fallen behind."""
+    db = SessionLocal()
+    try:
+        from app.services.worker_watchdog import run_watchdog
+        report = run_watchdog(db)
+        db.commit()
+        if report.get("stale", 0) > 0:
+            log(
+                f"worker_watchdog: stale={report['stale']} "
+                f"restarted={report['restarted']} "
+                f"cooldown={report['on_cooldown']}"
+            )
+    except Exception as exc:
+        log(f"worker_watchdog error (non-fatal): {exc}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
 def run_cycle():
     started_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    standby = is_self_heal_in_standby()
+    if standby:
+        log("run_cycle: SELF-HEAL STANDBY active — mutating phases skipped")
+
+    # Phase 0-pre0: Worker watchdog (α5) — resurrect stale workers FIRST
+    _run_worker_watchdog()
+
+    # Phase 0-pre1: Analytics retention (β6) — daily-gated, cheap
+    _run_analytics_retention()
+
+    # Phase 0-pre: Auto-resolve stale alerts (tiered cleanup) — runs always
+    _run_stale_alert_cleanup()
 
     # Phase 0: CTO-level health synthesis (runs first, sets context)
     _run_cto_health_check()
@@ -1726,16 +1898,20 @@ def run_cycle():
     auto_apply_paused = _check_circuit_breaker()
 
     # Phase 3: Bug triage — scan alerts/outcomes for code-fix candidates
-    _run_bug_triage(auto_apply_paused=auto_apply_paused)
+    if not standby:
+        _run_bug_triage(auto_apply_paused=auto_apply_paused)
+    else:
+        log("run_cycle[standby]: skipping bug_triage / auto_propose / auto_apply")
 
-    # Phase 3b: Bugfix outcome evaluation (closed-loop learning)
+    # Phase 3b: Bugfix outcome evaluation (closed-loop learning) — read-only, always runs
     _run_bugfix_outcome_eval()
 
     # Phase 4: Evolution audit (weekly) + meta-review + convert eligible proposals + model upgrade scan
-    _run_evolution_audit()
-    _run_meta_review()
-    _run_evolution_conversion()
-    _run_model_upgrade_scan()
+    if not standby:
+        _run_evolution_audit()
+        _run_meta_review()
+        _run_evolution_conversion()
+        _run_model_upgrade_scan()
 
     # Phase 4b: Evolution GC (daily) — clean stale/duplicate/resolved proposals
     _run_evolution_gc()
@@ -1796,7 +1972,8 @@ def run_cycle():
     # Phase 7d-bis: Pipeline self-upgrade scan (D5) — weekly pip-audit
     # sweep that surfaces CVEs as TIER_2 dep_upgrade candidates. Gated
     # to Monday 04:00-05:00 UTC so at most one run per week.
-    _run_pipeline_self_upgrade()
+    if not standby:
+        _run_pipeline_self_upgrade()
 
     # Phase 7d-ter: GDPR data retention sweep — daily, Europe/Rome.
     # Deletes events/visitor_purchase_sessions past their retention TTL.

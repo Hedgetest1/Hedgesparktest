@@ -113,23 +113,52 @@ def _load_history(shop_domain: str) -> list[dict[str, Any]]:
         return []
 
 
-def _linear_regression(points: list[tuple[float, float]]) -> tuple[float, float, float]:
-    """Least-squares fit. Returns (slope, intercept, r_squared)."""
+def _linear_regression(points: list[tuple[float, float]]) -> tuple[float, float, float, float]:
+    """Least-squares fit. Returns (slope, intercept, r_squared, residual_std_error).
+
+    residual_std_error is the standard error of the residuals, used to
+    build prediction intervals (α6 — probabilistic forecast).
+    """
     n = len(points)
     if n < 2:
-        return 0.0, (points[0][1] if points else 0.0), 0.0
+        return 0.0, (points[0][1] if points else 0.0), 0.0, 0.0
     mean_x = sum(p[0] for p in points) / n
     mean_y = sum(p[1] for p in points) / n
     num = sum((p[0] - mean_x) * (p[1] - mean_y) for p in points)
     den = sum((p[0] - mean_x) ** 2 for p in points)
     if den == 0:
-        return 0.0, mean_y, 0.0
+        return 0.0, mean_y, 0.0, 0.0
     slope = num / den
     intercept = mean_y - slope * mean_x
     ss_tot = sum((p[1] - mean_y) ** 2 for p in points)
     ss_res = sum((p[1] - (slope * p[0] + intercept)) ** 2 for p in points)
     r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
-    return slope, intercept, max(0.0, min(1.0, r2))
+    # Residual std error: sqrt(ss_res / (n-2)) — unbiased estimator
+    rse = (ss_res / max(1, n - 2)) ** 0.5
+    return slope, intercept, max(0.0, min(1.0, r2)), rse
+
+
+def _prediction_interval(
+    forecast_value: float,
+    residual_std: float,
+    horizon_days: int = 7,
+) -> tuple[float, float, float, float]:
+    """Compute 80% and 95% prediction intervals around a point forecast.
+
+    Uses normal approximation (t-tabulated z-scores). Horizon inflation
+    is sqrt(horizon_days) — a simple random-walk-ish widening that keeps
+    us conservative without needing a full ARIMA implementation.
+
+    Returns (lower_80, upper_80, lower_95, upper_95), all non-negative.
+    """
+    # z80 = 1.28, z95 = 1.96
+    horizon_factor = max(1.0, horizon_days**0.5)
+    std_h = residual_std * horizon_factor
+    lower_80 = max(0.0, forecast_value - 1.28 * std_h)
+    upper_80 = forecast_value + 1.28 * std_h
+    lower_95 = max(0.0, forecast_value - 1.96 * std_h)
+    upper_95 = forecast_value + 1.96 * std_h
+    return lower_80, upper_80, lower_95, upper_95
 
 
 def _confidence_label(n_points: int, r_squared: float) -> str:
@@ -179,12 +208,17 @@ def get_risk_forecast(shop_domain: str) -> dict[str, Any]:
         day_idx = (ts - t0).total_seconds() / 86400.0
         points.append((day_idx, float(h.get("total_at_risk_eur") or 0)))
 
-    slope, intercept, r2 = _linear_regression(points)
+    slope, intercept, r2, rse = _linear_regression(points)
 
     last_day = max(p[0] for p in points)
     today_value = slope * last_day + intercept
     forecast_day = last_day + 7
     forecast_value = max(0.0, slope * forecast_day + intercept)
+
+    # α6 — probabilistic prediction intervals
+    p_lower_80, p_upper_80, p_lower_95, p_upper_95 = _prediction_interval(
+        forecast_value, rse, horizon_days=7,
+    )
 
     week_delta = forecast_value - today_value
     week_delta_pct = (week_delta / today_value * 100) if today_value > 0 else 0.0
@@ -215,7 +249,7 @@ def get_risk_forecast(shop_domain: str) -> dict[str, Any]:
             try:
                 write_alert(
                     db,
-                    severity="warning",
+                    severity="info",  # projection, not an incident
                     source="risk_forecast",
                     alert_type="rars_volatility_projected",
                     summary=(
@@ -231,6 +265,20 @@ def get_risk_forecast(shop_domain: str) -> dict[str, Any]:
                         "points": len(points),
                     },
                 )
+                # Phase Ω''' — outbound webhook fan-out for rars.spike.
+                # Distinct event type so subscribers can target it specifically
+                # without listening to every anomaly.
+                try:
+                    from app.services.event_emitter import emit
+                    emit(db, shop_domain, "rars.spike", {
+                        "shop_domain": shop_domain,
+                        "today_eur": round(today_value, 2),
+                        "forecast_eur": round(forecast_value, 2),
+                        "delta_pct": round(week_delta_pct, 2),
+                        "confidence": confidence,
+                    })
+                except Exception:
+                    pass
                 db.commit()
             finally:
                 db.close()
@@ -242,6 +290,12 @@ def get_risk_forecast(shop_domain: str) -> dict[str, Any]:
         "status": "ok",
         "today_value_eur": round(today_value, 2),
         "forecast_7d_eur": round(forecast_value, 2),
+        # α6: probabilistic prediction intervals
+        "forecast_7d_lower_80_eur": round(p_lower_80, 2),
+        "forecast_7d_upper_80_eur": round(p_upper_80, 2),
+        "forecast_7d_lower_95_eur": round(p_lower_95, 2),
+        "forecast_7d_upper_95_eur": round(p_upper_95, 2),
+        "residual_std_error": round(rse, 2),
         "week_delta_eur": round(week_delta, 2),
         "week_delta_pct": round(week_delta_pct, 2),
         "direction": direction,

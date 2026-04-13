@@ -484,8 +484,8 @@ import time as _time
 _auto_push_cooldown: dict[str, float] = {}
 _AUTO_PUSH_COOLDOWN_S = 3600  # 1 hour
 
-_auto_merge_last: float | None = None
 _AUTO_MERGE_COOLDOWN_S = 3600  # 1 hour — never merge more than one TIER_0 fix per hour
+_AUTO_MERGE_COOLDOWN_REDIS_KEY = "hs:auto_merge_cooldown"
 
 # Frontend paths where an accidental regression would be immediately
 # merchant-visible. Auto-merge is never allowed to touch these, even if
@@ -665,15 +665,21 @@ def _is_auto_merge_enabled() -> bool:
 
 
 def _is_auto_merge_on_cooldown() -> bool:
-    global _auto_merge_last
-    if _auto_merge_last is None:
-        return False
-    return (_time.monotonic() - _auto_merge_last) < _AUTO_MERGE_COOLDOWN_S
+    """Check via Redis (survives PM2 restarts)."""
+    try:
+        from app.core.redis_client import cache_get
+        return cache_get(_AUTO_MERGE_COOLDOWN_REDIS_KEY) is not None
+    except Exception:
+        return False  # Redis down — allow merge (fail-open is safer than blocking pipeline)
 
 
 def _mark_auto_merge_done() -> None:
-    global _auto_merge_last
-    _auto_merge_last = _time.monotonic()
+    """Set Redis cooldown marker (survives PM2 restarts)."""
+    try:
+        from app.core.redis_client import cache_set
+        cache_set(_AUTO_MERGE_COOLDOWN_REDIS_KEY, True, _AUTO_MERGE_COOLDOWN_S)
+    except Exception:
+        pass  # Redis down — next cycle will re-check
 
 
 def _candidate_touches_forbidden_path(patch_files_json: str | None) -> str | None:

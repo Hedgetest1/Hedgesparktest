@@ -55,6 +55,83 @@ MONTHLY_EUR_CAP = float(_os.getenv("LLM_MONTHLY_BUDGET_EUR", "10.0"))
 ANTHROPIC_MONTHLY_CAP = float(_os.getenv("ANTHROPIC_MONTHLY_BUDGET_EUR", "10.0"))
 OPENAI_MONTHLY_CAP = float(_os.getenv("OPENAI_MONTHLY_BUDGET_EUR", "10.0"))
 
+# ---------------------------------------------------------------------------
+# Per-plan tiered budgets (α4 — elite roadmap)
+# Dominating competitors requires better-than-5€-total intelligence. Each
+# plan gets its own per-merchant monthly ceiling so Pro customers can
+# afford richer LLM usage without inflating the aggregate cap.
+# Values in EUR / merchant / month.
+# ---------------------------------------------------------------------------
+PLAN_MONTHLY_BUDGETS_EUR: dict[str, float] = {
+    "free":  0.00,   # no LLM — deterministic only
+    "trial": 0.10,   # discovery tier, tight cap
+    "core":  0.30,   # entry (€49) — occasional LLM chatbot fallback
+    "plus":  1.00,   # Pro (€99) — richer chatbot, more aggressive fallbacks
+    "pro":   1.00,   # alias for plus (legacy plan label)
+    "agency": 5.00,  # Agency (€999) — full autonomy, LLM-rich workflows
+}
+
+
+def get_plan_budget_eur(plan: str | None) -> float:
+    """Return per-merchant per-month LLM budget for the given plan.
+    Unknown plans fall back to 'core'."""
+    if plan is None:
+        return PLAN_MONTHLY_BUDGETS_EUR["free"]
+    return PLAN_MONTHLY_BUDGETS_EUR.get(plan.lower(), PLAN_MONTHLY_BUDGETS_EUR["core"])
+
+
+def can_charge_merchant(db, shop_domain: str, estimated_cost_eur: float) -> tuple[bool, str]:
+    """Check if a merchant has headroom in their plan budget for an
+    additional LLM charge. Returns (allowed, reason).
+
+    The per-merchant counter is tracked separately from the global cap
+    so expensive merchants don't starve cheap ones.
+    """
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            # Fail-closed: no Redis → deny LLM spend for merchant accounting
+            return False, "redis_unavailable"
+
+        # Lookup plan
+        from app.models.merchant import Merchant
+        m = db.query(Merchant).filter(Merchant.shop_domain == shop_domain).first()
+        if m is None:
+            return False, "merchant_not_found"
+        plan = (m.plan or "free").lower()
+        cap = get_plan_budget_eur(plan)
+        if cap <= 0:
+            return False, f"plan_no_llm:{plan}"
+
+        # Redis key: hs:llm:merchant:{shop}:{YYYY-MM}
+        month = datetime.now(timezone.utc).strftime("%Y-%m")
+        key = f"hs:llm:merchant:{shop_domain}:{month}"
+        raw = rc.get(key)
+        spent = float(raw) if raw else 0.0
+        if spent + estimated_cost_eur > cap:
+            return False, f"plan_budget_exhausted:{spent:.3f}/{cap:.2f}"
+        return True, f"ok:{spent:.3f}/{cap:.2f}"
+    except Exception as exc:
+        log.warning("llm_budget: per-merchant check failed: %s", exc)
+        return False, f"check_error:{type(exc).__name__}"
+
+
+def record_merchant_charge(shop_domain: str, cost_eur: float) -> None:
+    """Increment a merchant's monthly LLM spend counter. Call AFTER a
+    successful LLM call."""
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            return
+        month = datetime.now(timezone.utc).strftime("%Y-%m")
+        key = f"hs:llm:merchant:{shop_domain}:{month}"
+        rc.incrbyfloat(key, cost_eur)
+        rc.expire(key, 40 * 86400)  # 40d TTL so month boundary is covered
+    except Exception as exc:
+        log.warning("llm_budget: per-merchant record failed: %s", exc)
+
 # Budget alert threshold (fraction 0-1)
 _BUDGET_ALERT_THRESHOLD = 0.9  # alert at 90% usage
 

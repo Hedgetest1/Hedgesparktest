@@ -81,6 +81,71 @@ Base = declarative_base()
 
 
 # ---------------------------------------------------------------------------
+# Read-replica support (ε1)
+# ---------------------------------------------------------------------------
+# When DATABASE_READ_URL is set, analytics-heavy queries can route to a
+# Postgres read replica while writes stay on the primary. This unlocks
+# dashboard reads from contending with tracker event inserts on the hot
+# path, which is the bottleneck past ~50 merchants.
+#
+# Default: read replica = primary (no-op). When enabled, callers use
+# ReadSession() or Depends(get_read_db) for analytics queries.
+#
+# Call sites to migrate (opt-in, TIER_0 safe):
+#   - app/api/roi_hero.py
+#   - app/api/cac_ltv.py
+#   - app/api/mta.py
+#   - app/services/mta_engine.py
+#   - app/api/forecasts.py
+#   - app/api/compliance_evidence.py
+#   - app/services/customer_churn_scorer.py
+#   - app/services/nudge_dna.py
+#
+# Transactional writes (actions, bugfix apply, trust contracts, webhooks,
+# OAuth, billing) MUST continue to use the primary via SessionLocal().
+# ---------------------------------------------------------------------------
+DATABASE_READ_URL = os.getenv("DATABASE_READ_URL")
+
+if DATABASE_READ_URL:
+    log.info("database: read replica configured (DATABASE_READ_URL set)")
+    _read_connect_args: dict = dict(_connect_args)
+    read_engine = create_engine(
+        DATABASE_READ_URL,
+        pool_size=15,
+        max_overflow=25,
+        pool_timeout=30,
+        pool_pre_ping=True,
+        pool_recycle=1800,
+        connect_args=_read_connect_args,
+    )
+    ReadSession = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=read_engine,
+    )
+else:
+    # No replica configured — fall through to primary.
+    read_engine = engine
+    ReadSession = SessionLocal
+
+
+def get_read_db():
+    """
+    FastAPI dependency — yields a read-optimized session.
+
+    Routes to DATABASE_READ_URL when set; otherwise falls back to the
+    primary. Safe to use for analytics queries; DO NOT use for writes
+    (changes on a replica will error with a read-only cursor or,
+    worse, silently replicate back).
+    """
+    db = ReadSession()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
 # Request-scoped session dependency
 #
 # Use this in FastAPI routes via Depends(get_db).  The session is guaranteed

@@ -170,6 +170,49 @@ _DOMAIN_RULES: list[tuple[str, str]] = [
     ("app/services/annotations", "annotations"),
     ("app/api/annotations", "annotations"),
 
+    # Elite roadmap Phase α (2026-04-12)
+    ("app/services/trust_contract", "trust_autonomy"),
+    ("app/api/trust_contracts", "trust_autonomy"),
+    ("app/models/trust_contract", "trust_autonomy"),
+    ("app/services/instant_onboarding", "onboarding_instant"),
+    ("app/api/instant_intelligence", "onboarding_instant"),
+    ("app/api/roi_hero", "roi_hero"),
+    ("app/api/daily_narrative", "storytelling"),
+    ("app/services/worker_watchdog", "workers"),
+    ("app/services/risk_forecast", "rars"),
+
+    # Elite roadmap Phase β (2026-04-12)
+    ("app/services/mta_engine", "attribution_mta"),
+    ("app/api/mta", "attribution_mta"),
+    ("app/api/cac_ltv", "cac_ltv"),
+    ("app/services/margin_guard", "margin_guard"),
+    ("app/api/margin_guard_api", "margin_guard"),
+    ("app/services/klaviyo_events", "klaviyo_integration"),
+    ("app/services/klaviyo_connection", "klaviyo_integration"),
+    ("app/services/klaviyo_export", "klaviyo_integration"),
+    ("app/api/klaviyo", "klaviyo_integration"),
+    ("app/services/chatbot_llm_fallback", "chatbot_llm"),
+    ("app/services/event_bus", "event_bus"),
+    ("app/models/analytics_event", "event_bus"),
+
+    # Phase Ω moat + ecosystem + killers (2026-04-13)
+    ("app/services/vertical_classifier", "vertical_intelligence"),
+    ("app/services/vertical_prompt_pack", "vertical_intelligence"),
+    ("app/services/benchmarks_vertical", "benchmarks"),
+    ("app/api/benchmarks_vertical", "benchmarks"),
+    ("app/services/knowledge_graph", "knowledge_graph"),
+    ("app/api/knowledge_graph", "knowledge_graph"),
+    ("app/services/outbound_webhooks", "outbound_webhooks"),
+    ("app/api/outbound_webhooks", "outbound_webhooks"),
+    ("app/models/outbound_webhook", "outbound_webhooks"),
+    ("app/services/ads_connectors", "ads_ecosystem"),
+    ("app/api/ads", "ads_ecosystem"),
+    ("app/models/ad_spend", "ads_ecosystem"),
+    ("app/services/anomaly_fusion", "anomaly_intelligence"),
+    ("app/api/anomaly_fusion", "anomaly_intelligence"),
+    ("app/services/causal_explainer", "causal_intelligence"),
+    ("app/api/causal_explainer", "causal_intelligence"),
+
     # Frontend / merchant-facing — ordered from most-specific to catch-all.
     # Billing/onboarding/auth flows in the dashboard are as critical as their
     # backend counterparts: a broken checkout surface = revenue loss.
@@ -248,12 +291,25 @@ _DOMAIN_CRITICALITY: dict[str, str] = {
     "rars": "high",             # THE hero number of the dashboard
     "annotations": "low",       # UX enhancement
     "tests": "low",
+    # Elite roadmap Phase α+β domains (2026-04-12)
+    "trust_autonomy": "critical",     # delegated autonomy — mis-executes cost money
+    "margin_guard": "critical",       # discount gate — wrong bound = loss
+    "attribution_mta": "high",        # ROAS perception → budget allocation
+    "cac_ltv": "high",                # unit economics headline
+    "klaviyo_integration": "medium",  # outbound, failure degrades gracefully
+    "chatbot_llm": "medium",          # fallback-only, hallucination guard
+    "event_bus": "high",              # data plane — feed of all OLAP
+    "onboarding_instant": "high",     # first-impression — 60s aha moment
+    "roi_hero": "medium",             # read-only retention widget
+    "storytelling": "low",            # narrative block
 }
 
 # Sensitive domains where auto_approvable should be false
 SENSITIVE_DOMAINS = {
     "billing", "shopify_auth", "auth", "webhooks", "shopify_integration",
     "orchestrator", "migrations",
+    # Phase α+β: autonomous money-moving logic — auto-apply forbidden
+    "trust_autonomy", "margin_guard",
 }
 
 # All known domains

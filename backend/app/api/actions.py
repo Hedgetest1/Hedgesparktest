@@ -44,7 +44,7 @@ Response
     Each candidate contains:
         rank                   int
         product_url            str
-        action_type            str    CRO_FIX | SCARCITY_NUDGE | PRICE_TEST |
+        action_type            str    SCARCITY_NUDGE | PRICE_TEST |
                                       RETARGET_HOT_TRAFFIC | FLASH_INCENTIVE
         reason                 str    metric-interpolated explanation
         supporting_signals     list[str]

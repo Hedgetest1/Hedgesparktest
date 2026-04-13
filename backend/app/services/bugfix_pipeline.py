@@ -3711,7 +3711,15 @@ def run_auto_apply(db: Session, max_per_cycle: int = 1) -> dict:
                 db.flush()
                 continue
         except Exception as exc:
-            log.debug("auto_apply: predictive gate errored (non-fatal): %s", exc)
+            log.warning(
+                "auto_apply: predictive gate errored — escalating id=%d to TIER_1: %s",
+                c.id, exc,
+            )
+            c.patch_risk_tier = 1
+            c.failure_reason = f"predictive_gate_error: {exc}"
+            summary["skipped"] += 1
+            db.flush()
+            continue
 
         # Reviewer gate — deterministic assessment before auto-apply
         try:
@@ -3736,7 +3744,15 @@ def run_auto_apply(db: Session, max_per_cycle: int = 1) -> dict:
                     _notify_reviewer_block(c, assessment)
                     continue
         except Exception as exc:
-            log.warning("auto_apply: reviewer error (non-fatal, proceeding): %s", exc)
+            log.warning(
+                "auto_apply: reviewer error — escalating id=%d to TIER_1: %s",
+                c.id, exc,
+            )
+            c.patch_risk_tier = 1
+            c.failure_reason = f"reviewer_gate_error: {exc}"
+            summary["skipped"] += 1
+            db.flush()
+            continue
 
         summary["attempted"] += 1
 

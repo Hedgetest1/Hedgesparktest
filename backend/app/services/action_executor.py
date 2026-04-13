@@ -5,7 +5,7 @@ and manages task lifecycle transitions.
 Responsibilities
 ----------------
 1. Build a structured task_payload for each action_type.
-   Currently implemented: CRO_FIX.
+   Implemented: SCARCITY_NUDGE, RETARGET_HOT_TRAFFIC, PRICE_TEST, FLASH_INCENTIVE.
    Stub structure exists for others so agents can extend without breaking callers.
 
 2. Enforce the one-active-task rule:
@@ -80,16 +80,6 @@ claimed_by filtering
 list_tasks() accepts an optional claimed_by filter.  When provided, only tasks
 where claimed_by matches exactly are returned.  status and claimed_by filters
 are independent and composable (AND semantics).
-
-CRO_FIX payload design
------------------------
-The checklist covers the 7 universal page audit items that apply to every
-CRO failure, regardless of which signal fired.
-
-suggested_fixes are ranked by the signal that triggered the candidate:
-  HIGH_TRAFFIC_NO_CART   → CTA prominence and friction removal.
-  DEAD_TRAFFIC           → First impression and page speed.
-  LOW_CONVERSION_ATTENTION → Trust and price presentation.
 
 If multiple signals are present, the highest-priority one governs the fix set.
 
@@ -225,245 +215,8 @@ def _validate_result_detail(result_detail: Optional[str], new_status: str) -> No
 
 
 # ---------------------------------------------------------------------------
-# CRO_FIX checklist — universal for all CRO failures
-# ---------------------------------------------------------------------------
-
-_CRO_CHECKLIST = [
-    {
-        "id": "page_speed",
-        "label": "Page load speed",
-        "description": (
-            "Test load time on mobile (target < 3 s). Use Shopify speed report "
-            "or PageSpeed Insights. Heavy images and unoptimised apps are the "
-            "most common culprits."
-        ),
-    },
-    {
-        "id": "above_fold_content",
-        "label": "Above-the-fold first impression",
-        "description": (
-            "On mobile, the product image and title must be visible without "
-            "scrolling. Check that the hero image loads and is not cropped or "
-            "hidden behind a banner."
-        ),
-    },
-    {
-        "id": "primary_cta",
-        "label": "Add to Cart / Buy Now prominence",
-        "description": (
-            "The primary action button must be above the fold on desktop and "
-            "within one scroll on mobile. It must have high contrast and a "
-            "clear, action-oriented label."
-        ),
-    },
-    {
-        "id": "product_description",
-        "label": "Product description clarity",
-        "description": (
-            "Lead with benefit, not specification. The first two sentences must "
-            "answer: what is it, and why should I care. Walls of text kill "
-            "intent; use short paragraphs or bullet points."
-        ),
-    },
-    {
-        "id": "social_proof",
-        "label": "Social proof visibility",
-        "description": (
-            "Star rating and review count should appear near the title, not "
-            "buried below the fold. If you have zero reviews, add a trust badge "
-            "(free returns, secure checkout) as a substitute."
-        ),
-    },
-    {
-        "id": "price_presentation",
-        "label": "Price framing and anchoring",
-        "description": (
-            "Is the price presented clearly alongside a compare-at price or "
-            "savings callout? Missing price anchoring forces visitors to "
-            "question value rather than confirm it."
-        ),
-    },
-    {
-        "id": "mobile_layout",
-        "label": "Mobile layout integrity",
-        "description": (
-            "Test on a real mobile device. Check that images resize correctly, "
-            "text is readable without pinching, and the Add to Cart button is "
-            "not covered by sticky navigation or cookie banners."
-        ),
-    },
-]
-
-
-# ---------------------------------------------------------------------------
-# Signal-specific suggested fixes
-# ---------------------------------------------------------------------------
-
-_FIXES_HIGH_TRAFFIC_NO_CART = [
-    {
-        "priority": 1,
-        "fix": "Move the Add to Cart button above the product description",
-        "impact": "HIGH",
-        "signal": "HIGH_TRAFFIC_NO_CART",
-        "rationale": (
-            "Visitors are landing but not initiating purchase intent. "
-            "The most direct intervention is reducing scroll distance to the CTA."
-        ),
-    },
-    {
-        "priority": 2,
-        "fix": "Add a sticky Add to Cart bar that follows the user as they scroll",
-        "impact": "HIGH",
-        "signal": "HIGH_TRAFFIC_NO_CART",
-        "rationale": (
-            "Eliminates the need to scroll back up to buy. "
-            "Shopify themes typically support this as a native option."
-        ),
-    },
-    {
-        "priority": 3,
-        "fix": "Add social proof near the CTA (review count, star rating, or sold count)",
-        "impact": "MEDIUM",
-        "signal": "HIGH_TRAFFIC_NO_CART",
-        "rationale": (
-            "Reduces hesitation at the decision point without requiring any "
-            "price change."
-        ),
-    },
-    {
-        "priority": 4,
-        "fix": "Remove or collapse elements that push the CTA below the fold",
-        "impact": "MEDIUM",
-        "signal": "HIGH_TRAFFIC_NO_CART",
-        "rationale": "Apps, banners, and app widgets are common CTA burial causes.",
-    },
-]
-
-_FIXES_DEAD_TRAFFIC = [
-    {
-        "priority": 1,
-        "fix": "Audit and compress all product images (target < 200 KB per image)",
-        "impact": "HIGH",
-        "signal": "DEAD_TRAFFIC",
-        "rationale": (
-            "Visitors are bouncing before engaging — slow load is the leading cause. "
-            "Use WebP format and lazy loading."
-        ),
-    },
-    {
-        "priority": 2,
-        "fix": "Replace the hero image with a high-contrast lifestyle shot on white background",
-        "impact": "MEDIUM",
-        "signal": "DEAD_TRAFFIC",
-        "rationale": (
-            "The first image is the brand's handshake. Unclear or low-quality "
-            "images signal low product quality and trigger immediate back-navigation."
-        ),
-    },
-    {
-        "priority": 3,
-        "fix": "Remove or defer third-party scripts (chat widgets, analytics, pop-ups) from initial load",
-        "impact": "HIGH",
-        "signal": "DEAD_TRAFFIC",
-        "rationale": (
-            "Third-party scripts are the primary non-image load time contributor "
-            "on Shopify stores."
-        ),
-    },
-    {
-        "priority": 4,
-        "fix": "Add a concise, benefit-first product headline above the fold",
-        "impact": "MEDIUM",
-        "signal": "DEAD_TRAFFIC",
-        "rationale": (
-            "Visitors who do load the page need an immediate value hook. "
-            "One sentence answering 'what problem does this solve' is enough."
-        ),
-    },
-]
-
-_FIXES_LOW_CONVERSION_ATTENTION = [
-    {
-        "priority": 1,
-        "fix": "Add a compare-at price (original price crossed out) to anchor perceived value",
-        "impact": "HIGH",
-        "signal": "LOW_CONVERSION_ATTENTION",
-        "rationale": (
-            "Visitors are engaging but not converting — price friction is the "
-            "leading cause when dwell is present. Anchoring makes the current "
-            "price feel like a deal without changing it."
-        ),
-    },
-    {
-        "priority": 2,
-        "fix": "Add a trust block: secure checkout badge, free returns policy, money-back guarantee",
-        "impact": "HIGH",
-        "signal": "LOW_CONVERSION_ATTENTION",
-        "rationale": (
-            "Engaged visitors who don't convert are often blocked by risk "
-            "perception. Explicit risk removal (free returns, guarantee) "
-            "directly lowers this barrier."
-        ),
-    },
-    {
-        "priority": 3,
-        "fix": "Add urgency signals: low stock count, limited-time offer, or recent purchase notification",
-        "impact": "MEDIUM",
-        "signal": "LOW_CONVERSION_ATTENTION",
-        "rationale": (
-            "For visitors with demonstrated intent (attention), urgency converts "
-            "passive interest into active decision-making."
-        ),
-    },
-    {
-        "priority": 4,
-        "fix": "Rewrite product description to lead with a specific outcome, not a feature list",
-        "impact": "MEDIUM",
-        "signal": "LOW_CONVERSION_ATTENTION",
-        "rationale": (
-            "Conversion-stage visitors need emotional confirmation that they are "
-            "making the right choice — outcome-focused copy provides this."
-        ),
-    },
-]
-
-_FIXES_GENERIC = [
-    {
-        "priority": 1,
-        "fix": "Audit the full product page against the checklist items above",
-        "impact": "MEDIUM",
-        "signal": "GENERIC",
-        "rationale": "Multiple signals indicate a CRO failure — start with the checklist.",
-    },
-]
-
-_SIGNAL_FIX_MAP = [
-    ("DEAD_TRAFFIC",             _FIXES_DEAD_TRAFFIC),
-    ("HIGH_TRAFFIC_NO_CART",     _FIXES_HIGH_TRAFFIC_NO_CART),
-    ("LOW_CONVERSION_ATTENTION", _FIXES_LOW_CONVERSION_ATTENTION),
-]
-
-
-def _cro_fix_suggested_fixes(supporting_signals: list[str]) -> list[dict]:
-    for signal, fixes in _SIGNAL_FIX_MAP:
-        if signal in supporting_signals:
-            return fixes
-    return _FIXES_GENERIC
-
-
-# ---------------------------------------------------------------------------
 # Payload builders — one per action_type
 # ---------------------------------------------------------------------------
-
-def _build_cro_fix_payload(candidate: dict) -> dict:
-    supporting_signals = candidate.get("supporting_signals", [])
-    return {
-        "checklist": _CRO_CHECKLIST,
-        "suggested_fixes": _cro_fix_suggested_fixes(supporting_signals),
-        "automation_hint": "SHOPIFY_THEME_AUDIT",
-        "auto_executable": False,
-    }
-
 
 def _build_scarcity_nudge_payload(candidate: dict) -> dict:
     """
@@ -931,7 +684,6 @@ def _build_flash_incentive_payload(candidate: dict) -> dict:
 
 
 _PAYLOAD_BUILDERS = {
-    "CRO_FIX":              _build_cro_fix_payload,
     "SCARCITY_NUDGE":       _build_scarcity_nudge_payload,
     "PRICE_TEST":           _build_price_test_payload,
     "RETARGET_HOT_TRAFFIC": _build_retarget_payload,

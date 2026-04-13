@@ -26,19 +26,34 @@ from fastapi.responses import FileResponse
 router = APIRouter()
 
 
+_ONE_YEAR = 31536000
+_VERSIONED_JS_HEADERS = {
+    "Cache-Control": f"public, max-age={_ONE_YEAR}, s-maxage={_ONE_YEAR}, immutable",
+    "Vary": "Accept-Encoding",
+    "X-Content-Type-Options": "nosniff",
+}
+_UNVERSIONED_JS_HEADERS = {
+    "Cache-Control": "public, max-age=300, s-maxage=60, stale-while-revalidate=60",
+    "Vary": "Accept-Encoding",
+    "X-Content-Type-Options": "nosniff",
+}
+
+
 @router.get("/nudge.js")
-def nudge_script():
+def nudge_script(v: str | None = None):
     """
     Serve spark-nudge.js — the storefront nudge renderer.
 
     The script polls /nudges/active on product pages and renders an
     unobtrusive nudge element when a live nudge is configured.
+
+    ε4: with ?v= param → 1-year immutable cache (CDN edge).
     """
     return FileResponse(
         path="/opt/wishspark/tracker/spark-nudge.js",
         media_type="application/javascript",
         filename="nudge.js",
-        headers={"Cache-Control": "public, max-age=300"},
+        headers=_VERSIONED_JS_HEADERS if v else _UNVERSIONED_JS_HEADERS,
     )
 
 

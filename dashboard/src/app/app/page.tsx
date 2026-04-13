@@ -40,6 +40,11 @@ import { PnlReport } from "../components/PnlReport";
 // Killer feature components (2026-04-11 sprint) — loss-framed hero + drill-downs
 import { RevenueAtRiskHero } from "../components/RevenueAtRiskHero";
 import { PeerBenchmarksCard } from "../components/PeerBenchmarksCard";
+import { CausalWhyCard } from "../components/CausalWhyCard";
+import { AnomalyFusionCard } from "../components/AnomalyFusionCard";
+import { VerticalBenchmarksCard } from "../components/VerticalBenchmarksCard";
+import { AskHedgeSparkCard } from "../components/AskHedgeSparkCard";
+import { IntegrationsCard } from "../components/IntegrationsCard";
 import { ProductsInDecline } from "../components/ProductsInDecline";
 import { MonthlyTargetsCard } from "../components/MonthlyTargetsCard";
 import { MonthlyROICard } from "../components/MonthlyROICard";
@@ -54,6 +59,26 @@ import { AbandonedIntentCard } from "../components/AbandonedIntentCard";
 import { PriceSensitivityCard } from "../components/PriceSensitivityCard";
 import { CausalLiftCard } from "../components/CausalLiftCard";
 import { RevenueGenomeCard } from "../components/RevenueGenomeCard";
+
+// α-series killer features (2026-04-12) — elite roadmap
+import { TrustControlCenter } from "../components/TrustControlCenter";
+import { ROIHeroBanner } from "../components/ROIHeroBanner";
+import { InstantIntelligenceCard } from "../components/InstantIntelligenceCard";
+import { DailyNarrativeBlock } from "../components/DailyNarrativeBlock";
+// β-series killer features (2026-04-12) — elite roadmap
+import { MtaCompareCard } from "../components/MtaCompareCard";
+import { UnitEconomicsCard } from "../components/UnitEconomicsCard";
+import { MarginHealthCard } from "../components/MarginHealthCard";
+// ζ1 — first-login tour
+import { ProductTour } from "../components/ProductTour";
+// ζ2 — rule builder
+import { RuleBuilderCard } from "../components/RuleBuilderCard";
+// δ3 α6 — probabilistic revenue forecast
+import { RevenueForecastCard } from "../components/RevenueForecastCard";
+// δ4 — per-customer churn table
+import { CustomerChurnCard } from "../components/CustomerChurnCard";
+// δ5 — nudge DNA patterns
+import { NudgeDnaCard } from "../components/NudgeDnaCard";
 import {
   type DisplayCurrency,
   formatDisplayMoney,
@@ -2035,6 +2060,10 @@ function PageInner() {
           const shopDomain = json.shop_domain;
           if (shopDomain) {
             setShop(shopDomain);
+            // Remember shop for future re-auth if cookie expires
+            try {
+              localStorage.setItem("hs_last_shop", shopDomain);
+            } catch {}
             const isPro = json.plan === "pro" && json.billing_active === true;
             setTier(isPro ? "pro" : "lite");
             if (json.pro_trial_days != null) setProTrialDays(json.pro_trial_days);
@@ -2054,9 +2083,24 @@ function PageInner() {
           }
         }
 
-        // 3. No valid session — check for ?shop= param
+        // 3. No valid session — check for ?shop= param OR remembered shop
         const urlShop = params.get("shop") || "";
+        const rememberedShop = (() => {
+          try {
+            return localStorage.getItem("hs_last_shop") || "";
+          } catch {
+            return "";
+          }
+        })();
         const justInstalled = params.get("installed") === "1";
+
+        // Auto-redirect to bootstrap if we remember the shop from before
+        // (returning merchant, session cookie expired). Skip if URL already
+        // has shop param — that path is handled below.
+        if (!urlShop && rememberedShop && API_BASE) {
+          window.location.href = `${API_BASE}/auth/session?shop=${encodeURIComponent(rememberedShop)}`;
+          return;
+        }
 
         if (urlShop && justInstalled) {
           // Just came from OAuth callback — shop param is trusted, proceed
@@ -3466,6 +3510,7 @@ function PageInner() {
   // ---------------------------------------------------------------------------
   return (
     <div className="flex h-screen overflow-hidden bg-[#07070f] text-white">
+      <ProductTour isProUser={isProUser} />
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed((c) => !c)}
@@ -3482,11 +3527,47 @@ function PageInner() {
             <MascotLoader caption="Connecting to your store..." state="loading" />
           ) : !shop ? (
             <MascotLoader caption="Looking for your store..." state="loading">
-              <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-5 text-center">
+              <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-5 text-center max-w-md mx-auto">
                 <div className="text-[14px] font-semibold text-amber-200">No store connected</div>
                 <div className="mt-2 text-[13px] leading-relaxed text-amber-200/70">
-                  Install HedgeSpark from the Shopify App Store to connect your store.
-                  If you&apos;ve already installed, try refreshing this page.
+                  Your session expired or your browser is blocking cookies. If HedgeSpark is already
+                  installed on your store, click below to reconnect.
+                </div>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const input = (e.currentTarget.elements.namedItem("shop") as HTMLInputElement)?.value?.trim();
+                    if (!input) return;
+                    // Normalize: accept "foo", "foo.myshopify.com", "https://foo.myshopify.com"
+                    let domain = input.replace(/^https?:\/\//, "").replace(/\/$/, "").toLowerCase();
+                    if (!domain.endsWith(".myshopify.com")) domain = `${domain}.myshopify.com`;
+                    try {
+                      localStorage.setItem("hs_last_shop", domain);
+                    } catch {}
+                    window.location.href = `${API_BASE}/auth/session?shop=${encodeURIComponent(domain)}`;
+                  }}
+                  className="mt-4 flex flex-col gap-2"
+                >
+                  <input
+                    type="text"
+                    name="shop"
+                    defaultValue={
+                      typeof window !== "undefined"
+                        ? localStorage.getItem("hs_last_shop") || ""
+                        : ""
+                    }
+                    placeholder="your-store.myshopify.com"
+                    className="w-full rounded-lg border border-amber-400/30 bg-black/40 px-3 py-2 text-center text-[13px] text-amber-100 placeholder:text-amber-200/40 focus:border-amber-400 focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    className="rounded-lg bg-gradient-to-r from-[#e8a04e] to-[#f59e0b] px-4 py-2 text-[13px] font-bold text-[#0f172a] transition-transform hover:-translate-y-0.5"
+                  >
+                    Reconnect my store
+                  </button>
+                </form>
+                <div className="mt-3 text-[11px] text-amber-200/50">
+                  Not installed yet? Install HedgeSpark from the Shopify App Store first.
                 </div>
               </div>
             </MascotLoader>
@@ -3683,6 +3764,17 @@ function PageInner() {
                 shop={shop}
               />
 
+              {/* ═══ INSTANT INTELLIGENCE — 60s aha moment (α3) ═══ */}
+              {isProUser && <InstantIntelligenceCard apiBase={API_BASE} />}
+
+              {/* ═══ ROI HERO BANNER — the retention weapon (α2) ═══ */}
+              <div data-tour="roi-hero">
+                <ROIHeroBanner apiBase={API_BASE} isProUser={isProUser} />
+              </div>
+
+              {/* ═══ DAILY NARRATIVE — storytelling block (α7) ═══ */}
+              <DailyNarrativeBlock apiBase={API_BASE} isProUser={isProUser} />
+
               {/* ═══ REVENUE AT RISK HERO — the new #1 headline ═══ */}
               <RevenueAtRiskHero
                 apiBase={API_BASE}
@@ -3691,18 +3783,70 @@ function PageInner() {
                 onUpgrade={() => setUpgradeModalOpen(true)}
               />
 
+              {/* ═══ TRUST CONTROL CENTER — delegated autonomy (α1) ═══ */}
+              <div data-tour="trust-center">
+                <TrustControlCenter apiBase={API_BASE} isProUser={isProUser} />
+              </div>
+
+              {/* ═══ UNIT ECONOMICS + PROFIT HEADROOM + FORECAST (β1+β3+α6) ═══ */}
+              {isProUser && (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+                    gap: "16px",
+                    marginBottom: "8px",
+                  }}
+                >
+                  <UnitEconomicsCard apiBase={API_BASE} isProUser={isProUser} />
+                  <div data-tour="margin-health">
+                    <MarginHealthCard apiBase={API_BASE} isProUser={isProUser} />
+                  </div>
+                  <RevenueForecastCard apiBase={API_BASE} isProUser={isProUser} />
+                </div>
+              )}
+
+              {/* ═══ CUSTOMER CHURN TABLE (δ4) ═══ */}
+              <CustomerChurnCard apiBase={API_BASE} isProUser={isProUser} />
+
+              {/* ═══ NUDGE DNA — what words actually sell (δ5) ═══ */}
+              <NudgeDnaCard apiBase={API_BASE} isProUser={isProUser} />
+
+              {/* ═══ WHAT BRINGS THE SALE — multi-touch attribution (β2) ═══ */}
+              <div data-tour="mta">
+                <MtaCompareCard apiBase={API_BASE} isProUser={isProUser} />
+              </div>
+
+              {/* ═══ AUTOMATION RULES — low-code (ζ2) ═══ */}
+              <RuleBuilderCard apiBase={API_BASE} isProUser={isProUser} />
+
               {/* ═══ REVENUE GENOME — the DNA of your revenue ═══ */}
               {isProUser && (
                 <RevenueGenomeCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
               )}
 
+              {/* ═══ PHASE Ω — THE WHY ENGINE + ANOMALY RADAR (causal layer) ═══ */}
+              {isProUser && (
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  <CausalWhyCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  <AnomalyFusionCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                </div>
+              )}
+
+              {/* ═══ PHASE Ω — ASK HEDGE SPARK (knowledge graph NL query) ═══ */}
+              {isProUser && (
+                <AskHedgeSparkCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+              )}
+
               {/* ═══ KILLER FEATURE GRID — drill-downs from the RARS hero ═══ */}
               {isProUser && (
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  <VerticalBenchmarksCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <PeerBenchmarksCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <ProductsInDecline apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <MonthlyTargetsCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <MonthlyROICard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  <IntegrationsCard apiBase={API_BASE} isProUser={isProUser} />
                 </div>
               )}
 
