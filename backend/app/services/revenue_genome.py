@@ -89,20 +89,26 @@ def compute_revenue_genome(db: Session, shop_domain: str) -> dict:
     # 1. TRAFFIC GENOME
     # ═══════════════════════════════════════════════════════════
     try:
+        # events.source_type is the real column (referrer_source was a typo).
+        # Values are the coarse buckets produced by tracker classification:
+        # 'paid_search' / 'paid_social' / 'organic' / 'direct' / 'email' / ...
+        # We classify anything starting with 'paid' as paid to match the
+        # original intent.
+        cutoff_ms = int((now - timedelta(days=30)).timestamp() * 1000)
         traffic = db.execute(text("""
             SELECT
                 COUNT(*) as total_events,
                 COUNT(DISTINCT visitor_id) as unique_visitors,
                 COUNT(*) FILTER (WHERE device_type = 'mobile') as mobile,
                 COUNT(*) FILTER (WHERE device_type = 'desktop') as desktop,
-                COUNT(*) FILTER (WHERE referrer_source = 'paid') as paid,
-                COUNT(*) FILTER (WHERE referrer_source = 'organic') as organic,
-                COUNT(*) FILTER (WHERE referrer_source = 'direct') as direct
+                COUNT(*) FILTER (WHERE source_type LIKE 'paid%%') as paid,
+                COUNT(*) FILTER (WHERE source_type = 'organic') as organic,
+                COUNT(*) FILTER (WHERE source_type = 'direct') as direct
             FROM events
             WHERE shop_domain = :shop
-              AND to_timestamp(timestamp/1000) >= :cutoff
+              AND timestamp >= :cutoff_ms
               AND event_type = 'product_view'
-        """), {"shop": shop_domain, "cutoff": now - timedelta(days=30)}).fetchone()
+        """), {"shop": shop_domain, "cutoff_ms": cutoff_ms}).fetchone()
 
         total = traffic[0] or 1
         uniques = traffic[1] or 0
@@ -138,6 +144,7 @@ def compute_revenue_genome(db: Session, shop_domain: str) -> dict:
     # 2. CONVERSION GENOME
     # ═══════════════════════════════════════════════════════════
     try:
+        cutoff_ms = int((now - timedelta(days=30)).timestamp() * 1000)
         funnel = db.execute(text("""
             SELECT
                 COUNT(DISTINCT visitor_id) FILTER (WHERE event_type = 'product_view') as viewers,
@@ -145,8 +152,8 @@ def compute_revenue_genome(db: Session, shop_domain: str) -> dict:
                 COUNT(DISTINCT visitor_id) FILTER (WHERE event_type = 'purchase') as buyers
             FROM events
             WHERE shop_domain = :shop
-              AND to_timestamp(timestamp/1000) >= :cutoff
-        """), {"shop": shop_domain, "cutoff": now - timedelta(days=30)}).fetchone()
+              AND timestamp >= :cutoff_ms
+        """), {"shop": shop_domain, "cutoff_ms": cutoff_ms}).fetchone()
 
         viewers = funnel[0] or 1
         carters = funnel[1] or 0

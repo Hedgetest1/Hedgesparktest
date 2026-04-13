@@ -246,7 +246,7 @@ def _build_rag_context(db: Session, shop_domain: str) -> dict[str, Any]:
                 """
                 SELECT signal_type, COUNT(*) AS n
                 FROM opportunity_signals
-                WHERE shop_domain = :s AND created_at >= :c7
+                WHERE shop_domain = :s AND detected_at >= :c7
                 GROUP BY signal_type
                 ORDER BY n DESC
                 LIMIT 5
