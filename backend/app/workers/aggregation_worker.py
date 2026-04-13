@@ -110,11 +110,9 @@ WORKER_LOG_RETENTION_DAYS = 30   # delete worker_log older than this
 STALE_TASK_THRESHOLD_MINUTES = 10  # release executing tasks older than this
 
 
-
 # CIG computation — once per 24h (weekly would be ideal but daily is cheap)
 _CIG_INTERVAL_S = 86_400  # 24 hours
 _last_cig_run: float | None = None
-
 
 
 # ---------------------------------------------------------------------------
@@ -240,9 +238,6 @@ from app.workers.tasks import nudge_compose_task as _nudge_compose_task  # noqa:
 _run_ai_nudge_compose = _nudge_compose_task.run
 
 
-
-
-
 # ---------------------------------------------------------------------------
 # Step D — advance the watermark
 # ---------------------------------------------------------------------------
@@ -275,8 +270,6 @@ from app.workers.tasks.store_metrics_task import (  # noqa: E402
     compute_store_metrics as _compute_store_metrics,
     upsert_store_metrics as _upsert_store_metrics,
 )
-
-
 
 
 # ---------------------------------------------------------------------------

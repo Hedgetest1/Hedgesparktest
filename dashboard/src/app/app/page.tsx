@@ -415,11 +415,9 @@ type ActionTask = {
 };
 
 // ---------------------------------------------------------------------------
-// Helpers
-// Formatters extracted to _lib/formatters.ts (Phase Ω⁶ split)
-
-// LiveRadarMap + LAND_PATHS + DEMO_VISITORS + geoToMapXY extracted to
-// _components/LiveRadarMap.tsx + LiveRadarMap.data.ts (Phase Ω⁶ split)
+// Local helpers (small utilities used only here; larger helpers live in
+// ./_lib/formatters.ts and ./_components/)
+// ---------------------------------------------------------------------------
 
 function formatDuration(seconds: number): string {
   if (seconds <= 0) return "—";
@@ -452,23 +450,11 @@ function shortUrl(url: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Count-up animation component
-// ---------------------------------------------------------------------------
-// CountUp extracted to _components/CountUp.tsx (Phase Ω⁶ split)
-
-// ---------------------------------------------------------------------------
-// Small UI atoms
-// ---------------------------------------------------------------------------
-// SectionHeading, KpiCard, Divider, KpiSkeleton, TableSkeleton extracted
-// to _components/ (Phase Ω⁶ split)
-
-// FunnelVisualization extracted to _components/FunnelVisualization.tsx
-
-// KpiInsightModal extracted to _components/KpiInsightModal.tsx
-
-// TrafficSourceBox extracted to _components/TrafficSourceBox.tsx
-
-// ProductInsightPanel extracted to _components/ProductInsightPanel.tsx
+// Phase Ω⁶ split — all extracted components live in ./_components/
+// CountUp, KpiCard, SectionHeading, Divider, KpiSkeleton, TableSkeleton,
+// FunnelVisualization, KpiInsightModal, TrafficSourceBox, ProductInsightPanel,
+// LiveRadarMap (+ LiveRadarMap.data), LAND_PATHS, DEMO_VISITORS, geoToMapXY.
+// Formatters live in ./_lib/formatters.ts.
 
 // ---------------------------------------------------------------------------
 // Error Boundary — prevents a single component crash from white-screening
