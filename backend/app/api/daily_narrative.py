@@ -57,6 +57,8 @@ class DailyNarrativeResponse(BaseModel):
 def _compute_narrative(db: Session, shop: str) -> dict:
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    # events.timestamp is epoch milliseconds (NOT a `ts` column)
+    start_of_day_ms = int(start_of_day.timestamp() * 1000)
 
     # --- Visitors today ---
     try:
@@ -65,10 +67,10 @@ def _compute_narrative(db: Session, shop: str) -> dict:
                 sql_text(
                     """
                     SELECT COUNT(DISTINCT visitor_id) FROM events
-                    WHERE shop_domain = :shop AND ts >= :c
+                    WHERE shop_domain = :shop AND timestamp >= :c_ms
                     """
                 ),
-                {"shop": shop, "c": start_of_day},
+                {"shop": shop, "c_ms": start_of_day_ms},
             ).scalar()
             or 0
         )
@@ -76,13 +78,14 @@ def _compute_narrative(db: Session, shop: str) -> dict:
         visitors_today = 0
 
     # --- Intent signals today ---
+    # opportunity_signals has `detected_at` (NOT created_at)
     try:
         intent_count = int(
             db.execute(
                 sql_text(
                     """
                     SELECT COUNT(*) FROM opportunity_signals
-                    WHERE shop_domain = :shop AND created_at >= :c
+                    WHERE shop_domain = :shop AND detected_at >= :c
                       AND signal_type IN (
                         'HIGH_ENGAGEMENT_NO_ACTION',
                         'SCROLL_HIGH_NO_CLICK',
@@ -99,13 +102,14 @@ def _compute_narrative(db: Session, shop: str) -> dict:
         intent_count = 0
 
     # --- Nudges fired today ---
+    # nudge_events uses `created_at` (NOT ts)
     try:
         nudges_fired = int(
             db.execute(
                 sql_text(
                     """
                     SELECT COUNT(*) FROM nudge_events
-                    WHERE shop_domain = :shop AND ts >= :c
+                    WHERE shop_domain = :shop AND created_at >= :c
                       AND event_type = 'nudge_impression'
                     """
                 ),
@@ -147,14 +151,15 @@ def _compute_narrative(db: Session, shop: str) -> dict:
         revenue_today = 0.0
 
     # --- Top next action (highest-priority untaken) ---
+    # Columns: detected_at (not created_at), signal_strength (not strength)
     top_action: str | None = None
     try:
         row = db.execute(
             sql_text(
                 """
                 SELECT product_url, signal_type FROM opportunity_signals
-                WHERE shop_domain = :shop AND created_at >= :c
-                ORDER BY strength DESC NULLS LAST
+                WHERE shop_domain = :shop AND detected_at >= :c
+                ORDER BY signal_strength DESC NULLS LAST
                 LIMIT 1
                 """
             ),
