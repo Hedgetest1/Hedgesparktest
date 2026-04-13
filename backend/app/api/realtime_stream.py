@@ -62,8 +62,36 @@ def _build_snapshot(shop: str) -> dict:
             from app.services.causal_explainer import explain
             causal = explain(db, shop)
             top = (causal.get("hypotheses") or [None])[0]
+            causal_narrative = causal.get("narrative")
         except Exception:
             top = None
+            causal_narrative = None
+
+        # Vertical benchmarks — just a lightweight signature (total recovery
+        # potential) so the card knows when to re-pull the full payload.
+        try:
+            from app.services.benchmarks_vertical import get_vertical_benchmark_report
+            vb = get_vertical_benchmark_report(db, shop) or {}
+            vb_sig = {
+                "total_recovery_eur": float(vb.get("total_recovery_potential_eur") or 0),
+                "peer_count": int(vb.get("peer_count") or 0),
+                "scope": vb.get("scope"),
+            }
+        except Exception:
+            vb_sig = None
+
+        # Night shift status — cheap read from Redis only
+        try:
+            from app.services.night_shift_agent import get_latest_for_shop
+            ns = get_latest_for_shop(shop) or {}
+            ns_sig = {
+                "status": ns.get("status"),
+                "headline": ns.get("headline"),
+                "sleep_confidence": ns.get("sleep_confidence"),
+                "day": ns.get("day"),
+            } if ns else None
+        except Exception:
+            ns_sig = None
 
         return {
             "shop_domain": shop,
@@ -73,6 +101,9 @@ def _build_snapshot(shop: str) -> dict:
                 "top_alert": (fusion.get("alerts") or [None])[0],
             },
             "causal_top": top,
+            "causal_narrative": causal_narrative,
+            "benchmarks": vb_sig,
+            "night_shift": ns_sig,
         }
     finally:
         db.close()

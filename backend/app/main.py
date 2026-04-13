@@ -164,6 +164,8 @@ from app.api.agency import router as agency_router
 from app.api.storefront_preview import router as storefront_preview_router
 from app.api.community_marketplace import router as community_marketplace_router
 from app.api.realtime_stream import router as realtime_stream_router
+from app.api.night_shift import router as night_shift_router
+from app.api.public_roi_counter import router as public_roi_counter_router
 from app.models.community_template import CommunityTemplate, CommunityTemplateClone  # noqa: F401
 from app.models.merchant_group import MerchantGroup, MerchantGroupMember  # noqa: F401
 from app.models.agency import Agency, AgencyClient  # noqa: F401
@@ -498,6 +500,8 @@ app.include_router(agency_router)
 app.include_router(storefront_preview_router)
 app.include_router(community_marketplace_router)
 app.include_router(realtime_stream_router)
+app.include_router(night_shift_router)
+app.include_router(public_roi_counter_router)
 app.include_router(refund_loss_router)
 app.include_router(goals_router)
 app.include_router(rars_router)

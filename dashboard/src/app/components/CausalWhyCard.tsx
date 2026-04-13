@@ -58,20 +58,49 @@ export function CausalWhyCard({
 }) {
   const [data, setData] = useState<CausalResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [livePulse, setLivePulse] = useState<number>(0);
+  const [lastLive, setLastLive] = useState<string | null>(null);
 
   useEffect(() => {
     if (!apiBase || !shop || !isProUser) { setLoading(false); return; }
     let active = true;
     setLoading(true);
-    fetch(`${apiBase}/pro/causal/explain`, {
+
+    const refetch = () => fetch(`${apiBase}/pro/causal/explain`, {
       credentials: "include",
       headers: { "Content-Type": "application/json" },
     })
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((j: CausalResponse) => { if (active) setData(j); })
-      .catch(() => { if (active) setData(null); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+      .then((j: CausalResponse) => { if (active) { setData(j); setLastLive(new Date().toISOString()); } })
+      .catch(() => { if (active) setData(null); });
+
+    refetch().finally(() => { if (active) setLoading(false); });
+
+    // Phase Ω⁵ — live updates via the shared SSE snapshot channel
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(`${apiBase}/pro/stream/dashboard`, { withCredentials: true });
+      es.addEventListener("snapshot", (ev: MessageEvent) => {
+        if (!active) return;
+        try {
+          const snap = JSON.parse(ev.data);
+          const incomingLabel = snap?.causal_top?.label ?? null;
+          const currentLabel = data?.hypotheses?.[0]?.label ?? null;
+          setLivePulse((p) => (p + 1) % 1000);
+          setLastLive(new Date().toISOString());
+          if (incomingLabel !== currentLabel) {
+            refetch();
+          }
+        } catch {}
+      });
+      es.onerror = () => { /* EventSource reconnects automatically */ };
+    } catch {}
+
+    return () => {
+      active = false;
+      try { es?.close(); } catch {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiBase, shop, isProUser]);
 
   if (!isProUser) return null;
@@ -125,11 +154,26 @@ export function CausalWhyCard({
             </p>
           )}
         </div>
-        <div
-          className="flex-shrink-0 rounded-full px-3 py-1.5 text-[11px] font-bold tabular-nums"
-          style={{ color, background: color + "20", border: `1px solid ${color}40` }}
-        >
-          {conf}% {t("common.confidence")}
+        <div className="flex flex-shrink-0 items-center gap-2">
+          {lastLive && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-white/[0.03] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-300/80"
+              title={`Live stream · last update ${new Date(lastLive).toLocaleTimeString()}`}
+              aria-label="Live data stream connected"
+            >
+              <span className="relative inline-flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/60"></span>
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+              </span>
+              live
+            </span>
+          )}
+          <div
+            className="rounded-full px-3 py-1.5 text-[11px] font-bold tabular-nums"
+            style={{ color, background: color + "20", border: `1px solid ${color}40` }}
+          >
+            {conf}% {t("common.confidence")}
+          </div>
         </div>
       </div>
 

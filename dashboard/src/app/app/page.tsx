@@ -41,6 +41,7 @@ import { PnlReport } from "../components/PnlReport";
 import { RevenueAtRiskHero } from "../components/RevenueAtRiskHero";
 import { PeerBenchmarksCard } from "../components/PeerBenchmarksCard";
 import { CausalWhyCard } from "../components/CausalWhyCard";
+import { NightShiftCard } from "../components/NightShiftCard";
 import { AnomalyFusionCard } from "../components/AnomalyFusionCard";
 import { VerticalBenchmarksCard } from "../components/VerticalBenchmarksCard";
 import { AskHedgeSparkCard } from "../components/AskHedgeSparkCard";
@@ -3823,6 +3824,11 @@ function PageInner() {
               {/* ═══ REVENUE GENOME — the DNA of your revenue ═══ */}
               {isProUser && (
                 <RevenueGenomeCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+              )}
+
+              {/* ═══ PHASE Ω⁵ — NIGHT SHIFT AGENT (morning reveal) ═══ */}
+              {isProUser && (
+                <NightShiftCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
               )}
 
               {/* ═══ PHASE Ω — THE WHY ENGINE + ANOMALY RADAR (causal layer) ═══ */}

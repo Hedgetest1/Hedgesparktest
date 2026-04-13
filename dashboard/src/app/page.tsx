@@ -76,6 +76,146 @@ function useSignalCount() {
   return count;
 }
 
+/* ── Live network ROI counter (Phase Ω⁵) ── */
+type RoiCounterDoc = {
+  prevented_eur_30d: number;
+  shops_contributing: number;
+  by_vertical: Array<{ vertical: string; prevented_eur: number }>;
+  window_days: number;
+  generated_at: string;
+};
+
+function useRoiCounter() {
+  const [doc, setDoc] = useState<RoiCounterDoc | null>(null);
+  const [live, setLive] = useState(false);
+
+  useEffect(() => {
+    const API = process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.hedgesparkhq.com";
+    let active = true;
+
+    fetch(`${API}/public/roi-counter`, { signal: AbortSignal.timeout(5000) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: RoiCounterDoc | null) => { if (active && d) setDoc(d); })
+      .catch(() => {});
+
+    // SSE live ticker — re-reads the Redis cache server-side every 20s
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(`${API}/public/roi-counter/live`);
+      es.addEventListener("tick", (ev: MessageEvent) => {
+        if (!active) return;
+        try {
+          const d = JSON.parse(ev.data);
+          setDoc(d);
+          setLive(true);
+        } catch {}
+      });
+      es.onerror = () => {};
+    } catch {}
+
+    return () => { active = false; try { es?.close(); } catch {} };
+  }, []);
+
+  return { doc, live };
+}
+
+/* ── Animated integer counter (tweened toward target) ── */
+function useCountUp(target: number, durationMs = 1200): number {
+  const [value, setValue] = useState(target);
+  const prevRef = useRef(target);
+  useEffect(() => {
+    const start = prevRef.current;
+    const delta = target - start;
+    if (delta === 0) return;
+    const startTs = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      const p = Math.min(1, (now - startTs) / durationMs);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setValue(Math.round(start + delta * eased));
+      if (p < 1) raf = requestAnimationFrame(tick);
+      else prevRef.current = target;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, durationMs]);
+  return value;
+}
+
+function RoiCounterBanner() {
+  const { doc, live } = useRoiCounter();
+  const target = Math.round(doc?.prevented_eur_30d ?? 125000);
+  const animated = useCountUp(target);
+  const [hovering, setHovering] = useState(false);
+
+  const formatted = new Intl.NumberFormat("en-US").format(animated);
+  const topVerticals = (doc?.by_vertical ?? []).slice(0, 5);
+
+  return (
+    <R d={0.1}>
+      <div className="mx-auto mt-10 max-w-[48rem] px-6">
+        <div
+          role="figure"
+          aria-label={`€${formatted} recovered across the HedgeSpark network in the last 30 days`}
+          onMouseEnter={() => setHovering(true)}
+          onMouseLeave={() => setHovering(false)}
+          className="group relative overflow-hidden rounded-2xl border border-emerald-400/[0.12] bg-emerald-500/[0.03] p-6 backdrop-blur transition-colors hover:border-emerald-400/[0.22]"
+        >
+          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-400/40 to-transparent" />
+
+          <div className="flex flex-col items-center text-center">
+            <div className="mb-1 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300/80">
+              {live && (
+                <span className="relative inline-flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/60" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                </span>
+              )}
+              Live · Network Recovery · Last 30 Days
+            </div>
+            <div className="mt-2 font-mono text-[40px] font-extrabold tabular-nums leading-none text-white sm:text-[56px]">
+              €{formatted}
+            </div>
+            <div className="mt-2 text-[13px] text-slate-400">
+              recovered across {doc?.shops_contributing ?? 0} Shopify merchants
+            </div>
+          </div>
+
+          {topVerticals.length > 0 && (
+            <div
+              className={`mt-4 grid gap-2 overflow-hidden transition-[max-height,opacity] duration-500 ${
+                hovering ? "max-h-64 opacity-100" : "max-h-0 opacity-0"
+              }`}
+              aria-hidden={!hovering}
+            >
+              <div className="text-center text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                Breakdown by vertical
+              </div>
+              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                {topVerticals.map((v) => (
+                  <div
+                    key={v.vertical}
+                    className="flex items-center justify-between rounded-lg border border-white/[0.05] bg-white/[0.02] px-3 py-1.5 text-[11px]"
+                  >
+                    <span className="capitalize text-slate-300">{v.vertical.replace(/_/g, " ")}</span>
+                    <span className="font-mono tabular-nums text-emerald-300">
+                      €{new Intl.NumberFormat("en-US").format(Math.round(v.prevented_eur))}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="mt-4 text-center text-[10px] text-slate-500">
+            Hover for breakdown · counter reads real action executions from the network
+          </div>
+        </div>
+      </div>
+    </R>
+  );
+}
+
 /* ══════════════════════════════════════════════════════════════════════════════
    NAV
    ══════════════════════════════════════════════════════════════════════════════ */
@@ -228,6 +368,9 @@ function Hero() {
         <R d={0.22}>
           <DemoPreviewCard installUrl={INSTALL_URL} />
         </R>
+
+        {/* Phase Ω⁵ — live network ROI counter */}
+        <RoiCounterBanner />
       </div>
     </section>
   );

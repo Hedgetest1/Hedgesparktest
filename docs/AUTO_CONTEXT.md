@@ -1,5 +1,5 @@
 # WishSpark Auto Context
-Auto-generated: 2026-04-13T13:00:01.641897 UTC
+Auto-generated: 2026-04-13T14:00:01.936399 UTC
 
 ## Project Root
 /opt/wishspark
@@ -71,6 +71,7 @@ Auto-generated: 2026-04-13T13:00:01.641897 UTC
 /backend/app/api/merchant_privacy.py
 /backend/app/api/merchant_rules.py
 /backend/app/api/mta.py
+/backend/app/api/night_shift.py
 /backend/app/api/nudge_dna.py
 /backend/app/api/nudge_events.py
 /backend/app/api/nudge_script.py
@@ -88,6 +89,7 @@ Auto-generated: 2026-04-13T13:00:01.641897 UTC
 /backend/app/api/proof_report.py
 /backend/app/api/public_events.py
 /backend/app/api/public_proofs.py
+/backend/app/api/public_roi_counter.py
 /backend/app/api/public_status.py
 /backend/app/api/realtime_stream.py
 /backend/app/api/refund_loss.py
@@ -228,6 +230,7 @@ Auto-generated: 2026-04-13T13:00:01.641897 UTC
 /backend/app/services/model_upgrade_agent.py
 /backend/app/services/monthly_evolution_audit.py
 /backend/app/services/mta_engine.py
+/backend/app/services/night_shift_agent.py
 /backend/app/services/nudge_composer.py
 /backend/app/services/nudge_dna.py
 /backend/app/services/nudge_engine.py

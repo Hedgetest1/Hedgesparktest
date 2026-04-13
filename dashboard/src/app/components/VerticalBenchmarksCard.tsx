@@ -91,20 +91,47 @@ export function VerticalBenchmarksCard({
 }) {
   const [data, setData] = useState<VerticalBenchmarkData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [lastLive, setLastLive] = useState<string | null>(null);
 
   useEffect(() => {
     if (!apiBase || !shop || !isProUser) { setLoading(false); return; }
     let active = true;
     setLoading(true);
-    fetch(`${apiBase}/pro/benchmarks/vertical`, {
+
+    const refetch = () => fetch(`${apiBase}/pro/benchmarks/vertical`, {
       credentials: "include",
       headers: { "Content-Type": "application/json" },
     })
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((j: VerticalBenchmarkData) => { if (active) setData(j); })
-      .catch(() => { if (active) setData(null); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+      .then((j: VerticalBenchmarkData) => { if (active) { setData(j); setLastLive(new Date().toISOString()); } })
+      .catch(() => { if (active) setData(null); });
+
+    refetch().finally(() => { if (active) setLoading(false); });
+
+    // Phase Ω⁵ live stream
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(`${apiBase}/pro/stream/dashboard`, { withCredentials: true });
+      es.addEventListener("snapshot", (ev: MessageEvent) => {
+        if (!active) return;
+        try {
+          const snap = JSON.parse(ev.data);
+          setLastLive(new Date().toISOString());
+          const incoming = snap?.benchmarks?.total_recovery_eur;
+          const current = data?.total_recovery_potential_eur;
+          if (incoming != null && current != null && Math.abs(incoming - current) > 1) {
+            refetch();
+          }
+        } catch {}
+      });
+      es.onerror = () => {};
+    } catch {}
+
+    return () => {
+      active = false;
+      try { es?.close(); } catch {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiBase, shop, isProUser]);
 
   if (!isProUser) return null;
@@ -162,6 +189,18 @@ export function VerticalBenchmarksCard({
           </h3>
           <p className="mt-1 text-[11px] text-slate-500">
             {data.peer_count} peers · {SCOPE_LABELS[data.scope] || data.scope}
+            {lastLive && (
+              <span
+                className="ml-2 inline-flex items-center gap-1 rounded-full bg-white/[0.03] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-300/80"
+                title={`Live · ${new Date(lastLive).toLocaleTimeString()}`}
+              >
+                <span className="relative inline-flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/60"></span>
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+                </span>
+                live
+              </span>
+            )}
           </p>
         </div>
         {totalRecovery > 0 && (
