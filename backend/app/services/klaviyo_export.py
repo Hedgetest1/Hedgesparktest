@@ -593,16 +593,19 @@ def push_intent_signals_to_klaviyo(
     _DEDUP_COOLDOWN_SECONDS = 12 * 3600   # 12 hours
 
     def _is_already_pushed(vid: str, purl: str, stype: str) -> bool:
+        """
+        Atomic claim — two concurrent workers would previously both see
+        the key missing and both push the same visitor to Klaviyo. Now
+        uses SET NX so only one worker wins the claim.
+        """
         try:
             from app.core.redis_client import _client
             rc = _client()
             if rc is None:
                 return False
             key = f"hs:kpush:{shop_domain}:{vid}:{purl}:{stype}"
-            if rc.get(key):
-                return True
-            rc.setex(key, _DEDUP_COOLDOWN_SECONDS, "1")
-            return False
+            claimed = rc.set(key, "1", nx=True, ex=_DEDUP_COOLDOWN_SECONDS)
+            return not bool(claimed)
         except Exception:
             return False  # fail open
 

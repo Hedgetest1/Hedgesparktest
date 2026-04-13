@@ -792,26 +792,32 @@ def _run_breach_classifier():
 
 
 def _run_audit_log_integrity_check():
-    """Daily audit_log hash-chain verification. Rate-limited via Redis."""
+    """
+    Daily audit_log hash-chain verification. Rate-limited via Redis.
+
+    Atomic claim: SET NX on the day-keyed lock so two worker replicas
+    don't both pass the check and both run the expensive chain walk.
+    Previously the pair get() + setex() left a race window.
+    """
     today = _today_rome()
     redis_key = f"hs:audit_log_check:day:{today}"
     try:
         from app.core.redis_client import _client
         rc = _client()
-        if rc is not None and rc.get(redis_key):
-            return
     except Exception:
         rc = None
+    if rc is not None:
+        try:
+            # Claim the day-slot atomically; if we can't, another process owns it
+            if not rc.set(redis_key, "1", nx=True, ex=48 * 3600):
+                return
+        except Exception:
+            pass  # Redis hiccup — proceed (fail-open on the rate limit)
 
     db = SessionLocal()
     try:
         from app.services.audit import enforce_chain_integrity
         result = enforce_chain_integrity(db)
-        if rc is not None:
-            try:
-                rc.setex(redis_key, 48 * 3600, "1")
-            except Exception:
-                pass
         if result["violations"]:
             log(
                 f"audit_log: TAMPERING DETECTED "
@@ -906,20 +912,19 @@ def _run_data_retention():
     try:
         from app.core.redis_client import _client
         rc = _client()
-        if rc is not None and rc.get(redis_key):
-            return
     except Exception:
         rc = None
+    if rc is not None:
+        try:
+            if not rc.set(redis_key, "1", nx=True, ex=48 * 3600):
+                return
+        except Exception:
+            pass
 
     db = SessionLocal()
     try:
         from app.services.data_retention import run_retention_sweep
         report = run_retention_sweep(db)
-        if rc is not None:
-            try:
-                rc.setex(redis_key, 48 * 3600, "1")
-            except Exception:
-                pass
         if report.get("events_deleted") or report.get("vps_deleted"):
             log(
                 f"data_retention: events_deleted={report['events_deleted']} "
@@ -954,22 +959,20 @@ def _run_pipeline_self_upgrade():
     try:
         from app.core.redis_client import _client
         rc = _client()
-        if rc is not None and rc.get(redis_key):
-            return
     except Exception:
         rc = None
+    if rc is not None:
+        try:
+            if not rc.set(redis_key, "1", nx=True, ex=14 * 24 * 3600):
+                return
+        except Exception:
+            pass
 
     db = SessionLocal()
     try:
         from app.services.pipeline_self_upgrade import run_self_upgrade_scan
         report = run_self_upgrade_scan(db)
         db.commit()
-
-        if rc is not None:
-            try:
-                rc.setex(redis_key, 14 * 24 * 3600, "1")
-            except Exception:
-                pass
 
         if report.get("vulnerabilities_found", 0) > 0:
             log(
@@ -1020,11 +1023,15 @@ def _run_merchant_digest():
         rome_now = _dt.now(_Zi("Europe/Rome"))
         week_key = rome_now.strftime("%G-W%V")
         dedup_key = f"hs:tier2_weekly:{week_key}"
-        if rc is not None and rc.get(dedup_key):
-            return
+        # Atomic week-claim — two worker cycles on Monday morning would
+        # previously both see the key missing and double-send.
+        if rc is not None:
+            try:
+                if not rc.set(dedup_key, "1", nx=True, ex=8 * 24 * 3600):
+                    return
+            except Exception:
+                pass
         sent = send_tier2_weekly_review(db2)
-        if sent and rc is not None:
-            rc.setex(dedup_key, 8 * 24 * 3600, "1")
         if sent:
             log("tier2_weekly_review: sent")
     except Exception as exc:

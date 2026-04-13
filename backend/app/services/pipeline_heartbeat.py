@@ -83,21 +83,33 @@ def _redis():
         return None
 
 
-def _is_on_cooldown() -> bool:
-    """Honor the 1-hour interval via Redis so multiple agent_worker
-    cycles in the same hour don't fire repeatedly. Falls back to
-    "fire once per process" if Redis is unavailable."""
+def _claim_run_slot() -> bool:
+    """
+    Atomic cooldown claim — returns True if this caller won the slot.
+    Previously _is_on_cooldown() + _mark_run() was a two-step with a
+    race window: two concurrent workers could both pass the check and
+    both fire the heartbeat. Now we SET NX on a ttl-bounded lock so
+    exactly one caller proceeds per interval.
+    """
     rc = _redis()
     if rc is None:
-        return False
+        return True  # no Redis → best-effort per-process
     try:
-        last = rc.get(_REDIS_LAST_RUN_KEY)
-        if not last:
-            return False
-        last_ts = float(last if isinstance(last, str) else last.decode())
-        return (time.time() - last_ts) < _HEARTBEAT_INTERVAL_S
+        # Hold the slot for one full interval; refreshed on successful run.
+        return bool(rc.set(
+            _REDIS_LAST_RUN_KEY, str(time.time()),
+            nx=True, ex=_HEARTBEAT_INTERVAL_S,
+        ))
     except Exception:
-        return False
+        return True  # fail-open
+
+
+def _is_on_cooldown() -> bool:
+    """
+    Legacy name — kept as a thin wrapper that returns True (skip) when
+    we could not claim the slot. All callers proceed iff this returns False.
+    """
+    return not _claim_run_slot()
 
 
 def _mark_run() -> None:

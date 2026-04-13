@@ -434,19 +434,22 @@ def emit_signal(
             ))
             continue
 
-        # Idempotency — skip if we already attempted this event_id on this webhook
+        # Idempotency — skip if we already attempted this event_id on this
+        # webhook. Use atomic SET NX so two concurrent workers can't both
+        # see the key as missing and double-deliver. Previously the pair
+        # exists() + setex() left a race window.
         rc = _redis()
         if rc is not None:
             dkey = _key_delivery(event_id)
             try:
-                if rc.exists(dkey):
+                claimed = rc.set(dkey, "pending", nx=True, ex=_DELIVERY_TTL_SECONDS)
+                if not claimed:
                     results.append(DeliveryResult(
                         webhook_id=wh.id, event_id=event_id,
                         event_type=event_type, status="skipped",
                         error="idempotency_key_exists",
                     ))
                     continue
-                rc.setex(dkey, _DELIVERY_TTL_SECONDS, "pending")
             except Exception:
                 pass
 

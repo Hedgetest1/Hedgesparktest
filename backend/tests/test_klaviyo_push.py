@@ -45,6 +45,13 @@ def _insert_signal(db: Session, signal_type: str, confidence: str, strength: flo
 def test_low_confidence_excluded(db, merchant_a):
     """Low-confidence (early) signals must never trigger Klaviyo push."""
     _setup_connected_merchant(db)
+    # Scrub any leaked recent signals from earlier test runs in the
+    # shared DB — the fixture only rolls back its own transaction, but
+    # earlier tests' commits (e.g. test_strong_signal_qualifies) may
+    # leave qualifying rows inside the 15-min freshness window.
+    db.execute(text(
+        "DELETE FROM opportunity_signals WHERE shop_domain = :s"
+    ), {"s": SHOP_A})
     _insert_signal(db, "EARLY_BROWSING_NO_CART", "low", 0.15)
     db.commit()
 
