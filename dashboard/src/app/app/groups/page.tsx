@@ -10,7 +10,7 @@
  * Real data from /pro/groups APIs.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://api.hedgesparkhq.com";
 
@@ -63,7 +63,7 @@ export default function GroupsPage() {
   const [newShopDomain, setNewShopDomain] = useState("");
   const [newShopLabel, setNewShopLabel] = useState("");
 
-  const loadGroups = async () => {
+  const loadGroups = useCallback(async () => {
     try {
       const r = await fetch(`${API_BASE}/pro/groups`, {
         credentials: "include",
@@ -72,16 +72,16 @@ export default function GroupsPage() {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const j: GroupsResponse = await r.json();
       setGroups(j.groups || []);
-      if (!selectedId && j.groups?.length) setSelectedId(j.groups[0].id);
+      setSelectedId((cur) => cur ?? (j.groups?.[0]?.id ?? null));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const loadDashboard = async (id: number) => {
+  const loadDashboard = useCallback(async (id: number) => {
     try {
       const r = await fetch(`${API_BASE}/pro/groups/${id}/dashboard`, {
         credentials: "include",
@@ -93,10 +93,10 @@ export default function GroupsPage() {
     } catch {
       setDashboard(null);
     }
-  };
+  }, []);
 
-  useEffect(() => { loadGroups(); /* eslint-disable-next-line */ }, []);
-  useEffect(() => { if (selectedId) loadDashboard(selectedId); }, [selectedId]);
+  useEffect(() => { loadGroups(); }, [loadGroups]);
+  useEffect(() => { if (selectedId) loadDashboard(selectedId); }, [selectedId, loadDashboard]);
 
   const createGroup = async () => {
     if (!newName.trim()) return;

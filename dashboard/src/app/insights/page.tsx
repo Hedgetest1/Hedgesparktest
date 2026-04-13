@@ -188,7 +188,6 @@ export default function InsightsPage() {
   const [topPages, setTopPages] = useState<TopPage[]>([]);
   const [scores, setScores] = useState<VisitorScore[]>([]);
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
-const [priceIntel, setPriceIntel] = useState<any[]>([]);
 
   useEffect(() => {
     let active = true;

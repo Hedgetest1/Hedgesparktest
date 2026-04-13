@@ -58,7 +58,6 @@ export function CausalWhyCard({
 }) {
   const [data, setData] = useState<CausalResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [livePulse, setLivePulse] = useState<number>(0);
   const [lastLive, setLastLive] = useState<string | null>(null);
 
   useEffect(() => {
@@ -86,7 +85,6 @@ export function CausalWhyCard({
           const snap = JSON.parse(ev.data);
           const incomingLabel = snap?.causal_top?.label ?? null;
           const currentLabel = data?.hypotheses?.[0]?.label ?? null;
-          setLivePulse((p) => (p + 1) % 1000);
           setLastLive(new Date().toISOString());
           if (incomingLabel !== currentLabel) {
             refetch();

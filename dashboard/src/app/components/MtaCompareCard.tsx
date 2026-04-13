@@ -80,7 +80,6 @@ export function MtaCompareCard({ apiBase, isProUser }: { apiBase: string; isProU
   const [windowDays, setWindowDays] = useState(30);
   const [drawerSource, setDrawerSource] = useState<string | null>(null);
   const [drawerExplainerOpen, setDrawerExplainerOpen] = useState(false);
-  const [modelData, setModelData] = useState<Record<string, unknown>[] | null>(null);
 
   useEffect(() => {
     if (!isProUser) {

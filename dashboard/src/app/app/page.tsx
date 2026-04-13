@@ -567,12 +567,10 @@ function PageInner() {
   const [billingJustActivated, setBillingJustActivated] = useState(false);
   // True when the page loaded with ?installed=1 — triggers grace period in OnboardingHub
   const [freshInstall, setFreshInstall] = useState(false);
-  // Setup checks + readiness — populated by OnboardingHub callback
-  const [setupChecks, setSetupChecks] = useState<{
-    merchant_exists: boolean; install_active: boolean; token_ok: boolean;
-    webhook_ok: boolean; tracker_ok: boolean;
-    billing_active: boolean; billing_plan: string; billing_charge_pending: boolean;
-  } | null>(null);
+  // Setup readiness — populated by OnboardingHub callback
+  // (setupChecks state was previously stored here but never read; the
+  // readiness string + billing upgrade are the only bits we actually
+  // branch on. Dropped to cut wasted renders.)
   const [setupReadiness, setSetupReadiness] = useState<string | null>(null);
   // Pro billing config — from /merchant/plan response, used for trial-aware CTAs
   const [proTrialDays, setProTrialDays] = useState(14);
@@ -618,10 +616,12 @@ function PageInner() {
   const [productTrend, setProductTrend] = useState<ProductTrendRow[]>([]);
 
   // Action candidates + tasks (Pro only)
+  // Previously stored a `taskMap` state + `expandedTaskKey` — both were
+  // written to but never read (the UI renders from `candidates` directly
+  // and the poll only needs hasExecutingRef to gate network calls).
+  // Removed to cut wasted re-renders on every poll tick.
   const [candidates, setCandidates] = useState<ActionCandidate[]>([]);
-  const [taskMap, setTaskMap] = useState<Map<string, ActionTask>>(new Map());
   const hasExecutingRef = useRef(false);
-  const [expandedTaskKey, setExpandedTaskKey] = useState<string | null>(null);
 
   // Pro intelligence modules
   const [attrSummary, setAttrSummary] = useState<AttributionSummaryData | null>(null);
@@ -834,7 +834,6 @@ function PageInner() {
       billing_active: boolean; billing_plan: string; billing_charge_pending: boolean;
     }) => {
       setSetupReadiness(readiness);
-      setSetupChecks(checks);
       if (readiness === "pro_active" && checks.billing_active && checks.billing_plan === "pro") {
         setTier("pro");
       }
@@ -1172,7 +1171,6 @@ function PageInner() {
         }
         if (taskRes.data != null) {
           const tasks = taskRes.data.tasks as unknown as ActionTask[];
-          setTaskMap(buildTaskMap(tasks));
           hasExecutingRef.current = tasks.some((t) => t.status === "executing");
         }
       } catch { /* silent */ }
@@ -1202,7 +1200,6 @@ function PageInner() {
         });
         if (!active || res.data == null) return;
         const tasks = res.data.tasks as unknown as ActionTask[];
-        setTaskMap(buildTaskMap(tasks));
         hasExecutingRef.current = tasks.some((t) => t.status === "executing");
       } catch { /* silent */ }
     }
@@ -1908,21 +1905,8 @@ function PageInner() {
     }
   }
 
-  // Build task map from a flat task list.
-  // Tasks arrive newest-first (ORDER BY created_at DESC).
-  // We keep only the FIRST task seen per key so newer tasks win.
-  // Dismissed tasks are excluded so their candidates show Execute again.
-  function buildTaskMap(tasks: ActionTask[]): Map<string, ActionTask> {
-    const map = new Map<string, ActionTask>();
-    for (const t of tasks) {
-      if (t.status === "dismissed") continue;
-      const key = taskKey(t.product_url, t.action_type);
-      if (!map.has(key)) {
-        map.set(key, t);
-      }
-    }
-    return map;
-  }
+  // buildTaskMap previously indexed tasks into a Map; removed along
+  // with the dead taskMap state.
 
   // ---------------------------------------------------------------------------
   // Attention score — weighted composite for sort priority
@@ -2115,13 +2099,10 @@ function PageInner() {
       );
       if (!res.ok) return;
       const j = await res.json();
+      // Task update received but no longer stored; hasExecutingRef gates
+      // the poll interval and candidates state renders the UI.
       const task: ActionTask | undefined = j.task;
       if (!task) return;
-      setTaskMap((prev) => {
-        const next = new Map(prev);
-        next.set(taskKey(task.product_url, task.action_type), task);
-        return next;
-      });
     } catch { /* silent */ }
   }
 
@@ -2137,11 +2118,6 @@ function PageInner() {
         }
       );
       if (!res.ok) return;
-      setTaskMap((prev) => {
-        const next = new Map(prev);
-        next.delete(key);
-        return next;
-      });
     } catch { /* silent */ }
   }
 

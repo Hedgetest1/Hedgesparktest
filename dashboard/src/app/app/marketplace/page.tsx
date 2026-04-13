@@ -10,7 +10,7 @@
  * API: /pro/marketplace/templates  (list / clone / upvote)
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://api.hedgesparkhq.com";
 
@@ -63,7 +63,7 @@ export default function MarketplacePage() {
   const [upvoted, setUpvoted] = useState<Record<number, boolean>>({});
   const [toast, setToast] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -75,14 +75,14 @@ export default function MarketplacePage() {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const j = await r.json();
       setTemplates(j.templates || []);
-    } catch (exc) {
+    } catch {
       setError("Could not load marketplace. Make sure you're signed in with a Pro session.");
     } finally {
       setLoading(false);
     }
-  };
+  }, [sort, kind]);
 
-  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [sort, kind]);
+  useEffect(() => { void load(); }, [load]);
 
   const filtered = templates.filter((t) => {
     if (!query.trim()) return true;

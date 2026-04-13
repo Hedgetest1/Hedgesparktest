@@ -11,7 +11,7 @@
  * for now the email is stored in localStorage and resent on each request.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://api.hedgesparkhq.com";
 const STORAGE_KEY = "hs_agency_email";
@@ -59,12 +59,12 @@ export default function AgencyPage() {
     if (stored) setEmail(stored);
   }, []);
 
-  const headers = (): HeadersInit => ({
+  const headers = useCallback((): HeadersInit => ({
     "Content-Type": "application/json",
     ...(email ? { "X-Agency-Email": email } : {}),
-  });
+  }), [email]);
 
-  const loadDashboard = async () => {
+  const loadDashboard = useCallback(async () => {
     if (!email) return;
     setLoading(true);
     setError(null);
@@ -83,9 +83,9 @@ export default function AgencyPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [email, headers]);
 
-  useEffect(() => { loadDashboard(); /* eslint-disable-next-line */ }, [email]);
+  useEffect(() => { loadDashboard(); }, [loadDashboard]);
 
   const saveEmail = () => {
     if (!pendingEmail.trim()) return;

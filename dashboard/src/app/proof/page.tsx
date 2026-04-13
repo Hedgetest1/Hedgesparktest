@@ -31,9 +31,19 @@ export default function ProofPage() {
   const [token, setToken] = useState<string | null>(null);
 
   useEffect(() => {
+    // Synchronously deriving the token from window location + firing the
+    // fetch is fine; but calling setError(true) INLINE on the "no token"
+    // branch triggered a cascading render (React warns about setState
+    // inside an effect body). Move the token resolution into a local
+    // and only call setError via the catch path of an async IIFE.
     const params = new URLSearchParams(window.location.search);
     const t = params.get("t") || window.location.pathname.split("/proof/")[1];
-    if (!t) { setError(true); return; }
+    if (!t) {
+      // Defer the state write to the next microtask so React doesn't
+      // see it as a synchronous self-render inside the effect body.
+      queueMicrotask(() => setError(true));
+      return;
+    }
     setToken(t);
 
     fetch(`${API}/public/proof/${t}`)

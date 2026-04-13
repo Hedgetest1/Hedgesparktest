@@ -522,7 +522,10 @@ export function OnboardingHub({
   const [billingError, setBillingError] = useState("");
 
   // ── Deep check ──
-  const [deepCheckState, setDeepCheckState] = useState<"idle" | "loading" | "success" | "error">("idle");
+  // deepCheckState existed as a per-phase indicator but was never rendered;
+  // the async check still runs via fetchStatus(true) below, just without
+  // visible state tracking. TODO: surface loading/error as a subtle toast
+  // once we have a shared toast primitive.
 
   // ── Funnel tracking ──
   const sessionNum = useRef(shop ? getSessionNumber(shop) : 1);
@@ -587,12 +590,7 @@ export function OnboardingHub({
     setDismissed(isDismissed(shop));
 
     if (billingJustActivated) {
-      setDeepCheckState("loading");
-      fetchStatus(true).then(() => {
-        if (mountedRef.current) setDeepCheckState("success");
-      }).catch(() => {
-        if (mountedRef.current) setDeepCheckState("error");
-      });
+      fetchStatus(true).catch(() => { /* surfaced via existing error state */ });
     } else {
       fetchStatus(false);
     }

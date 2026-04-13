@@ -2102,12 +2102,15 @@ def build_daily_digest(db) -> str:
 
     Everything else lives in /status, /costs, /bugfixes, /incidents.
     """
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
     from zoneinfo import ZoneInfo
     from sqlalchemy import text as sql_text
 
     now_rome = datetime.now(ZoneInfo("Europe/Rome"))
-    now_utc = datetime.utcnow()
+    # Keep naive-UTC to match the rest of this file's comparisons against
+    # TIMESTAMP WITHOUT TIME ZONE columns. utcnow() is deprecated so we
+    # materialize the same value via now(timezone.utc).replace(tzinfo=None).
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
     cutoff_24h = now_utc - timedelta(hours=24)
     cutoff_7d = now_utc - timedelta(days=7)
     cutoff_14d = now_utc - timedelta(days=14)
