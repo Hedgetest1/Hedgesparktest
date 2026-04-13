@@ -56,6 +56,17 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2b. Tenant isolation audit — catches unfiltered multi-tenant queries
+# ---------------------------------------------------------------------------
+step "Tenant isolation audit (audit_tenant_isolation.py)"
+if "$PY" scripts/audit_tenant_isolation.py > /tmp/preflight_tenant.log 2>&1; then
+    ok "no cross-tenant leaks"
+else
+    bad "tenant isolation risk — see /tmp/preflight_tenant.log"
+    tail -40 /tmp/preflight_tenant.log
+fi
+
+# ---------------------------------------------------------------------------
 # 3. Python AST parse check — any syntax error blocks commit
 # ---------------------------------------------------------------------------
 step "Python AST parse (staged .py files)"
