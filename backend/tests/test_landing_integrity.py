@@ -60,11 +60,15 @@ def test_landing_css_references_are_all_reachable():
     in the prerendered landing HTML must correspond to an actual file
     in `.next/static/chunks/`. If not, the landing ships without CSS.
 
-    Note: Next 16.2+ uses alphanumeric+underscore filenames like
-    `0neevhl_o1ozu.css` instead of pure hex, so the regex allows both.
+    Note: Next 16.2+ uses alphanumeric+underscore+tilde filenames like
+    `0neevhl_o1ozu.css` and `0~e~w2kyvoghc.css` instead of pure hex,
+    so the regex character class allows all three special chars. (Bug
+    history: an earlier regex omitted `~`, which made the audit miss
+    the largest CSS chunk and falsely triggered "tailwind purged
+    everything" on every Next 16.2+ build.)
     """
     html = (_SERVER_APP / "index.html").read_text()
-    css_refs = re.findall(r'/_next/static/chunks/([A-Za-z0-9_\-]+\.css)', html)
+    css_refs = re.findall(r'/_next/static/chunks/([A-Za-z0-9_~\-]+\.css)', html)
     assert css_refs, "no CSS references found in landing HTML — Tailwind not bundled?"
 
     missing: list[str] = []
@@ -88,7 +92,7 @@ def test_landing_tailwind_bundle_not_trivial():
     A ~3KB CSS file means Tailwind purge dropped everything — another
     way the landing can appear unstyled."""
     html = (_SERVER_APP / "index.html").read_text()
-    css_refs = re.findall(r'/_next/static/chunks/([A-Za-z0-9_\-]+\.css)', html)
+    css_refs = re.findall(r'/_next/static/chunks/([A-Za-z0-9_~\-]+\.css)', html)
     sizes = sorted(
         (_CHUNKS_DIR / ref).stat().st_size for ref in set(css_refs)
         if (_CHUNKS_DIR / ref).exists()

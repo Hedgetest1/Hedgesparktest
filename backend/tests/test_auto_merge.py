@@ -4,6 +4,13 @@ Tests for the Phase-2 gated auto-merge loop.
 run_auto_merge() is the final step that closes the self-healing cycle for
 truly safe TIER_0 fixes. The tests verify every gate individually so a
 regression in any one of them is caught before it reaches production.
+
+Hermeticity: run_auto_merge() reads the AutoFixPromotion table without
+a per-test filter, so any real prod promotion matching status='pushed'
++ pr_url + ci='passed' would leak into the test's view via PostgreSQL
+READ COMMITTED. Each test that creates its own promotion calls
+_reset_auto_merge_state(db) first to wipe the shared tables inside the
+SAVEPOINT (rolled back on test end, prod data untouched).
 """
 from __future__ import annotations
 
@@ -23,6 +30,34 @@ from app.services.promotion_pipeline import (
 
 def _now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _reset_auto_merge_state(db) -> None:
+    """Wipe AutoFixPromotion + BugFixCandidate inside the SAVEPOINT and
+    clear the Redis cooldown marker.
+
+    run_auto_merge() reads every row matching its filter and prod has
+    real rows that match. Resetting inside the SAVEPOINT means the
+    test sees only its own state — the delete is rolled back at test
+    end so production data is untouched.
+
+    The Redis cooldown is shared across tests (and across pytest +
+    the live workers running in pm2), so a prior test or worker can
+    leave _AUTO_MERGE_COOLDOWN_REDIS_KEY set and block this test's
+    run_auto_merge() with a 'cooldown_active' result. Clearing it
+    here makes each test deterministic regardless of order.
+    """
+    db.query(AutoFixPromotion).delete(synchronize_session=False)
+    db.query(BugFixCandidate).delete(synchronize_session=False)
+    db.flush()
+    try:
+        from app.core.redis_client import _client
+        from app.services.promotion_pipeline import _AUTO_MERGE_COOLDOWN_REDIS_KEY
+        rc = _client()
+        if rc is not None:
+            rc.delete(_AUTO_MERGE_COOLDOWN_REDIS_KEY)
+    except Exception:
+        pass
 
 
 def _make_applied_candidate(db, patch_files=None, risk_tier=0) -> BugFixCandidate:
@@ -66,6 +101,7 @@ def test_auto_merge_kill_switch_disables(db, monkeypatch):
     to halt every future auto-merge."""
     monkeypatch.setenv("AUTO_MERGE_TIER0", "0")
     assert _is_auto_merge_enabled() is False
+    _reset_auto_merge_state(db)
     c = _make_applied_candidate(db)
     _make_promo(db, c)
     result = run_auto_merge(db)
@@ -153,6 +189,7 @@ def test_auto_merge_skips_when_candidate_touches_forbidden_path(db, monkeypatch)
     import app.services.promotion_pipeline as pp
     pp._auto_merge_last = None
 
+    _reset_auto_merge_state(db)
     c = _make_applied_candidate(
         db,
         patch_files=["dashboard/src/app/components/billing/PlanCard.tsx"],
@@ -173,6 +210,7 @@ def test_auto_merge_skips_when_merge_recommendation_blocks(db, monkeypatch):
     import app.services.promotion_pipeline as pp
     pp._auto_merge_last = None
 
+    _reset_auto_merge_state(db)
     # Non-TIER_0 → gate 5 of compute_merge_recommendation blocks the merge.
     c = _make_applied_candidate(
         db,
@@ -192,6 +230,7 @@ def test_auto_merge_calls_merge_promotion_when_all_gates_green(db, monkeypatch):
     import app.services.promotion_pipeline as pp
     pp._auto_merge_last = None
 
+    _reset_auto_merge_state(db)
     c = _make_applied_candidate(db, patch_files=["app/services/nudge_engine.py"], risk_tier=0)
     _make_promo(db, c)
 
@@ -213,6 +252,7 @@ def test_auto_merge_cooldown_blocks_second_run(db, monkeypatch):
     import app.services.promotion_pipeline as pp
     pp._auto_merge_last = None
 
+    _reset_auto_merge_state(db)
     c1 = _make_applied_candidate(db, patch_files=["app/services/nudge_engine.py"])
     _make_promo(db, c1)
 
@@ -234,6 +274,7 @@ def test_auto_merge_returns_zero_when_no_candidates(db, monkeypatch):
     monkeypatch.setenv("AUTO_MERGE_TIER0", "1")
     import app.services.promotion_pipeline as pp
     pp._auto_merge_last = None
+    _reset_auto_merge_state(db)
     result = run_auto_merge(db)
     assert result["merged"] == 0
     assert result["considered"] == 0

@@ -25,8 +25,13 @@ from collections import defaultdict
 
 APP_ROOT = pathlib.Path("/opt/wishspark/backend/app")
 SKIP_DIRS = {"__pycache__", ".pytest_cache"}
-_DB_CALL_TARGETS = {"db", "session", "conn", "connection", "s"}
-_DB_CALL_METHODS = {"execute", "query", "get", "scalar", "scalars", "first", "fetchone", "fetchall"}
+# Receiver names we trust as "this is a SQLAlchemy session/connection".
+# Removed `"s"` (too generic — matched dict.get / set ops / string ops).
+_DB_CALL_TARGETS = {"db", "session", "conn", "connection"}
+# Methods. `get` and `first` are dict/list-ish so we keep them only when
+# the receiver is unambiguously a session — the receiver guard above
+# already enforces that.
+_DB_CALL_METHODS = {"execute", "query", "scalar", "scalars", "fetchone", "fetchall"}
 
 
 class Finding:

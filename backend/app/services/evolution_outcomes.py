@@ -550,25 +550,27 @@ def detect_self_caused_regressions(db: Session) -> dict:
     for c in recent_applies:
         summary["checked"] += 1
 
-        # Get alert_types in 48h BEFORE apply
-        before_types = db.execute(text("""
-            SELECT DISTINCT alert_type FROM ops_alerts
-            WHERE created_at >= :before_start AND created_at < :before_end
+        # Combined window query — fetches every alert_type touching the
+        # 48h-before / 2h-after window in ONE round-trip, then buckets
+        # them in Python. Previously this was two separate fetchall()
+        # calls per candidate (2x N queries on a hot loop). With N=50
+        # auto_tier_0 applies that's 100 round-trips → 50.
+        rows = db.execute(text("""
+            SELECT alert_type, created_at
+            FROM ops_alerts
+            WHERE created_at >= :before_start
+              AND created_at <  :after_end
         """), {
             "before_start": c.applied_at - timedelta(hours=48),
-            "before_end": c.applied_at,
+            "after_end":    c.applied_at + timedelta(hours=2),
         }).fetchall()
-        before_set = {r[0] for r in before_types}
-
-        # Get alert_types in 2h AFTER apply
-        after_types = db.execute(text("""
-            SELECT DISTINCT alert_type FROM ops_alerts
-            WHERE created_at >= :after_start AND created_at < :after_end
-        """), {
-            "after_start": c.applied_at,
-            "after_end": c.applied_at + timedelta(hours=2),
-        }).fetchall()
-        after_set = {r[0] for r in after_types}
+        before_set: set[str] = set()
+        after_set: set[str] = set()
+        for at, created in rows:
+            if created < c.applied_at:
+                before_set.add(at)
+            else:
+                after_set.add(at)
 
         # NEW alert types = types that appeared after but not before
         new_types = after_set - before_set
