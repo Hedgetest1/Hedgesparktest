@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import Image from "next/image";
+import { reportFrontendError } from "../lib/error-reporter";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
 const AUTO_OPEN_KEY = "hs_spark_chat_auto_opened";
@@ -200,7 +201,18 @@ export function SupportChat({ connected = true, onboardingHint }: { connected?: 
 
           fetch(`${API_BASE}/chat/support/resolutions/${r.incident_id}/ack`, {
             method: "POST", headers: apiHeaders(), credentials: "include",
-          }).catch(() => {});
+          }).catch((err: unknown) => {
+            // Ack failure means the resolution will be re-delivered on the
+            // next poll cycle — annoying but not broken. Report so a
+            // systematically-broken ack endpoint gets noticed.
+            const e = err as { name?: string; message?: string } | null;
+            reportFrontendError({
+              component: "SupportChat.resolutionAck",
+              error_type: e?.name ?? "FetchError",
+              message: e?.message ?? "Failed to ack support resolution",
+              severity: "info",
+            });
+          });
         }
       }
     } catch { /* silent */ }
@@ -227,7 +239,15 @@ export function SupportChat({ connected = true, onboardingHint }: { connected?: 
           // Acknowledge so backend won't return it again
           fetch(`${API_BASE}/chat/support/proactive/${p.id}/ack`, {
             method: "POST", headers: apiHeaders(), credentials: "include",
-          }).catch(() => {});
+          }).catch((err: unknown) => {
+            const e = err as { name?: string; message?: string } | null;
+            reportFrontendError({
+              component: "SupportChat.proactiveAck",
+              error_type: e?.name ?? "FetchError",
+              message: e?.message ?? "Failed to ack proactive message",
+              severity: "info",
+            });
+          });
         }
       }
     } catch { /* silent — endpoint may not exist yet */ }

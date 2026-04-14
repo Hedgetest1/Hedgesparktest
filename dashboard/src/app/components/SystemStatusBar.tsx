@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { apiClient, type paths } from "../lib/api-client";
+import { reportFrontendError } from "../lib/error-reporter";
 
 // Source of truth: GET /merchant/sip-status → MerchantSipStatusResponse.
 type StatusData =
@@ -41,7 +42,18 @@ export function SystemStatusBar({
       .then((res) => {
         if (res.data != null) setStatus(res.data);
       })
-      .catch(() => {});
+      .catch((err: unknown) => {
+        // Warming-progress bar is decorative; degrade silently for the user
+        // but report to the self-healing pipeline so a broken sip-status
+        // endpoint gets caught instead of rotting.
+        const e = err as { name?: string; message?: string } | null;
+        reportFrontendError({
+          component: "SystemStatusBar",
+          error_type: e?.name ?? "FetchError",
+          message: e?.message ?? "Failed to fetch /merchant/sip-status",
+          severity: "info",
+        });
+      });
   }, [shop]);
 
   if (!status) return null;

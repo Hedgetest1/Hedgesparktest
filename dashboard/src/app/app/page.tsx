@@ -66,6 +66,7 @@ import {
   impactClass,
   intentDotClass,
 } from "./_lib/formatters";
+import { reportFrontendError } from "../lib/error-reporter";
 import { AnomalyFusionCard } from "../components/AnomalyFusionCard";
 import { AnomalyReplayCard } from "../components/AnomalyReplayCard";
 import { CounterfactualExplorerCard } from "../components/CounterfactualExplorerCard";
@@ -1289,7 +1290,19 @@ function PageInner() {
       }
     }
 
-    loadProIntelligence().catch(() => {});
+    loadProIntelligence().catch((err: unknown) => {
+      // Pro intelligence bundle failure — the individual fulfilled slots
+      // still render whatever they got, but a blanket failure before
+      // Promise.allSettled completes is worth reporting so the self-
+      // healing pipeline can pick it up.
+      const e = err as { name?: string; message?: string } | null;
+      reportFrontendError({
+        component: "loadProIntelligence",
+        error_type: e?.name ?? "FetchError",
+        message: e?.message ?? "Pro intelligence bundle failed",
+        severity: "warning",
+      });
+    });
     return () => { active = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shop, tier]);
@@ -1521,7 +1534,18 @@ function PageInner() {
           setPrivacyOptedOut(!!d.opt_out_automated_targeting);
         }
       })
-      .catch(() => {});
+      .catch((err: unknown) => {
+        // Privacy preferences are a first-class GDPR surface — we want
+        // observability on failures so a broken consent endpoint gets
+        // caught by the self-healing pipeline, not eaten silently.
+        const e = err as { name?: string; message?: string } | null;
+        reportFrontendError({
+          component: "privacyPreferences",
+          error_type: e?.name ?? "FetchError",
+          message: e?.message ?? "Failed to fetch /merchant/privacy/preferences",
+          severity: "warning",
+        });
+      });
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shop]);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { reportFrontendError } from "../lib/error-reporter";
 
 const API = process.env.NEXT_PUBLIC_API_BASE_URL || "";
 
@@ -58,7 +59,17 @@ export default function ProofPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ event_type: "click_cta" }),
-      }).catch(() => {});
+      }).catch((err: unknown) => {
+        // Public proof-share analytics — the visitor flow is unblocked
+        // regardless, but we report so we notice if the endpoint breaks.
+        const e = err as { name?: string; message?: string } | null;
+        reportFrontendError({
+          component: "proofPage.trackCta",
+          error_type: e?.name ?? "FetchError",
+          message: e?.message ?? "Failed to POST proof event",
+          severity: "info",
+        });
+      });
     }
   };
 

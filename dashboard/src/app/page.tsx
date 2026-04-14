@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { DemoPreviewCard } from "./components/DemoPreviewCard";
+import { reportFrontendError } from "./lib/error-reporter";
 
 /* ── OAuth guard (keep wiring) ── */
 function useOAuthRedirect() {
@@ -71,7 +72,18 @@ function useSignalCount() {
     fetch(`${API}/ops/signal-count-week`, { signal: AbortSignal.timeout(4000) })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d?.count) setCount(d.count); })
-      .catch(() => {});
+      .catch((err: unknown) => {
+        // Landing-page decorative badge — graceful degradation for the visitor,
+        // but we still report to the self-healing pipeline so a broken
+        // /ops/signal-count-week endpoint doesn't rot silently.
+        const e = err as { name?: string; message?: string } | null;
+        reportFrontendError({
+          component: "useSignalCount",
+          error_type: e?.name ?? "FetchError",
+          message: e?.message ?? "Failed to fetch /ops/signal-count-week",
+          severity: "info",
+        });
+      });
   }, []);
   return count;
 }
@@ -97,7 +109,15 @@ function useRoiCounter() {
     fetch(`${API}/public/roi-counter`, { signal: AbortSignal.timeout(5000) })
       .then((r) => (r.ok ? r.json() : null))
       .then((d: RoiCounterDoc | null) => { if (active && d) setDoc(d); })
-      .catch(() => {});
+      .catch((err: unknown) => {
+        const e = err as { name?: string; message?: string } | null;
+        reportFrontendError({
+          component: "useRoiCounter",
+          error_type: e?.name ?? "FetchError",
+          message: e?.message ?? "Failed to fetch /public/roi-counter",
+          severity: "info",
+        });
+      });
 
     // SSE live ticker — re-reads the Redis cache server-side every 20s
     let es: EventSource | null = null;
