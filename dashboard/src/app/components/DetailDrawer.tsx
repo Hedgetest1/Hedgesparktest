@@ -23,7 +23,7 @@
  * no "cohort". Just what it means + why it matters.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 
 export type DrawerChartPoint = {
   label: string;
@@ -49,18 +49,56 @@ export function DetailDrawer({
   widthPx?: number;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const titleId = useId();
+  const subtitleId = useId();
 
   useEffect(() => {
     if (!open) return;
+    restoreFocusRef.current = document.activeElement as HTMLElement | null;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key === "Tab" && panelRef.current) {
+        const focusables = panelRef.current.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        );
+        const visible = Array.from(focusables).filter(
+          (el) => !el.hasAttribute("disabled") && el.offsetParent !== null,
+        );
+        if (visible.length === 0) return;
+        const first = visible[0];
+        const last = visible[visible.length - 1];
+        const active = document.activeElement as HTMLElement | null;
+        if (e.shiftKey && active === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && active === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
     };
     window.addEventListener("keydown", onKey);
+
+    const focusTimer = window.setTimeout(() => {
+      closeButtonRef.current?.focus();
+    }, 50);
+
     return () => {
       document.body.style.overflow = prev;
       window.removeEventListener("keydown", onKey);
+      window.clearTimeout(focusTimer);
+      const target = restoreFocusRef.current;
+      if (target && typeof target.focus === "function") {
+        target.focus();
+      }
     };
   }, [open, onClose]);
 
@@ -68,7 +106,10 @@ export function DetailDrawer({
 
   return (
     <div
-      aria-label="detail-drawer-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      aria-describedby={subtitle ? subtitleId : undefined}
       style={{
         position: "fixed",
         inset: 0,
@@ -78,19 +119,26 @@ export function DetailDrawer({
       }}
     >
       {/* Backdrop */}
-      <div
+      <button
+        type="button"
         onClick={onClose}
+        aria-label="Close drawer"
+        tabIndex={-1}
         style={{
           position: "absolute",
           inset: 0,
           background: "rgba(0,0,0,0.65)",
           backdropFilter: "blur(8px)",
+          border: "none",
+          cursor: "pointer",
+          padding: 0,
         }}
       />
 
       {/* Panel */}
       <div
         ref={panelRef}
+        className="hs-drawer-panel"
         style={{
           position: "relative",
           width: `min(${widthPx}px, 100vw)`,
@@ -108,6 +156,17 @@ export function DetailDrawer({
             from { transform: translateX(100%); opacity: 0; }
             to { transform: translateX(0); opacity: 1; }
           }
+          @media (max-width: 640px) {
+            .hs-drawer-panel {
+              width: 100vw !important;
+              border-left: none !important;
+            }
+          }
+          @media (prefers-reduced-motion: reduce) {
+            .hs-drawer-panel {
+              animation: none !important;
+            }
+          }
         `}</style>
 
         {/* Header */}
@@ -121,9 +180,14 @@ export function DetailDrawer({
             flexShrink: 0,
           }}
         >
-          {icon && <div style={{ fontSize: "32px", lineHeight: 1 }}>{icon}</div>}
+          {icon && (
+            <div aria-hidden="true" style={{ fontSize: "32px", lineHeight: 1 }}>
+              {icon}
+            </div>
+          )}
           <div style={{ flex: 1, minWidth: 0 }}>
             <h2
+              id={titleId}
               style={{
                 color: "#e8a04e",
                 fontSize: "22px",
@@ -135,14 +199,19 @@ export function DetailDrawer({
               {title}
             </h2>
             {subtitle && (
-              <div style={{ color: "#94a3b8", fontSize: "13px", marginTop: "4px" }}>
+              <div
+                id={subtitleId}
+                style={{ color: "#94a3b8", fontSize: "13px", marginTop: "4px" }}
+              >
                 {subtitle}
               </div>
             )}
           </div>
           <button
+            ref={closeButtonRef}
             onClick={onClose}
-            aria-label="Close"
+            aria-label="Close drawer"
+            type="button"
             style={{
               background: "transparent",
               border: "1px solid rgba(148,163,184,0.25)",
@@ -467,6 +536,364 @@ export function DrawerSectionHeading({ children }: { children: React.ReactNode }
       }}
     >
       {children}
+    </div>
+  );
+}
+
+/**
+ * DrawerHowCalculated — the "where this number comes from" block.
+ *
+ * Merchants don't trust numbers whose math is opaque. This primitive shows
+ * the plain-language formula with inputs → output. If the merchant can't
+ * read one sentence and understand the calculation, it fails the π4 test.
+ */
+export function DrawerHowCalculated({
+  formula,
+  inputs,
+  note,
+}: {
+  formula: string;
+  inputs?: { label: string; value: string }[];
+  note?: string;
+}) {
+  return (
+    <div
+      style={{
+        padding: "14px 16px",
+        borderRadius: "12px",
+        background: "rgba(148,163,184,0.04)",
+        border: "1px solid rgba(148,163,184,0.12)",
+        marginTop: "16px",
+      }}
+    >
+      <div
+        style={{
+          color: "#94a3b8",
+          fontSize: "11px",
+          fontWeight: 700,
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+          marginBottom: "8px",
+        }}
+      >
+        How we calculate this
+      </div>
+      <div style={{ color: "#e2e8f0", fontSize: "13px", lineHeight: 1.6 }}>
+        {formula}
+      </div>
+      {inputs && inputs.length > 0 && (
+        <div
+          style={{
+            marginTop: "10px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "4px",
+          }}
+        >
+          {inputs.map((input, i) => (
+            <div
+              key={i}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                fontSize: "12px",
+              }}
+            >
+              <span style={{ color: "#64748b" }}>{input.label}</span>
+              <span
+                style={{
+                  color: "#cbd5e1",
+                  fontWeight: 600,
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {input.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {note && (
+        <div
+          style={{
+            marginTop: "10px",
+            paddingTop: "10px",
+            borderTop: "1px solid rgba(148,163,184,0.12)",
+            color: "#94a3b8",
+            fontSize: "12px",
+            lineHeight: 1.5,
+          }}
+        >
+          {note}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * DrawerNextAction — structured call-to-action block.
+ *
+ * Every drawer must answer "so what do I do about it?". This primitive
+ * presents one or two concrete next actions with clear labels and
+ * optional description. Primary action uses amber accent; secondary is
+ * neutral. Buttons are real focusable controls so the focus trap works.
+ */
+export function DrawerNextAction({
+  primary,
+  secondary,
+  headline,
+}: {
+  primary: { label: string; onClick: () => void; description?: string };
+  secondary?: { label: string; onClick: () => void };
+  headline?: string;
+}) {
+  return (
+    <div
+      style={{
+        marginTop: "20px",
+        padding: "16px 18px",
+        borderRadius: "12px",
+        background: "linear-gradient(135deg, rgba(232,160,78,0.08) 0%, rgba(232,160,78,0.02) 100%)",
+        border: "1px solid rgba(232,160,78,0.25)",
+      }}
+    >
+      {headline && (
+        <div
+          style={{
+            color: "#e8a04e",
+            fontSize: "11px",
+            fontWeight: 700,
+            textTransform: "uppercase",
+            letterSpacing: "0.08em",
+            marginBottom: "10px",
+          }}
+        >
+          {headline}
+        </div>
+      )}
+      {primary.description && (
+        <div
+          style={{
+            color: "#cbd5e1",
+            fontSize: "13px",
+            lineHeight: 1.55,
+            marginBottom: "12px",
+          }}
+        >
+          {primary.description}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+        <button
+          type="button"
+          onClick={primary.onClick}
+          style={{
+            background: "linear-gradient(135deg, #e8a04e 0%, #d48a38 100%)",
+            color: "#0b1220",
+            border: "none",
+            padding: "10px 18px",
+            borderRadius: "10px",
+            fontSize: "13px",
+            fontWeight: 700,
+            cursor: "pointer",
+            boxShadow: "0 4px 12px rgba(232,160,78,0.2)",
+          }}
+        >
+          {primary.label}
+        </button>
+        {secondary && (
+          <button
+            type="button"
+            onClick={secondary.onClick}
+            style={{
+              background: "transparent",
+              color: "#cbd5e1",
+              border: "1px solid rgba(148,163,184,0.3)",
+              padding: "10px 18px",
+              borderRadius: "10px",
+              fontSize: "13px",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            {secondary.label}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * DrawerPeerComparison — "where you stand against shops like yours".
+ *
+ * The network context slot. Converts a merchant number into relative
+ * position: median, percentile, gap. Honest comparison only — never
+ * flattering, never hiding bad news.
+ */
+export function DrawerPeerComparison({
+  yourValue,
+  peerMedian,
+  unit = "",
+  verdict,
+  sampleSize,
+}: {
+  yourValue: number;
+  peerMedian: number;
+  unit?: string;
+  verdict: "above" | "below" | "on_par";
+  sampleSize?: number;
+}) {
+  const delta = peerMedian > 0 ? ((yourValue - peerMedian) / peerMedian) * 100 : 0;
+  const verdictColor =
+    verdict === "above"
+      ? "#34d399"
+      : verdict === "below"
+      ? "#fb7185"
+      : "#94a3b8";
+  const verdictLabel =
+    verdict === "above"
+      ? "Ahead of peers"
+      : verdict === "below"
+      ? "Behind peers"
+      : "On par with peers";
+  const max = Math.max(yourValue, peerMedian) || 1;
+  const yourPct = (yourValue / max) * 100;
+  const peerPct = (peerMedian / max) * 100;
+
+  return (
+    <div
+      style={{
+        marginTop: "20px",
+        padding: "16px 18px",
+        borderRadius: "12px",
+        background: "rgba(139,92,246,0.04)",
+        border: "1px solid rgba(139,92,246,0.2)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: "12px",
+        }}
+      >
+        <div
+          style={{
+            color: "#a78bfa",
+            fontSize: "11px",
+            fontWeight: 700,
+            textTransform: "uppercase",
+            letterSpacing: "0.08em",
+          }}
+        >
+          Shops like yours
+        </div>
+        <div
+          style={{
+            color: verdictColor,
+            fontSize: "11px",
+            fontWeight: 700,
+          }}
+        >
+          {verdictLabel}
+          {delta !== 0 && ` · ${delta > 0 ? "+" : ""}${delta.toFixed(0)}%`}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+        <div>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              fontSize: "12px",
+              marginBottom: "4px",
+            }}
+          >
+            <span style={{ color: "#e2e8f0", fontWeight: 600 }}>You</span>
+            <span
+              style={{
+                color: "#e2e8f0",
+                fontWeight: 700,
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {yourValue.toLocaleString("en")}
+              {unit}
+            </span>
+          </div>
+          <div
+            style={{
+              height: "6px",
+              borderRadius: "3px",
+              background: "rgba(148,163,184,0.1)",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                width: `${yourPct}%`,
+                height: "100%",
+                background: verdictColor,
+                transition: "width 0.4s cubic-bezier(0.16,1,0.3,1)",
+              }}
+            />
+          </div>
+        </div>
+        <div>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              fontSize: "12px",
+              marginBottom: "4px",
+            }}
+          >
+            <span style={{ color: "#94a3b8" }}>Peer median</span>
+            <span
+              style={{
+                color: "#94a3b8",
+                fontWeight: 600,
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {peerMedian.toLocaleString("en")}
+              {unit}
+            </span>
+          </div>
+          <div
+            style={{
+              height: "6px",
+              borderRadius: "3px",
+              background: "rgba(148,163,184,0.1)",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                width: `${peerPct}%`,
+                height: "100%",
+                background: "rgba(148,163,184,0.5)",
+              }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {sampleSize && sampleSize > 0 && (
+        <div
+          style={{
+            marginTop: "10px",
+            color: "#64748b",
+            fontSize: "11px",
+          }}
+        >
+          Based on {sampleSize.toLocaleString("en")} anonymized peer stores
+        </div>
+      )}
     </div>
   );
 }
