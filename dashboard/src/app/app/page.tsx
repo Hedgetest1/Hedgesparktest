@@ -375,20 +375,6 @@ type MergedProductRow = ProductMetricsRow & {
   priority: "HIGH" | "MED" | "LOW";
 };
 
-type ActionCandidate = {
-  rank: number;
-  product_url: string;
-  action_type: string;
-  reason: string;
-  action_hint: string;
-  confidence: number;
-  urgency: number;
-  expected_loss: number;
-  loss_band: string;
-  ready_now: boolean;
-  supporting_signals: string[];
-};
-
 type ActionTask = {
   id: number;
   shop_domain: string;
@@ -420,14 +406,6 @@ function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return s > 0 ? `${m}m ${s}s` : `${m}m`;
-}
-
-function fmtLoss(value: number): string {
-  try {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
-  } catch {
-    return `$${Math.round(value)}`;
-  }
 }
 
 // Display currency formatter moved to /lib/currency.ts as part of the
@@ -612,12 +590,10 @@ function PageInner() {
   const [productMetrics, setProductMetrics] = useState<ProductMetricsRow[]>([]);
   const [productTrend, setProductTrend] = useState<ProductTrendRow[]>([]);
 
-  // Action candidates + tasks (Pro only)
-  // Previously stored a `taskMap` state + `expandedTaskKey` — both were
-  // written to but never read (the UI renders from `candidates` directly
-  // and the poll only needs hasExecutingRef to gate network calls).
-  // Removed to cut wasted re-renders on every poll tick.
-  const [candidates, setCandidates] = useState<ActionCandidate[]>([]);
+  // Action candidates + tasks (Pro only): the candidates list itself
+  // is no longer read anywhere in the page (it used to feed a sidebar
+  // panel that has been replaced). The poll cycle only needs
+  // hasExecutingRef to gate network calls, so the array state is dead.
   const hasExecutingRef = useRef(false);
 
   // Pro intelligence modules
@@ -1149,7 +1125,10 @@ function PageInner() {
     async function loadActionsData() {
       try {
         const typedHeaders = getHeaders(apiHeaders);
-        const [candRes, taskRes] = await Promise.all([
+        // /actions/candidates/pro is still polled (side-effect warms a
+        // backend cache) but the response body is not consumed — the
+        // dashboard no longer renders a candidates list.
+        const [, taskRes] = await Promise.all([
           fetch(
             `${API_BASE}/actions/candidates/pro?shop=${encodeURIComponent(shop)}`,
             { headers: apiHeaders(), credentials: "include", cache: "no-store" }
@@ -1160,10 +1139,6 @@ function PageInner() {
           }),
         ]);
         if (!active) return;
-        if (candRes.ok) {
-          const j = await candRes.json();
-          setCandidates(Array.isArray(j.candidates) ? j.candidates : []);
-        }
         if (taskRes.data != null) {
           const tasks = taskRes.data.tasks as unknown as ActionTask[];
           hasExecutingRef.current = tasks.some((t) => t.status === "executing");
@@ -1311,9 +1286,8 @@ function PageInner() {
 
     // PRO ONLY: fetch the Pro endpoint when tier is confirmed as "pro".
     // Lite endpoint shape is a strict subset of Pro — Alert covers both.
-    const alertsEndpoint = tier === "pro"
-      ? `${API_BASE}/analytics/alerts/pro?shop=${encodeURIComponent(shop)}`
-      : `${API_BASE}/analytics/alerts?shop=${encodeURIComponent(shop)}`;
+    // (URL string was previously stored in alertsEndpoint but is now
+    // built directly inside the typed apiClient call below.)
 
     async function loadAnalytics() {
       try {
@@ -1900,30 +1874,8 @@ function PageInner() {
     return (url || "").trim().toLowerCase().replace(/\/$/, "");
   }
 
-  // Task map key — matches backend dedup triple (shop is implicit from auth)
-  function taskKey(productUrl: string, actionType: string): string {
-    return normalizeUrl(productUrl) + "::" + actionType;
-  }
-
-  // Defensively parse result_detail JSON from a completed task.
-  // Returns only the fields present; never throws.
-  // Falls back to { summary: rawText } if the string is not valid JSON.
-  function parseResultDetail(raw: string | null | undefined): {
-    outcome?: string;
-    agent_id?: string;
-    summary?: string;
-  } {
-    if (!raw) return {};
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed !== null && typeof parsed === "object") return parsed as { outcome?: string; agent_id?: string; summary?: string };
-      return {};
-    } catch {
-      return { summary: String(raw) };
-    }
-  }
-
-  // buildTaskMap previously indexed tasks into a Map; removed along
+  // taskKey + parseResultDetail were used by the deleted action
+  // candidates panel and have no remaining callers. Removed along
   // with the dead taskMap state.
 
   // ---------------------------------------------------------------------------
@@ -2054,33 +2006,10 @@ function PageInner() {
     if (notifs.length > 0) setActiveToasts(notifs);
   }, [sparkActions]);
 
-  // ---------------------------------------------------------------------------
-  // Spark companion context — drives the dynamic sidebar message
-  // ---------------------------------------------------------------------------
-  const sparkContext = useMemo(() => {
-    const highPriorityCount = mergedProducts.filter((r) => r.priority === "HIGH").length;
-    const topSig = strongSignals.length > 0 ? strongSignals[0] : null;
-    // Use top action for the most impactful Spark message
-    const topAction = sparkActions.length > 0 ? sparkActions[0] : null;
-    // Find first improving action for proof celebration
-    const improvingAction = sparkActions.find(a => a.proofStatus === "improving");
-    return {
-      signalCount: strongSignals.length,
-      highPriorityCount,
-      topSignalLabel: topAction ? topAction.title : (topSig?.human_label || topSig?.explanation || undefined),
-      topSignalProduct: topAction?.targetProduct ? shortUrl(topAction.targetProduct) : (topSig?.product_url ? shortUrl(topSig.product_url) : undefined),
-      topActionImpact: topAction?.impact,
-      topActionIsPattern: topAction?.isPattern ?? false,
-      hasImproving: !!improvingAction,
-      improvingDetail: improvingAction?.proofDetail,
-      revenue7d: heroRevenue?.revenue ?? 0,
-      orders7d: heroRevenue?.orders ?? 0,
-      liveVisitorCount: liveVisitors.length,
-      hotVisitorCount: summary.hot_visitors ?? 0,
-      coldStartPhase,
-      isProUser,
-    };
-  }, [signals, strongSignals, earlySignals, mergedProducts, sparkActions, heroRevenue, liveVisitors.length, summary.hot_visitors, coldStartPhase, isProUser]);
+  // sparkContext, executeCandidate, dismissTask were used by the
+  // deleted action-candidates panel and the SparkInline companion
+  // message. None of them are referenced by the current rendering
+  // tree. Removed in cycle 13 cleanup along with their state.
 
   // ---------------------------------------------------------------------------
   // UI handlers
@@ -2103,41 +2032,6 @@ function PageInner() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (!loading) requestAnimationFrame(reobserve); }, [loading, tier, reobserve]);
   useEffect(() => { return () => observerRef.current?.disconnect(); }, []);
-
-  async function executeCandidate(candidate: ActionCandidate) {
-    try {
-      const res = await fetch(
-        `${API_BASE}/actions/execute?shop=${encodeURIComponent(shop)}`,
-        {
-          method: "POST",
-          headers: apiHeaders(),
-          credentials: "include",
-          body: JSON.stringify({ candidate, triggered_by: "manual" }),
-        }
-      );
-      if (!res.ok) return;
-      const j = await res.json();
-      // Task update received but no longer stored; hasExecutingRef gates
-      // the poll interval and candidates state renders the UI.
-      const task: ActionTask | undefined = j.task;
-      if (!task) return;
-    } catch { /* silent */ }
-  }
-
-  async function dismissTask(taskId: number, key: string) {
-    try {
-      const res = await fetch(
-        `${API_BASE}/actions/tasks/${taskId}?shop=${encodeURIComponent(shop)}`,
-        {
-          method: "PATCH",
-          headers: apiHeaders(),
-          credentials: "include",
-          body: JSON.stringify({ status: "dismissed" }),
-        }
-      );
-      if (!res.ok) return;
-    } catch { /* silent */ }
-  }
 
   const RADAR_POSITIONS = [
     "left-[12%] top-[18%]", "left-[68%] top-[20%]",

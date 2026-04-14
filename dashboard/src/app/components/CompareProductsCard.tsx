@@ -42,7 +42,7 @@ function fmtMoney(n: number): string {
 
 export function CompareProductsCard({
   apiBase,
-  shop,
+  shop: _shop,
   isProUser,
 }: {
   apiBase: string;

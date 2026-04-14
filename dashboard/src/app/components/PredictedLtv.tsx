@@ -7,7 +7,6 @@ import type { paths } from "../lib/api-client";
 // `npm run api:types` after backend changes.
 type PredictedLtvResponse =
   paths["/pro/cohorts/ltv/customers"]["get"]["responses"]["200"]["content"]["application/json"];
-type PredictedCustomer = PredictedLtvResponse["customers"][number];
 
 /**
  * PredictedLtv — Top customers ranked by next-12-month predicted lifetime value.
@@ -37,8 +36,7 @@ type PredictedCustomer = PredictedLtvResponse["customers"][number];
  *   }
  */
 
-// Local aliases using generated types.
-type Customer = PredictedCustomer;
+// Local alias using generated types.
 type PredictedLtvData = PredictedLtvResponse;
 
 

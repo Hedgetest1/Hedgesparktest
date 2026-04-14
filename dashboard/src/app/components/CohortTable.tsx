@@ -39,7 +39,7 @@ function formatPct(v: number | undefined): string {
 }
 
 export function CohortTable({
-  apiBase,
+  apiBase: _apiBase,
   shop,
   apiHeaders,
   displayCurrency = "USD",

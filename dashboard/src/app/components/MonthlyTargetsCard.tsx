@@ -12,13 +12,6 @@
 
 import { useEffect, useState } from "react";
 
-type Goal = {
-  metric: string;
-  target_value: number;
-  period: string;
-  set_at: string;
-  note: string;
-};
 
 type GoalProgress = {
   metric: string;

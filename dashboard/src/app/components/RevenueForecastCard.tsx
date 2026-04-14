@@ -84,7 +84,6 @@ export function RevenueForecastCard({ apiBase, isProUser }: { apiBase: string; i
   if (data.status === "insufficient_data") return null;
 
   const dir = DIRECTION_META[data.direction] || DIRECTION_META.stable;
-  const ci80Range = data.forecast_upper_80 - data.forecast_lower_80;
 
   return (
     <>

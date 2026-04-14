@@ -905,7 +905,7 @@ function ProStack() {
                   <h3 className="text-[18px] font-bold" style={{ color: cat.color }}>{cat.title}</h3>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  {cat.features.map((f, fi) => (
+                  {cat.features.map((f) => (
                     <div
                       key={f.name}
                       className="group relative flex flex-col rounded-2xl border border-white/[0.06] bg-[#0e0e1a] p-6 transition-all duration-300 hover:border-white/[0.12] hover:shadow-[0_8px_40px_-8px_rgba(0,0,0,0.4)]"

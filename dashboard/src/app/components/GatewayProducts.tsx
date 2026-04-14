@@ -7,7 +7,6 @@ import type { paths } from "../lib/api-client";
 // `npm run api:types` after backend changes.
 type GatewayProductsResponse =
   paths["/pro/cohorts/ltv/products"]["get"]["responses"]["200"]["content"]["application/json"];
-type GatewayProduct = GatewayProductsResponse["products"][number];
 
 /**
  * GatewayProducts — Killer customer-acquisition product intelligence.
@@ -37,8 +36,7 @@ type GatewayProduct = GatewayProductsResponse["products"][number];
  *   }
  */
 
-// Local aliases using the generated types (for readability in the JSX below).
-type Product = GatewayProduct;
+// Local alias using the generated type (for readability in the JSX below).
 type GatewayProductsData = GatewayProductsResponse;
 
 const fmtPct = (v: number) => `${Math.round((v || 0) * 100)}%`;

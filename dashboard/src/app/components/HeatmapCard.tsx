@@ -67,7 +67,7 @@ function ScrollDepthBar({ buckets, totalViewers }: { buckets: ScrollBucket[]; to
 }
 
 export function HeatmapCard({
-  apiBase,
+  apiBase: _apiBase,
   shop,
   apiHeaders,
 }: {

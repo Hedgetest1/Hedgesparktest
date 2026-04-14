@@ -38,7 +38,7 @@ function liftColor(lift: number | null | undefined): string {
 }
 
 export function LiftReport({
-  apiBase,
+  apiBase: _apiBase,
   shop,
   apiHeaders,
   displayCurrency = "USD",

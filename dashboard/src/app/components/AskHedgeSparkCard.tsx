@@ -34,7 +34,7 @@ const SUGGESTIONS = [
 
 export function AskHedgeSparkCard({
   apiBase,
-  shop,
+  shop: _shop,
   isProUser,
 }: {
   apiBase: string;

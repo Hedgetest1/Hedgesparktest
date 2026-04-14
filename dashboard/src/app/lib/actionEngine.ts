@@ -699,7 +699,6 @@ function ruleDevicePurchaseGap(p: ProductInput, rev: RevenueContext): RuleResult
   const pm = p.purchases_mobile ?? 0;
   const pd = p.purchases_desktop ?? 0;
   const vm = p.views_mobile ?? 0;
-  const vd = p.views_desktop ?? 0;
   const total = pm + pd;
   if (total < 2) return null;
 
@@ -876,7 +875,7 @@ function storeRevenueConcentration(products: ProductInput[], rev: RevenueContext
   };
 }
 
-function storeMobileGap(_products: ProductInput[], rev: RevenueContext, si?: StoreIntelligence): RuleResult {
+function storeMobileGap(_products: ProductInput[], _rev: RevenueContext, si?: StoreIntelligence): RuleResult {
   const ds = si?.device_split;
   if (!ds || !ds.mobile_conversion_gap) return null;
 
@@ -898,7 +897,7 @@ function storeMobileGap(_products: ProductInput[], rev: RevenueContext, si?: Sto
   };
 }
 
-function storePaidGap(_products: ProductInput[], rev: RevenueContext, si?: StoreIntelligence): RuleResult {
+function storePaidGap(_products: ProductInput[], _rev: RevenueContext, si?: StoreIntelligence): RuleResult {
   const ss = si?.source_split;
   if (!ss || !ss.paid_revenue_gap) return null;
 
@@ -920,7 +919,7 @@ function storePaidGap(_products: ProductInput[], rev: RevenueContext, si?: Store
   };
 }
 
-function storeCohortDrift(_products: ProductInput[], rev: RevenueContext, si?: StoreIntelligence): RuleResult {
+function storeCohortDrift(_products: ProductInput[], _rev: RevenueContext, si?: StoreIntelligence): RuleResult {
   const cs = si?.cohort_snapshot;
   if (!cs) return null;
   const newRate = cs.new_visitor_cart_rate;

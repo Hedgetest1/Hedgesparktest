@@ -201,7 +201,6 @@ export default function InsightsPage() {
           topPagesRes,
           scoresRes,
           oppRes,
-          priceRes,
         ] = await Promise.all([
           fetch(`${API_BASE}/analytics/weekly-trend`, { cache: "no-store" }),
           fetch(`${API_BASE}/ai/actions`, { cache: "no-store" }),
@@ -209,7 +208,6 @@ export default function InsightsPage() {
           fetch(`${API_BASE}/analytics/top-pages`, { cache: "no-store" }),
           fetch(`${API_BASE}/analytics/visitor-scores`, { cache: "no-store" }),
           fetch(`${API_BASE}/analytics/live-opportunities`, { cache: "no-store" }),
-          fetch(`${API_BASE}/price-intelligence/top`, { cache: "no-store" }),
         ]);
 
         const trendJson = trendRes.ok ? await trendRes.json() : { trend: [] };
@@ -218,7 +216,6 @@ export default function InsightsPage() {
         const topPagesJson = topPagesRes.ok ? await topPagesRes.json() : { pages: [] };
         const scoresJson = scoresRes.ok ? await scoresRes.json() : { visitors: [] };
         const oppJson = oppRes.ok ? await oppRes.json() : { opportunities: [] };
-const priceJson = priceRes.ok ? await priceRes.json() : [];
 
         if (!active) return;
 

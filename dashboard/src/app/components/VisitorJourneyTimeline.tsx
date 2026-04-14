@@ -210,7 +210,6 @@ export function VisitorJourneyTimeline({
               {j.touches.map((t, i) => {
                 const color = SOURCE_COLOR[t.source] || "#94a3b8";
                 const icon = SOURCE_ICONS[t.source] || "•";
-                const isPurchase = t.is_last;
                 return (
                   <div
                     key={i}
