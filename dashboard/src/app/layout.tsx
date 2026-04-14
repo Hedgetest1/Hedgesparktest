@@ -20,33 +20,33 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "HedgeSpark — The AI Revenue Leak Detector for Shopify",
+  title: "HedgeSpark — AI Revenue Intelligence for Shopify",
   description:
-    "The AI revenue leak detector for Shopify. Find the money you're silently losing, stop the bleed, and prove the recovery. Built for serious Shopify merchants.",
+    "AI Revenue Intelligence for Shopify. Finds the products that get attention but don't sell, lifts the silent curse on your store, and proves every fix worked. Built for serious Shopify merchants.",
   keywords: [
     "Shopify app",
     "Shopify AI",
-    "Shopify revenue leak detector",
-    "revenue leak detection",
-    "loss prevention Shopify",
-    "Shopify revenue recovery",
+    "AI revenue intelligence",
+    "Shopify revenue intelligence",
+    "Shopify commerce intelligence",
     "Shopify analytics",
     "Shopify conversion optimization",
     "AI for Shopify",
     "silent revenue loss",
+    "holdout-proven lift",
   ],
   openGraph: {
-    title: "HedgeSpark — The AI Revenue Leak Detector for Shopify",
+    title: "HedgeSpark — AI Revenue Intelligence for Shopify",
     description:
-      "Find the money you're silently losing. Stop the bleed. Prove the recovery.",
+      "Find the products getting attention but not selling. Lift the silent curse. Prove every fix worked.",
     type: "website",
     siteName: "HedgeSpark",
   },
   twitter: {
     card: "summary_large_image",
-    title: "HedgeSpark — The AI Revenue Leak Detector for Shopify",
+    title: "HedgeSpark — AI Revenue Intelligence for Shopify",
     description:
-      "Find the money you're silently losing. Stop the bleed. Prove the recovery.",
+      "Find the products getting attention but not selling. Lift the silent curse. Prove every fix worked.",
   },
   manifest: "/manifest.json",
   appleWebApp: {
@@ -64,7 +64,7 @@ const softwareApplicationJsonLd = {
   applicationSubCategory: "Shopify App",
   operatingSystem: "Shopify",
   description:
-    "AI-powered revenue leak detection for Shopify stores. Finds silent revenue loss, stops the bleed, and proves the recovery.",
+    "AI Revenue Intelligence for Shopify. Finds products that get attention but don't sell, lifts the silent curse on your store, and proves every fix worked against a real control group.",
   url: "https://hedgesparkhq.com",
 };
 

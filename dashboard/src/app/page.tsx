@@ -234,7 +234,7 @@ function RoiCounterBanner() {
                   <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
                 </span>
               )}
-              Live · Network Recovery · Last 30 Days
+              Live · Network Impact · Last 30 Days
             </div>
             <div className="mt-2 font-mono text-[40px] font-extrabold tabular-nums leading-none text-white sm:text-[56px]">
               €{formatted}
@@ -379,7 +379,7 @@ function Hero() {
         {/* Headline */}
         <R d={0.08}>
           <h1 className="mx-auto mt-6 max-w-[52rem] text-center text-[2.75rem] font-extrabold leading-[1.05] tracking-[-0.03em] text-white sm:text-[4rem] lg:text-[5rem]">
-            Your store is leaking money.
+            Your store has a silent curse.
             <br />
             <span className="text-slate-400">You don&apos;t know why.</span>
             <br />
@@ -391,7 +391,7 @@ function Hero() {
                 backgroundClip: "text",
               }}
             >
-              We show you where.
+              We break the spell.
             </span>
           </h1>
         </R>
@@ -399,9 +399,9 @@ function Hero() {
         {/* Sub */}
         <R d={0.12}>
           <p className="mx-auto mt-7 max-w-[40rem] text-center text-[18px] leading-[1.65] text-slate-300">
-            <strong className="text-white">The AI revenue leak detector built for Shopify.</strong>{" "}
-            Finds products that get attention but don&apos;t sell. Stops the bleed.
-            Proves the recovery.
+            <strong className="text-white">AI Revenue Intelligence, built for Shopify.</strong>{" "}
+            Finds the products that get attention but don&apos;t sell. Lifts the curse.
+            Proves the magic worked.
           </p>
         </R>
 
@@ -784,7 +784,7 @@ function ProStack() {
         },
         {
           name: "Revenue Autopsy",
-          desc: "Per-product loss forensics. See exactly where each product bleeds money and why.",
+          desc: "Per-product diagnosis. See exactly where each product loses sales — and why.",
           tag: "Per product",
         },
         {
@@ -867,7 +867,7 @@ function ProStack() {
         },
         {
           name: "Goals & ROI Tracking",
-          desc: "Set revenue targets, track recovery ROI. See exactly what HedgeSpark earned back for you.",
+          desc: "Set revenue targets, track proven ROI. See exactly what HedgeSpark won back for you.",
           tag: "Measurable",
         },
         {

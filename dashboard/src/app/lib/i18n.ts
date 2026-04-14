@@ -28,11 +28,11 @@ type Dict = Record<string, string>;
 const EN: Dict = {
   "hero.eyebrow_1": "Shopify App",
   "hero.eyebrow_2": "AI Revenue Intelligence",
-  "hero.headline_1": "Your store is leaking money.",
+  "hero.headline_1": "Your store has a silent curse.",
   "hero.headline_2": "You don't know why.",
-  "hero.headline_3": "We show you where.",
+  "hero.headline_3": "We break the spell.",
   "hero.sub":
-    "The AI revenue leak detector built for Shopify. Finds products that get attention but don't sell. Stops the bleed. Proves the recovery.",
+    "AI Revenue Intelligence, built for Shopify. Finds the products that get attention but don't sell. Lifts the curse. Proves the magic worked.",
   "hero.cta_primary": "Install on Shopify",
   "hero.cta_secondary": "See how it works",
   "hero.cta_disclaimer":
