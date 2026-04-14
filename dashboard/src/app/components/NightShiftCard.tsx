@@ -8,6 +8,8 @@
  * and left a visible reasoning journal explaining WHY that lever and not
  * the others. One click applies the suggested action.
  *
+ * Sister component: NightShiftTimeline (retrospective proof-of-work).
+ *
  * Source: GET /pro/night-shift/latest
  * Action: POST /pro/night-shift/apply
  *
@@ -18,7 +20,9 @@
  *   - loss framing: top action shows €/mo impact
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { CardSkeleton, CardError, CardEmpty, useCardFetch } from "./_CardStates";
+import { reportFrontendError } from "../lib/error-reporter";
 
 type TopAction = {
   kind: string;
@@ -107,39 +111,41 @@ export function NightShiftCard({
   shop: string;
   isProUser: boolean;
 }) {
-  const [data, setData] = useState<NightShiftReport | null>(null);
-  const [loading, setLoading] = useState(true);
   const [journalOpen, setJournalOpen] = useState(false);
   const [applying, setApplying] = useState(false);
   const [applied, setApplied] = useState(false);
 
-  useEffect(() => {
-    if (!apiBase || !shop || !isProUser) { setLoading(false); return; }
-    let active = true;
-    setLoading(true);
-    fetch(`${apiBase}/pro/night-shift/latest`, {
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-    })
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((j: NightShiftReport) => { if (active) setData(j); })
-      .catch(() => { if (active) setData(null); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [apiBase, shop, isProUser]);
+  const { data, state, retry } = useCardFetch<NightShiftReport>({
+    url: `${apiBase}/pro/night-shift/latest`,
+    enabled: !!apiBase && !!shop && isProUser,
+  });
 
   if (!isProUser) return null;
 
-  if (loading) {
+  if (state === "loading") {
+    return <CardSkeleton label="Loading tonight's night-shift report" />;
+  }
+
+  if (state === "error") {
     return (
-      <div className="animate-pulse rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
-        <div className="h-3 w-32 rounded bg-white/[0.06]" />
-        <div className="mt-3 h-20 rounded bg-white/[0.04]" />
-      </div>
+      <CardError
+        label="Night shift report unavailable"
+        message="We couldn't load the latest night-shift report. Your signals are safe — this card will recover on the next cycle."
+        onRetry={retry}
+      />
     );
   }
 
-  if (!data) return null;
+  if (state === "empty" || !data) {
+    return (
+      <CardEmpty
+        accent="emerald"
+        title="First night-shift report is on its way"
+        body="Every night we read every signal on your store, pick the single most impactful lever, and leave a reasoning journal. The first report lands after we've watched your store for a full overnight cycle."
+        eta="First report after the next overnight run"
+      />
+    );
+  }
 
   const accent = STATUS_ACCENT[data.status] || STATUS_ACCENT.quiet;
   const confidencePct = Math.max(0, Math.min(100, data.sleep_confidence));
@@ -155,14 +161,32 @@ export function NightShiftCard({
         credentials: "include",
         headers: { "Content-Type": "application/json" },
       });
-      if (r.ok) setApplied(true);
-    } catch {}
-    finally { setApplying(false); }
+      if (r.ok) {
+        setApplied(true);
+      } else {
+        reportFrontendError({
+          component: "NightShiftCard.applyAction",
+          error_type: "HttpError",
+          message: `POST /pro/night-shift/apply returned ${r.status}`,
+          severity: "warning",
+        });
+      }
+    } catch (err: unknown) {
+      const e = err as { name?: string; message?: string } | null;
+      reportFrontendError({
+        component: "NightShiftCard.applyAction",
+        error_type: e?.name ?? "FetchError",
+        message: e?.message ?? "Failed to POST /pro/night-shift/apply",
+        severity: "warning",
+      });
+    } finally {
+      setApplying(false);
+    }
   };
 
   return (
     <section
-      className="relative overflow-hidden rounded-2xl border border-white/[0.07] p-5"
+      className="relative overflow-hidden rounded-2xl border border-white/[0.07] p-6"
       style={{ background: `linear-gradient(135deg, ${accent.glow} 0%, rgba(255,255,255,0.02) 60%)` }}
       aria-labelledby="night-shift-heading"
       role="region"
@@ -175,13 +199,16 @@ export function NightShiftCard({
 
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="mb-0.5 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#d4893a]">
-            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}>
+          <div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-[#e8a04e]">
+            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
             </svg>
-            Night Shift · {data.day}
+            Night shift · {data.day}
           </div>
-          <h3 id="night-shift-heading" className="text-[16px] font-bold leading-snug text-white">
+          <h3
+            id="night-shift-heading"
+            className="text-[28px] font-extrabold leading-tight tracking-tight text-[#e8a04e]"
+          >
             {data.headline}
           </h3>
           <p className="mt-1 text-[11px] text-slate-500">
@@ -215,27 +242,28 @@ export function NightShiftCard({
         </div>
       </div>
 
-      <p className="mb-4 text-[13px] leading-relaxed text-slate-200">{data.narrative}</p>
+      <p className="mb-4 text-[14px] leading-relaxed text-slate-200">{data.narrative}</p>
 
       {/* Top action */}
       {data.top_action && (
-        <div className="mb-3 rounded-xl border border-white/[0.06] bg-white/[0.025] p-4">
+        <div className="mb-3 rounded-xl border border-white/[0.08] bg-white/[0.025] p-4">
           <div className="mb-1.5 flex items-center justify-between gap-2">
-            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#d4893a]">
+            <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#e8a04e]">
               Suggested first move
             </span>
             {data.top_action.estimated_impact_eur > 0 && (
-              <span className="rounded-md border border-amber-400/30 bg-amber-500/[0.08] px-2 py-0.5 text-[11px] font-bold tabular-nums text-amber-300">
+              <span className="rounded-md border border-amber-400/30 bg-amber-500/[0.08] px-2 py-0.5 text-[11px] font-extrabold tabular-nums text-amber-300">
                 +{fmtMoney(data.top_action.estimated_impact_eur)}/mo
               </span>
             )}
           </div>
-          <div className="text-[14px] font-semibold text-white">{data.top_action.label}</div>
+          <div className="text-[15px] font-semibold text-white">{data.top_action.label}</div>
           <p className="mt-1 text-[12px] leading-relaxed text-slate-400">{data.top_action.detail}</p>
           <button
+            type="button"
             onClick={applyAction}
             disabled={applying || applied}
-            className="mt-3 rounded-lg border px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide transition-colors disabled:cursor-not-allowed"
+            className="mt-3 rounded-lg border px-4 py-2 text-[11px] font-bold uppercase tracking-wide transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e8a04e] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1220] disabled:cursor-not-allowed"
             style={{
               color: applied ? "#34d399" : accent.pill,
               borderColor: (applied ? "#34d399" : accent.pill) + "40",
@@ -252,8 +280,9 @@ export function NightShiftCard({
       {data.journal && data.journal.length > 0 && (
         <div>
           <button
+            type="button"
             onClick={() => setJournalOpen((v) => !v)}
-            className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 hover:text-slate-200"
+            className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 hover:text-slate-200 focus:outline-none focus-visible:text-[#e8a04e]"
             aria-expanded={journalOpen}
             aria-controls="night-shift-journal"
           >
