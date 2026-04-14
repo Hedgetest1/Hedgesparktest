@@ -108,13 +108,37 @@ def _db_pool_pressure() -> tuple[str, dict]:
 
 
 def _worker_pressure() -> tuple[str, dict]:
-    """Return (level, detail) from worker_state freshness."""
+    """Return (level, detail) from worker freshness.
+
+    Uses GREATEST(worker_state.last_run_at, MAX(worker_log.started_at))
+    as the freshness signal. A worker that updates worker_log every
+    cycle but forgets to update worker_state (historical bug in
+    segment_monitor_worker) is still considered alive as long as the
+    worker_log timestamp is fresh. This defensive fallback prevents
+    the cascade where one worker's state-update bug flips
+    protection_state to CRITICAL and causes other workers to skip
+    cycles in a self-reinforcing loop.
+    """
     try:
         from app.core.database import engine
         from sqlalchemy import text as _text
+        # LEFT JOIN worker_log to get the most recent cycle start from
+        # either source. COALESCE to pick whichever is more recent.
         with engine.connect() as conn:
             rows = conn.execute(_text(
-                "SELECT worker_name, last_run_at FROM worker_state"
+                """
+                SELECT
+                    ws.worker_name,
+                    GREATEST(
+                        ws.last_run_at,
+                        COALESCE(
+                            (SELECT MAX(started_at) FROM worker_log wl
+                             WHERE wl.worker_name = ws.worker_name),
+                            ws.last_run_at
+                        )
+                    ) AS effective_last_run
+                FROM worker_state ws
+                """
             )).fetchall()
         if not rows:
             return "ok", {"note": "no worker_state rows yet"}

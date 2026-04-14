@@ -95,6 +95,7 @@ from app.core.database import engine
 from app.models.action_task import ActionTask
 from app.models.merchant import Merchant
 from app.models.worker_log import WorkerLog
+from app.models.worker_state import WorkerState
 from app.services.action_executor import create_task
 from app.services.audience_segments import segment_product_visitors
 from app.services.nudge_engine import create_or_refresh_nudge
@@ -531,9 +532,25 @@ def run_cycle() -> None:
                 duration_ms=duration_ms,
             )
             db.add(entry)
+
+            # Also update worker_state.last_run_at so the health-check
+            # layer (core/protection_state.py::_worker_pressure) sees a
+            # fresh heartbeat. Previously this worker only wrote to
+            # worker_log and left worker_state untouched, which made it
+            # permanently appear stale and cascaded into protection_state
+            # going CRITICAL → nudge_optimization_worker skipping its
+            # cycles → more stale workers → loop.
+            state = db.query(WorkerState).filter(
+                WorkerState.worker_name == WORKER_NAME
+            ).first()
+            if state is None:
+                state = WorkerState(worker_name=WORKER_NAME, last_run_at=finished_at)
+                db.add(state)
+            else:
+                state.last_run_at = finished_at
             db.commit()
         except Exception as exc:
-            log(f"worker_log write error (non-fatal): {exc}")
+            log(f"worker_log/state write error (non-fatal): {exc}")
         db.close()
 
 
