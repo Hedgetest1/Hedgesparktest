@@ -9,7 +9,10 @@ Pro-gated.
 """
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -18,7 +21,28 @@ from app.core.deps import require_pro_session
 router = APIRouter(tags=["causal_lift"])
 
 
-@router.get("/pro/causal-lift")
+class CausalLiftResponse(BaseModel):
+    shop_domain: str
+    total_lift_pct: float
+    attributed_revenue_eur: float
+    confidence: float
+    nudges_measured: int
+    exposed_visitors: int | None = None
+    holdout_visitors: int | None = None
+    methodology: str
+    detail: str
+
+
+class RecommendationImpactResponse(BaseModel):
+    shop_domain: str
+    actions_measured: int
+    avg_impact_pct: float
+    impacts: list[dict[str, Any]] = Field(default_factory=list)
+    methodology: str
+    detail: str
+
+
+@router.get("/pro/causal-lift", response_model=CausalLiftResponse)
 def get_causal_lift(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
@@ -31,7 +55,7 @@ def get_causal_lift(
     return measure_nudge_lift(db, shop)
 
 
-@router.get("/pro/recommendation-impact")
+@router.get("/pro/recommendation-impact", response_model=RecommendationImpactResponse)
 def get_recommendation_impact(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),

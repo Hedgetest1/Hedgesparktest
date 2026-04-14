@@ -7,7 +7,10 @@ Pro-gated. Cached 3h.
 """
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -16,7 +19,15 @@ from app.core.deps import require_pro_session
 router = APIRouter(tags=["abandoned_intent"])
 
 
-@router.get("/pro/abandoned-intent")
+class AbandonedIntentResponse(BaseModel):
+    shop_domain: str
+    products: list[dict[str, Any]] = Field(default_factory=list)
+    session_insights: dict[str, Any] = Field(default_factory=dict)
+    headline: str
+    generated_at: str
+
+
+@router.get("/pro/abandoned-intent", response_model=AbandonedIntentResponse)
 def get_abandoned_intent(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
