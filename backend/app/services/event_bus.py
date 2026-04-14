@@ -170,6 +170,8 @@ def _record_emit_failure() -> None:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("event_bus.emit_failure")
             return
         count = rc.incr(_EMIT_FAIL_REDIS_KEY)
         rc.expire(_EMIT_FAIL_REDIS_KEY, 3600)

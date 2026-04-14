@@ -54,6 +54,8 @@ def _on_cooldown(worker: str) -> bool:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("worker_watchdog.cooldown_read")
             return False
         return bool(rc.exists(_restart_cooldown_key(worker)))
     except Exception:
@@ -65,6 +67,8 @@ def _set_cooldown(worker: str) -> None:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("worker_watchdog.cooldown_write")
             return
         rc.setex(_restart_cooldown_key(worker), _RESTART_COOLDOWN_S, "1")
     except Exception:

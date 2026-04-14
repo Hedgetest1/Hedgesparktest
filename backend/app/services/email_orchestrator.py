@@ -653,6 +653,8 @@ def _claim_send_slot(shop: str, email_type: str) -> bool:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("email_orchestrator.dupe_guard")
             return True  # Redis down — fail-open
         key = f"{_REDIS_PREFIX}guard:{shop}:{email_type}"
         result = rc.set(key, "1", nx=True, ex=_SEND_GUARD_TTL)

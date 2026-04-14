@@ -144,6 +144,8 @@ def _rate_limit_check(ip: str) -> bool:
         from app.core.redis_client import get_redis
         r = get_redis()
         if r is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("frontend_errors.rate_limit")
             return True  # fail-open if redis is down — alerting matters more
         key = f"hs:fe_errors:{ip}"
         n = r.incr(key)

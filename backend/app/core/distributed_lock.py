@@ -29,6 +29,8 @@ import uuid
 from contextlib import contextmanager
 from typing import Generator
 
+from app.core.silent_fallback import record_silent_return
+
 logger = logging.getLogger(__name__)
 
 # Unique identity for this process — used to ensure only the holder can release.
@@ -122,6 +124,7 @@ def advisory_lock(
     client = _get_redis()
 
     if client is None:
+        record_silent_return("distributed_lock.advisory")
         yield True
         return
 
@@ -159,6 +162,7 @@ def extend_lock(name: str, ttl_seconds: int = 600) -> bool:
     key = f"hs:wlock:{name}"
     client = _get_redis()
     if client is None:
+        record_silent_return("distributed_lock.extend")
         return False
     try:
         # Only extend if we still hold it

@@ -125,6 +125,8 @@ def get_merchant_webhook_status(shop_domain: str) -> dict | None:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("webhook_monitor.status_read")
             return None
         raw = rc.get(f"{_REDIS_PREFIX}{shop_domain}")
         return json.loads(raw) if raw else None

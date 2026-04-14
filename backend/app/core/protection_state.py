@@ -78,6 +78,8 @@ def _redis_pressure() -> tuple[str, dict]:
         from app.core.redis_client import _client
         client = _client()
         if client is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("protection_state.redis_ping")
             return "degraded", {"reason": "no_redis_url"}
         # Cheap PING — no data transfer
         client.ping()

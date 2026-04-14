@@ -39,6 +39,8 @@ from sqlalchemy.orm import Session
 
 from app.models.merchant_rule import MerchantRule
 
+from app.core.silent_fallback import record_silent_return
+
 log = logging.getLogger("rule_engine")
 
 _SUPPORTED_OPS = {"eq", "ne", "gt", "lt", "gte", "lte", "contains", "in", "regex"}
@@ -59,6 +61,7 @@ def _redis():
 def _rate_allow(rule_id: int, max_per_hour: int) -> bool:
     rc = _redis()
     if rc is None:
+        record_silent_return("rule_engine.rate_limit")
         return True  # fail-open on Redis down
     try:
         key = f"{_RATE_REDIS_KEY_PREFIX}:{rule_id}:{datetime.now(timezone.utc).strftime('%Y%m%d%H')}"

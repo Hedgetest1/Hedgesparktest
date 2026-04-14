@@ -123,6 +123,8 @@ def _get_quota_usage(shop_domain: str, action_type: str) -> tuple[int, int] | No
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("trust_contract.quota_read")
             return None
         today_raw = rc.get(_quota_key(shop_domain, action_type, "day"))
         week_raw = rc.get(_quota_key(shop_domain, action_type, "week"))
@@ -139,6 +141,8 @@ def _increment_quota(shop_domain: str, action_type: str) -> None:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("trust_contract.quota_incr")
             return
         day_key = _quota_key(shop_domain, action_type, "day")
         week_key = _quota_key(shop_domain, action_type, "week")

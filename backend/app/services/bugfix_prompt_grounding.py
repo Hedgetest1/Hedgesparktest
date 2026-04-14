@@ -449,6 +449,8 @@ def clear_quarantine(domain: str, source_type: str, ttl_days: int = 7) -> bool:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("bugfix_grounding.clear_quarantine")
             return False
         rc.setex(
             f"hs:quarantine:cleared:{domain}:{source_type}",

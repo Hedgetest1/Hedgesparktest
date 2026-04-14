@@ -55,6 +55,8 @@ def _claim_followup_slot(shop_domain: str) -> bool:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("followup_worker.claim_slot")
             # Redis down — fall through to DB-level dedup only
             log.warning("followup_worker: Redis unavailable — relying on DB dedup only for %s", shop_domain)
             return True

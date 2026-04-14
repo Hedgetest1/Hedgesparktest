@@ -101,6 +101,8 @@ def _check_auto_response_rate(shop_domain: str) -> bool:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("auto_responder.daily_cap")
             return True  # fail-open if Redis unavailable
         key = f"{_REDIS_AR_PREFIX}{shop_domain}"
         count = rc.get(key)

@@ -28,6 +28,8 @@ import math
 import time
 from dataclasses import dataclass
 
+from app.core.silent_fallback import record_silent_return
+
 log = logging.getLogger("slo")
 
 _TTL_SECONDS = 2 * 3600  # 2 hours — keeps memory bounded
@@ -53,6 +55,7 @@ def record_timing(route: str, method: str, status: int, duration_ms: float) -> N
     """Log one request observation. Never raises."""
     rc = _redis()
     if rc is None:
+        record_silent_return("slo.record")
         return
     try:
         now_ms = int(time.time() * 1000)

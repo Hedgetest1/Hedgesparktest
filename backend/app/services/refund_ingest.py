@@ -28,6 +28,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from app.core.silent_fallback import record_silent_return
+
 log = logging.getLogger("refund_ingest")
 
 _REDIS_KEY = "hs:refunds:v1"
@@ -118,6 +120,7 @@ def ingest_refund(shop_domain: str, payload: dict[str, Any]) -> int:
     """Persist a refund webhook. Returns number of rows stored (0 on failure)."""
     rc = _redis()
     if rc is None:
+        record_silent_return("refund_ingest.store")
         return 0
 
     rows = _parse_refund_rows(payload)
@@ -157,6 +160,7 @@ def list_recent_refunds(shop_domain: str, days: int = 28) -> list[dict[str, Any]
     """Return refunds from the last N days (default 28), newest first."""
     rc = _redis()
     if rc is None:
+        record_silent_return("refund_ingest.list")
         return []
     try:
         raw = rc.get(_key(shop_domain))

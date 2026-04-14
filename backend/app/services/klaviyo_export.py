@@ -602,6 +602,8 @@ def push_intent_signals_to_klaviyo(
             from app.core.redis_client import _client
             rc = _client()
             if rc is None:
+                from app.core.silent_fallback import record_silent_return
+                record_silent_return("klaviyo_export.dedup_claim")
                 return False
             key = f"hs:kpush:{shop_domain}:{vid}:{purl}:{stype}"
             claimed = rc.set(key, "1", nx=True, ex=_DEDUP_COOLDOWN_SECONDS)

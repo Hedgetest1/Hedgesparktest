@@ -204,6 +204,8 @@ def _increment_daily_rollback_count() -> None:
         key = _ROLLBACK_DAILY_KEY.format(date=today)
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("evolution.rollback_count")
             return
         pipe = rc.pipeline()
         pipe.incr(key, 1)

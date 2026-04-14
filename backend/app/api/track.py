@@ -272,6 +272,8 @@ def _check_per_shop_rate(request, shop_domain: str) -> bool:
         from app.core.redis_client import _client
         client = _client()
         if client is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("track.per_shop_rate")
             return True
         ip = request.client.host if request.client else "unknown"
         key = f"hs:rl:track:{ip}:{shop_domain}"

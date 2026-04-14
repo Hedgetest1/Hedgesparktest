@@ -42,6 +42,8 @@ def _redis_check(bucket_key: str, max_requests: int, window: int) -> Tuple[bool 
         from app.core.redis_client import _client
         client = _client()
         if client is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("rate_limit.check")
             return _REDIS_UNAVAILABLE, 0
 
         key = f"hs:rl:{bucket_key}"

@@ -26,6 +26,8 @@ import logging
 import time
 from dataclasses import dataclass
 
+from app.core.silent_fallback import record_silent_return
+
 log = logging.getLogger("feature_usage")
 
 _PREFIX = "hs:fusage"
@@ -78,6 +80,7 @@ def track(feature: str, shop: str | None = None) -> None:
     """Fire-and-forget: record one use of `feature`."""
     rc = _redis()
     if rc is None:
+        record_silent_return("feature_usage.track")
         return
     try:
         uses_key = f"{_PREFIX}:{feature}:uses"

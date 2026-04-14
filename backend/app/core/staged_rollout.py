@@ -107,6 +107,8 @@ def _record_ring_change(flag: str, ring: int) -> None:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("staged_rollout.ring_write")
             return
         rc.hset(_RING_HIST_KEY, f"{flag}:{ring}", str(int(time.time())))
     except Exception:
@@ -118,6 +120,8 @@ def _ring_started_at(flag: str, ring: int) -> int | None:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("staged_rollout.ring_read")
             return None
         v = rc.hget(_RING_HIST_KEY, f"{flag}:{ring}")
         if not v:

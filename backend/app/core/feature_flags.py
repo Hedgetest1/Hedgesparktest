@@ -41,6 +41,8 @@ import os
 from dataclasses import dataclass, field
 from typing import Iterable
 
+from app.core.silent_fallback import record_silent_return
+
 log = logging.getLogger("feature_flags")
 
 _REDIS_PREFIX = "hs:flag"
@@ -127,6 +129,7 @@ def _load_flag(name: str) -> dict:
     }
     rc = _redis()
     if rc is None:
+        record_silent_return("feature_flags.load")
         return default
     try:
         key = f"{_REDIS_PREFIX}:{name}"
@@ -237,6 +240,7 @@ def set_flag(
     """Mutate a flag's Redis state. Returns True on success."""
     rc = _redis()
     if rc is None:
+        record_silent_return("feature_flags.set")
         return False
     try:
         key = f"{_REDIS_PREFIX}:{name}"

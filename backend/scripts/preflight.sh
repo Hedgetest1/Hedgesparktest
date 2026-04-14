@@ -91,6 +91,20 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2e. Silent-fallback observability gate (Tier 2.1). Every `if rc is None`
+# fast-path return in app/ must call record_silent_return() so prod Redis
+# outages surface in /ops/silent-fallback instead of silently degrading
+# subsystems. Baseline 0 bare reached on 2026-04-14 — keep it at 0.
+# ---------------------------------------------------------------------------
+step "Silent-fallback coverage (audit_silent_returns.py --strict)"
+if "$BACKEND/venv/bin/python" "$BACKEND/scripts/audit_silent_returns.py" --strict > /tmp/preflight_silent.log 2>&1; then
+    ok "all silent fallbacks observed"
+else
+    bad "bare silent fallbacks detected — see /tmp/preflight_silent.log"
+    tail -15 /tmp/preflight_silent.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 3. Python AST parse check — any syntax error blocks commit
 # ---------------------------------------------------------------------------
 step "Python AST parse (staged .py files)"

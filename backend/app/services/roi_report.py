@@ -199,6 +199,8 @@ def _already_sent_this_month(shop_domain: str, month: str) -> bool:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("roi_report.dedup_read")
             return False
         key = f"{_REPORT_IDEMPOTENCY_PREFIX}:{hashlib.md5((shop_domain + month).encode()).hexdigest()[:16]}"
         return rc.exists(key) > 0
@@ -211,6 +213,8 @@ def _mark_sent_this_month(shop_domain: str, month: str) -> None:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("roi_report.dedup_write")
             return
         key = f"{_REPORT_IDEMPOTENCY_PREFIX}:{hashlib.md5((shop_domain + month).encode()).hexdigest()[:16]}"
         rc.setex(key, _REPORT_IDEMPOTENCY_TTL_SECONDS, "1")

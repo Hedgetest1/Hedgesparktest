@@ -49,6 +49,17 @@ from collections import Counter, defaultdict
 APP_ROOT = pathlib.Path(__file__).resolve().parent.parent / "app"
 SKIP_DIRS = {"__pycache__", ".pytest_cache"}
 
+# Files exempt from the `--strict` gate. These modules implement the
+# silent-fallback observability plane itself, so recording from inside
+# them would be a circular reference: record_silent_return lives in
+# silent_fallback.py, which imports from redis_client.py. Any fallback
+# return inside those two files cannot itself call record_silent_return
+# without causing an infinite observation loop on Redis failure.
+SELF_REFERENTIAL_FILES = {
+    "app/core/redis_client.py",
+    "app/core/silent_fallback.py",
+}
+
 # Names the guard check targets. These are the common accessor-return
 # variable names across the codebase.
 GUARD_NAMES = {"rc", "client", "r", "redis_client", "_rc"}
@@ -158,6 +169,9 @@ def walk_app() -> list[Finding]:
     findings: list[Finding] = []
     for path in APP_ROOT.rglob("*.py"):
         if any(part in SKIP_DIRS for part in path.parts):
+            continue
+        rel = path.relative_to(APP_ROOT.parent).as_posix()
+        if rel in SELF_REFERENTIAL_FILES:
             continue
         findings.extend(scan_file(path))
     return findings

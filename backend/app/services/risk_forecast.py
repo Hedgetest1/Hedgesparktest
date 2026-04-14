@@ -39,6 +39,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from app.core.silent_fallback import record_silent_return
+
 log = logging.getLogger("risk_forecast")
 
 _REDIS_KEY = "hs:rars_history:v1"
@@ -71,6 +73,7 @@ def record_rars_snapshot(shop_domain: str, total_at_risk_eur: float) -> None:
     """
     rc = _redis()
     if rc is None:
+        record_silent_return("risk_forecast.record")
         return
     try:
         raw = rc.get(_key(shop_domain))
@@ -100,6 +103,7 @@ def record_rars_snapshot(shop_domain: str, total_at_risk_eur: float) -> None:
 def _load_history(shop_domain: str) -> list[dict[str, Any]]:
     rc = _redis()
     if rc is None:
+        record_silent_return("risk_forecast.load")
         return []
     try:
         raw = rc.get(_key(shop_domain))

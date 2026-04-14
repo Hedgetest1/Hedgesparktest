@@ -639,6 +639,8 @@ def get_latest_for_shop(shop_domain: str) -> dict | None:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("night_shift_agent.latest_read")
             return None
         raw = rc.get(f"{_CACHE_LATEST_PREFIX}:{shop_domain}")
         if not raw:
@@ -691,6 +693,8 @@ def should_run_nightly_now() -> bool:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("night_shift_agent.day_lock")
             return True  # no redis → best-effort run
         lock_key = f"{_REDIS_PREFIX}:day_lock:{_day_key(now)}"
         # SETNX with 26h TTL — tomorrow's lock replaces today's

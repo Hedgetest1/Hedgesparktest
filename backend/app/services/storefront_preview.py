@@ -71,6 +71,8 @@ def _check_rate_limit(domain: str) -> bool:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("storefront_preview.rate_limit")
             return True  # fail-open: redis down, allow the preview
         key = _RATE_LIMIT_KEY.format(domain)
         if rc.get(key):

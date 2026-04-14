@@ -146,6 +146,8 @@ def _action_clear_redis_cache(db: Session, target: str) -> str:
     from app.core.redis_client import _client
     rc = _client()
     if rc is None:
+        from app.core.silent_fallback import record_silent_return
+        record_silent_return("orchestrator.clear_cache")
         return "redis_unavailable"
     try:
         if target == "*":

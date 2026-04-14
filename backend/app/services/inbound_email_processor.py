@@ -254,6 +254,8 @@ def _should_send_escalation(from_email: str) -> bool:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("inbound_email.escalation_cooldown")
             return True  # Redis down — fail-open for escalations
         key = f"{_ESCALATION_REDIS_PREFIX}{_normalize_email(from_email)}"
         result = rc.set(key, "1", nx=True, ex=_ESCALATION_COOLDOWN_SECONDS)
