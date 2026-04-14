@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 import { t } from "../lib/i18n";
 
 type Hypothesis = {
@@ -65,13 +66,18 @@ export function CausalWhyCard({
     let active = true;
     setLoading(true);
 
-    const refetch = () => fetch(`${apiBase}/pro/causal/explain`, {
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-    })
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((j: CausalResponse) => { if (active) { setData(j); setLastLive(new Date().toISOString()); } })
-      .catch(() => { if (active) setData(null); });
+    const refetch = async () => {
+      try {
+        const { data: j, error } = await apiClient.GET("/pro/causal/explain");
+        if (error || !j) throw new Error("fetch failed");
+        if (active) {
+          setData(j as unknown as CausalResponse);
+          setLastLive(new Date().toISOString());
+        }
+      } catch {
+        if (active) setData(null);
+      }
+    };
 
     refetch().finally(() => { if (active) setLoading(false); });
 

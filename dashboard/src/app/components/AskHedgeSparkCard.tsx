@@ -15,6 +15,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 import { t } from "../lib/i18n";
 
 type Answer = {
@@ -96,15 +97,11 @@ export function AskHedgeSparkCard({
     setError(null);
     setAnswer(null);
     try {
-      const r = await fetch(`${apiBase}/pro/kg/query`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: q }),
+      const { data: j, error: err } = await apiClient.POST("/pro/kg/query", {
+        body: { question: q },
       });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const j: Answer = await r.json();
-      setAnswer(j);
+      if (err || !j) throw new Error("query failed");
+      setAnswer(j as unknown as Answer);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to ask");
     } finally {

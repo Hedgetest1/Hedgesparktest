@@ -19,6 +19,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 import { CardSkeleton, CardError, CardEmpty, type CardFetchState } from "./_CardStates";
 import {
   DetailDrawer,
@@ -87,15 +88,12 @@ export function AnomalyFusionCard({
 
     const pullFusion = async () => {
       try {
-        const r = await fetch(`${apiBase}/pro/anomalies/fusion`, {
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-        });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const j: FusionResponse = await r.json();
+        const { data: j, error } = await apiClient.GET("/pro/anomalies/fusion");
+        if (error || !j) throw new Error("fetch failed");
         if (!active) return;
-        setData(j);
-        setState(j.alerts.length === 0 ? "empty" : "ready");
+        const fusion = j as unknown as FusionResponse;
+        setData(fusion);
+        setState(fusion.alerts.length === 0 ? "empty" : "ready");
       } catch {
         if (active) setState("error");
       }

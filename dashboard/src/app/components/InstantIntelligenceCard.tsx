@@ -20,6 +20,7 @@
  */
 
 import { useEffect, useState, useCallback } from "react";
+import { apiClient } from "@/app/lib/api-client";
 
 type TopProduct = {
   id: string;
@@ -76,14 +77,11 @@ export function InstantIntelligenceCard({ apiBase }: { apiBase: string }) {
 
   const load = useCallback(async () => {
     try {
-      const r = await fetch(`${apiBase}/pro/instant-intelligence`, {
-        credentials: "include",
-      });
-      if (!r.ok) return;
-      const json = (await r.json()) as InstantIntel;
-      setData(json);
+      const { data: j, error } = await apiClient.GET("/pro/instant-intelligence");
+      if (error || !j) return;
+      setData(j as unknown as InstantIntel);
     } catch {}
-  }, [apiBase]);
+  }, []);
 
   useEffect(() => {
     load().finally(() => setLoading(false));

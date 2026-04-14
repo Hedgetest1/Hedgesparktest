@@ -21,6 +21,7 @@
  */
 
 import { useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 import { CardSkeleton, CardError, CardEmpty, useCardFetch } from "./_CardStates";
 import { reportFrontendError } from "../lib/error-reporter";
 
@@ -156,18 +157,14 @@ export function NightShiftCard({
     if (!data.top_action || applying || applied) return;
     setApplying(true);
     try {
-      const r = await fetch(`${apiBase}/pro/night-shift/apply`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-      });
-      if (r.ok) {
+      const { error } = await apiClient.POST("/pro/night-shift/apply");
+      if (!error) {
         setApplied(true);
       } else {
         reportFrontendError({
           component: "NightShiftCard.applyAction",
           error_type: "HttpError",
-          message: `POST /pro/night-shift/apply returned ${r.status}`,
+          message: "POST /pro/night-shift/apply failed",
           severity: "warning",
         });
       }

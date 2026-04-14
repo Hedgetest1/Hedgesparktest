@@ -147,6 +147,20 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2i. Dashboard fetch-call coverage (Tier 3.2). Every fetch() to a
+# /pro|/merchant|/analytics path must route through the typed apiClient
+# so URL + query + response are validated at compile time. REPORT-ONLY
+# until the sweep closes — baseline driven down commit by commit.
+# ---------------------------------------------------------------------------
+step "Dashboard fetch coverage (audit_dashboard_fetches.py — report only)"
+if "$BACKEND/venv/bin/python" "$BACKEND/scripts/audit_dashboard_fetches.py" > /tmp/preflight_dash_fetch.log 2>&1; then
+    _BARE=$(grep -E "bare fetch\(\) to /pro" /tmp/preflight_dash_fetch.log | head -1 | awk '{print $NF}')
+    ok "report-only: ${_BARE} bare fetch() calls to typed endpoints"
+else
+    bad "dashboard fetch audit crashed — see /tmp/preflight_dash_fetch.log"
+fi
+
+# ---------------------------------------------------------------------------
 # 3. Python AST parse check — any syntax error blocks commit
 # ---------------------------------------------------------------------------
 step "Python AST parse (staged .py files)"

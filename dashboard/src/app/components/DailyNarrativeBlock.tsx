@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 
 type NarrativeData = {
   shop_domain: string;
@@ -35,9 +36,11 @@ export function DailyNarrativeBlock({ apiBase, isProUser }: { apiBase: string; i
       setLoading(false);
       return;
     }
-    fetch(`${apiBase}/pro/daily-narrative`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setData)
+    apiClient
+      .GET("/pro/daily-narrative")
+      .then(({ data: j, error }) => {
+        if (!error && j) setData(j as unknown as NarrativeData);
+      })
       .finally(() => setLoading(false));
   }, [apiBase, isProUser]);
 
