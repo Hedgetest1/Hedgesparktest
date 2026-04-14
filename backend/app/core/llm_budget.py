@@ -92,6 +92,8 @@ def can_charge_merchant(db, shop_domain: str, estimated_cost_eur: float) -> tupl
         rc = _client()
         if rc is None:
             # Fail-closed: no Redis → deny LLM spend for merchant accounting
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("llm_budget.check_merchant")
             return False, "redis_unavailable"
 
         # Lookup plan
@@ -124,6 +126,8 @@ def record_merchant_charge(shop_domain: str, cost_eur: float) -> None:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("llm_budget.record_merchant_charge")
             return
         month = datetime.now(timezone.utc).strftime("%Y-%m")
         key = f"hs:llm:merchant:{shop_domain}:{month}"
@@ -295,6 +299,8 @@ def _get_mode_override() -> str:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("llm_budget.mode_override_read")
             return "full"
         val = rc.get("llm:mode_override")
         if val and val.decode() if isinstance(val, bytes) else val:
@@ -314,6 +320,8 @@ def set_mode_override(mode: str) -> bool:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("llm_budget.mode_override_write")
             return False
         rc.set("llm:mode_override", mode, ex=86400 * 30)
         return True
@@ -330,6 +338,8 @@ def _redis_incr(key: str, ttl: int = 86400) -> int | None:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("llm_budget.counter_incr")
             return None
         val = rc.incr(key)
         if val == 1:
@@ -344,6 +354,8 @@ def _redis_get(key: str) -> int:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("llm_budget.counter_read")
             return 0
         val = rc.get(key)
         return int(val) if val else 0
@@ -357,6 +369,8 @@ def _redis_incrbyfloat(key: str, amount: float, ttl: int = 2678400) -> float | N
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("llm_budget.cost_incr")
             return None
         val = rc.incrbyfloat(key, amount)
         rc.expire(key, ttl)
@@ -370,6 +384,8 @@ def _redis_get_float(key: str) -> float:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("llm_budget.cost_read")
             return 0.0
         val = rc.get(key)
         return float(val) if val else 0.0

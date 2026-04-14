@@ -55,6 +55,8 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
 
+from app.core.silent_fallback import record_silent_return
+
 log = logging.getLogger("signal_webhooks")
 
 _REDIS_KEY_WEBHOOKS = "hs:webhooks:v1"
@@ -161,6 +163,7 @@ def _circuit_open_key(webhook_id: str) -> str:
 def _is_webhook_circuit_open(webhook_id: str) -> bool:
     rc = _redis()
     if rc is None:
+        record_silent_return("signal_webhooks.circuit_check")
         return False
     try:
         return bool(rc.exists(_circuit_open_key(webhook_id)))
@@ -173,6 +176,7 @@ def _record_webhook_failure(webhook_id: str) -> int:
     Returns the current failure count (post-increment)."""
     rc = _redis()
     if rc is None:
+        record_silent_return("signal_webhooks.record_failure")
         return 0
     try:
         key = _circuit_fail_key(webhook_id)
@@ -189,6 +193,7 @@ def _record_webhook_failure(webhook_id: str) -> int:
 def _record_webhook_success(webhook_id: str) -> None:
     rc = _redis()
     if rc is None:
+        record_silent_return("signal_webhooks.record_success")
         return
     try:
         rc.delete(_circuit_fail_key(webhook_id))
@@ -199,6 +204,7 @@ def _record_webhook_success(webhook_id: str) -> None:
 def list_webhooks(shop_domain: str) -> list[WebhookConfig]:
     rc = _redis()
     if rc is None:
+        record_silent_return("signal_webhooks.list")
         return []
     try:
         raw = rc.get(_key_webhooks(shop_domain))
@@ -222,6 +228,7 @@ def get_or_create_secret(shop_domain: str) -> str:
     """
     rc = _redis()
     if rc is None:
+        record_silent_return("signal_webhooks.secret")
         return ""
     try:
         existing = rc.get(_key_secret(shop_domain))
@@ -249,6 +256,7 @@ def create_webhook(shop_domain: str, *, url: str, events: list[str]) -> WebhookC
 
     rc = _redis()
     if rc is None:
+        record_silent_return("signal_webhooks.create")
         return None
 
     existing = list_webhooks(shop_domain)
@@ -281,6 +289,7 @@ def create_webhook(shop_domain: str, *, url: str, events: list[str]) -> WebhookC
 def delete_webhook(shop_domain: str, webhook_id: str) -> bool:
     rc = _redis()
     if rc is None:
+        record_silent_return("signal_webhooks.delete")
         return False
     try:
         existing = list_webhooks(shop_domain)

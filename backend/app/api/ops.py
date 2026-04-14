@@ -147,6 +147,20 @@ def get_llm_budget(
     return get_usage_summary()
 
 
+@router.get("/silent-fallback")
+def get_silent_fallback_summary(
+    days: int = Query(default=1, ge=1, le=7),
+    _auth: bool = Depends(require_operator),
+):
+    """Silent-fallback observability: how often each service took its
+    Redis-down fast path. When Redis is healthy these counters are all 0
+    or near-0; a sudden spike in any service means the fast path has
+    become the slow path and degrades a subsystem silently. Tier 2.1
+    of the top-1 hardening roadmap."""
+    from app.core.silent_fallback import read_summary
+    return read_summary(days=days, top_n=50)
+
+
 @router.get("/compliance")
 def get_compliance_score(
     force_refresh: bool = Query(default=False),

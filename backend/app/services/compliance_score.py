@@ -52,6 +52,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.core.silent_fallback import record_silent_return
+
 log = logging.getLogger("compliance_score")
 
 # If the score drops below this, the compliance synthesizer sets a
@@ -168,6 +170,7 @@ def _score_gdpr_sla(db: Session) -> dict:
 def _score_consent_rate() -> dict:
     rc = _redis()
     if rc is None:
+        record_silent_return("compliance_score.consent_rate")
         return {
             "weight": _WEIGHTS["consent_rate"],
             "score": _WEIGHTS["consent_rate"] / 2,
@@ -218,6 +221,7 @@ def _score_consent_rate() -> dict:
 def _score_retention_sweep() -> dict:
     rc = _redis()
     if rc is None:
+        record_silent_return("compliance_score.retention_sweep")
         return {
             "weight": _WEIGHTS["retention_sweep"],
             "score": _WEIGHTS["retention_sweep"] / 2,
@@ -299,6 +303,7 @@ def _score_audit_log_integrity() -> dict:
     and found no violations."""
     rc = _redis()
     if rc is None:
+        record_silent_return("compliance_score.audit_log_integrity")
         return {
             "weight": _WEIGHTS["audit_log_integrity"],
             "score": _WEIGHTS["audit_log_integrity"] / 2,
@@ -569,6 +574,7 @@ def compute_compliance_score(db: Session) -> dict:
 def get_cached_compliance_score() -> dict | None:
     rc = _redis()
     if rc is None:
+        record_silent_return("compliance_score.cache_read")
         return None
     try:
         raw = rc.get(_CACHE_KEY)
@@ -586,6 +592,7 @@ def is_self_modification_paused() -> bool:
     """Read by the apply pipeline to decide whether to run."""
     rc = _redis()
     if rc is None:
+        record_silent_return("compliance_score.self_mod_pause")
         return False
     try:
         return bool(rc.get(_AUTO_PAUSE_KEY))
