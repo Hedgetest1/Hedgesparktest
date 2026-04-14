@@ -148,7 +148,7 @@ function EmptyState({ text }: { text: string }) {
   );
 }
 
-function getLeakReason(item: {
+function getCurseReason(item: {
   avg_dwell: number;
   avg_scroll: number;
   click_rate: number;
@@ -161,7 +161,7 @@ function getLeakReason(item: {
   }
 
   if (item.avg_scroll >= 60 && item.clicks <= 1) {
-    return "Visitors consume the page deeply but do not act. Product page persuasion is leaking.";
+    return "Visitors read the page deeply but don't act. The product page isn't closing the sale.";
   }
 
   if (item.visitors >= 8 && item.click_rate < 0.1) {
@@ -339,7 +339,7 @@ const priceJson = priceRes.ok ? await priceRes.json() : [];
           clickPenalty;
 
         const leakScore = Math.max(0, Math.min(100, rawScore));
-        const primaryReason = getLeakReason({
+        const primaryReason = getCurseReason({
           avg_dwell: avgDwell,
           avg_scroll: avgScroll,
           click_rate: clickRate,
@@ -395,7 +395,7 @@ const priceJson = priceRes.ok ? await priceRes.json() : [];
                   HedgeSpark Intelligence
                 </h1>
                 <p className="mt-2 max-w-2xl text-sm text-slate-300">
-                  Advanced behavior intelligence, weekly trend analysis, alerts, AI actions, and Revenue Leak detection.
+                  Advanced behavior intelligence, weekly trend analysis, alerts, AI actions, and the Curse Map.
                 </p>
               </div>
 
@@ -413,7 +413,7 @@ const priceJson = priceRes.ok ? await priceRes.json() : [];
           <SectionHeader
             eyebrow="Pro Overview"
             title="Intelligence snapshot"
-            description="The advanced layer of HedgeSpark: weekly behavior, live signals, AI decision support, and revenue leak detection."
+            description="The advanced layer of HedgeSpark: weekly behavior, live signals, AI decision support, and the Curse Map."
           />
 
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -442,36 +442,36 @@ const priceJson = priceRes.ok ? await priceRes.json() : [];
 
         <section className="mb-8">
           <SectionHeader
-            eyebrow="Revenue Leak Detector"
-            title="Where the store is losing conversion energy"
-            description="Products/pages attracting attention but failing to turn it into decisive action."
+            eyebrow="Curse Map"
+            title="Where the silent curse is costing you sales"
+            description="Products and pages getting real attention but never turning it into a purchase."
           />
 
           <div className="mb-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <MetricCard
-              label="Leak Candidates"
+              label="Cursed pages"
               value={formatNumber(revenueLeaks.length)}
               hint="Pages with measurable conversion friction"
             />
             <MetricCard
-              label="High Urgency Leaks"
+              label="Critical curses"
               value={formatNumber(leakTotals.high)}
-              hint="Most urgent conversion losses"
+              hint="Highest-impact sales losses right now"
             />
             <MetricCard
-              label="Medium Urgency Leaks"
+              label="Moderate curses"
               value={formatNumber(leakTotals.medium)}
-              hint="Recoverable with rapid experiments"
+              hint="Fixable with a fast experiment"
             />
             <MetricCard
-              label="Top Leak Score"
+              label="Top curse intensity"
               value={formatDecimal(leakTotals.topScore, 0)}
-              hint="Highest current risk detected"
+              hint="Strongest silent curse currently active"
             />
           </div>
 
           {revenueLeaks.length === 0 ? (
-            <EmptyState text="No strong revenue leaks detected yet. As more behavioral data arrives, HedgeSpark will surface the first leakage points here." />
+            <EmptyState text="No strong curses detected yet. As more visitor behavior arrives, HedgeSpark will surface the first cursed spots here." />
           ) : (
             <div className="grid gap-4 xl:grid-cols-2">
               {revenueLeaks.map((item) => (
@@ -490,7 +490,7 @@ const priceJson = priceRes.ok ? await priceRes.json() : [];
                           {item.urgency} Urgency
                         </span>
                         <span className="rounded-full bg-white/5 px-2.5 py-1 text-[11px] text-slate-300 ring-1 ring-white/10">
-                          Leak Score {formatDecimal(item.leak_score, 0)}
+                          Curse intensity {formatDecimal(item.leak_score, 0)}
                         </span>
                         <span className="rounded-full bg-white/5 px-2.5 py-1 text-[11px] text-slate-300 ring-1 ring-white/10">
                           {prettyText(item.signal_type)}
@@ -563,7 +563,7 @@ const priceJson = priceRes.ok ? await priceRes.json() : [];
 
                       <div className="mt-4 rounded-2xl border border-emerald-400/15 bg-emerald-500/5 p-4">
                         <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-300/80">
-                          Suggested recovery action
+                          Recommended move
                         </div>
                         <div className="mt-2 text-sm leading-6 text-slate-200">
                           {item.recommended_action}
