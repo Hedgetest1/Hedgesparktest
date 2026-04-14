@@ -50,7 +50,10 @@ _MAX_LOOKBACK_DAYS = 60      # cap the accrual window so projections stay honest
 
 
 def _now() -> datetime:
-    return datetime.utcnow()
+    # Naive-UTC to match TIMESTAMP WITHOUT TIME ZONE columns used across
+    # the schema. datetime.utcnow() is deprecated — we materialize the
+    # equivalent via now(timezone.utc).replace(tzinfo=None).
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _as_naive_utc(dt: datetime | None) -> datetime | None:

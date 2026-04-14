@@ -46,7 +46,10 @@ _LOOKBACK_DAYS = 90
 
 
 def _now():
-    return datetime.utcnow()
+    # Naive-UTC to match TIMESTAMP WITHOUT TIME ZONE columns used across
+    # the schema. datetime.utcnow() is deprecated — we materialize the
+    # equivalent via now(timezone.utc).replace(tzinfo=None).
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 @router.get("/pro/playbook/{signal_type}")

@@ -2423,12 +2423,13 @@ def build_tier2_weekly_review(db) -> tuple[str, list[list[dict]]]:
     risk_level. Provides ONE batch-approve and ONE batch-reject button
     for the entire group, plus dashboard links for individual review.
     """
-    from datetime import datetime as _dt, timedelta as _td
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
     from sqlalchemy import text as sql_text
     from zoneinfo import ZoneInfo
 
     rome_now = _dt.now(ZoneInfo("Europe/Rome"))
-    cutoff = _dt.utcnow() - _td(days=7)
+    # Naive-UTC so it matches TIMESTAMP WITHOUT TIME ZONE columns.
+    cutoff = _dt.now(_tz.utc).replace(tzinfo=None) - _td(days=7)
 
     try:
         rows = db.execute(sql_text("""
