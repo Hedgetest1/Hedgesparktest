@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Column, DateTime, Float, Integer, String, UniqueConstraint
+from sqlalchemy import BigInteger, Column, DateTime, Float, Index, Integer, String, UniqueConstraint, text
 
 from app.core.database import Base
 
@@ -100,5 +100,11 @@ class ProductMetrics(Base):
             "shop_domain",
             "product_url",
             name="uq_product_metrics_shop_product",
+        ),
+        Index("ix_product_metrics_shop_domain", "shop_domain"),
+        Index(
+            "ix_product_metrics_shop_visitors",
+            "shop_domain",
+            text("unique_visitors_24h DESC"),
         ),
     )

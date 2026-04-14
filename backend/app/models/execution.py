@@ -16,7 +16,7 @@ Holdout design:
 """
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String, Text
 
 from app.core.database import Base
 
@@ -78,7 +78,7 @@ class ExecutionOpportunity(Base):
     confidence_label = Column(String(16), nullable=True)
 
     __table_args__ = (
-        UniqueConstraint("shop_domain", "execution_id", name="uq_exec_opp_shop_id"),
+        Index("uq_exec_opp_id", "shop_domain", "execution_id", unique=True),
         Index("ix_exec_opp_shop", "shop_domain"),
         Index("ix_exec_opp_status", "shop_domain", "execution_status"),
     )
@@ -96,7 +96,7 @@ class ExecutionAudience(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     __table_args__ = (
-        UniqueConstraint("execution_id", "visitor_id", name="uq_exec_aud_exec_visitor"),
+        Index("uq_exec_aud_exec_visitor", "execution_id", "visitor_id", unique=True),
         Index("ix_exec_aud_shop_exec", "shop_domain", "execution_id"),
         Index("ix_exec_aud_visitor", "visitor_id"),
         Index("ix_exec_aud_group", "execution_id", "group_type"),
@@ -121,7 +121,7 @@ class ExecutionTracking(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     __table_args__ = (
-        UniqueConstraint("execution_id", "visitor_id", name="uq_exec_track_exec_visitor"),
+        Index("uq_exec_track_exec_visitor", "execution_id", "visitor_id", unique=True),
         Index("ix_exec_track_shop_exec", "shop_domain", "execution_id"),
         Index("ix_exec_track_visitor", "visitor_id"),
         Index("ix_exec_track_group", "execution_id", "group_type"),
@@ -148,5 +148,5 @@ class ExecutionBaseline(Base):
     product_b_revenue_24h = Column(Float, nullable=True)
 
     __table_args__ = (
-        UniqueConstraint("shop_domain", "execution_id", name="uq_exec_baseline_id"),
+        Index("uq_exec_baseline_id", "shop_domain", "execution_id", unique=True),
     )

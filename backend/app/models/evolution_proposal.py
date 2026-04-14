@@ -100,4 +100,9 @@ class EvolutionProposal(Base):
     __table_args__ = (
         Index("ix_evolution_proposals_status", "status", "created_at"),
         Index("ix_evolution_proposals_dedup", "dedup_key"),
+        Index("ix_evolution_proposals_business_outcome", "business_outcome", "business_measured_at"),
+        Index("ix_evolution_proposals_decision", "decision_status", "decision_decided_at"),
+        Index("ix_evolution_proposals_extended_from", "extended_from_proposal_id"),
+        Index("ix_evolution_proposals_linked_bugfix", "linked_bugfix_candidate_id"),
+        Index("ix_evolution_proposals_outcome", "outcome_status", "outcome_measured_at"),
     )

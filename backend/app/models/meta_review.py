@@ -40,7 +40,7 @@ class MetaReview(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     created_at = Column(DateTime, nullable=False, default=_now_utc)
-    review_window = Column(String(32), nullable=False, unique=True)  # e.g. "2026-W13"
+    review_window = Column(String(32), nullable=False)  # e.g. "2026-W13"
     status = Column(String(16), nullable=False)                       # completed | skipped
     skipped_reason = Column(String(256), nullable=True)
     review_json = Column(Text, nullable=True)                         # structured JSON output

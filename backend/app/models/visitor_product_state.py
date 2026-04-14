@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Index
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, Index
 from app.core.database import Base
 
 
@@ -8,8 +8,8 @@ class VisitorProductState(Base):
 
     id = Column(Integer, primary_key=True)
 
-    visitor_id = Column(String)
-    product_url = Column(String)
+    visitor_id = Column(Text)
+    product_url = Column(Text)
 
     total_views = Column(Integer, default=0)
     total_dwell_seconds = Column(Integer, default=0)
@@ -21,14 +21,14 @@ class VisitorProductState(Base):
     last_seen = Column(DateTime)
 
     intent_score = Column(Integer, default=0)
-    intent_level = Column(String)
+    intent_level = Column(Text)
 
-    recommended_action = Column(String)
-    intent_explanation = Column(String)
+    recommended_action = Column(Text)
+    intent_explanation = Column(Text)
 
     shop_domain = Column(String, nullable=False)
 
     __table_args__ = (
         Index("ix_vps_shop_product", "shop_domain", "product_url"),
-        Index("ix_vps_shop_visitor", "shop_domain", "visitor_id"),
+        Index("ix_vps_state_shop_visitor", "shop_domain", "visitor_id"),
     )

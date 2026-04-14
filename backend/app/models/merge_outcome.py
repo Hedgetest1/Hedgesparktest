@@ -18,7 +18,7 @@ class MergeOutcome(Base):
     __tablename__ = "merge_outcomes"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    promotion_id = Column(Integer, nullable=False, index=True)
+    promotion_id = Column(Integer, nullable=False)
     bugfix_candidate_id = Column(Integer, nullable=False)
     created_at = Column(DateTime, nullable=False, default=_now_utc)
     merge_commit_sha = Column(String(64), nullable=True)
@@ -28,4 +28,5 @@ class MergeOutcome(Base):
 
     __table_args__ = (
         Index("ix_merge_outcomes_status", "evaluation_status", "created_at"),
+        Index("ix_merge_outcomes_promotion", "promotion_id"),
     )

@@ -20,7 +20,7 @@ class AutoFixPromotion(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     created_at = Column(DateTime, nullable=False, default=_now_utc)
-    bugfix_candidate_id = Column(Integer, nullable=False, index=True)
+    bugfix_candidate_id = Column(Integer, nullable=False)
     git_commit_sha = Column(String(64), nullable=False)
     branch_name = Column(String(128), nullable=True)
     status = Column(String(32), nullable=False, default="pending")
@@ -45,4 +45,5 @@ class AutoFixPromotion(Base):
 
     __table_args__ = (
         Index("ix_autofix_promotions_status", "status", "created_at"),
+        Index("ix_autofix_promotions_bugfix", "bugfix_candidate_id"),
     )

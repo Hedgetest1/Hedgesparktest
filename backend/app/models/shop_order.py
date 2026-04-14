@@ -99,4 +99,5 @@ class ShopOrder(Base):
         Index("ix_shop_orders_shop_domain", "shop_domain"),
         # Time-scoped revenue queries: WHERE shop_domain = X AND created_at > Y
         Index("ix_shop_orders_shop_created", "shop_domain", "created_at"),
+        Index("ix_shop_orders_customer_email", "shop_domain", "customer_email"),
     )

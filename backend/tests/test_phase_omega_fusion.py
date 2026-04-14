@@ -91,6 +91,15 @@ def test_signal_revenue_drop_silent_when_normal(db):
 
 
 def test_signal_anomaly_volume_fires(db):
+    # Hermeticity guard: _signal_anomaly_volume sums ops_alerts where
+    # (shop=SHOP OR shop_domain IS NULL). The shared prod DB accumulates
+    # global (NULL) alerts across sessions that leak into both windows and
+    # break the recent-vs-prior math. Clear the overlap inside the savepoint.
+    from sqlalchemy import text as _text
+    db.execute(_text(
+        "DELETE FROM ops_alerts WHERE (shop_domain = :s OR shop_domain IS NULL) "
+        "AND created_at >= :since"
+    ), {"s": SHOP, "since": _now() - timedelta(days=8)})
     # 5 alerts in last 24h, 1 in prior week
     db.add(OpsAlert(
         shop_domain=None,  # global alerts also count

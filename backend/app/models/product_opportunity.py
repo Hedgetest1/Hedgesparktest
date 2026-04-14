@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, Index, Integer, String, UniqueConstraint
+from sqlalchemy import Column, DateTime, Float, Index, Integer, String, Text, UniqueConstraint
 
 from app.core.database import Base
 
@@ -11,7 +11,7 @@ class ProductOpportunity(Base):
     id = Column(Integer, primary_key=True)
 
     shop_domain = Column(String, nullable=False)
-    product_url = Column(String, nullable=False)
+    product_url = Column(Text, nullable=False)
 
     records = Column(Integer, default=0)
     avg_intent_score = Column(Float, default=0)
@@ -20,11 +20,11 @@ class ProductOpportunity(Base):
     avg_dwell_seconds = Column(Float, default=0)
     avg_scroll_depth = Column(Float, default=0)
 
-    opportunity_type = Column(String)
+    opportunity_type = Column(Text)
     priority_score = Column(Integer, default=0)
-    recommended_action = Column(String)
-    opportunity_explanation = Column(String)
-    plan_required = Column(String, default="pro")
+    recommended_action = Column(Text)
+    opportunity_explanation = Column(Text)
+    plan_required = Column(Text, default="pro")
 
     updated_at = Column(DateTime, default=datetime.utcnow)
 

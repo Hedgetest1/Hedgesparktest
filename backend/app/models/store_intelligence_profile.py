@@ -21,7 +21,7 @@ Read by:
 """
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
@@ -125,6 +125,8 @@ class SipSnapshot(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     __table_args__ = (
-        # One snapshot per shop per week
-        {"schema": None},
+        UniqueConstraint(
+            "shop_domain", "snapshot_week",
+            name="uq_sip_snapshot_shop_week",
+        ),
     )

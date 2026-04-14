@@ -45,4 +45,5 @@ class OpsAlert(Base):
     __table_args__ = (
         Index("ix_ops_alerts_severity_created", "severity", "created_at"),
         Index("ix_ops_alerts_unresolved", "resolved", "created_at"),
+        Index("ix_ops_alerts_source_type", "source", "alert_type", "created_at"),
     )

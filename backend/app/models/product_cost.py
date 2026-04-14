@@ -17,6 +17,7 @@ from __future__ import annotations
 from sqlalchemy import (
     Column,
     DateTime,
+    Index,
     Integer,
     Numeric,
     String,
@@ -34,6 +35,7 @@ class ProductCost(Base):
             "shop_domain", "product_key",
             name="uq_product_costs_shop_product",
         ),
+        Index("ix_product_costs_shop_product", "shop_domain", "product_key"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)

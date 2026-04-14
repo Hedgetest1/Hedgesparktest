@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Column, Date, DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, Date, DateTime, Index, Integer, String, Text, UniqueConstraint
 
 from app.core.database import Base
 
@@ -66,4 +66,5 @@ class DailyBrief(Base):
             "brief_date",
             name="uq_daily_brief_shop_date",
         ),
+        Index("ix_daily_brief_shop_domain", "shop_domain"),
     )

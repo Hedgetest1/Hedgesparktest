@@ -14,7 +14,7 @@ shop_domains appear in CigCohort. Only aggregated, weighted statistics.
 """
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, Integer, String
+from sqlalchemy import Column, DateTime, Float, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
@@ -75,6 +75,9 @@ class CigCohort(Base):
 class CigMerchantMapping(Base):
     """Maps each merchant to their best-matching CIG cohorts."""
     __tablename__ = "cig_merchant_mappings"
+    __table_args__ = (
+        UniqueConstraint("shop_domain", name="uq_cig_mapping_shop"),
+    )
 
     id = Column(Integer, primary_key=True)
     shop_domain = Column(String, nullable=False, index=True)

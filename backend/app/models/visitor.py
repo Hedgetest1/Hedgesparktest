@@ -9,7 +9,7 @@ class Visitor(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    visitor_id = Column(String, nullable=False, index=True)
+    visitor_id = Column(String, nullable=False)
 
     email = Column(String, nullable=True)
 

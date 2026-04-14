@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Column, Integer, String
+from sqlalchemy import BigInteger, Column, Index, Integer, String, text
 from app.core.database import Base
 
 
@@ -17,7 +17,7 @@ class Event(Base):
     url = Column(String, nullable=True)
     product_url = Column(String, nullable=True)
 
-    timestamp = Column(BigInteger, nullable=True)   # epoch milliseconds
+    timestamp = Column(BigInteger, nullable=False)   # epoch milliseconds
     dwell_seconds = Column(Integer, nullable=True)
     max_scroll_depth = Column(Integer, nullable=True)
     shop_domain = Column(String, nullable=False)
@@ -53,3 +53,20 @@ class Event(Base):
     # at order ingestion time so get_real_product_conversion_map() returns real data.
     # Nullable: NULL for all non-product pages and rows before this migration.
     product_id = Column(String(64), nullable=True)
+
+    __table_args__ = (
+        Index("ix_events_shop_ts", "shop_domain", text("timestamp DESC")),
+        Index("ix_events_shop_type_ts", "shop_domain", "event_type", "timestamp"),
+        Index("ix_events_shop_product_ts", "shop_domain", "product_url", text("timestamp DESC")),
+        Index(
+            "ix_events_shop_product",
+            "shop_domain", "product_url",
+            postgresql_where=text("product_url IS NOT NULL"),
+        ),
+        Index(
+            "ix_events_shop_campaign",
+            "shop_domain", "utm_campaign",
+            postgresql_where=text("utm_campaign IS NOT NULL"),
+        ),
+        Index("ix_events_shop_visitor", "shop_domain", "visitor_id"),
+    )

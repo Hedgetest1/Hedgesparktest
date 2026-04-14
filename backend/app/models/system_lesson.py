@@ -84,4 +84,5 @@ class SystemLesson(Base):
         Index("ix_lessons_confidence", "confidence", "status"),
         Index("ix_lessons_dedup", "dedup_key"),
         Index("ix_lessons_created", "created_at"),
+        Index("ix_lessons_promotion_status", "promotion_status"),
     )

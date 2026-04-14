@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Index, Integer, String, UniqueConstraint
+from sqlalchemy import Column, DateTime, Index, Integer, String, Text, UniqueConstraint
 
 from app.core.database import Base
 
@@ -11,15 +11,15 @@ class MarketLookup(Base):
     id = Column(Integer, primary_key=True)
 
     shop_domain = Column(String, nullable=False)
-    product_url = Column(String, nullable=False)
+    product_url = Column(Text, nullable=False)
 
-    lookup_status = Column(String)
-    comparable_presence = Column(String)
-    uniqueness_hint = Column(String)
+    lookup_status = Column(Text)
+    comparable_presence = Column(Text)
+    uniqueness_hint = Column(Text)
     lookup_confidence = Column(Integer, default=0)
-    market_summary = Column(String)
-    recommended_next_step = Column(String)
-    plan_required = Column(String, default="pro")
+    market_summary = Column(Text)
+    recommended_next_step = Column(Text)
+    plan_required = Column(Text, default="pro")
 
     updated_at = Column(DateTime, default=datetime.utcnow)
 

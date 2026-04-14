@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Index, Integer, String, UniqueConstraint
+from sqlalchemy import Column, DateTime, Index, Integer, String, Text, UniqueConstraint
 
 from app.core.database import Base
 
@@ -11,16 +11,16 @@ class PriceIntelligence(Base):
     id = Column(Integer, primary_key=True)
 
     shop_domain = Column(String, nullable=False)
-    product_url = Column(String, nullable=False)
+    product_url = Column(Text, nullable=False)
 
-    market_status = Column(String)
-    price_position = Column(String)
-    price_opportunity = Column(String)
-    recommended_price_action = Column(String)
-    intelligence_explanation = Column(String)
+    market_status = Column(Text)
+    price_position = Column(Text)
+    price_opportunity = Column(Text)
+    recommended_price_action = Column(Text)
+    intelligence_explanation = Column(Text)
 
     confidence_score = Column(Integer, default=0)
-    plan_required = Column(String, default="pro")
+    plan_required = Column(Text, default="pro")
 
     updated_at = Column(DateTime, default=datetime.utcnow)
 

@@ -69,4 +69,5 @@ class PatchFingerprint(Base):
         Index("ix_patch_fp_candidate", "bugfix_candidate_id"),
         Index("ix_patch_fp_outcome", "outcome", "created_at"),
         Index("ix_patch_fp_domain", "affected_domain", "outcome"),
+        Index("ix_patch_fp_diff_fingerprint", "diff_fingerprint", "created_at"),
     )

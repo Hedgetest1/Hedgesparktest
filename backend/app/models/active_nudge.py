@@ -91,7 +91,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String, Text, text
 
 from app.core.database import Base
 
@@ -112,11 +112,30 @@ class ActiveNudge(Base):
 
     # A/B experiment — all variant configs; NULL on legacy single-variant nudges
     # JSON: [{variant_name: str, copy_config: dict}, ...]
-    copy_variants = Column(Text,    nullable=True)
+    copy_variants = Column(
+        Text,
+        nullable=True,
+        comment=(
+            "JSON array of all A/B copy variants: [{variant_name, copy_config}]. "
+            "NULL on legacy single-variant nudges."
+        ),
+    )
 
     # Holdout / control group — quasi-experimental incremental lift measurement
     # 0 = disabled (default); 1-100 = % of eligible visitors assigned to holdout
-    holdout_pct   = Column(Integer, nullable=False, default=0)
+    holdout_pct   = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment=(
+            "Percentage of eligible visitors assigned to holdout (control) group. "
+            "0 = holdout disabled (default, backward compatible). "
+            "1-100 = enable holdout; that fraction of eligible visitors are "
+            "deterministically suppressed and recorded for lift measurement. "
+            "Recommended range: 10-25. "
+            "Assignment: int(md5(visitor_id:holdout:nudge_id)[:8], 16) % 100 < holdout_pct."
+        ),
+    )
 
     # Lifecycle
     status        = Column(String,  nullable=False, default="active")
@@ -144,6 +163,13 @@ class ActiveNudge(Base):
         Index("ix_active_nudges_shop_product", "shop_domain", "product_url"),
         Index("ix_active_nudges_shop_status",  "shop_domain", "status"),
         Index("ix_active_nudges_expires_at",   "expires_at"),
+        Index("ix_active_nudges_ai_compose_pending", "ai_compose_pending"),
+        Index(
+            "ix_active_nudges_unique_active",
+            "shop_domain", "product_url", "action_type",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
     )
 
     def copy_config_dict(self) -> dict:

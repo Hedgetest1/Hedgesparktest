@@ -11,7 +11,7 @@ Used by operators (GET /ops/emails) and by dedup logic.
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Integer, String, Index
+from sqlalchemy import Column, DateTime, Integer, String, Index, text
 
 from app.core.database import Base
 
@@ -45,4 +45,5 @@ class MerchantEmail(Base):
         Index("ix_merchant_emails_type", "email_type"),
         Index("ix_merchant_emails_shop_type", "shop_domain", "email_type"),
         Index("ix_merchant_emails_created", "created_at"),
+        Index("ix_merchant_emails_shop_created", "shop_domain", text("created_at DESC")),
     )

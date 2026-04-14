@@ -78,6 +78,19 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2d. Alembic drift gate — the hard gate. Any drift between Base.metadata
+# and the live DB schema blocks the commit. This is the top-1-world bar:
+# the type system must be load-bearing, not decorative.
+# ---------------------------------------------------------------------------
+step "Alembic drift check (alembic check)"
+if "$BACKEND/venv/bin/alembic" check > /tmp/preflight_alembic.log 2>&1; then
+    ok "no model/DB drift"
+else
+    bad "alembic drift detected — see /tmp/preflight_alembic.log"
+    grep -E "Detected (added|removed|type|NULL|changed|comment)" /tmp/preflight_alembic.log | head -30 || true
+fi
+
+# ---------------------------------------------------------------------------
 # 3. Python AST parse check — any syntax error blocks commit
 # ---------------------------------------------------------------------------
 step "Python AST parse (staged .py files)"
