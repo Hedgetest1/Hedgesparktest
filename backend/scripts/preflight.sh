@@ -161,6 +161,27 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2j. Runtime smoke harness (Tier 3.3). Hits every include_in_schema=True
+# GET route on /pro|/merchant|/analytics with a real test merchant
+# session via in-process TestClient. Asserts 2xx, Pydantic schema
+# match, and p95 latency < 200 ms. ~3-4 seconds — worth it.
+# Skippable via SKIP_PREFLIGHT_SMOKE=1 for offline work.
+# ---------------------------------------------------------------------------
+if [ "${SKIP_PREFLIGHT_SMOKE:-0}" = "1" ]; then
+    step "Runtime smoke harness (skipped — SKIP_PREFLIGHT_SMOKE=1)"
+    ok "smoke harness skipped by env override"
+else
+    step "Runtime smoke harness (smoke_endpoints.py --strict)"
+    if "$BACKEND/venv/bin/python" "$BACKEND/scripts/smoke_endpoints.py" --strict > /tmp/preflight_smoke.log 2>&1; then
+        _SMOKE_STATS=$(grep -E "^  (passed|p95)" /tmp/preflight_smoke.log | tr '\n' ' ' | sed 's/  */ /g')
+        ok "smoke harness green —${_SMOKE_STATS}"
+    else
+        bad "smoke harness detected failing route(s) — see /tmp/preflight_smoke.log"
+        grep -A 30 "^Failures:" /tmp/preflight_smoke.log 2>/dev/null || tail -40 /tmp/preflight_smoke.log
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # 3. Python AST parse check — any syntax error blocks commit
 # ---------------------------------------------------------------------------
 step "Python AST parse (staged .py files)"

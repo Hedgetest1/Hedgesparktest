@@ -186,20 +186,33 @@ def extract_patterns(
 
     # Pull nudge impressions + variants from nudge_events joined with
     # active_nudges to recover the copy_config per variant.
+    #
+    # Schema reality check: nudge_events has no `variant_name` column
+    # and the event_type vocabulary is {'shown','dismissed','clicked',
+    # 'holdout_assigned'} (see project_nudge_measurement.md). The
+    # variant identifier lives inside the event_meta JSONB payload
+    # under key 'variant_name', so we extract it there. Prior SQL
+    # referenced a non-existent column and was being silently
+    # swallowed by the except clause, leaving NudgeDnaCard empty.
     try:
+        # event_meta is stored as TEXT (prod schema), not JSONB, so we
+        # cast before using the ->> operator. The cast is cheap and
+        # lets the query survive if a future migration promotes the
+        # column to JSONB without code changes.
         rows = db.execute(
             sql_text(
                 """
                 SELECT
                     ne.visitor_id,
                     ne.created_at,
-                    ne.variant_name,
+                    (ne.event_meta::jsonb->>'variant_name') AS variant_name,
                     an.copy_variants
                 FROM nudge_events ne
                 LEFT JOIN active_nudges an ON an.id = ne.nudge_id
                 WHERE ne.shop_domain = :shop
                   AND ne.created_at >= :since
-                  AND ne.event_type = 'nudge_impression'
+                  AND ne.event_type = 'shown'
+                  AND ne.event_meta IS NOT NULL
                 LIMIT 20000
                 """
             ),

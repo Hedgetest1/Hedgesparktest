@@ -209,20 +209,32 @@ def _pull_refunds(db: Session, kg: MerchantKG, lookback_days: int = 60) -> None:
 def _pull_nudges(db: Session, kg: MerchantKG, lookback_days: int = 30) -> None:
     """Pull active_nudges + nudge_events to link nudge → customer exposure."""
     try:
+        # active_nudges carries `action_type` (the behaviour category)
+        # and `copy_variants` (JSONB list of variant dicts, each with
+        # a `text` field). There is no `nudge_type` or `copy_text`
+        # column on the table — prior SQL was drift from an old schema
+        # and was being silently swallowed by the except below.
         rows = db.execute(text("""
-            SELECT id, nudge_type, copy_text, status, created_at
+            SELECT id, action_type, copy_variants, status, created_at
             FROM active_nudges
             WHERE shop_domain = :shop
             ORDER BY created_at DESC
             LIMIT 200
         """), {"shop": kg.shop_domain}).fetchall()
         for r in rows:
+            # Pluck the first variant's visible text for the KG node
+            # label so drawers/graphs have something human-readable.
+            variants = r[2] if isinstance(r[2], list) else []
+            first_text = ""
+            if variants:
+                first = variants[0] if isinstance(variants[0], dict) else {}
+                first_text = str(first.get("text") or first.get("copy") or "")
             kg.add_node(KGNode(
                 entity_type="nudge",
                 entity_id=str(r[0]),
                 attrs={
                     "type": r[1],
-                    "copy": (r[2] or "")[:200],
+                    "copy": first_text[:200],
                     "status": r[3],
                     "created_at": r[4].isoformat() if r[4] else None,
                 },

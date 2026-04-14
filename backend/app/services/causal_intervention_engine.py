@@ -76,15 +76,22 @@ def measure_nudge_lift(db: Session, shop_domain: str) -> dict:
     now = _now()
     cutoff = now - timedelta(days=30)
 
-    # Get all nudge events with holdout data
+    # Get all nudge events with holdout data. Revenue attribution walks
+    # nudge_events → visitor_purchase_sessions (by visitor_id) →
+    # shop_orders (by shopify_order_id). visitor_purchase_sessions has
+    # no price column of its own — that's carried on shop_orders — and
+    # its time column is `confirmed_at`, not `created_at`.
     rows = db.execute(text("""
         SELECT ne.nudge_id, ne.event_type, ne.visitor_id,
-               vps.total_price_eur
+               COALESCE(so.total_price, 0) AS revenue
         FROM nudge_events ne
         LEFT JOIN visitor_purchase_sessions vps
             ON vps.visitor_id = ne.visitor_id
             AND vps.shop_domain = :shop
-            AND vps.created_at >= :cutoff
+            AND vps.confirmed_at >= :cutoff
+        LEFT JOIN shop_orders so
+            ON so.shopify_order_id = vps.shopify_order_id
+            AND so.shop_domain = :shop
         WHERE ne.shop_domain = :shop
           AND ne.created_at >= :cutoff
           AND ne.event_type IN ('shown', 'holdout_assigned')
