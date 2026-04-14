@@ -665,21 +665,22 @@ must satisfy:
 ## 14. Verification after changes
 
 ```bash
-# Backend tests (must pass 2100+ after Ω⁷)
+# Backend tests — the entire suite must pass, no exclusions.
+# Historical exclusions for test_scaling_intelligence, test_daily_digest_v2,
+# and test_landing_integrity were fixed in the 2026-04-14 hardening sprint
+# (hermeticity leaks against the shared prod DB — see cycle 3 commit).
 cd /opt/wishspark/backend
-./venv/bin/python -m pytest tests/ \
-  --ignore=tests/test_scaling_intelligence.py \
-  --ignore=tests/test_daily_digest_v2.py \
-  --ignore=tests/test_landing_integrity.py -q
+./venv/bin/python -m pytest tests/ -q
 
 # Dashboard build
 cd /opt/wishspark/dashboard && npx next build
 
-# Audit scripts
+# Audit scripts (all four run automatically via preflight.sh on commit)
 cd /opt/wishspark/backend
 ./venv/bin/python scripts/audit_sql_schema.py
 ./venv/bin/python scripts/audit_sql_columns.py
 ./venv/bin/python scripts/audit_tenant_isolation.py
+./venv/bin/python scripts/audit_model_drift.py
 
 # Health check
 curl -s http://127.0.0.1:8000/system/health | python3 -m json.tool
@@ -689,10 +690,9 @@ curl -s -o /dev/null -w "dashboard: %{http_code}\n" http://127.0.0.1:3000/app
 curl -s http://127.0.0.1:8000/ops/attribution/health -H "X-API-Key: $KEY"
 ```
 
-**Pre-existing test exclusions (NOT regressions):**
-- `test_daily_digest_v2.py` — 2 flaky tests pass on retry
-- `test_landing_integrity.py::test_landing_tailwind_bundle_not_trivial` —
-  Tailwind v4 bundle sizing quirk, fails on clean main too
+**Test exclusions:** none. Every test must pass. Any "pre-existing
+flakiness" discovered during a session is a bug to fix, not an
+exclusion to add.
 
 ---
 

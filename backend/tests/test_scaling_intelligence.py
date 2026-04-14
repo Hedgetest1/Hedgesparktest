@@ -1,4 +1,22 @@
-"""Tests for scaling intelligence — snapshots, forecasts, recommendations."""
+"""Tests for scaling intelligence — snapshots, forecasts, recommendations.
+
+Hermeticity note: this file seeds rows into the system_snapshots and
+scaling_recommendations tables, which are shared with the live
+production system (the scaling_intelligence worker writes one
+system_snapshot per day and recommendations whenever it detects
+saturation). Under PostgreSQL READ COMMITTED isolation the test's
+SAVEPOINT can see committed prod rows, so:
+
+  - UNIQUE constraint on system_snapshots.date_bucket collides with
+    real recent dates if we blindly seed "last 10 days"
+  - build_forecast / generate_recommendations read the entire table
+    and see prod data, so tests that expect "empty" or "insufficient"
+    state fail with real snapshots present
+
+The `_reset_snapshot_state(db)` helper below wipes both tables inside
+the SAVEPOINT before each test runs. The delete is rolled back when
+the test ends, so production data is untouched.
+"""
 import os
 import time
 from datetime import date, timedelta
@@ -36,9 +54,29 @@ def _op_headers():
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _reset_snapshot_state(db) -> None:
+    """Wipe system_snapshots + scaling_recommendations inside the SAVEPOINT.
+
+    Prod workers write to these tables continuously, so without this
+    reset the test session sees real data leaked through READ COMMITTED
+    and fails on unique-constraint collisions or on asserts that
+    expect an empty/sparse table. The delete is rolled back when the
+    test ends.
+    """
+    db.query(ScalingRecommendation).delete(synchronize_session=False)
+    db.query(SystemSnapshot).delete(synchronize_session=False)
+    db.flush()
+
+
 def _seed_snapshots(db, days=10, base_merchants=10, merchant_growth=1.0,
                     ram_used=1000, ram_total=2000, llm_cost=0.01, error_rate=3.0):
-    """Seed N days of snapshots with controllable trends."""
+    """Seed N days of snapshots with controllable trends.
+
+    Automatically resets the shared tables first so we never collide
+    with prod rows. Callers do not need to call _reset_snapshot_state
+    themselves unless they want an empty table without seeding.
+    """
+    _reset_snapshot_state(db)
     today = date.today()
     for i in range(days):
         d = today - timedelta(days=days - 1 - i)
@@ -64,6 +102,7 @@ def _seed_snapshots(db, days=10, base_merchants=10, merchant_growth=1.0,
 
 def test_daily_snapshot_created(db):
     """capture_daily_snapshot creates a row."""
+    _reset_snapshot_state(db)
     snapshot = capture_daily_snapshot(db)
     assert snapshot is not None
     assert snapshot.date_bucket == date.today()
@@ -72,6 +111,7 @@ def test_daily_snapshot_created(db):
 
 def test_daily_snapshot_idempotent(db):
     """Second capture same day returns existing row."""
+    _reset_snapshot_state(db)
     s1 = capture_daily_snapshot(db)
     s2 = capture_daily_snapshot(db)
     assert s1.id == s2.id
@@ -161,6 +201,7 @@ def test_forecast_insufficient_data(db):
 
 def test_forecast_empty_db(db):
     """Forecast with zero snapshots returns not_enough_data."""
+    _reset_snapshot_state(db)
     forecast = build_forecast(db)
     assert forecast["status"] == "not_enough_data"
 
@@ -220,6 +261,7 @@ def test_recommendation_dedup(db):
 
 def test_telegram_scaling_no_data(db):
     """Scaling command works with no data."""
+    _reset_snapshot_state(db)
     result = handle_command("/scaling", db=db)
     assert "Scaling" in result
     assert "not enough data" in result.lower() or "No active" in result
