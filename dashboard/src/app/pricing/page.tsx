@@ -19,6 +19,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 import Link from "next/link";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
@@ -150,18 +151,16 @@ export default function PricingPage() {
       return;
     }
 
-    fetch(`${API_BASE}/merchant/me`, {
-      headers: apiHeaders(),
-      credentials: "include",
-      cache: "no-store",
-    })
-      .then(async (res) => {
-        if (res.ok) {
-          const json = await res.json();
-          setTier(json.plan === "pro" && json.billing_active === true ? "pro" : "lite");
+    apiClient
+      .GET("/merchant/me")
+      .then(({ data, error: err }) => {
+        if (err || !data) {
+          setTier("lite");
           return;
         }
-        setTier("lite");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const j = data as any;
+        setTier(j.plan === "pro" && j.billing_active === true ? "pro" : "lite");
       })
       .catch(() => {
         setTier("lite");

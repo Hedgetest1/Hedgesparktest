@@ -1484,13 +1484,14 @@ function PageInner() {
   useEffect(() => {
     if (!shop) return;
     let active = true;
-    fetch(`${API_BASE}/merchant/privacy/preferences`, {
-      credentials: "include",
-    })
-      .then((r) => r.json())
-      .then((d) => {
-        if (active && d.opt_out_automated_targeting != null) {
-          setPrivacyOptedOut(!!d.opt_out_automated_targeting);
+    apiClient
+      .GET("/merchant/privacy/preferences")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .then(({ data: d }) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const prefs = d as any;
+        if (active && prefs && prefs.opt_out_automated_targeting != null) {
+          setPrivacyOptedOut(!!prefs.opt_out_automated_targeting);
         }
       })
       .catch((err: unknown) => {

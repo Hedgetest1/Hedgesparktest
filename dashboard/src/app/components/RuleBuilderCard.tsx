@@ -18,6 +18,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 
 type TriggerOption = { id: string; label: string };
 type ActionOption = { id: string; label: string };
@@ -84,17 +85,17 @@ export function RuleBuilderCard({ apiBase, isProUser }: { apiBase: string; isPro
   const load = useCallback(async () => {
     try {
       const [rulesResp, catalogResp] = await Promise.all([
-        fetch(`${apiBase}/pro/rules`, { credentials: "include" }).then((r) => r.json()),
-        fetch(`${apiBase}/pro/rules/catalog`, { credentials: "include" }).then((r) => r.json()),
+        apiClient.GET("/pro/rules"),
+        apiClient.GET("/pro/rules/catalog"),
       ]);
-      setRules(rulesResp);
-      setCatalog(catalogResp);
+      if (rulesResp.data) setRules(rulesResp.data as unknown as Rule[]);
+      if (catalogResp.data) setCatalog(catalogResp.data as unknown as Catalog);
     } catch (err) {
       console.error("rule_builder load failed", err);
     } finally {
       setLoading(false);
     }
-  }, [apiBase]);
+  }, []);
 
   useEffect(() => {
     if (!isProUser) {
@@ -108,34 +109,31 @@ export function RuleBuilderCard({ apiBase, isProUser }: { apiBase: string; isPro
     async (rule: Rule) => {
       const next = rule.status === "active" ? "paused" : "active";
       try {
-        await fetch(`${apiBase}/pro/rules/${rule.id}`, {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: next }),
+        await apiClient.PATCH("/pro/rules/{rule_id}", {
+          params: { path: { rule_id: rule.id } },
+          body: { status: next },
         });
         load();
       } catch (err) {
         console.error(err);
       }
     },
-    [apiBase, load],
+    [load],
   );
 
   const deleteRule = useCallback(
     async (rule: Rule) => {
       if (!confirm(`Delete rule "${rule.name}"?`)) return;
       try {
-        await fetch(`${apiBase}/pro/rules/${rule.id}`, {
-          method: "DELETE",
-          credentials: "include",
+        await apiClient.DELETE("/pro/rules/{rule_id}", {
+          params: { path: { rule_id: rule.id } },
         });
         load();
       } catch (err) {
         console.error(err);
       }
     },
-    [apiBase, load],
+    [load],
   );
 
   if (!isProUser) return null;
@@ -372,22 +370,19 @@ function RuleForm({
     }
     setSubmitting(true);
     try {
-      const resp = await fetch(`${apiBase}/pro/rules`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const { error: createErr } = await apiClient.POST("/pro/rules", {
+        body: {
           name,
           trigger_signal: trigger,
-          conditions,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          conditions: conditions as any,
           action: buildAction(),
           status: "active",
           max_per_hour: 30,
-        }),
+        },
       });
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => ({}));
-        setErr(typeof body.detail === "string" ? body.detail : "Failed to create");
+      if (createErr) {
+        setErr("Failed to create");
         return;
       }
       onCreated();

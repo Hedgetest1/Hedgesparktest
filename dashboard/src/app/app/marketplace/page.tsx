@@ -11,8 +11,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://api.hedgesparkhq.com";
+import { apiClient } from "@/app/lib/api-client";
 
 type Template = {
   id: number;
@@ -67,14 +66,23 @@ export default function MarketplacePage() {
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({ sort, limit: "60" });
-      if (kind !== "all") params.set("template_type", kind);
-      const r = await fetch(`${API_BASE}/pro/marketplace/templates?${params.toString()}`, {
-        credentials: "include",
-      });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const j = await r.json();
-      setTemplates(j.templates || []);
+      const { data: j, error: err } = await apiClient.GET(
+        "/pro/marketplace/templates",
+        {
+          params: {
+            query: {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              sort: sort as any,
+              limit: 60,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              ...(kind !== "all" ? { template_type: kind as any } : {}),
+            },
+          },
+        },
+      );
+      if (err || !j) throw new Error("failed");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setTemplates(((j as any).templates || []) as Template[]);
     } catch {
       setError("Could not load marketplace. Make sure you're signed in with a Pro session.");
     } finally {
@@ -98,10 +106,11 @@ export default function MarketplacePage() {
     if (cloning != null || cloned[id]) return;
     setCloning(id);
     try {
-      const r = await fetch(`${API_BASE}/pro/marketplace/templates/${id}/clone`, {
-        method: "POST", credentials: "include",
-      });
-      if (!r.ok) throw new Error();
+      const { error: err } = await apiClient.POST(
+        "/pro/marketplace/templates/{template_id}/clone",
+        { params: { path: { template_id: id } } },
+      );
+      if (err) throw new Error();
       setCloned((c) => ({ ...c, [id]: true }));
       setToast("Cloned to your account — open it from the nudge list.");
       setTimeout(() => setToast(null), 4000);
@@ -119,9 +128,10 @@ export default function MarketplacePage() {
     // Optimistic
     setTemplates((ts) => ts.map((t) => (t.id === id ? { ...t, upvotes: t.upvotes + 1 } : t)));
     try {
-      await fetch(`${API_BASE}/pro/marketplace/templates/${id}/upvote`, {
-        method: "POST", credentials: "include",
-      });
+      await apiClient.POST(
+        "/pro/marketplace/templates/{template_id}/upvote",
+        { params: { path: { template_id: id } } },
+      );
     } catch {}
   };
 

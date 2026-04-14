@@ -42,12 +42,14 @@ DASHBOARD_ROOT = pathlib.Path("/opt/wishspark/dashboard/src/app")
 SKIP_FILES = {"api-client.ts", "api-types.ts"}
 SKIP_DIRS = {"node_modules", ".next"}
 
-# Match fetch( followed by a string (template or single/double quoted)
+# Match `fetch(` followed by a string (template or single/double quoted)
 # that contains /pro/, /merchant/, or /analytics/ as a path segment.
+# A leading negative-lookbehind excludes `apiFetch(` / `anotherFetch(`
+# wrappers — those already route through the typed client via their
+# own helper. Case-sensitive so only lowercase `fetch` matches.
 FETCH_RE = re.compile(
-    r"""fetch\s*\(\s*[`'"]"""
+    r"""(?<![A-Za-z0-9_$])fetch\s*\(\s*[`'"]"""
     r"""(?P<url>[^`'"]+)""",
-    re.IGNORECASE,
 )
 TARGET_RE = re.compile(r"/(pro|merchant|analytics)/")
 

@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 
 type AnnotationRow = {
   id: string;
@@ -61,13 +62,10 @@ export function TimelineNotes({
   async function load() {
     setLoading(true);
     try {
-      const r = await fetch(`${apiBase}/pro/annotations`, {
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-      });
-      if (r.ok) {
-        const j = await r.json();
-        setAnnotations(j.annotations || []);
+      const { data: j, error: err } = await apiClient.GET("/pro/annotations");
+      if (!err && j) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        setAnnotations(((j as any).annotations || []) as AnnotationRow[]);
       }
     } catch {
       // silent
@@ -87,20 +85,16 @@ export function TimelineNotes({
     if (!newLabel.trim()) { setError("Write a short label."); return; }
     setSaving(true);
     try {
-      const r = await fetch(`${apiBase}/pro/annotations`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const { error: err } = await apiClient.POST("/pro/annotations", {
+        body: {
           date: newDate,
           label: newLabel.trim(),
           category: newCategory,
           description: "",
-        }),
+        },
       });
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        setError(j.detail || "Save failed.");
+      if (err) {
+        setError("Save failed.");
         return;
       }
       setNewLabel("");
@@ -115,9 +109,8 @@ export function TimelineNotes({
 
   async function handleDelete(id: string) {
     try {
-      await fetch(`${apiBase}/pro/annotations/${id}`, {
-        method: "DELETE",
-        credentials: "include",
+      await apiClient.DELETE("/pro/annotations/{annotation_id}", {
+        params: { path: { annotation_id: id } },
       });
       await load();
     } catch {

@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 
 type WebhookRow = {
   id: string;
@@ -70,11 +71,9 @@ export function ConnectToolsPanel({
   async function load() {
     setLoading(true);
     try {
-      const r = await fetch(`${apiBase}/pro/signal-webhooks`, {
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-      });
-      if (r.ok) setList(await r.json());
+      const { data: j, error: err } = await apiClient.GET("/pro/signal-webhooks");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (!err && j) setList(j as any);
     } catch {
       // silent
     } finally {
@@ -100,19 +99,15 @@ export function ConnectToolsPanel({
     }
     setSaving(true);
     try {
-      const r = await fetch(`${apiBase}/pro/signal-webhooks`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: newUrl.trim(), events: selectedEvents }),
+      const { data: j, error: err } = await apiClient.POST("/pro/signal-webhooks", {
+        body: { url: newUrl.trim(), events: selectedEvents },
       });
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        setError(j.detail || "Create failed.");
+      if (err || !j) {
+        setError("Create failed.");
         return;
       }
-      const j: CreateResponse = await r.json();
-      setRevealedSecret(j.signing_secret);
+      const resp = j as unknown as CreateResponse;
+      setRevealedSecret(resp.signing_secret);
       setNewUrl("");
       setAdding(false);
       await load();
@@ -125,9 +120,8 @@ export function ConnectToolsPanel({
 
   async function handleDelete(id: string) {
     try {
-      await fetch(`${apiBase}/pro/signal-webhooks/${id}`, {
-        method: "DELETE",
-        credentials: "include",
+      await apiClient.DELETE("/pro/signal-webhooks/{webhook_id}", {
+        params: { path: { webhook_id: id } },
       });
       await load();
     } catch {
@@ -138,22 +132,21 @@ export function ConnectToolsPanel({
   async function handleTest(id: string) {
     setTestResult(null);
     try {
-      const r = await fetch(`${apiBase}/pro/signal-webhooks/${id}/test`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-      });
-      if (r.ok) {
-        const j = await r.json();
-        const first = (j.results || [])[0];
-        setTestResult(
-          first
-            ? `Test ping: ${first.status} (HTTP ${first.http_status || "n/a"})`
-            : "Test ping sent.",
-        );
-      } else {
+      const { data: j, error: err } = await apiClient.POST(
+        "/pro/signal-webhooks/{webhook_id}/test",
+        { params: { path: { webhook_id: id } } },
+      );
+      if (err || !j) {
         setTestResult("Test failed.");
+        return;
       }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const first = ((j as any).results || [])[0];
+      setTestResult(
+        first
+          ? `Test ping: ${first.status} (HTTP ${first.http_status || "n/a"})`
+          : "Test ping sent.",
+      );
     } catch {
       setTestResult("Test failed.");
     }

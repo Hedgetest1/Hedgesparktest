@@ -22,6 +22,7 @@
  */
 
 import { useEffect, useState, useCallback } from "react";
+import { apiClient } from "@/app/lib/api-client";
 
 type Contract = {
   id: number;
@@ -129,18 +130,20 @@ export function TrustControlCenter({ apiBase, isProUser }: { apiBase: string; is
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, e] = await Promise.all([
-        fetch(`${apiBase}/pro/trust/summary`, { credentials: "include" }).then((r) => r.json()),
-        fetch(`${apiBase}/pro/trust/executions?limit=20`, { credentials: "include" }).then((r) => r.json()),
+      const [summaryResp, execResp] = await Promise.all([
+        apiClient.GET("/pro/trust/summary"),
+        apiClient.GET("/pro/trust/executions", { params: { query: { limit: 20 } } }),
       ]);
-      setSummary(s);
-      setExecutions(e || []);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (summaryResp.data) setSummary(summaryResp.data as any);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setExecutions(((execResp.data as any) || []) as Execution[]);
     } catch (err) {
       console.error("trust_control_center load failed", err);
     } finally {
       setLoading(false);
     }
-  }, [apiBase]);
+  }, []);
 
   useEffect(() => {
     if (!isProUser) {
@@ -161,19 +164,16 @@ export function TrustControlCenter({ apiBase, isProUser }: { apiBase: string; is
       if (!confirm(warn)) return;
       setAutopilotBusy(mode);
       try {
-        const resp = await fetch(`${apiBase}/pro/trust/autopilot`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mode }),
+        const { data, error: autoErr } = await apiClient.POST("/pro/trust/autopilot", {
+          body: { mode },
         });
-        if (!resp.ok) {
-          const body = await resp.json().catch(() => ({}));
-          alert(`Failed: ${body.detail || resp.status}`);
+        if (autoErr || !data) {
+          alert("Autopilot failed");
           return;
         }
-        const data = await resp.json();
-        alert(`Autopilot ${mode} activated — ${data.contracts_created} contracts ready.`);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const contractsCreated = (data as any).contracts_created;
+        alert(`Autopilot ${mode} activated — ${contractsCreated} contracts ready.`);
         await load();
       } catch (err) {
         console.error(err);
@@ -181,39 +181,36 @@ export function TrustControlCenter({ apiBase, isProUser }: { apiBase: string; is
         setAutopilotBusy(null);
       }
     },
-    [apiBase, load],
+    [load],
   );
 
   const panic = useCallback(async () => {
     try {
-      const resp = await fetch(`${apiBase}/pro/trust/panic`, {
-        method: "POST",
-        credentials: "include",
-      });
-      const data = await resp.json();
-      alert(`Panic stop: ${data.revoked_count} contract(s) revoked.`);
+      const { data } = await apiClient.POST("/pro/trust/panic");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const revokedCount = (data as any)?.revoked_count ?? 0;
+      alert(`Panic stop: ${revokedCount} contract(s) revoked.`);
       setConfirmPanic(false);
       await load();
     } catch (err) {
       console.error(err);
       alert("Panic stop failed — contact support.");
     }
-  }, [apiBase, load]);
+  }, [load]);
 
   const revokeOne = useCallback(
     async (id: number) => {
       if (!confirm("Revoke this trust contract? The system will stop auto-executing this action.")) return;
       try {
-        await fetch(`${apiBase}/pro/trust/contracts/${id}`, {
-          method: "DELETE",
-          credentials: "include",
+        await apiClient.DELETE("/pro/trust/contracts/{contract_id}", {
+          params: { path: { contract_id: id } },
         });
         await load();
       } catch (err) {
         console.error(err);
       }
     },
-    [apiBase, load],
+    [load],
   );
 
   if (!isProUser) {
@@ -882,12 +879,10 @@ function GrantTrustModal({
     setSubmitting(true);
     setErr(null);
     try {
-      const resp = await fetch(`${apiBase}/pro/trust/contracts`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action_type: actionType,
+      const { error: postErr } = await apiClient.POST("/pro/trust/contracts", {
+        body: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          action_type: actionType as any,
           max_per_day: maxPerDay,
           max_per_week: maxPerWeek,
           discount_floor_pct: discountFloor,
@@ -896,12 +891,9 @@ function GrantTrustModal({
           auto_pause_on_drop_pct: autoPauseDrop,
           require_holdout: requireHoldout,
           scope_type: "all",
-        }),
+        },
       });
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => ({}));
-        throw new Error(body.detail || `HTTP ${resp.status}`);
-      }
+      if (postErr) throw new Error("grant failed");
       onGranted();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "failed";
@@ -909,7 +901,7 @@ function GrantTrustModal({
     } finally {
       setSubmitting(false);
     }
-  }, [apiBase, actionType, maxPerDay, maxPerWeek, discountFloor, discountCeiling, confidence, autoPauseDrop, requireHoldout, onGranted]);
+  }, [actionType, maxPerDay, maxPerWeek, discountFloor, discountCeiling, confidence, autoPauseDrop, requireHoldout, onGranted]);
 
   return (
     <div

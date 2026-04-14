@@ -11,8 +11,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://api.hedgesparkhq.com";
+import { apiClient } from "@/app/lib/api-client";
 
 type GroupMember = { shop_domain: string; label: string | null; is_primary: boolean };
 type Group = {
@@ -65,14 +64,11 @@ export default function GroupsPage() {
 
   const loadGroups = useCallback(async () => {
     try {
-      const r = await fetch(`${API_BASE}/pro/groups`, {
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-      });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const j: GroupsResponse = await r.json();
-      setGroups(j.groups || []);
-      setSelectedId((cur) => cur ?? (j.groups?.[0]?.id ?? null));
+      const { data: j, error: err } = await apiClient.GET("/pro/groups");
+      if (err || !j) throw new Error("failed");
+      const resp = j as unknown as GroupsResponse;
+      setGroups(resp.groups || []);
+      setSelectedId((cur) => cur ?? (resp.groups?.[0]?.id ?? null));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
@@ -83,13 +79,12 @@ export default function GroupsPage() {
 
   const loadDashboard = useCallback(async (id: number) => {
     try {
-      const r = await fetch(`${API_BASE}/pro/groups/${id}/dashboard`, {
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-      });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const j: DashboardResponse = await r.json();
-      setDashboard(j);
+      const { data: j, error: err } = await apiClient.GET(
+        "/pro/groups/{group_id}/dashboard",
+        { params: { path: { group_id: id } } },
+      );
+      if (err || !j) throw new Error("failed");
+      setDashboard(j as unknown as DashboardResponse);
     } catch {
       setDashboard(null);
     }
@@ -102,13 +97,10 @@ export default function GroupsPage() {
     if (!newName.trim()) return;
     setCreating(true);
     try {
-      const r = await fetch(`${API_BASE}/pro/groups`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName.trim() }),
+      const { error: err } = await apiClient.POST("/pro/groups", {
+        body: { name: newName.trim(), base_currency: "EUR" },
       });
-      if (r.ok) {
+      if (!err) {
         setNewName("");
         await loadGroups();
       }
@@ -121,16 +113,18 @@ export default function GroupsPage() {
     if (!selectedId || !newShopDomain.trim()) return;
     setAddingShop(true);
     try {
-      const r = await fetch(`${API_BASE}/pro/groups/${selectedId}/members`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shop_domain: newShopDomain.trim(),
-          label: newShopLabel.trim() || null,
-        }),
-      });
-      if (r.ok) {
+      const { error: err } = await apiClient.POST(
+        "/pro/groups/{group_id}/members",
+        {
+          params: { path: { group_id: selectedId } },
+          body: {
+            shop_domain: newShopDomain.trim(),
+            label: newShopLabel.trim() || null,
+            is_primary: false,
+          },
+        },
+      );
+      if (!err) {
         setNewShopDomain("");
         setNewShopLabel("");
         await loadGroups();

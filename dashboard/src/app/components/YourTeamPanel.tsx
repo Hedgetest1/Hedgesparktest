@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 
 type Member = {
   id: string;
@@ -45,13 +46,10 @@ export function YourTeamPanel({
   async function load() {
     setLoading(true);
     try {
-      const r = await fetch(`${apiBase}/pro/team/members`, {
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-      });
-      if (r.ok) {
-        const j = await r.json();
-        setMembers(j.members || []);
+      const { data: j, error: err } = await apiClient.GET("/pro/team/members");
+      if (!err && j) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        setMembers(((j as any).members || []) as Member[]);
       }
     } catch {
       // silent
@@ -71,19 +69,15 @@ export function YourTeamPanel({
     if (!newEmail.includes("@")) { setError("Enter a valid email."); return; }
     setSaving(true);
     try {
-      const r = await fetch(`${apiBase}/pro/team/members`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const { error: err } = await apiClient.POST("/pro/team/members", {
+        body: {
           email: newEmail.trim(),
           display_name: newName.trim() || newEmail.split("@")[0],
           role: newRole,
-        }),
+        },
       });
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        setError(j.detail || "Save failed.");
+      if (err) {
+        setError("Save failed.");
         return;
       }
       setNewEmail("");
@@ -99,9 +93,8 @@ export function YourTeamPanel({
 
   async function handleRemove(id: string) {
     try {
-      await fetch(`${apiBase}/pro/team/members/${id}`, {
-        method: "DELETE",
-        credentials: "include",
+      await apiClient.DELETE("/pro/team/members/{member_id}", {
+        params: { path: { member_id: id } },
       });
       await load();
     } catch {

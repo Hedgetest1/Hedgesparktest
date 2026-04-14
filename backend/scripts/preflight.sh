@@ -149,15 +149,15 @@ fi
 # ---------------------------------------------------------------------------
 # 2i. Dashboard fetch-call coverage (Tier 3.2). Every fetch() to a
 # /pro|/merchant|/analytics path must route through the typed apiClient
-# so URL + query + response are validated at compile time. REPORT-ONLY
-# until the sweep closes — baseline driven down commit by commit.
+# so URL + query + response shape are compile-time validated. Strict
+# gate reached on 2026-04-14 — regressions are blocked from now on.
 # ---------------------------------------------------------------------------
-step "Dashboard fetch coverage (audit_dashboard_fetches.py — report only)"
-if "$BACKEND/venv/bin/python" "$BACKEND/scripts/audit_dashboard_fetches.py" > /tmp/preflight_dash_fetch.log 2>&1; then
-    _BARE=$(grep -E "bare fetch\(\) to /pro" /tmp/preflight_dash_fetch.log | head -1 | awk '{print $NF}')
-    ok "report-only: ${_BARE} bare fetch() calls to typed endpoints"
+step "Dashboard fetch coverage (audit_dashboard_fetches.py --strict)"
+if "$BACKEND/venv/bin/python" "$BACKEND/scripts/audit_dashboard_fetches.py" --strict > /tmp/preflight_dash_fetch.log 2>&1; then
+    ok "every fetch() to /pro|/merchant|/analytics routes via apiClient"
 else
-    bad "dashboard fetch audit crashed — see /tmp/preflight_dash_fetch.log"
+    bad "bare fetch() calls to typed endpoints detected — see /tmp/preflight_dash_fetch.log"
+    tail -20 /tmp/preflight_dash_fetch.log || true
 fi
 
 # ---------------------------------------------------------------------------
