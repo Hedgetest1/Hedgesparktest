@@ -61,7 +61,7 @@ from app.services.alerting import write_alert
 
 log = logging.getLogger("frontend_errors")
 
-router = APIRouter(prefix="/ops", tags=["ops"])
+router = APIRouter(prefix="/ops", tags=["ops"], include_in_schema=False)
 
 
 # ---------------------------------------------------------------------------

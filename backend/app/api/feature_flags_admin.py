@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from app.core.feature_flags import get_flag_state, list_flags, set_flag, REGISTRY
 
-router = APIRouter(tags=["feature_flags"])
+router = APIRouter(tags=["feature_flags"], include_in_schema=False)
 
 
 def _require_ops_key(x_api_key: str | None) -> None:

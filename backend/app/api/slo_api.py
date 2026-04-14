@@ -13,7 +13,7 @@ from fastapi import APIRouter, Header, HTTPException, Query
 
 from app.core.slo import CATALOGUE, route_stats, slo_report
 
-router = APIRouter(tags=["slo"])
+router = APIRouter(tags=["slo"], include_in_schema=False)
 
 
 def _require_ops_key(x_api_key: str | None) -> None:

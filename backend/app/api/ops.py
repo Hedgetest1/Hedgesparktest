@@ -25,7 +25,7 @@ from app.core.deps import require_operator
 
 log = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/ops", tags=["ops"])
+router = APIRouter(prefix="/ops", tags=["ops"], include_in_schema=False)
 
 
 # ---------------------------------------------------------------------------
