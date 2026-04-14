@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { createMoneyFormatter, type DisplayCurrency } from "../lib/currency";
-import { apiClient, type paths } from "../lib/api-client";
+import type { paths } from "../lib/api-client";
+import { useCardFetch } from "./_CardStates";
 
 // ---------------------------------------------------------------------------
 // Types — source of truth: GET /orders/daily-revenue → DailyRevenueResponse.
@@ -121,7 +122,7 @@ function buildPath(
 // Component
 // ---------------------------------------------------------------------------
 export function RevenueTrendChart({
-  apiBase: _apiBase,
+  apiBase,
   shop,
   currency: fallbackCurrency = "USD",
   displayCurrency = "USD",
@@ -131,22 +132,13 @@ export function RevenueTrendChart({
   currency?: string;
   displayCurrency?: DisplayCurrency;
 }) {
-  const [data, setData] = useState<DailyRevenueResponse | null>(null);
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
-  useEffect(() => {
-    if (!shop) return;
-    let active = true;
-
-    apiClient
-      .GET("/orders/daily-revenue", { params: { query: { days: 7 } } })
-      .then((res) => {
-        if (active && res.data != null) setData(res.data);
-      })
-      .catch(() => {});
-
-    return () => { active = false; };
-  }, [shop]);
+  const { data, state, retry } = useCardFetch<DailyRevenueResponse>({
+    url: `${apiBase}/orders/daily-revenue?days=7`,
+    enabled: !!shop && !!apiBase,
+    isEmpty: (d) => !d.points || d.points.length === 0,
+  });
 
   const points = data?.points ?? [];
   const currency = data?.currency ?? fallbackCurrency;
@@ -157,8 +149,53 @@ export function RevenueTrendChart({
   const values = useMemo(() => points.map((p) => p.revenue), [points]);
   const hasRevenue = values.some((v) => v > 0);
 
-  // Don't render if no data at all
-  if (!data || points.length === 0) return null;
+  if (state === "loading") {
+    return (
+      <div
+        className="mt-4 h-[110px] animate-pulse rounded-xl border border-white/[0.06] bg-white/[0.02]"
+        role="status"
+        aria-label="Loading 7-day revenue trend"
+      >
+        <span className="sr-only">Loading 7-day revenue trend</span>
+      </div>
+    );
+  }
+
+  if (state === "error") {
+    return (
+      <div
+        className="mt-4 rounded-xl border border-rose-400/20 bg-rose-500/[0.04] px-4 py-3"
+        role="alert"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[11px] text-rose-300">
+            Couldn&apos;t load the 7-day revenue trend.
+          </span>
+          <button
+            type="button"
+            onClick={retry}
+            className="rounded-md border border-rose-300/30 bg-rose-500/10 px-2 py-1 text-[10px] font-semibold text-rose-200 transition hover:bg-rose-500/20 focus:outline-none focus:ring-2 focus:ring-rose-300/50"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (state === "empty" || !data || points.length === 0) {
+    return (
+      <div className="mt-4 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+        <div className="flex items-center gap-2">
+          <div className="h-px flex-1 bg-white/[0.06]" />
+          <span className="text-[11px] text-slate-500">
+            Revenue trend will appear once orders arrive
+          </span>
+          <div className="h-px flex-1 bg-white/[0.06]" />
+        </div>
+      </div>
+    );
+  }
 
   const { line, area } = buildPath(values, CHART_W, CHART_H);
   const maxVal = Math.max(...values, 1);
