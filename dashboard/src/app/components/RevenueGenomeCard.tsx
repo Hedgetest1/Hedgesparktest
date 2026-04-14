@@ -3,16 +3,25 @@
 /**
  * RevenueGenomeCard — "Your Revenue DNA"
  *
- * THE unreachable feature. Shows the complete genetic profile of
- * the merchant's revenue across 6 gene clusters with an overall
- * health score and prescriptive priority actions.
- *
- * Visual: DNA-helix-inspired layout with gene score bars.
+ * Shows the complete genetic profile of the merchant's revenue across
+ * six gene clusters, each decomposed into individual genes with a score
+ * out of 100. Summary view: score ring + archetype + cluster overview
+ * + top priority actions. Drawer: full per-gene breakdown with insights.
  *
  * Data source: GET /pro/revenue-genome
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { CardSkeleton, CardError, CardEmpty, useCardFetch } from "./_CardStates";
+import {
+  DetailDrawer,
+  DrawerExplainer,
+  DrawerBigStat,
+  DrawerKeyValueList,
+  DrawerSectionHeading,
+  DrawerHowCalculated,
+  DrawerNextAction,
+} from "./DetailDrawer";
 
 type Gene = {
   name: string;
@@ -74,11 +83,20 @@ function scoreColor(score: number): string {
 
 function archetypeGradient(archetype: string): string {
   switch (archetype) {
-    case "Revenue Machine": return "from-emerald-500/20 to-emerald-400/5";
-    case "Growth Ready": return "from-violet-500/20 to-violet-400/5";
-    case "Emerging": return "from-amber-500/20 to-amber-400/5";
-    default: return "from-slate-500/20 to-slate-400/5";
+    case "Revenue Machine":
+      return "from-emerald-500/20 to-emerald-400/5";
+    case "Growth Ready":
+      return "from-violet-500/20 to-violet-400/5";
+    case "Emerging":
+      return "from-amber-500/20 to-amber-400/5";
+    default:
+      return "from-slate-500/20 to-slate-400/5";
   }
+}
+
+function clusterAvg(cluster: GeneCluster): number {
+  if (!cluster.genes.length) return 0;
+  return Math.round(cluster.genes.reduce((s, g) => s + g.score, 0) / cluster.genes.length);
 }
 
 export function RevenueGenomeCard({
@@ -90,163 +108,453 @@ export function RevenueGenomeCard({
   shop: string;
   isProUser: boolean;
 }) {
-  const [data, setData] = useState<GenomeData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
-  useEffect(() => {
-    if (!apiBase || !shop || !isProUser) { setLoading(false); return; }
-    let active = true;
-    fetch(`${apiBase}/pro/revenue-genome`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((j) => { if (active) setData(j); })
-      .catch(() => {})
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [apiBase, shop, isProUser]);
+  const { data, state, retry } = useCardFetch<GenomeData>({
+    url: `${apiBase}/pro/revenue-genome`,
+    enabled: !!apiBase && !!shop && isProUser,
+    isEmpty: (d) => !d.gene_clusters || Object.keys(d.gene_clusters).length === 0,
+  });
 
   if (!isProUser) return null;
 
-  if (loading) {
+  if (state === "loading") {
+    return <CardSkeleton label="Loading your revenue genome" />;
+  }
+
+  if (state === "error") {
     return (
-      <div className="animate-pulse rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
-        <div className="h-4 w-48 rounded bg-white/[0.06]" />
-        <div className="mt-4 flex justify-center">
-          <div className="h-28 w-28 rounded-full bg-white/[0.04]" />
-        </div>
-        <div className="mt-4 grid grid-cols-3 gap-2">
-          {[0, 1, 2, 3, 4, 5].map((i) => <div key={i} className="h-16 rounded bg-white/[0.04]" />)}
-        </div>
-      </div>
+      <CardError
+        label="Revenue genome unavailable"
+        message="We couldn't sequence your revenue genome right now. Your underlying metrics are safe — this card will recover on the next cycle."
+        onRetry={retry}
+      />
     );
   }
 
-  if (!data) return null;
+  if (state === "empty" || !data) {
+    return (
+      <CardEmpty
+        accent="violet"
+        title="Sequencing your revenue genome"
+        body="The genome compares your store against six dimensions — traffic, conversion, product mix, customer behavior, interventions, and risk — and scores each one out of 100. We need enough visitor and order data across the board before the first reading is reliable."
+        eta="Needs ~2 weeks of traffic and orders"
+      />
+    );
+  }
 
   const clusters = Object.values(data.gene_clusters);
   const sc = scoreColor(data.overall_score);
+  const moderateCount = data.total_genes - data.strong_genes - data.weak_genes;
+  const topAction = data.priority_actions[0];
 
   return (
-    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6">
-      {/* Header */}
-      <div className="mb-0.5 text-[10px] font-bold uppercase tracking-[0.18em] text-[#d4893a]">
-        Revenue Genome
-      </div>
-      <h3 className="text-[17px] font-bold text-white">Your Revenue DNA</h3>
+    <>
+      <div
+        role="button"
+        tabIndex={0}
+        aria-haspopup="dialog"
+        aria-label={`Open revenue genome details — overall score ${data.overall_score} out of 100, ${data.archetype}`}
+        onClick={() => setDrawerOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setDrawerOpen(true);
+          }
+        }}
+        className="group cursor-pointer rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6 transition-shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e8a04e] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1220] hover:border-white/[0.12]"
+      >
+        <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-[#e8a04e]">
+          Revenue genome
+        </div>
+        <h3 className="text-[28px] font-extrabold leading-tight tracking-tight text-[#e8a04e]">
+          Your store, sequenced
+        </h3>
+        <p className="mt-2 text-[14px] leading-relaxed text-slate-400">
+          Six clusters, scored out of 100. A fast read on what your store is good at and what
+          it&apos;s leaking.
+        </p>
 
-      {/* Overall score + archetype */}
-      <div className={`mt-4 flex items-center gap-5 rounded-xl bg-gradient-to-r ${archetypeGradient(data.archetype)} border border-white/[0.06] p-4`}>
-        {/* Score ring */}
-        <div className="relative flex-shrink-0">
-          <svg width="80" height="80" viewBox="0 0 80 80">
-            <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="6" />
-            <circle
-              cx="40" cy="40" r="34"
-              fill="none" stroke={sc} strokeWidth="6"
-              strokeLinecap="round"
-              strokeDasharray={`${data.overall_score * 2.14} 214`}
-              transform="rotate(-90 40 40)"
-              className="transition-all duration-1000"
-            />
-          </svg>
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-[20px] font-extrabold tabular-nums" style={{ color: sc }}>
-              {data.overall_score}
-            </span>
-            <span className="text-[8px] font-bold uppercase text-slate-500">/ 100</span>
+        {/* Overall score + archetype */}
+        <div
+          className={`mt-5 flex items-center gap-5 rounded-xl border border-white/[0.08] bg-gradient-to-r ${archetypeGradient(
+            data.archetype,
+          )} p-5`}
+        >
+          <div className="relative flex-shrink-0" aria-hidden="true">
+            <svg width="96" height="96" viewBox="0 0 96 96">
+              <circle cx="48" cy="48" r="40" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="7" />
+              <circle
+                cx="48"
+                cy="48"
+                r="40"
+                fill="none"
+                stroke={sc}
+                strokeWidth="7"
+                strokeLinecap="round"
+                strokeDasharray={`${(data.overall_score * 251) / 100} 251`}
+                transform="rotate(-90 48 48)"
+                className="transition-all duration-1000"
+              />
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-[28px] font-extrabold tabular-nums" style={{ color: sc }}>
+                {data.overall_score}
+              </span>
+              <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">/ 100</span>
+            </div>
+          </div>
+
+          <div className="min-w-0">
+            <div className="text-[18px] font-extrabold text-white">{data.archetype}</div>
+            <p className="mt-1 text-[13px] leading-relaxed text-slate-400">{data.archetype_description}</p>
+            <div className="mt-2 flex gap-4 text-[11px] font-semibold tabular-nums">
+              <span className="text-emerald-400">{data.strong_genes} strong</span>
+              <span className="text-slate-500">{moderateCount} moderate</span>
+              <span className="text-rose-400">{data.weak_genes} weak</span>
+            </div>
           </div>
         </div>
 
-        <div>
-          <div className="text-[14px] font-bold text-white">{data.archetype}</div>
-          <p className="mt-0.5 text-[11px] text-slate-400">{data.archetype_description}</p>
-          <div className="mt-1.5 flex gap-3 text-[10px]">
-            <span className="text-emerald-400">{data.strong_genes} strong</span>
-            <span className="text-slate-500">{data.total_genes - data.strong_genes - data.weak_genes} moderate</span>
-            <span className="text-red-400">{data.weak_genes} weak</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Gene clusters */}
-      <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-3">
-        {clusters.map((cluster) => {
-          const color = CLUSTER_COLORS[cluster.cluster] || "#94a3b8";
-          const icon = CLUSTER_ICONS[cluster.cluster] || "?";
-          const avgScore = cluster.genes.length > 0
-            ? Math.round(cluster.genes.reduce((s, g) => s + g.score, 0) / cluster.genes.length)
-            : 0;
-          const isExpanded = expanded === cluster.cluster;
-
-          return (
-            <div
-              key={cluster.cluster}
-              className="cursor-pointer rounded-xl border border-white/[0.05] bg-white/[0.015] p-3 transition-all hover:border-white/[0.12]"
-              onClick={() => setExpanded(isExpanded ? null : cluster.cluster)}
-            >
-              <div className="flex items-center gap-2">
-                <div
-                  className="flex h-7 w-7 items-center justify-center rounded-lg text-[11px] font-bold"
-                  style={{ background: color + "25", color }}
-                >
-                  {icon}
+        {/* Gene clusters — summary view */}
+        <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-3">
+          {clusters.map((cluster) => {
+            const color = CLUSTER_COLORS[cluster.cluster] || "#94a3b8";
+            const icon = CLUSTER_ICONS[cluster.cluster] || "?";
+            const avgScore = clusterAvg(cluster);
+            return (
+              <div
+                key={cluster.cluster}
+                className="rounded-xl border border-white/[0.05] bg-white/[0.015] p-4"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-[14px] font-extrabold"
+                    style={{ background: color + "22", color }}
+                    aria-hidden="true"
+                  >
+                    {icon}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[12px] font-bold text-slate-200">
+                      {cluster.cluster}
+                    </div>
+                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+                      <div
+                        className="h-full rounded-full transition-all duration-700"
+                        style={{ width: `${avgScore}%`, background: scoreColor(avgScore) }}
+                      />
+                    </div>
+                  </div>
+                  <span
+                    className="text-[16px] font-extrabold tabular-nums"
+                    style={{ color: scoreColor(avgScore) }}
+                  >
+                    {avgScore}
+                  </span>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[10px] font-semibold text-slate-300 truncate">
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Top priority action — single highlight */}
+        {topAction && (
+          <div className="mt-5 rounded-xl border border-amber-400/20 bg-amber-500/[0.05] px-4 py-3">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400">
+                Top priority
+              </span>
+              <span className="text-[11px] text-slate-500">·</span>
+              <span className="text-[11px] font-semibold text-slate-300">{topAction.cluster}</span>
+              <span className="ml-auto text-[12px] font-extrabold tabular-nums text-rose-400">
+                {topAction.score}/100
+              </span>
+            </div>
+            <p className="mt-1.5 text-[13px] font-medium leading-relaxed text-amber-200/90">
+              {topAction.action}
+            </p>
+          </div>
+        )}
+
+        <div className="mt-4 text-[11px] font-semibold text-slate-500">
+          Click for the full gene-by-gene breakdown and all priority actions →
+        </div>
+      </div>
+
+      <DetailDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        icon="🧬"
+        title="Your revenue genome"
+        subtitle={`${data.archetype} · ${data.overall_score}/100`}
+        widthPx={640}
+      >
+        <DrawerExplainer
+          body={
+            "The genome takes everything we know about your store — traffic, conversion, product mix, " +
+            "customers, interventions, risk — and grades each dimension against a healthy baseline. " +
+            "Every gene gets a score from 0 to 100. Every cluster is an average of its genes. The " +
+            "overall score is what your store looks like when you step back and squint."
+          }
+          why={
+            "A single KPI tells you how the week went. The genome tells you where the structural " +
+            "strengths and weaknesses are — the things that drive every week, not just this one. " +
+            "Fixing a weak gene usually pays off for months; fixing a weak week usually doesn't."
+          }
+        />
+
+        <DrawerBigStat
+          label="Overall genome score"
+          value={`${data.overall_score}`}
+          sublabel={`${data.archetype} · ${data.strong_genes} strong · ${moderateCount} moderate · ${data.weak_genes} weak genes`}
+          color={sc}
+        />
+
+        <DrawerKeyValueList
+          items={[
+            {
+              label: "Archetype",
+              value: data.archetype,
+              color: sc,
+            },
+            {
+              label: "Total genes",
+              value: `${data.total_genes}`,
+            },
+            {
+              label: "Strong (≥ 70)",
+              value: `${data.strong_genes}`,
+              color: "#10b981",
+            },
+            {
+              label: "Moderate (40–69)",
+              value: `${moderateCount}`,
+              color: "#fbbf24",
+            },
+            {
+              label: "Weak (< 40)",
+              value: `${data.weak_genes}`,
+              color: "#f43f5e",
+            },
+            {
+              label: "Clusters",
+              value: `${clusters.length}`,
+            },
+          ]}
+        />
+
+        <DrawerSectionHeading>Gene-by-gene breakdown</DrawerSectionHeading>
+        <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+          {clusters.map((cluster) => {
+            const color = CLUSTER_COLORS[cluster.cluster] || "#94a3b8";
+            const avgScore = clusterAvg(cluster);
+            return (
+              <div
+                key={cluster.cluster}
+                style={{
+                  padding: "14px 16px",
+                  borderRadius: "12px",
+                  background: "rgba(15,23,42,0.55)",
+                  border: "1px solid rgba(148,163,184,0.12)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    marginBottom: "10px",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "28px",
+                      height: "28px",
+                      borderRadius: "8px",
+                      background: color + "22",
+                      color,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: "13px",
+                      fontWeight: 800,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {CLUSTER_ICONS[cluster.cluster] || "?"}
+                  </div>
+                  <div
+                    style={{
+                      color: "#e2e8f0",
+                      fontWeight: 700,
+                      fontSize: "14px",
+                      flex: 1,
+                    }}
+                  >
                     {cluster.cluster}
                   </div>
-                  <div className="h-1.5 mt-1 overflow-hidden rounded-full bg-white/[0.05]">
-                    <div
-                      className="h-full rounded-full transition-all duration-700"
-                      style={{ width: `${avgScore}%`, background: scoreColor(avgScore) }}
-                    />
+                  <div
+                    style={{
+                      color: scoreColor(avgScore),
+                      fontWeight: 800,
+                      fontSize: "18px",
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {avgScore}
                   </div>
                 </div>
-                <span className="text-[13px] font-bold tabular-nums" style={{ color: scoreColor(avgScore) }}>
-                  {avgScore}
-                </span>
-              </div>
-
-              {/* Expanded genes */}
-              {isExpanded && (
-                <div className="mt-2.5 space-y-1.5 border-t border-white/[0.05] pt-2.5">
-                  {cluster.genes.map((gene) => (
-                    <div key={gene.name}>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-slate-400">{gene.name}</span>
-                        <span className="text-[10px] font-bold tabular-nums" style={{ color: scoreColor(gene.score) }}>
-                          {gene.score}
-                        </span>
+                {cluster.error ? (
+                  <div
+                    style={{
+                      color: "#fda4af",
+                      fontSize: "12px",
+                      fontStyle: "italic",
+                    }}
+                  >
+                    {cluster.error}
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                    {cluster.genes.map((gene) => (
+                      <div
+                        key={gene.name}
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: "8px",
+                          background: "rgba(15,23,42,0.4)",
+                          border: "1px solid rgba(148,163,184,0.08)",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            marginBottom: "4px",
+                          }}
+                        >
+                          <span style={{ color: "#cbd5e1", fontSize: "12px", fontWeight: 600 }}>
+                            {gene.name}
+                          </span>
+                          <span
+                            style={{
+                              color: scoreColor(gene.score),
+                              fontSize: "12px",
+                              fontWeight: 800,
+                              fontVariantNumeric: "tabular-nums",
+                            }}
+                          >
+                            {gene.score}
+                          </span>
+                        </div>
+                        <p
+                          style={{
+                            color: "#94a3b8",
+                            fontSize: "11px",
+                            lineHeight: 1.55,
+                            margin: 0,
+                          }}
+                        >
+                          {gene.insight}
+                        </p>
                       </div>
-                      <p className="text-[9px] text-slate-500">{gene.insight}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Priority actions */}
-      {data.priority_actions.length > 0 && (
-        <div className="mt-4">
-          <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-amber-400">
-            Priority actions
-          </div>
-          {data.priority_actions.map((a, i) => (
-            <div key={i} className="mb-1.5 rounded-lg border border-amber-400/10 bg-amber-500/[0.03] px-3 py-2">
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold text-amber-300">{a.cluster}</span>
-                <span className="text-[9px] text-slate-500">·</span>
-                <span className="text-[10px] text-slate-400">{a.gene}</span>
-                <span className="ml-auto text-[10px] font-bold tabular-nums text-red-400">{a.score}/100</span>
+                    ))}
+                  </div>
+                )}
               </div>
-              <p className="mt-0.5 text-[10px] text-amber-400/80">{a.action}</p>
-            </div>
-          ))}
+            );
+          })}
         </div>
-      )}
-    </div>
+
+        {data.priority_actions.length > 0 && (
+          <>
+            <DrawerSectionHeading>All priority actions</DrawerSectionHeading>
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {data.priority_actions.map((a, i) => (
+                <div
+                  key={i}
+                  style={{
+                    padding: "11px 14px",
+                    borderRadius: "10px",
+                    background: "rgba(245,158,11,0.05)",
+                    border: "1px solid rgba(245,158,11,0.2)",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "8px",
+                      alignItems: "center",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    <span
+                      style={{
+                        color: "#fbbf24",
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                      }}
+                    >
+                      {i + 1}. {a.cluster}
+                    </span>
+                    <span style={{ color: "#64748b", fontSize: "11px" }}>·</span>
+                    <span style={{ color: "#cbd5e1", fontSize: "11px" }}>{a.gene}</span>
+                    <span
+                      style={{
+                        marginLeft: "auto",
+                        color: "#fb7185",
+                        fontWeight: 800,
+                        fontSize: "12px",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      {a.score}/100
+                    </span>
+                  </div>
+                  <p
+                    style={{
+                      color: "#fde68a",
+                      fontSize: "12px",
+                      lineHeight: 1.55,
+                      margin: 0,
+                    }}
+                  >
+                    {a.action}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        <DrawerHowCalculated
+          formula="Each gene is a single KPI compared to a healthy-baseline range. Score = clamp(0, 100, (actual − floor) ÷ (target − floor) × 100). Cluster score is the mean of its genes. Overall score is the weighted mean of the six clusters. Strong genes score ≥70, weak genes score <40, everything else is moderate."
+          inputs={[
+            { label: "Genes analyzed", value: `${data.total_genes}` },
+            { label: "Clusters", value: `${clusters.length}` },
+            {
+              label: "Strong / moderate / weak",
+              value: `${data.strong_genes} / ${moderateCount} / ${data.weak_genes}`,
+            },
+          ]}
+          note="The baselines are calibrated from peer-anonymized benchmarks, not from guesswork. If your archetype shifts week-over-week, that's the structural profile of your store changing — something worth investigating."
+        />
+
+        {topAction && (
+          <DrawerNextAction
+            headline="Biggest lever right now"
+            primary={{
+              label: `Work on ${topAction.gene}`,
+              description: `${topAction.cluster} — scoring ${topAction.score}/100. ${topAction.action}`,
+              onClick: () => setDrawerOpen(false),
+            }}
+          />
+        )}
+      </DetailDrawer>
+    </>
   );
 }
