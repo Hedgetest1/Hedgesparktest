@@ -1,6 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { CardSkeleton, CardError, CardEmpty, useCardFetch } from "./_CardStates";
+import {
+  DetailDrawer,
+  DrawerExplainer,
+  DrawerBigStat,
+  DrawerKeyValueList,
+  DrawerSectionHeading,
+  DrawerHowCalculated,
+  DrawerNextAction,
+} from "./DetailDrawer";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
 
@@ -8,6 +18,17 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
 
 type Signal = { name: string; direction: string; detail: string };
 type PriorityInsight = { headline: string; explanation: string; action: string; category: string; severity: string };
+
+// Bottleneck shape matches the backend response: each entry carries the real
+// views/carts/cart_rate for the product that's stuck in the funnel. No more
+// hardcoded placeholder numbers in the hero.
+type Bottleneck = {
+  product_name: string;
+  views_7d: number;
+  carts_7d: number;
+  cart_rate: number;
+};
+
 type BriefData = {
   visitors_7d?: number;
   orders_this_week?: number;
@@ -17,7 +38,7 @@ type BriefData = {
   revenue_change_pct?: number | null;
   cart_rate?: number | null;
   products_tracked?: number;
-  conversion_bottlenecks?: string[];
+  conversion_bottlenecks?: Bottleneck[];
   top_converters?: string[];
 };
 type IntelligenceBrief = {
@@ -68,35 +89,67 @@ export function IntelligenceHero({
   isProUser?: boolean;
   onUpgrade?: () => void;
 }) {
-  const [brief, setBrief] = useState<IntelligenceBrief | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
-  useEffect(() => {
-    if (!connected || !API_BASE) { setLoading(false); return; }
-    fetch(`${API_BASE}/dashboard/intelligence`, {
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      cache: "no-store",
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d && d.priority_insight) setBrief(d); })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [connected]);
+  const { data: brief, state, retry } = useCardFetch<IntelligenceBrief>({
+    url: `${API_BASE}/dashboard/intelligence`,
+    enabled: connected && !!API_BASE,
+    isEmpty: (b) => !b.priority_insight,
+  });
 
-  if (loading || !brief || !brief.priority_insight) return null;
+  if (!connected) return null;
+
+  if (state === "loading") {
+    return <CardSkeleton label="Loading your intelligence brief" />;
+  }
+
+  if (state === "error") {
+    return (
+      <CardError
+        label="Intelligence brief unavailable"
+        message="We couldn't pull this week's intelligence brief. Your store data is safe — this card will recover on the next cycle."
+        onRetry={retry}
+      />
+    );
+  }
+
+  if (state === "empty" || !brief || !brief.priority_insight) {
+    return (
+      <CardEmpty
+        accent="violet"
+        title="Your intelligence brief is warming up"
+        body="HedgeSpark needs a few days of visitor and order data before it can tell you what's actually driving your numbers. The first brief lands once the signals are strong enough to stand on their own."
+        eta="First brief in ~48h"
+      />
+    );
+  }
 
   const insight = brief.priority_insight;
   const d = brief.data;
   const sev = SEV[insight.severity] || SEV.neutral;
 
   const revChange = d.revenue_change_pct;
-  const hasBottleneck = (d.conversion_bottlenecks?.length ?? 0) > 0;
-  const topBottleneck = d.conversion_bottlenecks?.[0];
+  const bottlenecks = d.conversion_bottlenecks ?? [];
+  const hasBottleneck = bottlenecks.length > 0;
+  const topBottleneck = bottlenecks[0];
   const hasProblem = insight.severity === "critical" || insight.severity === "warning" || hasBottleneck;
 
   return (
-    <div className={`rounded-2xl border ${sev.border} ${sev.bg} overflow-hidden`}>
+    <>
+    <div
+      role="button"
+      tabIndex={0}
+      aria-haspopup="dialog"
+      aria-label={`Open intelligence brief details — ${insight.headline}`}
+      onClick={() => setDrawerOpen(true)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          setDrawerOpen(true);
+        }
+      }}
+      className={`group rounded-2xl border ${sev.border} ${sev.bg} overflow-hidden cursor-pointer transition-shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e8a04e] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1220]`}
+    >
       <div className="p-5 sm:p-6">
 
         {/* ── Severity tag ── */}
@@ -117,7 +170,7 @@ export function IntelligenceHero({
           <div className="mb-5 rounded-xl border border-rose-500/20 bg-rose-500/[0.06] p-4">
             {/* Label */}
             <div className="mb-2.5 flex items-center gap-2">
-              <svg className="h-4 w-4 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg className="h-4 w-4 text-rose-400" aria-hidden="true" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 15.75h.007v.008H12v-.008z" />
               </svg>
@@ -125,21 +178,25 @@ export function IntelligenceHero({
             </div>
 
             {/* Product name — large */}
-            <div className="text-[20px] font-bold text-rose-200">{topBottleneck}</div>
+            <div className="text-[20px] font-bold text-rose-200">{topBottleneck.product_name}</div>
 
-            {/* Proof numbers — inline, high contrast */}
+            {/* Real views → carts from the backend — no more hardcoded placeholders */}
             <div className="mt-3 flex items-center gap-5">
               <div>
-                <span className="text-[2rem] font-extrabold tabular-nums text-white">28</span>
+                <span className="text-[2rem] font-extrabold tabular-nums text-white">{topBottleneck.views_7d}</span>
                 <span className="ml-1.5 text-[14px] text-slate-400">views</span>
               </div>
-              <span className="text-[20px] text-slate-600">&rarr;</span>
+              <span className="text-[20px] text-slate-600" aria-hidden="true">&rarr;</span>
               <div>
-                <span className="text-[2rem] font-extrabold tabular-nums text-rose-400">0</span>
+                <span className={`text-[2rem] font-extrabold tabular-nums ${topBottleneck.carts_7d === 0 ? "text-rose-400" : "text-white"}`}>
+                  {topBottleneck.carts_7d}
+                </span>
                 <span className="ml-1.5 text-[14px] text-slate-400">carts</span>
               </div>
               <div className="ml-auto rounded-lg bg-rose-500/15 px-3 py-1.5">
-                <span className="text-[14px] font-bold text-rose-400">&darr; 0% cart rate</span>
+                <span className="text-[14px] font-bold text-rose-400">
+                  &darr; {(topBottleneck.cart_rate * 100).toFixed(1)}% cart rate
+                </span>
               </div>
             </div>
 
@@ -237,10 +294,10 @@ export function IntelligenceHero({
         {/* ═══════════════════════════════════════════════════════════════════
            INTERPRETATION — headline + explanation + diagnosis
            ═══════════════════════════════════════════════════════════════════ */}
-        <h2 className={`text-[22px] font-extrabold leading-snug sm:text-[24px] ${sev.headline}`}>
+        <h2 className={`text-[28px] font-extrabold leading-tight tracking-tight sm:text-[32px] ${sev.headline}`}>
           {insight.headline}
         </h2>
-        <p className="mt-2 text-[16px] leading-relaxed text-slate-400">
+        <p className="mt-2 text-[15px] leading-relaxed text-slate-400">
           {insight.explanation}
         </p>
         {brief.diagnosis && brief.signals.length > 1 && (
@@ -298,8 +355,12 @@ export function IntelligenceHero({
             </div>
             <div className="absolute inset-0 flex items-center justify-center">
               <button
-                onClick={onUpgrade}
-                className="hs-cta-gradient rounded-xl px-6 py-3 text-[14px] font-bold text-white shadow-lg shadow-[#d4893a]/20 transition-all hover:shadow-[#d4893a]/30 active:scale-[0.98]"
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUpgrade?.();
+                }}
+                className="hs-cta-gradient rounded-xl px-6 py-3 text-[14px] font-bold text-white shadow-lg shadow-[#d4893a]/20 transition-all hover:shadow-[#d4893a]/30 active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1220]"
               >
                 {hasProblem ? "Unlock actions to fix this" : "Turn this insight into revenue"}
               </button>
@@ -308,5 +369,108 @@ export function IntelligenceHero({
         )}
       </div>
     </div>
+
+    {/* Drawer — idiot-proof explainer + depth for the merchant */}
+    <DetailDrawer
+      open={drawerOpen}
+      onClose={() => setDrawerOpen(false)}
+      icon="🧠"
+      title="This week's intelligence brief"
+      subtitle={insight.headline}
+    >
+      <DrawerExplainer
+        body={
+          "This is what HedgeSpark saw across your traffic, conversion, and revenue signals this week, " +
+          "synthesized into one answer: what's actually going on, and what to do about it. The brief is " +
+          "built from real events in your store — orders, visitors, carts, product views — not from " +
+          "industry averages or guesses."
+        }
+        why={
+          "Most dashboards show you charts and leave you to figure out what matters. The brief picks the " +
+          "one thing that matters most this week, proves it with your own numbers, and tells you the next step."
+        }
+      />
+
+      <DrawerBigStat
+        label="Revenue this week"
+        value={fmt$(d.revenue_this_week)}
+        sublabel={
+          revChange != null
+            ? `${revChange >= 0 ? "+" : ""}${revChange.toFixed(0)}% vs the week before`
+            : undefined
+        }
+        color={revChange != null && revChange >= 0 ? "#10b981" : "#e8a04e"}
+      />
+
+      <DrawerKeyValueList
+        items={[
+          { label: "Visitors (7 days)", value: `${d.visitors_7d ?? 0}` },
+          {
+            label: "Orders this week",
+            value: `${d.orders_this_week ?? 0}${
+              d.orders_last_week != null ? ` (from ${d.orders_last_week})` : ""
+            }`,
+          },
+          { label: "Cart rate", value: fmtRate(d.cart_rate) },
+          { label: "Products tracked", value: `${d.products_tracked ?? 0}` },
+          {
+            label: "Bottleneck products",
+            value: `${bottlenecks.length}`,
+            color: bottlenecks.length > 0 ? "#f43f5e" : "#94a3b8",
+          },
+        ]}
+      />
+
+      {hasBottleneck && topBottleneck && (
+        <>
+          <DrawerSectionHeading>Biggest bottleneck right now</DrawerSectionHeading>
+          <div
+            style={{
+              padding: "14px 16px",
+              borderRadius: "12px",
+              background: "rgba(244,63,94,0.06)",
+              border: "1px solid rgba(244,63,94,0.25)",
+              color: "#fecdd3",
+              fontSize: "14px",
+              lineHeight: 1.55,
+            }}
+          >
+            <div style={{ fontWeight: 700, color: "#fecaca", marginBottom: "6px" }}>
+              {topBottleneck.product_name}
+            </div>
+            <div style={{ color: "#fda4af", fontSize: "13px" }}>
+              {topBottleneck.views_7d} views · {topBottleneck.carts_7d} carts ·{" "}
+              {(topBottleneck.cart_rate * 100).toFixed(1)}% cart rate
+            </div>
+            <div style={{ marginTop: "8px", color: "#cbd5e1", fontSize: "13px" }}>
+              Traffic is reaching this product but the page isn&apos;t converting. Focus the fix here first —
+              it&apos;s the single biggest lever in your store this week.
+            </div>
+          </div>
+        </>
+      )}
+
+      <DrawerHowCalculated
+        formula="The brief looks at three signals — traffic, conversion, revenue — compares this week to last, picks the signal that moved the most, and promotes the top-priority action from that signal."
+        inputs={[
+          { label: "Traffic signal", value: brief.signals.find((s) => s.name === "traffic")?.detail ?? "—" },
+          { label: "Conversion signal", value: brief.signals.find((s) => s.name === "conversion")?.detail ?? "—" },
+          { label: "Revenue signal", value: brief.signals.find((s) => s.name === "revenue")?.detail ?? "—" },
+        ]}
+        note={brief.diagnosis || undefined}
+      />
+
+      {isProUser && (
+        <DrawerNextAction
+          headline={hasProblem ? "Fix this first" : "Next step"}
+          primary={{
+            label: hasProblem ? "See recommended fix" : "Apply next step",
+            description: insight.action,
+            onClick: () => setDrawerOpen(false),
+          }}
+        />
+      )}
+    </DetailDrawer>
+    </>
   );
 }

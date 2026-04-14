@@ -621,7 +621,18 @@ def generate_store_brief(db: Session, shop_domain: str) -> StoreBrief | None:
         "revenue_change_pct": round(rev_change, 1) if rev_change is not None else None,
         "cart_rate": round(avg_cart, 4) if wow.new_cart_rate is not None else None,
         "products_tracked": len(products),
-        "conversion_bottlenecks": [p.product_name for p in products if p.signal_type == "high_views_no_carts"],
+        # Bottlenecks now carry the real numbers the hero renders, so the
+        # dashboard never has to invent placeholder views/carts values.
+        "conversion_bottlenecks": [
+            {
+                "product_name": p.product_name,
+                "views_7d": p.views_7d,
+                "carts_7d": p.carts_7d,
+                "cart_rate": round(p.cart_rate, 4),
+            }
+            for p in products
+            if p.signal_type == "high_views_no_carts"
+        ],
         "top_converters": [p.product_name for p in products if p.signal_type == "converting_well"],
     }
 
