@@ -1,14 +1,27 @@
 "use client";
 
+/**
+ * /pricing — beta-phase pricing page.
+ *
+ * Per the beta launch master plan (§4.2 + Stage 4 Step 8), explicit
+ * prices and "free trial" CTAs are HIDDEN during the beta. The page
+ * still exists and still lists what Lite vs Pro includes, but:
+ *
+ *  - no € / $ numbers anywhere
+ *  - CTAs are pricing-neutral ("Install on Shopify" / dashboard link)
+ *  - the feature comparison table remains so prospects can evaluate the
+ *    product, not haggle over a number before they've seen it work
+ *  - a short honest note explains that pricing lands after the beta
+ *
+ * When pricing is finalized post-beta, swap the hidden-price blocks for
+ * real numbers and reintroduce the upgrade CTA — the structure is
+ * preserved on purpose to keep the swap small.
+ */
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
-// ---------------------------------------------------------------------------
-// Environment
-// ---------------------------------------------------------------------------
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "";
-const UPGRADE_URL = process.env.NEXT_PUBLIC_UPGRADE_URL || null;
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
 
 function apiHeaders(): HeadersInit {
   return { "Content-Type": "application/json" };
@@ -50,7 +63,7 @@ type ComparisonRow = {
 };
 
 const COMPARISON: ComparisonRow[] = [
-  { label: "Daily brief",             lite: "Headline only",  pro: "Full breakdown"       },
+  { label: "Daily brief",             lite: "Headline only",  pro: "Full breakdown"        },
   { label: "Product performance",     lite: "Top 3 products", pro: "Full catalog"          },
   { label: "Revenue at Risk Score",   lite: "Estimate only",  pro: "5-dimension breakdown" },
   { label: "Revenue Autopsy",         lite: false,            pro: "Per product"           },
@@ -81,7 +94,8 @@ function CheckIcon({ dim }: { dim?: boolean }) {
       viewBox="0 0 24 24"
       strokeWidth={2.5}
       stroke="currentColor"
-      className={`h-3.5 w-3.5 flex-shrink-0 ${dim ? "text-slate-600" : "text-[#d4893a]"}`}
+      aria-hidden="true"
+      className={`h-3.5 w-3.5 flex-shrink-0 ${dim ? "text-slate-600" : "text-[#e8a04e]"}`}
     >
       <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
     </svg>
@@ -96,6 +110,7 @@ function LockIcon() {
       viewBox="0 0 24 24"
       strokeWidth={1.8}
       stroke="currentColor"
+      aria-hidden="true"
       className="h-3 w-3 flex-shrink-0 text-slate-700"
     >
       <path
@@ -115,6 +130,7 @@ function ArrowLeftIcon() {
       viewBox="0 0 24 24"
       strokeWidth={1.5}
       stroke="currentColor"
+      aria-hidden="true"
       className="h-4 w-4"
     >
       <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
@@ -126,16 +142,14 @@ function ArrowLeftIcon() {
 // Main page
 // ---------------------------------------------------------------------------
 export default function PricingPage() {
-  const [shop, setShop] = useState("");
   const [tier, setTier] = useState<"lite" | "pro" | null>(null);
-  const [trialDays, setTrialDays] = useState(14);
-  const [price, setPrice] = useState(49);
-  const [upgradeLoading, setUpgradeLoading] = useState(false);
 
   useEffect(() => {
-    if (!API_BASE) { setTier("lite"); return; }
+    if (!API_BASE) {
+      setTier("lite");
+      return;
+    }
 
-    // Resolve shop from session cookie — same pattern as main page
     fetch(`${API_BASE}/merchant/me`, {
       headers: apiHeaders(),
       credentials: "include",
@@ -144,51 +158,20 @@ export default function PricingPage() {
       .then(async (res) => {
         if (res.ok) {
           const json = await res.json();
-          if (json.shop_domain) setShop(json.shop_domain);
           setTier(json.plan === "pro" && json.billing_active === true ? "pro" : "lite");
-          if (json.pro_trial_days != null) setTrialDays(json.pro_trial_days);
-          if (json.pro_price != null) setPrice(json.pro_price);
           return;
         }
-        // No session — try ?shop= from URL as fallback
-        const s = new URLSearchParams(window.location.search).get("shop") || "";
-        if (s) setShop(s);
         setTier("lite");
       })
       .catch(() => {
-        const s = new URLSearchParams(window.location.search).get("shop") || "";
-        if (s) setShop(s);
         setTier("lite");
       });
   }, []);
 
   const dashboardHref = "/app";
   const isProUser = tier === "pro";
-  const hasTrial = trialDays > 0;
-  const priceStr = price % 1 === 0 ? `$${price}` : `$${price.toFixed(2)}`;
-
-  async function handleUpgrade() {
-    // Use real Shopify billing flow when shop + API are available.
-    if (shop && API_BASE) {
-      setUpgradeLoading(true);
-      try {
-        const res = await fetch(
-          `${API_BASE}/billing/subscribe?shop=${encodeURIComponent(shop)}`,
-          { method: "POST", headers: apiHeaders(), credentials: "include" }
-        );
-        const json = await res.json();
-        if (res.ok && json.confirmation_url) {
-          window.location.href = json.confirmation_url;
-          return;
-        }
-      } catch { /* fall through to UPGRADE_URL */ }
-      setUpgradeLoading(false);
-    }
-    // Fallback: external upgrade URL
-    if (UPGRADE_URL) {
-      window.open(UPGRADE_URL, "_blank", "noopener,noreferrer");
-    }
-  }
+  const primaryCta = isProUser ? "Back to your dashboard" : "Install on Shopify";
+  const primaryHref = isProUser ? dashboardHref : "/install";
 
   return (
     <div className="min-h-screen bg-[#080811] text-white">
@@ -203,7 +186,7 @@ export default function PricingPage() {
             <ArrowLeftIcon />
             Back to dashboard
           </Link>
-          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#c4b5fd]/50">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#c4b5fd]/60">
             HedgeSpark
           </span>
         </div>
@@ -213,41 +196,38 @@ export default function PricingPage() {
 
         {/* ── A. Hero ── */}
         <div className="hs-fade-up mb-10 text-center">
-          <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#e8a04e]/70">
-            Plans &amp; Pricing
+          <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.18em] text-[#e8a04e]">
+            Plans
           </div>
-          <h1 className="mb-3 text-[28px] font-semibold leading-tight text-white">
-            Unlock full store intelligence
+          <h1 className="mb-4 text-[36px] font-extrabold leading-tight tracking-tight text-[#e8a04e]">
+            Two plans. One product that actually works.
           </h1>
-          <p className="mx-auto max-w-md text-[15px] leading-relaxed text-slate-400">
-            See exactly what to fix, what revenue is at risk, and where to act first.
-          </p>
-          <p className="mt-3 text-[13px] text-slate-600">
-            🦔 HedgeSpark is already tracking your store — Pro helps you act on what it finds.
+          <p className="mx-auto max-w-xl text-[15px] leading-relaxed text-slate-400">
+            Lite tracks what&apos;s happening on your store. Pro tells you exactly what to fix, proves
+            every result against a control group, and stops leaks while you sleep.
           </p>
         </div>
 
-        {/* ── B. Pricing cards ── */}
+        {/* ── B. Plan cards — pricing hidden during beta ── */}
         <div className="mb-10 grid gap-4 sm:grid-cols-2">
 
           {/* Lite */}
           <div className="relative rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6">
             {tier === "lite" && (
-              <span className="absolute -top-3 left-5 rounded-full border border-white/10 bg-[#080811] px-3 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+              <span className="absolute -top-3 left-5 rounded-full border border-white/10 bg-[#080811] px-3 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
                 Current plan
               </span>
             )}
 
             <div className="mb-5">
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+              <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">
                 Lite
               </div>
-              <div className="flex items-baseline gap-1">
-                <span className="text-3xl font-semibold tabular-nums text-white">€12</span>
-                <span className="text-[13px] text-slate-500">/mo</span>
+              <div className="text-[20px] font-semibold text-slate-300">
+                Operational clarity
               </div>
-              <p className="mt-2 text-[12px] leading-5 text-slate-500">
-                Best for tracking what&apos;s happening
+              <p className="mt-2 text-[12px] leading-relaxed text-slate-500">
+                Best for tracking what&apos;s happening on your store.
               </p>
             </div>
 
@@ -255,39 +235,33 @@ export default function PricingPage() {
               {LITE_FEATURES.map((f) => (
                 <li key={f} className="flex items-center gap-2.5">
                   <CheckIcon dim />
-                  <span className="text-[13px] text-slate-500">{f}</span>
+                  <span className="text-[13px] text-slate-400">{f}</span>
                 </li>
               ))}
             </ul>
           </div>
 
           {/* Pro */}
-          <div className="relative rounded-2xl border border-[#d4893a]/30 bg-gradient-to-br from-[#d4893a]/[0.06] to-transparent p-6 shadow-[0_0_48px_rgba(212,137,58,0.08)]">
+          <div className="relative rounded-2xl border border-[#e8a04e]/30 bg-gradient-to-br from-[#e8a04e]/[0.06] to-transparent p-6 shadow-[0_0_48px_rgba(232,160,78,0.08)]">
             <span
-              className={`absolute -top-3 left-5 rounded-full border px-3 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+              className={`absolute -top-3 left-5 rounded-full border px-3 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] ${
                 tier === "pro"
                   ? "border-white/10 bg-[#080811] text-slate-500"
-                  : "border-[#d4893a]/30 bg-[#d4893a]/20 text-[#e8a04e]"
+                  : "border-[#e8a04e]/30 bg-[#e8a04e]/20 text-[#e8a04e]"
               }`}
             >
               {tier === "pro" ? "Current plan" : "Recommended"}
             </span>
 
             <div className="mb-5">
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#e8a04e]/80">
+              <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#e8a04e]">
                 Pro
               </div>
-              <div className="flex items-baseline gap-1">
-                <span className="text-3xl font-semibold tabular-nums text-white">{priceStr}</span>
-                <span className="text-[13px] text-slate-500">/mo</span>
+              <div className="text-[20px] font-semibold text-white">
+                Structural intelligence
               </div>
-              {hasTrial && (
-                <p className="mt-1.5 text-[12px] font-medium text-[#e8a04e]/80">
-                  {trialDays}-day free trial included
-                </p>
-              )}
-              <p className="mt-1 text-[12px] leading-5 text-slate-400">
-                Best for knowing what to fix
+              <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
+                Best for knowing exactly what to fix — and proving every fix worked.
               </p>
             </div>
 
@@ -295,7 +269,11 @@ export default function PricingPage() {
               {PRO_FEATURES.map((f) => (
                 <li key={f} className="flex items-center gap-2.5">
                   <CheckIcon />
-                  <span className={`text-[13px] ${f === "Everything in Lite" ? "text-slate-500" : "text-slate-200"}`}>
+                  <span
+                    className={`text-[13px] ${
+                      f === "Everything in Lite" ? "text-slate-500" : "text-slate-200"
+                    }`}
+                  >
                     {f}
                   </span>
                 </li>
@@ -303,34 +281,40 @@ export default function PricingPage() {
             </ul>
 
             {!isProUser && (
-              <button
-                onClick={handleUpgrade}
-                disabled={upgradeLoading}
-                className="mt-6 w-full rounded-xl bg-[#d4893a] py-2.5 text-sm font-semibold text-white shadow-[0_0_16px_rgba(124,58,237,0.35)] transition-colors hover:bg-[#e8a04e] active:bg-[#c47a3e] disabled:opacity-60"
+              <Link
+                href="/install"
+                className="mt-6 block w-full rounded-xl bg-gradient-to-br from-[#e8a04e] to-[#d4893a] py-3 text-center text-sm font-bold text-[#0b1220] shadow-[0_0_16px_rgba(232,160,78,0.35)] transition-colors hover:from-[#f2ab5a] hover:to-[#e8a04e] focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#080811]"
               >
-                {upgradeLoading
-                  ? "Opening Shopify billing…"
-                  : hasTrial
-                  ? `Start ${trialDays}-day free trial`
-                  : `Upgrade to Pro — ${priceStr}/mo`}
-              </button>
+                Install on Shopify
+              </Link>
             )}
 
             {isProUser && (
               <div className="mt-6 flex items-center justify-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-500/5 py-2.5">
                 <CheckIcon />
-                <span className="text-[13px] font-medium text-emerald-300">
-                  Active
-                </span>
+                <span className="text-[13px] font-semibold text-emerald-300">Active</span>
               </div>
             )}
           </div>
 
         </div>
 
+        {/* ── Beta notice — honest framing of where we are right now ── */}
+        {!isProUser && (
+          <div className="mb-10 rounded-2xl border border-[#e8a04e]/20 bg-[#e8a04e]/[0.04] px-6 py-5 text-center">
+            <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#e8a04e]">
+              During the beta
+            </div>
+            <p className="text-[14px] leading-relaxed text-slate-300">
+              HedgeSpark is in a closed beta. Install on Shopify to get access — we&apos;ll announce
+              final pricing before general launch, and beta merchants get grandfathered in.
+            </p>
+          </div>
+        )}
+
         {/* ── C. Comparison table ── */}
         <div className="mb-10">
-          <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600">
+          <div className="mb-4 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">
             Feature comparison
           </div>
 
@@ -338,10 +322,10 @@ export default function PricingPage() {
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-[13px]">
                 <thead>
-                  <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-wide text-slate-600">
-                    <th className="w-[46%] px-5 py-3 font-medium">Feature</th>
-                    <th className="px-5 py-3 font-medium">Lite</th>
-                    <th className="px-5 py-3 font-medium text-[#e8a04e]/80">Pro</th>
+                  <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-wide text-slate-500">
+                    <th className="w-[46%] px-5 py-3 font-semibold">Feature</th>
+                    <th className="px-5 py-3 font-semibold">Lite</th>
+                    <th className="px-5 py-3 font-semibold text-[#e8a04e]">Pro</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -352,7 +336,6 @@ export default function PricingPage() {
                     >
                       <td className="px-5 py-3 text-slate-400">{row.label}</td>
 
-                      {/* Lite cell */}
                       <td className="px-5 py-3">
                         {row.lite === false ? (
                           <div className="flex items-center gap-2">
@@ -364,7 +347,6 @@ export default function PricingPage() {
                         )}
                       </td>
 
-                      {/* Pro cell */}
                       <td className="px-5 py-3">
                         <div className="flex items-center gap-2">
                           <CheckIcon />
@@ -379,48 +361,26 @@ export default function PricingPage() {
           </div>
         </div>
 
-        {/* ── D. Urgency panel ── (only for Lite) */}
-        {!isProUser && (
-          <div className="mb-10 rounded-2xl border border-[#d4893a]/15 bg-[#d4893a]/[0.05] px-6 py-5">
-            <p className="text-[14px] font-medium text-slate-300">
-              You already have signals waiting in your dashboard.
-            </p>
-            <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500">
-              Upgrade to reveal the exact products and actions behind them.
-            </p>
-          </div>
-        )}
-
-        {/* ── E. CTA footer ── */}
+        {/* ── D. CTA footer ── */}
         <div className="flex flex-col items-center gap-3 pb-16 text-center">
           {isProUser ? (
             <Link
               href={dashboardHref}
-              className="rounded-xl border border-emerald-400/20 bg-emerald-500/5 px-8 py-3 text-sm font-semibold text-emerald-300 transition-colors hover:border-emerald-400/30 hover:bg-emerald-500/10"
+              className="rounded-xl border border-emerald-400/20 bg-emerald-500/5 px-8 py-3 text-sm font-semibold text-emerald-300 transition-colors hover:border-emerald-400/30 hover:bg-emerald-500/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
             >
-              Back to your dashboard →
+              {primaryCta} →
             </Link>
           ) : (
             <>
-              <button
-                onClick={handleUpgrade}
-                disabled={upgradeLoading}
-                className="rounded-xl bg-[#d4893a] px-8 py-3 text-sm font-semibold text-white shadow-[0_0_20px_rgba(124,58,237,0.4)] transition-colors hover:bg-[#e8a04e] active:bg-[#c47a3e] disabled:opacity-60"
+              <Link
+                href={primaryHref}
+                className="rounded-xl bg-gradient-to-br from-[#e8a04e] to-[#d4893a] px-8 py-3 text-sm font-bold text-[#0b1220] shadow-[0_0_20px_rgba(232,160,78,0.4)] transition-colors hover:from-[#f2ab5a] hover:to-[#e8a04e] focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#080811]"
               >
-                {upgradeLoading
-                  ? "Opening Shopify billing…"
-                  : hasTrial
-                  ? `Start ${trialDays}-day free trial`
-                  : `Upgrade to Pro — ${priceStr}/mo`}
-              </button>
-              {hasTrial && !upgradeLoading && (
-                <p className="text-[11px] text-slate-600">
-                  Then {priceStr}/mo. Cancel anytime from Shopify.
-                </p>
-              )}
+                {primaryCta}
+              </Link>
               <Link
                 href={dashboardHref}
-                className="text-[12px] text-slate-600 transition-colors hover:text-slate-400"
+                className="text-[12px] text-slate-500 transition-colors hover:text-slate-300"
               >
                 Keep exploring Lite
               </Link>
