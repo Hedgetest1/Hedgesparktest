@@ -1,13 +1,11 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Image from "next/image";
 
 import { Sidebar } from "../components/Sidebar";
 import { TopBar, type TrialInfo } from "../components/TopBar";
 import { UpgradeModal } from "../components/UpgradeModal";
-import { ProGate } from "../components/ProGate";
-import { MascotLoader, MascotEmpty } from "../components/MascotLoader";
+import { MascotLoader } from "../components/MascotLoader";
 import { SignalCard, type OpportunitySignal } from "../components/SignalCard";
 import { BriefHero, type DailyBrief } from "../components/BriefHero";
 import { RevenueWindowPro, RevenueWindowLite } from "../components/RevenueWindowBanner";
@@ -24,28 +22,20 @@ import { TopSignalCard, loadRecentActions, type RecentAction } from "../componen
 import { RecentActions } from "../components/RecentActions";
 import { ProofHeroCard } from "../components/ProofHeroCard";
 import { SystemStatusBar } from "../components/SystemStatusBar";
-import { DashboardHero } from "../components/DashboardHero";
 import { computeActions, type SparkAction } from "../lib/actionEngine";
 import { updateReputation } from "../lib/sparkReputation";
 import { generateNotifications, loadSettings, type SparkNotification } from "../lib/sparkNotifications";
 import { SparkToast } from "../components/NotificationBell";
-import { SparkInline } from "../components/SparkCompanion";
 import { SupportChat } from "../components/SupportChat";
 import { IntelligenceHero } from "../components/IntelligenceHero";
-import { Sparkline } from "../components/Sparkline";
-import { GatewayProducts } from "../components/GatewayProducts";
-import { PredictedLtv } from "../components/PredictedLtv";
-import { PnlReport } from "../components/PnlReport";
 // Killer feature components (2026-04-11 sprint) — loss-framed hero + drill-downs
 import { RevenueAtRiskHero } from "../components/RevenueAtRiskHero";
 import { PeerBenchmarksCard } from "../components/PeerBenchmarksCard";
 import { CausalWhyCard } from "../components/CausalWhyCard";
 import { NightShiftCard } from "../components/NightShiftCard";
 import { NightShiftTimeline } from "../components/NightShiftTimeline";
-import { CountUp } from "./_components/CountUp";
 import { KpiCard } from "./_components/KpiCard";
 import { SectionHeading } from "./_components/SectionHeading";
-import { Divider, KpiSkeleton, TableSkeleton } from "./_components/Skeletons";
 import { FunnelVisualization } from "./_components/FunnelVisualization";
 import { TrafficSourceBox } from "./_components/TrafficSourceBox";
 import { LiveRadarMap } from "./_components/LiveRadarMap";
@@ -62,10 +52,7 @@ import {
   formatNumber,
   formatScore,
   formatDecimal,
-  formatPct,
-  prettyText,
   impactClass,
-  intentDotClass,
 } from "./_lib/formatters";
 import { reportFrontendError } from "../lib/error-reporter";
 import { AnomalyFusionCard } from "../components/AnomalyFusionCard";
@@ -80,8 +67,6 @@ import { MonthlyTargetsCard } from "../components/MonthlyTargetsCard";
 import { MonthlyROICard } from "../components/MonthlyROICard";
 import { TimelineNotes } from "../components/TimelineNotes";
 import { CompareProductsCard } from "../components/CompareProductsCard";
-import { ConnectToolsPanel } from "../components/ConnectToolsPanel";
-import { YourTeamPanel } from "../components/YourTeamPanel";
 
 // R-series killer features (2026-04-12)
 import { RevenueAutopsyCard } from "../components/RevenueAutopsyCard";
@@ -111,7 +96,6 @@ import { CustomerChurnCard } from "../components/CustomerChurnCard";
 import { NudgeDnaCard } from "../components/NudgeDnaCard";
 import {
   type DisplayCurrency,
-  formatDisplayMoney,
   readSavedDisplayCurrency,
   writeSavedDisplayCurrency,
 } from "../lib/currency";
