@@ -99,7 +99,7 @@ def classify_evidence_source(db: Session | None = None) -> str:
             if real_merchant is not None:
                 return "real_merchant"
         except Exception as exc:
-            log.debug("learning_isolation: DB heuristic failed (non-fatal): %s", exc)
+            log.warning("learning_isolation: DB heuristic failed (non-fatal): %s", exc)
 
     # 3. Default: pre-merchant
     return "pre_merchant"

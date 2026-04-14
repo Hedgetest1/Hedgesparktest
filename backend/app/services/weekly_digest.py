@@ -689,7 +689,7 @@ def _high_intent_no_purchase(db: Session, shop: str, days: int) -> dict | None:
                 ),
             }
     except Exception as exc:
-        log.debug("weekly_digest: insight query failed shop=%s: %s", shop, exc)
+        log.warning("weekly_digest: insight query failed shop=%s: %s", shop, exc)
     return None
 
 

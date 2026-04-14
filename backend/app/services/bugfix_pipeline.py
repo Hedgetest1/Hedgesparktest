@@ -746,7 +746,7 @@ def _check_patch_fingerprint(
                 "match_type": match_type,
             }
     except Exception as exc:
-        log.debug("patch_fingerprint: check failed (non-fatal): %s", exc)
+        log.warning("patch_fingerprint: check failed (non-fatal): %s", exc)
     return None
 
 
@@ -779,7 +779,7 @@ def _record_patch_fingerprint(
         db.add(fp)
         db.flush()
     except Exception as exc:
-        log.debug("patch_fingerprint: record failed (non-fatal): %s", exc)
+        log.warning("patch_fingerprint: record failed (non-fatal): %s", exc)
 
     # C3 — also record AST skeleton fingerprint (Redis-backed) for
     # structural duplicate detection. Failures only — successful
@@ -970,7 +970,7 @@ def build_hard_lesson_constraints(
             .all()
         )
     except Exception as exc:
-        log.debug("hard_lessons: fingerprint query failed: %s", exc)
+        log.warning("hard_lessons: fingerprint query failed: %s", exc)
         return None
 
     if not rows:
@@ -1575,7 +1575,7 @@ def _escalate_thrashing(db: Session, source_type: str, source_ref: str) -> None:
         )
         log.warning("triage: ESCALATED thrashing source=%s ref=%s → ops_alert created", source_type, source_ref)
     except Exception as exc:
-        log.debug("triage: thrash escalation failed (non-fatal): %s", exc)
+        log.warning("triage: thrash escalation failed (non-fatal): %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -2483,7 +2483,7 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
             db.flush()
             return False
     except Exception as exc:
-        log.debug("propose_patch: preflight skipped (non-fatal): %s", exc)
+        log.warning("propose_patch: preflight skipped (non-fatal): %s", exc)
 
     # Recompute priority now that we know the affected_domain criticality.
     # At _create_candidate time we only had severity + source_type + recurrence;
@@ -2868,7 +2868,7 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
             db.flush()
             return False
     except Exception as exc:
-        log.debug("propose_patch: security guard non-fatal: %s", exc)
+        log.warning("propose_patch: security guard non-fatal: %s", exc)
 
     # POST-LLM diff fingerprint check: now that we have the actual diff,
     # check identity, normalized diff, AND AST skeleton fingerprint.
@@ -3317,7 +3317,7 @@ def predict_outcome_probability(
             "cutoff": cutoff,
         }).fetchone()
     except Exception as exc:
-        log.debug("predict_outcome: query failed: %s", exc)
+        log.warning("predict_outcome: query failed: %s", exc)
         return 0.5, 0
 
     if not row:

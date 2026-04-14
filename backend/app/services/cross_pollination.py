@@ -83,7 +83,7 @@ def _infer_alert_type(db: Session, candidate) -> str | None:
             if row and row.alert_type:
                 return row.alert_type
         except Exception as exc:
-            log.debug("cross_pollination: id lookup failed: %s", exc)
+            log.warning("cross_pollination: id lookup failed: %s", exc)
 
     # Fallback: source_ref often encodes the alert_type as a prefix like
     # "webhook_drift:shop_a" — pull the left side if it matches a known
@@ -126,7 +126,7 @@ def _already_pollinated_shops(
             .all()
         )
     except Exception as exc:
-        log.debug("cross_pollination: covered shops query failed: %s", exc)
+        log.warning("cross_pollination: covered shops query failed: %s", exc)
         return covered
 
     for (ctx_json,) in rows:
@@ -164,7 +164,7 @@ def _find_matching_alerts(
         )
         rows = q.all()
     except Exception as exc:
-        log.debug("cross_pollination: alert scan failed: %s", exc)
+        log.warning("cross_pollination: alert scan failed: %s", exc)
         return []
 
     filtered: list[Any] = []

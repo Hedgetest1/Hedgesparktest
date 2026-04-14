@@ -204,7 +204,7 @@ def _calibrate_severity_offsets(db: Session) -> dict[str, CalibrationOffset]:
             )
 
     except Exception as exc:
-        log.debug("scoring_calibration: severity calibration failed: %s", exc)
+        log.warning("scoring_calibration: severity calibration failed: %s", exc)
 
     return offsets
 
@@ -265,7 +265,7 @@ def _calibrate_subsystem_offsets(db: Session) -> dict[str, CalibrationOffset]:
             )
 
     except Exception as exc:
-        log.debug("scoring_calibration: subsystem calibration failed: %s", exc)
+        log.warning("scoring_calibration: subsystem calibration failed: %s", exc)
 
     return offsets
 
@@ -326,7 +326,7 @@ def _calibrate_global_confidence(db: Session) -> CalibrationOffset | None:
         )
 
     except Exception as exc:
-        log.debug("scoring_calibration: global confidence calibration failed: %s", exc)
+        log.warning("scoring_calibration: global confidence calibration failed: %s", exc)
         return None
 
 
@@ -383,7 +383,7 @@ def _calibrate_domain_confidence(db: Session) -> dict[str, CalibrationOffset]:
             )
 
     except Exception as exc:
-        log.debug("scoring_calibration: domain confidence calibration failed: %s", exc)
+        log.warning("scoring_calibration: domain confidence calibration failed: %s", exc)
 
     return offsets
 
@@ -513,7 +513,7 @@ def compute_impact_signal(
         return None, None
 
     except Exception as exc:
-        log.debug("scoring_calibration: impact signal failed for %s: %s", shop_domain, exc)
+        log.warning("scoring_calibration: impact signal failed for %s: %s", shop_domain, exc)
         return None, None
 
 
@@ -577,7 +577,7 @@ def find_co_occurring_families(db: Session, fingerprint: str) -> list[dict]:
                         "window": window_name,
                     })
         except Exception as exc:
-            log.debug("scoring_calibration: co-occurrence query failed (%s): %s", window_name, exc)
+            log.warning("scoring_calibration: co-occurrence query failed (%s): %s", window_name, exc)
 
     return results[:10]
 
@@ -646,7 +646,7 @@ def find_temporal_patterns(db: Session, fingerprint: str) -> dict:
         ]
 
     except Exception as exc:
-        log.debug("scoring_calibration: temporal pattern query failed: %s", exc)
+        log.warning("scoring_calibration: temporal pattern query failed: %s", exc)
 
     return result
 
@@ -768,7 +768,7 @@ def _calibrate_remediation_confidence(db: Session) -> dict[str, CalibrationOffse
             )
 
     except Exception as exc:
-        log.debug("scoring_calibration: remediation calibration failed: %s", exc)
+        log.warning("scoring_calibration: remediation calibration failed: %s", exc)
 
     return offsets
 

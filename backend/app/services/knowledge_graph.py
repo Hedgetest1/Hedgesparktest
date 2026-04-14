@@ -228,7 +228,7 @@ def _pull_nudges(db: Session, kg: MerchantKG, lookback_days: int = 30) -> None:
                 },
             ))
     except Exception as exc:
-        log.debug("kg: nudges pull failed: %s", exc)
+        log.warning("kg: nudges pull failed: %s", exc)
 
 
 def _pull_anomalies(db: Session, kg: MerchantKG, lookback_days: int = 14) -> None:
@@ -256,7 +256,7 @@ def _pull_anomalies(db: Session, kg: MerchantKG, lookback_days: int = 14) -> Non
                 },
             ))
     except Exception as exc:
-        log.debug("kg: anomalies pull failed: %s", exc)
+        log.warning("kg: anomalies pull failed: %s", exc)
 
 
 def _pull_ad_spend(db: Session, kg: MerchantKG, lookback_days: int = 30) -> None:
@@ -287,7 +287,7 @@ def _pull_ad_spend(db: Session, kg: MerchantKG, lookback_days: int = 30) -> None
                 },
             ))
     except Exception as exc:
-        log.debug("kg: ad_spend pull failed: %s", exc)
+        log.warning("kg: ad_spend pull failed: %s", exc)
 
 
 def build_graph(db: Session, shop_domain: str, *, fresh: bool = False) -> MerchantKG:

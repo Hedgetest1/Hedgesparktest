@@ -210,7 +210,7 @@ def _gather_evidence(db: Session) -> dict:
             evidence["operator_feedback"] = {}
 
     except Exception as exc:
-        log.debug("adaptive_governance: evidence gathering failed: %s", exc)
+        log.warning("adaptive_governance: evidence gathering failed: %s", exc)
 
     return evidence
 
@@ -481,7 +481,7 @@ def _gather_domain_effectiveness(db: Session) -> dict[str, dict]:
 
         return result
     except Exception as exc:
-        log.debug("adaptive_governance: domain effectiveness query failed: %s", exc)
+        log.warning("adaptive_governance: domain effectiveness query failed: %s", exc)
         return {}
 
 
@@ -564,7 +564,7 @@ def _gather_operator_feedback(db: Session) -> dict[str, dict]:
 
         return {"per_domain": per_domain, "global": global_feedback}
     except Exception as exc:
-        log.debug("adaptive_governance: operator feedback query failed: %s", exc)
+        log.warning("adaptive_governance: operator feedback query failed: %s", exc)
         return {"per_domain": {}, "global": {"approved": 0, "rejected": 0, "total": 0, "approval_rate": None}}
 
 

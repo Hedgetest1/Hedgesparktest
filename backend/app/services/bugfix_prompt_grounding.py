@@ -327,7 +327,7 @@ def extract_recent_failures(
             .all()
         )
     except Exception as exc:
-        log.debug("extract_recent_failures: query failed: %s", exc)
+        log.warning("extract_recent_failures: query failed: %s", exc)
         return ""
 
     if not rows:
@@ -401,7 +401,7 @@ def check_family_quarantine(
             )
         return False, f"failures_30d={n}/{_QUARANTINE_THRESHOLD}"
     except Exception as exc:
-        log.debug("check_family_quarantine: query failed: %s", exc)
+        log.warning("check_family_quarantine: query failed: %s", exc)
         return False, "query_failed"
 
 

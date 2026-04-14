@@ -107,7 +107,7 @@ def _gather_wow(db: Session, shop_domain: str) -> WoWMetrics:
             m.revenue_this = float(row[2] or 0)
             m.revenue_last = float(row[3] or 0)
     except Exception as exc:
-        log.debug("insight_engine: order WoW query failed: %s", exc)
+        log.warning("insight_engine: order WoW query failed: %s", exc)
 
     try:
         from app.models.store_metrics import StoreMetrics
@@ -158,7 +158,7 @@ def _gather_product_signals(db: Session, shop_domain: str) -> list[ProductSignal
                 ))
 
     except Exception as exc:
-        log.debug("insight_engine: product signal query failed: %s", exc)
+        log.warning("insight_engine: product signal query failed: %s", exc)
 
     return signals
 

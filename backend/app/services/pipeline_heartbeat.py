@@ -177,7 +177,7 @@ def _cleanup_synthetic_artifacts(
                 WHERE id = ANY(:ids)
             """), {"now": _now(), "ids": alert_ids})
         except Exception as exc:
-            log.debug("heartbeat: alert cleanup failed: %s", exc)
+            log.warning("heartbeat: alert cleanup failed: %s", exc)
     if candidate_id is not None:
         try:
             from app.models.bugfix_candidate import BugFixCandidate
@@ -189,7 +189,7 @@ def _cleanup_synthetic_artifacts(
                 cand.failure_reason = f"heartbeat_synthetic_cleanup:{run_id}"
                 db.flush()
         except Exception as exc:
-            log.debug("heartbeat: candidate cleanup failed: %s", exc)
+            log.warning("heartbeat: candidate cleanup failed: %s", exc)
 
 
 def _record_outcome(

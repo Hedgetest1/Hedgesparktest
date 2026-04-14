@@ -64,7 +64,7 @@ def _has_recent_redact_request(db: Session, shop_domain: str) -> bool:
         )
         return row is not None
     except Exception as exc:
-        log.debug("uninstall_erasure: dedup query failed: %s", exc)
+        log.warning("uninstall_erasure: dedup query failed: %s", exc)
         return True  # fail closed — don't create if we can't verify
 
 
@@ -89,7 +89,7 @@ def _emit_self_heal_alert(db: Session, shop_domain: str) -> None:
             resolved=False,
         ))
     except Exception as exc:
-        log.debug("uninstall_erasure: alert write failed: %s", exc)
+        log.warning("uninstall_erasure: alert write failed: %s", exc)
 
 
 def run_uninstall_erasure_watchdog(db: Session) -> dict:

@@ -332,7 +332,7 @@ def _skip_stale_resolve(
                 },
             )
     except Exception as exc:
-        log.debug("orchestrator: escalation write_alert failed (non-fatal): %s", exc)
+        log.warning("orchestrator: escalation write_alert failed (non-fatal): %s", exc)
 
     return True
 

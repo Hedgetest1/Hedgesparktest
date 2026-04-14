@@ -192,7 +192,7 @@ def _recent_revenue_drop_pct(db: Session, shop_domain: str) -> float | None:
         drop_pct = ((prior - recent) / prior) * 100.0
         return drop_pct
     except Exception as exc:
-        log.debug("trust_contract: rev drop computation failed: %s", exc)
+        log.warning("trust_contract: rev drop computation failed: %s", exc)
         return None
 
 
@@ -435,7 +435,7 @@ def record_execution(
                     },
                 )
     except Exception as exc:
-        log.debug("trust_contract: klaviyo forward failed (non-fatal): %s", exc)
+        log.warning("trust_contract: klaviyo forward failed (non-fatal): %s", exc)
 
     return log_row
 

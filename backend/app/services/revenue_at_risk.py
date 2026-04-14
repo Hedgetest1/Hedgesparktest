@@ -400,7 +400,7 @@ def _compute_prevented(db: Session, shop: str) -> tuple[float, dict]:
                         "amount_eur": round(nudge_prevented, 2),
                     })
     except Exception as exc:
-        log.debug("rars: prevented nudge query failed: %s", exc)
+        log.warning("rars: prevented nudge query failed: %s", exc)
 
     return prevented, evidence
 

@@ -181,7 +181,7 @@ def get_store_context(db: Session, shop_domain: str) -> StoreContext:
             pass
 
     except Exception as exc:
-        log.debug("store_context: failed for %s: %s", shop_domain, exc)
+        log.warning("store_context: failed for %s: %s", shop_domain, exc)
 
     return ctx
 

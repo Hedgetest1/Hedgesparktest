@@ -66,7 +66,7 @@ def _redis_check(bucket_key: str, max_requests: int, window: int) -> Tuple[bool 
         return True, 0
 
     except Exception as exc:
-        log.debug("rate_limit: Redis check failed, falling back to in-process: %s", exc)
+        log.warning("rate_limit: Redis check failed, falling back to in-process: %s", exc)
         return _REDIS_UNAVAILABLE, 0
 
 

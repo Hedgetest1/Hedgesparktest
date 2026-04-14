@@ -141,7 +141,7 @@ def _measure_one(db: Session, row: TrustExecutionLog) -> tuple[str, float]:
             },
         ).fetchone()
     except Exception as exc:
-        log.debug("trust_outcome: measurement query failed: %s", exc)
+        log.warning("trust_outcome: measurement query failed: %s", exc)
         return "inconclusive", 0.0
 
     if not result:

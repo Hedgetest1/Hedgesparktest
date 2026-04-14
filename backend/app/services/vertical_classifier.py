@@ -195,7 +195,7 @@ def _sample_products(db: Session, shop_domain: str) -> list[dict]:
             if title:
                 blobs.append({"text": _normalize(title)})
     except Exception as exc:
-        log.debug("vertical_classifier: products query failed: %s", exc)
+        log.warning("vertical_classifier: products query failed: %s", exc)
 
     if blobs:
         return blobs
@@ -220,7 +220,7 @@ def _sample_products(db: Session, shop_domain: str) -> list[dict]:
                 if title:
                     blobs.append({"text": _normalize(title)})
     except Exception as exc:
-        log.debug("vertical_classifier: orders fallback failed: %s", exc)
+        log.warning("vertical_classifier: orders fallback failed: %s", exc)
 
     return blobs
 

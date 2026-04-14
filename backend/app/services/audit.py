@@ -92,7 +92,7 @@ def write_audit_log(
         from sqlalchemy import text as _sql_text
         db.execute(_sql_text("SELECT pg_advisory_xact_lock(7421889543210176881)"))
     except Exception as exc:
-        log.debug("audit: advisory lock failed (non-fatal, falling through): %s", exc)
+        log.warning("audit: advisory lock failed (non-fatal, falling through): %s", exc)
 
     prev_hash = _load_chain_head_from_db(db)
     chain_hash = _chain(prev_hash, row_digest)
@@ -194,7 +194,7 @@ def _load_chain_head_from_db(db: Session) -> str:
         if parsed and parsed.get("self"):
             return parsed["self"]
     except Exception as exc:
-        log.debug("audit: DB chain head lookup failed: %s", exc)
+        log.warning("audit: DB chain head lookup failed: %s", exc)
     return _GENESIS_HASH
 
 
@@ -225,7 +225,7 @@ def _load_chain_head(db: Session) -> str:
         if parsed and parsed.get("self"):
             return parsed["self"]
     except Exception as exc:
-        log.debug("audit: chain head fallback failed: %s", exc)
+        log.warning("audit: chain head fallback failed: %s", exc)
 
     return _GENESIS_HASH
 

@@ -451,7 +451,7 @@ def _generate_lesson(db: Session, candidate: BugFixCandidate, outcome: str, evid
         db.add(lesson)
         log.info("lesson: generated %s lesson for domain=%s candidate=%d evidence_source=%s", lesson_type, domain, candidate.id, lesson.evidence_source)
     except Exception as exc:
-        log.debug("lesson: generation failed (non-fatal): %s", exc)
+        log.warning("lesson: generation failed (non-fatal): %s", exc)
 
 
 def _update_fingerprint_outcome(db: Session, candidate_id: int, measured_outcome: str) -> None:
@@ -468,7 +468,7 @@ def _update_fingerprint_outcome(db: Session, candidate_id: int, measured_outcome
             if measured_outcome == "ineffective":
                 fp.confidence = max(0.0, fp.confidence - 0.3)
     except Exception as exc:
-        log.debug("fingerprint: outcome update failed (non-fatal): %s", exc)
+        log.warning("fingerprint: outcome update failed (non-fatal): %s", exc)
 
 
 def _update_lesson_effectiveness(db: Session, candidate: BugFixCandidate, outcome: str) -> None:
@@ -519,7 +519,7 @@ def _update_lesson_effectiveness(db: Session, candidate: BugFixCandidate, outcom
             # inconclusive: no change — insufficient evidence either way
 
     except Exception as exc:
-        log.debug("lesson_effectiveness: update failed (non-fatal): %s", exc)
+        log.warning("lesson_effectiveness: update failed (non-fatal): %s", exc)
 
 
 def detect_self_caused_regressions(db: Session) -> dict:

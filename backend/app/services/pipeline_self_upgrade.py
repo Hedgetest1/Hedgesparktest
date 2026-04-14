@@ -166,7 +166,7 @@ def _already_pending(db: Session, package: str, vuln_id: str) -> bool:
         )
         return exists is not None
     except Exception as exc:
-        log.debug("pipeline_self_upgrade: dedup query failed: %s", exc)
+        log.warning("pipeline_self_upgrade: dedup query failed: %s", exc)
         return False
 
 

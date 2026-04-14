@@ -105,6 +105,20 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2f. Exception-debug audit (Tier 2.2). Every debug-only swallow handler
+# whose try-block touches a DB session or external client must escalate
+# to log.warning (or write_alert) so operators see failures in prod.
+# Baseline 0 prod-relevant reached on 2026-04-14.
+# ---------------------------------------------------------------------------
+step "Exception-debug audit (audit_exception_debug.py --strict)"
+if "$BACKEND/venv/bin/python" "$BACKEND/scripts/audit_exception_debug.py" --strict > /tmp/preflight_exc_debug.log 2>&1; then
+    ok "no prod-relevant exception swallows at debug level"
+else
+    bad "prod-relevant debug-only swallows detected — see /tmp/preflight_exc_debug.log"
+    tail -30 /tmp/preflight_exc_debug.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 3. Python AST parse check — any syntax error blocks commit
 # ---------------------------------------------------------------------------
 step "Python AST parse (staged .py files)"

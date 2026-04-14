@@ -193,7 +193,7 @@ def detect_drifting_new_installs(db: Session) -> list[dict]:
             LIMIT 100
         """), {"min_cutoff": min_cutoff, "max_cutoff": max_cutoff}).fetchall()
     except Exception as exc:
-        log.debug("onboarding_health: drift query failed: %s", exc)
+        log.warning("onboarding_health: drift query failed: %s", exc)
         return []
 
     drifters: list[dict] = []

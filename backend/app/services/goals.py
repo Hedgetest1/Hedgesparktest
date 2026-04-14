@@ -393,7 +393,7 @@ def check_goals_at_risk(db: Session, shop_domain: str) -> list[GoalProgress]:
                         },
                     )
         except Exception as exc:
-            log.debug("goals: klaviyo forward failed (non-fatal): %s", exc)
+            log.warning("goals: klaviyo forward failed (non-fatal): %s", exc)
 
         # Phase Ω''' — outbound webhook fan-out for goal.at_risk
         try:

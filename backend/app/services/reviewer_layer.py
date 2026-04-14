@@ -449,7 +449,7 @@ def _lookup_domain_lessons(db: Session, domains: list[str]) -> dict:
             )
 
     except Exception as exc:
-        log.debug("reviewer_lessons: lookup failed (non-fatal): %s", exc)
+        log.warning("reviewer_lessons: lookup failed (non-fatal): %s", exc)
 
     return result
 

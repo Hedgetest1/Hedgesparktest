@@ -75,7 +75,7 @@ def _get_ad_spend(db: Session, shop: str, window_days: int) -> tuple[float, str]
             # Proportional allocation (30 days nominal month)
             return round(monthly * (window_days / 30.0), 2), "manual"
     except Exception as exc:
-        log.debug("cac_ltv: ad spend lookup failed: %s", exc)
+        log.warning("cac_ltv: ad spend lookup failed: %s", exc)
     return 0.0, "unconfigured"
 
 
@@ -103,7 +103,7 @@ def _count_new_customers(db: Session, shop: str, window_days: int) -> int:
         ).fetchone()
         return int(row[0] or 0) if row else 0
     except Exception as exc:
-        log.debug("cac_ltv: new customer count failed: %s", exc)
+        log.warning("cac_ltv: new customer count failed: %s", exc)
         return 0
 
 

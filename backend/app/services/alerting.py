@@ -169,7 +169,7 @@ def _collapse_into_existing(
     try:
         db.flush()
     except Exception as exc:
-        log.debug("alerting: flush after collapse failed (non-fatal): %s", exc)
+        log.warning("alerting: flush after collapse failed (non-fatal): %s", exc)
 
     return existing
 

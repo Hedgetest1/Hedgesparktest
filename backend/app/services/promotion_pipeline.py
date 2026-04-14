@@ -754,7 +754,7 @@ def _is_auto_mergeable(db: Session, promo: AutoFixPromotion) -> tuple[bool, str]
     except Exception:
         # Reviewer table missing → be permissive but log; this path should
         # never trigger in production because reviewer_layer writes on every apply.
-        log.debug("auto_merge: reviewer assessment lookup skipped (non-fatal)")
+        log.warning("auto_merge: reviewer assessment lookup skipped (non-fatal)")
 
     return True, "ok"
 

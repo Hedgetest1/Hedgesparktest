@@ -604,7 +604,7 @@ def _build_release_context(db: Session, incident: SentryIncident) -> dict:
             incident.is_regression_candidate = "no"
 
     except Exception as exc:
-        log.debug("sentry_triage: release correlation failed: %s", exc)
+        log.warning("sentry_triage: release correlation failed: %s", exc)
 
     return result
 
@@ -679,7 +679,7 @@ def _find_related_families(db: Session, incident: SentryIncident) -> list[dict]:
         return results[:5]
 
     except Exception as exc:
-        log.debug("sentry_triage: related family search failed: %s", exc)
+        log.warning("sentry_triage: related family search failed: %s", exc)
         return []
 
 

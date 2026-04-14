@@ -485,7 +485,7 @@ def get_extended_benchmark_report(db: Session, shop_domain: str) -> dict:
                     "unit": "percent",
                 }
     except Exception as exc:
-        log.debug("extended benchmarks CVR failed: %s", exc)
+        log.warning("extended benchmarks CVR failed: %s", exc)
 
     # Product concentration (how many products drive 80% of revenue)
     try:

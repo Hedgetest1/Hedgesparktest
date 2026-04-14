@@ -138,7 +138,7 @@ def _score_gdpr_sla(db: Session) -> dict:
             .count()
         )
     except Exception as exc:
-        log.debug("compliance_score: gdpr_sla query failed: %s", exc)
+        log.warning("compliance_score: gdpr_sla query failed: %s", exc)
         active_breaches = -1
 
     if active_breaches < 0:
