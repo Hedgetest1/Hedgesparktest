@@ -19,7 +19,6 @@ import { NudgePerformance } from "../components/NudgePerformance";
 import { AudienceSegments } from "../components/AudienceSegments";
 import { OrdersSummary } from "../components/OrdersSummary";
 import { ProductConversions } from "../components/ProductConversions";
-import { ActionProof } from "../components/ActionProof";
 import { RevenueHero } from "../components/RevenueHero";
 import { TopSignalCard, loadRecentActions, type RecentAction } from "../components/TopSignalCard";
 import { RecentActions } from "../components/RecentActions";
@@ -2746,13 +2745,6 @@ function PageInner() {
                   displayCurrency={displayCurrency}
                   setUpgradeModalOpen={setUpgradeModalOpen}
                 />
-              )}
-
-              {/* Proof of Impact — Pro only */}
-              {isProUser && (
-                <section id="section-proof">
-                  <ActionProof apiBase={API_BASE} shop={shop} />
-                </section>
               )}
 
               {/* 6 — Weekly Trend */}
