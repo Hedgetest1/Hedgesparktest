@@ -506,12 +506,35 @@ operational invariants below are all enforced at runtime.
   `localStorage['hs_consent']`, `navigator.globalPrivacyControl`/`doNotTrack`.
   Decision passed to backend as `gdpr_consent_given` + `consent_region`.
 
-### 9.4 Internationalization
+### 9.4 Language posture — EN-only by design
 
-Currently shipped: **EN, IT, ES, FR, DE**. Files in `dashboard/src/app/_i18n/`.
-Detection via `Accept-Language` + explicit override. Landing page +
-dashboard + transactional emails all translated. New user-facing strings
-must ship with all 5 locales or they fail review.
+**HedgeSpark ships in English natively.** Every user-facing string
+(dashboard, landing, emails, nudges, tracker, aria-labels) is written
+in EN directly in source. No auto-detection from `navigator.language`
+or `Accept-Language`. No locale picker. No partial translations.
+
+**Why:** a previous sprint shipped a 32-key translation dictionary
+across 5 locales (EN/IT/ES/FR/DE) against a dashboard of thousands of
+strings — under 1% coverage. Auto-detection served those 32 IT strings
+mixed into a 3000-string EN dashboard, which felt broken. That
+violated principle §2 rule 2 ("no half-truths, no hollow stubs") and
+was removed on 2026-04-14. The `LanguageSwitcher` component was
+orphan code (zero imports) and was deleted in the same commit.
+
+**Industry context:** every major Shopify analytics competitor
+(Triple Whale, Peel, Varos, Lifetimely, Northbeam) ships EN-only.
+Shopify merchants are technical enough to operate in EN, and a
+consistent EN product beats a half-translated one every time.
+
+**When to revisit:** only if a paying-customer segment explicitly
+asks for a different locale. At that point, wire a real i18n library
+(next-intl, formatjs) and commit to >95% coverage before shipping.
+Never accept partial coverage.
+
+**Operational rule:** new user-facing strings go in EN in source.
+The `lib/i18n.ts` shim is kept purely for backward compatibility
+with the ~16 `t(key)` call sites that already exist — it now returns
+the EN string for the key, no locale branching.
 
 ### 9.5 Compliance score
 
