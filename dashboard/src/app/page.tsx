@@ -400,8 +400,8 @@ function Hero() {
         <R d={0.12}>
           <p className="mx-auto mt-7 max-w-[40rem] text-center text-[18px] leading-[1.65] text-slate-300">
             <strong className="text-white">AI Revenue Intelligence, built for Shopify.</strong>{" "}
-            Finds the products that get attention but don&apos;t sell. Lifts the curse.
-            Proves the magic worked.
+            Finds the products that get attention but don&apos;t sell. Stops the curse.
+            Trust the magic.
           </p>
         </R>
 

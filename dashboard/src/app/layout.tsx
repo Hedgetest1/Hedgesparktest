@@ -22,7 +22,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "HedgeSpark — AI Revenue Intelligence for Shopify",
   description:
-    "AI Revenue Intelligence for Shopify. Finds the products that get attention but don't sell, lifts the silent curse on your store, and proves every fix worked. Built for serious Shopify merchants.",
+    "AI Revenue Intelligence for Shopify. Finds the products that get attention but don't sell, stops the silent curse on your store, and earns the trust of serious Shopify merchants. Trust the magic.",
   keywords: [
     "Shopify app",
     "Shopify AI",
@@ -38,7 +38,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "HedgeSpark — AI Revenue Intelligence for Shopify",
     description:
-      "Find the products getting attention but not selling. Lift the silent curse. Prove every fix worked.",
+      "Find the products getting attention but not selling. Stop the silent curse. Trust the magic.",
     type: "website",
     siteName: "HedgeSpark",
   },
@@ -46,7 +46,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "HedgeSpark — AI Revenue Intelligence for Shopify",
     description:
-      "Find the products getting attention but not selling. Lift the silent curse. Prove every fix worked.",
+      "Find the products getting attention but not selling. Stop the silent curse. Trust the magic.",
   },
   manifest: "/manifest.json",
   appleWebApp: {
@@ -64,7 +64,7 @@ const softwareApplicationJsonLd = {
   applicationSubCategory: "Shopify App",
   operatingSystem: "Shopify",
   description:
-    "AI Revenue Intelligence for Shopify. Finds products that get attention but don't sell, lifts the silent curse on your store, and proves every fix worked against a real control group.",
+    "AI Revenue Intelligence for Shopify. Finds products that get attention but don't sell, stops the silent curse on your store, and measures every result against a real control group. Trust the magic.",
   url: "https://hedgesparkhq.com",
 };
 

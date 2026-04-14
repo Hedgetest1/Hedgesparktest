@@ -32,7 +32,7 @@ const EN: Dict = {
   "hero.headline_2": "You don't know why.",
   "hero.headline_3": "We break the spell.",
   "hero.sub":
-    "AI Revenue Intelligence, built for Shopify. Finds the products that get attention but don't sell. Lifts the curse. Proves the magic worked.",
+    "AI Revenue Intelligence, built for Shopify. Finds the products that get attention but don't sell. Stops the curse. Trust the magic.",
   "hero.cta_primary": "Install on Shopify",
   "hero.cta_secondary": "See how it works",
   "hero.cta_disclaimer":
