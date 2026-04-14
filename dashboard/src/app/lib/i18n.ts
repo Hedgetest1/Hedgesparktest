@@ -1,8 +1,13 @@
 /**
  * i18n.ts — Phase Ω''' lightweight translation helper.
  *
- * Zero dependencies. Detects browser language on first load,
- * persists user choice in localStorage, falls back to English.
+ * Zero dependencies. **English is the default for every new session**:
+ * we do NOT read navigator.language. Locale only changes if the merchant
+ * explicitly picks one via Settings, and the choice persists in
+ * localStorage. Rationale: the source of truth for copy is EN; translations
+ * are opt-in, never auto-applied based on the browser locale (which
+ * produces drift when the merchant's Shopify admin is configured in
+ * a different language than their browser).
  *
  * Supported languages: en, it, es, fr, de.
  *
@@ -193,19 +198,24 @@ const TRANSLATIONS: Record<Locale, Dict> = {
 
 let _currentLocale: Locale = "en";
 
-function detectLocale(): Locale {
+/**
+ * Read the merchant's previously persisted locale choice, if any.
+ * EN is the default for every new session — we do NOT inspect
+ * navigator.language. The only way to end up on a non-EN locale is an
+ * explicit previous `setLocale()` call (Settings UI), persisted in
+ * localStorage.
+ */
+function readStoredLocale(): Locale {
   if (typeof window === "undefined") return "en";
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY);
     if (stored && SUPPORTED.includes(stored as Locale)) return stored as Locale;
   } catch {}
-  const nav = (typeof navigator !== "undefined" && navigator.language) || "en";
-  const short = nav.slice(0, 2).toLowerCase() as Locale;
-  return SUPPORTED.includes(short) ? short : "en";
+  return "en";
 }
 
 if (typeof window !== "undefined") {
-  _currentLocale = detectLocale();
+  _currentLocale = readStoredLocale();
 }
 
 export function getLocale(): Locale {
