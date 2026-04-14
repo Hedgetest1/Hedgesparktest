@@ -186,6 +186,23 @@ def report_frontend_error(
     error_type = _sanitize(payload.error_type, _MAX_ERROR_TYPE) or "UnknownError"
     message = _sanitize(payload.message, _MAX_MESSAGE) or ""
 
+    # Reject synthetic smoke-test reports at the ingestion layer so they
+    # never reach the bugfix triage pipeline. The 2026-04-14 hardening
+    # sweep found one stuck bugfix_candidate (id=45691) that originated
+    # from a manual smoke test POSTing component="SmokeTest". It sat in
+    # 'open' for 3+ days and tripped the watchdog alert. Filtering here
+    # prevents a repeat: future smoke tests get a 200 ack so the probe
+    # can verify the endpoint is alive, but no ops_alert is written, so
+    # no candidate is created downstream.
+    _SYNTHETIC_COMPONENTS = {"smoketest", "smoke_test", "smoke-test", "devsmoke",
+                             "dev_smoke", "healthcheck", "health_check", "probe"}
+    if component.strip().lower() in _SYNTHETIC_COMPONENTS:
+        log.info(
+            "frontend_errors: synthetic component '%s' ignored (no triage)",
+            component,
+        )
+        return {"accepted": True, "source": f"synthetic:{component}", "note": "synthetic component — no triage"}
+
     # Fingerprint: collapse repeated reports of the same error into one
     # stable source_ref so triage dedup works across sessions/users.
     fingerprint_raw = f"{error_type}::{message}"
