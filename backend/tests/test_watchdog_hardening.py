@@ -234,11 +234,26 @@ def test_recover_stuck_patch_proposed_escalates_via_alert(db):
 
 
 def test_recover_stuck_no_alert_below_threshold(db):
-    """A fresh 'open' candidate does not trigger an alert."""
+    """A fresh 'open' candidate does not trigger an alert.
+
+    Hermeticity note: PostgreSQL READ COMMITTED makes the test's
+    SAVEPOINT see committed rows from outside the transaction, so
+    real production bugfix_candidates that cross the 3-day threshold
+    during the test run would leak into the watchdog's query and
+    cause a spurious alert. We delete any pre-existing stuck 'open'
+    candidates inside the SAVEPOINT — the delete is rolled back when
+    the test ends, so production data is untouched.
+    """
     # Clean any historical alerts for this source before we start
     db.query(OpsAlert).filter(
         OpsAlert.source == "bugfix_pipeline:stuck:open",
         OpsAlert.resolved == False,
+    ).delete(synchronize_session=False)
+    # Clean any pre-existing 'open' candidates that would make the
+    # watchdog fire on real prod data. SAVEPOINT rollback restores
+    # them at the end of the test.
+    db.query(BugFixCandidate).filter(
+        BugFixCandidate.status == "open",
     ).delete(synchronize_session=False)
     db.flush()
 
