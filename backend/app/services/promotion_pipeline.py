@@ -946,6 +946,8 @@ def _is_promotion_already_deployed(promo_id: int) -> bool:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("promotion_pipeline.deployed_check")
             return False
         return bool(rc.exists(_deploy_marker_key(promo_id)))
     except Exception:
@@ -957,6 +959,8 @@ def _mark_promotion_deployed(promo_id: int, sha: str) -> None:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("promotion_pipeline.mark_deployed")
             return
         rc.setex(_deploy_marker_key(promo_id), 90 * 24 * 3600, sha)
     except Exception:

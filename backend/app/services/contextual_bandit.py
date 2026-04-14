@@ -77,6 +77,8 @@ from typing import Any
 from sqlalchemy import text as sql_text
 from sqlalchemy.orm import Session
 
+from app.core.silent_fallback import record_silent_return
+
 log = logging.getLogger("contextual_bandit")
 
 _REDIS_PREFIX = "hs:bandit"
@@ -171,6 +173,7 @@ def _redis():
 def _read_arm(shop_domain: str, ctx: dict[str, str], variant: str) -> ArmStats:
     rc = _redis()
     if rc is None:
+        record_silent_return("contextual_bandit.read_arm")
         return ArmStats(_PRIOR_ALPHA, _PRIOR_BETA, 0, 0)
     try:
         raw = rc.hgetall(_arm_key(shop_domain, ctx, variant))
@@ -204,6 +207,7 @@ def _write_arm(
 ) -> None:
     rc = _redis()
     if rc is None:
+        record_silent_return("contextual_bandit.write_arm")
         return
     try:
         key = _arm_key(shop_domain, ctx, variant)

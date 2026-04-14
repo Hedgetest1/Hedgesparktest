@@ -24,6 +24,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.core.silent_fallback import record_silent_return
+
 log = logging.getLogger("merchant_privacy")
 
 _OPT_OUT_KEY_PREFIX = "hs:merchant_opt_out"
@@ -50,6 +52,7 @@ def is_merchant_opted_out(shop_domain: str | None) -> bool:
         return False
     rc = _redis()
     if rc is None:
+        record_silent_return("merchant_privacy.opt_out_read")
         return False
     try:
         raw = rc.get(_opt_out_key(shop_domain))
@@ -61,6 +64,7 @@ def is_merchant_opted_out(shop_domain: str | None) -> bool:
 def set_opt_out(shop_domain: str, opted_out: bool) -> None:
     rc = _redis()
     if rc is None:
+        record_silent_return("merchant_privacy.opt_out_write")
         return
     try:
         key = _opt_out_key(shop_domain)

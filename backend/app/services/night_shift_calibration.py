@@ -30,6 +30,8 @@ from __future__ import annotations
 import logging
 import time
 
+from app.core.silent_fallback import record_silent_return
+
 log = logging.getLogger("night_shift_calibration")
 
 _OBS_PREFIX = "hs:ns_cal:obs"
@@ -53,6 +55,7 @@ def record_observation(shop_domain: str | None, *, day: str, score: int, status:
         return False
     rc = _redis()
     if rc is None:
+        record_silent_return("night_shift_cal.observation_write")
         return False
     try:
         key = f"{_OBS_PREFIX}:{shop_domain}"
@@ -69,6 +72,7 @@ def record_truth(shop_domain: str, *, day: str, incident_count: int) -> bool:
     """Record ground truth for a day (how many critical events fired)."""
     rc = _redis()
     if rc is None:
+        record_silent_return("night_shift_cal.truth_write")
         return False
     try:
         key = f"{_TRUTH_PREFIX}:{shop_domain}"
@@ -86,6 +90,7 @@ def observation_count(shop_domain: str | None) -> int:
         return 0
     rc = _redis()
     if rc is None:
+        record_silent_return("night_shift_cal.observation_count")
         return 0
     try:
         key = f"{_OBS_PREFIX}:{shop_domain}"
@@ -100,6 +105,7 @@ def matched_observation_count(shop_domain: str | None) -> int:
         return 0
     rc = _redis()
     if rc is None:
+        record_silent_return("night_shift_cal.matched_count")
         return 0
     try:
         obs = rc.hgetall(f"{_OBS_PREFIX}:{shop_domain}")

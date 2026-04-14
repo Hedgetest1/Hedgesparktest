@@ -39,6 +39,8 @@ from typing import Any
 import httpx
 from sqlalchemy.orm import Session
 
+from app.core.silent_fallback import record_silent_return
+
 log = logging.getLogger("security_heartbeat")
 
 _HEARTBEAT_INTERVAL_S = int(os.getenv("SECURITY_HEARTBEAT_INTERVAL_S", "3600"))
@@ -65,6 +67,7 @@ def _should_run() -> bool:
     """True when enough time has passed since the last run."""
     rc = _redis()
     if rc is None:
+        record_silent_return("security_heartbeat.should_run")
         return True
     try:
         last = rc.get(_LAST_RUN_KEY)
@@ -83,6 +86,7 @@ def _should_run() -> bool:
 def _stamp_run() -> None:
     rc = _redis()
     if rc is None:
+        record_silent_return("security_heartbeat.stamp_run")
         return
     try:
         rc.setex(_LAST_RUN_KEY, 3 * 24 * 3600, str(time.time()))
@@ -93,6 +97,7 @@ def _stamp_run() -> None:
 def _persist_results(results: list[dict]) -> None:
     rc = _redis()
     if rc is None:
+        record_silent_return("security_heartbeat.persist_results")
         return
     try:
         import json as _json
@@ -108,6 +113,7 @@ def _persist_results(results: list[dict]) -> None:
 def get_last_results() -> dict | None:
     rc = _redis()
     if rc is None:
+        record_silent_return("security_heartbeat.read_results")
         return None
     try:
         raw = rc.get(_RESULTS_KEY)

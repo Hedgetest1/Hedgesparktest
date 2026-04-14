@@ -235,6 +235,8 @@ def _store_chain_head(chain_hash: str) -> None:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("audit.chain_head_store")
             return
         rc.set(_CHAIN_HEAD_REDIS_KEY, chain_hash)  # no expiry — chain is monotonic
     except Exception:
@@ -248,6 +250,8 @@ def get_chain_head() -> str | None:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("audit.chain_head_read")
             return None
         raw = rc.get(_CHAIN_HEAD_REDIS_KEY)
         if not raw:
@@ -383,6 +387,8 @@ def get_quarantined_row_ids() -> set[int]:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("audit.quarantine_read")
             return set()
         raw = rc.smembers(_QUARANTINE_REDIS_KEY)
         if not raw:
@@ -401,6 +407,8 @@ def quarantine_row_ids(row_ids: list[int] | set[int]) -> int:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("audit.quarantine_write")
             return 0
         added = rc.sadd(_QUARANTINE_REDIS_KEY, *[str(int(i)) for i in row_ids])
         return int(added or 0)

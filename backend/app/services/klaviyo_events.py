@@ -49,6 +49,8 @@ from typing import Any
 import httpx
 from sqlalchemy.orm import Session
 
+from app.core.silent_fallback import record_silent_return
+
 log = logging.getLogger("klaviyo_events")
 
 KLAVIYO_API_BASE = "https://a.klaviyo.com/api"
@@ -100,6 +102,7 @@ def is_shop_connected(db: Session, shop_domain: str) -> bool:
 def _is_circuit_open(shop_domain: str) -> bool:
     rc = _redis()
     if rc is None:
+        record_silent_return("klaviyo_events.circuit_check")
         return False
     try:
         return bool(rc.exists(f"{_CIRCUIT_KEY_PREFIX}:{shop_domain}"))
@@ -110,6 +113,7 @@ def _is_circuit_open(shop_domain: str) -> bool:
 def _record_failure(shop_domain: str) -> None:
     rc = _redis()
     if rc is None:
+        record_silent_return("klaviyo_events.record_failure")
         return
     try:
         fail_key = f"{_CIRCUIT_KEY_PREFIX}:{shop_domain}:fails"
@@ -152,6 +156,7 @@ def _record_failure(shop_domain: str) -> None:
 def _record_success(shop_domain: str) -> None:
     rc = _redis()
     if rc is None:
+        record_silent_return("klaviyo_events.record_success")
         return
     try:
         rc.delete(f"{_CIRCUIT_KEY_PREFIX}:{shop_domain}:fails")
@@ -165,6 +170,7 @@ def _rate_limit_allow(shop_domain: str) -> bool:
         # Fail-open on the rate limit ONLY (the circuit breaker still
         # protects Klaviyo). Without Redis we can't count, so we let a
         # bounded amount through.
+        record_silent_return("klaviyo_events.rate_limit")
         return True
     try:
         hour_key = f"{_RATE_KEY_PREFIX}:{shop_domain}:{datetime.now(timezone.utc).strftime('%Y%m%d%H')}"

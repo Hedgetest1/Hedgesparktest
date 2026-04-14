@@ -1782,6 +1782,8 @@ def is_self_heal_in_standby() -> bool:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("agent_worker.standby_read")
             return False
         return rc.exists(_STANDBY_REDIS_KEY) > 0
     except Exception:
@@ -1799,6 +1801,8 @@ def set_self_heal_standby(enabled: bool, reason: str = "") -> bool:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("agent_worker.standby_write")
             return False
         if enabled:
             import json as _json

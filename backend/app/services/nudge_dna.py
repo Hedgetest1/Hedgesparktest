@@ -56,6 +56,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import text as sql_text
 from sqlalchemy.orm import Session
 
+from app.core.silent_fallback import record_silent_return
+
 log = logging.getLogger("nudge_dna")
 
 _CACHE_TTL_S = 4 * 3600  # 4h
@@ -135,6 +137,7 @@ def _redis():
 def get_cached_dna(shop_domain: str) -> dict | None:
     rc = _redis()
     if rc is None:
+        record_silent_return("nudge_dna.cache_read")
         return None
     try:
         raw = rc.get(f"{_CACHE_KEY}:{shop_domain}")
@@ -148,6 +151,7 @@ def get_cached_dna(shop_domain: str) -> dict | None:
 def _cache_dna(shop_domain: str, data: dict) -> None:
     rc = _redis()
     if rc is None:
+        record_silent_return("nudge_dna.cache_write")
         return
     try:
         rc.setex(

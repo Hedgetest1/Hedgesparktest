@@ -36,6 +36,8 @@ from typing import Literal
 
 from sqlalchemy.orm import Session
 
+from app.core.silent_fallback import record_silent_return
+
 log = logging.getLogger("goals")
 
 _REDIS_KEY_PREFIX = "hs:goals:v1"
@@ -126,6 +128,7 @@ def get_goals(shop_domain: str) -> list[Goal]:
     """Return the merchant's current goal set. Empty if none set or Redis down."""
     rc = _redis()
     if rc is None:
+        record_silent_return("goals.read")
         return []
     try:
         raw = rc.get(_key(shop_domain))
@@ -164,6 +167,7 @@ def set_goal(shop_domain: str, metric: str, target_value: float,
 
     rc = _redis()
     if rc is None:
+        record_silent_return("goals.write")
         return None
 
     try:
@@ -186,6 +190,7 @@ def delete_goal(shop_domain: str, metric: str) -> bool:
     """Remove a goal. Returns True if something was removed."""
     rc = _redis()
     if rc is None:
+        record_silent_return("goals.delete")
         return False
     try:
         existing = get_goals(shop_domain)

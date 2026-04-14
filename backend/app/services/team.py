@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal
 
+from app.core.silent_fallback import record_silent_return
+
 log = logging.getLogger("team")
 
 _REDIS_KEY_MEMBERS = "hs:team_members:v1"
@@ -79,6 +81,7 @@ def _key_members(shop: str) -> str:
 def list_members(shop_domain: str) -> list[TeamMember]:
     rc = _redis()
     if rc is None:
+        record_silent_return("team.list")
         return []
     try:
         raw = rc.get(_key_members(shop_domain))
@@ -108,6 +111,7 @@ def add_member(
 
     rc = _redis()
     if rc is None:
+        record_silent_return("team.add")
         return None
 
     member = TeamMember(
@@ -134,6 +138,7 @@ def add_member(
 def remove_member(shop_domain: str, member_id: str) -> bool:
     rc = _redis()
     if rc is None:
+        record_silent_return("team.remove")
         return False
     existing = list_members(shop_domain)
     kept = [m for m in existing if m.id != member_id]
@@ -158,6 +163,7 @@ def update_member_role(shop_domain: str, member_id: str, new_role: Role) -> bool
         raise ValueError(f"invalid role {new_role!r}")
     rc = _redis()
     if rc is None:
+        record_silent_return("team.update_role")
         return False
     existing = list_members(shop_domain)
     updated = False

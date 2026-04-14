@@ -30,6 +30,8 @@ from sqlalchemy.orm import Session
 
 from app.models.bugfix_candidate import BugFixCandidate
 
+from app.core.silent_fallback import record_silent_return
+
 log = logging.getLogger("bugfix_pipeline")
 
 _TRIAGE_LOOKBACK_HOURS = 24
@@ -310,6 +312,7 @@ def _check_skeleton_fingerprint(skeleton_hash: str | None) -> dict | None:
         return None
     rc = _redis_safe()
     if rc is None:
+        record_silent_return("bugfix_pipeline.skeleton_check")
         return None
     try:
         raw = rc.get(f"{_SKELETON_REDIS_PREFIX}:{skeleton_hash}")
@@ -383,6 +386,7 @@ def _lookup_fix_template(template_key: str | None) -> dict | None:
         return None
     rc = _redis_safe()
     if rc is None:
+        record_silent_return("bugfix_pipeline.fix_template_lookup")
         return None
     try:
         raw = rc.get(f"{_FIX_TEMPLATE_REDIS_PREFIX}:{template_key}")
@@ -419,6 +423,7 @@ def _store_fix_template(template_key: str | None, candidate: BugFixCandidate) ->
         return
     rc = _redis_safe()
     if rc is None:
+        record_silent_return("bugfix_pipeline.fix_template_store")
         return
     try:
         files_list: list[str] = []
@@ -455,6 +460,7 @@ def _incr_fix_template_hit() -> None:
     """Bump the weekly cache-hit counter (for the daily digest)."""
     rc = _redis_safe()
     if rc is None:
+        record_silent_return("bugfix_pipeline.fix_template_hit_incr")
         return
     try:
         week = _now().strftime("%G-W%V")
@@ -507,6 +513,7 @@ def _record_adversarial_report(candidate: BugFixCandidate, report: dict) -> None
 
     rc = _redis_safe()
     if rc is None:
+        record_silent_return("bugfix_pipeline.adversarial_counter")
         return
     try:
         week = _now().strftime("%G-W%V")
@@ -525,6 +532,7 @@ def get_adversarial_report_this_week() -> dict:
     """Weekly counts for the daily digest: runs + weak patterns flagged."""
     rc = _redis_safe()
     if rc is None:
+        record_silent_return("bugfix_pipeline.adversarial_read")
         return {"runs": 0, "weak": 0}
     try:
         week = _now().strftime("%G-W%V")
@@ -551,6 +559,7 @@ _SECURITY_GUARD_COUNTER = "hs:security_guard_blocks"
 def _bump_security_guard_block_counter() -> None:
     rc = _redis_safe()
     if rc is None:
+        record_silent_return("bugfix_pipeline.security_guard_bump")
         return
     try:
         day = _now().strftime("%Y-%m-%d")
@@ -564,6 +573,7 @@ def _bump_security_guard_block_counter() -> None:
 def get_security_guard_blocks_7d() -> int:
     rc = _redis_safe()
     if rc is None:
+        record_silent_return("bugfix_pipeline.security_guard_read")
         return 0
     total = 0
     try:
@@ -589,6 +599,7 @@ def get_fix_template_hits_this_week() -> int:
     """Return the number of template cache hits for the current ISO week."""
     rc = _redis_safe()
     if rc is None:
+        record_silent_return("bugfix_pipeline.fix_template_hits_read")
         return 0
     try:
         week = _now().strftime("%G-W%V")
@@ -634,6 +645,7 @@ def _record_antigen(
         return
     rc = _redis_safe()
     if rc is None:
+        record_silent_return("bugfix_pipeline.antigen_record")
         return
     try:
         payload = json.dumps({
@@ -659,6 +671,7 @@ def _check_antigen(
         return None
     rc = _redis_safe()
     if rc is None:
+        record_silent_return("bugfix_pipeline.antigen_check")
         return None
     try:
         raw = rc.get(f"{_ANTIGEN_REDIS_PREFIX}:{scope_key}:{skeleton_hash}")

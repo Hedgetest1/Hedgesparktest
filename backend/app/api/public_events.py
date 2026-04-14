@@ -111,6 +111,8 @@ def _rate_allow(shop_domain: str) -> bool:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("public_events.rate_limit")
             return True  # fail-open: redis down, allow the request
         key = f"hs:pub_events:rate:{shop_domain}:{int(time.time() // 60)}"
         count = rc.incr(key)
@@ -129,6 +131,8 @@ def _is_duplicate(shop_domain: str, event_id: str) -> bool:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("public_events.dedup")
             return False
         key = f"hs:pub_events:dedup:{shop_domain}:{event_id}"
         # setnx: return False if we set (not duplicate), True if key existed

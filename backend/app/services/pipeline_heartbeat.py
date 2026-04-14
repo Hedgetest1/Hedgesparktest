@@ -54,6 +54,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.silent_fallback import record_silent_return
+
 log = logging.getLogger("pipeline_heartbeat")
 
 _HEARTBEAT_INTERVAL_S = 60 * 60  # 1 hour
@@ -93,6 +95,7 @@ def _claim_run_slot() -> bool:
     """
     rc = _redis()
     if rc is None:
+        record_silent_return("pipeline_heartbeat.claim_slot")
         return True  # no Redis → best-effort per-process
     try:
         # Hold the slot for one full interval; refreshed on successful run.
@@ -115,6 +118,7 @@ def _is_on_cooldown() -> bool:
 def _mark_run() -> None:
     rc = _redis()
     if rc is None:
+        record_silent_return("pipeline_heartbeat.mark_run")
         return
     try:
         rc.setex(_REDIS_LAST_RUN_KEY, _HEARTBEAT_INTERVAL_S * 2, str(time.time()))

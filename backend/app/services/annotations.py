@@ -21,6 +21,8 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
+from app.core.silent_fallback import record_silent_return
+
 log = logging.getLogger("annotations")
 
 _REDIS_KEY_PREFIX = "hs:annotations:v1"
@@ -87,6 +89,7 @@ def list_annotations(shop_domain: str, limit: int = 100) -> list[Annotation]:
     """Return the most recent `limit` annotations for a shop, newest first."""
     rc = _redis()
     if rc is None:
+        record_silent_return("annotations.list")
         return []
     try:
         raw = rc.get(_key(shop_domain))
@@ -124,6 +127,7 @@ def create_annotation(
 
     rc = _redis()
     if rc is None:
+        record_silent_return("annotations.create")
         return None
 
     ann = Annotation(
@@ -157,6 +161,7 @@ def delete_annotation(shop_domain: str, annotation_id: str) -> bool:
     """Delete by id. Returns True if removed."""
     rc = _redis()
     if rc is None:
+        record_silent_return("annotations.delete")
         return False
     try:
         existing = list_annotations(shop_domain, limit=_MAX_PER_SHOP)

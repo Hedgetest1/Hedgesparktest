@@ -51,6 +51,8 @@ import math
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from app.core.silent_fallback import record_silent_return
+
 log = logging.getLogger("fix_holdout_measurement")
 
 _REDIS_PREFIX_ASSIGNMENT = "hs:holdout:assignment"
@@ -97,6 +99,7 @@ def assign_cohort(candidate_id: int, shop_domains: list[str]) -> dict[str, list[
     if rc is None:
         # No Redis → cannot persist. Compute in-memory assignment but
         # warn the caller via empty dict so they don't apply.
+        record_silent_return("fix_holdout.assign")
         log.warning("holdout: redis unavailable for candidate %d", candidate_id)
         return {"treatment": [], "control": []}
 
@@ -136,6 +139,7 @@ def assign_cohort(candidate_id: int, shop_domains: list[str]) -> dict[str, list[
 def get_cohort(candidate_id: int) -> dict[str, list[str]] | None:
     rc = _redis()
     if rc is None:
+        record_silent_return("fix_holdout.cohort_read")
         return None
     try:
         raw = rc.get(f"{_REDIS_PREFIX_ASSIGNMENT}:{candidate_id}")
@@ -375,6 +379,7 @@ def measure_outcome(
 def _persist_measurement(candidate_id: int, result: dict) -> None:
     rc = _redis()
     if rc is None:
+        record_silent_return("fix_holdout.measurement_persist")
         return
     try:
         rc.setex(
@@ -389,6 +394,7 @@ def _persist_measurement(candidate_id: int, result: dict) -> None:
 def get_measurement(candidate_id: int) -> dict | None:
     rc = _redis()
     if rc is None:
+        record_silent_return("fix_holdout.measurement_read")
         return None
     try:
         raw = rc.get(f"{_REDIS_PREFIX_MEASUREMENT}:{candidate_id}")
@@ -402,6 +408,7 @@ def get_measurement(candidate_id: int) -> dict | None:
 def _bump_weekly_savings(lift_eur: float) -> None:
     rc = _redis()
     if rc is None:
+        record_silent_return("fix_holdout.savings_bump")
         return
     try:
         from zoneinfo import ZoneInfo
@@ -418,6 +425,7 @@ def get_weekly_proven_savings(week_offset: int = 0) -> float:
     """Read this week's (or N weeks ago) proven savings total."""
     rc = _redis()
     if rc is None:
+        record_silent_return("fix_holdout.savings_read")
         return 0.0
     try:
         from zoneinfo import ZoneInfo

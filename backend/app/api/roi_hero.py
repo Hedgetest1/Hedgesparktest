@@ -87,6 +87,8 @@ def _cache_get(shop: str) -> dict | None:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("roi_hero.cache_read")
             return None
         raw = rc.get(f"{_CACHE_PREFIX}:{shop}")
         if raw is None:
@@ -101,6 +103,8 @@ def _cache_set(shop: str, data: dict) -> None:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("roi_hero.cache_write")
             return
         rc.setex(f"{_CACHE_PREFIX}:{shop}", _CACHE_TTL_S, json.dumps(data, default=str))
     except Exception:

@@ -29,6 +29,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.silent_fallback import record_silent_return
+
 log = logging.getLogger("onboarding_health")
 
 # ---------------------------------------------------------------------------
@@ -260,6 +262,7 @@ def _can_send_reengagement(shop: str) -> tuple[bool, int]:
     re-engagement was sent in the last week for this shop."""
     rc = _redis()
     if rc is None:
+        record_silent_return("onboarding_health.can_send")
         return False, 0
     try:
         if rc.get(_reengage_dedupe_key(shop)):
@@ -278,6 +281,7 @@ def _record_reengagement_sent(shop: str) -> int:
     Returns the new episode count."""
     rc = _redis()
     if rc is None:
+        record_silent_return("onboarding_health.record_sent")
         return 0
     try:
         rc.setex(_reengage_dedupe_key(shop), _REENGAGE_DEDUPE_TTL_S, "1")
