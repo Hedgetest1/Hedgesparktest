@@ -19,9 +19,12 @@ export default function TermsPage() {
           <section>
             <h2 className="text-[16px] font-semibold text-white">Plans and billing</h2>
             <p className="mt-3">
-              Lite plan is free with no time limit. Pro plan is billed monthly through Shopify&apos;s billing system.
-              Pro includes a 14-day free trial. You can cancel at any time — your account will revert to Lite
-              at the end of the billing period.
+              HedgeSpark is currently in a closed beta. Lite is available to every installed merchant.
+              Pro is billed monthly through Shopify&apos;s billing system at the rate disclosed in the
+              Shopify billing confirmation screen at the time of upgrade. Final pricing and any
+              applicable introductory terms will be announced before general launch. You can cancel
+              at any time from the Shopify billing settings — your account reverts to Lite at the end
+              of the billing period and all of your detection signals remain available.
             </p>
           </section>
 

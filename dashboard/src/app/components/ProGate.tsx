@@ -80,9 +80,9 @@ export function ProGate({
           )}
         </div>
 
-        {/* CTA */}
+        {/* CTA — pricing-neutral per CLAUDE.md §3 + master plan §4.2 */}
         <button className="hs-cta-gradient rounded-xl px-6 py-2.5 text-[14px] font-bold text-white shadow-[0_0_16px_rgba(212,137,58,0.3)] transition-all duration-200 group-hover:shadow-[0_0_24px_rgba(212,137,58,0.4)]">
-          Start free trial &rarr;
+          Upgrade to Pro &rarr;
         </button>
       </div>
     </div>

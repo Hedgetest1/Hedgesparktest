@@ -48,22 +48,15 @@ export function UpgradeModal({
   open,
   onClose,
   shop,
-  trialDays = 14,
-  price = 49,
 }: {
-  open:       boolean;
-  onClose:    () => void;
-  shop?:      string;
-  trialDays?: number;
-  price?:     number;
+  open:    boolean;
+  onClose: () => void;
+  shop?:   string;
 }) {
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState("");
 
   if (!open) return null;
-
-  const hasTrial = trialDays > 0;
-  const priceStr = price % 1 === 0 ? `$${price}` : `$${price.toFixed(2)}`;
 
   async function handleUpgrade() {
     if (shop && API_BASE) {
@@ -176,34 +169,26 @@ export function UpgradeModal({
             ))}
           </ul>
 
-          {/* Price anchor */}
-          <div className="mb-4 flex items-baseline justify-center gap-1.5">
-            <span className="text-2xl font-bold tabular-nums text-white">{priceStr}</span>
-            <span className="text-[13px] text-slate-500">/mo</span>
-            {hasTrial && (
-              <span className="ml-2 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
-                {trialDays} days free
-              </span>
-            )}
+          {/* Beta-phase anchor — no explicit price during closed beta */}
+          <div className="mb-4 text-center">
+            <span className="inline-block rounded-full border border-[#e8a04e]/25 bg-[#e8a04e]/[0.06] px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-[#e8a04e]">
+              Closed beta · grandfathered pricing
+            </span>
           </div>
 
-          {/* CTA */}
+          {/* CTA — pricing-neutral per CLAUDE.md §3 + master plan §4.2 (beta phase) */}
           <button
             onClick={handleUpgrade}
             disabled={loading}
-            className="w-full rounded-xl bg-[#d4893a] py-3 text-sm font-semibold text-white shadow-[0_0_20px_rgba(212,137,58,0.4)] transition-all hover:bg-[#e8a04e] hover:shadow-[0_0_28px_rgba(212,137,58,0.5)] active:bg-[#c47a3e] disabled:opacity-60"
+            className="w-full rounded-xl bg-[#e8a04e] py-3 text-sm font-bold text-[#0b1220] shadow-[0_0_20px_rgba(232,160,78,0.4)] transition-all hover:bg-[#f2ab5a] hover:shadow-[0_0_28px_rgba(232,160,78,0.5)] disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#080811]"
           >
-            {loading
-              ? "Opening Shopify billing…"
-              : hasTrial
-              ? `Start ${trialDays}-day free trial`
-              : `Get Pro — ${priceStr}/mo`}
+            {loading ? "Opening Shopify billing…" : "Upgrade to Pro"}
           </button>
 
-          {/* Trial clarification */}
-          {!loading && hasTrial && (
+          {/* Honest beta-phase clarification */}
+          {!loading && (
             <p className="mt-2 text-center text-[11px] text-slate-500">
-              Then {priceStr}/mo after trial. Cancel anytime from Shopify.
+              Closed beta — pricing announced before general launch. Cancel anytime from Shopify.
             </p>
           )}
 

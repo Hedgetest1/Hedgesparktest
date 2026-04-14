@@ -583,9 +583,11 @@ function PageInner() {
   // readiness string + billing upgrade are the only bits we actually
   // branch on. Dropped to cut wasted renders.)
   const [setupReadiness, setSetupReadiness] = useState<string | null>(null);
-  // Pro billing config — from /merchant/plan response, used for trial-aware CTAs
+  // Pro billing config — proTrialDays is still read by the trial-countdown
+  // useMemo below. proPrice was dropped when pricing was hidden for the
+  // beta phase (master plan §4.2) — the authoritative price now comes from
+  // Shopify's billing confirmation screen, not from dashboard copy.
   const [proTrialDays, setProTrialDays] = useState(14);
-  const [proPrice, setProPrice] = useState(49);
   // billing_confirmed_at — ISO string from backend, used to derive trial countdown
   const [billingConfirmedAt, setBillingConfirmedAt] = useState<string | null>(null);
   const [activeKpi, setActiveKpi] = useState<string | null>(null);
@@ -725,7 +727,6 @@ function PageInner() {
             const isPro = json.plan === "pro" && json.billing_active === true;
             setTier(isPro ? "pro" : "lite");
             if (json.pro_trial_days != null) setProTrialDays(json.pro_trial_days);
-            if (json.pro_price != null) setProPrice(json.pro_price);
             setBillingConfirmedAt(json.billing_confirmed_at ?? null);
 
             // Clean ?shop= from URL if present — session is the source of truth
@@ -772,7 +773,6 @@ function PageInner() {
               const isPro = planJson.plan === "pro" && planJson.billing_active === true;
               setTier(isPro ? "pro" : "lite");
               if (planJson.pro_trial_days != null) setProTrialDays(planJson.pro_trial_days);
-              if (planJson.pro_price != null) setProPrice(planJson.pro_price);
               setBillingConfirmedAt(planJson.billing_confirmed_at ?? null);
             }
           } catch { /* tier stays lite */ }
@@ -2383,8 +2383,6 @@ function PageInner() {
                 onReadinessChange={handleReadinessChange}
                 billingJustActivated={billingJustActivated}
                 freshInstall={freshInstall}
-                trialDays={proTrialDays}
-                price={proPrice}
                 totalVisitors={data ? (data.summary?.total_visitors ?? 0) : null}
                 signalCount={strongSignals.length > 0 ? strongSignals.length : (data ? 0 : null)}
               />
@@ -2930,9 +2928,9 @@ function PageInner() {
                     </div>
                     <button
                       onClick={() => setUpgradeModalOpen(true)}
-                      className="hs-cta-gradient mt-8 rounded-2xl px-8 py-3.5 text-[16px] font-bold text-white shadow-[0_0_30px_rgba(212,137,58,0.25)] transition-all hover:shadow-[0_0_40px_rgba(212,137,58,0.35)]"
+                      className="hs-cta-gradient mt-8 rounded-2xl px-8 py-3.5 text-[16px] font-bold text-white shadow-[0_0_30px_rgba(232,160,78,0.25)] transition-all hover:shadow-[0_0_40px_rgba(232,160,78,0.35)] focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1220]"
                     >
-                      Start 14-day free trial
+                      Upgrade to Pro
                     </button>
                   </div>
                 </div>
@@ -3171,7 +3169,7 @@ function PageInner() {
         </main>
       </div>
 
-      <UpgradeModal open={upgradeModalOpen} onClose={() => setUpgradeModalOpen(false)} shop={shop} trialDays={proTrialDays} price={proPrice} />
+      <UpgradeModal open={upgradeModalOpen} onClose={() => setUpgradeModalOpen(false)} shop={shop} />
 
       {/* Spark toast notifications — top-right, auto-dismiss */}
       {activeToasts.length > 0 && (
@@ -3255,7 +3253,7 @@ function PageInner() {
               disabled={trialBillingLoading}
               className="w-full rounded-xl bg-violet-600 py-3 text-sm font-semibold text-white shadow-[0_0_20px_rgba(124,58,237,0.4)] transition-colors hover:bg-violet-500 active:bg-violet-700 disabled:opacity-60"
             >
-              {trialBillingLoading ? "Opening Shopify billing\u2026" : `Continue with Pro \u2014 $${proPrice}/mo`}
+              {trialBillingLoading ? "Opening Shopify billing\u2026" : "Continue with Pro"}
             </button>
 
             {trialBillingError && (

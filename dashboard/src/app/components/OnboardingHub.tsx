@@ -469,8 +469,6 @@ export function OnboardingHub({
   onReadinessChange,
   billingJustActivated,
   freshInstall,
-  trialDays = 14,
-  price = 49,
   totalVisitors,
   signalCount,
 }: {
@@ -481,8 +479,6 @@ export function OnboardingHub({
   billingJustActivated?: boolean;
   /** True when URL had ?installed=1 — triggers grace period */
   freshInstall?: boolean;
-  trialDays?: number;
-  price?: number;
   /** From overview data, null = still loading */
   totalVisitors: number | null;
   /** Strong signal count, null = still loading */
@@ -1017,50 +1013,41 @@ export function OnboardingHub({
           </button>
         </div>
 
-        {/* Pro upsell — only after first finding appears (not during onboarding) */}
-        {checks && !checks.billing_active && hasSignals && (() => {
-          const hasTrial = trialDays > 0;
-          const priceStr = price % 1 === 0 ? `$${price}` : `$${price.toFixed(2)}`;
-          return (
-            <div className="mt-3 rounded-xl border border-violet-400/15 bg-violet-500/[0.06] px-4 py-3">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="text-[13px] font-semibold text-white">
-                    {hasTrial
-                      ? `We found ${signalCount} revenue opportunity${signalCount === 1 ? "" : "ies"}. Want us to fix ${signalCount === 1 ? "it" : "them"}?`
-                      : `${signalCount} opportunity${signalCount === 1 ? "" : "ies"} found — unlock AI-powered actions`}
-                  </div>
-                  <div className="mt-0.5 text-[12px] text-slate-500">
-                    {hasTrial
-                      ? `Pro automatically turns findings into revenue. Free for ${trialDays} days, then ${priceStr}/mo.`
-                      : `AI actions per product, daily briefs, market intelligence. ${priceStr}/mo.`}
-                    {checks.billing_charge_pending && (
-                      <span className="ml-2 text-amber-400">
-                        Upgrade pending — check your Shopify billing page.
-                      </span>
-                    )}
-                  </div>
+        {/* Pro upsell — only after first finding appears (not during onboarding).
+            Beta-phase copy: no explicit price/trial language per master plan §4.2. */}
+        {checks && !checks.billing_active && hasSignals && (
+          <div className="mt-3 rounded-xl border border-violet-400/15 bg-violet-500/[0.06] px-4 py-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-[13px] font-semibold text-white">
+                  We found {signalCount} revenue opportunity{signalCount === 1 ? "" : "ies"}. Want
+                  us to fix {signalCount === 1 ? "it" : "them"}?
                 </div>
-                {!checks.billing_charge_pending && (
-                  <button
-                    onClick={startBillingUpgrade}
-                    disabled={billingLoading}
-                    className="flex-shrink-0 rounded-lg bg-violet-600 px-4 py-2 text-[13px] font-semibold text-white shadow-[0_0_16px_rgba(124,58,237,0.3)] transition hover:bg-violet-500 active:bg-violet-700 disabled:opacity-60"
-                  >
-                    {billingLoading
-                      ? "Opening Shopify billing..."
-                      : hasTrial
-                      ? `Start ${trialDays}-day free trial`
-                      : `Get Pro — ${priceStr}/mo`}
-                  </button>
-                )}
+                <div className="mt-0.5 text-[12px] text-slate-500">
+                  Pro automatically turns findings into revenue and proves every result against a
+                  control group. Closed beta — pricing announced before general launch.
+                  {checks.billing_charge_pending && (
+                    <span className="ml-2 text-amber-400">
+                      Upgrade pending — check your Shopify billing page.
+                    </span>
+                  )}
+                </div>
               </div>
-              {billingError && (
-                <p className="mt-2 text-[12px] text-rose-400">{billingError}</p>
+              {!checks.billing_charge_pending && (
+                <button
+                  onClick={startBillingUpgrade}
+                  disabled={billingLoading}
+                  className="flex-shrink-0 rounded-lg bg-violet-600 px-4 py-2 text-[13px] font-semibold text-white shadow-[0_0_16px_rgba(124,58,237,0.3)] transition hover:bg-violet-500 active:bg-violet-700 disabled:opacity-60"
+                >
+                  {billingLoading ? "Opening Shopify billing..." : "Upgrade to Pro"}
+                </button>
               )}
             </div>
-          );
-        })()}
+            {billingError && (
+              <p className="mt-2 text-[12px] text-rose-400">{billingError}</p>
+            )}
+          </div>
+        )}
       </div>
     );
   }

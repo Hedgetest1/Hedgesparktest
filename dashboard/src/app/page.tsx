@@ -1401,16 +1401,18 @@ function Pricing() {
 
   return (
     <section id="pricing" className="relative scroll-mt-20 py-20 sm:py-24">
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[#d4893a]/[0.015] to-transparent" />
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[#e8a04e]/[0.015] to-transparent" />
 
       <div className="relative mx-auto max-w-[60rem] px-6 lg:px-10">
         <R className="text-center">
-          <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#d4893a]">Pricing</span>
-          <h2 className="mt-5 text-[2.25rem] font-extrabold leading-[1.1] text-white sm:text-[3rem]">
-            Start with intelligence.
-            <br />
-            <span style={{ color: "#34d399" }}>Start making money.</span>
+          <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#e8a04e]">Plans</span>
+          <h2 className="mt-5 text-[2.25rem] font-extrabold leading-[1.1] text-[#e8a04e] sm:text-[3rem]">
+            Two plans. One product that actually works.
           </h2>
+          <p className="mx-auto mt-5 max-w-xl text-[16px] leading-relaxed text-slate-400">
+            Lite tracks what&apos;s happening on your store. Pro tells you exactly what to fix and
+            proves every result against a real control group.
+          </p>
         </R>
 
         <div className="mt-16 grid gap-6 sm:grid-cols-2">
@@ -1418,9 +1420,10 @@ function Pricing() {
           <R d={0.04}>
             <div className="flex h-full flex-col rounded-3xl border border-white/[0.06] bg-[#0e0e1a] p-8 transition-all duration-300 hover:border-white/[0.1] sm:p-10">
               <div className="text-[14px] font-bold uppercase tracking-[0.18em] text-slate-400">Lite</div>
-              <div className="mt-6 flex items-baseline gap-2">
-                <span className="text-[3.5rem] font-extrabold tracking-tight text-white">$0</span>
-                <span className="text-[17px] text-slate-500">forever</span>
+              <div className="mt-6">
+                <span className="text-[28px] font-extrabold tracking-tight text-white sm:text-[32px]">
+                  Operational clarity
+                </span>
               </div>
               <p className="mt-5 text-[17px] leading-relaxed text-slate-400">
                 See what&apos;s wrong with every product. In real time.
@@ -1444,27 +1447,28 @@ function Pricing() {
                 href={INSTALL_URL}
                 className="mt-10 block rounded-2xl border border-white/[0.08] bg-white/[0.03] py-4 text-center text-[16px] font-bold text-slate-200 transition-all duration-300 hover:border-white/[0.14] hover:bg-white/[0.06] hover:text-white"
               >
-                Install free
+                Install on Shopify
               </a>
             </div>
           </R>
 
           {/* Pro */}
           <R d={0.1}>
-            <div className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-[#d4893a]/20 bg-gradient-to-b from-[#d4893a]/[0.04] to-transparent p-8 transition-all duration-300 hover:border-[#d4893a]/30 sm:p-10">
-              <div className="absolute -top-px left-8 rounded-b-xl bg-[#d4893a] px-5 py-2 text-[12px] font-bold uppercase tracking-[0.12em] text-white shadow-[0_4px_20px_-4px_rgba(212,137,58,0.5)]">
-                14-day free trial
+            <div className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-[#e8a04e]/25 bg-gradient-to-b from-[#e8a04e]/[0.05] to-transparent p-8 transition-all duration-300 hover:border-[#e8a04e]/40 sm:p-10">
+              <div className="absolute -top-px left-8 rounded-b-xl bg-[#e8a04e] px-5 py-2 text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b1220] shadow-[0_4px_20px_-4px_rgba(232,160,78,0.5)]">
+                Recommended
               </div>
-              <div className="text-[14px] font-bold uppercase tracking-[0.18em] text-[#d4893a]">Pro</div>
-              <div className="mt-6 flex items-baseline gap-2">
-                <span className="text-[3.5rem] font-extrabold tracking-tight text-white">$49</span>
-                <span className="text-[17px] text-slate-500">/month</span>
+              <div className="text-[14px] font-bold uppercase tracking-[0.18em] text-[#e8a04e]">Pro</div>
+              <div className="mt-6">
+                <span className="text-[28px] font-extrabold tracking-tight text-white sm:text-[32px]">
+                  Structural intelligence
+                </span>
               </div>
               <p className="mt-5 text-[17px] leading-relaxed text-slate-400">
                 Find the problem. Fix it. Prove it worked. Watch it learn.
               </p>
               <p className="mt-2 text-[14px] text-slate-500">
-                One recovered signal typically pays for a full year.
+                Closed beta — final pricing announced before general launch.
               </p>
               <ul className="mt-8 flex-1 space-y-4">
                 {[
@@ -1485,16 +1489,16 @@ function Pricing() {
                   "Weekly email digest",
                 ].map((f) => (
                   <li key={f} className={`flex items-start gap-3 text-[16px] ${f === "Everything in Lite" ? "text-slate-500" : "text-slate-200"}`}>
-                    {check("text-[#d4893a]")}
+                    {check("text-[#e8a04e]")}
                     {f}
                   </li>
                 ))}
               </ul>
               <a
                 href={INSTALL_URL}
-                className="hs-cta-gradient mt-10 block rounded-2xl py-4 text-center text-[16px] font-bold text-white transition-all duration-300 hover:shadow-[0_4px_40px_rgba(212,137,58,0.3)]"
+                className="hs-cta-gradient mt-10 block rounded-2xl py-4 text-center text-[16px] font-bold text-white transition-all duration-300 hover:shadow-[0_4px_40px_rgba(232,160,78,0.3)]"
               >
-                Start free trial
+                Install on Shopify
               </a>
             </div>
           </R>
@@ -1527,8 +1531,8 @@ function FAQ() {
       a: "No. One-click Shopify install. No code. No theme editor. Tracking starts on the next visitor.",
     },
     {
-      q: "What happens after the Pro trial?",
-      a: "You choose: keep Pro or drop to Lite. Lite is free forever — you keep all detection signals. You never lose visibility.",
+      q: "Can I downgrade from Pro to Lite?",
+      a: "Yes. You can switch plans at any time from your dashboard — no support ticket, no phone call. Downgrading keeps all your detection signals intact; you just lose the Pro-only intelligence layer until you upgrade again.",
     },
   ];
 
