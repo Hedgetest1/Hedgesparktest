@@ -560,10 +560,12 @@ def list_pro_nudges(
 class NudgeComposeRequest(BaseModel):
     product_url: str = Field(
         ...,
+        max_length=2048,
         description="Canonical product path: /products/{handle}",
     )
     action_type: str = Field(
         default="social_proof",
+        max_length=64,
         description="Nudge action type (social_proof | high_interest | etc.)",
     )
     holdout_pct: int = Field(

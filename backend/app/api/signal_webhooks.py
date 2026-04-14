@@ -12,8 +12,8 @@ router = APIRouter(tags=["signal_webhooks"])
 
 
 class WebhookPayload(BaseModel):
-    url: str = Field(..., description="HTTPS webhook URL")
-    events: list[str] = Field(..., min_length=1,
+    url: str = Field(..., max_length=2048, description="HTTPS webhook URL")
+    events: list[str] = Field(..., min_length=1, max_length=50,
                                description="Signal event types to subscribe to")
 
 

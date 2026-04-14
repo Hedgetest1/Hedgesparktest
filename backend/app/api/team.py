@@ -16,7 +16,7 @@ router = APIRouter(tags=["team"])
 class MemberPayload(BaseModel):
     email: str = Field(..., max_length=256)
     display_name: str = Field("", max_length=120)
-    role: str = Field("viewer", description="viewer | editor | admin")
+    role: str = Field("viewer", max_length=32, description="viewer | editor | admin")
 
 
 class MemberRow(BaseModel):

@@ -42,7 +42,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -117,59 +117,64 @@ def get_db():
 
 
 class TrackPayload(BaseModel):
-    shop_domain: str
-    visitor_id: str
-    event_type: str
-    page_url: Optional[str] = None       # raw page URL (always sent by tracker)
-    product_url: Optional[str] = None    # product path; NULL on non-product pages
+    # Tier 2.3 — upper bounds on every untrusted string. The public
+    # tracker endpoint is the widest unauthenticated surface in the
+    # product; a single compromised storefront sending multi-MB strings
+    # would hit the DB, the logs, the audit trail, and the LLM prompt.
+    # Bounds are generous enough to never reject real traffic.
+    shop_domain: str = Field(..., max_length=255)
+    visitor_id: str = Field(..., max_length=128)
+    event_type: str = Field(..., max_length=64)
+    page_url: Optional[str] = Field(None, max_length=2048)
+    product_url: Optional[str] = Field(None, max_length=2048)
     timestamp: Optional[int] = None      # epoch milliseconds
     dwell_seconds: Optional[int] = None
     scroll_depth: Optional[int] = None   # mapped to max_scroll_depth column
 
     # Source attribution — sent by spark-tracker.js since migration j7e0a4b8c3d6.
-    source_type: Optional[str] = None    # direct | google | facebook | …
-    referrer: Optional[str] = None       # raw document.referrer (may be empty str)
-    utm_medium: Optional[str] = None     # raw utm_medium for paid/organic classification
+    source_type: Optional[str] = Field(None, max_length=64)
+    referrer: Optional[str] = Field(None, max_length=2048)
+    utm_medium: Optional[str] = Field(None, max_length=128)
 
     # Full UTM parameters — captured from URL query string by tracker.
-    utm_source: Optional[str] = None     # e.g., google, facebook, newsletter
-    utm_campaign: Optional[str] = None   # campaign name
-    utm_content: Optional[str] = None    # ad variant / creative
-    utm_term: Optional[str] = None       # search keyword
+    utm_source: Optional[str] = Field(None, max_length=128)
+    utm_campaign: Optional[str] = Field(None, max_length=255)
+    utm_content: Optional[str] = Field(None, max_length=255)
+    utm_term: Optional[str] = Field(None, max_length=255)
 
     # Click ID — ad platform identifiers. Stored as "type:value".
     # Tracker sends whichever is present: gclid, fbclid, ttclid, msclkid.
-    click_id: Optional[str] = None
+    click_id: Optional[str] = Field(None, max_length=256)
 
     # Landing page — first page URL of the visit (set by tracker on first page_view).
-    landing_page: Optional[str] = None
+    landing_page: Optional[str] = Field(None, max_length=2048)
 
     # Device type — "mobile" or "desktop", sent by tracker since v3.
-    device_type: Optional[str] = None
+    device_type: Optional[str] = Field(None, max_length=32)
 
     # Shopify numeric product ID — sent on product pages since migration o1a2b3c4d5e6.
     # Sourced from window.ShopifyAnalytics.meta.product.id by spark-tracker.js.
     # Used to resolve product_url at order ingestion time for real conversion metrics.
-    product_id: Optional[str] = None    # Shopify integer product ID, stored as string
+    product_id: Optional[str] = Field(None, max_length=64)
 
     # Purchase fields — sent by spark-tracker.js on the Shopify thank-you page.
     # Replaces Shopify webhooks (orders/*) which require Protected Customer Data approval.
-    order_id: Optional[str] = None       # Shopify order ID (from Shopify.checkout.order_id)
+    order_id: Optional[str] = Field(None, max_length=64)
     order_total: Optional[float] = None  # total_price as float
-    currency: Optional[str] = None       # ISO 4217 currency code (e.g. "EUR", "USD")
+    currency: Optional[str] = Field(None, max_length=16)
 
     # Shopify _shopify_y cookie value — Shopify's persistent visitor ID.
     # Sent by spark-tracker.js from the storefront. Also available as event.clientId
     # in the Custom Pixel sandbox. Enables identity bridging when the pixel can't
     # read our _hs_vid cookie or localStorage.
-    shopify_y: Optional[str] = None
+    shopify_y: Optional[str] = Field(None, max_length=256)
 
     # Identity bridge — sent by the pixel when it reads the _hs_vid cookie.
     # This is the storefront tracker's visitor_id, bridging browsing → purchase.
-    tracker_visitor_id: Optional[str] = None
+    tracker_visitor_id: Optional[str] = Field(None, max_length=128)
 
     # Per-merchant pixel secret — validated on purchase events to prevent spoofing.
-    pixel_secret: Optional[str] = None
+    pixel_secret: Optional[str] = Field(None, max_length=256)
 
     # GDPR consent gating (Art. 6 lawful basis, Art. 7 consent).
     # The storefront script SHOULD pass `gdpr_consent_given=True` after the
@@ -186,7 +191,7 @@ class TrackPayload(BaseModel):
     # Two-letter country hint from the tracker (e.g. "IT", "DE"). Used to
     # scope the strict-consent gate to EU/EEA visitors only — shops outside
     # the EU don't need explicit consent.
-    consent_region: Optional[str] = None
+    consent_region: Optional[str] = Field(None, max_length=8)
 
 
 # ---------------------------------------------------------------------------
@@ -737,7 +742,7 @@ def track_event(request: Request, payload: TrackPayload, db: Session = Depends(g
 # ---------------------------------------------------------------------------
 
 class BatchTrackPayload(BaseModel):
-    events: list[TrackPayload]
+    events: list[TrackPayload] = Field(..., max_length=50)
 
 
 @router.post("/track/batch")

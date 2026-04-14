@@ -12,10 +12,10 @@ router = APIRouter(tags=["annotations"])
 
 
 class AnnotationPayload(BaseModel):
-    date: str = Field(..., description="ISO date YYYY-MM-DD")
+    date: str = Field(..., max_length=32, description="ISO date YYYY-MM-DD")
     label: str = Field(..., min_length=1, max_length=120)
     description: str = Field("", max_length=500)
-    category: str = Field("other")
+    category: str = Field("other", max_length=64)
 
 
 class AnnotationRow(BaseModel):

@@ -59,16 +59,16 @@ class ConditionSchema(BaseModel):
 class RuleCreate(BaseModel):
     name: str = Field(..., min_length=2, max_length=200)
     trigger_signal: str = Field(..., min_length=2, max_length=64)
-    conditions: list[ConditionSchema] = Field(default_factory=list)
+    conditions: list[ConditionSchema] = Field(default_factory=list, max_length=50)
     action: dict = Field(...)
     status: str = Field("draft", pattern="^(draft|active|paused)$")
     max_per_hour: int = Field(30, ge=1, le=500)
 
 
 class RulePatch(BaseModel):
-    name: str | None = None
-    trigger_signal: str | None = None
-    conditions: list[ConditionSchema] | None = None
+    name: str | None = Field(None, max_length=200)
+    trigger_signal: str | None = Field(None, max_length=64)
+    conditions: list[ConditionSchema] | None = Field(None, max_length=50)
     action: dict | None = None
     status: str | None = Field(None, pattern="^(draft|active|paused|disabled)$")
     max_per_hour: int | None = Field(None, ge=1, le=500)

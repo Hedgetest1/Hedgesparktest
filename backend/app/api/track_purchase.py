@@ -36,7 +36,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -65,9 +65,9 @@ class PurchaseAttributionPayload(BaseModel):
     All fields are required — the script only fires when all three identity
     anchors (shop_domain, visitor_id, shopify_order_id) are resolvable.
     """
-    shop_domain:       str
-    visitor_id:        str
-    shopify_order_id:  str
+    shop_domain:       str = Field(..., max_length=255)
+    visitor_id:        str = Field(..., max_length=128)
+    shopify_order_id:  str = Field(..., max_length=64)
     timestamp:         int   # epoch milliseconds from Date.now()
 
 

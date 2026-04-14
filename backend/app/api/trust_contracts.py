@@ -80,7 +80,7 @@ class TrustContractCreate(BaseModel):
     auto_pause_on_drop_pct: float = Field(15.0, ge=0.0, le=100.0)
     require_holdout: bool = True
     scope_type: str = Field("all", pattern="^(all|products|collections|tags)$")
-    scope_values: list[str] | None = None
+    scope_values: list[str] | None = Field(None, max_length=500)
     note: str | None = Field(None, max_length=500)
 
 
@@ -93,7 +93,7 @@ class TrustContractPatch(BaseModel):
     auto_pause_on_drop_pct: float | None = Field(None, ge=0.0, le=100.0)
     require_holdout: bool | None = None
     scope_type: str | None = Field(None, pattern="^(all|products|collections|tags)$")
-    scope_values: list[str] | None = None
+    scope_values: list[str] | None = Field(None, max_length=500)
     status: str | None = Field(None, pattern="^(active|paused)$")
     note: str | None = Field(None, max_length=500)
 

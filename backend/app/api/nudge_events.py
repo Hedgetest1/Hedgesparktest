@@ -82,11 +82,11 @@ def get_db():
 
 
 class NudgeEventPayload(BaseModel):
-    shop:        str           = Field(..., description="Shop domain (*.myshopify.com)")
+    shop:        str           = Field(..., max_length=255, description="Shop domain (*.myshopify.com)")
     nudge_id:    int           = Field(..., ge=1, description="active_nudges.id")
-    visitor_id:  Optional[str] = Field(default=None, description="hedgespark_visitor_id UUID")
-    product_url: str           = Field(..., description="Canonical product path /products/{handle}")
-    event_type:  str           = Field(..., description="shown | dismissed | clicked")
+    visitor_id:  Optional[str] = Field(default=None, max_length=128, description="hedgespark_visitor_id UUID")
+    product_url: str           = Field(..., max_length=2048, description="Canonical product path /products/{handle}")
+    event_type:  str           = Field(..., max_length=32, description="shown | dismissed | clicked")
     metadata:    Optional[dict] = Field(default=None, description="Optional context payload")
 
 

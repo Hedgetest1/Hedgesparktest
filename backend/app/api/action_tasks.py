@@ -55,7 +55,7 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal, get_db
@@ -146,17 +146,17 @@ class ActionTasksListResponse(BaseModel):
 
 class ExecuteRequest(BaseModel):
     candidate: dict
-    triggered_by: str = "manual"
+    triggered_by: str = Field("manual", max_length=128)
 
 
 class TransitionRequest(BaseModel):
-    status: str
-    claimed_by: Optional[str] = None
-    result_detail: Optional[str] = None
+    status: str = Field(..., max_length=32)
+    claimed_by: Optional[str] = Field(None, max_length=128)
+    result_detail: Optional[str] = Field(None, max_length=2000)
 
 
 class ReleaseRequest(BaseModel):
-    reason: Optional[str] = None
+    reason: Optional[str] = Field(None, max_length=1000)
 
 
 def _task_to_dict(task) -> dict:

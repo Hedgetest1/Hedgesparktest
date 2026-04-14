@@ -119,6 +119,20 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2g. Input-bounds audit (Tier 2.3). Every Pydantic request model field
+# of type str / list / dict must declare an upper bound (max_length,
+# max_items, or pattern=). OWASP A03/A04 — no unbounded user input
+# reaches the DB, the logs, or the LLM prompt.
+# ---------------------------------------------------------------------------
+step "Input-bounds audit (audit_input_bounds.py --strict)"
+if "$BACKEND/venv/bin/python" "$BACKEND/scripts/audit_input_bounds.py" --strict > /tmp/preflight_input_bounds.log 2>&1; then
+    ok "all request fields have upper bounds"
+else
+    bad "unbounded request fields detected — see /tmp/preflight_input_bounds.log"
+    tail -30 /tmp/preflight_input_bounds.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 3. Python AST parse check — any syntax error blocks commit
 # ---------------------------------------------------------------------------
 step "Python AST parse (staged .py files)"

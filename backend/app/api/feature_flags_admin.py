@@ -44,7 +44,7 @@ def get_flag(name: str, x_api_key: str | None = Header(default=None, alias="X-AP
 class FlagPatch(BaseModel):
     enabled: bool | None = None
     percentage: int | None = Field(default=None, ge=0, le=100)
-    allowlist: list[str] | None = None
+    allowlist: list[str] | None = Field(default=None, max_length=500)
     killswitch: bool | None = None
     ring: int | None = Field(default=None, ge=0, le=3)
 

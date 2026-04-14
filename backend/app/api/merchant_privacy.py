@@ -21,7 +21,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -40,7 +40,7 @@ router = APIRouter(prefix="/merchant", tags=["merchant-privacy"])
 
 
 class RectifyRequest(BaseModel):
-    contact_email: Optional[str] = None
+    contact_email: Optional[str] = Field(None, max_length=254)
 
     @field_validator("contact_email")
     @classmethod
@@ -57,7 +57,7 @@ class RectifyRequest(BaseModel):
 
 
 class ObjectRequest(BaseModel):
-    reason: Optional[str] = None  # optional free-text for audit trail
+    reason: Optional[str] = Field(None, max_length=1000)  # optional free-text for audit trail
 
 
 @router.get("/privacy/preferences")

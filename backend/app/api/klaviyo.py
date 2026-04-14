@@ -43,8 +43,8 @@ def get_db():
 
 
 class KlaviyoPushRequest(BaseModel):
-    product_url:          str   = Field(..., min_length=1)
-    klaviyo_private_key:  str | None = Field(default=None, min_length=10)  # legacy — use stored key when omitted
+    product_url:          str   = Field(..., min_length=1, max_length=2048)
+    klaviyo_private_key:  str | None = Field(default=None, min_length=10, max_length=256)  # legacy — use stored key when omitted
     hours:                int   = Field(default=72, ge=1, le=168)
 
 

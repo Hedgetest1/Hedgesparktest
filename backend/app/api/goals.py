@@ -18,9 +18,9 @@ router = APIRouter(tags=["goals"])
 
 
 class GoalPayload(BaseModel):
-    metric: str = Field(..., description="monthly_revenue | monthly_orders | aov | cvr")
+    metric: str = Field(..., max_length=64, description="monthly_revenue | monthly_orders | aov | cvr")
     target_value: float = Field(..., gt=0)
-    period: str = Field("monthly")
+    period: str = Field("monthly", max_length=32)
     note: str = Field("", max_length=200)
 
 

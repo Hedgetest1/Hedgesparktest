@@ -23,7 +23,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -48,11 +48,11 @@ def _get_db():
 # ---------------------------------------------------------------------------
 
 class ConfirmExecutionRequest(BaseModel):
-    execution_mode: str = "manual"     # manual | assisted | automatic
-    note: str | None = None
+    execution_mode: str = Field("manual", max_length=32)
+    note: str | None = Field(None, max_length=1000)
 
 class StatusUpdateRequest(BaseModel):
-    status: str                        # acknowledged | paused | completed
+    status: str = Field(..., max_length=32)
 
 class ExecutionConfirmResponse(BaseModel):
     execution_id: str

@@ -9,7 +9,7 @@ GET  /pro/shares              — authenticated, lists merchant's shares
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -31,9 +31,9 @@ def get_public_proof(token: str, db: Session = Depends(get_db)):
 
 
 class ShareEventPayload(BaseModel):
-    event_type: str  # "click_cta" or "install"
-    channel: str | None = None
-    referrer: str | None = None
+    event_type: str = Field(..., max_length=32)  # "click_cta" or "install"
+    channel: str | None = Field(None, max_length=64)
+    referrer: str | None = Field(None, max_length=2048)
 
 
 @router.post("/public/proof/{token}/event")

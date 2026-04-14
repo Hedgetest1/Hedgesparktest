@@ -100,8 +100,8 @@ class FrontendErrorPayload(BaseModel):
     url: str | None = Field(None, max_length=_MAX_URL)
     user_agent: str | None = Field(None, max_length=_MAX_UA)
     shop_domain: str | None = Field(None, max_length=_MAX_SHOP)
-    severity: str | None = Field("warning")
-    extra: dict[str, Any] | None = None
+    severity: str | None = Field("warning", max_length=16)
+    extra: dict[str, Any] | None = Field(None, max_length=32)
 
     @field_validator("severity")
     @classmethod
