@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.core.deps import require_pro_session
 from app.models.merchant_rule import MerchantRule
-from app.services.rule_engine import _eval_all, _ALLOWED_ACTIONS
+from app.services.rule_engine import _ALLOWED_ACTIONS
 
 log = logging.getLogger(__name__)
 
@@ -86,10 +86,6 @@ class RuleResponse(BaseModel):
     fired_count: int
     last_fired_at: str | None
     created_at: str | None
-
-
-class TestRulePayload(BaseModel):
-    payload: dict
 
 
 def _to_response(r: MerchantRule) -> RuleResponse:
@@ -212,21 +208,3 @@ def delete_rule(
     return {"ok": True, "id": rule_id}
 
 
-@router.post("/{rule_id}/test")
-def test_rule(
-    rule_id: int,
-    payload: TestRulePayload,
-    shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
-):
-    """Dry-run: check if a rule's conditions match a given payload. No fire."""
-    rule = db.query(MerchantRule).filter(MerchantRule.id == rule_id).first()
-    if not rule or rule.shop_domain != shop:
-        raise HTTPException(404, "rule_not_found")
-    matched = _eval_all(list(rule.conditions or []), payload.payload)
-    return {
-        "rule_id": rule_id,
-        "matched": matched,
-        "would_fire": matched and rule.status == "active",
-        "action_type": (rule.action or {}).get("type"),
-    }

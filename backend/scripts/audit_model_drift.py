@@ -50,7 +50,8 @@ for _py in sorted(_MODELS_DIR.glob("*.py")):
 # conscious choice — document why in the comment.
 KNOWN_ORPHAN_TABLES: set[str] = {
     "alembic_version",     # alembic's own bookkeeping
-    "events_partitioned",  # events has a custom partitioning layer
+    # The parent partitioned `events` table IS modelled (app/models/event.py)
+    # but its partition children are managed outside SQLAlchemy:
     "events_default",      # events partition child (default / catch-all)
     "events_legacy",       # events partition child (pre-partitioning rows)
     "events_y2026m03",     # events partition child (monthly range)
