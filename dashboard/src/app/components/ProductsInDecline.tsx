@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 
 type ProductRow = {
   product_title: string;
@@ -59,13 +60,13 @@ export function ProductsInDecline({
     if (!apiBase || !shop || !isProUser) { setLoading(false); return; }
     let active = true;
     setLoading(true);
-    fetch(`${apiBase}/pro/refund-losses`, {
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-    })
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((j: RefundLossData) => { if (active) setData(j); })
-      .catch(() => { if (active) setData(null); })
+    apiClient
+      .GET("/pro/refund-losses")
+      .then(({ data: j, error: err }) => {
+        if (!active) return;
+        if (err || !j) setData(null);
+        else setData(j as unknown as RefundLossData);
+      })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [apiBase, shop, isProUser]);

@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 import {
   DetailDrawer,
   DrawerExplainer,
@@ -87,9 +88,10 @@ export function MtaCompareCard({ apiBase, isProUser }: { apiBase: string; isProU
       return;
     }
     setLoading(true);
-    fetch(`${apiBase}/pro/mta/compare?window_days=${windowDays}`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setData)
+    apiClient
+      .GET("/pro/mta/compare", { params: { query: { window_days: windowDays } } })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .then(({ data: j, error: err }) => { if (!err && j) setData(j as any); })
       .finally(() => setLoading(false));
   }, [apiBase, isProUser, windowDays]);
 

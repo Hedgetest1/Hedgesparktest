@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 
 type Metric = {
   value: number;
@@ -98,13 +99,18 @@ export function VerticalBenchmarksCard({
     let active = true;
     setLoading(true);
 
-    const refetch = () => fetch(`${apiBase}/pro/benchmarks/vertical`, {
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-    })
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((j: VerticalBenchmarkData) => { if (active) { setData(j); setLastLive(new Date().toISOString()); } })
-      .catch(() => { if (active) setData(null); });
+    const refetch = async () => {
+      try {
+        const { data: j, error: err } = await apiClient.GET("/pro/benchmarks/vertical");
+        if (err || !j) throw new Error("fetch failed");
+        if (active) {
+          setData(j as unknown as VerticalBenchmarkData);
+          setLastLive(new Date().toISOString());
+        }
+      } catch {
+        if (active) setData(null);
+      }
+    };
 
     refetch().finally(() => { if (active) setLoading(false); });
 

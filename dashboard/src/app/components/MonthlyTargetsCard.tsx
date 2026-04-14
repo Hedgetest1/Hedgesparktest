@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 
 
 type GoalProgress = {
@@ -64,13 +65,10 @@ export function MonthlyTargetsCard({
   async function loadProgress() {
     setLoading(true);
     try {
-      const r = await fetch(`${apiBase}/pro/goals/progress`, {
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-      });
-      if (r.ok) {
-        const j = await r.json();
-        setProgress(j.progress || []);
+      const { data: j, error: err } = await apiClient.GET("/pro/goals/progress");
+      if (!err && j) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        setProgress(((j as any).progress as GoalProgress[]) || []);
       }
     } catch {
       // silent
@@ -94,15 +92,11 @@ export function MonthlyTargetsCard({
     }
     setSaving(true);
     try {
-      const r = await fetch(`${apiBase}/pro/goals`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ metric: newMetric, target_value: numeric, period: "monthly" }),
+      const { error: err } = await apiClient.POST("/pro/goals", {
+        body: { metric: newMetric, target_value: numeric, period: "monthly", note: "" },
       });
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        setSaveError(j.detail || "Save failed.");
+      if (err) {
+        setSaveError("Save failed.");
         return;
       }
       setNewTarget("");
@@ -117,9 +111,8 @@ export function MonthlyTargetsCard({
 
   async function handleDelete(metric: string) {
     try {
-      await fetch(`${apiBase}/pro/goals/${metric}`, {
-        method: "DELETE",
-        credentials: "include",
+      await apiClient.DELETE("/pro/goals/{metric}", {
+        params: { path: { metric } },
       });
       await loadProgress();
     } catch {

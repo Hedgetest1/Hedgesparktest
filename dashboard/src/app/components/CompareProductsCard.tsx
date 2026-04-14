@@ -10,6 +10,7 @@
  */
 
 import { useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 
 type SegmentSnapshot = {
   product_url: string;
@@ -63,21 +64,20 @@ export function CompareProductsCard({
     setError(null);
     setLoading(true);
     try {
-      const qs = new URLSearchParams({
-        product_a: productA.trim(),
-        product_b: productB.trim(),
-        hours: "72",
+      const { data: j, error: err } = await apiClient.GET("/pro/segments/compare", {
+        params: {
+          query: {
+            product_a: productA.trim(),
+            product_b: productB.trim(),
+            hours: 72,
+          },
+        },
       });
-      const r = await fetch(`${apiBase}/pro/segments/compare?${qs}`, {
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-      });
-      if (!r.ok) {
+      if (err || !j) {
         setError("Compare failed — check the product URLs.");
         return;
       }
-      const j = await r.json();
-      setData(j);
+      setData(j as unknown as CompareData);
     } catch {
       setError("Compare failed.");
     } finally {

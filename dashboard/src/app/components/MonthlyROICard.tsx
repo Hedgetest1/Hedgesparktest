@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 
 type ROIData = {
   shop_domain: string;
@@ -47,13 +48,13 @@ export function MonthlyROICard({
     if (!apiBase || !shop || !isProUser) { setLoading(false); return; }
     let active = true;
     setLoading(true);
-    fetch(`${apiBase}/pro/roi-report`, {
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-    })
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((j: ROIData) => { if (active) setData(j); })
-      .catch(() => { if (active) setData(null); })
+    apiClient
+      .GET("/pro/roi-report")
+      .then(({ data: j, error: err }) => {
+        if (!active) return;
+        if (err || !j) setData(null);
+        else setData(j as unknown as ROIData);
+      })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [apiBase, shop, isProUser]);

@@ -15,6 +15,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 import {
   DetailDrawer,
   DrawerExplainer,
@@ -123,13 +124,13 @@ export function NudgeDnaCard({ apiBase, isProUser }: { apiBase: string; isProUse
 
   const load = useCallback(async () => {
     try {
-      const r = await fetch(`${apiBase}/pro/nudge-dna`, { credentials: "include" });
-      if (!r.ok) return;
-      setData(await r.json());
+      const { data: j, error: err } = await apiClient.GET("/pro/nudge-dna");
+      if (err || !j) return;
+      setData(j as unknown as DnaData);
     } finally {
       setLoading(false);
     }
-  }, [apiBase]);
+  }, []);
 
   useEffect(() => {
     if (!isProUser) {

@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 import {
   DetailDrawer,
   DrawerExplainer,
@@ -58,9 +59,10 @@ export function UnitEconomicsCard({ apiBase, isProUser }: { apiBase: string; isP
       setLoading(false);
       return;
     }
-    fetch(`${apiBase}/pro/cac-ltv?window_days=30`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setData)
+    apiClient
+      .GET("/pro/cac-ltv", { params: { query: { window_days: 30 } } })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .then(({ data: j, error: err }) => { if (!err && j) setData(j as any); })
       .finally(() => setLoading(false));
   }, [apiBase, isProUser]);
 

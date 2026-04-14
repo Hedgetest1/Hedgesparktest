@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 
 // Payload shape matches app.api.revenue_at_risk.RARSResponse — we keep
 // a local type alias because this endpoint is not yet in api-types.ts.
@@ -77,13 +78,13 @@ export function RevenueAtRiskHero({
     setLoading(true);
     setError(false);
 
-    fetch(`${apiBase}/pro/revenue-at-risk`, {
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-    })
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((json: RARSData) => { if (active) setData(json); })
-      .catch(() => { if (active) setError(true); })
+    apiClient
+      .GET("/pro/revenue-at-risk")
+      .then(({ data: json, error: err }) => {
+        if (!active) return;
+        if (err || !json) setError(true);
+        else setData(json as unknown as RARSData);
+      })
       .finally(() => { if (active) setLoading(false); });
 
     return () => { active = false; };

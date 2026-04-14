@@ -15,6 +15,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 import {
   DetailDrawer,
   DrawerExplainer,
@@ -85,9 +86,10 @@ export function MarginHealthCard({ apiBase, isProUser }: { apiBase: string; isPr
       setLoading(false);
       return;
     }
-    fetch(`${apiBase}/pro/margin/snapshot`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setData)
+    apiClient
+      .GET("/pro/margin/snapshot")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .then(({ data: j, error: err }) => { if (!err && j) setData(j as any); })
       .finally(() => setLoading(false));
   }, [apiBase, isProUser]);
 
@@ -95,11 +97,10 @@ export function MarginHealthCard({ apiBase, isProUser }: { apiBase: string; isPr
     if (!drawerOpen || !isProUser) return;
     setWhatifLoading(true);
     const t = setTimeout(() => {
-      fetch(`${apiBase}/pro/margin/check?discount_pct=${whatifPct}`, {
-        credentials: "include",
-      })
-        .then((r) => (r.ok ? r.json() : null))
-        .then(setWhatif)
+      apiClient
+        .GET("/pro/margin/check", { params: { query: { discount_pct: whatifPct } } })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .then(({ data: j, error: err }) => { if (!err && j) setWhatif(j as any); })
         .finally(() => setWhatifLoading(false));
     }, 180);
     return () => clearTimeout(t);

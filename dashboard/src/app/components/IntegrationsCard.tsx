@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 
 type WebhookSub = {
   id: number;
@@ -50,17 +51,15 @@ export function IntegrationsCard({
     if (!apiBase || !isProUser) { setLoading(false); return; }
     let active = true;
     Promise.all([
-      fetch(`${apiBase}/pro/webhooks/subscriptions`, {
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-      }).then((r) => (r.ok ? r.json() : { subscriptions: [] })),
-      fetch(`${apiBase}/pro/ads/connections`, {
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-      }).then((r) => (r.ok ? r.json() : { connections: [] })),
+      apiClient.GET("/pro/webhooks/subscriptions"),
+      apiClient.GET("/pro/ads/connections"),
     ])
-      .then(([w, a]) => {
+      .then(([wRes, aRes]) => {
         if (!active) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const w = (wRes.data as any) ?? { subscriptions: [] };
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const a = (aRes.data as any) ?? { connections: [] };
         setWebhooks(w.subscriptions || []);
         setAds(a.connections || []);
       })

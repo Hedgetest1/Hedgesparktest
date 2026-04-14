@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 import {
   DetailDrawer,
   DrawerExplainer,
@@ -74,9 +75,10 @@ export function RevenueForecastCard({ apiBase, isProUser }: { apiBase: string; i
       setLoading(false);
       return;
     }
-    fetch(`${apiBase}/pro/forecast/revenue?horizon_days=14`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setData)
+    apiClient
+      .GET("/pro/forecast/revenue", { params: { query: { horizon_days: 14 } } })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .then(({ data: j, error: err }) => { if (!err && j) setData(j as any); })
       .finally(() => setLoading(false));
   }, [apiBase, isProUser]);
 

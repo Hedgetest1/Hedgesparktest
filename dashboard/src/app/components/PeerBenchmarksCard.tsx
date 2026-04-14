@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 
 type BenchmarkMetric = {
   value: number;
@@ -85,13 +86,13 @@ export function PeerBenchmarksCard({
     if (!apiBase || !shop || !isProUser) { setLoading(false); return; }
     let active = true;
     setLoading(true);
-    fetch(`${apiBase}/pro/benchmarks`, {
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-    })
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((j: BenchmarkData) => { if (active) setData(j); })
-      .catch(() => { if (active) setData(null); })
+    apiClient
+      .GET("/pro/benchmarks")
+      .then(({ data: j, error: err }) => {
+        if (!active) return;
+        if (err || !j) setData(null);
+        else setData(j as unknown as BenchmarkData);
+      })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [apiBase, shop, isProUser]);

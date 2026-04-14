@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 
 type Touch = {
   source: string;
@@ -93,14 +94,12 @@ export function VisitorJourneyTimeline({
   useEffect(() => {
     setLoading(true);
     setAnimated(false);
-    fetch(`${apiBase}/pro/visitor-journeys?source=${source}&limit=5`, {
-      credentials: "include",
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setData)
+    apiClient
+      .GET("/pro/visitor-journeys", { params: { query: { source, limit: 5 } } })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .then(({ data: j, error: err }) => { if (!err && j) setData(j as any); })
       .finally(() => {
         setLoading(false);
-        // Kick off animation on next frame
         setTimeout(() => setAnimated(true), 80);
       });
   }, [apiBase, source]);

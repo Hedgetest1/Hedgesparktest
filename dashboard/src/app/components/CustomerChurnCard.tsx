@@ -16,6 +16,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { apiClient } from "@/app/lib/api-client";
 import {
   DetailDrawer,
   DrawerExplainer,
@@ -99,15 +100,16 @@ export function CustomerChurnCard({ apiBase, isProUser }: { apiBase: string; isP
 
   const load = useCallback(async () => {
     try {
-      const r = await fetch(`${apiBase}/pro/customer-churn?limit=50`, {
-        credentials: "include",
-      });
-      if (!r.ok) return;
-      setData(await r.json());
+      const { data: j, error: err } = await apiClient.GET(
+        "/pro/customer-churn",
+        { params: { query: { limit: 50 } } },
+      );
+      if (err || !j) return;
+      setData(j as unknown as Response);
     } finally {
       setLoading(false);
     }
-  }, [apiBase]);
+  }, []);
 
   useEffect(() => {
     if (!isProUser) {
