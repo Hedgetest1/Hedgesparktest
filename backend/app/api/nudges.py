@@ -104,6 +104,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
+
+from app.api._types import OkResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
@@ -596,7 +598,25 @@ class NudgeComposeRequest(BaseModel):
     )
 
 
-@router.post("/pro/nudges")
+class ComposeNudgeResponse(BaseModel):
+    nudge_id: int
+    created: bool
+    shop_domain: str
+    product_url: str
+    action_type: str
+    holdout_pct: int
+    is_holdout_active: bool
+    is_ab_experiment: bool
+    expires_at: str | None = None
+    variants: list[dict] = Field(default_factory=list)
+    composer: dict
+    signals_used: dict
+    measurement_ready: bool
+    rank_eligible: bool
+    note: str
+
+
+@router.post("/pro/nudges", response_model=ComposeNudgeResponse)
 async def compose_pro_nudge(
     payload: NudgeComposeRequest,
     shop:    str     = Depends(require_pro_session),
@@ -753,7 +773,16 @@ async def compose_pro_nudge(
 # Pro: GET /pro/nudges/rank — autonomous revenue prioritization feed
 # ---------------------------------------------------------------------------
 
-@router.get("/pro/nudges/rank")
+class NudgeRankResponse(BaseModel):
+    shop_domain: str
+    status_filter: str
+    attribution_window_hours: int
+    total: int
+    nudges: list[dict] = Field(default_factory=list)
+    meta: dict
+
+
+@router.get("/pro/nudges/rank", response_model=NudgeRankResponse)
 def get_nudge_rank(
     window_hours: int     = Query(
         default=DEFAULT_ATTRIBUTION_WINDOW_HOURS,
@@ -1087,7 +1116,15 @@ class HoldoutUpdatePayload(BaseModel):
     )
 
 
-@router.patch("/pro/nudges/{nudge_id}/holdout")
+class HoldoutUpdateResponse(BaseModel):
+    nudge_id: int
+    holdout_pct: int
+    is_holdout_active: bool
+    previous_pct: int
+    note: str
+
+
+@router.patch("/pro/nudges/{nudge_id}/holdout", response_model=HoldoutUpdateResponse)
 def update_nudge_holdout(
     nudge_id: int,
     payload:  HoldoutUpdatePayload,
@@ -1156,7 +1193,12 @@ def update_nudge_holdout(
 # Pro: DELETE /pro/nudges/{nudge_id} — deactivate a specific nudge
 # ---------------------------------------------------------------------------
 
-@router.delete("/pro/nudges/{nudge_id}")
+class DeactivateNudgeResponse(BaseModel):
+    deactivated: bool
+    nudge: dict
+
+
+@router.delete("/pro/nudges/{nudge_id}", response_model=DeactivateNudgeResponse)
 def deactivate_pro_nudge(
     nudge_id: int,
     shop:     str     = Depends(require_pro_session),

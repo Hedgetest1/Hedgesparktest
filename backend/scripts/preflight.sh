@@ -138,12 +138,12 @@ fi
 # must declare response_model so the dashboard TS client stays in sync.
 # Baseline captured 2026-04-14 and driven down commit by commit.
 # ---------------------------------------------------------------------------
-step "Response-model coverage (audit_response_models.py — report only)"
-if "$BACKEND/venv/bin/python" "$BACKEND/scripts/audit_response_models.py" > /tmp/preflight_resp_models.log 2>&1; then
-    _MISSING=$(grep -E "on /pro/ .*:" /tmp/preflight_resp_models.log | head -1 | awk '{print $NF}')
-    ok "report-only: ${_MISSING} /pro|/merchant|/analytics routes untyped"
+step "Response-model coverage (audit_response_models.py --strict)"
+if "$BACKEND/venv/bin/python" "$BACKEND/scripts/audit_response_models.py" --strict > /tmp/preflight_resp_models.log 2>&1; then
+    ok "every /pro|/merchant|/analytics route declares response_model"
 else
-    bad "response-model audit crashed — see /tmp/preflight_resp_models.log"
+    bad "untyped /pro|/merchant|/analytics routes detected — see /tmp/preflight_resp_models.log"
+    tail -30 /tmp/preflight_resp_models.log || true
 fi
 
 # ---------------------------------------------------------------------------

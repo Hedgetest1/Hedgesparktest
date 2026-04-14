@@ -31,7 +31,10 @@ import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -57,7 +60,31 @@ def _hash_visitor(vid: str) -> str:
     return hashlib.sha256((vid or "").encode()).hexdigest()[:8]
 
 
-@router.get("/pro/anomalies/{pattern}/replay")
+class AnomalyReplayWindow(BaseModel):
+    start_ms: int
+    end_ms: int
+    minutes: int
+
+
+class AnomalyReplaySummary(BaseModel):
+    total_events: int
+    unique_visitors: int
+    by_source: list[dict[str, Any]] = Field(default_factory=list)
+    by_device: list[dict[str, Any]] = Field(default_factory=list)
+    by_type: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AnomalyReplayResponse(BaseModel):
+    pattern: str
+    window: AnomalyReplayWindow
+    events: list[dict[str, Any]] = Field(default_factory=list)
+    timeline: list[dict[str, Any]] = Field(default_factory=list)
+    summary: AnomalyReplaySummary
+    narrative: str
+    truncated: bool
+
+
+@router.get("/pro/anomalies/{pattern}/replay", response_model=AnomalyReplayResponse)
 def get_anomaly_replay(
     pattern: str,
     minutes: int = Query(default=60, ge=_MIN_WINDOW, le=_MAX_WINDOW),

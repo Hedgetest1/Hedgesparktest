@@ -9,12 +9,13 @@ community_marketplace.py — Phase Ω''' marketplace API.
 """
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.api._types import OkResponse
 from app.core.database import get_db
 from app.core.deps import require_pro_session
 
@@ -30,7 +31,27 @@ class PublishIn(BaseModel):
     author_label: str | None = Field(default=None, max_length=120)
 
 
-@router.get("/pro/marketplace/templates")
+class MarketplaceTemplatesListResponse(BaseModel):
+    templates: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class PublishResponse(BaseModel):
+    id: int
+    title: str
+    template_type: str
+
+
+class CloneResponse(BaseModel):
+    ok: bool
+    error: str | None = None
+    template_id: int | None = None
+    template_type: str | None = None
+    title: str | None = None
+    payload: dict[str, Any] | None = None
+    first_clone: bool | None = None
+
+
+@router.get("/pro/marketplace/templates", response_model=MarketplaceTemplatesListResponse)
 def list_templates_endpoint(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
@@ -52,7 +73,7 @@ def list_templates_endpoint(
     return {"templates": list_templates(db, template_type=template_type, vertical=vertical, sort=sort, limit=limit)}
 
 
-@router.post("/pro/marketplace/templates")
+@router.post("/pro/marketplace/templates", response_model=PublishResponse)
 def publish_endpoint(
     payload: PublishIn,
     shop: str = Depends(require_pro_session),
@@ -75,7 +96,7 @@ def publish_endpoint(
     return {"id": t.id, "title": t.title, "template_type": t.template_type}
 
 
-@router.post("/pro/marketplace/templates/{template_id}/clone")
+@router.post("/pro/marketplace/templates/{template_id}/clone", response_model=CloneResponse)
 def clone_endpoint(
     template_id: int,
     shop: str = Depends(require_pro_session),
@@ -88,7 +109,7 @@ def clone_endpoint(
     return out
 
 
-@router.post("/pro/marketplace/templates/{template_id}/upvote")
+@router.post("/pro/marketplace/templates/{template_id}/upvote", response_model=OkResponse)
 def upvote_endpoint(
     template_id: int,
     shop: str = Depends(require_pro_session),
@@ -100,7 +121,7 @@ def upvote_endpoint(
     return {"ok": True}
 
 
-@router.delete("/pro/marketplace/templates/{template_id}")
+@router.delete("/pro/marketplace/templates/{template_id}", response_model=OkResponse)
 def unpublish_endpoint(
     template_id: int,
     shop: str = Depends(require_pro_session),

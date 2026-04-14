@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.api._types import OkResponse
 from app.core.database import get_db
 from app.core.deps import require_pro_session
 
@@ -99,7 +100,7 @@ def create_or_update_goal(
     return GoalResponse(**g.to_dict())
 
 
-@router.delete("/pro/goals/{metric}")
+@router.delete("/pro/goals/{metric}", response_model=OkResponse)
 def delete_goal_endpoint(
     metric: str,
     shop: str = Depends(require_pro_session),

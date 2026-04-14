@@ -168,7 +168,7 @@ async def _event_stream(shop: str):
         _active_connections -= 1
 
 
-@router.get("/pro/stream/dashboard")
+@router.get("/pro/stream/dashboard", include_in_schema=False)
 async def stream_dashboard(shop: str = Depends(require_pro_session)):
     """
     SSE stream for the live dashboard. Browsers must use EventSource

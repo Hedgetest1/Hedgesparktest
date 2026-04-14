@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+
+from app.api._types import OkResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -28,6 +30,29 @@ def get_public_proof(token: str, db: Session = Depends(get_db)):
     if not result:
         raise HTTPException(404, "Proof not found or expired")
     return result
+
+
+class CreateShareResponse(BaseModel):
+    share_token: str
+    share_url: str
+    headline: str | None = None
+    twitter_text: str | None = None
+    generic_text: str | None = None
+    og_title: str | None = None
+    og_description: str | None = None
+    expires_at: str | None = None
+
+
+class ShareRow(BaseModel):
+    share_token: str
+    share_url: str
+    headline: str | None = None
+    proof_type: str | None = None
+    views: int | None = None
+    cta_clicks: int | None = None
+    installs: int | None = None
+    created_at: str | None = None
+    expires_at: str | None = None
 
 
 class ShareEventPayload(BaseModel):
@@ -53,7 +78,7 @@ class CreateSharePayload(BaseModel):
     window_hours: int = 168
 
 
-@router.post("/pro/shares")
+@router.post("/pro/shares", response_model=CreateShareResponse)
 def create_share(
     payload: CreateSharePayload,
     shop: str = Depends(require_pro_session),
@@ -67,7 +92,7 @@ def create_share(
     return result
 
 
-@router.get("/pro/shares")
+@router.get("/pro/shares", response_model=list[ShareRow])
 def list_shares(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),

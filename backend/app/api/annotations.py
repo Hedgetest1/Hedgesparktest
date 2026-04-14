@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.api._types import OkResponse
 from app.core.database import get_db
 from app.core.deps import require_pro_session
 
@@ -82,7 +83,7 @@ def create_annotation_endpoint(
     return AnnotationRow(**ann.to_dict())
 
 
-@router.delete("/pro/annotations/{annotation_id}")
+@router.delete("/pro/annotations/{annotation_id}", response_model=OkResponse)
 def delete_annotation_endpoint(
     annotation_id: str,
     shop: str = Depends(require_pro_session),

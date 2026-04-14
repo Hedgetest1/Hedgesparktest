@@ -30,7 +30,10 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
+from typing import Any
+
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -52,7 +55,20 @@ def _now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-@router.get("/pro/playbook/{signal_type}")
+class PlaybookResponse(BaseModel):
+    signal_type: str
+    vertical: str
+    state: str
+    total_peers: int
+    min_required: int | None = None
+    success_rate_pct: float | None = None
+    entries: list[dict[str, Any]] = Field(default_factory=list)
+    headline: str
+    lookback_days: int
+    generated_at: str
+
+
+@router.get("/pro/playbook/{signal_type}", response_model=PlaybookResponse)
 def get_playbook_for_signal(
     signal_type: str,
     shop: str = Depends(require_pro_session),

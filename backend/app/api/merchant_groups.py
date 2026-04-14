@@ -9,10 +9,13 @@ merchant_groups.py — Phase Ω'' multi-store API.
 """
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.api._types import OkResponse
 from app.core.database import get_db
 from app.core.deps import require_pro_session
 from app.models.merchant import Merchant
@@ -28,9 +31,52 @@ class GroupCreateIn(BaseModel):
 
 
 class MemberAddIn(BaseModel):
-    shop_domain: str
+    shop_domain: str = Field(..., max_length=255)
     label: str | None = Field(default=None, max_length=120)
     is_primary: bool = False
+
+
+class GroupCreateResponse(BaseModel):
+    id: int
+    name: str
+    owner_email: str
+
+
+class GroupMemberRow(BaseModel):
+    shop_domain: str
+    label: str | None = None
+    is_primary: bool | None = None
+
+
+class GroupRow(BaseModel):
+    id: int
+    name: str
+    description: str | None = None
+    base_currency: str | None = None
+    members: list[GroupMemberRow] = Field(default_factory=list)
+
+
+class GroupListResponse(BaseModel):
+    groups: list[GroupRow] = Field(default_factory=list)
+
+
+class MemberAddResponse(BaseModel):
+    id: int
+    shop_domain: str
+    label: str | None = None
+    is_primary: bool | None = None
+
+
+class GroupDashboardResponse(BaseModel):
+    group_id: int
+    name: str
+    base_currency: str | None = None
+    lookback_days: int | None = None
+    members: list[dict[str, Any]] = Field(default_factory=list)
+    totals: dict[str, Any] = Field(default_factory=dict)
+    top_shop: dict[str, Any] | None = None
+    generated_at: str | None = None
+    error: str | None = None
 
 
 def _owner_email_for(db: Session, shop: str) -> str:
@@ -40,7 +86,7 @@ def _owner_email_for(db: Session, shop: str) -> str:
     return m.contact_email
 
 
-@router.post("/pro/groups")
+@router.post("/pro/groups", response_model=GroupCreateResponse)
 def create_group_endpoint(
     payload: GroupCreateIn,
     shop: str = Depends(require_pro_session),
@@ -54,7 +100,7 @@ def create_group_endpoint(
     return {"id": g.id, "name": g.name, "owner_email": g.owner_email}
 
 
-@router.get("/pro/groups")
+@router.get("/pro/groups", response_model=GroupListResponse)
 def list_groups_endpoint(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
@@ -83,7 +129,7 @@ def list_groups_endpoint(
     }
 
 
-@router.post("/pro/groups/{group_id}/members")
+@router.post("/pro/groups/{group_id}/members", response_model=MemberAddResponse)
 def add_member_endpoint(
     group_id: int,
     payload: MemberAddIn,
@@ -101,7 +147,7 @@ def add_member_endpoint(
     return {"id": m.id, "shop_domain": m.shop_domain, "label": m.label, "is_primary": m.is_primary}
 
 
-@router.delete("/pro/groups/{group_id}/members/{shop_domain}")
+@router.delete("/pro/groups/{group_id}/members/{shop_domain}", response_model=OkResponse)
 def remove_member_endpoint(
     group_id: int,
     shop_domain: str,
@@ -121,7 +167,7 @@ def remove_member_endpoint(
     return {"ok": True}
 
 
-@router.get("/pro/groups/{group_id}/dashboard")
+@router.get("/pro/groups/{group_id}/dashboard", response_model=GroupDashboardResponse)
 def group_dashboard_endpoint(
     group_id: int,
     shop: str = Depends(require_pro_session),

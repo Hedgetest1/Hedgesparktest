@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.api._types import OkResponse
 from app.core.database import get_db
 from app.core.deps import require_pro_session
 
@@ -75,7 +76,7 @@ def add_member_endpoint(
     return MemberRow(**m.to_dict())
 
 
-@router.delete("/pro/team/members/{member_id}")
+@router.delete("/pro/team/members/{member_id}", response_model=OkResponse)
 def remove_member_endpoint(
     member_id: str,
     shop: str = Depends(require_pro_session),

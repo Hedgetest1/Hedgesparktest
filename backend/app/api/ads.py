@@ -11,12 +11,13 @@ ads.py — Phase Ω Ads connector API.
 from __future__ import annotations
 
 import logging
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.api._types import OkResponse
 from app.core.database import get_db
 from app.core.deps import require_pro_session
 
@@ -32,13 +33,59 @@ class ConnectIn(BaseModel):
     account_name: str | None = Field(default=None, max_length=200)
 
 
-@router.get("/pro/ads/networks")
+class AdsNetworksResponse(BaseModel):
+    networks: list[str] = Field(default_factory=list)
+
+
+class AdsConnectionRow(BaseModel):
+    network: str
+    status: str | None = None
+    account_id: str | None = None
+    account_name: str | None = None
+    last_synced_at: str | None = None
+    last_error: str | None = None
+
+
+class AdsConnectionsResponse(BaseModel):
+    connections: list[AdsConnectionRow] = Field(default_factory=list)
+
+
+class AdsConnectResponse(BaseModel):
+    ok: bool
+    network: str
+    status: str | None = None
+    account_id: str | None = None
+    account_name: str | None = None
+
+
+class AdsSyncRow(BaseModel):
+    network: str
+    rows_seen: int | None = None
+    rows_inserted: int | None = None
+    rows_updated: int | None = None
+    error: str | None = None
+
+
+class AdsSyncResponse(BaseModel):
+    results: list[AdsSyncRow] = Field(default_factory=list)
+
+
+class AdsSpendResponse(BaseModel):
+    shop_domain: str
+    lookback_days: int
+    by_network: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    total_spend_eur: float
+    total_revenue_eur: float
+    blended_roas: float | None = None
+
+
+@router.get("/pro/ads/networks", response_model=AdsNetworksResponse)
 def get_networks():
     from app.services.ads_connectors import supported_networks
     return {"networks": list(supported_networks())}
 
 
-@router.get("/pro/ads/connections")
+@router.get("/pro/ads/connections", response_model=AdsConnectionsResponse)
 def get_connections(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
@@ -60,7 +107,7 @@ def get_connections(
     }
 
 
-@router.post("/pro/ads/connect")
+@router.post("/pro/ads/connect", response_model=AdsConnectResponse)
 def post_connect(
     payload: ConnectIn,
     shop: str = Depends(require_pro_session),
@@ -87,7 +134,7 @@ def post_connect(
     }
 
 
-@router.delete("/pro/ads/connect/{network}")
+@router.delete("/pro/ads/connect/{network}", response_model=OkResponse)
 def delete_connect(
     network: str,
     shop: str = Depends(require_pro_session),
@@ -100,7 +147,7 @@ def delete_connect(
     return {"ok": True}
 
 
-@router.post("/pro/ads/sync")
+@router.post("/pro/ads/sync", response_model=AdsSyncResponse)
 def post_sync(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
@@ -121,7 +168,7 @@ def post_sync(
     }
 
 
-@router.get("/pro/ads/spend")
+@router.get("/pro/ads/spend", response_model=AdsSpendResponse)
 def get_spend(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),

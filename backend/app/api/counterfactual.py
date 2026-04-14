@@ -31,7 +31,10 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -151,7 +154,38 @@ def _compute_cf_for_signal(row, aov: float, aov_is_real: bool) -> dict:
     }
 
 
-@router.get("/pro/counterfactual/signals")
+class CounterfactualScenario(BaseModel):
+    days_ago: int
+    saved_eur: float
+    label: str
+
+
+class CounterfactualEntry(BaseModel):
+    signal_id: int
+    signal_type: str
+    product_url: str | None = None
+    detected_at: str | None = None
+    days_open: int
+    per_day_loss_eur: float
+    scenarios: list[CounterfactualScenario] = Field(default_factory=list)
+    max_save_eur: float
+    aov_used_eur: float
+    aov_is_real: bool
+    headline: str
+
+
+class CounterfactualListResponse(BaseModel):
+    shop_domain: str
+    aov_eur: float
+    aov_is_real: bool
+    total_open_signals: int
+    total_max_save_eur: float
+    entries: list[CounterfactualEntry] = Field(default_factory=list)
+    headline: str
+    generated_at: str
+
+
+@router.get("/pro/counterfactual/signals", response_model=CounterfactualListResponse)
 def list_counterfactuals(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
@@ -209,7 +243,7 @@ def list_counterfactuals(
     }
 
 
-@router.get("/pro/counterfactual/signals/{signal_id}")
+@router.get("/pro/counterfactual/signals/{signal_id}", response_model=CounterfactualEntry)
 def get_counterfactual(
     signal_id: int,
     shop: str = Depends(require_pro_session),

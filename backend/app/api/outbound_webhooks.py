@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy.orm import Session
 
+from app.api._types import OkResponse
 from app.core.database import get_db
 from app.core.deps import require_pro_session
 from app.models.outbound_webhook import (
@@ -66,6 +67,33 @@ class SubscriptionOut(BaseModel):
     last_success_at: str | None = None
     last_failure_at: str | None = None
     created_at: str | None = None
+    secret_revealed_once: str | None = None  # only on creation
+
+
+class SubscriptionListResponse(BaseModel):
+    subscriptions: list[SubscriptionOut] = Field(default_factory=list)
+
+
+class DeliveryRow(BaseModel):
+    id: int
+    subscription_id: int
+    event_type: str
+    event_id: str | None = None
+    status: str
+    attempts: int
+    response_status: int | None = None
+    last_attempted_at: str | None = None
+    delivered_at: str | None = None
+    created_at: str | None = None
+
+
+class DeliveriesListResponse(BaseModel):
+    deliveries: list[DeliveryRow] = Field(default_factory=list)
+
+
+class ReplayResponse(BaseModel):
+    id: int
+    result: dict | None = None
 
 
 def _to_out(s: OutboundWebhookSubscription) -> SubscriptionOut:
@@ -84,7 +112,7 @@ def _to_out(s: OutboundWebhookSubscription) -> SubscriptionOut:
     )
 
 
-@router.post("/pro/webhooks/subscriptions")
+@router.post("/pro/webhooks/subscriptions", response_model=SubscriptionOut)
 def create_subscription(
     payload: SubscriptionIn,
     shop: str = Depends(require_pro_session),
@@ -106,7 +134,7 @@ def create_subscription(
     return out
 
 
-@router.get("/pro/webhooks/subscriptions")
+@router.get("/pro/webhooks/subscriptions", response_model=SubscriptionListResponse)
 def list_subscriptions(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
@@ -120,7 +148,7 @@ def list_subscriptions(
     return {"subscriptions": [_to_out(r).model_dump() for r in rows]}
 
 
-@router.patch("/pro/webhooks/subscriptions/{sub_id}")
+@router.patch("/pro/webhooks/subscriptions/{sub_id}", response_model=SubscriptionOut)
 def update_subscription(
     sub_id: int,
     payload: SubscriptionPatch,
@@ -150,7 +178,7 @@ def update_subscription(
     return _to_out(sub).model_dump()
 
 
-@router.delete("/pro/webhooks/subscriptions/{sub_id}")
+@router.delete("/pro/webhooks/subscriptions/{sub_id}", response_model=OkResponse)
 def delete_subscription(
     sub_id: int,
     shop: str = Depends(require_pro_session),
@@ -163,7 +191,7 @@ def delete_subscription(
     return {"ok": True}
 
 
-@router.get("/pro/webhooks/deliveries")
+@router.get("/pro/webhooks/deliveries", response_model=DeliveriesListResponse)
 def list_deliveries(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
@@ -196,7 +224,7 @@ def list_deliveries(
     }
 
 
-@router.post("/pro/webhooks/deliveries/{delivery_id}/replay")
+@router.post("/pro/webhooks/deliveries/{delivery_id}/replay", response_model=ReplayResponse)
 def replay_delivery(
     delivery_id: int,
     shop: str = Depends(require_pro_session),

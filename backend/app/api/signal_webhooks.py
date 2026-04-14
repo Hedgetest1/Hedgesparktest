@@ -5,10 +5,23 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.api._types import OkResponse
 from app.core.database import get_db
 from app.core.deps import require_pro_session
 
 router = APIRouter(tags=["signal_webhooks"])
+
+
+class WebhookTestResult(BaseModel):
+    status: str
+    http_status: int | None = None
+    attempts: int
+    error: str | None = None
+
+
+class WebhookTestResponse(BaseModel):
+    webhook_id: str
+    results: list[WebhookTestResult] = Field(default_factory=list)
 
 
 class WebhookPayload(BaseModel):
@@ -89,7 +102,7 @@ def create_webhook_endpoint(
     )
 
 
-@router.delete("/pro/signal-webhooks/{webhook_id}")
+@router.delete("/pro/signal-webhooks/{webhook_id}", response_model=OkResponse)
 def delete_webhook_endpoint(
     webhook_id: str,
     shop: str = Depends(require_pro_session),
@@ -103,7 +116,7 @@ def delete_webhook_endpoint(
     return {"deleted": True, "id": webhook_id}
 
 
-@router.post("/pro/signal-webhooks/{webhook_id}/test")
+@router.post("/pro/signal-webhooks/{webhook_id}/test", response_model=WebhookTestResponse)
 def test_webhook_endpoint(
     webhook_id: str,
     shop: str = Depends(require_pro_session),

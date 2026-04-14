@@ -6,7 +6,10 @@ Pro-gated. Cached 3h via app.services.revenue_autopsy.
 """
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -15,7 +18,23 @@ from app.core.deps import require_pro_session
 router = APIRouter(tags=["revenue_autopsy"])
 
 
-@router.get("/pro/revenue-autopsy")
+class RevenueAutopsySummary(BaseModel):
+    declining_count: int
+    growing_count: int
+    total_loss_per_week: float
+    total_gain_per_week: float
+    top_decline_cause: str | None = None
+
+
+class RevenueAutopsyResponse(BaseModel):
+    shop_domain: str
+    products: list[dict[str, Any]] = Field(default_factory=list)
+    summary: RevenueAutopsySummary
+    headline: str
+    generated_at: str
+
+
+@router.get("/pro/revenue-autopsy", response_model=RevenueAutopsyResponse)
 def get_revenue_autopsy(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),

@@ -10,7 +10,9 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-from pydantic import BaseModel
+from typing import Any
+
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -31,7 +33,22 @@ class VerticalSelfResponse(BaseModel):
     classified_at: str
 
 
-@router.get("/pro/benchmarks/vertical")
+class VerticalBenchmarkResponse(BaseModel):
+    shop_domain: str
+    vertical: str | None = None
+    vertical_display: str | None = None
+    band: str | None = None
+    peer_count: int | None = None
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    total_recovery_potential_eur: float | None = None
+    generated_at: str | None = None
+    scope: str | None = None
+    note: str | None = None
+    fallback_baselines: dict[str, Any] | None = None
+    error: str | None = None
+
+
+@router.get("/pro/benchmarks/vertical", response_model=VerticalBenchmarkResponse)
 def get_vertical_benchmarks(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),

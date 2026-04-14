@@ -9,8 +9,10 @@ night_shift.py — Phase Ω⁵ Night Shift Agent API.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -19,7 +21,61 @@ from app.core.deps import require_pro_session
 router = APIRouter(tags=["night_shift"])
 
 
-@router.get("/pro/night-shift/latest")
+class NightShiftReport(BaseModel):
+    shop_domain: str | None = None
+    day: str | None = None
+    generated_at: str | None = None
+    narrative: str | None = None
+    headline: str | None = None
+    top_action: dict[str, Any] | None = None
+    sleep_confidence: int | None = None
+    sleep_confidence_label: str | None = None
+    journal: list[dict[str, Any]] = Field(default_factory=list)
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    status: str | None = None
+
+
+class TimelineEntry(BaseModel):
+    id: int
+    at: str | None = None
+    status: str | None = None
+    action_type: str | None = None
+    nudge_type: str | None = None
+    signal_type: str | None = None
+    product_url: str | None = None
+    decision_reason: str | None = None
+    risk_level: str | None = None
+    lift_pct: float | None = None
+    p_value: float | None = None
+    visitors_measured: int | None = None
+    outcome: str | None = None
+    verdict: str
+    rollback_reason: str | None = None
+
+
+class TimelineSummary(BaseModel):
+    actions_overnight: int
+    actions_week: int
+    wins_week: int
+    losses_week: int
+    neutral_week: int
+    measuring_week: int
+    avg_positive_lift_pct: float | None = None
+
+
+class TimelineResponse(BaseModel):
+    shop_domain: str
+    overnight: list[TimelineEntry] = Field(default_factory=list)
+    this_week: list[TimelineEntry] = Field(default_factory=list)
+    summary: TimelineSummary
+
+
+class ApplyActionResponse(BaseModel):
+    ok: bool
+    applied: dict[str, Any] | None = None
+
+
+@router.get("/pro/night-shift/latest", response_model=NightShiftReport)
 def get_latest(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
@@ -38,7 +94,7 @@ def get_latest(
     return doc
 
 
-@router.post("/pro/night-shift/run")
+@router.post("/pro/night-shift/run", response_model=NightShiftReport)
 def force_run(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
@@ -48,7 +104,7 @@ def force_run(
     return generate_for_shop(db, shop, force=True)
 
 
-@router.get("/pro/night-shift/timeline")
+@router.get("/pro/night-shift/timeline", response_model=TimelineResponse)
 def get_timeline(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
@@ -172,7 +228,7 @@ def get_timeline(
     }
 
 
-@router.post("/pro/night-shift/apply")
+@router.post("/pro/night-shift/apply", response_model=ApplyActionResponse)
 def apply_action(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
