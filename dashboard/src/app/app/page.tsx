@@ -41,6 +41,7 @@ import { RevenueAtRiskHero } from "../components/RevenueAtRiskHero";
 import { PeerBenchmarksCard } from "../components/PeerBenchmarksCard";
 import { CausalWhyCard } from "../components/CausalWhyCard";
 import { NightShiftCard } from "../components/NightShiftCard";
+import { NightShiftTimeline } from "../components/NightShiftTimeline";
 import { CountUp } from "./_components/CountUp";
 import { KpiCard } from "./_components/KpiCard";
 import { SectionHeading } from "./_components/SectionHeading";
@@ -2484,6 +2485,11 @@ function PageInner() {
               {/* ═══ PHASE Ω⁵ — NIGHT SHIFT AGENT (morning reveal) ═══ */}
               {isProUser && (
                 <NightShiftCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+              )}
+
+              {/* ═══ NIGHT SHIFT TIMELINE — proof-of-work for the autonomous loop ═══ */}
+              {isProUser && (
+                <NightShiftTimeline apiBase={API_BASE} shop={shop} isProUser={isProUser} />
               )}
 
               {/* ═══ PHASE Ω — THE WHY ENGINE + ANOMALY RADAR (causal layer) ═══ */}
