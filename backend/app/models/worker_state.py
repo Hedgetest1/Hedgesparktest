@@ -36,3 +36,9 @@ class WorkerState(Base):
     # Epoch milliseconds watermark — last event.timestamp processed.
     # Used by aggregation_worker only; NULL for other workers.
     last_watermark = Column(BigInteger, nullable=True)
+
+    # YYYY-MM-DD string of the last day the agent_worker sent its
+    # daily digest. Used for per-day dedup ("don't send more than one
+    # digest per calendar day"). Only written by agent_worker; NULL
+    # for other workers.
+    last_digest_date = Column(String(10), nullable=True)

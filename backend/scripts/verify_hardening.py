@@ -276,7 +276,7 @@ def check_worker_state_tables(conn) -> bool:
         rows = fetch_all(
             conn,
             """
-            SELECT worker_name, last_success_at, last_run_at
+            SELECT worker_name, last_run_at, last_digest_date, last_watermark
             FROM worker_state
             ORDER BY worker_name
             """
@@ -284,7 +284,10 @@ def check_worker_state_tables(conn) -> bool:
         if rows:
             ok(f"worker_state contiene {len(rows)} righe")
             for r in rows:
-                info(f"worker={r[0]} last_success_at={r[1]} last_run_at={r[2]}")
+                info(
+                    f"worker={r[0]} last_run_at={r[1]} last_digest_date={r[2]} "
+                    f"last_watermark={r[3]}"
+                )
         else:
             warn("worker_state vuota")
 

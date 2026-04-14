@@ -67,6 +67,17 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2c. Model drift audit — catches SQLAlchemy model ↔ DB schema drift
+# ---------------------------------------------------------------------------
+step "Model drift audit (audit_model_drift.py)"
+if "$PY" scripts/audit_model_drift.py > /tmp/preflight_model_drift.log 2>&1; then
+    ok "all models in sync with DB"
+else
+    bad "model drift detected — see /tmp/preflight_model_drift.log"
+    tail -30 /tmp/preflight_model_drift.log
+fi
+
+# ---------------------------------------------------------------------------
 # 3. Python AST parse check — any syntax error blocks commit
 # ---------------------------------------------------------------------------
 step "Python AST parse (staged .py files)"
