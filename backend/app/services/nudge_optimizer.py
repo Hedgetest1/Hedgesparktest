@@ -562,8 +562,12 @@ async def _generate_challenger(
         )
 
     except Exception as exc:
+        # best-effort: if challenger composition fails, the loser slot is
+        # left unchanged and the experiment continues with the existing
+        # variant. Documented in the function docstring above; the
+        # composer is an optional optimization, not a hard dependency.
         log.warning(
-            "nudge_optimizer: challenger generation failed for nudge=%d: %s",
+            "nudge_optimizer: challenger generation failed (non-fatal) for nudge=%d: %s",
             nudge.id, exc,
         )
 

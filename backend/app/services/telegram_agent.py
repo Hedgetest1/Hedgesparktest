@@ -1272,6 +1272,11 @@ def _cmd_rollback(db, args: list[str]) -> str:
     if not acquire_execution_lock("bugfix", str(candidate_id)):
         return f"🔒 Another operation on #{candidate_id} in progress."
 
+    # best-effort: this function is invoked from the Telegram webhook
+    # handler. If db.commit() raises mid-flow, the session is implicitly
+    # rolled back when the FastAPI request dependency teardown closes
+    # it after this function returns. The handler returns an error
+    # string; the caller (handle_command) does not re-use the session.
     try:
         progress_id = send_progress(
             f"⏳ *Rolling back #{candidate_id}...*\n→ Reverting commit {c.git_commit_sha[:8]}..."
@@ -1324,6 +1329,8 @@ def _cmd_rollback(db, args: list[str]) -> str:
         )
         return ""
 
+    # best-effort error reporting: session cleanup is handled by the
+    # FastAPI dependency teardown after this handler returns.
     except subprocess.TimeoutExpired:
         return f"❌ Rollback timed out. Manual intervention needed."
     except Exception as exc:

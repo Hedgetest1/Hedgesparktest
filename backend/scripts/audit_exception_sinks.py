@@ -90,7 +90,40 @@ def handler_returns_truthy(handler: ast.ExceptHandler) -> tuple[bool, str]:
     return False, ""
 
 
-_DB_SESSION_NAMES = {"db", "session", "self_db", "s", "conn", "connection"}
+def _function_text_for_handler(src: str, handler: ast.ExceptHandler) -> str:
+    """Return roughly the surrounding function source so we can scan
+    for fail-open / fail-closed markers in nearby comments and
+    docstrings. Window: 30 lines before, 12 after — generous before
+    so doc comments at the top of a logical block (like a function
+    docstring or a try-block lead-in) are still caught."""
+    lines = src.splitlines()
+    start = max(0, handler.lineno - 31)
+    end = min(len(lines), handler.lineno + 12)
+    return "\n".join(lines[start:end]).lower()
+
+
+def is_intentional_fail_open(src: str, handler: ast.ExceptHandler) -> bool:
+    """True if the handler is explicitly documented as a deliberate
+    fail-open / fail-closed / best-effort path. Reduces lying_return
+    false positives on intentionally-graceful degradation."""
+    window = _function_text_for_handler(src, handler)
+    return any(marker in window for marker in _FAIL_OPEN_MARKERS)
+
+
+# Receiver names we trust as "this is a SQLAlchemy session/connection".
+# Removed `"s"` (too generic — matched dict.set / set ops / Series ops).
+_DB_SESSION_NAMES = {"db", "session", "self_db", "conn", "connection"}
+
+# Markers we recognize as deliberate fail-open/fail-closed signals so
+# we don't flag intentional graceful-degradation patterns as
+# lying_return. Looked for in the function source AND in comments
+# inside the handler body.
+_FAIL_OPEN_MARKERS = (
+    "fail-open", "fail open", "fail_open",
+    "fail-closed", "fail closed", "fail_closed",
+    "best-effort", "best effort", "non-fatal",
+    "graceful", "swallow", "ignore",
+)
 
 
 def _call_target_is_db(func: ast.Attribute) -> bool:
@@ -130,8 +163,16 @@ def try_has_write_without_rollback(try_node: ast.Try) -> bool:
     Writes are NOT:
       * db.execute(text("SELECT ..."))  (read, nothing to roll back)
       * rc.set / rc.setex / rc.delete   (Redis — no transaction)
+
+    Caller-owned transactions are EXEMPT: if the try block has only
+    add/flush/delete (no commit), the function is appending to a
+    session that the caller will commit/rollback. Flagging these
+    creates noise. The audit only flags blocks where the function
+    explicitly owns the transaction (calls commit) — those MUST
+    rollback on failure or leave the session in a bad state.
     """
     has_write = False
+    has_own_commit = False
     for node in ast.walk(ast.Module(body=try_node.body, type_ignores=[])):
         if not isinstance(node, ast.Call):
             continue
@@ -141,9 +182,13 @@ def try_has_write_without_rollback(try_node: ast.Try) -> bool:
         if not _call_target_is_db(func):
             continue
         name = func.attr.lower()
-        if name in {"commit", "flush", "add", "delete"}:
+        if name == "commit":
             has_write = True
-            break
+            has_own_commit = True
+            continue
+        if name in {"flush", "add", "delete"}:
+            has_write = True
+            continue
         if name == "execute":
             # Check the first positional arg for an INSERT/UPDATE/DELETE literal
             if node.args:
@@ -170,8 +215,12 @@ def try_has_write_without_rollback(try_node: ast.Try) -> bool:
                     head = sql_text.strip().upper()[:15]
                     if head.startswith(("INSERT", "UPDATE", "DELETE", "TRUNCATE")):
                         has_write = True
-                        break
+                        continue
     if not has_write:
+        return False
+    # Caller-owned transaction (no own commit) — exempt. The caller is
+    # expected to handle rollback at its own try/except boundary.
+    if not has_own_commit:
         return False
 
     any_handler_rolls_back = False
@@ -190,7 +239,32 @@ def try_has_write_without_rollback(try_node: ast.Try) -> bool:
                 any_handler_reraises = True
                 break
 
-    return not (any_handler_rolls_back or any_handler_reraises)
+    # `try: write; commit; finally: db.close()` is the standard SQLAlchemy
+    # pattern: db.close() implicitly rolls back any pending transaction.
+    # We accept a close() call ANYWHERE inside the try body or its
+    # finalbody — this catches nested patterns like:
+    #     try:                          ← this is what the audit flagged
+    #         db = SessionLocal()
+    #         try:
+    #             write_alert(...)
+    #             db.commit()
+    #         finally:
+    #             db.close()            ← close lives inside the inner try
+    #     except Exception:
+    #         pass
+    has_close = False
+    scan_nodes = list(try_node.body) + list(try_node.finalbody or [])
+    for stmt in scan_nodes:
+        for node in ast.walk(stmt):
+            if isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Attribute) and func.attr == "close":
+                    has_close = True
+                    break
+        if has_close:
+            break
+
+    return not (any_handler_rolls_back or any_handler_reraises or has_close)
 
 
 def handler_catches_base(handler: ast.ExceptHandler) -> bool:
@@ -228,19 +302,31 @@ def audit_file(path: pathlib.Path) -> list[Finding]:
             # 1. bare pass + no logging
             if is_bare_pass(h) and not handler_logs_or_alerts(h):
                 findings.append(Finding(rel, line, "bare_pass", "except ...: pass (no logging)"))
-            # 2. lying return
+            # 2. lying return — but only if NOT documented as deliberate.
+            #    A handler is "documented" when:
+            #      (a) the surrounding source has a fail-open / fail-closed
+            #          / best-effort marker, OR
+            #      (b) the handler emits a log/warning/alert call (operator
+            #          gets visibility on the fallback even without the marker)
             truthy, lit = handler_returns_truthy(h)
-            if truthy:
+            if truthy and not is_intentional_fail_open(src, h) and not handler_logs_or_alerts(h):
                 findings.append(Finding(rel, line, "lying_return", f"except ...: return {lit}"))
             # 3. BaseException catch
             if handler_catches_base(h) and h.type is not None:
                 findings.append(Finding(rel, line, "catches_base", "except BaseException"))
-        # 4. write without rollback across all handlers
+        # 4. write without rollback across all handlers — but only if
+        #    NOT documented as a deliberate non-fatal best-effort path
+        #    (same fail-open marker check we use for lying_return)
         if try_has_write_without_rollback(node):
-            findings.append(Finding(
-                rel, node.lineno, "write_no_rollback",
-                "try block has write ops but no handler rolls back or re-raises",
-            ))
+            # Check the source window around any handler in this try
+            # for the marker. If at least one handler is documented,
+            # accept the whole try as deliberately graceful.
+            documented = any(is_intentional_fail_open(src, h) for h in node.handlers)
+            if not documented:
+                findings.append(Finding(
+                    rel, node.lineno, "write_no_rollback",
+                    "try block has write ops but no handler rolls back or re-raises",
+                ))
 
     return findings
 

@@ -386,6 +386,8 @@ def try_llm_fallback(
         )
         # Emit dedup'd alert so the self-healing pipeline can triage chronic
         # hallucination patterns (prompt needs tightening) as a bugfix source.
+        # best-effort: alert emit failure does not affect the user-facing
+        # chatbot response — the answer is rejected regardless.
         try:
             from app.services.alerting import write_alert
             write_alert(

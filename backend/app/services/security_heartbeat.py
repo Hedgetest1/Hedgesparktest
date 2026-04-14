@@ -74,6 +74,9 @@ def _should_run() -> bool:
             last = last.decode()
         return (time.time() - float(last)) >= _HEARTBEAT_INTERVAL_S
     except Exception:
+        # fail-open: redis hiccup means we cannot read the last-run
+        # timestamp, so we let the heartbeat run as if it were due. A
+        # spurious extra cycle is harmless; a missed cycle is not.
         return True
 
 

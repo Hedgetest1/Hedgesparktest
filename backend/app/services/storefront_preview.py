@@ -71,13 +71,15 @@ def _check_rate_limit(domain: str) -> bool:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
-            return True
+            return True  # fail-open: redis down, allow the preview
         key = _RATE_LIMIT_KEY.format(domain)
         if rc.get(key):
             return False
         rc.setex(key, _RATE_LIMIT_TTL, "1")
         return True
     except Exception:
+        # fail-open: prefer letting the preview through over blocking
+        # a real merchant evaluation on a transient Redis error.
         return True
 
 

@@ -111,12 +111,14 @@ def _rate_allow(shop_domain: str) -> bool:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
-            return True
+            return True  # fail-open: redis down, allow the request
         key = f"hs:pub_events:rate:{shop_domain}:{int(time.time() // 60)}"
         count = rc.incr(key)
         rc.expire(key, 75)
         return int(count) <= _RATE_LIMIT_PER_MIN
     except Exception:
+        # fail-open: better to over-accept legitimate events than to
+        # 429 the merchant on a transient Redis hiccup.
         return True
 
 

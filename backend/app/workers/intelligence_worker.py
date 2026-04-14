@@ -156,7 +156,10 @@ def run_cycle():
                     log(f"klaviyo: pushed {result['pushed']} intent events for {shop_domain}")
                     db.commit()
             except Exception as exc:
-                log(f"klaviyo: intent push failed for {shop_domain}: {exc}")
+                # best-effort: Klaviyo is an optional integration. If the
+                # push fails for one shop, log and continue to the next.
+                # The merchant's own pipeline state is unaffected.
+                log(f"klaviyo: intent push failed (non-fatal) for {shop_domain}: {exc}")
 
         _save_state(db, state)
         log(

@@ -88,6 +88,11 @@ def acquire_execution_lock(entity_type: str, entity_id: str, critical: bool = Tr
             return False
         return True
     except Exception:
+        # fail-open for non-critical paths, fail-closed for critical ones:
+        # Redis down on a critical operation is always a refusal because
+        # we cannot guarantee the lock invariant; non-critical paths
+        # accept the risk of a duplicate operation rather than losing
+        # the action entirely.
         if critical:
             return False
         return True

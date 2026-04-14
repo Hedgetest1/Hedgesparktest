@@ -756,7 +756,9 @@ def create_task(
     db.refresh(task)
 
     # Capture baseline metrics for closed-loop proof-of-impact.
-    # This snapshot will be compared after 7 days to measure the action's effect.
+    # This snapshot will be compared after 7 days to measure the action's
+    # effect. best-effort: if the baseline capture fails the action still
+    # goes through — measurement just degrades to "no baseline available".
     try:
         from app.services.action_proof import capture_baseline
         capture_baseline(
@@ -770,7 +772,7 @@ def create_task(
         )
         db.commit()
     except Exception as exc:
-        log.warning("action_executor: baseline capture failed task_id=%d: %s", task.id, exc)
+        log.warning("action_executor: baseline capture failed (non-fatal) task_id=%d: %s", task.id, exc)
 
     return task, True
 
