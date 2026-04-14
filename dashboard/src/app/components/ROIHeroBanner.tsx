@@ -25,6 +25,7 @@ import {
   DrawerSectionHeading,
   DrawerBarChart,
 } from "./DetailDrawer";
+import { CardSkeleton, CardError, CardEmpty, useCardFetch } from "./_CardStates";
 
 type BreakdownItem = {
   source: string;
@@ -88,33 +89,54 @@ function useCountUp(target: number, durationMs = 1200): number {
 }
 
 export function ROIHeroBanner({ apiBase, isProUser }: { apiBase: string; isProUser: boolean }) {
-  const [data, setData] = useState<ROIData | null>(null);
-  const [loading, setLoading] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  useEffect(() => {
-    if (!isProUser) {
-      setLoading(false);
-      return;
-    }
-    let active = true;
-    fetch(`${apiBase}/pro/roi-hero`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((json: ROIData) => {
-        if (active) setData(json);
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [apiBase, isProUser]);
+  const { data, state, retry } = useCardFetch<ROIData>({
+    url: `${apiBase}/pro/roi-hero`,
+    enabled: isProUser && !!apiBase,
+    isEmpty: (d) =>
+      (d.total_saved_eur_30d ?? 0) === 0 &&
+      (d.total_saved_eur_all_time ?? 0) === 0 &&
+      !d.top_win &&
+      (d.breakdown?.length ?? 0) === 0,
+  });
 
   const animated = useCountUp(data?.total_saved_eur_30d || 0);
 
-  if (!isProUser || loading || !data) return null;
+  if (!isProUser) return null;
+
+  if (state === "loading") {
+    return (
+      <div style={{ marginBottom: "24px" }}>
+        <CardSkeleton label="Loading your proven savings" />
+      </div>
+    );
+  }
+
+  if (state === "error") {
+    return (
+      <div style={{ marginBottom: "24px" }}>
+        <CardError
+          label="Proven savings unavailable"
+          message="We couldn't load your holdout-proven savings right now. Your core metrics are safe — this card will recover automatically. Retry to pull it now."
+          onRetry={retry}
+        />
+      </div>
+    );
+  }
+
+  if (state === "empty" || !data) {
+    return (
+      <div style={{ marginBottom: "24px" }}>
+        <CardEmpty
+          accent="emerald"
+          title="Your proven-savings tracker is warming up"
+          body="HedgeSpark runs real A/B tests against a control group before counting any saved euro. The first proven number appears once we've seen enough visitors — usually within 48 hours of going live."
+          eta="First measurement in ~48h"
+        />
+      </div>
+    );
+  }
 
   const delta = data.delta_7d_vs_prior_pct;
   const deltaPositive = delta != null && delta > 0;
@@ -125,7 +147,17 @@ export function ROIHeroBanner({ apiBase, isProUser }: { apiBase: string; isProUs
   return (
     <>
     <div
+      role="button"
+      tabIndex={0}
+      aria-haspopup="dialog"
+      aria-label={`Open proven savings details — ${fmtEurBig(data.total_saved_eur_30d)} saved in the last 30 days`}
       onClick={() => setDrawerOpen(true)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          setDrawerOpen(true);
+        }
+      }}
       style={{
         marginBottom: "24px",
         padding: "28px 32px",
@@ -140,6 +172,17 @@ export function ROIHeroBanner({ apiBase, isProUser }: { apiBase: string; isProUs
         overflow: "hidden",
         cursor: "pointer",
         transition: "transform 0.2s ease, border-color 0.2s ease",
+        outline: "none",
+      }}
+      onFocus={(e) => {
+        e.currentTarget.style.boxShadow = isHero
+          ? "0 8px 32px rgba(16,185,129,0.28), 0 0 0 3px rgba(232,160,78,0.45)"
+          : "0 8px 32px rgba(0,0,0,0.4), 0 0 0 3px rgba(232,160,78,0.45)";
+      }}
+      onBlur={(e) => {
+        e.currentTarget.style.boxShadow = isHero
+          ? "0 8px 32px rgba(16,185,129,0.18), inset 0 1px 0 rgba(255,255,255,0.06)"
+          : "0 8px 32px rgba(0,0,0,0.4)";
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.transform = "translateY(-2px)";
