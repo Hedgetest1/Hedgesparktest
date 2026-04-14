@@ -65,6 +65,8 @@ class NudgeEvent(Base):
               "shop_domain", "visitor_id"),
         # Time-window queries
         Index("ix_nudge_events_created_at", "created_at"),
+        # Per-shop time-window queries (retention, digest)
+        Index("ix_nudge_events_shop_created", "shop_domain", "created_at"),
     )
 
     def metadata_dict(self) -> dict:

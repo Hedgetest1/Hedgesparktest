@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Index, Integer, String
+from sqlalchemy import Column, DateTime, Index, Integer, String, text
 
 from app.core.database import Base
 
@@ -42,4 +42,5 @@ class WorkerLog(Base):
     __table_args__ = (
         Index("ix_worker_log_worker_name", "worker_name"),
         Index("ix_worker_log_started_at", "started_at"),
+        Index("ix_worker_log_name_started", "worker_name", text("started_at DESC")),
     )

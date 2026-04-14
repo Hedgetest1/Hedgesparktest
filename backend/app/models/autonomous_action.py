@@ -15,14 +15,25 @@ Status lifecycle:
 """
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String, Text, text
+from sqlalchemy.dialects.postgresql import JSONB  # noqa: F401
 
 from app.core.database import Base
 
 
 class AutonomousAction(Base):
     __tablename__ = "autonomous_actions"
+    __table_args__ = (
+        Index(
+            "ix_autonomous_actions_shop_created",
+            "shop_domain", text("created_at DESC"),
+        ),
+        Index(
+            "ix_autonomous_actions_shop_outcome_measured",
+            "shop_domain", "outcome", "measurement_end",
+        ),
+        Index("ix_autonomous_actions_shop_status", "shop_domain", "status"),
+    )
 
     id = Column(Integer, primary_key=True)
     shop_domain = Column(String, nullable=False, index=True)
