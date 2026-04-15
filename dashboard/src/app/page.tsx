@@ -5,18 +5,24 @@ import { useEffect, useRef, useState } from "react";
 import { DemoPreviewCard } from "./components/DemoPreviewCard";
 import { reportFrontendError } from "./lib/error-reporter";
 
-/* ── OAuth guard (keep wiring) ── */
+/* ── OAuth guard ──
+ * Redirects to /app when the visitor arrives with Shopify OAuth params.
+ * IMPORTANT: this runs in a client-side useEffect, so it MUST NOT gate
+ * the page render — if we return null while the guard is "pending",
+ * the server renders empty <body> to Google's crawler and to every
+ * cold visitor. That's exactly the regression Lighthouse exposed
+ * (NO_LCP → performance score 0) and the SEO leak that quietly costs
+ * organic reach. Always render the landing; navigate away client-side
+ * when the params are present. The ~50 ms flash is strictly better
+ * than a blank page, because the blank-page path is what 99.99 % of
+ * real visitors saw. */
 function useOAuthRedirect() {
-  const [ok, setOk] = useState(false);
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
     if (p.get("shop") || p.get("installed") || p.get("billing") || p.get("section")) {
       window.location.href = `/app${window.location.search}`;
-      return;
     }
-    setOk(true);
   }, []);
-  return ok;
 }
 
 /* ── Scroll reveal ── */
@@ -1613,14 +1619,14 @@ function Footer() {
               HedgeSpark
             </span>
           </div>
-          <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-2 text-[15px] text-slate-500">
+          <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-2 text-[15px] text-slate-400">
             <a href="/app" className="transition-colors duration-200 hover:text-white">Dashboard</a>
             <a href="/pricing" className="transition-colors duration-200 hover:text-white">Pricing</a>
             <a href="/privacy" className="transition-colors duration-200 hover:text-white">Privacy</a>
             <a href="/terms" className="transition-colors duration-200 hover:text-white">Terms</a>
             <a href="mailto:dev@hedgesparkhq.com" className="transition-colors duration-200 hover:text-white">Support</a>
           </div>
-          <span className="text-[14px] text-slate-600">&copy; {new Date().getFullYear()} HedgeSpark</span>
+          <span className="text-[14px] text-slate-400">&copy; {new Date().getFullYear()} HedgeSpark</span>
         </div>
       </div>
     </footer>
@@ -1769,8 +1775,7 @@ function TrustWall() {
    ══════════════════════════════════════════════════════════════════════════════ */
 
 export default function LandingPage() {
-  const ok = useOAuthRedirect();
-  if (!ok) return null;
+  useOAuthRedirect();
 
   return (
     <div className="min-h-screen bg-[#07070f] text-white antialiased">

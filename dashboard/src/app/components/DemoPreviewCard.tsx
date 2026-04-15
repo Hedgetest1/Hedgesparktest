@@ -81,9 +81,9 @@ export function DemoPreviewCard({ installUrl }: { installUrl: string }) {
         <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-[#e8a04e]">
           {t("demo.eyebrow")}
         </div>
-        <h3 id="demo-preview-heading" className="text-[20px] font-extrabold text-white sm:text-[24px]">
+        <h2 id="demo-preview-heading" className="text-[20px] font-extrabold text-white sm:text-[24px]">
           {t("demo.title")}
-        </h3>
+        </h2>
         <p className="mt-2 text-[13px] text-slate-400">
           {t("demo.sub")}
         </p>
