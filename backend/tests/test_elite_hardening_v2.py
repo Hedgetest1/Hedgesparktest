@@ -958,12 +958,14 @@ def test_no_secret_literal_in_source():
 #     utc_now_naive  # instead of datetime.utcnow
 # ---------------------------------------------------------------------------
 
-_UTCNOW_PATTERN = re.compile(r"\bdatetime\.utcnow\b")
-
-
 def test_no_new_datetime_utcnow():
     """Freeze the datetime.utcnow sweep. Any new call site in app/
-    must use `utc_now_naive` from `app/core/time_utils.py` instead."""
+    must use `utc_now_naive` from `app/core/time_utils.py` instead.
+
+    Uses AST walking, not regex — so f-string interpolation, method
+    chains, string literals, and comments are all handled without
+    false positives. Scans the full `app/` tree (not just models).
+    """
     hits: list[str] = []
     for file in (_BACKEND / "app").rglob("*.py"):
         if "__pycache__" in file.parts:
@@ -977,22 +979,23 @@ def test_no_new_datetime_utcnow():
             source = file.read_text()
         except OSError:
             continue
-        for m in _UTCNOW_PATTERN.finditer(source):
-            lineno = source[: m.start()].count("\n") + 1
-            line = source.splitlines()[lineno - 1].strip()
-            # Skip comments and docstring mentions — they're not calls.
-            stripped = line.lstrip()
-            if stripped.startswith("#"):
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            continue
+
+        for node in ast.walk(tree):
+            # Match `datetime.utcnow` as an attribute access, whether
+            # called (`datetime.utcnow()`) or passed by name (as a
+            # SQLAlchemy column default). `ast.Attribute(value=Name('datetime'), attr='utcnow')`.
+            if not isinstance(node, ast.Attribute):
                 continue
-            # Allow string-literal mentions (only inside docstrings/comments/log messages).
-            # Heuristic: if the match is inside a string literal on the
-            # same line, skip. We check by scanning the line up to the
-            # match for an unmatched quote.
-            line_up_to_match = source[source.rfind("\n", 0, m.start()) + 1 : m.start()]
-            single_q = line_up_to_match.count("'") - line_up_to_match.count("\\'")
-            double_q = line_up_to_match.count('"') - line_up_to_match.count('\\"')
-            if single_q % 2 == 1 or double_q % 2 == 1:
+            if node.attr != "utcnow":
                 continue
+            if not (isinstance(node.value, ast.Name) and node.value.id == "datetime"):
+                continue
+            lineno = getattr(node, "lineno", 0)
+            line = source.splitlines()[lineno - 1].strip() if lineno else ""
             hits.append(f"{rel}:{lineno}  {line[:90]}")
 
     assert not hits, (
@@ -1270,5 +1273,248 @@ def test_no_bare_print_in_production_code():
         f"{len(hits)} bare `print(...)` call(s) in production code — "
         f"replace with `log.info/warning/error` or add to _PRINT_ALLOWLIST "
         f"with justification:\n  "
+        + "\n  ".join(hits[:20])
+    )
+
+
+# ---------------------------------------------------------------------------
+# 16. Every httpx module-level call has an explicit timeout
+# ---------------------------------------------------------------------------
+#
+# `httpx.get(url)` with no timeout defaults to an INFINITE timeout in
+# httpx 0.x/1.x — not the DNS + connect + read budget most developers
+# assume. A third-party API hanging will stall a worker thread
+# indefinitely, cascading into a pool exhaustion outage. Every
+# production system MUST set an explicit timeout on every outbound
+# HTTP call. We scan for module-level `httpx.<method>(...)` calls
+# (the `httpx.Client` / `httpx.AsyncClient` pattern sets the timeout
+# on the client object and is handled separately — those are NOT
+# flagged because the flag would be unreachable from the call site
+# alone).
+#
+# Currently: 31 sites, 31 with `timeout=` — zero debt. Pure lock-in.
+# ---------------------------------------------------------------------------
+
+_HTTP_METHODS = {"get", "post", "put", "delete", "patch", "request", "head"}
+
+
+def test_no_httpx_call_without_timeout():
+    """Every `httpx.<method>(...)` module-level call in `app/` must
+    pass an explicit `timeout=` kwarg. Default is infinite — one
+    hung third-party endpoint will stall a worker forever."""
+    hits: list[str] = []
+    for file in (_BACKEND / "app").rglob("*.py"):
+        if "__pycache__" in file.parts:
+            continue
+        rel = file.relative_to(_BACKEND).as_posix()
+        try:
+            source = file.read_text()
+            tree = ast.parse(source)
+        except (OSError, SyntaxError):
+            continue
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            f = node.func
+            if not (isinstance(f, ast.Attribute) and f.attr in _HTTP_METHODS):
+                continue
+            if not (isinstance(f.value, ast.Name) and f.value.id == "httpx"):
+                continue
+            kw_names = {kw.arg for kw in node.keywords if kw.arg is not None}
+            # `**kwargs` expansion (kw.arg is None) could carry timeout
+            # opaquely — accept as a conservative pass.
+            if any(kw.arg is None for kw in node.keywords):
+                continue
+            if "timeout" in kw_names:
+                continue
+            line = source.splitlines()[node.lineno - 1].strip()
+            hits.append(f"{rel}:{node.lineno}  {line[:90]}")
+
+    assert not hits, (
+        f"{len(hits)} `httpx` call(s) without explicit `timeout=` in app/. "
+        f"An unset timeout is infinite — a hung third-party endpoint will "
+        f"stall the worker forever. Add `timeout=<float>` to each site:\n  "
+        + "\n  ".join(hits[:20])
+    )
+
+
+# ---------------------------------------------------------------------------
+# 17. No wildcard imports in app/
+# ---------------------------------------------------------------------------
+#
+# `from foo import *` imports every public name, silently shadowing
+# locals and making refactors dangerous (renaming a foo.x can break
+# an unrelated file that relied on the wildcard pull). Also defeats
+# static analysis: linters can't track which names came from where.
+# Legit use cases are rare (re-export barrel modules, plugin systems)
+# and our codebase has none.
+#
+# Currently: 0 sites. Pure lock-in.
+# ---------------------------------------------------------------------------
+
+def test_no_wildcard_imports_in_app():
+    """`from x import *` in `app/` is banned. Use explicit names."""
+    hits: list[str] = []
+    for file in (_BACKEND / "app").rglob("*.py"):
+        if "__pycache__" in file.parts:
+            continue
+        rel = file.relative_to(_BACKEND).as_posix()
+        try:
+            source = file.read_text()
+            tree = ast.parse(source)
+        except (OSError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            for alias in node.names:
+                if alias.name == "*":
+                    hits.append(f"{rel}:{node.lineno}  from {node.module} import *")
+
+    assert not hits, (
+        f"{len(hits)} wildcard import(s) in app/ — replace with explicit "
+        f"names:\n  " + "\n  ".join(hits[:20])
+    )
+
+
+# ---------------------------------------------------------------------------
+# 18. No bare `except:` in app/
+# ---------------------------------------------------------------------------
+#
+# `except:` with no exception class catches EVERYTHING including
+# `KeyboardInterrupt` (Ctrl-C) and `SystemExit` (sys.exit/uvicorn
+# shutdown), which are both CRITICAL to propagate for operator
+# control and graceful worker shutdown. Use `except Exception:` to
+# catch application errors and let the two exit signals through.
+#
+# Currently: 0 sites. Pure lock-in.
+# ---------------------------------------------------------------------------
+
+def test_no_bare_except_in_app():
+    """`except:` (no class) catches KeyboardInterrupt and SystemExit
+    too, breaking operator control. Use `except Exception:` instead."""
+    hits: list[str] = []
+    for file in (_BACKEND / "app").rglob("*.py"):
+        if "__pycache__" in file.parts:
+            continue
+        rel = file.relative_to(_BACKEND).as_posix()
+        try:
+            source = file.read_text()
+            tree = ast.parse(source)
+        except (OSError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ExceptHandler) and node.type is None:
+                hits.append(f"{rel}:{node.lineno}")
+
+    assert not hits, (
+        f"{len(hits)} bare `except:` clause(s) in app/ — use `except Exception:` "
+        f"to let KeyboardInterrupt/SystemExit propagate:\n  "
+        + "\n  ".join(hits[:20])
+    )
+
+
+# ---------------------------------------------------------------------------
+# 19. No `os.environ["X"]` subscript without a default
+# ---------------------------------------------------------------------------
+#
+# `os.environ["X"]` raises `KeyError` at runtime when X is missing.
+# On a worker import path or a startup hook this crashes the whole
+# process with a naked stack trace that gives no hint which env var
+# is missing. Use `os.getenv("X")` (returns None) or
+# `os.getenv("X", "default")` — both fail loudly with a clear name.
+#
+# Currently: 0 sites. Pure lock-in.
+# ---------------------------------------------------------------------------
+
+def test_no_os_environ_direct_subscript():
+    """`os.environ["X"]` is banned — use `os.getenv("X")` so missing
+    env vars raise with a clear name instead of crashing import."""
+    hits: list[str] = []
+    for file in (_BACKEND / "app").rglob("*.py"):
+        if "__pycache__" in file.parts:
+            continue
+        rel = file.relative_to(_BACKEND).as_posix()
+        try:
+            source = file.read_text()
+            tree = ast.parse(source)
+        except (OSError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Subscript):
+                continue
+            v = node.value
+            if not (isinstance(v, ast.Attribute) and v.attr == "environ"):
+                continue
+            if not (isinstance(v.value, ast.Name) and v.value.id == "os"):
+                continue
+            hits.append(f"{rel}:{node.lineno}")
+
+    assert not hits, (
+        f"{len(hits)} `os.environ[...]` subscript(s) in app/ — use "
+        f"`os.getenv(...)` for graceful None fallback and clearer error "
+        f"messages:\n  " + "\n  ".join(hits[:20])
+    )
+
+
+# ---------------------------------------------------------------------------
+# 20. No f-string interpolation in logger calls
+# ---------------------------------------------------------------------------
+#
+# `log.info(f"user {user.id} did X")` evaluates the f-string ALWAYS,
+# even when the log level filters the message out. Use positional:
+# `log.info("user %s did X", user.id)` — the % formatting is lazy,
+# only evaluated if the handler actually emits the record. At 10k
+# merchants × multiple workers this is a measurable CPU win AND
+# prevents accidental PII leakage into f-string buffers that might
+# show up in tracebacks later.
+#
+# Currently: 0 sites. Pure lock-in.
+# ---------------------------------------------------------------------------
+
+_LOG_LEVELS = {"debug", "info", "warning", "error", "critical", "exception"}
+
+
+def test_no_fstring_in_log_calls():
+    """`log.info(f"...")` evaluates the f-string eagerly even when
+    filtered out. Use positional `log.info("...", arg)` instead."""
+    hits: list[str] = []
+    for file in (_BACKEND / "app").rglob("*.py"):
+        if "__pycache__" in file.parts:
+            continue
+        rel = file.relative_to(_BACKEND).as_posix()
+        try:
+            source = file.read_text()
+            tree = ast.parse(source)
+        except (OSError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            f = node.func
+            if not isinstance(f, ast.Attribute):
+                continue
+            if f.attr not in _LOG_LEVELS:
+                continue
+            recv = f.value
+            if not isinstance(recv, ast.Name):
+                continue
+            # Only flag receivers that look like loggers — `log`,
+            # `logger`, or anything ending in `_log` / `_logger`.
+            name_l = recv.id.lower()
+            if name_l not in {"log", "logger"} and not (
+                name_l.endswith("_log") or name_l.endswith("_logger")
+            ):
+                continue
+            if not node.args:
+                continue
+            first = node.args[0]
+            if isinstance(first, ast.JoinedStr):
+                hits.append(f"{rel}:{node.lineno}")
+
+    assert not hits, (
+        f"{len(hits)} f-string logger call(s) in app/ — use positional "
+        f"formatting `log.info('msg %s', arg)` for lazy evaluation:\n  "
         + "\n  ".join(hits[:20])
     )

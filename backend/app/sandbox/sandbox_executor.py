@@ -31,10 +31,10 @@ def create_sandbox_run(goal: str, payload: dict[str, Any] | None = None) -> dict
     status_path = run_path / "status.txt"
 
     summary_path.write_text(
-        f"WishSpark Sandbox Run\n"
+        f"HedgeSpark Sandbox Run\n"
         f"run_id: {run_id}\n"
         f"goal: {goal}\n"
-        f"created_at_utc: {datetime.utcnow().isoformat()}Z\n",
+        f"created_at_utc: {utc_now_naive().isoformat()}Z\n",
         encoding="utf-8",
     )
 
