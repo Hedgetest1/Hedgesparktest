@@ -439,3 +439,511 @@ def test_every_tier2_file_declares_its_tier():
         "TIER_2 file registry is out of sync with CLAUDE.md §10:\n"
         + "\n".join(problems)
     )
+
+
+# ---------------------------------------------------------------------------
+# 7. Money columns use Numeric/Decimal, never Float
+# ---------------------------------------------------------------------------
+
+# SQLAlchemy column-name substrings that indicate a monetary field.
+# Hit any of these → the column MUST be Numeric / Integer (cents) /
+# Decimal, never Float / REAL / DOUBLE PRECISION. A float cent is a
+# silent rounding-loss bug that only surfaces at reconciliation time.
+_MONEY_SUBSTRINGS = (
+    "_price",
+    "price_",
+    "_amount",
+    "amount_",
+    "_revenue",
+    "revenue_",
+    "_cost",
+    "cost_",
+    "_fee",
+    "fee_",
+    "_gross",
+    "gross_",
+    "_net_sales",
+    "_subtotal",
+    "subtotal_",
+    "_refund",
+    "refund_",
+    "_charge",
+    "charge_",
+    "monthly_target",
+)
+
+# Column-name suffixes that look monetary but are NOT:
+#   * `_pct` / `_percentage` — percentages (floats are fine)
+#   * `_mb` / `_gb` — byte sizes
+#   * `_ms` / `_seconds` — durations
+_NON_MONEY_SUFFIXES = (
+    "_pct",
+    "_percentage",
+    "_mb",
+    "_gb",
+    "_ms",
+    "_seconds",
+)
+
+_FLOATY_COLUMN_TYPES = ("Float", "REAL", "DOUBLE PRECISION", "sa.Float")
+
+# Known technical debt — float money columns that exist today and
+# cannot be migrated without a schema change (ALTER COLUMN TYPE on a
+# live table with existing data). Each entry is a row of debt.
+# Adding to this list REQUIRES a founder-approved TIER_2 migration
+# plan. Removing an entry means a migration shipped and the column
+# is now Numeric — do that before the test can pass on the cleaned
+# model.
+#
+# Format: "<relpath>:<column_name>"
+_FLOAT_MONEY_DEBT_ALLOWLIST = {
+    "app/models/action_snapshot.py:baseline_revenue_7d",
+    "app/models/action_snapshot.py:delta_revenue_7d",
+    "app/models/active_nudge.py:estimated_revenue_window",
+    "app/models/ad_spend.py:revenue_attributed_eur",
+    "app/models/analytics_event.py:revenue_eur",
+    "app/models/execution.py:product_b_revenue_24h",
+    "app/models/price_watch.py:last_seen_price",
+    "app/models/price_watch.py:previous_price",
+    "app/models/product_metrics.py:revenue_24h",
+    "app/models/scaling_recommendation.py:estimated_cost_increase_eur",
+    "app/models/shop_order.py:total_price",
+    "app/models/system_snapshot.py:llm_estimated_cost_eur",
+    "app/models/trust_contract.py:revenue_delta_eur",
+}
+
+
+def test_money_columns_are_never_float():
+    """Every SQLAlchemy column whose name looks monetary must be typed
+    as Numeric/Integer/Decimal, never Float. Float cents round silently
+    and reconcile wrong — the class of bug that only surfaces when a
+    merchant asks 'why is this invoice off by 3 cents'.
+
+    Known debt: a frozen allowlist (`_FLOAT_MONEY_DEBT_ALLOWLIST`)
+    captures the pre-existing float money columns that require a
+    TIER_2 schema migration to fix. This test is strict on NEW
+    additions — any new float money column fails immediately —
+    while preserving honest visibility of the open debt.
+    """
+    models_dir = _BACKEND / "app" / "models"
+    if not models_dir.exists():
+        pytest.skip("no app/models directory")
+
+    new_violations: list[str] = []
+    unknown_debt_allowlist: set[str] = set(_FLOAT_MONEY_DEBT_ALLOWLIST)
+    for py_file in sorted(models_dir.rglob("*.py")):
+        try:
+            text = py_file.read_text()
+            tree = ast.parse(text)
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign):
+                continue
+            if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
+                continue
+            col_name = node.targets[0].id
+            lower = col_name.lower()
+            if not any(sub in lower for sub in _MONEY_SUBSTRINGS):
+                continue
+            if any(lower.endswith(sfx) for sfx in _NON_MONEY_SUFFIXES):
+                continue
+            if not isinstance(node.value, ast.Call):
+                continue
+            call_src = ast.unparse(node.value)
+            if "Column(" not in call_src and "mapped_column(" not in call_src:
+                continue
+            if not any(ft in call_src for ft in _FLOATY_COLUMN_TYPES):
+                continue
+            rel = py_file.relative_to(_BACKEND).as_posix()
+            key = f"{rel}:{col_name}"
+            if key in _FLOAT_MONEY_DEBT_ALLOWLIST:
+                unknown_debt_allowlist.discard(key)
+                continue
+            new_violations.append(f"{rel}:{node.lineno}  {col_name}")
+
+    assert not new_violations, (
+        f"{len(new_violations)} NEW float money column(s) — add "
+        f"Numeric(18, 2) or Integer (cents):\n  "
+        + "\n  ".join(new_violations[:20])
+    )
+    assert not unknown_debt_allowlist, (
+        f"float-money debt allowlist is stale — these entries no "
+        f"longer exist or no longer match the pattern, clean them "
+        f"out:\n  "
+        + "\n  ".join(sorted(unknown_debt_allowlist))
+    )
+
+
+# ---------------------------------------------------------------------------
+# 8. Every webhook route verifies an HMAC signature
+# ---------------------------------------------------------------------------
+
+# Files that host webhook ingestion routes. Every POST route in these
+# files must call a signature-verification helper before touching
+# the request body.
+_WEBHOOK_ROUTE_FILES = (
+    "app/api/webhooks.py",        # Shopify webhooks
+    "app/api/telegram_webhook.py",  # Telegram bot commands
+    "app/api/resend_webhooks.py",   # Resend email deliverability
+    "app/api/shopify_refunds.py",   # Shopify refund webhook
+)
+
+# Names of signature-verification helpers used in this codebase.
+# A webhook POST route must reach one of these by its own body or via
+# a 1-step delegation (calling a helper defined in the same file that
+# itself calls one of these).
+_SIGNATURE_HELPERS = (
+    "_verify_hmac",
+    "_verify_shopify_hmac",
+    "_verify_telegram_signature",
+    "_verify_webhook",
+    "verify_webhook_signature",
+    "verify_signature",
+    "verify_hmac",
+    "hmac.compare_digest",
+)
+
+
+def _function_defs(tree: ast.AST) -> dict[str, ast.AST]:
+    """Return {function_name: function_node} for every def in `tree`."""
+    out: dict[str, ast.AST] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)):
+            out[node.name] = node
+    return out
+
+
+def _body_contains_verify(node: ast.AST) -> bool:
+    src = ast.unparse(node)
+    return any(helper in src for helper in _SIGNATURE_HELPERS)
+
+
+def _called_names(fn_node: ast.AST) -> set[str]:
+    """Return the set of callable names referenced in this function
+    (both bare `foo()` and attribute `obj.foo()` forms)."""
+    names: set[str] = set()
+    for node in ast.walk(fn_node):
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name):
+            names.add(node.func.id)
+        elif isinstance(node.func, ast.Attribute):
+            names.add(node.func.attr)
+    return names
+
+
+def test_every_webhook_route_verifies_signature():
+    """Every `@router.post(...)` route in a webhook file must reach an
+    HMAC/signature verification helper — either directly in its own
+    body or through a 1-step delegation to another function defined
+    in the same file. A webhook intake that skips signature
+    verification is a direct forgery surface.
+    """
+    violations: list[str] = []
+    for rel in _WEBHOOK_ROUTE_FILES:
+        path = _BACKEND / rel
+        if not path.exists():
+            continue
+        try:
+            text = path.read_text()
+            tree = ast.parse(text)
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+
+        fn_index = _function_defs(tree)
+
+        for node in fn_index.values():
+            is_post = False
+            for dec in node.decorator_list:
+                dec_src = ast.unparse(dec)
+                if re.search(r"\brouter\.post\b|\bapp\.post\b", dec_src):
+                    is_post = True
+                    break
+            if not is_post:
+                continue
+
+            # Direct verify in route body
+            if _body_contains_verify(node):
+                continue
+
+            # 1-step delegation: any helper called from the route body
+            # whose own body contains a verify call
+            delegated = False
+            for called_name in _called_names(node):
+                helper = fn_index.get(called_name)
+                if helper is not None and _body_contains_verify(helper):
+                    delegated = True
+                    break
+            if delegated:
+                continue
+
+            violations.append(f"{rel}:{node.lineno}  {node.name}()")
+
+    assert not violations, (
+        f"{len(violations)} webhook POST route(s) do not verify an HMAC "
+        f"signature (checked direct body + 1-step delegation):\n  "
+        + "\n  ".join(violations)
+    )
+
+
+# ---------------------------------------------------------------------------
+# 9. No dangerous code-injection surfaces in app/
+# ---------------------------------------------------------------------------
+
+# Function calls that can execute attacker-controlled strings. The
+# test uses AST (not regex) so it correctly distinguishes:
+#   * bare `eval(...)`            — Python eval, dangerous
+#   * `client.eval(...)`          — Redis Lua eval via redis-py, SAFE
+#   * `__import__("literal")`     — lazy stdlib import, SAFE
+#   * `__import__(user_input)`    — dynamic import, dangerous
+#   * `subprocess.run(..., shell=True)` — shell injection, dangerous
+#   * `subprocess.run([...])`     — arg list, SAFE
+_DANGEROUS_AST_NAMES = {
+    "eval",
+    "exec",
+    "compile",
+}
+
+# Explicit allowlist: files where a dangerous call is deliberate + sandboxed.
+_DANGEROUS_CALL_ALLOWLIST = {
+    # sandbox_executor runs candidate patches in an isolated subprocess by
+    # design — it is the one place subprocess invocation is OK.
+    "app/sandbox/sandbox_executor.py",
+}
+
+
+def _is_dynamic_import(call: ast.Call) -> bool:
+    """True if this is a dynamic `__import__(variable)` with a non-literal
+    argument. `__import__("literal")` is treated as safe (equivalent to
+    a plain `import` statement used for lazy loading to avoid circulars)."""
+    if not (isinstance(call.func, ast.Name) and call.func.id == "__import__"):
+        return False
+    if not call.args:
+        return False
+    return not isinstance(call.args[0], ast.Constant)
+
+
+def _is_shell_true_subprocess(call: ast.Call) -> bool:
+    """True if this is `subprocess.<anything>(..., shell=True)`."""
+    if not isinstance(call.func, ast.Attribute):
+        return False
+    if not isinstance(call.func.value, ast.Name) or call.func.value.id != "subprocess":
+        return False
+    for kw in call.keywords:
+        if kw.arg == "shell" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
+            return True
+    return False
+
+
+def _is_bare_eval_or_exec(call: ast.Call) -> bool:
+    """True if this is a bare `eval(...)` or `exec(...)` call (Python).
+    Receiver-based calls like `client.eval(...)` (Redis Lua) are NOT
+    dangerous and return False."""
+    if not isinstance(call.func, ast.Name):
+        return False
+    return call.func.id in _DANGEROUS_AST_NAMES
+
+
+def _is_pickle_load(call: ast.Call) -> bool:
+    if not isinstance(call.func, ast.Attribute):
+        return False
+    if call.func.attr not in ("loads", "load"):
+        return False
+    recv = call.func.value
+    return isinstance(recv, ast.Name) and recv.id == "pickle"
+
+
+def _is_os_system(call: ast.Call) -> bool:
+    if not isinstance(call.func, ast.Attribute):
+        return False
+    if call.func.attr != "system":
+        return False
+    recv = call.func.value
+    return isinstance(recv, ast.Name) and recv.id == "os"
+
+
+def test_no_dangerous_code_injection_surfaces():
+    """`eval(...)`, `exec(...)`, `compile(...)`, `os.system(...)`,
+    `pickle.load[s](...)`, `__import__(<variable>)` and
+    `subprocess.*(..., shell=True)` are all runtime-string-execution
+    primitives. Every occurrence in app/ must live in the explicit
+    allowlist or be removed. This is a standing §9.3 security
+    invariant.
+
+    Uses AST so Redis Lua `client.eval(...)` and the `__import__(
+    "literal")` lazy-import pattern do NOT trip the check.
+    """
+    app_dir = _BACKEND / "app"
+    hits: list[str] = []
+    for py_file in sorted(app_dir.rglob("*.py")):
+        rel = py_file.relative_to(_BACKEND).as_posix()
+        if rel in _DANGEROUS_CALL_ALLOWLIST:
+            continue
+        try:
+            tree = ast.parse(py_file.read_text())
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            label: str | None = None
+            if _is_bare_eval_or_exec(node):
+                label = f"bare {node.func.id}()"  # type: ignore[attr-defined]
+            elif _is_pickle_load(node):
+                label = "pickle.load[s]()"
+            elif _is_os_system(node):
+                label = "os.system()"
+            elif _is_dynamic_import(node):
+                label = "__import__(<variable>)"
+            elif _is_shell_true_subprocess(node):
+                label = "subprocess shell=True"
+            if label:
+                hits.append(f"{rel}:{node.lineno}  [{label}]")
+
+    assert not hits, (
+        f"{len(hits)} dangerous code-injection surface(s) in app/:\n  "
+        + "\n  ".join(hits[:20])
+    )
+
+
+# ---------------------------------------------------------------------------
+# 10. Every migration has a real downgrade() body
+# ---------------------------------------------------------------------------
+
+def test_every_migration_has_downgrade():
+    """Alembic migrations must be reversible. A `downgrade()` that only
+    contains `pass` means we cannot roll back a bad deploy — which is
+    the one time rollback actually matters. This test asserts every
+    `downgrade()` function body does at least ONE operation (a statement
+    that is not a docstring and not a bare `pass`).
+    """
+    mig_dir = _BACKEND / "migrations" / "versions"
+    if not mig_dir.exists():
+        pytest.skip(f"no migrations directory at {mig_dir}")
+
+    def _body_is_empty(fn: ast.FunctionDef) -> bool:
+        body = fn.body
+        if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+            body = body[1:]
+        return all(isinstance(s, ast.Pass) for s in body) or not body
+
+    empty: list[str] = []
+    checked = 0
+    for py_file in sorted(mig_dir.glob("*.py")):
+        if py_file.name.startswith("_"):
+            continue
+        try:
+            tree = ast.parse(py_file.read_text())
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+
+        upgrade_fn: ast.FunctionDef | None = None
+        downgrade_fn: ast.FunctionDef | None = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                if node.name == "upgrade":
+                    upgrade_fn = node
+                elif node.name == "downgrade":
+                    downgrade_fn = node
+
+        if downgrade_fn is None:
+            continue
+        checked += 1
+
+        # Merge migrations (upgrade() is also empty) are allowed to
+        # have an empty downgrade — they're pure alembic graph joins
+        # with no schema operations.
+        if upgrade_fn is not None and _body_is_empty(upgrade_fn):
+            continue
+
+        if _body_is_empty(downgrade_fn):
+            empty.append(py_file.name)
+
+    assert not empty, (
+        f"{len(empty)} of {checked} migrations have an empty downgrade() — "
+        f"un-rollbackable deploys:\n  "
+        + "\n  ".join(empty[:20])
+    )
+
+
+# ---------------------------------------------------------------------------
+# 11. No obvious secret literal in source
+# ---------------------------------------------------------------------------
+
+# Patterns that match common API key / token / private key formats.
+# Every hit is a candidate secret leak. False positives go in the
+# allowlist below.
+_SECRET_PATTERNS = (
+    (re.compile(r"sk-[A-Za-z0-9]{20,}"), "OpenAI key"),
+    (re.compile(r"sk-ant-[A-Za-z0-9-_]{20,}"), "Anthropic key"),
+    (re.compile(r"pk_live_[A-Za-z0-9]{24,}"), "Stripe live publishable"),
+    (re.compile(r"sk_live_[A-Za-z0-9]{24,}"), "Stripe live secret"),
+    (re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"), "Slack token"),
+    (re.compile(r"AKIA[0-9A-Z]{16}"), "AWS access key"),
+    (re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"), "private key block"),
+    (re.compile(r"ghp_[A-Za-z0-9]{30,}"), "GitHub PAT"),
+)
+
+# Root paths to scan. We skip node_modules / venv / .next / .git etc.
+_SECRET_SCAN_ROOTS = (
+    Path("/opt/wishspark/backend/app"),
+    Path("/opt/wishspark/backend/scripts"),
+    Path("/opt/wishspark/backend/tests"),
+    Path("/opt/wishspark/dashboard/src"),
+    Path("/opt/wishspark/tracker"),
+)
+
+# Files where a pattern is intentional (test fixtures, regex patterns
+# that themselves detect secrets, etc.)
+_SECRET_ALLOWLIST = {
+    # This file — it contains the detection regexes themselves.
+    "backend/tests/test_elite_hardening_v2.py",
+    # PII guard — contains intentional regex patterns for secrets.
+    "backend/app/core/llm_pii_guard.py",
+    # PII guard test suite — contains intentional fake key literals as
+    # test fixtures ("sk-ABCDE...", "sk-ant-api03-DEADBEEF..."). The
+    # PII guard's own test CANNOT run without these.
+    "backend/tests/test_llm_pii_guard.py",
+    # Security preflight guard test — contains a fake "sk-1234..."
+    # literal as an adversarial input fixture.
+    "backend/tests/test_security_preflight_guard.py",
+}
+
+
+def test_no_secret_literal_in_source():
+    """No live-format secret string in committed source. Catches the
+    class where a developer pastes `sk-...` or `-----BEGIN PRIVATE
+    KEY-----` into source while debugging and forgets to remove it.
+
+    Only scans source file types (.py, .ts, .tsx, .js, .css, .html).
+    Ignores generated artifacts (.next, node_modules, venv, dist).
+    """
+    hits: list[str] = []
+    for root in _SECRET_SCAN_ROOTS:
+        if not root.exists():
+            continue
+        for file in root.rglob("*"):
+            if not file.is_file():
+                continue
+            if file.suffix not in {".py", ".ts", ".tsx", ".js", ".css", ".html", ".md"}:
+                continue
+            try:
+                rel = file.relative_to(Path("/opt/wishspark")).as_posix()
+            except ValueError:
+                continue
+            if rel in _SECRET_ALLOWLIST:
+                continue
+            try:
+                text = file.read_text(errors="ignore")
+            except OSError:
+                continue
+            for pattern, label in _SECRET_PATTERNS:
+                for match in pattern.finditer(text):
+                    lineno = text[: match.start()].count("\n") + 1
+                    hits.append(f"{rel}:{lineno}  [{label}]  {match.group(0)[:40]}...")
+
+    assert not hits, (
+        f"{len(hits)} suspected secret literal(s) in source:\n  "
+        + "\n  ".join(hits[:15])
+    )
