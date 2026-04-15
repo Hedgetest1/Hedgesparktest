@@ -48,7 +48,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Column, Float, Index, String
+from sqlalchemy import BigInteger, Column, Float, Index, Numeric, String
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
@@ -69,7 +69,7 @@ class AnalyticsEvent(Base):
     campaign = Column(String(256), nullable=True)
     product_url = Column(String(512), nullable=True)
 
-    revenue_eur = Column(Float, nullable=True)
+    revenue_eur = Column(Numeric(18, 2), nullable=True)
 
     props = Column(JSONB, nullable=True)
 

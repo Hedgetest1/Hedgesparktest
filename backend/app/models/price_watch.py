@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime
+from sqlalchemy import Column, Integer, String, Float, DateTime, Numeric
 from datetime import datetime
 from app.core.database import Base
 
@@ -12,8 +12,8 @@ class PriceWatch(Base):
 
     competitor_url = Column(String)
 
-    last_seen_price = Column(Float)
-    previous_price = Column(Float)
+    last_seen_price = Column(Numeric(18, 2))
+    previous_price = Column(Numeric(18, 2))
 
     price_drop_detected = Column(Integer, default=0)
 

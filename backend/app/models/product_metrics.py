@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Column, DateTime, Float, Index, Integer, String, UniqueConstraint, text
+from sqlalchemy import BigInteger, Column, DateTime, Float, Index, Integer, Numeric, String, UniqueConstraint, text
 
 from app.core.database import Base
 
@@ -60,7 +60,7 @@ class ProductMetrics(Base):
     # Purchase attribution (via visitor_purchase_sessions + shop_orders)
     purchases_24h = Column(Integer, nullable=False, default=0)
     purchases_7d = Column(Integer, nullable=False, default=0)
-    revenue_24h = Column(Float, nullable=False, default=0)
+    revenue_24h = Column(Numeric(18, 2), nullable=False, default=0)
     purchases_mobile = Column(Integer, nullable=False, default=0)
     purchases_desktop = Column(Integer, nullable=False, default=0)
     purchases_paid = Column(Integer, nullable=False, default=0)

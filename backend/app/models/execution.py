@@ -16,7 +16,7 @@ Holdout design:
 """
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, Numeric, String, Text
 
 from app.core.database import Base
 
@@ -145,7 +145,7 @@ class ExecutionBaseline(Base):
     product_b_views_24h = Column(Integer, nullable=True)
     product_b_carts_24h = Column(Integer, nullable=True)
     product_b_purchases_24h = Column(Integer, nullable=True)
-    product_b_revenue_24h = Column(Float, nullable=True)
+    product_b_revenue_24h = Column(Numeric(18, 2), nullable=True)
 
     __table_args__ = (
         Index("uq_exec_baseline_id", "shop_domain", "execution_id", unique=True),

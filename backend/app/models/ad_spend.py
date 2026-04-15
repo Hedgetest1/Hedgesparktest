@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Column, Date, DateTime, Float, Index, Integer, String, UniqueConstraint
+from sqlalchemy import Column, Date, DateTime, Float, Index, Integer, Numeric, String, UniqueConstraint
 
 from app.core.database import Base
 
@@ -25,11 +25,11 @@ class AdSpendDaily(Base):
     campaign_id = Column(String(64), nullable=False)
     campaign_name = Column(String(200), nullable=True)
 
-    spend_eur = Column(Float, nullable=False, default=0.0)
+    spend_eur = Column(Numeric(18, 2), nullable=False, default=0)
     impressions = Column(Integer, nullable=False, default=0)
     clicks = Column(Integer, nullable=False, default=0)
     conversions = Column(Integer, nullable=False, default=0)
-    revenue_attributed_eur = Column(Float, nullable=False, default=0.0)
+    revenue_attributed_eur = Column(Numeric(18, 2), nullable=False, default=0)
 
     ingested_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 

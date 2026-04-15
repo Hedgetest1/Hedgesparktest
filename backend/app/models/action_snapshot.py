@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, Numeric, String
 
 from app.core.database import Base
 
@@ -26,7 +26,7 @@ class ActionSnapshot(Base):
     # Baseline metrics at snapshot time
     baseline_cvr = Column(Float, nullable=True)
     baseline_atc_rate = Column(Float, nullable=True)
-    baseline_revenue_7d = Column(Float, nullable=True)
+    baseline_revenue_7d = Column(Numeric(18, 2), nullable=True)
     baseline_visitors_7d = Column(Integer, nullable=True)
     baseline_orders_7d = Column(Integer, nullable=True)
 
@@ -42,7 +42,7 @@ class ActionSnapshot(Base):
     # Delta results
     delta_cvr = Column(Float, nullable=True)
     delta_atc_rate = Column(Float, nullable=True)
-    delta_revenue_7d = Column(Float, nullable=True)
+    delta_revenue_7d = Column(Numeric(18, 2), nullable=True)
     delta_visitors_7d = Column(Integer, nullable=True)
     delta_orders_7d = Column(Integer, nullable=True)
     delta_computed_at = Column(DateTime, nullable=True)

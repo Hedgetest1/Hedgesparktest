@@ -6,7 +6,7 @@ indicates infrastructure or capacity changes may be needed.
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Float, Integer, String, Text, Index
+from sqlalchemy import Column, DateTime, Float, Integer, Numeric, String, Text, Index
 
 from app.core.database import Base
 
@@ -32,7 +32,7 @@ class ScalingRecommendation(Base):
     severity = Column(String(16), nullable=False, default="info")  # info / warning / critical
     confidence = Column(String(16), nullable=False, default="low")  # low / medium / high
 
-    estimated_cost_increase_eur = Column(Float, nullable=True)
+    estimated_cost_increase_eur = Column(Numeric(18, 2), nullable=True)
 
     # Lifecycle
     status = Column(String(32), nullable=False, default="active")  # active / acknowledged / dismissed

@@ -6,7 +6,7 @@ and operational health. Used by scaling intelligence for forecasting.
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Date, Float, Integer, String, Index
+from sqlalchemy import Column, DateTime, Date, Float, Integer, Numeric, String, Index
 
 from app.core.database import Base
 
@@ -31,7 +31,7 @@ class SystemSnapshot(Base):
 
     # LLM
     llm_calls_24h = Column(Integer, nullable=True, default=0)
-    llm_estimated_cost_eur = Column(Float, nullable=True, default=0.0)
+    llm_estimated_cost_eur = Column(Numeric(18, 2), nullable=True, default=0)
 
     # Worker health
     worker_error_rate = Column(Float, nullable=True, default=0.0)

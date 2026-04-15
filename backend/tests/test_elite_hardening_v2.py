@@ -469,6 +469,14 @@ _MONEY_SUBSTRINGS = (
     "refund_",
     "_charge",
     "charge_",
+    "_spend",
+    "spend_",
+    "_payout",
+    "payout_",
+    "_margin_eur",
+    "_eur",
+    "_usd",
+    "_gbp",
     "monthly_target",
 )
 
@@ -487,30 +495,13 @@ _NON_MONEY_SUFFIXES = (
 
 _FLOATY_COLUMN_TYPES = ("Float", "REAL", "DOUBLE PRECISION", "sa.Float")
 
-# Known technical debt — float money columns that exist today and
-# cannot be migrated without a schema change (ALTER COLUMN TYPE on a
-# live table with existing data). Each entry is a row of debt.
-# Adding to this list REQUIRES a founder-approved TIER_2 migration
-# plan. Removing an entry means a migration shipped and the column
-# is now Numeric — do that before the test can pass on the cleaned
-# model.
-#
-# Format: "<relpath>:<column_name>"
-_FLOAT_MONEY_DEBT_ALLOWLIST = {
-    "app/models/action_snapshot.py:baseline_revenue_7d",
-    "app/models/action_snapshot.py:delta_revenue_7d",
-    "app/models/active_nudge.py:estimated_revenue_window",
-    "app/models/ad_spend.py:revenue_attributed_eur",
-    "app/models/analytics_event.py:revenue_eur",
-    "app/models/execution.py:product_b_revenue_24h",
-    "app/models/price_watch.py:last_seen_price",
-    "app/models/price_watch.py:previous_price",
-    "app/models/product_metrics.py:revenue_24h",
-    "app/models/scaling_recommendation.py:estimated_cost_increase_eur",
-    "app/models/shop_order.py:total_price",
-    "app/models/system_snapshot.py:llm_estimated_cost_eur",
-    "app/models/trust_contract.py:revenue_delta_eur",
-}
+# Known float-money debt. Empty post-2026-04-15 TIER_2 migration
+# `zzz8_float_money_to_numeric` — all 14 previously-Float money
+# columns are now NUMERIC(18, 2). Keep this set as the frozen debt
+# ledger: any NEW float-money column must either be migrated
+# immediately or explicitly added to this allowlist with a founder-
+# approved migration plan attached.
+_FLOAT_MONEY_DEBT_ALLOWLIST: set[str] = set()
 
 
 def test_money_columns_are_never_float():

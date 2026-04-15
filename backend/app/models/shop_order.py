@@ -49,7 +49,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, Index, Integer, String, UniqueConstraint
+from sqlalchemy import Column, DateTime, Float, Index, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
@@ -67,7 +67,7 @@ class ShopOrder(Base):
     shopify_order_id = Column(String, nullable=False)
 
     # Revenue fields
-    total_price = Column(Float, nullable=False)
+    total_price = Column(Numeric(18, 2), nullable=False)
     currency    = Column(String, nullable=False, default="EUR")
 
     # Optional customer link — NULL for guest checkouts

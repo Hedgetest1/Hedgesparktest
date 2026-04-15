@@ -244,10 +244,14 @@ def build_forecast(db: Session, horizon_days: int = 30) -> dict:
             "minimum_required": MIN_FORECAST_DAYS,
         }
 
-    # Extract time series
+    # Extract time series. Coerce monetary Decimal columns to float
+    # at the boundary: the forecast math is a plain linear regression
+    # that mixes float day-indices with the stored values, and Python
+    # refuses `float * Decimal`. Forecast precision is limited by
+    # noise anyway; we don't need cent-precise projections.
     merchants = [s.active_merchants or 0 for s in snapshots]
     events = [s.total_events_24h or 0 for s in snapshots]
-    llm_cost = [s.llm_estimated_cost_eur or 0 for s in snapshots]
+    llm_cost = [float(s.llm_estimated_cost_eur or 0) for s in snapshots]
     error_rate = [s.worker_error_rate or 0 for s in snapshots]
     ram_pct = [
         round((s.ram_used_mb or 0) / max(s.ram_total_mb or 1, 1) * 100, 1)

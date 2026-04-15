@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, Numeric, String, Text
 
 from app.core.database import Base
 
@@ -109,5 +109,5 @@ class TrustExecutionLog(Base):
 
     # Outcome (filled 48h later by outcome evaluator)
     outcome = Column(String, nullable=True)  # effective | ineffective | inconclusive | pending
-    revenue_delta_eur = Column(Float, nullable=True)
+    revenue_delta_eur = Column(Numeric(18, 2), nullable=True)
     measured_at = Column(DateTime, nullable=True)

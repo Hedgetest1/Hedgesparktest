@@ -91,7 +91,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String, Text, text
+from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, Numeric, String, Text, text
 
 from app.core.database import Base
 
@@ -156,7 +156,7 @@ class ActiveNudge(Base):
 
     # Segment context at time of last refresh
     visitor_count            = Column(Integer, nullable=True)
-    estimated_revenue_window = Column(Float,   nullable=True)
+    estimated_revenue_window = Column(Numeric(18, 2), nullable=True)
     calibration_state        = Column(String,  nullable=True)
 
     __table_args__ = (
