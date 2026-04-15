@@ -1810,6 +1810,10 @@ def set_self_heal_standby(enabled: bool, reason: str = "") -> bool:
                 "reason": reason or "standby",
                 "entered_at": datetime.now(timezone.utc).isoformat(),
             })
+            # REDIS-PERSIST-OK: operator self-heal standby flag — clears
+            # only on explicit resume. A TTL would auto-resume the
+            # pipeline mid-incident, which is the exact opposite of
+            # what an operator hitting the kill switch wants.
             rc.set(_STANDBY_REDIS_KEY, payload)
         else:
             rc.delete(_STANDBY_REDIS_KEY)

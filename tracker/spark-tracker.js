@@ -11,16 +11,20 @@
   // never rethrows.
   //
   // The boot guard (window.__wishsparkInit) lives OUTSIDE this boundary so
-  // double-init is prevented even if the first load threw.
+  // double-init is prevented even if the first load threw. The global name
+  // is kept as `__wishsparkInit` on purpose: it is a stable JS identifier
+  // that merchants' cached-tracker copies may still be setting from before
+  // the HedgeSpark rebrand. Renaming it would re-run the boot on top of
+  // an already-initialized tracker and duplicate every event emission.
   // ---------------------------------------------------------------------------
   if (window.__wishsparkInit) return;
   window.__wishsparkInit = true;
 
-  try { _wishsparkBoot(); } catch (bootErr) {
-    try { console.warn("[WishSpark] tracker boot error (non-fatal):", bootErr); } catch (_) {}
+  try { _hedgesparkBoot(); } catch (bootErr) {
+    try { console.warn("[HedgeSpark] tracker boot error (non-fatal):", bootErr); } catch (_) {}
   }
 
-  function _wishsparkBoot() {
+  function _hedgesparkBoot() {
 
   // ---------------------------------------------------------------------------
   // Configuration
@@ -71,7 +75,7 @@
 
   // 3. Abort if still unresolved
   if (!SHOP_DOMAIN) {
-    console.warn("[WishSpark] tracker loaded but no shop param found");
+    console.warn("[HedgeSpark] tracker loaded but no shop param found");
     return;
   }
 
@@ -1032,6 +1036,6 @@
   // See: tracker/spark-pixel.js
   // ---------------------------------------------------------------------------
 
-  } // end _wishsparkBoot
+  } // end _hedgesparkBoot
 
 })();

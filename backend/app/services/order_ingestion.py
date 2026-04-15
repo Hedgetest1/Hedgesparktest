@@ -1,4 +1,6 @@
 """
+TIER_2 — modification requires explicit human approval (CLAUDE.md §10).
+
 order_ingestion.py — Parse and persist Shopify order webhook payloads.
 
 Public interface

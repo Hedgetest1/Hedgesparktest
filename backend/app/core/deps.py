@@ -1,5 +1,7 @@
 """
-Shared FastAPI dependencies for WishSpark.
+TIER_2 — modification requires explicit human approval (CLAUDE.md §10).
+
+Shared FastAPI dependencies for HedgeSpark.
 
 Available dependencies
 ----------------------

@@ -1,4 +1,6 @@
 """
+TIER_2 — modification requires explicit human approval (CLAUDE.md §10).
+
 token_crypto.py — AES-256-GCM encryption for Shopify merchant access tokens.
 
 Purpose

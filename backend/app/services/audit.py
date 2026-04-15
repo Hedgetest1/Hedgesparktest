@@ -238,7 +238,9 @@ def _store_chain_head(chain_hash: str) -> None:
             from app.core.silent_fallback import record_silent_return
             record_silent_return("audit.chain_head_store")
             return
-        rc.set(_CHAIN_HEAD_REDIS_KEY, chain_hash)  # no expiry — chain is monotonic
+        # REDIS-PERSIST-OK: audit chain head is monotonic — a TTL would
+        # silently break tampering detection once the head expired.
+        rc.set(_CHAIN_HEAD_REDIS_KEY, chain_hash)
     except Exception:
         pass
 

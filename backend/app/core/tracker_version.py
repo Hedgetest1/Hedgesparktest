@@ -20,7 +20,7 @@ import os
 
 # Bump this when spark-tracker.js changes.
 # Format: integer, monotonically increasing.
-TRACKER_VERSION = 9
+TRACKER_VERSION = 10
 
 
 def get_tracker_url() -> str:

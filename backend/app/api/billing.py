@@ -1,4 +1,6 @@
 """
+TIER_2 — modification requires explicit human approval (CLAUDE.md §10).
+
 billing.py — Shopify Billing API integration.
 
 Implements the full RecurringApplicationCharge lifecycle:

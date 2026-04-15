@@ -1,4 +1,6 @@
 """
+TIER_2 — modification requires explicit human approval (CLAUDE.md §10).
+
 shopify_oauth.py — Shopify managed install flow (2026 standard).
 
 Architecture

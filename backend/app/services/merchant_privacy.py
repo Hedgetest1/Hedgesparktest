@@ -69,6 +69,8 @@ def set_opt_out(shop_domain: str, opted_out: bool) -> None:
     try:
         key = _opt_out_key(shop_domain)
         if opted_out:
+            # REDIS-PERSIST-OK: GDPR Art. 21 opt-out is a permanent legal
+            # choice — it clears only on explicit re-opt-in, not on TTL.
             rc.set(key, "1")
         else:
             rc.delete(key)

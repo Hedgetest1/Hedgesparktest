@@ -1,5 +1,5 @@
 /**
- * spark-nudge.js — WishSpark storefront nudge renderer (v5: holdout suppression)
+ * spark-nudge.js — HedgeSpark storefront nudge renderer (v5: holdout suppression)
  *
  * Contract
  * --------

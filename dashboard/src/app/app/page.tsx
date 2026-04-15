@@ -1008,7 +1008,7 @@ function PageInner() {
         setProductMetrics(metrics);
         setProductTrend(trendRows);
       } catch (err) {
-        console.warn("[WishSpark] loadProductData error:", err);
+        console.warn("[HedgeSpark] loadProductData error:", err);
       }
     }
 

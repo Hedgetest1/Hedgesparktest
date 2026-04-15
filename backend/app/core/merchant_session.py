@@ -1,4 +1,6 @@
 """
+TIER_2 — modification requires explicit human approval (CLAUDE.md §10).
+
 merchant_session.py — Per-merchant JWT session tokens.
 
 Replaces the shared DASHBOARD_API_KEY authentication model with per-merchant

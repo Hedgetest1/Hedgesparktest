@@ -1,4 +1,6 @@
 """
+TIER_2 — modification requires explicit human approval (CLAUDE.md §10).
+
 webhooks.py — Shopify webhook ingestion endpoints.
 
 All endpoints share a single HMAC verification function that fails closed:

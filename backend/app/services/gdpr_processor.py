@@ -1,4 +1,6 @@
 """
+TIER_2 — modification requires explicit human approval (CLAUDE.md §10).
+
 gdpr_processor.py — processes GDPR deletion/redaction requests.
 
 Three request types:
