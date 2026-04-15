@@ -2,10 +2,10 @@ export default function PrivacyPage() {
   return (
     <div className="min-h-screen bg-[#080811] text-white antialiased">
       <div className="mx-auto max-w-[42rem] px-6 py-24">
-        <a href="/" className="text-[13px] text-slate-600 transition-colors hover:text-slate-400">&larr; Back to home</a>
+        <a href="/" className="text-[13px] text-slate-400 transition-colors hover:text-slate-400">&larr; Back to home</a>
 
         <h1 className="mt-8 text-[2rem] font-bold tracking-tight">Privacy Policy</h1>
-        <p className="mt-2 text-[13px] text-slate-600">Last updated: April 2026</p>
+        <p className="mt-2 text-[13px] text-slate-400">Last updated: April 2026</p>
 
         <div className="mt-10 space-y-8 text-[14px] leading-[1.75] text-slate-400">
           <section>
@@ -116,7 +116,7 @@ export default function PrivacyPage() {
               Our tracking script uses a single first-party cookie to maintain visitor session
               continuity. This cookie contains only a pseudonymous identifier. No cross-site tracking
               is performed. See our{" "}
-              <a href="/cookies" className="text-violet-400 hover:text-violet-300">Cookie Policy</a>{" "}
+              <a href="/cookies" className="text-violet-400 underline underline-offset-2 hover:text-violet-300">Cookie Policy</a>{" "}
               for full details.
             </p>
           </section>

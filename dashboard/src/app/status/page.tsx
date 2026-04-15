@@ -118,7 +118,7 @@ export default function StatusPage() {
             />
             <div className="flex-1">
               <div className="text-[20px] font-extrabold text-white">{overallLabel}</div>
-              <div className="mt-0.5 text-[11px] text-slate-500">
+              <div className="mt-0.5 text-[11px] text-slate-400">
                 last checked {relativeTime(data?.checked_at || null)}
               </div>
             </div>
@@ -162,15 +162,15 @@ export default function StatusPage() {
                       <div>
                         <div className="text-[14px] font-semibold text-slate-200">{c.name}</div>
                         {c.latency_ms != null && (
-                          <div className="text-[11px] text-slate-500">{c.latency_ms} ms response</div>
+                          <div className="text-[11px] text-slate-400">{c.latency_ms} ms response</div>
                         )}
                         {c.stale_count != null && c.total_count != null && (
-                          <div className="text-[11px] text-slate-500">
+                          <div className="text-[11px] text-slate-400">
                             {c.total_count - c.stale_count}/{c.total_count} workers fresh
                           </div>
                         )}
                         {c.critical_24h != null && (
-                          <div className="text-[11px] text-slate-500">
+                          <div className="text-[11px] text-slate-400">
                             {c.critical_24h} critical alert{c.critical_24h === 1 ? "" : "s"} (24h)
                           </div>
                         )}
@@ -209,7 +209,7 @@ export default function StatusPage() {
                     <span className="text-[12px] font-semibold uppercase tracking-wide text-rose-300">
                       {i.component}
                     </span>
-                    <span className="text-[11px] text-slate-500">{relativeTime(i.at)}</span>
+                    <span className="text-[11px] text-slate-400">{relativeTime(i.at)}</span>
                   </div>
                   <p className="mt-1.5 text-[13px] text-slate-300">{i.summary}</p>
                 </div>
@@ -219,7 +219,7 @@ export default function StatusPage() {
         </section>
 
         {/* Footer */}
-        <footer className="mt-16 text-center text-[11px] text-slate-600">
+        <footer className="mt-16 text-center text-[11px] text-slate-400">
           Powered by the Hedge Spark self-healing pipeline.
         </footer>
       </div>

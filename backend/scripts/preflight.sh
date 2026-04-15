@@ -207,6 +207,33 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2m. Lighthouse budget (Tier 6.3). Hits /, /pricing, /install with
+# Lighthouse desktop preset and asserts Performance / Accessibility /
+# Best-practices / SEO scores stay at or above the reviewed floor in
+# dashboard/lighthouse-budget.json. Opt-in by default — the run takes
+# ~45 s, too slow for every commit. Enable with RUN_PREFLIGHT_LH=1
+# before releases, dashboard rebuilds, or any visual surgery. Still
+# reachability-guarded so setting the flag with no dashboard is a
+# clean skip.
+# ---------------------------------------------------------------------------
+if [ "${RUN_PREFLIGHT_LH:-0}" != "1" ]; then
+    step "Lighthouse budget (skipped — set RUN_PREFLIGHT_LH=1 to enable)"
+    ok "lighthouse opt-in, not run"
+elif ! curl -s -o /dev/null -w "%{http_code}" --max-time 2 http://127.0.0.1:3000/ | grep -q "^2"; then
+    step "Lighthouse budget (skipped — dashboard not reachable at :3000)"
+    ok "lighthouse skipped — no running dashboard"
+else
+    step "Lighthouse budget (scripts/run_lighthouse.mjs)"
+    if ( cd /opt/wishspark/dashboard && node scripts/run_lighthouse.mjs ) > /tmp/preflight_lh.log 2>&1; then
+        _LH_SUMMARY=$(grep -E "^  /" /tmp/preflight_lh.log | tr '\n' ' | ' | sed 's/  */ /g')
+        ok "lighthouse within budget — ${_LH_SUMMARY:-all routes green}"
+    else
+        bad "lighthouse budget exceeded — see /tmp/preflight_lh.log"
+        tail -30 /tmp/preflight_lh.log || true
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # 2k. Bundle-size budget (Tier 6.4). Guards the dashboard from a silent
 # first-load regression. Four caps: largest chunk, rootMainFiles total,
 # chunks total, chunks count. Baseline recorded in

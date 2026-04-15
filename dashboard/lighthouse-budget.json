@@ -1,0 +1,19 @@
+{
+  "_comment": "Tier 6.3 Lighthouse budget — ran against built dashboard at 127.0.0.1:3000 on 2026-04-15. Desktop preset. Scores are 0–100. Regression past the floor blocks the commit.",
+  "_baseline_2026_04_15": {
+    "/": { "performance": 98, "accessibility": 100, "best_practices": 93, "seo": 100 },
+    "/pricing": { "performance": 100, "accessibility": 100, "best_practices": 93, "seo": 100 },
+    "/install": { "performance": 100, "accessibility": 96, "best_practices": 93, "seo": 100 }
+  },
+  "_caveats": [
+    "best_practices is floored at 90 because the dev dashboard (127.0.0.1:3000) hits api.hedgesparkhq.com which returns CORS errors and blocks a tracker.js script under a strict prod CSP — both are test-environment artifacts that disappear in production. When lighthouse is run against a prod-origin build this floor should be raised.",
+    "/install accessibility is floored at 96 because the primary CTA button uses white text on #d4893a amber (3.0:1 contrast, below WCAG AA 4.5:1 for small text). That button style is used in 66 places across 28 files and is founder-territory brand work — do not silently change it. When the brand palette is audited, raise the a11y floor to 100."
+  ],
+  "routes": ["/", "/pricing", "/install"],
+  "budgets": {
+    "performance": 95,
+    "accessibility": 96,
+    "best_practices": 90,
+    "seo": 95
+  }
+}

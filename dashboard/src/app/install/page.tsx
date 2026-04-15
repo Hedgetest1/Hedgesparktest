@@ -79,7 +79,7 @@ export default function InstallPage() {
         </div>
 
         {/* Trust signals */}
-        <div className="mt-8 flex flex-wrap justify-center gap-x-6 gap-y-2 text-[11px] text-slate-600">
+        <div className="mt-8 flex flex-wrap justify-center gap-x-6 gap-y-2 text-[11px] text-slate-400">
           <span>30-second install</span>
           <span>&middot;</span>
           <span>Read-only access</span>
@@ -87,13 +87,13 @@ export default function InstallPage() {
           <span>GDPR compliant</span>
         </div>
 
-        <p className="mt-6 text-[12px] leading-[1.6] text-slate-700">
+        <p className="mt-6 text-[12px] leading-[1.6] text-slate-400">
           You&apos;ll be redirected to Shopify to approve the connection.
           We only request read access to products and orders.
           Your data stays encrypted and is never shared.
         </p>
 
-        <a href="/" className="mt-10 inline-block text-[13px] text-slate-600 transition-colors hover:text-slate-400">
+        <a href="/" className="mt-10 inline-block text-[13px] text-slate-400 transition-colors hover:text-white">
           &larr; Back to home
         </a>
       </div>

@@ -180,12 +180,12 @@ export default function PricingPage() {
         <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-4">
           <Link
             href={dashboardHref}
-            className="flex items-center gap-2 text-[13px] text-slate-500 transition-colors hover:text-slate-300"
+            className="flex items-center gap-2 text-[13px] text-slate-300 transition-colors hover:text-white"
           >
             <ArrowLeftIcon />
             Back to dashboard
           </Link>
-          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#c4b5fd]/60">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#c4b5fd]">
             HedgeSpark
           </span>
         </div>
@@ -213,19 +213,19 @@ export default function PricingPage() {
           {/* Lite */}
           <div className="relative rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6">
             {tier === "lite" && (
-              <span className="absolute -top-3 left-5 rounded-full border border-white/10 bg-[#080811] px-3 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+              <span className="absolute -top-3 left-5 rounded-full border border-white/10 bg-[#080811] px-3 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
                 Current plan
               </span>
             )}
 
             <div className="mb-5">
-              <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">
+              <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
                 Lite
               </div>
               <div className="text-[20px] font-semibold text-slate-300">
                 Operational clarity
               </div>
-              <p className="mt-2 text-[12px] leading-relaxed text-slate-500">
+              <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
                 Best for tracking what&apos;s happening on your store.
               </p>
             </div>
@@ -245,7 +245,7 @@ export default function PricingPage() {
             <span
               className={`absolute -top-3 left-5 rounded-full border px-3 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] ${
                 tier === "pro"
-                  ? "border-white/10 bg-[#080811] text-slate-500"
+                  ? "border-white/10 bg-[#080811] text-slate-400"
                   : "border-[#e8a04e]/30 bg-[#e8a04e]/20 text-[#e8a04e]"
               }`}
             >
@@ -270,7 +270,7 @@ export default function PricingPage() {
                   <CheckIcon />
                   <span
                     className={`text-[13px] ${
-                      f === "Everything in Lite" ? "text-slate-500" : "text-slate-200"
+                      f === "Everything in Lite" ? "text-slate-400" : "text-slate-200"
                     }`}
                   >
                     {f}
@@ -313,7 +313,7 @@ export default function PricingPage() {
 
         {/* ── C. Comparison table ── */}
         <div className="mb-10">
-          <div className="mb-4 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">
+          <div className="mb-4 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
             Feature comparison
           </div>
 
@@ -321,7 +321,7 @@ export default function PricingPage() {
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-[13px]">
                 <thead>
-                  <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-wide text-slate-500">
+                  <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-wide text-slate-400">
                     <th className="w-[46%] px-5 py-3 font-semibold">Feature</th>
                     <th className="px-5 py-3 font-semibold">Lite</th>
                     <th className="px-5 py-3 font-semibold text-[#e8a04e]">Pro</th>
@@ -342,7 +342,7 @@ export default function PricingPage() {
                             <span className="text-[12px] text-slate-700">—</span>
                           </div>
                         ) : (
-                          <span className="text-[12px] text-slate-500">{row.lite}</span>
+                          <span className="text-[12px] text-slate-400">{row.lite}</span>
                         )}
                       </td>
 
@@ -379,7 +379,7 @@ export default function PricingPage() {
               </Link>
               <Link
                 href={dashboardHref}
-                className="text-[12px] text-slate-500 transition-colors hover:text-slate-300"
+                className="text-[12px] text-slate-400 transition-colors hover:text-slate-300"
               >
                 Keep exploring Lite
               </Link>

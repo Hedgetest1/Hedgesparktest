@@ -2,10 +2,10 @@ export default function TermsPage() {
   return (
     <div className="min-h-screen bg-[#080811] text-white antialiased">
       <div className="mx-auto max-w-[42rem] px-6 py-24">
-        <a href="/" className="text-[13px] text-slate-600 transition-colors hover:text-slate-400">&larr; Back to home</a>
+        <a href="/" className="text-[13px] text-slate-400 transition-colors hover:text-slate-400">&larr; Back to home</a>
 
         <h1 className="mt-8 text-[2rem] font-bold tracking-tight">Terms of Service</h1>
-        <p className="mt-2 text-[13px] text-slate-600">Last updated: April 2025</p>
+        <p className="mt-2 text-[13px] text-slate-400">Last updated: April 2025</p>
 
         <div className="mt-10 space-y-8 text-[14px] leading-[1.75] text-slate-400">
           <section>
@@ -33,7 +33,7 @@ export default function TermsPage() {
             <p className="mt-3">
               You retain full ownership of all data collected through your store. Upon cancellation or request,
               we will delete all associated data within 30 days. See our{" "}
-              <a href="/privacy" className="text-violet-400 hover:text-violet-300">Privacy Policy</a> for details.
+              <a href="/privacy" className="text-violet-400 underline underline-offset-2 hover:text-violet-300">Privacy Policy</a> for details.
             </p>
           </section>
 

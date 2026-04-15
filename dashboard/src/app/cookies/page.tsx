@@ -2,10 +2,10 @@ export default function CookiePolicyPage() {
   return (
     <div className="min-h-screen bg-[#080811] text-white antialiased">
       <div className="mx-auto max-w-[42rem] px-6 py-24">
-        <a href="/" className="text-[13px] text-slate-600 transition-colors hover:text-slate-400">&larr; Back to home</a>
+        <a href="/" className="text-[13px] text-slate-400 transition-colors hover:text-slate-400">&larr; Back to home</a>
 
         <h1 className="mt-8 text-[2rem] font-bold tracking-tight">Cookie Policy</h1>
-        <p className="mt-2 text-[13px] text-slate-600">Last updated: April 2026</p>
+        <p className="mt-2 text-[13px] text-slate-400">Last updated: April 2026</p>
 
         <div className="mt-10 space-y-8 text-[14px] leading-[1.75] text-slate-400">
           <section>
@@ -23,23 +23,23 @@ export default function CookiePolicyPage() {
               <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-4">
                 <p className="text-[13px] font-semibold text-white">hs_vid</p>
                 <p className="mt-1 text-[12px]">
-                  <span className="text-slate-500">Purpose:</span> Anonymous visitor identification for behavioral analytics
+                  <span className="text-slate-400">Purpose:</span> Anonymous visitor identification for behavioral analytics
                 </p>
                 <p className="text-[12px]">
-                  <span className="text-slate-500">Type:</span> First-party, persistent &middot;{" "}
-                  <span className="text-slate-500">Duration:</span> 90 days &middot;{" "}
-                  <span className="text-slate-500">Data:</span> Pseudonymous visitor ID (UUID)
+                  <span className="text-slate-400">Type:</span> First-party, persistent &middot;{" "}
+                  <span className="text-slate-400">Duration:</span> 90 days &middot;{" "}
+                  <span className="text-slate-400">Data:</span> Pseudonymous visitor ID (UUID)
                 </p>
               </div>
               <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-4">
                 <p className="text-[13px] font-semibold text-white">hs_session</p>
                 <p className="mt-1 text-[12px]">
-                  <span className="text-slate-500">Purpose:</span> Merchant dashboard authentication
+                  <span className="text-slate-400">Purpose:</span> Merchant dashboard authentication
                 </p>
                 <p className="text-[12px]">
-                  <span className="text-slate-500">Type:</span> First-party, HttpOnly, Secure, SameSite=None &middot;{" "}
-                  <span className="text-slate-500">Duration:</span> Session (24h) &middot;{" "}
-                  <span className="text-slate-500">Data:</span> Encrypted session token (no PII)
+                  <span className="text-slate-400">Type:</span> First-party, HttpOnly, Secure, SameSite=None &middot;{" "}
+                  <span className="text-slate-400">Duration:</span> Session (24h) &middot;{" "}
+                  <span className="text-slate-400">Data:</span> Encrypted session token (no PII)
                 </p>
               </div>
             </div>
@@ -70,7 +70,7 @@ export default function CookiePolicyPage() {
             <h2 className="text-[16px] font-semibold text-white">Contact</h2>
             <p className="mt-3">
               For cookie-related inquiries:{" "}
-              <a href="mailto:privacy@hedgesparkhq.com" className="text-violet-400 hover:text-violet-300">
+              <a href="mailto:privacy@hedgesparkhq.com" className="text-violet-400 underline underline-offset-2 hover:text-violet-300">
                 privacy@hedgesparkhq.com
               </a>
             </p>
