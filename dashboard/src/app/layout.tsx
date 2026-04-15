@@ -22,7 +22,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "HedgeSpark — AI Revenue Intelligence for Shopify",
   description:
-    "AI Revenue Intelligence for Shopify. Finds the products that get attention but don't sell, stops the silent curse on your store, and earns the trust of serious Shopify merchants. Trust the magic.",
+    "Your Shopify store is leaking money and you don't know why. HedgeSpark finds the products that get attention but don't sell, and proves every fix against a real control group. Trust the magic.",
   keywords: [
     "Shopify app",
     "Shopify AI",
@@ -38,7 +38,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "HedgeSpark — AI Revenue Intelligence for Shopify",
     description:
-      "Find the products getting attention but not selling. Stop the silent curse. Trust the magic.",
+      "Your store is leaking money. You don't know why. We show you where. The most advanced dashboard built for Shopify. Stops the curse. Trust the magic.",
     type: "website",
     siteName: "HedgeSpark",
   },
@@ -46,7 +46,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "HedgeSpark — AI Revenue Intelligence for Shopify",
     description:
-      "Find the products getting attention but not selling. Stop the silent curse. Trust the magic.",
+      "Your store is leaking money. You don't know why. We show you where. The most advanced dashboard built for Shopify. Stops the curse. Trust the magic.",
   },
   manifest: "/manifest.json",
   appleWebApp: {
@@ -64,7 +64,7 @@ const softwareApplicationJsonLd = {
   applicationSubCategory: "Shopify App",
   operatingSystem: "Shopify",
   description:
-    "AI Revenue Intelligence for Shopify. Finds products that get attention but don't sell, stops the silent curse on your store, and measures every result against a real control group. Trust the magic.",
+    "HedgeSpark is the AI Revenue Intelligence platform for Shopify merchants. It finds the products that get attention but don't sell, surfaces the silent revenue leaks on your store, and measures every recovery against a real control group. Trust the magic.",
   url: "https://hedgesparkhq.com",
 };
 
