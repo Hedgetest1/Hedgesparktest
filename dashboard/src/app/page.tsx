@@ -384,7 +384,7 @@ function Hero() {
 
         {/* Headline */}
         <R d={0.08}>
-          <h1 className="mx-auto mt-6 max-w-[52rem] text-center text-[2.75rem] font-extrabold leading-[1.05] tracking-[-0.03em] text-white sm:text-[4rem] lg:text-[5rem]">
+          <h1 className="mx-auto mt-6 max-w-[52rem] text-center text-[2.75rem] font-extrabold leading-[1.05] tracking-[-0.03em] text-cream sm:text-[4rem] lg:text-[5rem]">
             Your store has a silent curse.
             <br />
             <span className="text-slate-400">You don&apos;t know why.</span>

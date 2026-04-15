@@ -13,6 +13,10 @@
   --hs-card-border: rgba(167, 139, 250, 0.08);
   --hs-amber: #d4893a;
   --hs-amber-dim: rgba(212, 137, 58, 0.15);
+  /* Cream — warm off-white for premium hero copy and accents.
+     Contrast on #07070f is ~19:1 (vs pure white 20.4:1) so WCAG AAA
+     is preserved while the tone feels less clinical than #ffffff. */
+  --hs-cream: #faf7f0;
 }
 
 /* ── CTA gradient (amber → violet, matches email system) ── */
@@ -27,6 +31,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-cream: var(--hs-cream);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }

@@ -11,22 +11,27 @@ before deploy. The constraints:
      looks like "the page is written without graphics" to a user. This
      was the exact symptom of the 2026-04-11 incident.
 
-  2. The client JS bundle must contain recognizable landing content —
-     marketing copy, hero headline, navbar — so we know the component
-     is actually being shipped and hydration will render something
-     meaningful. The landing is a `"use client"` component with a
-     pre-hydration `if (!ok) return null` guard, so SSR HTML is empty
-     by design. Bundle-content validation is therefore the only proof
-     that the landing will be visible on the client.
+  2. The main Tailwind CSS chunk referenced by the landing HTML must be
+     substantial (>50 KB). A trivial chunk means the purge stripped the
+     utility classes and the landing ships unstyled even though the HTML
+     references a real file.
 
-  3. The root layout must not wrap `{children}` in a class ErrorBoundary
-     that would interfere with the landing's `return null` → rerender
-     pattern. This is the regression from 2026-04-11 where we wrapped
-     the layout and broke hydration silently.
+  3. The client JS bundle must contain recognizable landing content —
+     marketing copy, hero headline, navbar — so we know the component
+     is actually being shipped and hydration will render the page.
 
 All three checks are filesystem-based — no server needed, no headless
 browser needed. They run in milliseconds and lock in the invariant
 forever.
+
+History: earlier versions of this file assumed the landing was a pure
+client-rendered shell with an empty SSR body (a `useOAuthRedirect` hook
+returned `null` until a client-side `useEffect` fired). That was the
+silent SSR regression committed in 2026-04-13 and fixed on 2026-04-15
+after Lighthouse reported Perf 0 / NO_LCP on the landing. The body is
+now server-rendered in full (~95 KB on the landing), so bundle-content
+validation is no longer the *only* proof of visibility — but it's still
+a useful invariant to lock in.
 """
 from __future__ import annotations
 
@@ -68,7 +73,13 @@ def test_landing_css_references_are_all_reachable():
     everything" on every Next 16.2+ build.)
     """
     html = (_SERVER_APP / "index.html").read_text()
-    css_refs = re.findall(r'/_next/static/chunks/([A-Za-z0-9_~\-]+\.css)', html)
+    # Next 16.2+ chunk names can contain dots in the middle (e.g.
+    # `14hx5vp3.byfe.css`) as well as the earlier `0neevhl_o1ozu.css`
+    # and `0~e~w2kyvoghc.css` shapes. Allow `.` inside the stem and
+    # rely on the greedy match to leave the trailing `.css` as the
+    # required extension. An earlier regex omitted the dot and
+    # quietly missed the largest chunk on every Next 16.2+ build.
+    css_refs = re.findall(r'/_next/static/chunks/([A-Za-z0-9_~\-\.]+\.css)', html)
     assert css_refs, "no CSS references found in landing HTML — Tailwind not bundled?"
 
     missing: list[str] = []
@@ -92,7 +103,13 @@ def test_landing_tailwind_bundle_not_trivial():
     A ~3KB CSS file means Tailwind purge dropped everything — another
     way the landing can appear unstyled."""
     html = (_SERVER_APP / "index.html").read_text()
-    css_refs = re.findall(r'/_next/static/chunks/([A-Za-z0-9_~\-]+\.css)', html)
+    # Next 16.2+ chunk names can contain dots in the middle (e.g.
+    # `14hx5vp3.byfe.css`) as well as the earlier `0neevhl_o1ozu.css`
+    # and `0~e~w2kyvoghc.css` shapes. Allow `.` inside the stem and
+    # rely on the greedy match to leave the trailing `.css` as the
+    # required extension. An earlier regex omitted the dot and
+    # quietly missed the largest chunk on every Next 16.2+ build.
+    css_refs = re.findall(r'/_next/static/chunks/([A-Za-z0-9_~\-\.]+\.css)', html)
     sizes = sorted(
         (_CHUNKS_DIR / ref).stat().st_size for ref in set(css_refs)
         if (_CHUNKS_DIR / ref).exists()
@@ -116,10 +133,12 @@ def test_landing_tailwind_bundle_not_trivial():
 )
 def test_landing_bundle_contains_marketing_content():
     """
-    The landing is a `"use client"` component that renders `null` during
-    SSR (OAuth guard). Proof that it will be visible post-hydration is
-    that its marketing content exists in one of the client JS chunks.
-    If no chunk contains it, the landing will be invisible forever.
+    Proof that the landing component is actually shipped to the client
+    and hydration will render something meaningful — its marketing copy
+    must appear in at least one client JS chunk. Pre-2026-04-15 this
+    was the ONLY visibility proof because the SSR body was empty (see
+    module docstring); it is now a defence-in-depth check alongside
+    the SSR body rendering in full.
     """
     markers = [
         "HedgeSpark",            # brand name — must appear
