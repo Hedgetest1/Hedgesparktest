@@ -1518,3 +1518,159 @@ def test_no_fstring_in_log_calls():
         f"formatting `log.info('msg %s', arg)` for lazy evaluation:\n  "
         + "\n  ".join(hits[:20])
     )
+
+
+# ---------------------------------------------------------------------------
+# 21. No orphan APIRouter files in app/api/
+# ---------------------------------------------------------------------------
+#
+# Every file in `app/api/` that defines `router = APIRouter(...)` MUST
+# be imported in `app/main.py`. Orphan router files are dead code that
+# ship in the bundle, pollute grep results, and — worst — can be
+# imported accidentally later and register routes nobody reviewed.
+# CLAUDE.md §2 rule 7 bans this pattern explicitly.
+#
+# Currently: 0 sites. The `revenue_actions.py` orphan shipped with
+# this batch was deleted in the same commit.
+# ---------------------------------------------------------------------------
+
+def test_no_orphan_api_routers():
+    """Every `router = APIRouter(...)` file under `app/api/` must
+    be imported by `app/main.py`."""
+    api_dir = _BACKEND / "app" / "api"
+    main_src = (_BACKEND / "app" / "main.py").read_text()
+
+    orphans: list[str] = []
+    for file in api_dir.rglob("*.py"):
+        if file.name == "__init__.py" or "__pycache__" in file.parts:
+            continue
+        try:
+            source = file.read_text()
+            tree = ast.parse(source)
+        except (OSError, SyntaxError):
+            continue
+
+        has_router = False
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign):
+                continue
+            if not (len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)):
+                continue
+            if node.targets[0].id != "router":
+                continue
+            if not isinstance(node.value, ast.Call):
+                continue
+            f = node.value.func
+            if (isinstance(f, ast.Name) and f.id == "APIRouter") or (
+                isinstance(f, ast.Attribute) and f.attr == "APIRouter"
+            ):
+                has_router = True
+                break
+        if not has_router:
+            continue
+
+        stem = file.stem
+        if f"from app.api.{stem}" not in main_src and f"from .api.{stem}" not in main_src:
+            orphans.append(str(file.relative_to(_BACKEND)))
+
+    assert not orphans, (
+        f"{len(orphans)} orphan router file(s) in app/api/ — either wire "
+        f"them into app/main.py or delete them:\n  "
+        + "\n  ".join(orphans)
+    )
+
+
+# ---------------------------------------------------------------------------
+# 22. No `requests` library usage — httpx-only
+# ---------------------------------------------------------------------------
+#
+# The backend standardizes on `httpx` for HTTP calls (supports async,
+# has a Timeout class, Client pooling, retries via transports). The
+# `requests` library is a legacy alternative that doesn't speak async
+# and has its own quirks — mixing both is a code-smell and makes
+# retries/timeouts inconsistent. Currently zero usage; this is
+# pure lock-in to prevent drift.
+# ---------------------------------------------------------------------------
+
+def test_no_requests_library_usage():
+    """No `import requests` / `from requests import ...` in app/.
+    The backend uses `httpx` exclusively."""
+    hits: list[str] = []
+    for file in (_BACKEND / "app").rglob("*.py"):
+        if "__pycache__" in file.parts:
+            continue
+        rel = file.relative_to(_BACKEND).as_posix()
+        try:
+            source = file.read_text()
+            tree = ast.parse(source)
+        except (OSError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name == "requests" or alias.name.startswith("requests."):
+                        hits.append(f"{rel}:{node.lineno}  import {alias.name}")
+            elif isinstance(node, ast.ImportFrom):
+                if node.module == "requests" or (
+                    node.module and node.module.startswith("requests.")
+                ):
+                    hits.append(f"{rel}:{node.lineno}  from {node.module} import ...")
+
+    assert not hits, (
+        f"{len(hits)} `requests` library usage(s) in app/ — use `httpx` "
+        f"instead (async-capable, pooled, standardized):\n  "
+        + "\n  ".join(hits[:20])
+    )
+
+
+# ---------------------------------------------------------------------------
+# 23. Tracker JS source hash matches TRACKER_VERSION pair
+# ---------------------------------------------------------------------------
+#
+# `TRACKER_VERSION` in `app/core/tracker_version.py` is appended as
+# `?v={version}` to every merchant's spark-tracker.js script tag URL.
+# When a tracker file is edited, TRACKER_VERSION MUST be bumped so
+# merchant browsers cache-bust and fetch the new version on next load.
+# Forgetting to bump it means merchants keep serving stale JS —
+# potentially for weeks — until the onboarding repair cycle notices
+# the URL drift.
+#
+# This test pairs a content hash with the version: any change to
+# `/opt/wishspark/tracker/*.js` changes the hash, the test fails,
+# and the developer MUST bump TRACKER_VERSION + update the hash in
+# the same commit. No way to silently ship a tracker change.
+# ---------------------------------------------------------------------------
+
+def test_tracker_js_hash_matches_version():
+    """The declared TRACKER_SOURCE_HASH in tracker_version.py must
+    equal the actual SHA-256 of tracker/*.js. If a tracker script
+    changed without a matching TRACKER_VERSION bump + hash update,
+    merchants will serve cached stale JS."""
+    import hashlib
+
+    from app.core.tracker_version import TRACKER_SOURCE_HASH, TRACKER_VERSION
+
+    tracker_dir = _TRACKER
+    assert tracker_dir.exists(), f"tracker dir missing at {tracker_dir}"
+
+    files = sorted(p for p in tracker_dir.glob("*.js") if p.is_file())
+    assert files, f"no tracker/*.js files found in {tracker_dir}"
+
+    h = hashlib.sha256()
+    for f in files:
+        h.update(f.name.encode())
+        h.update(b"\0")
+        h.update(f.read_bytes())
+        h.update(b"\0")
+    actual = h.hexdigest()
+
+    assert actual == TRACKER_SOURCE_HASH, (
+        f"tracker/*.js changed but TRACKER_VERSION and TRACKER_SOURCE_HASH "
+        f"in app/core/tracker_version.py were not updated.\n"
+        f"  current version   : {TRACKER_VERSION}\n"
+        f"  declared hash     : {TRACKER_SOURCE_HASH}\n"
+        f"  actual hash       : {actual}\n"
+        f"Fix: bump TRACKER_VERSION (merchant cache-bust) AND paste the "
+        f"`actual` hash above as the new TRACKER_SOURCE_HASH in the same "
+        f"commit. Files hashed: {[f.name for f in files]}"
+    )

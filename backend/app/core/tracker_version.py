@@ -18,9 +18,20 @@ Do NOT construct the URL inline elsewhere.
 """
 import os
 
-# Bump this when spark-tracker.js changes.
+# Bump this when any file in /opt/wishspark/tracker/*.js changes.
 # Format: integer, monotonically increasing.
 TRACKER_VERSION = 10
+
+# SHA-256 of the concatenated contents of every tracker/*.js file,
+# computed by test_elite_hardening_v2::test_tracker_js_hash_matches_version.
+# When any tracker script is edited, the test fails with the new hash —
+# developer workflow:
+#   1. Edit tracker/*.js
+#   2. Bump TRACKER_VERSION above
+#   3. Run pytest; paste the new hash from the failure message below
+# This pairing guarantees TRACKER_VERSION is bumped EVERY time any tracker
+# script changes — otherwise merchant browsers keep cached stale JS.
+TRACKER_SOURCE_HASH = "9e16c5258b6dc4a7bc8f4d904642caa8e8e34a36bff4d9d9f761615248113429"
 
 
 def get_tracker_url() -> str:

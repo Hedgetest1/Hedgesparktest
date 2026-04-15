@@ -84,9 +84,7 @@ from app.api.live_opportunities import router as live_opportunities_router
 from app.api.visitor_scores import router as visitor_scores_router
 from app.api.live_alerts import router as live_alerts_router
 from app.api.ai_actions import router as ai_actions_router
-# revenue_actions_router removed — was a dead placeholder returning empty data
 from app.api.weekly_trend import router as weekly_trend_router
-# auth_router removed — legacy duplicate of shopify_oauth_router.
 # auth.py had its own /auth/callback with broken HMAC verification
 # (hardcoded 3 params instead of reading the full query string).
 # shopify_oauth.py is the canonical OAuth implementation.
@@ -469,12 +467,10 @@ app.include_router(tracker_router)
 app.include_router(live_visitors_router)
 app.include_router(top_pages_router)
 app.include_router(live_opportunities_router)
-# revenue_actions_router removed
 app.include_router(visitor_scores_router)
 app.include_router(live_alerts_router)
 app.include_router(ai_actions_router)
 app.include_router(weekly_trend_router)
-# auth_router removed — see shopify_oauth_router
 app.include_router(brief_router)
 app.include_router(merchant_router)
 app.include_router(merchant_export_router)
