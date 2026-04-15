@@ -234,6 +234,26 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2n. SSR body-size floor. Locks in the 2026-04-15 landing SSR fix —
+# every prerendered page under `.next/server/app/*.html` must ship
+# > 3 KB of real body content. A broken "use client" component that
+# returns null during SSR produces ~40 bytes of body and slips past
+# every smoke/a11y/bundle gate because the HTML file still exists
+# and the bundle still compiles. This gate catches the exact shape
+# of that regression at the filesystem level. Runs in milliseconds.
+# Skips cleanly when `.next/server/app/` is absent so backend-only
+# commits don't force a dashboard rebuild.
+# ---------------------------------------------------------------------------
+step "SSR body-size floor (audit_ssr_body_size.py)"
+if "$PY" "$BACKEND/scripts/audit_ssr_body_size.py" > /tmp/preflight_ssr.log 2>&1; then
+    _SSR_SUMMARY=$(grep -E "^(OK|audit_ssr_body_size)" /tmp/preflight_ssr.log | tail -1)
+    ok "SSR bodies above floor — ${_SSR_SUMMARY:-skipped, no build}"
+else
+    bad "SSR body regression detected — see /tmp/preflight_ssr.log"
+    tail -20 /tmp/preflight_ssr.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2k. Bundle-size budget (Tier 6.4). Guards the dashboard from a silent
 # first-load regression. Four caps: largest chunk, rootMainFiles total,
 # chunks total, chunks count. Baseline recorded in
