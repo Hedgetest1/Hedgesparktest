@@ -137,7 +137,7 @@ def add_member_endpoint(
     db: Session = Depends(get_db),
 ):
     from app.services.merchant_groups import add_member
-    g = db.query(MerchantGroup).get(group_id)
+    g = db.get(MerchantGroup, group_id)
     if not g:
         raise HTTPException(status_code=404, detail="not_found")
     email = _owner_email_for(db, shop)
@@ -155,7 +155,7 @@ def remove_member_endpoint(
     db: Session = Depends(get_db),
 ):
     from app.services.merchant_groups import remove_member
-    g = db.query(MerchantGroup).get(group_id)
+    g = db.get(MerchantGroup, group_id)
     if not g:
         raise HTTPException(status_code=404, detail="not_found")
     email = _owner_email_for(db, shop)
@@ -175,7 +175,7 @@ def group_dashboard_endpoint(
     lookback_days: int = Query(30, ge=1, le=365),
 ):
     from app.services.merchant_groups import get_group_dashboard
-    g = db.query(MerchantGroup).get(group_id)
+    g = db.get(MerchantGroup, group_id)
     if not g:
         raise HTTPException(status_code=404, detail="not_found")
     email = _owner_email_for(db, shop)

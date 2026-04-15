@@ -393,7 +393,7 @@ def generate_triage_packet(db: Session, incident_id: int) -> dict | None:
     Returns the packet dict, or None if incident not found.
     Updates the incident's triage_packet and ai_triage_status.
     """
-    incident = db.query(SentryIncident).get(incident_id)
+    incident = db.get(SentryIncident, incident_id)
     if not incident:
         return None
 

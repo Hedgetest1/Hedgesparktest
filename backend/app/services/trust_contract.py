@@ -449,7 +449,7 @@ def attach_outcome(
 ) -> None:
     """Attach an outcome measurement to a prior execution. Called by the
     outcome evaluator 48h post-execution."""
-    row = db.query(TrustExecutionLog).get(execution_id)
+    row = db.get(TrustExecutionLog, execution_id)
     if row is None:
         return
     row.outcome = outcome
@@ -553,7 +553,7 @@ def create_contract(
 def update_contract(
     db: Session, contract_id: int, **updates: Any
 ) -> TrustContract | None:
-    contract = db.query(TrustContract).get(contract_id)
+    contract = db.get(TrustContract, contract_id)
     if contract is None:
         return None
     _ALLOWED_UPDATES = {
@@ -576,7 +576,7 @@ def update_contract(
 def revoke_contract(
     db: Session, contract_id: int, reason: str = "merchant"
 ) -> TrustContract | None:
-    contract = db.query(TrustContract).get(contract_id)
+    contract = db.get(TrustContract, contract_id)
     if contract is None:
         return None
     if contract.status == "revoked":

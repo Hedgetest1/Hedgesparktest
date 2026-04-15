@@ -268,6 +268,7 @@ def test_bench_propose_patch_preflight_blocks_llm_call():
 
     fake_db = MagicMock()
     fake_db.query.return_value.get.return_value = fake_candidate
+    fake_db.get.return_value = fake_candidate
 
     with patch.object(bp, "_call_llm") as mock_llm, \
          patch.object(bp, "_check_patch_fingerprint", return_value=None), \

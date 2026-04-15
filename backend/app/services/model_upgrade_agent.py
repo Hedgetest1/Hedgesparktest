@@ -158,7 +158,7 @@ def evaluate_upgrade(db: Session, proposal_id: int) -> str:
     """
     from app.core.llm_budget import check_budget, record_usage, record_blocked
 
-    proposal = db.query(ModelUpgradeProposal).get(proposal_id)
+    proposal = db.get(ModelUpgradeProposal, proposal_id)
     if not proposal or proposal.status not in ("pending", "evaluating"):
         return "invalid_status"
 
@@ -319,7 +319,7 @@ def generate_upgrade_evolution_proposals(db: Session, proposal_id: int) -> int:
     """
     from app.models.evolution_proposal import EvolutionProposal
 
-    proposal = db.query(ModelUpgradeProposal).get(proposal_id)
+    proposal = db.get(ModelUpgradeProposal, proposal_id)
     if not proposal or proposal.eval_result != "pass":
         return 0
 

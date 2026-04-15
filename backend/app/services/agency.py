@@ -58,7 +58,7 @@ def get_agency_by_email(db: Session, contact_email: str) -> Agency | None:
 def add_client(db: Session, agency_id: int, shop_domain: str,
                *, nickname: str | None = None,
                revshare_pct: float | None = None) -> AgencyClient:
-    agency = db.query(Agency).get(agency_id)
+    agency = db.get(Agency, agency_id)
     if agency is None:
         raise ValueError("agency_not_found")
     pct = revshare_pct if revshare_pct is not None else agency.default_revshare_pct
@@ -129,7 +129,7 @@ def get_agency_dashboard(db: Session, agency_id: int, *, lookback_days: int = 30
     except Exception:
         rc = None
 
-    agency = db.query(Agency).get(agency_id)
+    agency = db.get(Agency, agency_id)
     if not agency:
         return {"error": "agency_not_found"}
 

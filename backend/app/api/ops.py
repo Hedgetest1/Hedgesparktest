@@ -261,7 +261,7 @@ def resolve_alert_endpoint(
     """Mark an alert as resolved."""
     from app.services.alerting import resolve_alert
     from app.models.ops_alert import OpsAlert
-    alert = db.query(OpsAlert).get(alert_id)
+    alert = db.get(OpsAlert, alert_id)
     if not alert:
         raise HTTPException(404, "Alert not found")
     if alert.resolved:
@@ -315,7 +315,7 @@ def get_gdpr_export(
     Pending/failed requests return status only (no data).
     """
     from app.models.gdpr_request import GdprRequest
-    req = db.query(GdprRequest).get(request_id)
+    req = db.get(GdprRequest, request_id)
     if not req:
         raise HTTPException(404, "GDPR request not found")
     if req.request_type != "customers_data_request":
@@ -408,7 +408,7 @@ def approve_action(
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
-    approval = db.query(ActionApproval).get(approval_id)
+    approval = db.get(ActionApproval, approval_id)
     if not approval:
         raise HTTPException(404, "Approval not found")
     if approval.status != "pending":
@@ -492,7 +492,7 @@ def reject_action(
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
-    approval = db.query(ActionApproval).get(approval_id)
+    approval = db.get(ActionApproval, approval_id)
     if not approval:
         raise HTTPException(404, "Approval not found")
     if approval.status != "pending":
@@ -558,7 +558,7 @@ def get_bugfix(
 ):
     """Get full bug fix candidate details including patch."""
     from app.models.bugfix_candidate import BugFixCandidate
-    c = db.query(BugFixCandidate).get(candidate_id)
+    c = db.get(BugFixCandidate, candidate_id)
     if not c:
         raise HTTPException(404, "Bug fix candidate not found")
     return {
@@ -618,7 +618,7 @@ def approve_bugfix(
     from app.services.audit import write_audit_log
     from datetime import datetime, timezone
 
-    c = db.query(BugFixCandidate).get(candidate_id)
+    c = db.get(BugFixCandidate, candidate_id)
     if not c:
         raise HTTPException(404, "Not found")
     if c.status != "patch_proposed":
@@ -649,7 +649,7 @@ def reject_bugfix(
     from app.services.audit import write_audit_log
     from datetime import datetime, timezone
 
-    c = db.query(BugFixCandidate).get(candidate_id)
+    c = db.get(BugFixCandidate, candidate_id)
     if not c:
         raise HTTPException(404, "Not found")
     if c.status not in ("open", "analyzed", "patch_proposed"):
@@ -742,7 +742,7 @@ def get_promotion(
 ):
     """Get promotion detail."""
     from app.models.autofix_promotion import AutoFixPromotion
-    p = db.query(AutoFixPromotion).get(promo_id)
+    p = db.get(AutoFixPromotion, promo_id)
     if not p:
         raise HTTPException(404, "Promotion not found")
     return {
@@ -852,7 +852,7 @@ def approve_promotion(
     from app.models.autofix_promotion import AutoFixPromotion
     from app.services.audit import write_audit_log
     from datetime import datetime, timezone
-    p = db.query(AutoFixPromotion).get(promo_id)
+    p = db.get(AutoFixPromotion, promo_id)
     if not p:
         raise HTTPException(404, "Not found")
     if p.status not in ("ci_passed", "branch_created"):
@@ -880,7 +880,7 @@ def reject_promotion(
     from app.models.autofix_promotion import AutoFixPromotion
     from app.services.audit import write_audit_log
     from datetime import datetime, timezone
-    p = db.query(AutoFixPromotion).get(promo_id)
+    p = db.get(AutoFixPromotion, promo_id)
     if not p:
         raise HTTPException(404, "Not found")
     if p.status in ("pushed", "rejected"):
@@ -1018,7 +1018,7 @@ def accept_evolution(
     """Accept an evolution proposal."""
     from app.models.evolution_proposal import EvolutionProposal
     from datetime import datetime, timezone
-    p = db.query(EvolutionProposal).get(proposal_id)
+    p = db.get(EvolutionProposal, proposal_id)
     if not p:
         raise HTTPException(404, "Not found")
     if p.status != "open":
@@ -1039,7 +1039,7 @@ def reject_evolution(
     """Reject an evolution proposal."""
     from app.models.evolution_proposal import EvolutionProposal
     from datetime import datetime, timezone
-    p = db.query(EvolutionProposal).get(proposal_id)
+    p = db.get(EvolutionProposal, proposal_id)
     if not p:
         raise HTTPException(404, "Not found")
     if p.status != "open":
@@ -1061,7 +1061,7 @@ def revalidate_evolution(
     from app.models.evolution_proposal import EvolutionProposal, GC_STATUSES
     from app.services.audit import write_audit_log
     from datetime import datetime, timezone
-    p = db.query(EvolutionProposal).get(proposal_id)
+    p = db.get(EvolutionProposal, proposal_id)
     if not p:
         raise HTTPException(404, "Not found")
     if p.status not in GC_STATUSES:
@@ -1128,7 +1128,7 @@ def get_model_upgrade(
 ):
     """Get model upgrade detail."""
     from app.models.model_upgrade import ModelUpgradeProposal
-    p = db.query(ModelUpgradeProposal).get(upgrade_id)
+    p = db.get(ModelUpgradeProposal, upgrade_id)
     if not p:
         raise HTTPException(404, "Not found")
     return {
@@ -1173,7 +1173,7 @@ def approve_model_upgrade(
     from app.services.model_upgrade_agent import generate_upgrade_evolution_proposals
     from datetime import datetime, timezone
 
-    p = db.query(ModelUpgradeProposal).get(upgrade_id)
+    p = db.get(ModelUpgradeProposal, upgrade_id)
     if not p:
         raise HTTPException(404, "Not found")
     if p.status != "evaluated":
@@ -1198,7 +1198,7 @@ def reject_model_upgrade(
     """Reject a model upgrade proposal."""
     from app.models.model_upgrade import ModelUpgradeProposal
     from datetime import datetime, timezone
-    p = db.query(ModelUpgradeProposal).get(upgrade_id)
+    p = db.get(ModelUpgradeProposal, upgrade_id)
     if not p:
         raise HTTPException(404, "Not found")
     if p.status in ("rejected", "activated"):
@@ -1224,7 +1224,7 @@ def activate_model_upgrade(
     from app.services.model_config import activate_model
     from datetime import datetime, timezone
 
-    p = db.query(ModelUpgradeProposal).get(upgrade_id)
+    p = db.get(ModelUpgradeProposal, upgrade_id)
     if not p:
         raise HTTPException(404, "Not found")
     if p.status != "approved":
@@ -1537,7 +1537,7 @@ def approve_lesson_promotion(
     from app.services.audit import write_audit_log
     from datetime import datetime, timezone
 
-    lesson = db.query(SystemLesson).get(lesson_id)
+    lesson = db.get(SystemLesson, lesson_id)
     if not lesson:
         raise HTTPException(404, "Lesson not found")
     if lesson.promotion_status != "pending_promotion":
@@ -1570,7 +1570,7 @@ def reject_lesson_promotion(
     from app.services.audit import write_audit_log
     from datetime import datetime, timezone
 
-    lesson = db.query(SystemLesson).get(lesson_id)
+    lesson = db.get(SystemLesson, lesson_id)
     if not lesson:
         raise HTTPException(404, "Lesson not found")
     if lesson.promotion_status not in ("pending_promotion", "promoted"):
@@ -2547,7 +2547,7 @@ def ops_incident_detail(
     """
     from app.models.sentry_incident import SentryIncident
 
-    inc = db.query(SentryIncident).get(incident_id)
+    inc = db.get(SentryIncident, incident_id)
     if not inc:
         raise HTTPException(status_code=404, detail="Incident not found")
 
@@ -2615,7 +2615,7 @@ def ops_incident_family(
     """
     from app.models.sentry_incident import SentryIncident
 
-    head = db.query(SentryIncident).get(incident_id)
+    head = db.get(SentryIncident, incident_id)
     if not head:
         raise HTTPException(status_code=404, detail="Incident not found")
 

@@ -46,7 +46,7 @@ def compute_merge_recommendation(db: Session, promotion_id: int) -> MergeRecomme
     """
     rec = MergeRecommendation()
 
-    promo = db.query(AutoFixPromotion).get(promotion_id)
+    promo = db.get(AutoFixPromotion, promotion_id)
     if not promo:
         rec.reasons.append("promotion_not_found")
         return rec
@@ -66,7 +66,7 @@ def compute_merge_recommendation(db: Session, promotion_id: int) -> MergeRecomme
 
     # Gate 4: Bugfix candidate was successfully applied
     from app.models.bugfix_candidate import BugFixCandidate
-    candidate = db.query(BugFixCandidate).get(promo.bugfix_candidate_id)
+    candidate = db.get(BugFixCandidate, promo.bugfix_candidate_id)
     if not candidate or candidate.status != "applied":
         rec.reasons.append(f"candidate_not_applied: {candidate.status if candidate else 'not_found'}")
 
@@ -121,7 +121,7 @@ def create_merge_outcome(db: Session, promotion_id: int) -> MergeOutcome | None:
     if existing:
         return existing
 
-    promo = db.query(AutoFixPromotion).get(promotion_id)
+    promo = db.get(AutoFixPromotion, promotion_id)
     if not promo or promo.status != "merged":
         return None
 
@@ -198,7 +198,7 @@ def _evaluate_single(db: Session, outcome: MergeOutcome) -> tuple[str, str]:
 
     # Check 1: Did the same bug source reappear?
     from app.models.bugfix_candidate import BugFixCandidate
-    original = db.query(BugFixCandidate).get(outcome.bugfix_candidate_id)
+    original = db.get(BugFixCandidate, outcome.bugfix_candidate_id)
     if not original:
         return "unknown", "original_candidate_deleted — cannot verify regression"
     if original:

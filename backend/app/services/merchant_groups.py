@@ -133,7 +133,7 @@ def get_group_dashboard(db: Session, group_id: int, *, lookback_days: int = 30) 
     except Exception:
         rc = None
 
-    group = db.query(MerchantGroup).get(group_id)
+    group = db.get(MerchantGroup, group_id)
     if not group:
         return {"error": "group_not_found"}
 

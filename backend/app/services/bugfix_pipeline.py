@@ -2458,7 +2458,7 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
     Stores result on the candidate row. Does NOT apply anything.
     Returns True if proposal was generated.
     """
-    candidate = db.query(BugFixCandidate).get(candidate_id)
+    candidate = db.get(BugFixCandidate, candidate_id)
     if not candidate or candidate.status not in ("open", "analyzed"):
         return False
 
@@ -4250,7 +4250,7 @@ def _apply_bugfix_candidate_impl(db: Session, candidate_id: int) -> ApplyResult:
     import tempfile
 
     result = ApplyResult()
-    candidate = db.query(BugFixCandidate).get(candidate_id)
+    candidate = db.get(BugFixCandidate, candidate_id)
 
     if not candidate:
         result.status = "apply_failed"

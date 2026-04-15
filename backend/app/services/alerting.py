@@ -305,7 +305,7 @@ def get_unresolved_alerts(
 
 def resolve_alert(db: Session, alert_id: int) -> None:
     """Mark an alert as resolved."""
-    alert = db.query(OpsAlert).get(alert_id)
+    alert = db.get(OpsAlert, alert_id)
     if alert and not alert.resolved:
         alert.resolved = True
         alert.resolved_at = datetime.now(timezone.utc).replace(tzinfo=None)

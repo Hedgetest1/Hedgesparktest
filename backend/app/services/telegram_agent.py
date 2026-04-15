@@ -885,7 +885,7 @@ def _cmd_approve(db, args: list[str]) -> str:
 
     now = _now()
 
-    approval = db.query(ActionApproval).get(approval_id)
+    approval = db.get(ActionApproval, approval_id)
     if not approval:
         return f"Approval #{approval_id} not found."
     if approval.status != "pending":
@@ -979,7 +979,7 @@ def _cmd_reject(db, args: list[str]) -> str:
 
     now = _now()
 
-    approval = db.query(ActionApproval).get(approval_id)
+    approval = db.get(ActionApproval, approval_id)
     if not approval:
         return f"Approval #{approval_id} not found."
     if approval.status != "pending":
@@ -1073,7 +1073,7 @@ def _cmd_bugfix_approve(db, args: list[str]) -> str:
 
     now = _now()
 
-    c = db.query(BugFixCandidate).get(candidate_id)
+    c = db.get(BugFixCandidate, candidate_id)
     if not c:
         return f"Bugfix #{candidate_id} not found."
 
@@ -1137,7 +1137,7 @@ def _cmd_bugfix_apply(db, args: list[str]) -> str:
     if not check_idempotency("bugfix_apply", str(candidate_id), critical=True):
         return f"⏳ Already processing — bugfix #{candidate_id} apply is in progress. (If Redis is down, critical actions are blocked for safety.)"
 
-    c = db.query(BugFixCandidate).get(candidate_id)
+    c = db.get(BugFixCandidate, candidate_id)
     if not c:
         return f"Bugfix #{candidate_id} not found."
 
@@ -1241,7 +1241,7 @@ def _cmd_rollback(db, args: list[str]) -> str:
     from app.models.bugfix_candidate import BugFixCandidate
     import subprocess
 
-    c = db.query(BugFixCandidate).get(candidate_id)
+    c = db.get(BugFixCandidate, candidate_id)
     if not c:
         return f"Candidate #{candidate_id} not found."
 
@@ -1408,7 +1408,7 @@ def _cmd_merge(db, args: list[str]) -> str:
     from app.models.autofix_promotion import AutoFixPromotion
     from app.services.audit import write_audit_log
 
-    p = db.query(AutoFixPromotion).get(promo_id)
+    p = db.get(AutoFixPromotion, promo_id)
     if not p:
         return f"Promotion #{promo_id} not found."
 
@@ -1497,7 +1497,7 @@ def _cmd_review(db, args: list[str]) -> str:
     # For promotions, resolve the bugfix_candidate_id
     if raw_type == "promotion":
         from app.models.autofix_promotion import AutoFixPromotion
-        p = db.query(AutoFixPromotion).get(entity_id)
+        p = db.get(AutoFixPromotion, entity_id)
         if not p:
             return f"Promotion #{entity_id} not found."
         entity_id = p.bugfix_candidate_id
@@ -2497,7 +2497,7 @@ def build_tier2_weekly_review(db) -> tuple[str, list[list[dict]]]:
         prediction_badge = ""
         if predict_decision_for_candidate and BugFixCandidate is not None:
             try:
-                bc = db.query(BugFixCandidate).get(cid)
+                bc = db.get(BugFixCandidate, cid)
                 if bc is not None:
                     pred = predict_decision_for_candidate(db, bc)
                     rec = pred.get("recommendation", "unknown")

@@ -66,7 +66,7 @@ def publish(
 
 
 def unpublish(db: Session, template_id: int, requesting_shop: str) -> bool:
-    t = db.query(CommunityTemplate).get(template_id)
+    t = db.get(CommunityTemplate, template_id)
     if not t or t.author_shop != requesting_shop:
         return False
     t.status = "removed"
@@ -75,7 +75,7 @@ def unpublish(db: Session, template_id: int, requesting_shop: str) -> bool:
 
 
 def upvote(db: Session, template_id: int) -> bool:
-    t = db.query(CommunityTemplate).get(template_id)
+    t = db.get(CommunityTemplate, template_id)
     if not t or t.status != "published":
         return False
     t.upvotes = (t.upvotes or 0) + 1
@@ -92,7 +92,7 @@ def clone_template(
     Idempotent clone. Returns a dict with the cloned payload + a flag
     saying whether this was a first-time clone (counter incremented).
     """
-    t = db.query(CommunityTemplate).get(template_id)
+    t = db.get(CommunityTemplate, template_id)
     if not t or t.status != "published":
         return {"ok": False, "error": "template_not_found"}
 

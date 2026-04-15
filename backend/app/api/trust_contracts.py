@@ -235,7 +235,7 @@ def patch_contract(
     db: Session = Depends(get_db),
 ):
     from app.models.trust_contract import TrustContract
-    existing = db.query(TrustContract).get(contract_id)
+    existing = db.get(TrustContract, contract_id)
     if existing is None or existing.shop_domain != shop:
         raise HTTPException(status_code=404, detail="contract_not_found")
     if existing.status in ("revoked", "expired"):
@@ -255,7 +255,7 @@ def revoke_contract(
     db: Session = Depends(get_db),
 ):
     from app.models.trust_contract import TrustContract
-    existing = db.query(TrustContract).get(contract_id)
+    existing = db.get(TrustContract, contract_id)
     if existing is None or existing.shop_domain != shop:
         raise HTTPException(status_code=404, detail="contract_not_found")
     contract = tc_service.revoke_contract(db, contract_id, reason="merchant")

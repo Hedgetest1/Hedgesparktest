@@ -164,7 +164,7 @@ def _eval_resolve_alert(db: Session, outcome: ActionOutcome) -> tuple[str, str]:
     except (ValueError, TypeError):
         return "unknown", "invalid_alert_id"
 
-    alert = db.query(OpsAlert).get(alert_id)
+    alert = db.get(OpsAlert, alert_id)
     if alert is None:
         return "success", "alert_deleted_or_not_found"
     if alert.resolved:

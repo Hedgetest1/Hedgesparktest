@@ -87,7 +87,7 @@ def create_promotion(db: Session, bugfix_candidate_id: int, git_commit_sha: str)
 
 def create_promotion_branch(db: Session, promotion_id: int) -> str:
     """Create a local git branch for the promotion. Returns branch name or error."""
-    promo = db.query(AutoFixPromotion).get(promotion_id)
+    promo = db.get(AutoFixPromotion, promotion_id)
     if not promo:
         return "not_found"
     if promo.status not in ("pending", "branch_created"):
@@ -135,7 +135,7 @@ def run_promotion_ci_check(db: Session, promotion_id: int) -> str:
     Current implementation: local test run (no remote CI integration yet).
     Returns: ci_passed | ci_failed | ci_pending | error
     """
-    promo = db.query(AutoFixPromotion).get(promotion_id)
+    promo = db.get(AutoFixPromotion, promotion_id)
     if not promo:
         return "not_found"
     if promo.status not in ("branch_created", "ci_pending"):
@@ -166,7 +166,7 @@ def run_promotion_ci_check(db: Session, promotion_id: int) -> str:
         try:
             from app.models.bugfix_candidate import BugFixCandidate
             import json as _json
-            candidate = db.query(BugFixCandidate).get(promo.bugfix_candidate_id)
+            candidate = db.get(BugFixCandidate, promo.bugfix_candidate_id)
             if candidate and candidate.patch_files:
                 from app.core.tier_check import require_frontend_build
                 files = _json.loads(candidate.patch_files)
@@ -209,7 +209,7 @@ def push_promotion(db: Session, promotion_id: int) -> str:
 
     Returns: pushed | error_message
     """
-    promo = db.query(AutoFixPromotion).get(promotion_id)
+    promo = db.get(AutoFixPromotion, promotion_id)
     if not promo:
         return "not_found"
     if promo.status not in ("approved", "ci_passed", "branch_created"):
@@ -265,7 +265,7 @@ def check_remote_ci_status(db: Session, promotion_id: int) -> str:
     Check remote CI status for a pushed promotion branch.
     Returns: passed | failed | in_progress | queued | unknown | unconfigured | error
     """
-    promo = db.query(AutoFixPromotion).get(promotion_id)
+    promo = db.get(AutoFixPromotion, promotion_id)
     if not promo:
         return "not_found"
     if promo.status not in ("pushed", "approved") and not promo.pushed_at:
@@ -337,7 +337,7 @@ def create_promotion_pr(db: Session, promotion_id: int) -> str:
     Create a GitHub PR for the promotion branch.
     Returns: pr_url | error_message
     """
-    promo = db.query(AutoFixPromotion).get(promotion_id)
+    promo = db.get(AutoFixPromotion, promotion_id)
     if not promo:
         return "not_found"
     if not promo.pushed_at or not promo.branch_name:
@@ -357,7 +357,7 @@ def create_promotion_pr(db: Session, promotion_id: int) -> str:
 
     # Build PR body
     from app.models.bugfix_candidate import BugFixCandidate
-    candidate = db.query(BugFixCandidate).get(promo.bugfix_candidate_id)
+    candidate = db.get(BugFixCandidate, promo.bugfix_candidate_id)
     title = f"chore(autofix): candidate #{promo.bugfix_candidate_id}"
     body_parts = [
         f"## Auto-Fix Candidate #{promo.bugfix_candidate_id}",
@@ -416,7 +416,7 @@ def merge_promotion(db: Session, promotion_id: int) -> str:
     Requires: pushed + PR exists + remote CI passed + approved.
     Returns: merged | error_message
     """
-    promo = db.query(AutoFixPromotion).get(promotion_id)
+    promo = db.get(AutoFixPromotion, promotion_id)
     if not promo:
         return "not_found"
     if not promo.pr_url or not promo.pr_number:
@@ -728,7 +728,7 @@ def _is_auto_mergeable(db: Session, promo: AutoFixPromotion) -> tuple[bool, str]
 
     # Gate 3: patch must not touch a forbidden merchant-facing or TIER-critical path.
     from app.models.bugfix_candidate import BugFixCandidate
-    candidate = db.query(BugFixCandidate).get(promo.bugfix_candidate_id)
+    candidate = db.get(BugFixCandidate, promo.bugfix_candidate_id)
     if not candidate:
         return False, "candidate_missing"
     forbidden = _candidate_touches_forbidden_path(candidate.patch_files)

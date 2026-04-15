@@ -178,12 +178,12 @@ def attempt_delivery(db: Session, delivery_id: int) -> str:
     Send one delivery. Returns the resulting status string.
     Does NOT raise — failures are recorded in the row.
     """
-    d = db.query(OutboundWebhookDelivery).get(delivery_id)
+    d = db.get(OutboundWebhookDelivery, delivery_id)
     if not d:
         return "missing"
     if d.status == "delivered":
         return "delivered"
-    sub = db.query(OutboundWebhookSubscription).get(d.subscription_id)
+    sub = db.get(OutboundWebhookSubscription, d.subscription_id)
     if not sub or sub.status != "active":
         d.status = "dead"
         d.last_attempted_at = _now()

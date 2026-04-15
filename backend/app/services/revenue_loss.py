@@ -72,12 +72,13 @@ from __future__ import annotations
 # Constants
 # ---------------------------------------------------------------------------
 
-# TODO: REPLACE WITH REAL ORDER DATA
-# This fallback is used when no real AOV is available for the merchant.
-# Once shop_orders is populated via POST /webhooks/shopify/orders,
-# replace this constant with a per-shop query:
-#   SELECT AVG(total_price) FROM shop_orders WHERE shop_domain = :shop
-# See app/services/order_ingestion.py and app/models/shop_order.py.
+# Deep defensive fallback. All three production callers
+# (action_candidates_engine, revenue_radar, weekly_digest) now resolve
+# the real per-shop AOV via `revenue_metrics.get_shop_aov()` and pass
+# it explicitly to calculate_expected_loss(). This constant is only
+# reached when both the caller-resolved AOV is None/0 AND the shop has
+# zero ingested orders — the degenerate "brand-new merchant" case.
+# Kept at 50.0 to match `revenue_metrics.FALLBACK_AOV` for consistency.
 DEFAULT_AOV: float = 50.0
 
 # Hard cap on reported expected_loss.  Prevents a single outlier product with

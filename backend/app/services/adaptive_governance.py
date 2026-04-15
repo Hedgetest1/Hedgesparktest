@@ -526,7 +526,7 @@ def _gather_operator_feedback(db: Session) -> dict[str, dict]:
             if not domain and "bugfix" in action_type and target_id:
                 try:
                     from app.models.bugfix_candidate import BugFixCandidate
-                    c = db.query(BugFixCandidate).get(int(target_id))
+                    c = db.get(BugFixCandidate, int(target_id))
                     if c:
                         domain = getattr(c, "affected_domain", None)
                 except Exception:

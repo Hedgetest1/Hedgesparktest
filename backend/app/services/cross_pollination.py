@@ -79,7 +79,7 @@ def _infer_alert_type(db: Session, candidate) -> str | None:
 
     if source_type == "ops_alert" and source_ref.isdigit():
         try:
-            row = db.query(OpsAlert).get(int(source_ref))
+            row = db.get(OpsAlert, int(source_ref))
             if row and row.alert_type:
                 return row.alert_type
         except Exception as exc:
@@ -243,7 +243,7 @@ def cross_pollinate_from_proven_fix(
         "proven_fix_id": candidate_id,
     }
 
-    proven = db.query(BugFixCandidate).get(candidate_id)
+    proven = db.get(BugFixCandidate, candidate_id)
     if not proven:
         report["skipped_reason"] = "candidate_not_found"
         return report

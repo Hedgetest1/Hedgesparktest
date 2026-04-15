@@ -62,7 +62,7 @@ def _load_entity(db: Session, entity_type: str, entity_id: int) -> dict | None:
 
 def _load_bugfix(db: Session, entity_id: int) -> dict | None:
     from app.models.bugfix_candidate import BugFixCandidate
-    c = db.query(BugFixCandidate).get(entity_id)
+    c = db.get(BugFixCandidate, entity_id)
     if not c:
         return None
     files = []
@@ -87,7 +87,7 @@ def _load_bugfix(db: Session, entity_id: int) -> dict | None:
 
 def _load_evolution(db: Session, entity_id: int) -> dict | None:
     from app.models.evolution_proposal import EvolutionProposal
-    p = db.query(EvolutionProposal).get(entity_id)
+    p = db.get(EvolutionProposal, entity_id)
     if not p:
         return None
     target = p.target_file.split(":")[0] if p.target_file else None
@@ -108,14 +108,14 @@ def _load_evolution(db: Session, entity_id: int) -> dict | None:
 def _load_approval(db: Session, entity_id: int) -> dict | None:
     from app.models.action_approval import ActionApproval
     from app.models.audit_log import AuditLog
-    a = db.query(ActionApproval).get(entity_id)
+    a = db.get(ActionApproval, entity_id)
     if not a:
         return None
     # Get the action details from the linked audit_log
     action_type = None
     target = None
     if a.audit_log_id:
-        al = db.query(AuditLog).get(a.audit_log_id)
+        al = db.get(AuditLog, a.audit_log_id)
         if al:
             action_type = al.action_type
             target = al.target_id
@@ -131,7 +131,7 @@ def _load_approval(db: Session, entity_id: int) -> dict | None:
 
 def _load_model_upgrade(db: Session, entity_id: int) -> dict | None:
     from app.models.model_upgrade import ModelUpgradeProposal
-    m = db.query(ModelUpgradeProposal).get(entity_id)
+    m = db.get(ModelUpgradeProposal, entity_id)
     if not m:
         return None
     return {
@@ -151,7 +151,7 @@ def _load_model_upgrade(db: Session, entity_id: int) -> dict | None:
 
 def _load_scaling(db: Session, entity_id: int) -> dict | None:
     from app.models.scaling_recommendation import ScalingRecommendation
-    s = db.query(ScalingRecommendation).get(entity_id)
+    s = db.get(ScalingRecommendation, entity_id)
     if not s:
         return None
     return {
