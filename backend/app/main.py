@@ -1,5 +1,6 @@
 import logging
 import os
+from contextlib import asynccontextmanager
 
 from app.core.logging_config import configure_logging
 configure_logging()
@@ -220,7 +221,32 @@ from app.api.consent_banner import router as consent_banner_router
 
 _startup_log = logging.getLogger("wishspark.startup")
 
-app = FastAPI(title="HedgeSpark API", docs_url=None, redoc_url=None)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    FastAPI lifespan context manager — replaces the deprecated
+    `@app.on_event("startup")` / `@app.on_event("shutdown")` decorators.
+
+    Startup hooks run in order before any request is served. The actual
+    hook implementations live lower in this file (see `_startup_env_audit`
+    and `_startup_telegram_warmup`) — Python resolves these globals at
+    call time, not at module load, so the forward references work.
+
+    No shutdown work is currently needed; the `yield` marks the handoff
+    to the running server and everything after it would run on shutdown.
+    """
+    _startup_env_audit()
+    _startup_telegram_warmup()
+    yield
+
+
+app = FastAPI(
+    title="HedgeSpark API",
+    docs_url=None,
+    redoc_url=None,
+    lifespan=lifespan,
+)
 
 # CORS — must allow:
 #   1. https://app.hedgesparkhq.com       — dashboard (subdomain)
@@ -599,12 +625,13 @@ async def metrics_middleware(request: Request, call_next):
         return response
 
 
-@app.on_event("startup")
 def _startup_env_audit() -> None:
     """
     Log the status of every production secret at server startup.
     Operators can see this immediately in: pm2 logs wishspark-backend
     This fires once — not on every request.
+
+    Invoked from the `lifespan` context manager at module top.
     """
     allow_insecure_dev = os.getenv("ALLOW_INSECURE_DEV", "").lower() == "true"
 
@@ -696,10 +723,12 @@ def _startup_env_audit() -> None:
         )
 
 
-@app.on_event("startup")
 def _startup_telegram_warmup() -> None:
     """Pre-establish Telegram TLS connection in a background thread so the
-    first operator command doesn't pay the 5-10s handshake cost."""
+    first operator command doesn't pay the 5-10s handshake cost.
+
+    Invoked from the `lifespan` context manager at module top.
+    """
     import threading
     try:
         from app.services.telegram_agent import is_configured, warmup_connection
