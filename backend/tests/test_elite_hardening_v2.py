@@ -1780,3 +1780,62 @@ def test_every_worker_file_registered_in_ecosystem():
         f"PM2 config points at files that don't exist:\n  "
         + "\n  ".join(dangling)
     )
+
+
+# ---------------------------------------------------------------------------
+# 26. No backup/scratch files in the source tree
+# ---------------------------------------------------------------------------
+#
+# `.backup`, `.bak`, `.old`, `*-backup*`, `*.LITE-STABLE`, `*.save`
+# files are git-history-done-wrong. Git IS the backup system: every
+# prior state of every file is recoverable via `git log -- <path>`
+# and `git show <sha>:<path>`. Named backup files rot, mislead grep,
+# pollute IDE indexing, bloat the repo, and multiply silently — one
+# 4758-line `page.tsx.backup` triggers a reflex to add more. The
+# only acceptable way to save a working-in-progress state is either
+# (a) commit it to a branch or (b) stash it. Never a named copy.
+#
+# Currently: 0 sites. 38 backup files were deleted in the same
+# commit that shipped this test (32 tracked, 6 untracked, total
+# 1.5 MB of dead weight across dashboard/src/app/ and
+# backend/app/core/).
+# ---------------------------------------------------------------------------
+
+_BACKUP_PATTERN = re.compile(
+    r"\.(backup|bak|old|save|orig)$|-backup|LITE-STABLE|before-[a-z-]+$",
+    re.IGNORECASE,
+)
+
+
+def test_no_backup_files_in_source_tree():
+    """No named backup files. Git is the backup. If you need a WIP
+    checkpoint, commit a branch or stash — never copy the file with
+    a `-backup` suffix."""
+    hits: list[str] = []
+    roots = [
+        Path("/opt/wishspark/dashboard/src"),
+        Path("/opt/wishspark/backend/app"),
+        Path("/opt/wishspark/backend/tests"),
+        Path("/opt/wishspark/backend/scripts"),
+        Path("/opt/wishspark/tracker"),
+    ]
+    for root in roots:
+        if not root.exists():
+            continue
+        for file in root.rglob("*"):
+            if not file.is_file():
+                continue
+            if any(p in file.parts for p in ("node_modules", ".next", "__pycache__", "venv")):
+                continue
+            if _BACKUP_PATTERN.search(file.name):
+                try:
+                    rel = file.relative_to(Path("/opt/wishspark")).as_posix()
+                except ValueError:
+                    rel = str(file)
+                hits.append(rel)
+
+    assert not hits, (
+        f"{len(hits)} backup/scratch file(s) in source tree — delete them "
+        f"and use git commits/stashes for WIP state:\n  "
+        + "\n  ".join(hits[:30])
+    )
