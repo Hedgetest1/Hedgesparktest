@@ -1207,23 +1207,27 @@ _PRINT_ALLOWLIST: set[str] = {
     "app/services/email_governance.py:380",
     "app/services/email_governance.py:384",
     "app/services/email_governance.py:385",
+    # Context builder CLI utility — only callers are its own
+    # `if __name__ == "__main__":` block and a test. Prints are
+    # the user-facing result of a manual doc-sync run.
+    "app/system/context_builder.py:171",
+    "app/system/context_builder.py:172",
 }
 
 
 def test_no_bare_print_in_production_code():
-    """`print(...)` in services/api/workers bypasses the structured
-    logger and leaks to stdout. Use `log.info/warning/error` instead."""
+    """`print(...)` in production code bypasses the structured
+    logger and leaks to stdout. Use `log.info/warning/error` instead.
+    Scans the whole `app/` tree — `app/scripts/` is exempt because
+    it holds one-shot CLI utilities that legitimately print to stdout."""
     hits: list[str] = []
-    scan_roots = [
-        _BACKEND / "app" / "services",
-        _BACKEND / "app" / "api",
-        _BACKEND / "app" / "workers",
-        _BACKEND / "app" / "core",
-    ]
-    for root in scan_roots:
+    for root in [_BACKEND / "app"]:
         if not root.exists():
             continue
         for file in root.rglob("*.py"):
+            # app/scripts/ holds one-shot CLI utilities; print is legit there.
+            if "scripts" in file.parts:
+                continue
             if "__pycache__" in file.parts:
                 continue
             rel = file.relative_to(_BACKEND).as_posix()
@@ -1727,4 +1731,52 @@ def test_no_orphan_service_modules():
         f"{len(orphans)} orphan service module(s) in app/services/ — "
         f"either wire them into a caller or delete per CLAUDE.md §2 rule 7:\n  "
         + "\n  ".join(service_stems[o] for o in orphans)
+    )
+
+
+# ---------------------------------------------------------------------------
+# 25. Every worker file is registered in ecosystem.config.js
+# ---------------------------------------------------------------------------
+#
+# PM2 spawns worker processes from `ecosystem.config.js`. Every
+# `app/workers/*_worker.py` file MUST be referenced there — otherwise
+# it's orphan code that silently fails to run in production.
+# Conversely, every `script`/`args` in ecosystem that points at a
+# `app/workers/` path must point at a file that actually exists.
+# ---------------------------------------------------------------------------
+
+def test_every_worker_file_registered_in_ecosystem():
+    """Each `app/workers/*_worker.py` file must be referenced in
+    `/opt/wishspark/ecosystem.config.js`, and vice versa — no
+    dangling references on either side."""
+    ecosystem_path = Path("/opt/wishspark/ecosystem.config.js")
+    assert ecosystem_path.exists(), "ecosystem.config.js missing"
+    ecosystem_src = ecosystem_path.read_text()
+
+    worker_files: set[str] = set()
+    for file in (_BACKEND / "app" / "workers").glob("*_worker.py"):
+        worker_files.add(file.name)
+
+    # Every worker file must appear somewhere in the ecosystem file
+    unregistered: list[str] = []
+    for name in sorted(worker_files):
+        if name not in ecosystem_src:
+            unregistered.append(name)
+    assert not unregistered, (
+        f"{len(unregistered)} worker file(s) not referenced in ecosystem.config.js — "
+        f"PM2 won't spawn them, they're silent dead code:\n  "
+        + "\n  ".join(unregistered)
+    )
+
+    # Every ecosystem reference to `app/workers/*_worker.py` must
+    # point at a file that exists.
+    dangling: list[str] = []
+    for m in re.finditer(r'app/workers/(\w+_worker)\.py', ecosystem_src):
+        fname = m.group(1) + ".py"
+        if fname not in worker_files:
+            dangling.append(fname)
+    assert not dangling, (
+        f"{len(dangling)} dangling worker reference(s) in ecosystem.config.js — "
+        f"PM2 config points at files that don't exist:\n  "
+        + "\n  ".join(dangling)
     )
