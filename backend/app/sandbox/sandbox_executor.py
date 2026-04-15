@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from app.core.time_utils import utc_now_naive
 
 
 SANDBOX_ROOT = Path("/opt/wishspark/sandbox")
@@ -10,7 +11,7 @@ SANDBOX_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 def _ts() -> str:
-    return datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    return utc_now_naive().strftime("%Y%m%d_%H%M%S")
 
 
 def _safe_name(value: str) -> str:

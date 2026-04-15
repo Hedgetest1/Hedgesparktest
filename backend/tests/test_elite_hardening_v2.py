@@ -938,3 +938,337 @@ def test_no_secret_literal_in_source():
         f"{len(hits)} suspected secret literal(s) in source:\n  "
         + "\n  ".join(hits[:15])
     )
+
+
+# ---------------------------------------------------------------------------
+# 12. No new datetime.utcnow in app/ — freeze the 2026-04-15 sweep
+# ---------------------------------------------------------------------------
+#
+# `datetime.utcnow()` is deprecated on Python 3.12+ and scheduled for
+# removal. The 2026-04-15 hardening sweep replaced every reference in
+# `app/models/*.py` (66 call sites across 32 files) with the shared
+# helper `utc_now_naive` from `app/core/time_utils.py`. This test is
+# the lock-in: any new `datetime.utcnow` landing in `app/` is a
+# regression. Tests are exempt (they use the function liberally as
+# fixture data and the deprecation isn't load-bearing there).
+#
+# The helper produces a semantically identical naive UTC datetime,
+# so migrating a new call site is a one-line edit:
+#     from app.core.time_utils import utc_now_naive
+#     utc_now_naive  # instead of datetime.utcnow
+# ---------------------------------------------------------------------------
+
+_UTCNOW_PATTERN = re.compile(r"\bdatetime\.utcnow\b")
+
+
+def test_no_new_datetime_utcnow():
+    """Freeze the datetime.utcnow sweep. Any new call site in app/
+    must use `utc_now_naive` from `app/core/time_utils.py` instead."""
+    hits: list[str] = []
+    for file in (_BACKEND / "app").rglob("*.py"):
+        if "__pycache__" in file.parts:
+            continue
+        # The helper module documents the deprecated name in its
+        # own docstring — legitimate reference, not a call.
+        if file.name == "time_utils.py":
+            continue
+        rel = file.relative_to(_BACKEND).as_posix()
+        try:
+            source = file.read_text()
+        except OSError:
+            continue
+        for m in _UTCNOW_PATTERN.finditer(source):
+            lineno = source[: m.start()].count("\n") + 1
+            line = source.splitlines()[lineno - 1].strip()
+            # Skip comments and docstring mentions — they're not calls.
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            # Allow string-literal mentions (only inside docstrings/comments/log messages).
+            # Heuristic: if the match is inside a string literal on the
+            # same line, skip. We check by scanning the line up to the
+            # match for an unmatched quote.
+            line_up_to_match = source[source.rfind("\n", 0, m.start()) + 1 : m.start()]
+            single_q = line_up_to_match.count("'") - line_up_to_match.count("\\'")
+            double_q = line_up_to_match.count('"') - line_up_to_match.count('\\"')
+            if single_q % 2 == 1 or double_q % 2 == 1:
+                continue
+            hits.append(f"{rel}:{lineno}  {line[:90]}")
+
+    assert not hits, (
+        f"{len(hits)} new `datetime.utcnow` reference(s) in app/ — "
+        f"replace with `utc_now_naive` from `app/core/time_utils.py`:\n  "
+        + "\n  ".join(hits[:20])
+    )
+
+
+# ---------------------------------------------------------------------------
+# 13. No new raw-SQL f-string interpolation — freeze existing debt
+# ---------------------------------------------------------------------------
+#
+# `text(f"... {var} ...")` is a SQL-injection vector whenever `var`
+# flows from user input. The 13 sites below were audited on
+# 2026-04-15 and confirmed to interpolate only trusted constants:
+# table names from hardcoded loops, column names from whitelist dicts,
+# enum-like string literals from ternaries, integer IDs cast via
+# `str(int(...))`. They are SAFE in practice but still ugly — they
+# are frozen in this allowlist and can be refactored opportunistically
+# into prepared-statement dispatch tables. Any NEW site lands as a
+# test failure, forcing the author to either parameterize the query
+# or consciously add to the debt ledger with a written justification.
+#
+# Audit notes per site (all safe 2026-04-15):
+#   execution_actions.py:384    — where clause from constant strings
+#   weekly_digest.py:476        — ":p0/:p1..." placeholders from enumerate
+#   evolution_business_outcomes.py:120 — shop filter constant literal
+#   utm_attribution.py:108      — "ASC"/"DESC" from ternary
+#   simulation_engine.py:317    — table name from hardcoded tuple
+#   simulation_engine.py:665    — table name from hardcoded tuple
+#   nudge_rank.py:148           — integer IDs from DB rows
+#   nudge_rank.py:198           — integer IDs from DB rows
+#   evolution_outcomes.py:624   — source filter constant literal
+#   execution_engine.py:713     — parameter names from enumerate
+#   execution_engine.py:722     — parameter names from enumerate
+#   email_performance.py:63     — column from whitelist dict (dict IS the guard)
+#   scoring_calibration.py:551  — INTERVAL from hardcoded _WINDOWS tuple
+# ---------------------------------------------------------------------------
+
+_RAW_SQL_FSTRING_PATTERN = re.compile(r'\btext\(\s*f["\']')
+
+_RAW_SQL_FSTRING_ALLOWLIST: set[str] = {
+    "app/api/execution_actions.py:384",
+    "app/services/weekly_digest.py:476",
+    "app/services/evolution_business_outcomes.py:120",
+    "app/services/utm_attribution.py:108",
+    "app/services/simulation_engine.py:317",
+    "app/services/simulation_engine.py:665",
+    "app/services/nudge_rank.py:148",
+    "app/services/nudge_rank.py:198",
+    "app/services/evolution_outcomes.py:624",
+    "app/services/execution_engine.py:713",
+    "app/services/execution_engine.py:722",
+    "app/services/email_performance.py:63",
+    "app/services/scoring_calibration.py:551",
+    # gdpr_processor: where clause built from hardcoded ":cid"/":email"
+    # filter strings joined with " OR ". Parameters are bound via the
+    # second arg to execute().
+    "app/services/gdpr_processor.py:282",
+    # gdpr_processor: {table} interpolated from hardcoded `tables` list
+    # used during Art. 17 erasure.
+    "app/services/gdpr_processor.py:499",
+}
+
+
+def test_no_new_raw_sql_fstring_interpolation():
+    """No new `text(f"...")` in app/. The 13 existing sites are
+    audited safe and frozen in the allowlist; new ones fail the test
+    until they either parameterize or are consciously added with a
+    written audit note."""
+    hits: list[str] = []
+    for file in (_BACKEND / "app").rglob("*.py"):
+        if "__pycache__" in file.parts:
+            continue
+        # Skip the security guard itself — it contains the pattern in
+        # a docstring and a comment as documentation of the bad shape
+        # it blocks.
+        if file.name == "security_preflight_guard.py":
+            continue
+        rel = file.relative_to(_BACKEND).as_posix()
+        try:
+            source = file.read_text()
+        except OSError:
+            continue
+        for m in _RAW_SQL_FSTRING_PATTERN.finditer(source):
+            lineno = source[: m.start()].count("\n") + 1
+            key = f"{rel}:{lineno}"
+            if key in _RAW_SQL_FSTRING_ALLOWLIST:
+                continue
+            line = source.splitlines()[lineno - 1].strip()
+            hits.append(f"{key}  {line[:90]}")
+
+    assert not hits, (
+        f"{len(hits)} new raw-SQL f-string interpolation(s) in app/ — "
+        f"parameterize via :bind variables or add to _RAW_SQL_FSTRING_ALLOWLIST "
+        f"with a documented audit note:\n  "
+        + "\n  ".join(hits[:20])
+    )
+
+    # Reverse check: every allowlist entry must still point at an
+    # actual `text(f"..."` site. Stale allowlist rows = silent holes
+    # where a new unsafe pattern can hide on the same line number.
+    # The f-string can be on the same line as `text(` or on the
+    # following line (multi-line call), so we scan a small window.
+    stale: list[str] = []
+    for entry in sorted(_RAW_SQL_FSTRING_ALLOWLIST):
+        rel, _, lineno_s = entry.partition(":")
+        lineno = int(lineno_s)
+        file = _BACKEND / rel
+        if not file.exists():
+            stale.append(f"{entry} — file missing")
+            continue
+        lines = file.read_text().splitlines()
+        if lineno > len(lines):
+            stale.append(f"{entry} — past end of file")
+            continue
+        window = "\n".join(lines[lineno - 1 : lineno + 3])
+        if not _RAW_SQL_FSTRING_PATTERN.search(window):
+            stale.append(f"{entry} — no `text(f\"` at this line")
+    assert not stale, (
+        f"{len(stale)} stale _RAW_SQL_FSTRING_ALLOWLIST entr(ies) — "
+        f"refresh line numbers or remove:\n  " + "\n  ".join(stale)
+    )
+
+
+# ---------------------------------------------------------------------------
+# 14. Exactly one alembic head — merge-conflict canary
+# ---------------------------------------------------------------------------
+#
+# Multi-head alembic state is the classic "branch merge dropped a
+# merge-migration" footgun. Two engineers write migrations against
+# the same parent, both merge, and now `alembic upgrade head` is
+# ambiguous. Production deploy either picks the wrong branch or
+# refuses to run. This test parses the migration files directly
+# (no alembic import needed, hermetic) and asserts exactly one
+# revision has zero children.
+# ---------------------------------------------------------------------------
+
+_REVISION_PATTERN = re.compile(
+    r'^revision\s*(?::\s*[^=]+)?=\s*["\']([^"\']+)["\']', re.MULTILINE
+)
+_DOWN_REVISION_PATTERN = re.compile(
+    r'^down_revision\s*(?::\s*[^=]+)?=\s*(.+)$', re.MULTILINE
+)
+
+
+def test_exactly_one_alembic_head():
+    """The migrations graph must have exactly one head. Multi-head
+    means a prior merge dropped the merge-migration and production
+    deploy is now ambiguous."""
+    migrations_dir = _BACKEND / "migrations" / "versions"
+    assert migrations_dir.exists(), f"no migrations dir at {migrations_dir}"
+
+    revisions: set[str] = set()
+    parents: set[str] = set()
+
+    for file in migrations_dir.glob("*.py"):
+        if file.name.startswith("_") or file.name == "__init__.py":
+            continue
+        try:
+            source = file.read_text()
+        except OSError:
+            continue
+
+        rev_match = _REVISION_PATTERN.search(source)
+        if not rev_match:
+            continue
+        revisions.add(rev_match.group(1))
+
+        down_match = _DOWN_REVISION_PATTERN.search(source)
+        if not down_match:
+            continue
+        raw = down_match.group(1).strip().rstrip(",").rstrip()
+        if raw in ("None", "none", "null"):
+            continue
+        # Single parent: "xxx"  |  tuple parent (merge): ("a", "b")
+        for token in re.findall(r'["\']([^"\']+)["\']', raw):
+            parents.add(token)
+
+    heads = revisions - parents
+    assert len(heads) == 1, (
+        f"expected exactly 1 alembic head, found {len(heads)}: {sorted(heads)}. "
+        f"Multi-head means a merge migration is missing — resolve with "
+        f"`alembic merge -m 'merge heads' <head1> <head2>`."
+    )
+
+
+# ---------------------------------------------------------------------------
+# 15. No bare print() in prod code paths — logging discipline
+# ---------------------------------------------------------------------------
+#
+# Bare `print(...)` in services/api/workers is a silent data-leak
+# surface (structured loggers go to Sentry with PII filters; print
+# goes to stdout which uvicorn may capture, rotate, or not — we
+# don't know) AND a logging-discipline smell. The rule: prod code
+# uses `log = logging.getLogger(__name__)` and calls `log.info(...)`.
+# `print` is allowed only in:
+#   - scripts/ and app/scripts/ (one-shot CLI utilities)
+#   - `regenerate_baselines()` in email_governance.py (dev-only CLI
+#     baseline regen, documented as "run after intentional changes")
+#   - `if __name__ == "__main__":` guards
+# ---------------------------------------------------------------------------
+
+_PRINT_ALLOWLIST: set[str] = {
+    # Dev-only CLI baseline regenerator, invoked manually when an
+    # email template is intentionally changed. Docstring above the
+    # function says "Print new baseline hashes for all templates".
+    "app/services/email_governance.py:380",
+    "app/services/email_governance.py:384",
+    "app/services/email_governance.py:385",
+}
+
+
+def test_no_bare_print_in_production_code():
+    """`print(...)` in services/api/workers bypasses the structured
+    logger and leaks to stdout. Use `log.info/warning/error` instead."""
+    hits: list[str] = []
+    scan_roots = [
+        _BACKEND / "app" / "services",
+        _BACKEND / "app" / "api",
+        _BACKEND / "app" / "workers",
+        _BACKEND / "app" / "core",
+    ]
+    for root in scan_roots:
+        if not root.exists():
+            continue
+        for file in root.rglob("*.py"):
+            if "__pycache__" in file.parts:
+                continue
+            rel = file.relative_to(_BACKEND).as_posix()
+            try:
+                source = file.read_text()
+            except OSError:
+                continue
+            try:
+                tree = ast.parse(source)
+            except SyntaxError:
+                continue
+
+            # Track which lines are under `if __name__ == "__main__"`
+            # — prints there are legit entry-point harness code.
+            main_guard_lines: set[int] = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.If):
+                    test = node.test
+                    if (
+                        isinstance(test, ast.Compare)
+                        and isinstance(test.left, ast.Name)
+                        and test.left.id == "__name__"
+                        and len(test.comparators) == 1
+                        and isinstance(test.comparators[0], ast.Constant)
+                        and test.comparators[0].value == "__main__"
+                    ):
+                        for child in ast.walk(node):
+                            if hasattr(child, "lineno"):
+                                main_guard_lines.add(child.lineno)
+
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                if not (isinstance(func, ast.Name) and func.id == "print"):
+                    continue
+                lineno = node.lineno
+                key = f"{rel}:{lineno}"
+                if key in _PRINT_ALLOWLIST:
+                    continue
+                if lineno in main_guard_lines:
+                    continue
+                line = source.splitlines()[lineno - 1].strip()
+                hits.append(f"{key}  {line[:90]}")
+
+    assert not hits, (
+        f"{len(hits)} bare `print(...)` call(s) in production code — "
+        f"replace with `log.info/warning/error` or add to _PRINT_ALLOWLIST "
+        f"with justification:\n  "
+        + "\n  ".join(hits[:20])
+    )
