@@ -9,6 +9,7 @@
     "lint": "eslint",
     "e2e": "playwright test",
     "e2e:install": "playwright install chromium",
+    "e2e:a11y": "playwright test e2e/a11y.spec.ts",
     "api:types": "openapi-typescript http://127.0.0.1:8000/openapi.json -o src/app/lib/api-types.ts"
   },
   "dependencies": {
@@ -18,6 +19,7 @@
     "react-dom": "19.2.3"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.1",
     "@playwright/test": "^1.49.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",

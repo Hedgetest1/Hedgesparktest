@@ -182,6 +182,31 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2l. A11y baseline (Tier 6.2). Runs axe-core against every public route
+# a cold-start visitor can reach (no Shopify session required). Fails
+# on any Critical or Serious WCAG 2.1 AA violation. Requires a running
+# dashboard at 127.0.0.1:3000 — skipped cleanly otherwise so backend-
+# only commits don't force the dashboard to be up. Force-skip with
+# SKIP_PREFLIGHT_A11Y=1 when e.g. Playwright chromium isn't installed.
+# ---------------------------------------------------------------------------
+if [ "${SKIP_PREFLIGHT_A11Y:-0}" = "1" ]; then
+    step "A11y baseline (skipped — SKIP_PREFLIGHT_A11Y=1)"
+    ok "a11y skipped by env override"
+elif ! curl -s -o /dev/null -w "%{http_code}" --max-time 2 http://127.0.0.1:3000/ | grep -q "^2"; then
+    step "A11y baseline (skipped — dashboard not reachable at :3000)"
+    ok "a11y skipped — no running dashboard"
+else
+    step "A11y baseline (e2e/a11y.spec.ts)"
+    if ( cd /opt/wishspark/dashboard && CI=1 npx playwright test e2e/a11y.spec.ts --reporter=list ) > /tmp/preflight_a11y.log 2>&1; then
+        _A11Y_STATS=$(grep -E "passed|failed" /tmp/preflight_a11y.log | tail -1 | tr -d '\r')
+        ok "a11y baseline green — ${_A11Y_STATS:-all routes clean}"
+    else
+        bad "a11y violations detected — see /tmp/preflight_a11y.log"
+        tail -40 /tmp/preflight_a11y.log || true
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # 2k. Bundle-size budget (Tier 6.4). Guards the dashboard from a silent
 # first-load regression. Four caps: largest chunk, rootMainFiles total,
 # chunks total, chunks count. Baseline recorded in
