@@ -385,7 +385,7 @@ function Hero() {
         {/* Headline */}
         <R d={0.08}>
           <h1 className="mx-auto mt-6 max-w-[52rem] text-center text-[2.75rem] font-extrabold leading-[1.05] tracking-[-0.03em] text-cream sm:text-[4rem] lg:text-[5rem]">
-            Your store has a silent curse.
+            Your store is leaking money.
             <br />
             <span className="text-slate-400">You don&apos;t know why.</span>
             <br />
@@ -397,7 +397,7 @@ function Hero() {
                 backgroundClip: "text",
               }}
             >
-              We break the spell.
+              We show you where.
             </span>
           </h1>
         </R>
@@ -405,7 +405,7 @@ function Hero() {
         {/* Sub */}
         <R d={0.12}>
           <p className="mx-auto mt-7 max-w-[40rem] text-center text-[18px] leading-[1.65] text-slate-300">
-            <strong className="text-white">AI Revenue Intelligence, built for Shopify.</strong>{" "}
+            <strong className="text-white">The most advanced dashboard built for Shopify.</strong>{" "}
             Finds the products that get attention but don&apos;t sell. Stops the curse.
             Trust the magic.
           </p>
