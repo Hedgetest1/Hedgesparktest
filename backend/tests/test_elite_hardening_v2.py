@@ -1900,3 +1900,52 @@ def test_no_legacy_query_get_calls():
         f"semantically identical, no deprecation warning):\n  "
         + "\n  ".join(hits[:20])
     )
+
+
+# ---------------------------------------------------------------------------
+# 28. No FastAPI `@app.on_event` decorators — lifespan required
+# ---------------------------------------------------------------------------
+#
+# FastAPI deprecated `@app.on_event("startup")` / `@app.on_event("shutdown")`
+# in favor of the `lifespan` async context manager. The 2026-04-15
+# migration moved both `_startup_env_audit` and `_startup_telegram_warmup`
+# into `lifespan()` at the top of `app/main.py`. This test freezes the
+# migration so a regression cannot land silently.
+#
+# The regex also catches the router-level form `@router.on_event(...)`
+# which is subject to the same deprecation.
+# ---------------------------------------------------------------------------
+
+def test_no_fastapi_on_event_decorators():
+    """FastAPI `@app.on_event(...)` / `@router.on_event(...)` decorators
+    are deprecated. Use the `lifespan` async context manager on the
+    FastAPI instance instead. Uses AST to walk real decorator nodes —
+    no false positives on docstring mentions."""
+    hits: list[str] = []
+    for file in (_BACKEND / "app").rglob("*.py"):
+        if "__pycache__" in file.parts:
+            continue
+        rel = file.relative_to(_BACKEND).as_posix()
+        try:
+            source = file.read_text()
+            tree = ast.parse(source)
+        except (OSError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for deco in node.decorator_list:
+                # Match @<x>.on_event(...) — deco is ast.Call whose
+                # .func is ast.Attribute(attr='on_event').
+                if not isinstance(deco, ast.Call):
+                    continue
+                df = deco.func
+                if isinstance(df, ast.Attribute) and df.attr == "on_event":
+                    hits.append(f"{rel}:{deco.lineno}  @…on_event(…) → {node.name}")
+
+    assert not hits, (
+        f"{len(hits)} `@*.on_event(...)` decorator(s) in app/ — migrate to "
+        f"the FastAPI `lifespan` async context manager (see app/main.py for "
+        f"the reference pattern):\n  "
+        + "\n  ".join(hits[:20])
+    )

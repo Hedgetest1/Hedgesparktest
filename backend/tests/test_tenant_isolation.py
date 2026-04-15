@@ -1,9 +1,10 @@
 """Tests for tenant (shop_domain) isolation — no cross-shop data leakage."""
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.time_utils import utc_now_naive
 from app.models.event import Event
 from app.models.opportunity_signal import OpportunitySignal
 from app.models.product_metrics import ProductMetrics
@@ -12,7 +13,7 @@ from tests.conftest import SHOP_A, SHOP_B, now_ms
 
 def _seed_signals(db: Session):
     """Insert signals for both shops."""
-    now = datetime.utcnow()
+    now = utc_now_naive()
     for shop, stype in [(SHOP_A, "HIGH_TRAFFIC_NO_CART"), (SHOP_B, "DEAD_TRAFFIC")]:
         db.add(OpportunitySignal(
             shop_domain=shop,

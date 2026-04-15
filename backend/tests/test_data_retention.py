@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 import pytest
 
+from app.core.time_utils import utc_now_naive
 from app.models.event import Event
 from app.models.visitor_purchase_session import VisitorPurchaseSession
 from app.services.data_retention import (
@@ -71,7 +72,7 @@ def test_pause_kill_switch(monkeypatch, db):
 
 def test_deletes_old_events(db):
     shop = _unique_shop()
-    now = datetime.utcnow()
+    now = utc_now_naive()
 
     # Ancient event (2 years ago)
     old_ts = _epoch_ms(now - timedelta(days=730))
@@ -110,7 +111,7 @@ def test_deletes_old_events(db):
 
 def test_batch_cap_is_enforced(db):
     shop = _unique_shop()
-    now = datetime.utcnow()
+    now = utc_now_naive()
     old_ts = _epoch_ms(now - timedelta(days=800))
 
     for _ in range(15):
@@ -133,7 +134,7 @@ def test_batch_cap_is_enforced(db):
 
 def test_deletes_old_visitor_purchase_sessions(db):
     shop = _unique_shop()
-    now = datetime.utcnow()
+    now = utc_now_naive()
 
     old = VisitorPurchaseSession(
         shop_domain=shop,
@@ -168,7 +169,7 @@ def test_deletes_old_visitor_purchase_sessions(db):
 
 def test_full_sweep_returns_structured_report(db, monkeypatch):
     shop = _unique_shop()
-    now = datetime.utcnow()
+    now = utc_now_naive()
     db.add(Event(
         visitor_id=f"v_{uuid.uuid4().hex[:8]}",
         event_type="page_view",

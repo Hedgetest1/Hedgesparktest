@@ -1,11 +1,12 @@
 """Tests for Klaviyo intent push eligibility, dedup, and gating."""
 import os
-from datetime import datetime, timedelta
+from datetime import timedelta
 from unittest.mock import patch
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.time_utils import utc_now_naive
 from app.models.merchant import Merchant
 from app.models.opportunity_signal import OpportunitySignal
 from app.core.token_crypto import encrypt_token
@@ -27,7 +28,7 @@ def _setup_connected_merchant(db: Session) -> Merchant:
 
 def _insert_signal(db: Session, signal_type: str, confidence: str, strength: float):
     """Insert a test signal for SHOP_A."""
-    now = datetime.utcnow()
+    now = utc_now_naive()
     db.add(OpportunitySignal(
         shop_domain=SHOP_A,
         product_url="/products/test-product",

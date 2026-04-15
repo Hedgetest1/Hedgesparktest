@@ -1,6 +1,5 @@
 """Tests for signal detection pipeline (opportunity_engine.py)."""
-from datetime import datetime
-
+from app.core.time_utils import utc_now_naive
 from app.services.opportunity_engine import (
     _evaluate_product_signals,
     _evaluate_early_signals,
@@ -19,7 +18,7 @@ def test_high_traffic_no_cart_fires():
         views_24h=25, views_1h=3, unique_visitors_24h=15,
         cart_conversions_24h=0, return_visitor_count_7d=0,
         avg_dwell_24h=10.0, avg_scroll_24h=40.0,
-        detected_at=datetime.utcnow().isoformat(),
+        detected_at=utc_now_naive().isoformat(),
     )
     types = [s["signal_type"] for s in signals]
     assert "HIGH_TRAFFIC_NO_CART" in types
@@ -34,7 +33,7 @@ def test_high_engagement_no_action_fires():
         views_24h=30, views_1h=2, unique_visitors_24h=20,
         cart_conversions_24h=0, return_visitor_count_7d=0,
         avg_dwell_24h=25.0, avg_scroll_24h=75.0,
-        detected_at=datetime.utcnow().isoformat(),
+        detected_at=utc_now_naive().isoformat(),
     )
     types = [s["signal_type"] for s in signals]
     assert "HIGH_ENGAGEMENT_NO_ACTION" in types
@@ -47,7 +46,7 @@ def test_no_signals_when_traffic_healthy():
         views_24h=50, views_1h=5, unique_visitors_24h=30,
         cart_conversions_24h=8, return_visitor_count_7d=3,
         avg_dwell_24h=20.0, avg_scroll_24h=60.0,
-        detected_at=datetime.utcnow().isoformat(),
+        detected_at=utc_now_naive().isoformat(),
     )
     traffic_signals = [s for s in signals if s["signal_type"] in (
         "DEAD_TRAFFIC", "HIGH_TRAFFIC_NO_CART", "LOW_CONVERSION_ATTENTION"
@@ -62,7 +61,7 @@ def test_all_strong_signals_have_high_confidence():
         views_24h=30, views_1h=2, unique_visitors_24h=20,
         cart_conversions_24h=0, return_visitor_count_7d=6,
         avg_dwell_24h=25.0, avg_scroll_24h=80.0,
-        detected_at=datetime.utcnow().isoformat(),
+        detected_at=utc_now_naive().isoformat(),
     )
     assert len(signals) > 0
     for s in signals:
@@ -80,7 +79,7 @@ def test_early_browsing_no_cart():
         views_24h=3, unique_visitors_24h=2,
         cart_conversions_24h=0,
         avg_dwell_24h=12.0, avg_scroll_24h=40.0,
-        detected_at=datetime.utcnow().isoformat(),
+        detected_at=utc_now_naive().isoformat(),
     )
     types = [s["signal_type"] for s in signals]
     assert "EARLY_BROWSING_NO_CART" in types
@@ -96,7 +95,7 @@ def test_early_drop_off():
         views_24h=2, unique_visitors_24h=2,
         cart_conversions_24h=0,
         avg_dwell_24h=3.0, avg_scroll_24h=10.0,
-        detected_at=datetime.utcnow().isoformat(),
+        detected_at=utc_now_naive().isoformat(),
     )
     types = [s["signal_type"] for s in signals]
     assert "EARLY_DROP_OFF" in types
@@ -109,7 +108,7 @@ def test_first_visitor_engagement():
         views_24h=1, unique_visitors_24h=1,
         cart_conversions_24h=0,
         avg_dwell_24h=15.0, avg_scroll_24h=50.0,
-        detected_at=datetime.utcnow().isoformat(),
+        detected_at=utc_now_naive().isoformat(),
     )
     types = [s["signal_type"] for s in signals]
     assert "FIRST_VISITOR_ENGAGEMENT" in types
@@ -122,7 +121,7 @@ def test_early_signals_suppressed_above_threshold():
         views_24h=25, unique_visitors_24h=15,
         cart_conversions_24h=0,
         avg_dwell_24h=20.0, avg_scroll_24h=70.0,
-        detected_at=datetime.utcnow().isoformat(),
+        detected_at=utc_now_naive().isoformat(),
     )
     assert signals == []
 
