@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import Column, DateTime, Index, Integer, String, text
 
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 
 class WorkerLog(Base):
@@ -25,7 +26,7 @@ class WorkerLog(Base):
 
     worker_name = Column(String, nullable=False)
 
-    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    started_at = Column(DateTime, nullable=False, default=utc_now_naive)
     finished_at = Column(DateTime, nullable=True)
 
     # Counts for the completed cycle.

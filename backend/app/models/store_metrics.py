@@ -17,6 +17,7 @@ from sqlalchemy import Column, DateTime, Float, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 
 class StoreMetrics(Base):
@@ -34,4 +35,4 @@ class StoreMetrics(Base):
     new_visitor_cart_rate = Column(Float, nullable=True)
     returning_visitor_cart_rate = Column(Float, nullable=True)
 
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)

@@ -17,6 +17,7 @@ from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, Uni
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 
 class CommunityTemplate(Base):
@@ -45,8 +46,8 @@ class CommunityTemplate(Base):
 
     status = Column(String(16), nullable=False, default="published")  # published|hidden|removed
 
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
 
     __table_args__ = (
         Index("ix_community_templates_type_vertical", "template_type", "vertical"),
@@ -61,7 +62,7 @@ class CommunityTemplateClone(Base):
     id = Column(Integer, primary_key=True)
     template_id = Column(Integer, ForeignKey("community_templates.id"), nullable=False, index=True)
     shop_domain = Column(String, nullable=False, index=True)
-    cloned_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    cloned_at = Column(DateTime, nullable=False, default=utc_now_naive)
 
     __table_args__ = (
         UniqueConstraint("template_id", "shop_domain", name="uq_community_clones_template_shop"),

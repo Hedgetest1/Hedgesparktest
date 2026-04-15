@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, Float, DateTime, Numeric
 from datetime import datetime
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 class PriceWatch(Base):
     __tablename__ = "price_watch"
@@ -17,6 +18,6 @@ class PriceWatch(Base):
 
     price_drop_detected = Column(Integer, default=0)
 
-    last_checked = Column(DateTime, default=datetime.utcnow)
+    last_checked = Column(DateTime, default=utc_now_naive)
 
     shop_domain = Column(String, nullable=False)

@@ -26,6 +26,7 @@ from datetime import datetime
 from sqlalchemy import Column, DateTime, Index, Integer, String, Text
 
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 
 class NudgeEvent(Base):
@@ -49,7 +50,7 @@ class NudgeEvent(Base):
     event_type  = Column(String,   nullable=False)
 
     # Server receipt time (UTC) — used as the exposure timestamp for attribution
-    created_at  = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at  = Column(DateTime, nullable=False, default=utc_now_naive)
 
     # Optional JSON payload for future extensibility
     # v1: stores copy_variant at time of shown event

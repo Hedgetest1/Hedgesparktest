@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import Column, DateTime, Index, Integer, String, Text, UniqueConstraint
 
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 
 class UniqueProductDetection(Base):
@@ -19,7 +20,7 @@ class UniqueProductDetection(Base):
     recommended_strategy = Column(Text)
     plan_required = Column(Text, default="pro")
 
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=utc_now_naive)
 
     __table_args__ = (
         UniqueConstraint(

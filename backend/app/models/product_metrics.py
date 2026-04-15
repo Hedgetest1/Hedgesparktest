@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import BigInteger, Column, DateTime, Float, Index, Integer, Numeric, String, UniqueConstraint, text
 
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 
 class ProductMetrics(Base):
@@ -91,8 +92,8 @@ class ProductMetrics(Base):
     updated_at = Column(
         DateTime,
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now_naive,
+        onupdate=utc_now_naive,
     )
 
     __table_args__ = (

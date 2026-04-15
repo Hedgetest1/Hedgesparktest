@@ -41,6 +41,7 @@ from datetime import datetime
 from sqlalchemy import Column, DateTime, Index, Integer, String, Text, UniqueConstraint
 
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 
 class VisitorPurchaseSession(Base):
@@ -66,7 +67,7 @@ class VisitorPurchaseSession(Base):
     confirmed_at = Column(DateTime, nullable=False)
 
     # Server receipt time — for audit and lag measurement.
-    ingested_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    ingested_at = Column(DateTime, nullable=False, default=utc_now_naive)
 
     # First-touch attribution snapshot (resolved at conversion time)
     first_source = Column(String(64), nullable=True)       # first event's source_type

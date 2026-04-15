@@ -40,6 +40,7 @@ from datetime import datetime
 from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, Numeric, String, Text
 
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 
 class TrustContract(Base):
@@ -71,8 +72,8 @@ class TrustContract(Base):
 
     # --- Lifecycle ---
     status = Column(String, nullable=False, default="active")  # active | paused | revoked | expired
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
     revoked_at = Column(DateTime, nullable=True)
     revoked_reason = Column(String, nullable=True)  # 'panic' | 'auto_pause:rev_drop' | 'merchant' | ...
 
@@ -99,7 +100,7 @@ class TrustExecutionLog(Base):
     action_type = Column(String, nullable=False)
     target_url = Column(String, nullable=True)  # product/collection affected
 
-    executed_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    executed_at = Column(DateTime, nullable=False, default=utc_now_naive, index=True)
 
     # Snapshot of the decision
     confidence = Column(Float, nullable=True)

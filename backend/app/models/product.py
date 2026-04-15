@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Float, DateTime
 from datetime import datetime
 
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 
 class Product(Base):
@@ -21,6 +22,6 @@ class Product(Base):
 
     image_url = Column(String)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now_naive)
 
     shop_domain = Column(String, nullable=False)

@@ -94,6 +94,7 @@ from datetime import datetime
 from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, Numeric, String, Text, text
 
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 
 class ActiveNudge(Base):
@@ -139,8 +140,8 @@ class ActiveNudge(Base):
 
     # Lifecycle
     status        = Column(String,  nullable=False, default="active")
-    created_at    = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at    = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at    = Column(DateTime, nullable=False, default=utc_now_naive)
+    updated_at    = Column(DateTime, nullable=False, default=utc_now_naive)
     expires_at    = Column(DateTime, nullable=False)
     deactivated_at = Column(DateTime, nullable=True)
 

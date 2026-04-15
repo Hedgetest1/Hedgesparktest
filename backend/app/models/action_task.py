@@ -42,6 +42,7 @@ from sqlalchemy import Column, DateTime, Float, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 
 class ActionTask(Base):
@@ -74,8 +75,8 @@ class ActionTask(Base):
     confidence    = Column(Float, nullable=True)
     urgency       = Column(Float, nullable=True)
 
-    created_at   = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at   = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at   = Column(DateTime, nullable=False, default=utc_now_naive)
+    updated_at   = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
     executed_at  = Column(DateTime, nullable=True)   # set when status → executing
     completed_at = Column(DateTime, nullable=True)   # set when status → done | failed | dismissed
 

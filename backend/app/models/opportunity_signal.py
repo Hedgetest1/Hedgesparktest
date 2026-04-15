@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import Column, DateTime, Float, Index, Integer, String, UniqueConstraint
 
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 
 class OpportunitySignal(Base):
@@ -18,8 +19,8 @@ class OpportunitySignal(Base):
     signal_confidence = Column(String(16), nullable=False, default="high", server_default="high")
     explanation = Column(String, nullable=True)
 
-    detected_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    refreshed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    detected_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    refreshed_at = Column(DateTime, nullable=False, default=utc_now_naive)
 
     # NO Python default → evita TTL = 0
     expires_at = Column(DateTime, nullable=False)

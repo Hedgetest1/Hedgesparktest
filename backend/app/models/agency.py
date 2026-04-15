@@ -17,6 +17,7 @@ from datetime import datetime
 from sqlalchemy import Column, DateTime, Float, ForeignKey, Index, Integer, String, UniqueConstraint
 
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 
 class Agency(Base):
@@ -34,8 +35,8 @@ class Agency(Base):
     # Default revenue-share applied when adding a client
     default_revshare_pct = Column(Float, nullable=False, default=20.0)
 
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
 
 
 class AgencyClient(Base):
@@ -49,7 +50,7 @@ class AgencyClient(Base):
     revshare_pct = Column(Float, nullable=False, default=20.0)
 
     status = Column(String(16), nullable=False, default="active")  # active|paused|removed
-    onboarded_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    onboarded_at = Column(DateTime, nullable=False, default=utc_now_naive)
 
     __table_args__ = (
         UniqueConstraint("agency_id", "shop_domain", name="uq_agency_client_agency_shop"),

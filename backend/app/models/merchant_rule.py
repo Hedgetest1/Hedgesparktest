@@ -38,6 +38,7 @@ from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 
 class MerchantRule(Base):
@@ -74,8 +75,8 @@ class MerchantRule(Base):
     fired_count = Column(Integer, nullable=False, default=0)
     last_fired_at = Column(DateTime, nullable=True)
 
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
     created_by = Column(String, nullable=True)
 
     __table_args__ = (

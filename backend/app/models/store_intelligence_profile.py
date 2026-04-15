@@ -25,6 +25,7 @@ from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Unique
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 
 class StoreIntelligenceProfile(Base):
@@ -107,9 +108,9 @@ class StoreIntelligenceProfile(Base):
     contradiction_count = Column(Integer, nullable=False, default=0)
     last_outcome_at = Column(DateTime, nullable=True)
 
-    computed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    computed_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
 
 
 class SipSnapshot(Base):
@@ -122,7 +123,7 @@ class SipSnapshot(Base):
     profile_data = Column(JSONB, nullable=False)      # full SIP as JSON
     baseline_cart_rate = Column(Float, nullable=True)  # denormalized for fast queries
     data_points = Column(Integer, nullable=False, default=0)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
 
     __table_args__ = (
         UniqueConstraint(

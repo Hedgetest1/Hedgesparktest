@@ -19,6 +19,7 @@ from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String,
 from sqlalchemy.dialects.postgresql import JSONB  # noqa: F401
 
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 
 class AutonomousAction(Base):
@@ -76,5 +77,5 @@ class AutonomousAction(Base):
     # Bootstrap flag: manually-forced experiments are excluded from SIP learning
     is_bootstrap = Column(Boolean, nullable=False, default=False)
 
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)

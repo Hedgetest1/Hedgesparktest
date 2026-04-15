@@ -53,6 +53,7 @@ from sqlalchemy import Column, DateTime, Float, Index, Integer, Numeric, String,
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 
 class ShopOrder(Base):
@@ -85,7 +86,7 @@ class ShopOrder(Base):
     created_at  = Column(DateTime, nullable=False)
 
     # Server-side ingestion timestamp — use for dedup auditing, not analytics
-    ingested_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    ingested_at = Column(DateTime, nullable=False, default=utc_now_naive)
 
     # Ingestion source: "pixel" (client-side Custom Pixel) or "webhook" (Shopify Admin API)
     # Pixel rows have line_items=[] and customer_id/email=None.

@@ -18,6 +18,7 @@ from sqlalchemy import Column, DateTime, Float, Integer, String, UniqueConstrain
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 
 class CigCohort(Base):
@@ -67,9 +68,9 @@ class CigCohort(Base):
     total_data_points = Column(Integer, nullable=False, default=0)
     confidence_level = Column(String(8), nullable=False, default="low")
 
-    computed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    computed_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
 
 
 class CigMerchantMapping(Base):
@@ -95,5 +96,5 @@ class CigMerchantMapping(Base):
     # Store fingerprint used for matching (snapshot for audit)
     fingerprint = Column(JSONB, nullable=True)
 
-    computed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    computed_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)

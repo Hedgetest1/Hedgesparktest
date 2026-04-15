@@ -21,6 +21,7 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, St
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 
 class OutboundWebhookSubscription(Base):
@@ -45,8 +46,8 @@ class OutboundWebhookSubscription(Base):
     auto_disabled = Column(Boolean, nullable=False, default=False)
 
     description = Column(String(200), nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
     created_by = Column(String, nullable=True)
 
     __table_args__ = (
@@ -69,7 +70,7 @@ class OutboundWebhookDelivery(Base):
     response_status = Column(Integer, nullable=True)
     response_body = Column(Text, nullable=True)
 
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
     last_attempted_at = Column(DateTime, nullable=True)
     delivered_at = Column(DateTime, nullable=True)
 

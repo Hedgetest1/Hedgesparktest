@@ -19,6 +19,7 @@ from datetime import datetime
 from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, Numeric, String, Text
 
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 
 class ExecutionOpportunity(Base):
@@ -39,8 +40,8 @@ class ExecutionOpportunity(Base):
     timing = Column(String(128), nullable=True)
     expected_impact = Column(Text, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    refreshed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    refreshed_at = Column(DateTime, nullable=False, default=utc_now_naive)
 
     # Execution lifecycle
     execution_status = Column(String(16), nullable=False, default="suggested")
@@ -93,7 +94,7 @@ class ExecutionAudience(Base):
     shop_domain = Column(String, nullable=False)
     visitor_id = Column(String, nullable=False)
     group_type = Column(String(8), nullable=False, default="exposed")  # exposed | holdout
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
 
     __table_args__ = (
         Index("uq_exec_aud_exec_visitor", "execution_id", "visitor_id", unique=True),
@@ -113,12 +114,12 @@ class ExecutionTracking(Base):
     shop_domain = Column(String, nullable=False)
     visitor_id = Column(String, nullable=False)
     group_type = Column(String(8), nullable=False, default="exposed")  # exposed | holdout
-    exposed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    exposed_at = Column(DateTime, nullable=False, default=utc_now_naive)
     returned = Column(Boolean, nullable=False, default=False)
     viewed_product_b = Column(Boolean, nullable=False, default=False)
     purchased_product_b = Column(Boolean, nullable=False, default=False)
     leakage_suspected = Column(Boolean, nullable=False, default=False)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive)
 
     __table_args__ = (
         Index("uq_exec_track_exec_visitor", "execution_id", "visitor_id", unique=True),
@@ -135,7 +136,7 @@ class ExecutionBaseline(Base):
     id = Column(Integer, primary_key=True)
     execution_id = Column(String(12), nullable=False)
     shop_domain = Column(String, nullable=False)
-    captured_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    captured_at = Column(DateTime, nullable=False, default=utc_now_naive)
     audience_size = Column(Integer, nullable=False, default=0)
     return_rate = Column(Float, nullable=True)
     view_rate = Column(Float, nullable=True)

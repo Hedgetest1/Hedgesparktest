@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, DateTime, UniqueConstraint
 from datetime import datetime
 
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 
 class Visitor(Base):
@@ -13,9 +14,9 @@ class Visitor(Base):
 
     email = Column(String, nullable=True)
 
-    first_seen = Column(DateTime, default=datetime.utcnow)
+    first_seen = Column(DateTime, default=utc_now_naive)
 
-    last_seen = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_seen = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
 
     shop_domain = Column(String, nullable=False)
 

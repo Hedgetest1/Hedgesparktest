@@ -3,6 +3,7 @@ from datetime import date, datetime
 from sqlalchemy import Boolean, Column, Date, DateTime, Index, Integer, String, Text, UniqueConstraint
 
 from app.core.database import Base
+from app.core.time_utils import utc_now_naive
 
 
 class DailyBrief(Base):
@@ -34,7 +35,7 @@ class DailyBrief(Base):
     brief_date = Column(Date, nullable=False)
 
     # Wall-clock time when this row was written.
-    generated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    generated_at = Column(DateTime, nullable=False, default=utc_now_naive)
 
     # The single merchant-facing headline sentence.  Always populated.
     headline = Column(String, nullable=False)
