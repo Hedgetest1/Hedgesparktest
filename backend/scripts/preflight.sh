@@ -182,6 +182,24 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2k. Bundle-size budget (Tier 6.4). Guards the dashboard from a silent
+# first-load regression. Four caps: largest chunk, rootMainFiles total,
+# chunks total, chunks count. Baseline recorded in
+# dashboard/bundle-budget.json. The gate skips cleanly when .next/ is
+# absent so backend-only commits don't force a dashboard rebuild; CI
+# produces the build before invoking preflight so the gate still fires
+# where it matters. Force-skip with SKIP_BUNDLE_BUDGET=1.
+# ---------------------------------------------------------------------------
+step "Bundle budget (audit_bundle_budget.py)"
+if "$BACKEND/venv/bin/python" "$BACKEND/scripts/audit_bundle_budget.py" > /tmp/preflight_bundle.log 2>&1; then
+    _BUNDLE_SUMMARY=$(grep -E "^(OK|audit_bundle_budget)" /tmp/preflight_bundle.log | tail -1)
+    ok "bundle within budget — ${_BUNDLE_SUMMARY:-no build found, skipped}"
+else
+    bad "bundle budget exceeded — see /tmp/preflight_bundle.log"
+    tail -20 /tmp/preflight_bundle.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 3. Python AST parse check — any syntax error blocks commit
 # ---------------------------------------------------------------------------
 step "Python AST parse (staged .py files)"

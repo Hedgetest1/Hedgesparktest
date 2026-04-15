@@ -1,0 +1,15 @@
+{
+  "_comment": "Tier 6.4 bundle size budget — headroom sized ~10% over 2026-04-15 baseline. Update intentionally; regression = commit refused.",
+  "_baseline_2026_04_15": {
+    "largest_chunk_bytes": 669796,
+    "root_main_total_bytes": 455826,
+    "chunks_total_bytes": 1463312,
+    "chunks_count": 20
+  },
+  "budgets": {
+    "largest_chunk_bytes": 720000,
+    "root_main_total_bytes": 520000,
+    "chunks_total_bytes": 1600000,
+    "chunks_count_max": 40
+  }
+}
