@@ -121,7 +121,8 @@ def test_auto_apply_tier_0_candidate(db):
     db.flush()
 
     with patch("subprocess.run", side_effect=make_git_safe_subprocess_mock()), \
-         patch("httpx.get", return_value=MagicMock(status_code=200)):
+         patch("httpx.get", return_value=MagicMock(status_code=200)), \
+         patch("app.services.bugfix_pipeline._get_domain_budget", return_value=5):
         summary = run_auto_apply(db)
 
     db.refresh(c)
@@ -185,8 +186,14 @@ def test_auto_apply_max_per_cycle(db):
         ))
     db.flush()
 
+    # Hermeticity: the `tests` domain weakness score is computed from
+    # the shared bugfix_candidates history and can drift above the
+    # quarantine threshold on a DB that has accumulated rows from
+    # previous test runs. Force a non-quarantined budget for this
+    # test so it is deterministic regardless of shared-DB state.
     with patch("subprocess.run", side_effect=make_git_safe_subprocess_mock()), \
-         patch("httpx.get", return_value=MagicMock(status_code=200)):
+         patch("httpx.get", return_value=MagicMock(status_code=200)), \
+         patch("app.services.bugfix_pipeline._get_domain_budget", return_value=5):
         summary = run_auto_apply(db, max_per_cycle=1)
 
     assert summary["applied"] == 1
@@ -209,7 +216,7 @@ def test_auto_apply_failure_stops_cycle(db):
     with patch(
         "subprocess.run",
         side_effect=make_git_safe_subprocess_mock(tree_dirty=True),
-    ):
+    ), patch("app.services.bugfix_pipeline._get_domain_budget", return_value=5):
         run_auto_apply(db)
 
     db.refresh(c)
@@ -233,7 +240,8 @@ def test_auto_apply_writes_audit(db):
         return MagicMock(stdout="sha", stderr="", returncode=0)
 
     with patch("subprocess.run", side_effect=_mock_run), \
-         patch("httpx.get", return_value=MagicMock(status_code=200)):
+         patch("httpx.get", return_value=MagicMock(status_code=200)), \
+         patch("app.services.bugfix_pipeline._get_domain_budget", return_value=5):
         run_auto_apply(db)
 
     audit = db.execute(text(
