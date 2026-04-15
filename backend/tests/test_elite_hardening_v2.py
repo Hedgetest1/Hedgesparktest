@@ -1674,3 +1674,57 @@ def test_tracker_js_hash_matches_version():
         f"`actual` hash above as the new TRACKER_SOURCE_HASH in the same "
         f"commit. Files hashed: {[f.name for f in files]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# 24. No orphan service modules
+# ---------------------------------------------------------------------------
+#
+# Every file in `app/services/` must be imported by at least one
+# other `app/` or `tests/` module. Orphan service files are usually
+# speculative V1/V3 code that never got wired end-to-end — or were
+# wired and the consumer was deleted, leaving the service behind.
+# Both are pure ballast: they pollute grep results, confuse new
+# contributors, and risk being imported accidentally by an LLM
+# patch that finds the name in the symbol table.
+#
+# Currently: 0 orphans. Two shipped before this test (`attribution.py`,
+# `intent_engine.py`) were deleted in the same commit. Service count
+# is 185.
+# ---------------------------------------------------------------------------
+
+def test_no_orphan_service_modules():
+    """Every `app/services/*.py` module must be imported somewhere in
+    `app/` or `tests/`. Orphan services are dead weight."""
+    services_dir = _BACKEND / "app" / "services"
+    service_stems: dict[str, str] = {}
+    for file in services_dir.rglob("*.py"):
+        if file.name == "__init__.py" or "__pycache__" in file.parts:
+            continue
+        rel = file.relative_to(_BACKEND).as_posix()
+        service_stems[file.stem] = rel
+
+    imported: set[str] = set()
+    for root in [_BACKEND / "app", _BACKEND / "tests"]:
+        for file in root.rglob("*.py"):
+            if "__pycache__" in file.parts:
+                continue
+            try:
+                tree = ast.parse(file.read_text())
+            except (OSError, SyntaxError):
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    if node.module.startswith("app.services."):
+                        imported.add(node.module.split(".")[-1])
+                elif isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if alias.name.startswith("app.services."):
+                            imported.add(alias.name.split(".")[-1])
+
+    orphans = sorted(set(service_stems.keys()) - imported)
+    assert not orphans, (
+        f"{len(orphans)} orphan service module(s) in app/services/ — "
+        f"either wire them into a caller or delete per CLAUDE.md §2 rule 7:\n  "
+        + "\n  ".join(service_stems[o] for o in orphans)
+    )
