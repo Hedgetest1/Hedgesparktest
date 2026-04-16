@@ -131,7 +131,7 @@ def _cart_rate_trend(
     if rate_7d < 0.005:
         # Not enough signal in 7d rate to compare meaningfully
         return None
-    ratio = rate_24h / rate_7d if rate_7d > 0 else 0
+    ratio = rate_24h / rate_7d if rate_7d > 0 else 0.0
     if ratio >= 1.3:
         return "improving"
     if ratio <= 0.7:

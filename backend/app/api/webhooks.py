@@ -217,6 +217,20 @@ async def _ingest_order(
     # Upsert
     try:
         order, created = upsert_order(db=db, order_data=order_data)
+        # Invalidate revenue caches so dashboard shows fresh data immediately
+        if created:
+            try:
+                from app.core.redis_client import cache_delete
+                for pattern in (
+                    f"hs:orders_summary:{shop_domain}",
+                    f"hs:daily_revenue:{shop_domain}:7",
+                    f"hs:daily_revenue:{shop_domain}:14",
+                    f"hs:daily_revenue:{shop_domain}:30",
+                    f"hs:product_conversions:{shop_domain}:30",
+                ):
+                    cache_delete(pattern)
+            except Exception:
+                pass  # SILENT-EXCEPT-OK: cache invalidation is best-effort, TTL guarantees eventual consistency
         return {
             "stored":           created,
             "shopify_order_id": order.shopify_order_id,

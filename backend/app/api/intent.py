@@ -96,7 +96,7 @@ def intent_summary(
         .filter(VisitorProductState.shop_domain == shop)
         .one()
     )
-    avg_score = round(float(row[4]), 2) if row[4] is not None else 0
+    avg_score = round(float(row[4]), 2) if row[4] is not None else 0.0
 
     return {
         "total_records": row[0] or 0,

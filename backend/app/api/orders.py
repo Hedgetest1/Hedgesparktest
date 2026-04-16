@@ -477,9 +477,9 @@ def get_product_conversions(
         revenue = round(float(r[7] or 0), 2)
 
         # CVR: purchases / unique visitors who viewed (not total views)
-        cvr = round(purchases / view_visitors, 4) if view_visitors > 0 else 0
-        atc_rate = round(atc_visitors / view_visitors, 4) if view_visitors > 0 else 0
-        avg_order_value = round(revenue / purchases, 2) if purchases > 0 else 0
+        cvr = round(purchases / view_visitors, 4) if view_visitors > 0 else 0.0
+        atc_rate = round(atc_visitors / view_visitors, 4) if view_visitors > 0 else 0.0
+        avg_order_value = round(revenue / purchases, 2) if purchases > 0 else 0.0
 
         products.append({
             "product_url": r[0],

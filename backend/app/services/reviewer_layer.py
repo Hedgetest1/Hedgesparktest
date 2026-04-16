@@ -161,7 +161,7 @@ def _load_scaling(db: Session, entity_id: int) -> dict | None:
         "title": s.title,
         "severity": s.severity,
         "confidence": s.confidence,
-        "estimated_cost_increase_eur": s.estimated_cost_increase_eur,
+        "estimated_cost_increase_eur": float(s.estimated_cost_increase_eur) if s.estimated_cost_increase_eur is not None else None,
         "files": [],
     }
 

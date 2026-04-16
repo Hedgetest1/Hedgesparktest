@@ -161,7 +161,7 @@ def _nudge_to_dict(nudge) -> dict:
         "deactivated_at":           nudge.deactivated_at.isoformat() if nudge.deactivated_at else None,
         "action_task_id":           nudge.action_task_id,
         "visitor_count":            nudge.visitor_count,
-        "estimated_revenue_window": nudge.estimated_revenue_window,
+        "estimated_revenue_window": float(nudge.estimated_revenue_window) if nudge.estimated_revenue_window is not None else None,
         "calibration_state":        nudge.calibration_state,
     }
 

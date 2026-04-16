@@ -223,10 +223,10 @@ def get_proof_summary(db: Session, shop_domain: str, days: int = 30) -> dict:
                 "action_type": s.action_type,
                 "summary": s.summary,
                 "delta_cvr": s.delta_cvr,
-                "delta_revenue": s.delta_revenue_7d,
+                "delta_revenue": float(s.delta_revenue_7d) if s.delta_revenue_7d is not None else None,
                 "measured_at": s.delta_computed_at.isoformat() + "Z" if s.delta_computed_at else None,
             })
-        total_rev_delta += (s.delta_revenue_7d or 0)
+        total_rev_delta += float(s.delta_revenue_7d or 0)
 
     return {
         "actions_measured": len(snapshots),
