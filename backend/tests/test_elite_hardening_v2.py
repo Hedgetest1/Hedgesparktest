@@ -2190,3 +2190,42 @@ def test_track_payload_fields_have_bounds():
         f"TrackPayload numeric fields without bounds (DB overflow risk):\n  "
         + "\n  ".join(unbounded)
     )
+
+
+# ---------------------------------------------------------------------------
+# 34. No ::float casts on money/revenue NUMERIC columns in SQL
+# ---------------------------------------------------------------------------
+#
+# The 2026-04-16 audit found 12 SQL queries casting NUMERIC(18,2) money
+# columns to ::float, introducing IEEE 754 precision loss on aggregations.
+# This test prevents new ::float casts on money-related column names.
+# ---------------------------------------------------------------------------
+
+def test_no_float_cast_on_money_columns():
+    """SQL queries must not cast money NUMERIC columns to ::float."""
+    import re
+    _MONEY_PATTERNS = re.compile(
+        r"::float\b.*\b(total_price|revenue|aov|gross_revenue|covered_revenue|amount_eur|cost_eur|refund)"
+        r"|\b(total_price|revenue|aov|gross_revenue|covered_revenue|amount_eur|cost_eur|refund)\b.*::float"
+    )
+    hits: list[str] = []
+    scan_dirs = [_BACKEND / "app"]
+    for scan_dir in scan_dirs:
+        for file in scan_dir.rglob("*.py"):
+            if "__pycache__" in file.parts:
+                continue
+            rel = file.relative_to(_BACKEND).as_posix()
+            try:
+                lines = file.read_text().splitlines()
+            except OSError:
+                continue
+            for i, line in enumerate(lines):
+                if _MONEY_PATTERNS.search(line):
+                    hits.append(f"{rel}:{i + 1}  {line.strip()[:90]}")
+
+    assert not hits, (
+        f"{len(hits)} SQL ::float cast(s) on money NUMERIC columns — "
+        f"precision loss on large aggregations. Remove ::float, let Python "
+        f"Decimal handle the value:\n  "
+        + "\n  ".join(hits[:20])
+    )
