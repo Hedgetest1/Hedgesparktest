@@ -108,7 +108,7 @@ from pydantic import BaseModel, Field
 from app.api._types import OkResponse
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.core.deps import require_pro_session
 from app.models.active_nudge import ActiveNudge
 from app.services.nudge_engine import (
@@ -134,12 +134,6 @@ log = logging.getLogger(__name__)
 router = APIRouter(tags=["nudges"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 def _nudge_to_dict(nudge) -> dict:

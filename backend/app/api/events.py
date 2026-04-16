@@ -12,19 +12,13 @@ the schema field will carry it through automatically.
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.models.event import Event
 from app.schemas.event import EventCreate
 
 router = APIRouter()
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.post("/track-event")

@@ -2,19 +2,13 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.core.deps import require_merchant_session
 from app.models.visitor_product_state import VisitorProductState
 
 router = APIRouter()
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.get("/intent/top-hot")

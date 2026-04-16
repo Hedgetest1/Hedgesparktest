@@ -451,6 +451,7 @@ def enforce_chain_integrity(db: Session) -> dict[str, Any]:
                 alert_type="audit_log_tampering",
                 source=f"audit_log_chain:{fingerprint}",
                 severity="critical",
+                summary=f"Audit log tampering: {len(actionable)} row(s) mismatch chain",
                 detail={
                     "violation_count": len(actionable),
                     "row_ids": row_ids_sorted[:5],

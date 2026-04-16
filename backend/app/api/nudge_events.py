@@ -63,7 +63,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.models.active_nudge import ActiveNudge
 from app.services.nudge_measurement import CLIENT_EVENT_TYPES, record_nudge_event
 from app.services.shopify_auth import is_valid_shop_domain
@@ -73,12 +73,6 @@ log = logging.getLogger(__name__)
 router = APIRouter(tags=["nudge-events"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 class NudgeEventPayload(BaseModel):

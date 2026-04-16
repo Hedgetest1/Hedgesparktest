@@ -27,7 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.core.deps import require_pro_session
 from app.services import trust_contract as tc_service
 
@@ -36,12 +36,6 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/pro/trust", tags=["trust_contracts"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 # ---------------------------------------------------------------------------

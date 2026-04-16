@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.core.deps import require_pro_session
 from app.services.klaviyo_export import (
     get_segment_with_identity,
@@ -34,12 +34,6 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/pro/klaviyo", tags=["klaviyo"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 class KlaviyoPushRequest(BaseModel):

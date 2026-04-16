@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.core.deps import require_pro_session
 from app.models.merchant_rule import MerchantRule
 from app.services.rule_engine import _ALLOWED_ACTIONS
@@ -30,12 +30,6 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/pro/rules", tags=["merchant_rules"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 ALLOWED_TRIGGERS = [

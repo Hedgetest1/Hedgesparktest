@@ -9,19 +9,13 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal, get_read_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_pro_session
 from app.services.customer_churn_scorer import score_shop_customers
 
 router = APIRouter(prefix="/pro", tags=["customer_churn"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.get("/customer-churn")

@@ -133,7 +133,8 @@ class TestWorkerPressureCascade:
             def connect(self):
                 raise RuntimeError("db down")
 
-        monkeypatch.setattr(ps, "engine", _Boom(), raising=False)
+        import app.core.database as _db_mod
+        monkeypatch.setattr(_db_mod, "engine", _Boom())
         # Swallow the lazy import inside _worker_pressure by patching
         # the local reference too. We test the outer contract: no
         # exception escapes, result level is 'ok'.

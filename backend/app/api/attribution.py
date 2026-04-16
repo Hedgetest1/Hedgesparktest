@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.core.deps import require_merchant_session, require_pro_session
 from app.services.utm_attribution import (
     get_utm_attribution,
@@ -71,12 +71,6 @@ class AttributionSummaryResponse(BaseModel):
     first_vs_last_match_rate: float
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.get("/sources")

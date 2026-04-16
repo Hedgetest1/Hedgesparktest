@@ -45,7 +45,7 @@ Response
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.core.deps import require_pro_session
 from app.models.price_intelligence import PriceIntelligence
 from app.services.price_radar_service import evaluate_price
@@ -53,12 +53,6 @@ from app.services.price_radar_service import evaluate_price
 router = APIRouter()
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 # ---------------------------------------------------------------------------

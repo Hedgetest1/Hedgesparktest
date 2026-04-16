@@ -12,19 +12,13 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.core.deps import require_pro_session
 from app.services.nudge_dna import extract_patterns, get_cached_dna
 
 router = APIRouter(prefix="/pro", tags=["nudge_dna"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.get("/nudge-dna")

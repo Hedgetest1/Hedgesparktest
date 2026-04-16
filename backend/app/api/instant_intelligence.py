@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.core.deps import require_merchant_session
 from app.services.instant_onboarding import compute_instant_intelligence, trigger_instant_intelligence_async
 
@@ -28,12 +28,6 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/pro", tags=["instant_intelligence"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 class TopProduct(BaseModel):

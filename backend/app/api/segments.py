@@ -81,7 +81,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.core.deps import require_pro_session
 from app.core.url_utils import normalize_product_url
 from app.services.audience_segments import segment_product_visitors
@@ -145,12 +145,6 @@ class SegmentsResponse(BaseModel):
     meta: SegmentsMetaBlock
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.get(

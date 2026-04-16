@@ -46,7 +46,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.core.url_utils import normalize_product_url
 from app.models.event import Event
 from app.models.shop_order import ShopOrder
@@ -108,12 +108,6 @@ _ALLOWED_EVENT_TYPES: frozenset[str] = frozenset({
 })
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 class TrackPayload(BaseModel):

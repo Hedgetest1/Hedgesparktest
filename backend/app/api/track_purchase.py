@@ -41,7 +41,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.models.visitor_purchase_session import VisitorPurchaseSession
 from app.services.shopify_auth import is_valid_shop_domain
 
@@ -50,12 +50,6 @@ log = logging.getLogger(__name__)
 router = APIRouter(tags=["attribution"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 class PurchaseAttributionPayload(BaseModel):

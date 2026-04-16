@@ -71,7 +71,7 @@ To enforce a new Pro endpoint with this same whole-Pro pattern:
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.core.deps import require_merchant_session, require_pro_session
 from app.models.product_opportunity import ProductOpportunity
 from app.services.opportunity_engine import get_or_refresh_signals
@@ -93,12 +93,6 @@ _LITE_SIGNAL_FIELDS = {
 }
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 # ---------------------------------------------------------------------------

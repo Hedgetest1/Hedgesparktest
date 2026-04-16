@@ -1,12 +1,12 @@
 """
 Test fixtures for WishSpark backend integration tests.
 
-Uses the real production PostgreSQL database with a dedicated test schema
-('test_wishspark') to get real SQL dialect behavior (SAVEPOINT, ARRAY types,
-etc.) that SQLite cannot provide.
+Uses a dedicated 'wishspark_test' PostgreSQL database (schema cloned from prod)
+to get real SQL dialect behavior (SAVEPOINT, ARRAY types, etc.) without
+touching production data.
 
 All test data is created inside transactions that are rolled back after each
-test, so the production schema is never polluted.
+test, so the test database stays clean between runs.
 """
 from __future__ import annotations
 
@@ -46,9 +46,16 @@ from app.core.merchant_session import create_session_token, SESSION_COOKIE_NAME
 # Database engine — uses same DATABASE_URL but with isolated test data
 # ---------------------------------------------------------------------------
 
-_DATABASE_URL = os.environ.get("DATABASE_URL")
+_DATABASE_URL = os.environ.get("DATABASE_URL_TEST") or os.environ.get("DATABASE_URL")
 if not _DATABASE_URL:
-    raise RuntimeError("DATABASE_URL must be set for tests")
+    raise RuntimeError("DATABASE_URL or DATABASE_URL_TEST must be set for tests")
+
+# Auto-derive test DB URL: replace the database name with wishspark_test
+# unless DATABASE_URL_TEST was explicitly set
+if not os.environ.get("DATABASE_URL_TEST"):
+    # Replace /wishspark at end of URL with /wishspark_test
+    import re as _re
+    _DATABASE_URL = _re.sub(r"/wishspark(\?|$)", r"/wishspark_test\1", _DATABASE_URL)
 
 _test_engine = create_engine(_DATABASE_URL, pool_pre_ping=True)
 _TestSession = sessionmaker(bind=_test_engine, autocommit=False, autoflush=False)
@@ -57,11 +64,14 @@ _TestSession = sessionmaker(bind=_test_engine, autocommit=False, autoflush=False
 @pytest.fixture()
 def db():
     """
-    Provide a transactional DB session that rolls back after each test.
+    Provide a DB session against the dedicated test database.
 
-    Uses SAVEPOINT so that application code calling commit() inside the
-    test doesn't actually persist data — the outer transaction is always
-    rolled back.
+    Each test gets a fresh session. After the test, ALL rows created during
+    the test are rolled back via an outer transaction that wraps the session.
+
+    For tests using the TestClient (which triggers application-level commits),
+    we intercept session.commit() to flush+expire instead of truly committing,
+    keeping all data within the outer rollback-able transaction.
     """
     connection = _test_engine.connect()
     transaction = connection.begin()

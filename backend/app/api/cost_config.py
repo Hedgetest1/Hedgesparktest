@@ -38,7 +38,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.core.deps import require_pro_session
 from app.models.product_cost import ProductCost
 from app.models.shop_cost_defaults import ShopCostDefaults
@@ -49,12 +49,6 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/pro/costs", tags=["cost_config"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 # ---------------------------------------------------------------------------

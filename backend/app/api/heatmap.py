@@ -38,7 +38,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.core.deps import require_pro_session
 
 log = logging.getLogger(__name__)
@@ -93,12 +93,6 @@ class HeatmapTopResponse(BaseModel):
     generated_at: str | None = None
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 def _compute_scroll_buckets(

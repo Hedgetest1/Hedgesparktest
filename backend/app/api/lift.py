@@ -37,7 +37,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.core.deps import require_pro_session
 from app.services.nudge_measurement import (
     DEFAULT_ATTRIBUTION_WINDOW_HOURS,
@@ -87,12 +87,6 @@ class LiftReportResponse(BaseModel):
     generated_at: str
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.get(

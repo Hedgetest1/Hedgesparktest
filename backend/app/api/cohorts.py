@@ -28,7 +28,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.core.deps import require_pro_session
 from app.services.cohort_engine import get_cohort_retention, get_cohort_summary
 from app.services.ltv_engine import (
@@ -225,12 +225,6 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/pro/cohorts", tags=["cohorts"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.get(

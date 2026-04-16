@@ -33,19 +33,13 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy import text as sql_text
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ops/compliance", tags=["compliance_evidence"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 def _require_ops_key(request: Request) -> None:

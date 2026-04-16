@@ -649,7 +649,7 @@ def _cmd_status(db) -> str:
 
         for d in health.get("dimensions", []):
             d_icon = {"healthy": "🟢", "degraded": "🟡", "critical": "🔴"}[d["status"]]
-            trend = {"worsening": "↑", "improving": "↓", "stable": "→"}[d["trend"]]
+            trend = {"worsening": "↑", "improving": "↓", "stable": "→"}.get(d["trend"], "·")
             lines.append(f"  {d_icon} {d['name']}: {d['detail']} {trend}")
 
         if health.get("top_issues"):

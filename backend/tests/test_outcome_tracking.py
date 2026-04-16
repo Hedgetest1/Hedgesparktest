@@ -225,10 +225,11 @@ def test_orchestrator_cycle_records_outcome(db, merchant_a):
     result = run_orchestrator_cycle(db)
     assert result.actions_executed >= 1
 
-    # Check outcome was recorded
+    # Check outcome was recorded (filter by action_type to avoid prod-row hermeticity issues)
     outcomes = db.execute(text(
-        "SELECT outcome_status, action_type FROM action_outcomes ORDER BY id DESC LIMIT 1"
+        "SELECT outcome_status, action_type FROM action_outcomes "
+        "WHERE action_type LIKE '%resolve_alert%' ORDER BY id DESC LIMIT 1"
     )).fetchone()
-    assert outcomes is not None
+    assert outcomes is not None, "resolve_alert outcome not recorded"
     assert outcomes[0] == "pending"
     assert "resolve_alert" in outcomes[1]

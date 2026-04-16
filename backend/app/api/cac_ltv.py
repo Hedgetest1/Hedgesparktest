@@ -25,7 +25,7 @@ from pydantic import BaseModel
 from sqlalchemy import text as sql_text
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal, get_read_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_pro_session
 
 log = logging.getLogger(__name__)
@@ -33,12 +33,6 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/pro", tags=["cac_ltv"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 class CacLtvResponse(BaseModel):

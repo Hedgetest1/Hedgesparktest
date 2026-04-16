@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.models.merchant import Merchant
 from app.services.shopify_auth import (
     APP_URL,
@@ -37,12 +37,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 # ---------------------------------------------------------------------------

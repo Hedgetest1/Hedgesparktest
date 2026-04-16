@@ -15,19 +15,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal, get_read_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_pro_session
 from app.services.mta_engine import compute_mta, compare_models, _MODELS
 
 router = APIRouter(prefix="/pro", tags=["mta"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 class MtaSource(BaseModel):

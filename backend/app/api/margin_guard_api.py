@@ -16,19 +16,13 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.core.deps import require_pro_session
 from app.services.margin_guard import get_margin_snapshot, check_discount_safe
 
 router = APIRouter(prefix="/pro/margin", tags=["margin_guard"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 class MarginSnapshot(BaseModel):

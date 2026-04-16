@@ -11,19 +11,13 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal, get_read_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_pro_session
 from app.services.probabilistic_forecast import forecast_revenue, forecast_churn
 
 router = APIRouter(prefix="/pro/forecast", tags=["forecasts"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.get("/revenue")
