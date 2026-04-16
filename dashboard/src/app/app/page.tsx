@@ -1670,10 +1670,11 @@ function PageInner() {
 
       // Step 2: Auto-verify immediately
       const testRes = await apiFetch(`${API_BASE}/merchant/integrations/klaviyo/test`, { method: "POST" });
-      const testData = await testRes.json();
+      const testData = testRes.ok ? await testRes.json().catch(() => ({})) : {};
 
       // Step 3: Refresh status
-      const s = await apiFetch(`${API_BASE}/merchant/integrations`).then((r) => r.json());
+      const sRes = await apiFetch(`${API_BASE}/merchant/integrations`);
+      const s = sRes.ok ? await sRes.json().catch(() => ({})) : {};
       if (s?.klaviyo) setKlaviyoStatus(s.klaviyo);
 
       if (testData.status === "connected") {
@@ -1791,7 +1792,7 @@ function PageInner() {
         `${API_BASE}/billing/subscribe?shop=${encodeURIComponent(shop)}`,
         { method: "POST", headers: apiHeaders(), credentials: "include" }
       );
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
       if (res.ok && json.confirmation_url) {
         window.location.href = json.confirmation_url;
         return;
