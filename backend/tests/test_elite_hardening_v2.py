@@ -2110,3 +2110,83 @@ def test_no_redis_get_then_delete_race():
         f"If intentional (e.g. read-only check), add `# GETDEL-OK: <reason>` nearby:\n  "
         + "\n  ".join(hits[:20])
     )
+
+
+# ---------------------------------------------------------------------------
+# 32. Every /pro/* and /merchant/* route requires authentication
+# ---------------------------------------------------------------------------
+#
+# The 2026-04-16 audit found /pro/ads/networks was unprotected. This test
+# ensures every /pro/ and /merchant/ route has a require_* dependency.
+# Uses source text scanning (not AST) because FastAPI decorators are
+# single-line strings and auth deps are always in the function signature.
+# ---------------------------------------------------------------------------
+
+def test_every_pro_merchant_route_requires_auth():
+    """All /pro/ and /merchant/ routes must require authentication."""
+    import re
+    hits: list[str] = []
+    _AUTH_DEPS = ("require_pro_session", "require_merchant_session", "require_ops_key", "require_operator")
+
+    for file in (_BACKEND / "app" / "api").rglob("*.py"):
+        if "__pycache__" in file.parts:
+            continue
+        rel = file.relative_to(_BACKEND).as_posix()
+        lines = file.read_text().splitlines()
+
+        for i, line in enumerate(lines):
+            # Match route decorators containing /pro/ or /merchant/
+            if not re.search(r'@router\.(get|post|put|patch|delete|options)\(.*"/(?:pro|merchant)/', line):
+                continue
+            # Look ahead 16 lines for an auth dependency
+            window = "\n".join(lines[i:i + 16])
+            if not any(dep in window for dep in _AUTH_DEPS):
+                hits.append(f"{rel}:{i + 1}  {line.strip()[:90]}")
+
+    assert not hits, (
+        f"{len(hits)} /pro/ or /merchant/ route(s) without authentication:\n  "
+        + "\n  ".join(hits[:20])
+        + "\n\nEvery /pro/* route needs `Depends(require_pro_session)` and "
+        f"every /merchant/* route needs `Depends(require_merchant_session)`."
+    )
+
+
+# ---------------------------------------------------------------------------
+# 33. Every /track and /track/batch payload field has Pydantic bounds
+# ---------------------------------------------------------------------------
+#
+# The track endpoint is the widest unauthenticated surface. Every numeric
+# field must have ge=/le= bounds to prevent DB overflow on commit.
+# The 2026-04-16 audit found timestamp, dwell_seconds, scroll_depth
+# were unbounded — fixed in the same session.
+# ---------------------------------------------------------------------------
+
+def test_track_payload_fields_have_bounds():
+    """TrackPayload numeric fields must have ge=/le= bounds."""
+    import importlib
+    track_mod = importlib.import_module("app.api.track")
+    TrackPayload = track_mod.TrackPayload
+    schema = TrackPayload.model_json_schema()
+    props = schema.get("properties", {})
+
+    numeric_fields = ["timestamp", "dwell_seconds", "scroll_depth"]
+    unbounded: list[str] = []
+    for field_name in numeric_fields:
+        if field_name not in props:
+            continue
+        spec = props[field_name]
+        # Check for anyOf (Optional) pattern
+        if "anyOf" in spec:
+            for variant in spec["anyOf"]:
+                if variant.get("type") == "integer":
+                    spec = variant
+                    break
+        has_ge = "minimum" in spec or "exclusiveMinimum" in spec
+        has_le = "maximum" in spec or "exclusiveMaximum" in spec
+        if not (has_ge and has_le):
+            unbounded.append(f"{field_name}: min={has_ge}, max={has_le}")
+
+    assert not unbounded, (
+        f"TrackPayload numeric fields without bounds (DB overflow risk):\n  "
+        + "\n  ".join(unbounded)
+    )
