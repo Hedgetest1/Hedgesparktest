@@ -101,9 +101,21 @@ def client(db):
 
     fastapi_app.dependency_overrides[get_db] = _override_get_db
 
-    # Use httpx sync client via ASGITransport for TestClient-like behavior
+    # Use httpx sync client via ASGITransport for TestClient-like behavior.
+    # Wrapped to move per-request cookies= onto the client instance,
+    # avoiding Starlette DeprecationWarning (httpx per-request cookies).
     from starlette.testclient import TestClient
-    with TestClient(fastapi_app, raise_server_exceptions=False) as c:
+
+    class _CookieForwardClient(TestClient):
+        """Intercept cookies= kwarg and set on client instance instead."""
+        def request(self, *args, **kwargs):
+            cookies = kwargs.pop("cookies", None)
+            if cookies:
+                self.cookies.clear()
+                self.cookies.update(cookies)
+            return super().request(*args, **kwargs)
+
+    with _CookieForwardClient(fastapi_app, raise_server_exceptions=False) as c:
         yield c
 
     fastapi_app.dependency_overrides.clear()
