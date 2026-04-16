@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -34,7 +35,9 @@ from app.models.project_brain_snapshot import ProjectBrainSnapshot
 
 log = logging.getLogger("project_brain")
 
-_BACKEND_DIR = Path("/opt/wishspark/backend")
+# Derive backend root dynamically: app/services/project_brain.py → backend/
+# Falls back to /opt/wishspark/backend if REPO_ROOT not set (production default).
+_BACKEND_DIR = Path(os.environ.get("REPO_ROOT", Path(__file__).parent.parent.parent.parent)) / "backend"
 
 # ---------------------------------------------------------------------------
 # Cooldown — once per 24 hours

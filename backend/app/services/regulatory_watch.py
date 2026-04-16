@@ -51,11 +51,16 @@ import logging
 import os
 import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Callable
 
 from sqlalchemy.orm import Session
 
 log = logging.getLogger("regulatory_watch")
+
+# Derive backend root dynamically so regulatory checks work in CI (checked-out
+# repo) and on production (/opt/wishspark/backend/).
+_BACKEND_DIR = Path(os.environ.get("REPO_ROOT", Path(__file__).parent.parent.parent.parent)) / "backend"
 
 _AUDIT_COOLDOWN_KEY = "hs:regulatory_watch:last_run"
 _AUDIT_COOLDOWN_S = 6 * 3600  # run at most every 6 hours
@@ -116,7 +121,7 @@ def _check_consent_gate_exists(db: Session) -> bool:
     """GDPR Art. 6/7 + ePrivacy: /track endpoint must check consent."""
     try:
         import ast
-        with open("/opt/wishspark/backend/app/api/track.py", "r") as f:
+        with open(_BACKEND_DIR / "app" / "api" / "track.py", "r") as f:
             src = f.read()
         return "_consent_allows_ingestion" in src
     except Exception as exc:
@@ -202,7 +207,7 @@ def _check_pii_guard_active(db: Session) -> bool:
 def _check_gpc_honored(db: Session) -> bool:
     """CCPA/CPRA: Global Privacy Control must be checked in /track."""
     try:
-        with open("/opt/wishspark/backend/app/api/track.py", "r") as f:
+        with open(_BACKEND_DIR / "app" / "api" / "track.py", "r") as f:
             src = f.read()
         return "sec-gpc" in src.lower() or "globalPrivacyControl" in src.lower()
     except Exception as exc:
@@ -213,7 +218,7 @@ def _check_gpc_honored(db: Session) -> bool:
 def _check_security_headers(db: Session) -> bool:
     """OWASP: CSP + HSTS + X-Frame-Options must be in main.py."""
     try:
-        with open("/opt/wishspark/backend/app/main.py", "r") as f:
+        with open(_BACKEND_DIR / "app" / "main.py", "r") as f:
             src = f.read()
         return all(h in src for h in [
             "Content-Security-Policy",
@@ -237,7 +242,7 @@ def _check_token_encryption(db: Session) -> bool:
 def _check_webhook_hmac(db: Session) -> bool:
     """Shopify webhooks must verify HMAC signature."""
     try:
-        with open("/opt/wishspark/backend/app/api/webhooks.py", "r") as f:
+        with open(_BACKEND_DIR / "app" / "api" / "webhooks.py", "r") as f:
             src = f.read()
         return "hmac" in src.lower() and "verify" in src.lower()
     except Exception as exc:
@@ -293,7 +298,7 @@ def _check_telegram_webhook_signing(db: Session) -> bool:
 def _check_oauth_state_enforced(db: Session) -> bool:
     """OAuth callback must enforce state/nonce parameter."""
     try:
-        with open("/opt/wishspark/backend/app/api/shopify_oauth.py", "r") as f:
+        with open(_BACKEND_DIR / "app" / "api" / "shopify_oauth.py", "r") as f:
             src = f.read()
         # The fix was: "if not state or not _consume_nonce"
         return "if not state or" in src or "if not state " in src
@@ -305,7 +310,7 @@ def _check_oauth_state_enforced(db: Session) -> bool:
 def _check_timing_safe_api_key(db: Session) -> bool:
     """X-API-Key comparison must be timing-safe."""
     try:
-        with open("/opt/wishspark/backend/app/core/deps.py", "r") as f:
+        with open(_BACKEND_DIR / "app" / "core" / "deps.py", "r") as f:
             src = f.read()
         return "hmac.compare_digest" in src
     except Exception as exc:

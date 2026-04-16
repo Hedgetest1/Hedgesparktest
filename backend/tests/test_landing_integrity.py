@@ -35,12 +35,15 @@ a useful invariant to lock in.
 """
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
 import pytest
 
-_DASHBOARD = Path("/opt/wishspark/dashboard")
+# Derive repo root dynamically so tests work in CI (checked-out repo) and on prod.
+_REPO_ROOT = Path(os.environ.get("REPO_ROOT", Path(__file__).parent.parent.parent))
+_DASHBOARD = _REPO_ROOT / "dashboard"
 _NEXT_DIR = _DASHBOARD / ".next"
 _SERVER_APP = _NEXT_DIR / "server" / "app"
 _CHUNKS_DIR = _NEXT_DIR / "static" / "chunks"

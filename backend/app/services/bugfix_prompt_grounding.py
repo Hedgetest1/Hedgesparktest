@@ -29,11 +29,16 @@ from __future__ import annotations
 import ast
 import logging
 import os
+from pathlib import Path
 from typing import Iterable
 
 log = logging.getLogger("bugfix_prompt_grounding")
 
-_BACKEND_DIR = "/opt/wishspark/backend"
+# Derive backend root dynamically: app/services/bugfix_prompt_grounding.py → backend/
+# Falls back to /opt/wishspark/backend if REPO_ROOT env var is not set.
+_BACKEND_DIR = str(
+    Path(os.environ.get("REPO_ROOT", Path(__file__).parent.parent.parent.parent)) / "backend"
+)
 _MAX_MANIFEST_ENTRIES = 30
 _MAX_SIGNATURES_PER_FILE = 40
 

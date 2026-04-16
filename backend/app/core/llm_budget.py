@@ -498,7 +498,11 @@ def check_budget(module: str) -> tuple[bool, str]:
         return False, f"tier_blocked: important modules blocked at <10% remaining ({remaining_pct:.0%})"
 
     # Check cooldown
-    last = _last_call.get(module, 0)
+    # Default to float('-inf') — not 0 — so a module that has never been called
+    # is treated as "called infinitely long ago" (cooldown NOT active).
+    # Using 0 was a latent bug: time.monotonic() grows from 0 at process start,
+    # so after ~107s uptime, 900-107=793s cooldown appeared active for every fresh module.
+    last = _last_call.get(module, float("-inf"))
     cooldown = limits.get("cooldown_seconds", 0)
     if cooldown and (time.monotonic() - last) < cooldown:
         remaining = int(cooldown - (time.monotonic() - last))

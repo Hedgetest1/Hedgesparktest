@@ -20,16 +20,16 @@ class Merchant(Base):
     # MERCHANT_TOKEN_ENCRYPTION_KEY is configured.  Nullified on uninstall.
     access_token   = Column(String,   nullable=True)
 
-    plan           = Column(String,   nullable=False, default="starter")
+    plan           = Column(String,   nullable=False, default="starter",   server_default="starter")
     installed_at   = Column(DateTime, default=_now_utc, nullable=False)
-    billing_active = Column(Boolean,  default=False,   nullable=False)
+    billing_active = Column(Boolean,  default=False,   nullable=False,    server_default="false")
 
     # ---------------------------------------------------------------------------
     # Install lifecycle
     # "active"      — app is installed and operational
     # "uninstalled" — merchant removed the app; access_token is nullified
     # ---------------------------------------------------------------------------
-    install_status  = Column(String,   nullable=False, default="active")
+    install_status  = Column(String,   nullable=False, default="active",  server_default="active")
     uninstalled_at  = Column(DateTime, nullable=True)
 
     # ---------------------------------------------------------------------------

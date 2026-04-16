@@ -16,14 +16,18 @@ for a 10k-merchant production product.
 from __future__ import annotations
 
 import ast
+import os
 import re
 from pathlib import Path
 
 import pytest
 
-_DASHBOARD = Path("/opt/wishspark/dashboard")
-_BACKEND = Path("/opt/wishspark/backend")
-_TRACKER = Path("/opt/wishspark/tracker")
+# Derive repo root from this file's location so tests work both on the production
+# server (/opt/wishspark/) and in CI (checked-out repo under /home/runner/work/).
+_REPO_ROOT = Path(os.environ.get("REPO_ROOT", Path(__file__).parent.parent.parent))
+_DASHBOARD = _REPO_ROOT / "dashboard"
+_BACKEND = _REPO_ROOT / "backend"
+_TRACKER = _REPO_ROOT / "tracker"
 _PRERENDERED_INDEX = _DASHBOARD / ".next" / "server" / "app" / "index.html"
 
 
@@ -878,11 +882,11 @@ _SECRET_PATTERNS = (
 
 # Root paths to scan. We skip node_modules / venv / .next / .git etc.
 _SECRET_SCAN_ROOTS = (
-    Path("/opt/wishspark/backend/app"),
-    Path("/opt/wishspark/backend/scripts"),
-    Path("/opt/wishspark/backend/tests"),
-    Path("/opt/wishspark/dashboard/src"),
-    Path("/opt/wishspark/tracker"),
+    _BACKEND / "app",
+    _BACKEND / "scripts",
+    _BACKEND / "tests",
+    _DASHBOARD / "src",
+    _TRACKER,
 )
 
 # Files where a pattern is intentional (test fixtures, regex patterns
@@ -920,7 +924,7 @@ def test_no_secret_literal_in_source():
             if file.suffix not in {".py", ".ts", ".tsx", ".js", ".css", ".html", ".md"}:
                 continue
             try:
-                rel = file.relative_to(Path("/opt/wishspark")).as_posix()
+                rel = file.relative_to(_REPO_ROOT).as_posix()
             except ValueError:
                 continue
             if rel in _SECRET_ALLOWLIST:
@@ -1749,7 +1753,7 @@ def test_every_worker_file_registered_in_ecosystem():
     """Each `app/workers/*_worker.py` file must be referenced in
     `/opt/wishspark/ecosystem.config.js`, and vice versa — no
     dangling references on either side."""
-    ecosystem_path = Path("/opt/wishspark/ecosystem.config.js")
+    ecosystem_path = _REPO_ROOT / "ecosystem.config.js"
     assert ecosystem_path.exists(), "ecosystem.config.js missing"
     ecosystem_src = ecosystem_path.read_text()
 
@@ -1813,11 +1817,11 @@ def test_no_backup_files_in_source_tree():
     a `-backup` suffix."""
     hits: list[str] = []
     roots = [
-        Path("/opt/wishspark/dashboard/src"),
-        Path("/opt/wishspark/backend/app"),
-        Path("/opt/wishspark/backend/tests"),
-        Path("/opt/wishspark/backend/scripts"),
-        Path("/opt/wishspark/tracker"),
+        _DASHBOARD / "src",
+        _BACKEND / "app",
+        _BACKEND / "tests",
+        _BACKEND / "scripts",
+        _TRACKER,
     ]
     for root in roots:
         if not root.exists():
@@ -1829,7 +1833,7 @@ def test_no_backup_files_in_source_tree():
                 continue
             if _BACKUP_PATTERN.search(file.name):
                 try:
-                    rel = file.relative_to(Path("/opt/wishspark")).as_posix()
+                    rel = file.relative_to(_REPO_ROOT).as_posix()
                 except ValueError:
                     rel = str(file)
                 hits.append(rel)

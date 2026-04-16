@@ -170,11 +170,13 @@ def test_bench_manifest_contains_real_paths():
     assert "app/services/" in manifest
     # Every listed path must exist
     import os
+    from pathlib import Path as _Path
+    _backend = str(_Path(os.environ.get("REPO_ROOT", _Path(__file__).parent.parent.parent)) / "backend")
     for line in manifest.splitlines():
         line = line.strip()
         if line.startswith("app/") and "(" in line:
             path = line.split("   ")[0].strip()
-            assert os.path.isfile(f"/opt/wishspark/backend/{path}"), f"manifest listed missing path: {path}"
+            assert os.path.isfile(os.path.join(_backend, path)), f"manifest listed missing path: {path}"
 
 
 def test_bench_manifest_includes_extra_files():

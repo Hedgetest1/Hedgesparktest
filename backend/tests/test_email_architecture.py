@@ -8,6 +8,11 @@ If any test here fails, the architecture has been compromised.
 """
 import ast
 import os
+from pathlib import Path
+
+# Derive repo root from this file's location for CI portability.
+_REPO_ROOT = Path(os.environ.get("REPO_ROOT", Path(__file__).parent.parent.parent))
+_BACKEND = _REPO_ROOT / "backend"
 
 
 # ---------------------------------------------------------------------------
@@ -21,7 +26,7 @@ def test_no_direct_send_email_in_services():
     Any other service calling send_email() directly is a bypass.
     """
     violations = []
-    services_dir = "/opt/wishspark/backend/app/services"
+    services_dir = str(_BACKEND / "app" / "services")
 
     for fname in os.listdir(services_dir):
         if not fname.endswith(".py"):
@@ -65,7 +70,7 @@ def test_no_send_email_import_in_services():
     Only the orchestrator is allowed to import it.
     """
     violations = []
-    services_dir = "/opt/wishspark/backend/app/services"
+    services_dir = str(_BACKEND / "app" / "services")
 
     for fname in os.listdir(services_dir):
         if not fname.endswith(".py"):
@@ -97,9 +102,9 @@ def test_no_orchestrated_parameter():
     Its existence means a direct-send bypass path could be reactivated.
     """
     files_to_check = [
-        "/opt/wishspark/backend/app/services/revenue_triggers.py",
-        "/opt/wishspark/backend/app/services/silence_detector.py",
-        "/opt/wishspark/backend/app/services/merchant_digest.py",
+        str(_BACKEND / "app" / "services" / "revenue_triggers.py"),
+        str(_BACKEND / "app" / "services" / "silence_detector.py"),
+        str(_BACKEND / "app" / "services" / "merchant_digest.py"),
     ]
 
     violations = []
@@ -181,7 +186,7 @@ def test_template_baselines_complete():
 
 def test_send_email_has_caller_enforcement():
     """send_email() must contain caller enforcement code."""
-    path = "/opt/wishspark/backend/app/core/email.py"
+    path = str(_BACKEND / "app" / "core" / "email.py")
     with open(path) as f:
         content = f.read()
 

@@ -4136,8 +4136,11 @@ except ImportError:
         "migrations/",
     ]
 
-_REPO_DIR = "/opt/wishspark"
-_BACKEND_DIR = "/opt/wishspark/backend"
+# Derive repo/backend root dynamically: app/services/bugfix_pipeline.py → backend/ → repo/
+# Falls back to /opt/wishspark if REPO_ROOT env var is not set (production default).
+from pathlib import Path as _Path
+_REPO_DIR = str(_Path(os.environ.get("REPO_ROOT", _Path(__file__).parent.parent.parent.parent)))
+_BACKEND_DIR = str(_Path(_REPO_DIR) / "backend")
 
 
 def _check_forbidden_paths(patch_files_json: str | None) -> str | None:

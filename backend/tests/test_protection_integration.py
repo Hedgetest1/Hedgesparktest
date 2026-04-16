@@ -209,34 +209,58 @@ def test_agent_worker_monthly_audit_skipped_under_llm_pressure():
 # ---------------------------------------------------------------------------
 
 def test_deploy_sh_invokes_preflight_before_pm2_restart():
-    """deploy.sh MUST call deploy_gate preflight BEFORE pm2 restart."""
+    """deploy.sh MUST call deploy_gate preflight BEFORE the main deploy pm2 restart.
+    Note: the do_rollback() function also contains a pm2 reload — we only check
+    the MAIN deploy path by stripping the rollback function body first."""
     import re
+    import os
     from pathlib import Path
-    deploy_sh = Path("/opt/wishspark/deploy.sh").read_text()
+    _repo_root = Path(os.environ.get("REPO_ROOT", Path(__file__).parent.parent.parent))
+    deploy_sh_path = _repo_root / "deploy.sh"
+    if not deploy_sh_path.exists():
+        pytest.skip("deploy.sh not present in this checkout")
+    deploy_sh = deploy_sh_path.read_text()
+    # Strip do_rollback() function body so its internal pm2 reload doesn't interfere.
+    # do_rollback() is a top-level shell function; strip from "do_rollback() {" to the
+    # closing "}" at its indentation level.
+    main_body = re.sub(r'\ndo_rollback\(\)\s*\{.*?\n\}', '', deploy_sh, flags=re.DOTALL)
     # deploy_gate.py may be wrapped in quotes; match with flexible regex.
-    pre_m = re.search(r"deploy_gate\.py[\"']?\s+preflight", deploy_sh)
-    reload_idx = deploy_sh.find("pm2 reload /opt/wishspark/ecosystem.config.js 2>&1")
+    pre_m = re.search(r"deploy_gate\.py[\"']?\s+preflight", main_body)
+    reload_m = re.search(r"pm2 reload .+ecosystem\.config\.js", main_body)
     assert pre_m is not None, "deploy.sh does not invoke deploy_gate preflight"
-    assert reload_idx > 0, "deploy.sh does not contain pm2 reload"
-    assert pre_m.start() < reload_idx, "deploy_gate preflight must run BEFORE pm2 reload"
+    assert reload_m is not None, "deploy.sh main path does not contain pm2 reload"
+    assert pre_m.start() < reload_m.start(), "deploy_gate preflight must run BEFORE pm2 reload"
 
 
 def test_deploy_sh_invokes_postdeploy_after_pm2_restart():
-    """deploy.sh MUST call deploy_gate postdeploy AFTER pm2 restart."""
+    """deploy.sh MUST call deploy_gate postdeploy AFTER the main deploy pm2 restart."""
     import re
+    import os
     from pathlib import Path
-    deploy_sh = Path("/opt/wishspark/deploy.sh").read_text()
-    reload_idx = deploy_sh.find("pm2 reload /opt/wishspark/ecosystem.config.js 2>&1")
-    post_m = re.search(r"deploy_gate\.py[\"']?\s+postdeploy", deploy_sh)
+    _repo_root = Path(os.environ.get("REPO_ROOT", Path(__file__).parent.parent.parent))
+    deploy_sh_path = _repo_root / "deploy.sh"
+    if not deploy_sh_path.exists():
+        pytest.skip("deploy.sh not present in this checkout")
+    deploy_sh = deploy_sh_path.read_text()
+    # Strip do_rollback() so its pm2 reload doesn't interfere with ordering check.
+    main_body = re.sub(r'\ndo_rollback\(\)\s*\{.*?\n\}', '', deploy_sh, flags=re.DOTALL)
+    reload_m = re.search(r"pm2 reload .+ecosystem\.config\.js", main_body)
+    post_m = re.search(r"deploy_gate\.py[\"']?\s+postdeploy", main_body)
     assert post_m is not None, "deploy.sh does not invoke deploy_gate postdeploy"
-    assert reload_idx < post_m.start(), "deploy_gate postdeploy must run AFTER pm2 reload"
+    assert reload_m is not None, "deploy.sh main path does not contain pm2 reload"
+    assert reload_m.start() < post_m.start(), "deploy_gate postdeploy must run AFTER pm2 reload"
 
 
 def test_deploy_sh_uses_absolute_ecosystem_path():
     """No CWD-dependent ecosystem paths allowed in deploy.sh."""
-    from pathlib import Path
-    deploy_sh = Path("/opt/wishspark/deploy.sh").read_text()
-    # No bare "ecosystem.config.js" invocations — must be absolute path
     import re
+    import os
+    from pathlib import Path
+    _repo_root = Path(os.environ.get("REPO_ROOT", Path(__file__).parent.parent.parent))
+    deploy_sh_path = _repo_root / "deploy.sh"
+    if not deploy_sh_path.exists():
+        pytest.skip("deploy.sh not present in this checkout")
+    deploy_sh = deploy_sh_path.read_text()
+    # No bare "ecosystem.config.js" invocations — must be absolute path
     bad = re.findall(r"pm2 (?:restart|reload) ecosystem\.config\.js(?!')", deploy_sh)
     assert bad == [], f"deploy.sh contains CWD-dependent pm2 restart: {bad}"

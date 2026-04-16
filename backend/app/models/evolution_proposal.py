@@ -43,8 +43,8 @@ class EvolutionProposal(Base):
     risk_level = Column(String(16), nullable=False)        # LEVEL_1 | LEVEL_2 | LEVEL_3
     reason = Column(Text, nullable=False)
     expected_impact = Column(Text, nullable=True)
-    auto_applicable = Column(Boolean, nullable=False, default=False)
-    status = Column(String(32), nullable=False, default="open")
+    auto_applicable = Column(Boolean, nullable=False, default=False, server_default="false")
+    status = Column(String(32), nullable=False, default="open", server_default="open")
     decided_by = Column(String(128), nullable=True)
     decided_at = Column(DateTime, nullable=True)
     audit_cycle = Column(String(32), nullable=True)        # e.g. "2026-W13"

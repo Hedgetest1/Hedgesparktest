@@ -148,6 +148,12 @@ class TestWorkerPressureCascade:
 # ---------------------------------------------------------------------------
 
 class TestLLMBudgetExhaustion:
+    def setup_method(self):
+        """Reset all in-process LLM budget state before each test so
+        prior test-suite runs don't contaminate cooldown/counter state."""
+        from app.core import llm_budget
+        llm_budget.reset_daily_counters()
+
     def test_check_budget_blocks_cleanly_when_over_cap(self, monkeypatch):
         """Pin the monthly cost above the cap and assert check_budget
         returns (False, reason) without raising. The reason string
