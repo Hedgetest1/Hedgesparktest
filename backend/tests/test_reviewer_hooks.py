@@ -105,7 +105,7 @@ def test_reviewer_allows_auto_apply_safe_domain(db, brain):
     assert c.reviewer_assessment_id is not None
 
     # Check the assessment allowed it
-    assessment = db.query(ReviewerAssessment).get(c.reviewer_assessment_id)
+    assessment = db.get(ReviewerAssessment, c.reviewer_assessment_id)
     assert assessment is not None
     assert assessment.auto_approvable is True
     assert assessment.verdict in ("approve", "approve_with_notes")
@@ -165,7 +165,7 @@ def test_reviewer_allows_safe_evolution_conversion(db, brain):
     assert p.reviewer_assessment_id is not None
 
     # Check assessment
-    assessment = db.query(ReviewerAssessment).get(p.reviewer_assessment_id)
+    assessment = db.get(ReviewerAssessment, p.reviewer_assessment_id)
     assert assessment is not None
     assert assessment.verdict in ("approve", "approve_with_notes")
 

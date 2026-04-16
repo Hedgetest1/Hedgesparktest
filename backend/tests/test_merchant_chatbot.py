@@ -174,7 +174,7 @@ def test_bug_report_creates_incident(db, merchant_a):
     assert result.incident_created is True
     assert result.incident_id is not None
 
-    incident = db.query(SupportIncident).get(result.incident_id)
+    incident = db.get(SupportIncident, result.incident_id)
     assert incident is not None
     assert incident.shop_domain == SHOP_A
     # Status is "triaged" because high-severity bug_report routes to pipeline
@@ -285,7 +285,7 @@ def test_bug_creates_ops_alert(db, merchant_a):
     result = process_message(db, SHOP_A, "tracker is completely broken and dead")
     assert result.incident_created is True
 
-    incident = db.query(SupportIncident).get(result.incident_id)
+    incident = db.get(SupportIncident, result.incident_id)
     assert incident is not None
     # Bug report should create an alert
     assert incident.linked_ops_alert_id is not None

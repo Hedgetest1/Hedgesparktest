@@ -83,7 +83,7 @@ def test_publish_event_matches_wildcard(db):
         mock_client.return_value.__enter__.return_value.post.return_value = mock_resp
         ids = publish_event(db, SHOP, "nudge.fired", {"id": 99})
     assert len(ids) == 1
-    d = db.query(OutboundWebhookDelivery).get(ids[0])
+    d = db.get(OutboundWebhookDelivery, ids[0])
     assert d.status == "delivered"
     assert d.attempts == 1
 
@@ -100,7 +100,7 @@ def test_attempt_delivery_failure_marks_pending(db):
         mock_resp = MagicMock(status_code=500, text="boom")
         mock_client.return_value.__enter__.return_value.post.return_value = mock_resp
         ids = publish_event(db, SHOP, "nudge.fired", {})
-    d = db.query(OutboundWebhookDelivery).get(ids[0])
+    d = db.get(OutboundWebhookDelivery, ids[0])
     assert d.status == "pending"
     assert d.attempts == 1
     assert d.response_status == 500
@@ -128,7 +128,7 @@ def test_transport_error_recorded(db):
     with patch("httpx.Client") as mock_client:
         mock_client.return_value.__enter__.return_value.post.side_effect = RuntimeError("dns fail")
         ids = publish_event(db, SHOP, "nudge.fired", {})
-    d = db.query(OutboundWebhookDelivery).get(ids[0])
+    d = db.get(OutboundWebhookDelivery, ids[0])
     assert "transport_error" in d.response_body
     assert d.response_status == 0
 

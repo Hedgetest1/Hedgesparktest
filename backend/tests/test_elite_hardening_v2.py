@@ -1860,42 +1860,47 @@ def test_no_legacy_query_get_calls():
     """`db.query(Model).get(id)` is deprecated in SQLAlchemy 2.0.
     Use `db.get(Model, id)` instead — same return type, no warning."""
     hits: list[str] = []
-    for file in (_BACKEND / "app").rglob("*.py"):
-        if "__pycache__" in file.parts:
-            continue
-        rel = file.relative_to(_BACKEND).as_posix()
-        try:
-            source = file.read_text()
-            tree = ast.parse(source)
-        except (OSError, SyntaxError):
-            continue
+    scan_dirs = [_BACKEND / "app", _BACKEND / "tests"]
+    for scan_dir in scan_dirs:
+        for file in scan_dir.rglob("*.py"):
+            if "__pycache__" in file.parts:
+                continue
+            rel = file.relative_to(_BACKEND).as_posix()
+            # Skip this very test file (it references the pattern in comments/docstrings)
+            if rel == "tests/test_elite_hardening_v2.py":
+                continue
+            try:
+                source = file.read_text()
+                tree = ast.parse(source)
+            except (OSError, SyntaxError):
+                continue
 
-        for node in ast.walk(tree):
-            # Looking for: <something>.query(<Model>).get(<expr>)
-            # That's: Call(func=Attribute(attr='get', value=Call(func=Attribute(attr='query', ...))))
-            if not isinstance(node, ast.Call):
-                continue
-            f = node.func
-            if not (isinstance(f, ast.Attribute) and f.attr == "get"):
-                continue
-            inner = f.value
-            if not isinstance(inner, ast.Call):
-                continue
-            inner_f = inner.func
-            if not (isinstance(inner_f, ast.Attribute) and inner_f.attr == "query"):
-                continue
-            # query() must have exactly one positional arg that is a Name
-            # starting with uppercase (a Model class, not a Column).
-            if len(inner.args) != 1 or inner.keywords:
-                continue
-            q_arg = inner.args[0]
-            if not (isinstance(q_arg, ast.Name) and q_arg.id[:1].isupper()):
-                continue
-            line = source.splitlines()[node.lineno - 1].strip()
-            hits.append(f"{rel}:{node.lineno}  {line[:90]}")
+            for node in ast.walk(tree):
+                # Looking for: <something>.query(<Model>).get(<expr>)
+                # That's: Call(func=Attribute(attr='get', value=Call(func=Attribute(attr='query', ...))))
+                if not isinstance(node, ast.Call):
+                    continue
+                f = node.func
+                if not (isinstance(f, ast.Attribute) and f.attr == "get"):
+                    continue
+                inner = f.value
+                if not isinstance(inner, ast.Call):
+                    continue
+                inner_f = inner.func
+                if not (isinstance(inner_f, ast.Attribute) and inner_f.attr == "query"):
+                    continue
+                # query() must have exactly one positional arg that is a Name
+                # starting with uppercase (a Model class, not a Column).
+                if len(inner.args) != 1 or inner.keywords:
+                    continue
+                q_arg = inner.args[0]
+                if not (isinstance(q_arg, ast.Name) and q_arg.id[:1].isupper()):
+                    continue
+                line = source.splitlines()[node.lineno - 1].strip()
+                hits.append(f"{rel}:{node.lineno}  {line[:90]}")
 
     assert not hits, (
-        f"{len(hits)} legacy `.query(Model).get(id)` call(s) in app/ — "
+        f"{len(hits)} legacy `.query(Model).get(id)` call(s) in app/ + tests/ — "
         f"replace with `db.get(Model, id)` (SQLAlchemy 2.0 modern form, "
         f"semantically identical, no deprecation warning):\n  "
         + "\n  ".join(hits[:20])

@@ -145,7 +145,7 @@ def test_upsert_creates_tier2_candidate(db):
     v = _vuln(f"pkg_{uuid.uuid4().hex[:6]}", f"TESTVULN-{uuid.uuid4().hex[:8]}")
     cid = psu._upsert_candidate_for_vuln(db, v)
     assert cid is not None
-    c = db.query(BugFixCandidate).get(cid)
+    c = db.get(BugFixCandidate, cid)
     assert c.source_type == "dep_upgrade"
     assert c.patch_risk_tier == 2
     assert c.status == "open"

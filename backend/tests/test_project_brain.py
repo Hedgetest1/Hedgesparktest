@@ -390,7 +390,7 @@ def test_assessment_persisted(db):
     db.flush()
 
     assessment = review_entity(db, "bugfix_candidate", c.id)
-    found = db.query(ReviewerAssessment).get(assessment.id)
+    found = db.get(ReviewerAssessment, assessment.id)
     assert found is not None
     assert found.entity_type == "bugfix_candidate"
     assert found.entity_id == c.id
