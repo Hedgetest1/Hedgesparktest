@@ -400,6 +400,7 @@ def _assess_pipeline_liveness(db: Session, now: datetime) -> HealthDimension:
     proposals = db.execute(text("""
         SELECT COUNT(*) FROM bugfix_candidates
         WHERE proposal_attempted_at >= :c AND patch_diff IS NOT NULL
+          AND status NOT IN ('discarded', 'rejected')
     """), {"c": now - timedelta(days=7)}).fetchone()
     proposals_7d = int(proposals[0] or 0)
 
