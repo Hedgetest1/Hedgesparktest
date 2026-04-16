@@ -188,11 +188,12 @@ def run_smoke(prefix_filter: str | None = None) -> list[Result]:
                     error=schema_err if not schema_ok else None,
                     notes=["schema-skipped"] if schema_err == "no response_model declared" else [],
                 ))
-            elif r.status_code in (400, 401, 403, 404, 422):
+            elif r.status_code in (400, 401, 403, 404, 422, 429):
                 # 422 = route requires query params the smoke harness
                 # doesn't synthesize. 400 = route needs a specific
                 # session state (e.g. already-installed webhook).
-                # 401/403/404 = auth/permission boundary. All are
+                # 401/403/404 = auth/permission boundary. 429 = rate
+                # limiter triggered by rapid preflight probing. All are
                 # "can't reach from a blank smoke session", NOT
                 # runtime failures.
                 results.append(Result(

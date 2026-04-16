@@ -150,72 +150,92 @@ def _get_variant_stats(
                   and purchased within 72 hours of the shown event.
 
     This is the same observational attribution used by nudge_measurement.py.
+
+    Previously this ran 2 DB queries per variant (N+1).  Now it runs exactly
+    2 queries total — one GROUP BY for impressions, one GROUP BY for
+    conversions — then joins the results in Python.
     """
-    stats: dict[str, VariantStats] = {}
+    # Initialise every requested variant to zero so callers always get a
+    # complete dict even if the DB returns no rows for some variants.
+    stats: dict[str, VariantStats] = {
+        vname: VariantStats(
+            variant_name=vname,
+            impressions=0,
+            conversions=0,
+            conversion_rate=0.0,
+        )
+        for vname in variant_names
+    }
 
-    for vname in variant_names:
-        try:
-            # Impressions: count 'shown' events for this variant
-            imp_result = db.execute(
-                text("""
-                    SELECT COUNT(*) AS impressions
-                    FROM nudge_events ne
-                    WHERE ne.shop_domain   = :shop
-                      AND ne.nudge_id      = :nudge_id
-                      AND ne.event_type    = 'shown'
-                      AND ne.event_meta->>'copy_variant' = :variant
-                """),
-                {
-                    "shop":     shop_domain,
-                    "nudge_id": nudge_id,
-                    "variant":  vname,
-                },
-            ).fetchone()
-            impressions = int(imp_result[0] or 0) if imp_result else 0
+    try:
+        # ── Query 1: impressions per variant (one GROUP BY) ──────────────────
+        imp_rows = db.execute(
+            text("""
+                SELECT ne.event_meta->>'copy_variant' AS variant,
+                       COUNT(*)                       AS impressions
+                FROM nudge_events ne
+                WHERE ne.shop_domain = :shop
+                  AND ne.nudge_id    = :nudge_id
+                  AND ne.event_type  = 'shown'
+                  AND ne.event_meta->>'copy_variant' = ANY(:variants)
+                GROUP BY 1
+            """),
+            {
+                "shop":     shop_domain,
+                "nudge_id": nudge_id,
+                "variants": variant_names,
+            },
+        ).fetchall()
 
-            # Conversions: visitor purchased within 72h of being shown this variant
-            conv_result = db.execute(
-                text("""
-                    SELECT COUNT(DISTINCT ne.visitor_id) AS conversions
-                    FROM nudge_events ne
-                    JOIN visitor_purchase_sessions vps
-                      ON vps.visitor_id   = ne.visitor_id
-                     AND vps.shop_domain  = ne.shop_domain
-                     AND vps.purchased_at >= ne.created_at
-                     AND vps.purchased_at <= ne.created_at + interval '72 hours'
-                    WHERE ne.shop_domain  = :shop
-                      AND ne.nudge_id     = :nudge_id
-                      AND ne.event_type   = 'shown'
-                      AND ne.event_meta->>'copy_variant' = :variant
-                """),
-                {
-                    "shop":     shop_domain,
-                    "nudge_id": nudge_id,
-                    "variant":  vname,
-                },
-            ).fetchone()
-            conversions = int(conv_result[0] or 0) if conv_result else 0
+        impressions_by_variant: dict[str, int] = {
+            row[0]: int(row[1] or 0) for row in imp_rows
+        }
 
-            cr = conversions / impressions if impressions > 0 else 0.0
+        # ── Query 2: conversions per variant (one GROUP BY) ──────────────────
+        conv_rows = db.execute(
+            text("""
+                SELECT ne.event_meta->>'copy_variant'  AS variant,
+                       COUNT(DISTINCT ne.visitor_id)   AS conversions
+                FROM nudge_events ne
+                JOIN visitor_purchase_sessions vps
+                  ON vps.visitor_id   = ne.visitor_id
+                 AND vps.shop_domain  = ne.shop_domain
+                 AND vps.purchased_at >= ne.created_at
+                 AND vps.purchased_at <= ne.created_at + interval '72 hours'
+                WHERE ne.shop_domain = :shop
+                  AND ne.nudge_id    = :nudge_id
+                  AND ne.event_type  = 'shown'
+                  AND ne.event_meta->>'copy_variant' = ANY(:variants)
+                GROUP BY 1
+            """),
+            {
+                "shop":     shop_domain,
+                "nudge_id": nudge_id,
+                "variants": variant_names,
+            },
+        ).fetchall()
 
+        conversions_by_variant: dict[str, int] = {
+            row[0]: int(row[1] or 0) for row in conv_rows
+        }
+
+        # ── Merge into VariantStats ──────────────────────────────────────────
+        for vname in variant_names:
+            imp = impressions_by_variant.get(vname, 0)
+            conv = conversions_by_variant.get(vname, 0)
             stats[vname] = VariantStats(
                 variant_name    = vname,
-                impressions     = impressions,
-                conversions     = conversions,
-                conversion_rate = cr,
+                impressions     = imp,
+                conversions     = conv,
+                conversion_rate = conv / imp if imp > 0 else 0.0,
             )
 
-        except Exception as exc:
-            log.warning(
-                "nudge_optimizer: stats query failed for nudge=%d variant=%s: %s",
-                nudge_id, vname, exc,
-            )
-            stats[vname] = VariantStats(
-                variant_name    = vname,
-                impressions     = 0,
-                conversions     = 0,
-                conversion_rate = 0.0,
-            )
+    except Exception as exc:
+        log.warning(
+            "nudge_optimizer: stats batch query failed for nudge=%d: %s",
+            nudge_id, exc,
+        )
+        # stats dict already initialised to zeros for all variants above
 
     return stats
 
@@ -618,6 +638,44 @@ async def run_optimization_cycle(
         log.error("nudge_optimizer: failed to load nudges: %s", exc)
         return summary
 
+    # Pre-load product_metrics for all (shop, product_url) pairs in one query
+    # so the winner branch never issues a per-nudge DB call (N+1 fix).
+    ab_nudges = [n for n in nudges if n.is_ab_experiment()]
+    _pm_cache: dict[tuple[str, str], dict] = {}
+    if ab_nudges:
+        try:
+            keys = list({(n.shop_domain, n.product_url or "") for n in ab_nudges if n.product_url})
+            if keys:
+                shops   = [k[0] for k in keys]
+                urls    = [k[1] for k in keys]
+                pm_rows = db.execute(
+                    text("""
+                        SELECT DISTINCT ON (shop_domain, product_url)
+                               shop_domain,
+                               product_url,
+                               views_1h, views_24h, unique_visitors_24h,
+                               avg_dwell_24h, avg_scroll_24h,
+                               return_visitor_count_7d, cart_conversions_24h
+                        FROM product_metrics
+                        WHERE shop_domain = ANY(:shops)
+                          AND (shop_domain, product_url) IN (
+                              SELECT unnest(:shops::text[]), unnest(:urls::text[])
+                          )
+                    """),
+                    {"shops": shops, "urls": urls},
+                ).fetchall()
+                for pm in pm_rows:
+                    m = dict(pm._mapping)
+                    _pm_cache[(m["shop_domain"], m["product_url"])] = {
+                        k: m[k] for k in (
+                            "views_1h", "views_24h", "unique_visitors_24h",
+                            "avg_dwell_24h", "avg_scroll_24h",
+                            "return_visitor_count_7d", "cart_conversions_24h",
+                        )
+                    }
+        except Exception as exc:
+            log.warning("nudge_optimizer: product_metrics pre-load failed: %s", exc)
+
     for nudge in nudges:
         # Skip single-variant nudges quickly
         if not nudge.is_ab_experiment():
@@ -641,23 +699,8 @@ async def run_optimization_cycle(
                 summary["promoted"] += 1
 
                 if decision.decision == "winner":
-                    # Fetch latest product signals for challenger generation
-                    try:
-                        result = db.execute(
-                            text("""
-                                SELECT views_1h, views_24h, unique_visitors_24h,
-                                       avg_dwell_24h, avg_scroll_24h,
-                                       return_visitor_count_7d, cart_conversions_24h
-                                FROM product_metrics
-                                WHERE shop_domain = :shop
-                                  AND product_url  = :url
-                                LIMIT 1
-                            """),
-                            {"shop": nudge.shop_domain, "url": nudge.product_url},
-                        ).fetchone()
-                        signals = dict(result._mapping) if result else {}
-                    except Exception:
-                        signals = {}
+                    # Use pre-loaded product_metrics cache (no per-nudge DB call)
+                    signals = _pm_cache.get((nudge.shop_domain, nudge.product_url or ""), {})
 
                     product_title = (nudge.product_url or "").split("/")[-1].replace("-", " ").title()
 

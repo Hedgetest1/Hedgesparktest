@@ -145,13 +145,13 @@ def get_pnl_report(
         ).fetchone()
     except Exception as exc:
         log.error("pnl_engine: revenue query failed shop=%s: %s", shop_domain, exc)
-        return _empty_report(window_days)
+        return _empty_report(window_days, currency or "USD")
 
     order_count   = int(row[0] or 0) if row else 0
     gross_revenue = round(float(row[1] or 0), 2) if row else 0.0
 
     if order_count == 0:
-        return _empty_report(window_days)
+        return _empty_report(window_days, currency or "USD")
 
     # ------------------------------------------------------------------
     # 3. Resolve native currency for display.
@@ -494,11 +494,11 @@ def _compute_real_cogs(
     return (real_cogs, covered_revenue, matched_products)
 
 
-def _empty_report(window_days: int) -> dict:
+def _empty_report(window_days: int, currency: str = "USD") -> dict:
     """Return a structurally valid empty response when the shop has no orders."""
     return {
         "window_days":   window_days,
-        "currency":      "USD",
+        "currency":      currency,
         "precision":     "rough",
         "has_data":      False,
         "order_count":   0,

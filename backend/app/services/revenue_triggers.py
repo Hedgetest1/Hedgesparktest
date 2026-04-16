@@ -102,6 +102,9 @@ def run_revenue_triggers(db: Session) -> dict:
 def _find_best_trigger(db: Session, shop: str) -> dict | None:
     """Find the most valuable trigger for this merchant. Returns None if nothing notable."""
 
+    # Resolve native currency once — used by all triggers for money formatting.
+    currency = get_shop_currency(db, shop)
+
     # Trigger 1: High-intent leak — cart adds but no purchases (most valuable)
     leak = db.execute(text("""
         SELECT pm.product_url, pm.cart_conversions_24h, pm.views_24h, pm.purchases_24h, pm.revenue_24h
@@ -132,7 +135,7 @@ def _find_best_trigger(db: Session, shop: str) -> dict | None:
                 f"but zero completed purchases. That pattern usually means something "
                 f"between cart and checkout is creating friction.\n\n"
                 f"At your store's average order value, closing even a fraction of these "
-                f"could recover ~{_format_money(weekly_loss)} per week.\n\n"
+                f"could recover ~{_format_money(weekly_loss, currency)} per week.\n\n"
                 f"Your dashboard has specific recommendations for this product."
             ),
         }
@@ -263,11 +266,18 @@ def _get_aov(db: Session, shop: str) -> float:
     return float(row) if row else 50.0
 
 
-def _format_money(amount: float) -> str:
-    """Format a money amount for email display."""
+def _currency_symbol(currency: str | None) -> str:
+    """Map ISO currency code to display symbol."""
+    _SYMBOLS = {"USD": "$", "EUR": "€", "GBP": "£", "CAD": "CA$", "AUD": "A$"}
+    return _SYMBOLS.get((currency or "USD").upper(), (currency or "USD") + " ")
+
+
+def _format_money(amount: float, currency: str | None = None) -> str:
+    """Format a money amount for email display using the shop's native currency."""
+    sym = _currency_symbol(currency)
     if amount >= 1000:
-        return f"${amount:,.0f}"
-    return f"${amount:.0f}"
+        return f"{sym}{amount:,.0f}"
+    return f"{sym}{amount:.0f}"
 
 
 def _is_on_cooldown(shop: str) -> bool:
