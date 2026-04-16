@@ -73,7 +73,7 @@ jobs:
         run: python -c "from app.main import app; print('Tables created via Base.metadata.create_all')"
 
       - name: Run tests
-        run: python -m pytest tests/ --ignore=tests/test_scaling_intelligence.py -v --tb=short
+        run: python -m pytest tests/ -v --tb=short
 
   # -------------------------------------------------------------------
   # Dashboard: install → type check → build

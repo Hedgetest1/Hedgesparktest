@@ -215,10 +215,10 @@ def test_deploy_sh_invokes_preflight_before_pm2_restart():
     deploy_sh = Path("/opt/wishspark/deploy.sh").read_text()
     # deploy_gate.py may be wrapped in quotes; match with flexible regex.
     pre_m = re.search(r"deploy_gate\.py[\"']?\s+preflight", deploy_sh)
-    restart_idx = deploy_sh.find("pm2 restart /opt/wishspark/ecosystem.config.js 2>&1")
+    reload_idx = deploy_sh.find("pm2 reload /opt/wishspark/ecosystem.config.js 2>&1")
     assert pre_m is not None, "deploy.sh does not invoke deploy_gate preflight"
-    assert restart_idx > 0, "deploy.sh does not contain pm2 restart"
-    assert pre_m.start() < restart_idx, "deploy_gate preflight must run BEFORE pm2 restart"
+    assert reload_idx > 0, "deploy.sh does not contain pm2 reload"
+    assert pre_m.start() < reload_idx, "deploy_gate preflight must run BEFORE pm2 reload"
 
 
 def test_deploy_sh_invokes_postdeploy_after_pm2_restart():
@@ -226,10 +226,10 @@ def test_deploy_sh_invokes_postdeploy_after_pm2_restart():
     import re
     from pathlib import Path
     deploy_sh = Path("/opt/wishspark/deploy.sh").read_text()
-    restart_idx = deploy_sh.find("pm2 restart /opt/wishspark/ecosystem.config.js 2>&1")
+    reload_idx = deploy_sh.find("pm2 reload /opt/wishspark/ecosystem.config.js 2>&1")
     post_m = re.search(r"deploy_gate\.py[\"']?\s+postdeploy", deploy_sh)
     assert post_m is not None, "deploy.sh does not invoke deploy_gate postdeploy"
-    assert restart_idx < post_m.start(), "deploy_gate postdeploy must run AFTER pm2 restart"
+    assert reload_idx < post_m.start(), "deploy_gate postdeploy must run AFTER pm2 reload"
 
 
 def test_deploy_sh_uses_absolute_ecosystem_path():
@@ -238,5 +238,5 @@ def test_deploy_sh_uses_absolute_ecosystem_path():
     deploy_sh = Path("/opt/wishspark/deploy.sh").read_text()
     # No bare "ecosystem.config.js" invocations — must be absolute path
     import re
-    bad = re.findall(r"pm2 restart ecosystem\.config\.js(?!')", deploy_sh)
+    bad = re.findall(r"pm2 (?:restart|reload) ecosystem\.config\.js(?!')", deploy_sh)
     assert bad == [], f"deploy.sh contains CWD-dependent pm2 restart: {bad}"

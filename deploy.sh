@@ -153,7 +153,7 @@ do_rollback() {
 
     git checkout "$PREVIOUS" -- .
     cd "$DASHBOARD" && npx next build
-    pm2 restart /opt/wishspark/ecosystem.config.js
+    pm2 reload /opt/wishspark/ecosystem.config.js
 
     echo "Waiting 10s for processes to stabilize..."
     sleep 10
@@ -201,8 +201,8 @@ echo ""
 # --- PRE-DEPLOY: Tests ---
 echo "═══ PRE-DEPLOY: Backend Tests ═══"
 cd "$BACKEND"
-if $VENV -m pytest tests/ --ignore=tests/test_scaling_intelligence.py -q --tb=line 2>&1 | tail -3 | grep -q "passed"; then
-    PASSED=$($VENV -m pytest tests/ --ignore=tests/test_scaling_intelligence.py -q --tb=no 2>&1 | tail -1 | grep -o '[0-9]* passed')
+if $VENV -m pytest tests/ -q --tb=line 2>&1 | tail -3 | grep -q "passed"; then
+    PASSED=$($VENV -m pytest tests/ -q --tb=no 2>&1 | tail -1 | grep -o '[0-9]* passed')
     pass "Tests: $PASSED"
 else
     fail "Tests: FAILED"
@@ -229,7 +229,7 @@ echo ""
 echo "═══ DEPLOY: Restarting PM2 ═══"
 echo "Pre-deploy commit: $PRE_COMMIT"
 
-pm2 restart /opt/wishspark/ecosystem.config.js 2>&1 | tail -1
+pm2 reload /opt/wishspark/ecosystem.config.js 2>&1 | tail -1
 
 echo "Waiting 12s for all processes to start..."
 sleep 12
@@ -269,6 +269,6 @@ else
     echo "Options:"
     echo "  1. Fix the issue and re-deploy"
     echo "  2. Rollback: ./deploy.sh --rollback"
-    echo "  3. Manual: git checkout HEAD~1 -- . && npx next build && pm2 restart /opt/wishspark/ecosystem.config.js"
+    echo "  3. Manual: git checkout HEAD~1 -- . && npx next build && pm2 reload /opt/wishspark/ecosystem.config.js"
     exit 2
 fi

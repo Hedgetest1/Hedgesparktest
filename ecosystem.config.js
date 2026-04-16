@@ -78,6 +78,7 @@ module.exports = {
       min_uptime:          "10s",
       max_restarts:        10,
       restart_delay:       5000,
+      kill_timeout:        10000,  // 10s graceful shutdown — finish SSR renders
       max_memory_restart:  "300M",
       out_file:            "/opt/wishspark/logs/dashboard-out.log",
       error_file:          "/opt/wishspark/logs/dashboard-error.log",
@@ -103,6 +104,7 @@ module.exports = {
       min_uptime:          "10s",
       max_restarts:        10,
       restart_delay:       5000,
+      kill_timeout:        10000,  // 10s graceful shutdown — finish in-flight requests
       max_memory_restart:  "512M",
       out_file:            "/opt/wishspark/logs/backend-out.log",
       error_file:          "/opt/wishspark/logs/backend-error.log",

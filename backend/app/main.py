@@ -393,6 +393,30 @@ _STRICT_API_CSP = (
 
 
 @app.middleware("http")
+async def dashboard_rate_limit_middleware(request: Request, call_next):
+    """Rate limit /pro/ and /merchant/ endpoints: 120 req/min per (shop, IP)."""
+    path = request.url.path
+    if path.startswith(("/pro/", "/merchant/")):
+        try:
+            from app.core.redis_client import _client
+            rc = _client()
+            if rc is not None:
+                from app.core.merchant_session import SESSION_COOKIE_NAME
+                shop = request.cookies.get(SESSION_COOKIE_NAME, "")[:64]
+                ip = request.client.host if request.client else "anon"
+                key = f"hs:rl:dash:{shop}:{ip}"
+                count = rc.incr(key)
+                if count == 1:
+                    rc.expire(key, 60)
+                if count > 120:
+                    from fastapi.responses import JSONResponse
+                    return JSONResponse({"detail": "Too many requests."}, status_code=429)
+        except Exception as exc:
+            _middleware_log.warning("dashboard_rate_limit: fail-open: %s", exc)
+    return await call_next(request)
+
+
+@app.middleware("http")
 async def slo_timing_middleware(request: Request, call_next):
     """Record per-route timing into the SLO observability layer.
 
