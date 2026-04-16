@@ -71,9 +71,16 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def _safe_float(value: Any) -> float | None:
-    """Parse value to float; return None on failure."""
+    """Parse value to float; return None on failure or invalid values.
+
+    Rejects NaN, Infinity, and negative amounts — these are never valid
+    order totals and would poison AOV/revenue aggregations silently.
+    """
     try:
-        return float(value)
+        v = float(value)
+        if v != v or v == float("inf") or v == float("-inf") or v < 0:
+            return None
+        return v
     except (TypeError, ValueError):
         return None
 
@@ -262,9 +269,9 @@ def parse_shopify_order(payload: dict, shop_domain: str) -> dict | None:
         )
         return None
 
-    # Optional: currency (default EUR — overridden once merchant-specific
-    # currency detection is added via merchant profile)
-    currency = _safe_str(payload.get("currency")) or "EUR"
+    # Currency from Shopify payload. Shopify always sends currency on
+    # orders/create webhooks; missing only on manual/test payloads.
+    currency = _safe_str(payload.get("currency")) or "USD"
 
     # Optional: customer ID and email (None for guest checkouts)
     customer_block  = payload.get("customer") or {}

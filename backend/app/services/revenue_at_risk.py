@@ -397,18 +397,14 @@ def _compute_prevented(db: Session, shop: str) -> tuple[float, dict]:
             pur = int(row[1] or 0)
             hold = int(row[2] or 0)
             aov = float(row[3] or 0)
-            if exp > 0 and hold > 0:
-                # Incremental purchases over holdout expectation
-                holdout_cvr = pur / exp  # approximate — simplified
-                baseline_cvr = max(0, holdout_cvr - 0.03)  # assume 3% lift came from nudge
-                incremental = (holdout_cvr - baseline_cvr) * exp
-                nudge_prevented = incremental * aov
-                if nudge_prevented > 0:
-                    prevented += nudge_prevented
-                    evidence["sources"].append({
-                        "source": "nudge_holdout_lift",
-                        "amount_eur": round(nudge_prevented, 2),
-                    })
+            # Nudge prevented revenue requires REAL holdout-vs-treatment
+            # comparison. Without tracked holdout purchases (separate event
+            # type), any claim is an invented number — principle §2 rule 4:
+            # "no false claims, no marketing-driven features".
+            # This block is a no-op until holdout_purchase tracking ships.
+            # When it does: treatment_cvr = pur/exp, holdout_cvr = holdout_pur/hold,
+            # incremental = (treatment_cvr - holdout_cvr) * exp * aov.
+            pass
     except Exception as exc:
         log.warning("rars: prevented nudge query failed: %s", exc)
 
