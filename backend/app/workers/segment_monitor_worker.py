@@ -180,7 +180,7 @@ def _load_cursor() -> int:
         v = redis_client.get(_CURSOR_KEY)
         return int(v) if v else 0
     except Exception as exc:
-        log.warning("segment_monitor_worker: _load_cursor failed: %s", exc)
+        _log.warning("segment_monitor_worker: _load_cursor failed: %s", exc)
         return 0
 
 
@@ -189,7 +189,7 @@ def _save_cursor(pos: int) -> None:
         from app.core.redis_client import redis_client
         redis_client.set(_CURSOR_KEY, str(pos), ex=86400)
     except Exception as exc:
-        log.warning("segment_monitor_worker: _save_cursor failed: %s", exc)
+        _log.warning("segment_monitor_worker: _save_cursor failed: %s", exc)
 
 
 def _batch_for_cycle(all_shops: list[str]) -> tuple[list[str], int]:
