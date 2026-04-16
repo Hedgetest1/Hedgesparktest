@@ -120,6 +120,7 @@ def _compute_abandoned_high_intent(db: Session, shop: str) -> RARSComponent:
                 COUNT(DISTINCT e.visitor_id) AS high_intent_visitors,
                 (SELECT COALESCE(AVG(total_price), 0) FROM shop_orders
                  WHERE shop_domain = :shop AND created_at >= NOW() - INTERVAL '30 days'
+                   AND total_price > 0
                    AND (:currency IS NULL OR currency = :currency)) AS aov
             FROM events e
             WHERE e.shop_domain = :shop
@@ -226,6 +227,7 @@ def _compute_nudge_gap(db: Session, shop: str) -> RARSComponent:
                 ) AS purchases,
                 (SELECT COALESCE(AVG(total_price), 0) FROM shop_orders
                  WHERE shop_domain = :shop AND created_at >= NOW() - INTERVAL '30 days'
+                   AND total_price > 0
                    AND (:currency IS NULL OR currency = :currency)) AS aov
             FROM nudge_events ne
             JOIN active_nudges n ON n.id = ne.nudge_id

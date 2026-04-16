@@ -258,6 +258,7 @@ def _get_aov(db: Session, shop: str) -> float:
         SELECT AVG(total_price) FROM shop_orders
         WHERE shop_domain = :shop AND created_at >= :cutoff
           AND (:currency IS NULL OR currency = :currency)
+          AND total_price > 0
     """), {"shop": shop, "cutoff": _now() - timedelta(days=30), "currency": currency}).scalar()
     return float(row) if row else 50.0
 

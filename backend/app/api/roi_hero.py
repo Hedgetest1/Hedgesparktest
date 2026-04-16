@@ -158,7 +158,7 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
                 aov_row = db.execute(
                     sql_text(
                         """
-                        SELECT COALESCE(AVG(total_price), 50)
+                        SELECT COALESCE(AVG(total_price) FILTER (WHERE total_price > 0), 50)
                         FROM shop_orders
                         WHERE shop_domain = :shop
                           AND created_at >= NOW() - INTERVAL '30 days'
@@ -292,7 +292,7 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
                 db.execute(
                     sql_text(
                         """
-                        SELECT COALESCE(AVG(total_price), 50)
+                        SELECT COALESCE(AVG(total_price) FILTER (WHERE total_price > 0), 50)
                         FROM shop_orders
                         WHERE shop_domain = :shop
                           AND created_at >= NOW() - INTERVAL '30 days'
@@ -348,7 +348,7 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
         try:
             aov_row = db.execute(
                 sql_text("""
-                    SELECT COALESCE(AVG(total_price), 50)
+                    SELECT COALESCE(AVG(total_price) FILTER (WHERE total_price > 0), 50)
                     FROM shop_orders
                     WHERE shop_domain = :shop
                       AND (:currency IS NULL OR currency = :currency)
@@ -418,7 +418,7 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
             try:
                 aov_row = db.execute(
                     sql_text("""
-                        SELECT COALESCE(AVG(total_price), 50)
+                        SELECT COALESCE(AVG(total_price) FILTER (WHERE total_price > 0), 50)
                         FROM shop_orders
                         WHERE shop_domain = :shop
                           AND created_at >= NOW() - INTERVAL '30 days'

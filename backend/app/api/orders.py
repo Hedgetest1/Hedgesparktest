@@ -192,7 +192,7 @@ def _query_window(db: Session, shop: str, days: int, currency: str | None = None
                 SELECT
                     COUNT(*)::int                        AS order_count,
                     COALESCE(SUM(total_price), 0) AS total_revenue,
-                    COALESCE(AVG(total_price), 0) AS avg_order_value
+                    COALESCE(AVG(total_price) FILTER (WHERE total_price > 0), 0) AS avg_order_value
                 FROM shop_orders
                 WHERE shop_domain = :shop
                   AND created_at >= NOW() - make_interval(days => :days)

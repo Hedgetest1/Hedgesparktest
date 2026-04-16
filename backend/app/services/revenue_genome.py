@@ -240,7 +240,7 @@ def compute_revenue_genome(db: Session, shop_domain: str) -> dict:
             SELECT
                 COUNT(DISTINCT customer_email) as total_customers,
                 COUNT(*) as total_orders,
-                AVG(total_price) as avg_aov,
+                AVG(total_price) FILTER (WHERE total_price > 0) as avg_aov,
                 SUM(total_price) as total_revenue
             FROM shop_orders
             WHERE shop_domain = :shop

@@ -249,7 +249,7 @@ def _compute_current_value(db: Session, shop_domain: str, metric: str) -> float:
 
     if metric == "aov":
         row = db.execute(text("""
-            SELECT COALESCE(AVG(total_price), 0)
+            SELECT COALESCE(AVG(total_price) FILTER (WHERE total_price > 0), 0)
             FROM shop_orders
             WHERE shop_domain = :shop AND created_at >= :start
               AND (:currency IS NULL OR currency = :currency)

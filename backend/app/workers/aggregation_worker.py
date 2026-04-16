@@ -626,6 +626,7 @@ def _run_cycle_inner() -> None:
                                     Merchant.shop_domain == shop,
                                     Merchant.plan == "pro",
                                     Merchant.billing_active == True,  # noqa: E712
+                                    Merchant.install_status == "active",
                                 ).first()
                                 if merchant:
                                     auto_count = run_autonomous_cycle(db_session, shop)

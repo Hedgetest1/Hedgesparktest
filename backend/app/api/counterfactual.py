@@ -81,7 +81,7 @@ def _shop_aov(db: Session, shop: str) -> tuple[float, bool]:
         row = db.execute(
             text(
                 """
-                SELECT COALESCE(AVG(total_price), 0), COUNT(*)
+                SELECT COALESCE(AVG(total_price) FILTER (WHERE total_price > 0), 0), COUNT(*)
                 FROM shop_orders
                 WHERE shop_domain = :shop
                   AND created_at >= NOW() - INTERVAL '30 days'

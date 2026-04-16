@@ -162,6 +162,7 @@ def get_shop_aov(
                     FROM shop_orders
                     WHERE shop_domain = :shop
                       AND currency = :currency
+                      AND total_price > 0
                 """),
                 {"shop": shop_domain, "currency": currency},
             )
@@ -171,6 +172,7 @@ def get_shop_aov(
                     SELECT AVG(total_price) AS avg_aov
                     FROM shop_orders
                     WHERE shop_domain = :shop
+                      AND total_price > 0
                 """),
                 {"shop": shop_domain},
             )
