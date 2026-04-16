@@ -119,28 +119,47 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
     # --- 1. Nudge lift from autonomous_actions (holdout-measured) ---
     # autonomous_actions is the real source for holdout-measured nudge
     # lift: treatment_cvr vs control_cvr → lift_pct → revenue impact.
-    # (The former query scanned action_outcomes for revenue_delta_eur
-    # columns that don't exist there — that was a ghost table schema.)
+    # Only includes actions with statistically significant lift (p<0.05):
+    # z-test for proportions with z > 1.96 threshold.
     saved_30d_actions = 0.0
     try:
         row = db.execute(
             sql_text(
                 """
-                SELECT
-                    COALESCE(SUM(
-                        CASE
-                            WHEN treatment_cvr IS NOT NULL
-                             AND control_cvr IS NOT NULL
-                             AND control_cvr > 0
-                             AND visitors_measured > 0
-                            THEN (treatment_cvr - control_cvr) * visitors_measured
-                            ELSE 0
-                        END
-                    ), 0) AS cvr_lift_visitors
-                FROM autonomous_actions
-                WHERE shop_domain = :shop
-                  AND outcome IN ('win', 'measured')
-                  AND measurement_end >= :cutoff
+                WITH sig AS (
+                    SELECT
+                        treatment_cvr,
+                        control_cvr,
+                        visitors_measured,
+                        holdout_pct,
+                        -- group sizes
+                        GREATEST(visitors_measured * holdout_pct / 100.0, 1) AS n_ctrl,
+                        GREATEST(visitors_measured * (100 - holdout_pct) / 100.0, 1) AS n_treat,
+                        -- pooled conversion rate
+                        (treatment_cvr * visitors_measured * (100 - holdout_pct) / 100.0
+                         + control_cvr * visitors_measured * holdout_pct / 100.0)
+                        / GREATEST(visitors_measured, 1) AS p_pool
+                    FROM autonomous_actions
+                    WHERE shop_domain = :shop
+                      AND outcome IN ('win', 'measured')
+                      AND measurement_end >= :cutoff
+                      AND treatment_cvr IS NOT NULL
+                      AND control_cvr IS NOT NULL
+                      AND control_cvr > 0
+                      AND visitors_measured > 0
+                      AND holdout_pct > 0
+                      AND holdout_pct < 100
+                )
+                SELECT COALESCE(SUM(
+                    (treatment_cvr - control_cvr) * (n_treat + n_ctrl)
+                ), 0) AS cvr_lift_visitors
+                FROM sig
+                WHERE p_pool > 0 AND p_pool < 1
+                  -- z = |p1 - p2| / sqrt(p_pool * (1-p_pool) * (1/n_treat + 1/n_ctrl))
+                  -- require z > 1.96 for p < 0.05 two-tailed
+                  AND ABS(treatment_cvr - control_cvr)
+                      / SQRT(p_pool * (1.0 - p_pool) * (1.0/n_treat + 1.0/n_ctrl))
+                      > 1.96
                 """
             ),
             {"shop": shop, "cutoff": c_30d},
@@ -261,20 +280,30 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
             row = db.execute(
                 sql_text(
                     f"""
+                    WITH sig AS (
+                        SELECT
+                            treatment_cvr, control_cvr, visitors_measured,
+                            GREATEST(visitors_measured * holdout_pct / 100.0, 1) AS n_ctrl,
+                            GREATEST(visitors_measured * (100 - holdout_pct) / 100.0, 1) AS n_treat,
+                            (treatment_cvr * visitors_measured * (100 - holdout_pct) / 100.0
+                             + control_cvr * visitors_measured * holdout_pct / 100.0)
+                            / GREATEST(visitors_measured, 1) AS p_pool
+                        FROM autonomous_actions
+                        WHERE shop_domain = :shop
+                          AND outcome IN ('win', 'measured')
+                          AND treatment_cvr IS NOT NULL AND control_cvr IS NOT NULL
+                          AND control_cvr > 0 AND visitors_measured > 0
+                          AND holdout_pct > 0 AND holdout_pct < 100
+                          {where}
+                    )
                     SELECT COALESCE(SUM(
-                        CASE
-                            WHEN treatment_cvr IS NOT NULL
-                             AND control_cvr IS NOT NULL
-                             AND control_cvr > 0
-                             AND visitors_measured > 0
-                            THEN (treatment_cvr - control_cvr) * visitors_measured
-                            ELSE 0
-                        END
+                        (treatment_cvr - control_cvr) * (n_treat + n_ctrl)
                     ), 0)
-                    FROM autonomous_actions
-                    WHERE shop_domain = :shop
-                      AND outcome IN ('win', 'measured')
-                      {where}
+                    FROM sig
+                    WHERE p_pool > 0 AND p_pool < 1
+                      AND ABS(treatment_cvr - control_cvr)
+                          / SQRT(p_pool * (1.0 - p_pool) * (1.0/n_treat + 1.0/n_ctrl))
+                          > 1.96
                     """
                 ),
                 params,
@@ -319,19 +348,29 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
         row = db.execute(
             sql_text(
                 """
+                WITH sig AS (
+                    SELECT
+                        treatment_cvr, control_cvr, visitors_measured,
+                        GREATEST(visitors_measured * holdout_pct / 100.0, 1) AS n_ctrl,
+                        GREATEST(visitors_measured * (100 - holdout_pct) / 100.0, 1) AS n_treat,
+                        (treatment_cvr * visitors_measured * (100 - holdout_pct) / 100.0
+                         + control_cvr * visitors_measured * holdout_pct / 100.0)
+                        / GREATEST(visitors_measured, 1) AS p_pool
+                    FROM autonomous_actions
+                    WHERE shop_domain = :shop
+                      AND outcome IN ('win', 'measured')
+                      AND treatment_cvr IS NOT NULL AND control_cvr IS NOT NULL
+                      AND control_cvr > 0 AND visitors_measured > 0
+                      AND holdout_pct > 0 AND holdout_pct < 100
+                )
                 SELECT COALESCE(SUM(
-                    CASE
-                        WHEN treatment_cvr IS NOT NULL
-                         AND control_cvr IS NOT NULL
-                         AND control_cvr > 0
-                         AND visitors_measured > 0
-                        THEN (treatment_cvr - control_cvr) * visitors_measured
-                        ELSE 0
-                    END
+                    (treatment_cvr - control_cvr) * (n_treat + n_ctrl)
                 ), 0)
-                FROM autonomous_actions
-                WHERE shop_domain = :shop
-                  AND outcome IN ('win', 'measured')
+                FROM sig
+                WHERE p_pool > 0 AND p_pool < 1
+                  AND ABS(treatment_cvr - control_cvr)
+                      / SQRT(p_pool * (1.0 - p_pool) * (1.0/n_treat + 1.0/n_ctrl))
+                      > 1.96
                 """
             ),
             {"shop": shop},
@@ -388,19 +427,31 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
         row = db.execute(
             sql_text(
                 """
+                WITH sig AS (
+                    SELECT
+                        action_type, product_url, measurement_end,
+                        treatment_cvr, control_cvr, visitors_measured,
+                        GREATEST(visitors_measured * holdout_pct / 100.0, 1) AS n_ctrl,
+                        GREATEST(visitors_measured * (100 - holdout_pct) / 100.0, 1) AS n_treat,
+                        (treatment_cvr * visitors_measured * (100 - holdout_pct) / 100.0
+                         + control_cvr * visitors_measured * holdout_pct / 100.0)
+                        / GREATEST(visitors_measured, 1) AS p_pool
+                    FROM autonomous_actions
+                    WHERE shop_domain = :shop
+                      AND outcome IN ('win', 'measured')
+                      AND measurement_end >= :c30
+                      AND treatment_cvr IS NOT NULL AND control_cvr IS NOT NULL
+                      AND control_cvr > 0 AND visitors_measured > 0
+                      AND holdout_pct > 0 AND holdout_pct < 100
+                )
                 SELECT
-                    action_type,
-                    product_url,
-                    measurement_end,
-                    (treatment_cvr - control_cvr) * visitors_measured AS lift_visitors
-                FROM autonomous_actions
-                WHERE shop_domain = :shop
-                  AND outcome IN ('win', 'measured')
-                  AND measurement_end >= :c30
-                  AND treatment_cvr IS NOT NULL
-                  AND control_cvr IS NOT NULL
-                  AND control_cvr > 0
-                  AND visitors_measured > 0
+                    action_type, product_url, measurement_end,
+                    (treatment_cvr - control_cvr) * (n_treat + n_ctrl) AS lift_visitors
+                FROM sig
+                WHERE p_pool > 0 AND p_pool < 1
+                  AND ABS(treatment_cvr - control_cvr)
+                      / SQRT(p_pool * (1.0 - p_pool) * (1.0/n_treat + 1.0/n_ctrl))
+                      > 1.96
                 ORDER BY lift_visitors DESC
                 LIMIT 1
                 """
