@@ -285,13 +285,13 @@ def get_daily_revenue(
                     COALESCE(SUM(so.total_price), 0)  AS revenue,
                     COUNT(so.id)::int                        AS orders
                 FROM generate_series(
-                    (CURRENT_DATE - make_interval(days => :days - 1)),
-                    CURRENT_DATE,
+                    (CURRENT_TIMESTAMP AT TIME ZONE :tz)::date - make_interval(days => :days - 1),
+                    (CURRENT_TIMESTAMP AT TIME ZONE :tz)::date,
                     '1 day'::interval
                 ) AS d(day)
                 LEFT JOIN shop_orders so
                     ON so.shop_domain = :shop
-                   AND (so.created_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date = d.day::date
+                   AND date_trunc('day', so.created_at AT TIME ZONE :tz) = d.day
                    AND so.currency = :currency
                 GROUP BY d.day
                 ORDER BY d.day ASC

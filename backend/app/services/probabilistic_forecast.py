@@ -147,13 +147,13 @@ def forecast_revenue(
         rows = db.execute(
             sql_text(
                 """
-                SELECT (created_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date AS d,
+                SELECT date_trunc('day', created_at AT TIME ZONE :tz)::date AS d,
                        COALESCE(SUM(total_price), 0) AS rev
                 FROM shop_orders
                 WHERE shop_domain = :shop
                   AND created_at >= :since
                   AND (:currency IS NULL OR currency = :currency)
-                GROUP BY (created_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date
+                GROUP BY date_trunc('day', created_at AT TIME ZONE :tz)::date
                 ORDER BY d ASC
                 """
             ),

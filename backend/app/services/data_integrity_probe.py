@@ -140,8 +140,8 @@ def _compute_merchant_baseline(db: Session, shop: str) -> dict | None:
     tz = get_shop_timezone(db, shop)
     rows = db.execute(text("""
         SELECT
-            (created_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date AS day,
-            EXTRACT(DOW FROM created_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::int AS dow,
+            date_trunc('day', created_at AT TIME ZONE :tz)::date AS day,
+            EXTRACT(DOW FROM created_at AT TIME ZONE :tz)::int AS dow,
             SUM(total_price) AS revenue
         FROM shop_orders
         WHERE shop_domain = :shop

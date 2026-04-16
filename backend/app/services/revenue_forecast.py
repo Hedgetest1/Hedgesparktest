@@ -371,7 +371,7 @@ def _fetch_daily_series(
                 ) AS d(day)
                 LEFT JOIN shop_orders so
                     ON so.shop_domain = :shop
-                   AND (so.created_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date = d.day::date
+                   AND date_trunc('day', so.created_at AT TIME ZONE :tz)::date = d.day::date
                    AND (:currency IS NULL OR so.currency = :currency)
                 GROUP BY d.day
                 ORDER BY d.day ASC
@@ -396,12 +396,12 @@ def _fetch_daily_order_counts(
     try:
         rows = db.execute(
             text("""
-                SELECT (created_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date AS day,
+                SELECT date_trunc('day', created_at AT TIME ZONE :tz)::date AS day,
                        COUNT(*)::int AS cnt
                 FROM shop_orders
                 WHERE shop_domain = :shop
                   AND created_at >= (CURRENT_DATE - make_interval(days => :days - 1))
-                GROUP BY (created_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date
+                GROUP BY date_trunc('day', created_at AT TIME ZONE :tz)::date
             """),
             {"shop": shop_domain, "days": days, "tz": tz},
         ).fetchall()
