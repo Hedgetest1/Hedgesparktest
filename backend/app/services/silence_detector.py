@@ -161,8 +161,8 @@ def _is_already_alerted(shop_domain: str) -> bool:
         rc = _client()
         if rc is not None:
             return bool(rc.get(f"{_REDIS_SILENCE_PREFIX}{shop_domain}"))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("silence_detector: _is_already_alerted failed: %s", exc)
     return False
 
 
@@ -172,5 +172,5 @@ def _mark_alerted(shop_domain: str) -> None:
         rc = _client()
         if rc is not None:
             rc.set(f"{_REDIS_SILENCE_PREFIX}{shop_domain}", "1", ex=_REDIS_SILENCE_TTL)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("silence_detector: _mark_alerted failed: %s", exc)

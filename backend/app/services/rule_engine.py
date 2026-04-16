@@ -54,7 +54,8 @@ def _redis():
     try:
         from app.core.redis_client import _client
         return _client()
-    except Exception:
+    except Exception as exc:
+        log.warning("rule_engine: _redis failed: %s", exc)
         return None
 
 
@@ -68,7 +69,8 @@ def _rate_allow(rule_id: int, max_per_hour: int) -> bool:
         count = rc.incr(key)
         rc.expire(key, 3700)
         return int(count) <= max_per_hour
-    except Exception:
+    except Exception as exc:
+        log.warning("rule_engine: _rate_allow failed: %s", exc)
         return True
 
 
@@ -279,13 +281,13 @@ def evaluate_trigger(
                     shop_domain=shop_domain,
                     metadata={"rule_name": rule.name, "trigger": trigger_signal},
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("rule_engine: evaluate_trigger failed: %s", exc)
         else:
             log.info("rule_engine: rule #%d skipped: %s", rule.id, reason)
 
     try:
         db.flush()
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("rule_engine: evaluate_trigger failed: %s", exc)
     return fired

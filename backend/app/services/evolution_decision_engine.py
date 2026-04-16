@@ -193,7 +193,8 @@ def _daily_rollback_count() -> int:
         today = _now().date().isoformat()
         v = cache_get(_ROLLBACK_DAILY_KEY.format(date=today))
         return int(v) if v is not None else 0
-    except Exception:
+    except Exception as exc:
+        log.warning("evolution_decision_engine: _daily_rollback_count failed: %s", exc)
         return 0
 
 
@@ -211,8 +212,8 @@ def _increment_daily_rollback_count() -> None:
         pipe.incr(key, 1)
         pipe.expire(key, _ROLLBACK_DAILY_TTL)
         pipe.execute()
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("evolution_decision_engine: _increment_daily_rollback_count failed: %s", exc)
 
 
 def _build_reverse_patch_context(

@@ -35,7 +35,8 @@ def _redis():
     try:
         from app.core.redis_client import _client
         return _client()
-    except Exception:
+    except Exception as exc:
+        log.warning("merchant_privacy: _redis failed: %s", exc)
         return None
 
 
@@ -57,7 +58,8 @@ def is_merchant_opted_out(shop_domain: str | None) -> bool:
     try:
         raw = rc.get(_opt_out_key(shop_domain))
         return bool(raw)
-    except Exception:
+    except Exception as exc:
+        log.warning("merchant_privacy: is_merchant_opted_out failed: %s", exc)
         return False
 
 
@@ -108,8 +110,8 @@ def update_contact_email(
         log.warning("merchant_privacy: rectify flush failed: %s", exc)
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("merchant_privacy: update_contact_email failed: %s", exc)
         return {"status": "write_failed"}
 
     return {

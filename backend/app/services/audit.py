@@ -209,8 +209,8 @@ def _load_chain_head(db: Session) -> str:
             raw = rc.get(_CHAIN_HEAD_REDIS_KEY)
             if raw:
                 return raw.decode() if isinstance(raw, bytes) else raw
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("audit: _load_chain_head failed: %s", exc)
 
     try:
         last = (
@@ -241,8 +241,8 @@ def _store_chain_head(chain_hash: str) -> None:
         # REDIS-PERSIST-OK: audit chain head is monotonic — a TTL would
         # silently break tampering detection once the head expired.
         rc.set(_CHAIN_HEAD_REDIS_KEY, chain_hash)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("audit: _store_chain_head failed: %s", exc)
 
 
 def get_chain_head() -> str | None:
@@ -259,7 +259,8 @@ def get_chain_head() -> str | None:
         if not raw:
             return None
         return raw.decode() if isinstance(raw, bytes) else raw
-    except Exception:
+    except Exception as exc:
+        log.warning("audit: get_chain_head failed: %s", exc)
         return None
 
 
@@ -396,7 +397,8 @@ def get_quarantined_row_ids() -> set[int]:
         if not raw:
             return set()
         return {int(x.decode() if isinstance(x, bytes) else x) for x in raw}
-    except Exception:
+    except Exception as exc:
+        log.warning("audit: get_quarantined_row_ids failed: %s", exc)
         return set()
 
 

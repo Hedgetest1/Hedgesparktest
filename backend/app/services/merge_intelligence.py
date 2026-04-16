@@ -175,12 +175,12 @@ def evaluate_merge_outcomes(db: Session) -> dict:
                     summary=f"Regression detected after merge of promotion #{outcome.promotion_id}",
                     detail={"promotion_id": outcome.promotion_id, "detail": detail},
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("merge_intelligence: evaluate_merge_outcomes failed: %s", exc)
             try:
                 _notify_regression(outcome)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("merge_intelligence: evaluate_merge_outcomes failed: %s", exc)
 
     if summary["evaluated"] > 0:
         db.flush()
@@ -259,8 +259,8 @@ def _notify_regression(outcome: MergeOutcome) -> None:
                 f"_Review: GET /ops/promotions/{outcome.promotion_id}_"
             ),
         }, timeout=5.0)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("merge_intelligence: _notify_regression failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------

@@ -151,8 +151,8 @@ Analyze the system state and propose actions if needed. Return strict JSON."""
             error="llm_pii_guard_block",
             model_used="none",
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("orchestrator_llm: pii_guard import/check failed: %s", exc)
 
     # Route model selection
     from app.core.llm_router import select_model

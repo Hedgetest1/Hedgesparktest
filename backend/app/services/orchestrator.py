@@ -589,7 +589,8 @@ def run_orchestrator_cycle(db: Session) -> OrchestratorResult:
 
     try:
         db.commit()
-    except Exception:
+    except Exception as exc:
+        log.warning("orchestrator: run_orchestrator_cycle failed: %s", exc)
         db.rollback()
 
     log.info(
@@ -783,12 +784,13 @@ def _run_llm_proposal_phase(
                 )
                 if sent:
                     approval.notified_at = datetime.now(timezone.utc).replace(tzinfo=None)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("orchestrator: _run_llm_proposal_phase failed: %s", exc)
 
     try:
         db.commit()
-    except Exception:
+    except Exception as exc:
+        log.warning("orchestrator: _run_llm_proposal_phase failed: %s", exc)
         db.rollback()
 
     log.info(

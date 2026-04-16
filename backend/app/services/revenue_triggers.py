@@ -276,8 +276,8 @@ def _is_on_cooldown(shop: str) -> bool:
         rc = _client()
         if rc:
             return bool(rc.get(f"{_REDIS_TRIGGER_PREFIX}{shop}"))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("revenue_triggers: cooldown check failed: %s", exc)
     return False
 
 
@@ -288,5 +288,5 @@ def _set_cooldown(shop: str) -> None:
         rc = _client()
         if rc:
             rc.set(f"{_REDIS_TRIGGER_PREFIX}{shop}", "1", ex=_TRIGGER_COOLDOWN_HOURS * 3600)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("revenue_triggers: set cooldown failed: %s", exc)

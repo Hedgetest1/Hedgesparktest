@@ -90,8 +90,8 @@ def _stamp_run() -> None:
         return
     try:
         rc.setex(_LAST_RUN_KEY, 3 * 24 * 3600, str(time.time()))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("security_heartbeat: stamp_run write failed: %s", exc)
 
 
 def _persist_results(results: list[dict]) -> None:
@@ -106,8 +106,8 @@ def _persist_results(results: list[dict]) -> None:
             "results": results,
         })
         rc.setex(_RESULTS_KEY, 48 * 3600, payload)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("security_heartbeat: persist_results write failed: %s", exc)
 
 
 def get_last_results() -> dict | None:
@@ -191,8 +191,8 @@ def _probe_track_consent_denied(client: httpx.Client) -> dict:
     try:
         body = resp.json()
         body_ok = body.get("reason") == "consent_denied"
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("security_heartbeat: consent_denied probe parse failed: %s", exc)
     return {
         "probe": "track_consent_denied",
         "status": resp.status_code,
@@ -314,8 +314,8 @@ def run_security_heartbeat(db: Session) -> dict:
             log.warning("security_heartbeat: alert write failed: %s", exc)
             try:
                 db.rollback()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("security_heartbeat: rollback after alert write failed: %s", exc)
         log.warning(
             "security_heartbeat: %d/%d probes FAILED",
             report["failed"], report["total"],

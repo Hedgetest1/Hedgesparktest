@@ -82,7 +82,8 @@ def _is_suppressed(
             redis_key = f"{_REDIS_PREFIX}{shop_domain}:{email_type}"
             if rc.get(redis_key):
                 return "cooldown_active"
-    except Exception:
+    except Exception as exc:
+        log.warning("merchant_email_service: _is_suppressed failed: %s", exc)
         pass  # Redis down — fall through to DB check
 
     # Layer 2: DB durable check
@@ -136,7 +137,8 @@ def _alert_email_budget_once(usage: dict) -> None:
             if sent:
                 _EMAIL_BUDGET_ALERTED = True
                 # Only mark alerted if message actually sent — retry next cycle otherwise
-    except Exception:
+    except Exception as exc:
+        log.warning("merchant_email_service: _alert_email_budget_once failed: %s", exc)
         pass  # Don't set flag on failure — will retry next cycle
 
 
@@ -149,8 +151,8 @@ def _mark_sent_in_redis(shop_domain: str, email_type: str) -> None:
             cooldown = _COOLDOWNS.get(email_type, 259200)
             ttl = _REDIS_TTL if cooldown == "once" else int(cooldown)
             rc.set(f"{_REDIS_PREFIX}{shop_domain}:{email_type}", "1", ex=ttl)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("merchant_email_service: _mark_sent_in_redis failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------

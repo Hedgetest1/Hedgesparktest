@@ -53,7 +53,8 @@ async def refund_created(
 
     try:
         payload = json.loads(raw_body.decode() or "{}")
-    except Exception:
+    except Exception as exc:
+        log.warning("shopify_refunds: refund_created failed: %s", exc)
         raise HTTPException(status_code=400, detail="invalid json")
 
     if not isinstance(payload, dict):
@@ -75,8 +76,8 @@ async def refund_created(
             },
             source="shopify_refunds_webhook",
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("shopify_refunds: refund_created failed: %s", exc)
 
     # Phase Ω''' — outbound webhook fan-out for merchant-subscribable
     # refund.processed events. Opens a short-lived db session because
@@ -92,7 +93,7 @@ async def refund_created(
                 "amount_eur": float(payload.get("transactions", [{}])[0].get("amount") or 0)
                               if payload.get("transactions") else 0.0,
             })
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("shopify_refunds: refund_created failed: %s", exc)
 
     return {"ok": True, "stored_rows": added}

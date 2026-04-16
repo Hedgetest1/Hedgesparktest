@@ -1,4 +1,5 @@
 import logging
+log = logging.getLogger("agent_worker")
 import os
 import sys
 import time
@@ -624,8 +625,8 @@ def _run_scaling_intelligence():
                                         if assessment:
                                             db.flush()
                                             send_reviewer_verdict(assessment, entity_title=r.get("title"))
-                                except Exception:
-                                    pass
+                                except Exception as exc:
+                                    log.warning("agent_worker: _run_scaling_intelligence failed: %s", exc)
                         else:
                             from app.services.telegram_agent import send_message
                             send_message(
@@ -681,8 +682,8 @@ def _run_entitlement_health_scan():
                             summary=f"Entitlement mismatch: {health['issues']}",
                             shop_domain=m.shop_domain,
                         )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("agent_worker: _run_entitlement_health_scan failed: %s", exc)
 
         if issues_found > 0:
             log(f"entitlement_scan: {issues_found} mismatches found across {len(merchants)} merchants")
@@ -762,8 +763,8 @@ def _run_daily_digest():
         log(f"daily_digest error (non-fatal): {exc}")
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("agent_worker: _run_daily_digest failed: %s", exc)
     finally:
         db.close()
 
@@ -785,8 +786,8 @@ def _run_breach_classifier():
         log(f"breach_notification error (non-fatal): {exc}")
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("agent_worker: _run_breach_classifier failed: %s", exc)
     finally:
         db.close()
 
@@ -804,14 +805,16 @@ def _run_audit_log_integrity_check():
     try:
         from app.core.redis_client import _client
         rc = _client()
-    except Exception:
+    except Exception as exc:
+        log.warning("agent_worker: _run_audit_log_integrity_check failed: %s", exc)
         rc = None
     if rc is not None:
         try:
             # Claim the day-slot atomically; if we can't, another process owns it
             if not rc.set(redis_key, "1", nx=True, ex=48 * 3600):
                 return
-        except Exception:
+        except Exception as exc:
+            log.warning("agent_worker: _run_audit_log_integrity_check failed: %s", exc)
             pass  # Redis hiccup — proceed (fail-open on the rate limit)
 
     db = SessionLocal()
@@ -827,8 +830,8 @@ def _run_audit_log_integrity_check():
         log(f"audit_log integrity error (non-fatal): {exc}")
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("agent_worker: _run_audit_log_integrity_check failed: %s", exc)
     finally:
         db.close()
 
@@ -848,8 +851,8 @@ def _run_uninstall_erasure_watchdog():
         log(f"uninstall_erasure error (non-fatal): {exc}")
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("agent_worker: _run_uninstall_erasure_watchdog failed: %s", exc)
     finally:
         db.close()
 
@@ -869,8 +872,8 @@ def _run_security_heartbeat():
         log(f"security_heartbeat error (non-fatal): {exc}")
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("agent_worker: _run_security_heartbeat failed: %s", exc)
     finally:
         db.close()
 
@@ -893,8 +896,8 @@ def _run_gdpr_sla_enforcement():
         log(f"gdpr_sla error (non-fatal): {exc}")
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("agent_worker: _run_gdpr_sla_enforcement failed: %s", exc)
     finally:
         db.close()
 
@@ -912,14 +915,15 @@ def _run_data_retention():
     try:
         from app.core.redis_client import _client
         rc = _client()
-    except Exception:
+    except Exception as exc:
+        log.warning("agent_worker: _run_data_retention failed: %s", exc)
         rc = None
     if rc is not None:
         try:
             if not rc.set(redis_key, "1", nx=True, ex=48 * 3600):
                 return
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("agent_worker: _run_data_retention failed: %s", exc)
 
     db = SessionLocal()
     try:
@@ -934,8 +938,8 @@ def _run_data_retention():
         log(f"data_retention error (non-fatal): {exc}")
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("agent_worker: _run_data_retention failed: %s", exc)
     finally:
         db.close()
 
@@ -959,14 +963,15 @@ def _run_pipeline_self_upgrade():
     try:
         from app.core.redis_client import _client
         rc = _client()
-    except Exception:
+    except Exception as exc:
+        log.warning("agent_worker: _run_pipeline_self_upgrade failed: %s", exc)
         rc = None
     if rc is not None:
         try:
             if not rc.set(redis_key, "1", nx=True, ex=14 * 24 * 3600):
                 return
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("agent_worker: _run_pipeline_self_upgrade failed: %s", exc)
 
     db = SessionLocal()
     try:
@@ -984,8 +989,8 @@ def _run_pipeline_self_upgrade():
         log(f"self_upgrade error (non-fatal): {exc}")
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("agent_worker: _run_pipeline_self_upgrade failed: %s", exc)
     finally:
         db.close()
 
@@ -1029,8 +1034,8 @@ def _run_merchant_digest():
             try:
                 if not rc.set(dedup_key, "1", nx=True, ex=8 * 24 * 3600):
                     return
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("agent_worker: _run_merchant_digest failed: %s", exc)
         sent = send_tier2_weekly_review(db2)
         if sent:
             log("tier2_weekly_review: sent")
@@ -1459,7 +1464,8 @@ def _check_circuit_breaker() -> bool:
         try:
             from app.services.adaptive_governance import get_adaptive_thresholds
             cb_threshold = get_adaptive_thresholds(db).circuit_breaker_threshold
-        except Exception:
+        except Exception as exc:
+            log.warning("agent_worker: _check_circuit_breaker failed: %s", exc)
             cb_threshold = _CIRCUIT_BREAKER_THRESHOLD
 
         if health["is_healthy"]:
@@ -1493,7 +1499,8 @@ def _check_circuit_breaker() -> bool:
                     },
                 )
                 db.commit()
-            except Exception:
+            except Exception as exc:
+                log.warning("agent_worker: _check_circuit_breaker failed: %s", exc)
                 db.rollback()
             return True
 
@@ -1518,8 +1525,8 @@ def _run_stale_alert_cleanup():
         log(f"stale_alert_cleanup error (non-fatal): {exc}")
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("agent_worker: _run_stale_alert_cleanup failed: %s", exc)
     finally:
         db.close()
 
@@ -1603,8 +1610,8 @@ def _run_approval_expiry_sweep():
                         ),
                     },
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("agent_worker: _run_approval_expiry_sweep failed: %s", exc)
         db.commit()
         if expired_ids:
             log(f"approval_expiry_sweep: expired={len(expired_ids)}, escalated to ops_alert")
@@ -1612,8 +1619,8 @@ def _run_approval_expiry_sweep():
         log(f"approval_expiry_sweep error (non-fatal): {exc}")
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("agent_worker: _run_approval_expiry_sweep failed: %s", exc)
     finally:
         db.close()
 
@@ -1659,8 +1666,8 @@ def _run_approved_reminders():
                         approved_at = datetime.fromisoformat(cand.decided_at)
                         mins = int((datetime.now(timezone.utc).replace(tzinfo=None) - approved_at).total_seconds() / 60)
                         age = f" (approved {mins}m ago)"
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        log.warning("agent_worker: _run_approved_reminders failed: %s", exc)
 
                 send_message_with_buttons(
                     f"*Reminder — Bugfix #{cand.id} approved, waiting for apply*{age}\n\n"
@@ -1695,8 +1702,8 @@ def _run_approved_reminders():
                             expires_note = " *EXPIRED*"
                         else:
                             expires_note = f" (expires in {mins_left}m)"
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        log.warning("agent_worker: _run_approved_reminders failed: %s", exc)
 
                 send_message_with_buttons(
                     f"*Action Approval #{action.id} pending*{expires_note}\n\n"
@@ -1754,8 +1761,8 @@ def _run_regulatory_watch():
         log(f"regulatory_watch error (non-fatal): {exc}")
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("agent_worker: _run_regulatory_watch failed: %s", exc)
     finally:
         db.close()
 
@@ -1786,7 +1793,8 @@ def is_self_heal_in_standby() -> bool:
             record_silent_return("agent_worker.standby_read")
             return False
         return rc.exists(_STANDBY_REDIS_KEY) > 0
-    except Exception:
+    except Exception as exc:
+        log.warning("agent_worker: is_self_heal_in_standby failed: %s", exc)
         return False
 
 
@@ -1831,7 +1839,8 @@ def _run_analytics_retention():
         rc = _client()
         if rc is not None and rc.exists("hs:event_bus:cleanup_today"):
             return
-    except Exception:
+    except Exception as exc:
+        log.warning("agent_worker: _run_analytics_retention failed: %s", exc)
         rc = None
 
     db = SessionLocal()
@@ -1843,8 +1852,8 @@ def _run_analytics_retention():
         if rc is not None:
             try:
                 rc.setex("hs:event_bus:cleanup_today", 86400, "1")
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("agent_worker: _run_analytics_retention failed: %s", exc)
     except Exception as exc:
         log(f"event_bus_cleanup error (non-fatal): {exc}")
     finally:
@@ -1868,8 +1877,8 @@ def _run_worker_watchdog():
         log(f"worker_watchdog error (non-fatal): {exc}")
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("agent_worker: _run_worker_watchdog failed: %s", exc)
     finally:
         db.close()
 
@@ -1944,8 +1953,8 @@ def run_cycle():
     finally:
         try:
             db.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("agent_worker: run_cycle failed: %s", exc)
 
     # Phase 4d: Lesson GC — decay, retirement, contradiction detection, promotion
     try:

@@ -164,7 +164,8 @@ def run_lesson_gc(db: Session) -> dict:
     try:
         from app.services.adaptive_governance import get_adaptive_thresholds
         promote_conf = get_adaptive_thresholds(db).promote_confidence
-    except Exception:
+    except Exception as exc:
+        log.warning("lesson_gc: run_lesson_gc failed: %s", exc)
         promote_conf = _PROMOTE_CONFIDENCE
 
     # Stage 4a: New promotions → pending_promotion (not yet hard-blocking)
@@ -211,8 +212,8 @@ def run_lesson_gc(db: Session) -> dict:
                     "evidence_count": lesson.evidence_count,
                 },
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("lesson_gc: run_lesson_gc failed: %s", exc)
 
     # Stage 4b: Auto-confirm pending promotions after 7 days without human rejection
     auto_confirm_cutoff = now - timedelta(days=_AUTO_CONFIRM_DAYS)

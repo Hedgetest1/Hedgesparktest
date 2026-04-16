@@ -82,8 +82,8 @@ def should_run_audit() -> bool:
         from app.core.redis_client import cache_get
         if cache_get(_REDIS_COOLDOWN_KEY) is not None:
             return False
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("evolution_engine: should_run_audit failed: %s", exc)
     return True
 
 
@@ -93,8 +93,8 @@ def mark_audit_run():
     try:
         from app.core.redis_client import cache_set
         cache_set(_REDIS_COOLDOWN_KEY, True, _AUDIT_COOLDOWN_SECONDS)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("evolution_engine: mark_audit_run failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +112,8 @@ def _scan_large_files() -> list[dict]:
             continue
         try:
             lines = len(py.read_text().splitlines())
-        except Exception:
+        except Exception as exc:
+            log.warning("evolution_engine: _scan_large_files failed: %s", exc)
             continue
         if lines > 500:
             proposals.append({
@@ -170,7 +171,8 @@ def _scan_todo_fixme() -> list[dict]:
             continue  # don't scan self
         try:
             content = py.read_text()
-        except Exception:
+        except Exception as exc:
+            log.warning("evolution_engine: _scan_todo_fixme failed: %s", exc)
             continue
         for i, line in enumerate(content.splitlines(), 1):
             stripped = line.strip()
@@ -268,7 +270,8 @@ def _scan_support_patterns(db: Session) -> list[dict]:
             ORDER BY COUNT(*) DESC
             LIMIT 5
         """), {"cutoff": cutoff}).fetchall()
-    except Exception:
+    except Exception as exc:
+        log.warning("evolution_engine: _scan_support_patterns failed: %s", exc)
         return proposals
 
     for r in rows:
@@ -309,7 +312,8 @@ def _scan_feature_requests(db: Session) -> list[dict]:
             ORDER BY COUNT(*) DESC
             LIMIT 5
         """), {"cutoff": cutoff}).fetchall()
-    except Exception:
+    except Exception as exc:
+        log.warning("evolution_engine: _scan_feature_requests failed: %s", exc)
         return proposals
 
     for r in rows:
@@ -353,7 +357,8 @@ def _sort_by_weakness(proposals: list[dict], db=None) -> list[dict]:
             with _Sess(engine) as tmp_db:
                 ranking = score_subsystem_weakness(tmp_db, lookback_days=30)
         weakness_map = {w["domain"]: w["score"] for w in ranking}
-    except Exception:
+    except Exception as exc:
+        log.warning("evolution_engine: _sort_by_weakness failed: %s", exc)
         return proposals  # fallback: keep original order
 
     if not weakness_map:
@@ -366,7 +371,8 @@ def _sort_by_weakness(proposals: list[dict], db=None) -> list[dict]:
         try:
             domain = classify_file(target.split(":")[0])["domain"]
             return weakness_map.get(domain, 0)
-        except Exception:
+        except Exception as exc:
+            log.warning("evolution_engine: _score failed: %s", exc)
             return 0
 
     return sorted(proposals, key=_score, reverse=True)

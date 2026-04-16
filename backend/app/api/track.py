@@ -237,8 +237,8 @@ def _consent_allows_ingestion(payload: "TrackPayload", request=None) -> bool:
             dnt = request.headers.get("dnt", "").strip()
             if sec_gpc == "1" or dnt == "1":
                 return False
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("track: _consent_allows_ingestion failed: %s", exc)
 
     if os.getenv("TRACK_CONSENT_STRICT", "").strip() == "1":
         return False
@@ -260,8 +260,8 @@ def _bump_consent_metric(accepted: bool) -> None:
         key = f"hs:consent:{day}:{'accepted' if accepted else 'denied'}"
         rc.incr(key)
         rc.expire(key, 30 * 24 * 3600)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("track: _bump_consent_metric failed: %s", exc)
 
 
 def _check_per_shop_rate(request, shop_domain: str) -> bool:
@@ -286,7 +286,8 @@ def _check_per_shop_rate(request, shop_domain: str) -> bool:
         if count == 1:
             client.expire(key, 60)
         return count <= 60
-    except Exception:
+    except Exception as exc:
+        log.warning("track: _check_per_shop_rate failed: %s", exc)
         return True  # fail open
 
 
@@ -471,8 +472,8 @@ def _persist_visitor_bridge(db: Session, payload: TrackPayload) -> None:
                     bridge_vid = payload.visitor_id
                     log.info("track/bridge: visitor_id %s is known tracker identity — using directly",
                              payload.visitor_id[:12])
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("track: _persist_visitor_bridge failed: %s", exc)
     if not bridge_vid:
         # Strategy 3: shopify_y mapping lookup
         bridge_vid = _resolve_visitor_from_shopify_y(payload.shop_domain, payload.visitor_id)
@@ -598,8 +599,8 @@ def _store_shopify_y_mapping(payload: TrackPayload) -> None:
         if rc is not None:
             key = f"{_SHOPIFY_Y_PREFIX}{payload.shop_domain}:{payload.shopify_y}"
             rc.set(key, payload.visitor_id, ex=_SHOPIFY_Y_TTL)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("track: _store_shopify_y_mapping failed: %s", exc)
 
 
 def _resolve_visitor_from_shopify_y(shop_domain: str, shopify_client_id: str) -> str | None:
@@ -616,8 +617,8 @@ def _resolve_visitor_from_shopify_y(shop_domain: str, shopify_client_id: str) ->
                 log.info("track/bridge: resolved shopify_y=%s → vid=%s shop=%s",
                          shopify_client_id[:12], val[:12], shop_domain)
                 return val
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("track: _resolve_visitor_from_shopify_y failed: %s", exc)
     return None
 
 
@@ -727,7 +728,8 @@ def track_event(request: Request, payload: TrackPayload, db: Session = Depends(g
     try:
         from app.core.geo import capture_visitor_geo_sync
         capture_visitor_geo_sync(request, payload.shop_domain, payload.visitor_id)
-    except Exception:
+    except Exception as exc:
+        log.warning("track: track_event failed: %s", exc)
         pass  # geo is never critical
 
     return JSONResponse(

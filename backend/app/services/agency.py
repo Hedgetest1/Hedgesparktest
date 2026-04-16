@@ -204,7 +204,7 @@ def get_agency_dashboard(db: Session, agency_id: int, *, lookback_days: int = 30
     if rc is not None:
         try:
             rc.setex(cache_key, _CACHE_TTL_SECONDS, json.dumps(result, default=str))
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("agency: cache write failed: %s", exc)
 
     return result

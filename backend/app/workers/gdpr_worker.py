@@ -9,6 +9,7 @@ them via gdpr_processor.  Follows the aggregation_worker pattern:
   - Idempotent: reprocessing a completed request is a no-op (status check)
 """
 import logging
+log = logging.getLogger("gdpr_worker")
 import sys
 import time
 from datetime import datetime, timezone
@@ -92,8 +93,8 @@ def _recover_stuck_processing(db) -> int:
                 summary=f"Recovered {recovered} stuck GDPR request(s) from crashed processing",
                 detail={"recovered_count": recovered},
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("gdpr_worker: _recover_stuck_processing failed: %s", exc)
         db.commit()
         log(f"RECOVERY: reset {recovered} stuck request(s) to pending")
 
@@ -178,7 +179,8 @@ def main() -> None:
                         duration_ms=duration_ms,
                     ))
                     db.commit()
-                except Exception:
+                except Exception as exc:
+                    log.warning("gdpr_worker: main failed: %s", exc)
                     db.rollback()
                 finally:
                     db.close()

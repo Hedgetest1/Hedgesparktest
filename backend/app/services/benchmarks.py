@@ -298,7 +298,8 @@ def get_merchant_benchmark_report(db: Session, shop_domain: str) -> dict:
             cached = rc.get(cache_key)
             if cached:
                 return json.loads(cached)
-    except Exception:
+    except Exception as exc:
+        log.warning("benchmarks: get_merchant_benchmark_report failed: %s", exc)
         pass  # fall through to compute
 
     try:
@@ -316,8 +317,8 @@ def get_merchant_benchmark_report(db: Session, shop_domain: str) -> dict:
                 summary=f"Benchmark aggregation failed: {type(exc).__name__}",
                 detail={"error": str(exc)[:500]},
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("benchmarks: get_merchant_benchmark_report failed: %s", exc)
         return {
             "shop_domain": shop_domain,
             "error": "compute_failed",
@@ -403,8 +404,8 @@ def get_merchant_benchmark_report(db: Session, shop_domain: str) -> dict:
         rc = _client()
         if rc is not None:
             rc.setex(cache_key, _CACHE_TTL_SECONDS, json.dumps(result, default=str))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("benchmarks: get_merchant_benchmark_report failed: %s", exc)
 
     return result
 
@@ -527,7 +528,7 @@ def get_extended_benchmark_report(db: Session, shop_domain: str) -> dict:
                     f"(out of {len(product_rev)} total)."
                 ),
             }
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("benchmarks: get_extended_benchmark_report failed: %s", exc)
 
     return base

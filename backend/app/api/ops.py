@@ -102,7 +102,8 @@ def _get_model_config_summary(db: Session) -> dict:
             "persistent": True,
             "modules": {c["module"]: {"provider": c["provider"], "model": c["model"], "activated_at": c["activated_at"], "activated_by": c["activated_by"]} for c in configs},
         }
-    except Exception:
+    except Exception as exc:
+        log.warning("ops: _get_model_config_summary failed: %s", exc)
         return {"persistent": False, "modules": {}}
 
 
@@ -125,8 +126,8 @@ def _get_promotion_readiness() -> dict:
             AutoFixPromotion.status.notin_(["merged", "rejected"]),
         ).count()
         _db.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("ops: _get_promotion_readiness failed: %s", exc)
     return {
         "auto_promotion_ready": ready,
         "not_ready_reasons": reasons,
@@ -1514,7 +1515,8 @@ def get_governance_state(
         result["domain_count"] = len(profiles)
         adapted_domains = [d for d, p in profiles.items() if p.adapted]
         result["adapted_domains"] = adapted_domains
-    except Exception:
+    except Exception as exc:
+        log.warning("ops: get_governance_state failed: %s", exc)
         result["domain_profiles"] = {}
         result["domain_count"] = 0
         result["adapted_domains"] = []
@@ -2467,8 +2469,8 @@ def ops_merchant_email_trace(
             redis_suppressed = rc.get(f"hs:email_suppressed:{shop_domain}")
             if isinstance(redis_suppressed, bytes):
                 redis_suppressed = redis_suppressed.decode()
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("ops: _ts failed: %s", exc)
 
     # 6. Inbound emails from this merchant (last 10)
     inbound = (
@@ -2861,7 +2863,8 @@ def get_pipeline_health(
             )
             .count()
         )
-    except Exception:
+    except Exception as exc:
+        log.warning("ops: get_pipeline_health failed: %s", exc)
         visibility_backlog = None
 
     # Alert storm summary: aggregated occurrence counts for unresolved chronic alerts
@@ -2930,8 +2933,8 @@ def get_pipeline_health(
                 "age_seconds": int((now - agg.started_at).total_seconds()) if agg.started_at else None,
                 "errors": agg.errors,
             }
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("ops: get_pipeline_health failed: %s", exc)
 
     # Auto-merge cooldown state
     auto_merge_info = {}
@@ -2947,7 +2950,8 @@ def get_pipeline_health(
                 if pp._auto_merge_last is not None else 0
             ),
         }
-    except Exception:
+    except Exception as exc:
+        log.warning("ops: get_pipeline_health failed: %s", exc)
         auto_merge_info = {"error": "auto_merge_state_unavailable"}
 
     # Stale worker detection — freshness thresholds

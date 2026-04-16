@@ -154,5 +154,5 @@ def _alert_mass_deactivation(count: int) -> None:
                 f"Halted after {count} deactivations in one cycle.\n"
                 f"Possible Shopify billing API issue. Manual review required."
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("billing_sync: _alert_mass_deactivation failed: %s", exc)

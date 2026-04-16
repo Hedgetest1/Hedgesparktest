@@ -51,7 +51,7 @@ def check_idempotency(command: str, entity_id: str, critical: bool = False) -> b
             log.warning("telegram_safety: DUPLICATE blocked %s entity=%s", command, entity_id)
             return False
         return True
-    except Exception:
+    except Exception as exc:
         if critical:
             log.warning("telegram_safety: Redis error — BLOCKING critical command %s", command)
             return False
@@ -87,7 +87,8 @@ def acquire_execution_lock(entity_type: str, entity_id: str, critical: bool = Tr
             log.warning("telegram_safety: LOCKED %s:%s — another operation in progress", entity_type, entity_id)
             return False
         return True
-    except Exception:
+    except Exception as exc:
+        log.warning("telegram_safety: acquire_execution_lock failed: %s", exc)
         # fail-open for non-critical paths, fail-closed for critical ones:
         # Redis down on a critical operation is always a refusal because
         # we cannot guarantee the lock invariant; non-critical paths
@@ -154,8 +155,8 @@ def request_confirmation(action: str, entity_id: str) -> bool:
         rc = _client()
         if rc:
             rc.set(key, "1", ex=_CONFIRM_TTL)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("telegram_safety: request_confirmation failed: %s", exc)
     return True
 
 
@@ -174,7 +175,8 @@ def check_confirmation(action: str, entity_id: str) -> bool:
             return True  # Redis down — skip confirmation (fail-open)
         val = rc.getdel(key)  # atomic GET+DELETE — no TOCTOU race
         return val is not None
-    except Exception:
+    except Exception as exc:
+        log.warning("telegram_safety: check_confirmation failed: %s", exc)
         return True  # error — fail-open
 
 
@@ -188,7 +190,8 @@ def send_progress(step: str, reply_to: int | None = None) -> int | None:
         from app.services.telegram_agent import send_message
         result = send_message(step, reply_to=reply_to)
         return result if isinstance(result, int) else None
-    except Exception:
+    except Exception as exc:
+        log.warning("telegram_safety: send_progress failed: %s", exc)
         return None
 
 

@@ -127,8 +127,8 @@ def run_retention_sweep(db: Session) -> dict:
         report["events_error"] = type(exc).__name__
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc2:
+            log.warning("data_retention: rollback after events sweep failed: %s", exc2)
 
     # visitor_purchase_sessions: DateTime cutoff
     try:
@@ -141,8 +141,8 @@ def run_retention_sweep(db: Session) -> dict:
         report["vps_error"] = type(exc).__name__
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc2:
+            log.warning("data_retention: rollback after vps sweep failed: %s", exc2)
 
     if report["events_deleted"] or report["vps_deleted"]:
         log.info(

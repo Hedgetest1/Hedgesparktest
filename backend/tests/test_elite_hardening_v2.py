@@ -1044,7 +1044,7 @@ _RAW_SQL_FSTRING_ALLOWLIST: set[str] = {
     "app/services/evolution_business_outcomes.py:120",
     "app/services/utm_attribution.py:111",
     "app/services/simulation_engine.py:317",
-    "app/services/simulation_engine.py:665",
+    "app/services/simulation_engine.py:668",
     "app/services/nudge_rank.py:148",
     "app/services/nudge_rank.py:200",
     "app/services/evolution_outcomes.py:624",
@@ -1210,8 +1210,8 @@ _PRINT_ALLOWLIST: set[str] = {
     # Context builder CLI utility — only callers are its own
     # `if __name__ == "__main__":` block and a test. Prints are
     # the user-facing result of a manual doc-sync run.
-    "app/system/context_builder.py:171",
-    "app/system/context_builder.py:172",
+    "app/system/context_builder.py:174",
+    "app/system/context_builder.py:175",
 }
 
 
@@ -2028,7 +2028,7 @@ def test_no_silent_except_pass():
     Baseline: 394 (measured 2026-04-16). As sinks are fixed, ratchet the
     ceiling down. To exempt a legitimate case, add `# SILENT-EXCEPT-OK: <reason>`
     on the `pass` line."""
-    _CEILING = 328  # ratcheted from 394 on 2026-04-16 (100 sinks fixed)
+    _CEILING = 0  # 394 → 0 on 2026-04-16. Zero silent sinks in the entire codebase.
     hits: list[str] = []
     for file in (_BACKEND / "app").rglob("*.py"):
         if "__pycache__" in file.parts:

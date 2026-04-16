@@ -181,8 +181,8 @@ def _check_and_increment_budget(shop_domain: str) -> bool:
                 )
                 return False
             return True
-    except Exception:
-        pass  # fall through to in-memory path
+    except Exception as exc:
+        log.warning("nudge_composer: budget check failed: %s", exc)
 
     # In-memory fallback
     today = _today_utc()
@@ -414,8 +414,8 @@ async def compose_nudge_variants(
     # Cache the validated AI response for identical future requests
     try:
         cache_set(_cache_key, {"variants": variants}, TTL_AI_COMPOSE)
-    except Exception:
-        pass  # cache write failure is non-fatal
+    except Exception as exc:
+        log.warning("nudge_composer: cache write failed: %s", exc)
 
     return variants, _meta(
         strategy_pair    = strategy_pair,

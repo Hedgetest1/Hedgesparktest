@@ -203,18 +203,19 @@ def process_breach_candidates(db: Session) -> dict[str, Any]:
             log.warning("breach_notification: response write failed: %s", exc)
             try:
                 db.rollback()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("breach_notification: process_breach_candidates failed: %s", exc)
             continue
 
     if report["new_response_alerts"] > 0:
         try:
             db.commit()
-        except Exception:
+        except Exception as exc:
+            log.warning("breach_notification: process_breach_candidates failed: %s", exc)
             try:
                 db.rollback()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("breach_notification: process_breach_candidates failed: %s", exc)
         log.warning(
             "breach_notification: %d new breach response alert(s) raised",
             report["new_response_alerts"],

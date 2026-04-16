@@ -76,7 +76,8 @@ def record_silent_return(service: str) -> None:
         pipe.incr(f"hs:silent_fallback:total:{day}")
         pipe.expire(f"hs:silent_fallback:total:{day}", _TTL_SECONDS)
         pipe.execute()
-    except Exception:
+    except Exception as exc:
+        log.warning("silent_fallback: record_silent_return failed: %s", exc)
         # Never raise from the observability plane — if Redis is flaky
         # we lose the counter, not the request.
         pass
@@ -118,8 +119,8 @@ def read_summary(days: int = 1, top_n: int = 20) -> dict:
                 v = rc.get(total_key)
                 if v is not None:
                     total += int(v)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("silent_fallback: read_summary failed: %s", exc)
             cursor = 0
             pattern = f"hs:silent_fallback:*:{day}"
             # Bound SCAN so a misconfigured prod can't wedge this endpoint.
@@ -134,7 +135,8 @@ def read_summary(days: int = 1, top_n: int = 20) -> dict:
                     svc = k[len("hs:silent_fallback:") : -(len(day) + 1)]
                     try:
                         n = int(rc.get(key) or 0)
-                    except Exception:
+                    except Exception as exc:
+                        log.warning("silent_fallback: read_summary failed: %s", exc)
                         n = 0
                     by_service[svc] = by_service.get(svc, 0) + n
                     seen += 1

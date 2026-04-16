@@ -841,8 +841,8 @@ def run_self_evaluation(db: Session) -> SelfEvalReport:
         total_outcomes = sum(outcome_map.values())
         if total_outcomes > 0:
             effectiveness_pct = round(outcome_map.get("effective", 0) / total_outcomes * 100, 1)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("scoring_calibration: effectiveness query failed: %s", exc)
 
     if effectiveness_pct is not None and effectiveness_pct < 40:
         degradation_reasons.append(f"effectiveness={effectiveness_pct}% (<40% threshold)")
@@ -871,8 +871,8 @@ def run_self_evaluation(db: Session) -> SelfEvalReport:
             if avg_confidence_accuracy < 50:
                 degradation_reasons.append(f"confidence_accuracy={avg_confidence_accuracy}% (<50%)")
                 recommendations.append("Confidence predictions are unreliable — calibration offsets should correct over time")
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("scoring_calibration: confidence accuracy query failed: %s", exc)
 
     # --- 3. Priority alignment ---
     priority_alignment_pct = None
@@ -903,8 +903,8 @@ def run_self_evaluation(db: Session) -> SelfEvalReport:
                     f"< low-pri={low_eff:.0f}%"
                 )
                 recommendations.append("Priority scoring is not predicting impact — review severity/subsystem weights")
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("scoring_calibration: priority alignment query failed: %s", exc)
 
     # --- 4. Calibration status ---
     calibration = get_scoring_calibration(db)
@@ -949,8 +949,8 @@ def run_self_evaluation(db: Session) -> SelfEvalReport:
                 summary=f"Self-eval: {'; '.join(degradation_reasons)}",
                 detail=report.to_dict(),
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("scoring_calibration: degradation alert write failed: %s", exc)
     elif degradation_detected and not sample_sufficient:
         log.info(
             "self_eval: degradation signal suppressed (only %d outcomes, need %d)",

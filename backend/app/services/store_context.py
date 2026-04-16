@@ -116,8 +116,8 @@ def get_store_context(db: Session, shop_domain: str) -> StoreContext:
                 ctx.orders_7d = row[0] or 0
                 ctx.revenue_7d = float(row[1] or 0)
                 ctx.has_revenue = ctx.orders_7d > 0
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("store_context: get_store_context failed: %s", exc)
 
         # --- Active signals (from opportunity_signals or product_metrics) ---
         try:
@@ -153,8 +153,8 @@ def get_store_context(db: Session, shop_domain: str) -> StoreContext:
                         ctx.top_signal_summary = f"{product_name} ({views} views, {carts} carts in 24h)"
                     else:
                         ctx.top_signal_summary = f"{product_name} ({views} views in 24h, no carts yet)"
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("store_context: get_store_context failed: %s", exc)
 
         # --- Open incidents ---
         try:
@@ -181,8 +181,8 @@ def get_store_context(db: Session, shop_domain: str) -> StoreContext:
             )
             if last_resolved and last_resolved.resolution_summary:
                 ctx.last_resolved_incident = last_resolved.resolution_summary[:100]
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("store_context: get_store_context failed: %s", exc)
 
     except Exception as exc:
         log.warning("store_context: failed for %s: %s", shop_domain, exc)

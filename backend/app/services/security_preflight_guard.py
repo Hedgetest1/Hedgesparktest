@@ -284,7 +284,7 @@ def guard_candidate(candidate) -> tuple[bool, str]:
                 "(sensitive path touched)",
                 getattr(candidate, "id", "?"),
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("security_preflight_guard: tier escalation failed: %s", exc)
     paths = sorted({v["path"] for v in violations if v.get("path")})
     return True, f"sensitive_paths_escalated: {paths}"

@@ -65,8 +65,8 @@ def should_run_meta_review() -> bool:
         from app.core.redis_client import cache_get
         if cache_get(_REDIS_COOLDOWN_KEY) is not None:
             return False
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("meta_reviewer: redis cooldown check failed: %s", exc)
     return True
 
 
@@ -76,8 +76,8 @@ def mark_meta_review_run():
     try:
         from app.core.redis_client import cache_set
         cache_set(_REDIS_COOLDOWN_KEY, True, _REVIEW_COOLDOWN_SECONDS)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("meta_reviewer: redis cooldown mark failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -217,8 +217,8 @@ def _gather_support_trends(db: Session) -> dict:
             GROUP BY affected_area ORDER BY cnt DESC LIMIT 5
         """), {"c": cutoff}).fetchall()
         result["feature_clusters"] = [{"area": r[0], "count": r[1]} for r in feats]
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("meta_reviewer: support trends query failed: %s", exc)
     return result
 
 
@@ -664,8 +664,8 @@ def run_meta_review(db: Session) -> dict:
             },
             status="completed",
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("meta_reviewer: audit log write failed: %s", exc)
 
     log.info(
         "meta_reviewer: window=%s proposals=%d conflicts=%d focus=%s model=%s",

@@ -241,8 +241,8 @@ def _process_task(db: Session, task: ActionTask, summary: dict) -> None:
                             "contract_id": trust_result.contract_id,
                         },
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("action_agent: _process_task failed: %s", exc)
         else:
             log.info(
                 "action_agent: no trust for %s on %s (%s) — queuing for approval",
@@ -457,6 +457,6 @@ def _check_nudge_cap(shop_domain: str) -> bool:
         pipe.expire(key, 86400)
         pipe.execute()
         return True
-    except Exception:
+    except Exception as exc:
         log.warning("action_agent: nudge cap check failed, fail-closed for %s", shop_domain)
         return False  # fail-closed

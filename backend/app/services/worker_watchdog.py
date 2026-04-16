@@ -58,7 +58,8 @@ def _on_cooldown(worker: str) -> bool:
             record_silent_return("worker_watchdog.cooldown_read")
             return False
         return bool(rc.exists(_restart_cooldown_key(worker)))
-    except Exception:
+    except Exception as exc:
+        log.warning("worker_watchdog: _on_cooldown failed: %s", exc)
         return False
 
 
@@ -71,8 +72,8 @@ def _set_cooldown(worker: str) -> None:
             record_silent_return("worker_watchdog.cooldown_write")
             return
         rc.setex(_restart_cooldown_key(worker), _RESTART_COOLDOWN_S, "1")
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("worker_watchdog: _set_cooldown failed: %s", exc)
 
 
 def _pm2_restart(process_name: str) -> bool:
@@ -180,7 +181,7 @@ def run_watchdog(db: Session) -> dict:
                 ),
                 detail=detail,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("worker_watchdog: run_watchdog failed: %s", exc)
 
     return report

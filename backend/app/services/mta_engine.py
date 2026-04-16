@@ -302,7 +302,8 @@ def compute_mta(
             raw = rc.get(cache_key)
             if raw:
                 return json.loads(raw)
-    except Exception:
+    except Exception as exc:
+        log.warning("mta_engine: compute_mta failed: %s", exc)
         rc = None
 
     journeys = _load_journeys(db, shop_domain, window_days)
@@ -385,8 +386,8 @@ def compute_mta(
     if rc is not None:
         try:
             rc.setex(cache_key, _CACHE_TTL_S, json.dumps(result, default=str))
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("mta_engine: compute_mta failed: %s", exc)
 
     return result
 

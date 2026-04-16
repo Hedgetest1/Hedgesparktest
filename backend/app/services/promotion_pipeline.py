@@ -74,8 +74,8 @@ def create_promotion(db: Session, bugfix_candidate_id: int, git_commit_sha: str)
     # Slack notify (fail-safe)
     try:
         _notify_promotion(promo, "created")
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("promotion_pipeline: notify created failed: %s", exc)
 
     log.info("promotion: created id=%d candidate=%d sha=%s", promo.id, bugfix_candidate_id, git_commit_sha)
     return promo
@@ -309,8 +309,8 @@ def check_remote_ci_status(db: Session, promotion_id: int) -> str:
                 promo.remote_ci_status = "failed"
                 try:
                     _notify_promotion(promo, "remote_ci_failed")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("promotion_pipeline: notify remote_ci_failed failed: %s", exc)
         elif gh_status in ("queued", "waiting"):
             promo.remote_ci_status = "queued"
         elif gh_status == "in_progress":
@@ -392,8 +392,8 @@ def create_promotion_pr(db: Session, promotion_id: int) -> str:
             db.flush()
             try:
                 _notify_promotion(promo, "pr_created")
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("promotion_pipeline: notify pr_created failed: %s", exc)
             log.info("promotion: PR created id=%d url=%s", promo.id, pr_url)
             return pr_url
         else:
@@ -445,20 +445,20 @@ def merge_promotion(db: Session, promotion_id: int) -> str:
                 )
                 if sha_result.returncode == 0:
                     promo.merge_commit_sha = sha_result.stdout.strip()[:40]
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("promotion_pipeline: merge commit sha retrieval failed: %s", exc)
             db.flush()
             # Create post-merge outcome for tracking
             try:
                 from app.services.merge_intelligence import create_merge_outcome
                 create_merge_outcome(db, promo.id)
                 db.flush()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("promotion_pipeline: merge outcome creation failed: %s", exc)
             try:
                 _notify_promotion(promo, "merged")
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("promotion_pipeline: notify merged failed: %s", exc)
             log.info("promotion: merged id=%d pr=%d", promo.id, promo.pr_number)
             return "merged"
         else:
@@ -466,8 +466,8 @@ def merge_promotion(db: Session, promotion_id: int) -> str:
             db.flush()
             try:
                 _notify_promotion(promo, "merge_failed")
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("promotion_pipeline: notify merge_failed failed: %s", exc)
             return f"merge_failed: {result.stderr[:200]}"
     except Exception as exc:
         promo.failure_reason = f"merge_error: {str(exc)[:200]}"
@@ -630,8 +630,8 @@ def run_auto_promotion(db: Session, max_per_cycle: int = 1) -> dict:
                         summary=f"Remote CI failed for promotion #{promo.id} branch={promo.branch_name}",
                         detail={"promotion_id": promo.id, "ci_result": promo.ci_result},
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("promotion_pipeline: ci_failed alert write failed: %s", exc)
 
         except Exception as exc:
             summary["errors"] += 1
@@ -678,8 +678,8 @@ def _mark_auto_merge_done() -> None:
     try:
         from app.core.redis_client import cache_set
         cache_set(_AUTO_MERGE_COOLDOWN_REDIS_KEY, True, _AUTO_MERGE_COOLDOWN_S)
-    except Exception:
-        pass  # Redis down — next cycle will re-check
+    except Exception as exc:
+        log.warning("promotion_pipeline: redis merge cooldown mark failed: %s", exc)
 
 
 def _candidate_touches_forbidden_path(patch_files_json: str | None) -> str | None:
@@ -882,8 +882,8 @@ def _notify_promotion(promo: AutoFixPromotion, event: str) -> None:
             ),
         }, timeout=5.0)
         promo.notified_at = _now()
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("promotion_pipeline: slack notification failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -963,8 +963,8 @@ def _mark_promotion_deployed(promo_id: int, sha: str) -> None:
             record_silent_return("promotion_pipeline.mark_deployed")
             return
         rc.setex(_deploy_marker_key(promo_id), 90 * 24 * 3600, sha)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("promotion_pipeline: deploy marker set failed: %s", exc)
 
 
 def _shell(cmd: list[str], *, timeout: int = 120) -> tuple[int, str]:
@@ -1023,8 +1023,8 @@ def _deploy_one_promotion(db: Session, promo: AutoFixPromotion) -> dict:
                 summary=f"Auto-deploy preflight blocked promo {promo.id}",
                 detail={"phase": "preflight", "rc": rc, "output": out},
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("promotion_pipeline: deploy preflight alert write failed: %s", exc)
         return result
 
     # 2. git pull origin main — fails closed on merge conflict / dirty tree
@@ -1042,8 +1042,8 @@ def _deploy_one_promotion(db: Session, promo: AutoFixPromotion) -> dict:
                 summary=f"Auto-deploy git pull failed promo {promo.id}",
                 detail={"phase": "git_pull", "rc": rc, "output": out},
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("promotion_pipeline: deploy git_pull alert write failed: %s", exc)
         return result
 
     # 3. Restart backend + dashboard processes (agent_worker is a sibling
@@ -1062,8 +1062,8 @@ def _deploy_one_promotion(db: Session, promo: AutoFixPromotion) -> dict:
                 summary=f"Auto-deploy pm2 restart failed promo {promo.id}",
                 detail={"phase": "pm2_restart", "rc": rc, "output": out},
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("promotion_pipeline: deploy pm2_restart alert write failed: %s", exc)
         return result
 
     # 4. Postdeploy gate with auto-rollback enabled
@@ -1087,8 +1087,8 @@ def _deploy_one_promotion(db: Session, promo: AutoFixPromotion) -> dict:
                 summary=f"Auto-deploy postdeploy failed → rolled back promo {promo.id}",
                 detail={"phase": "postdeploy", "rc": rc, "output": out},
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("promotion_pipeline: deploy postdeploy alert write failed: %s", exc)
         return result
 
     # SUCCESS path
@@ -1112,8 +1112,8 @@ def _deploy_one_promotion(db: Session, promo: AutoFixPromotion) -> dict:
                 "candidate_id": promo.bugfix_candidate_id,
             },
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("promotion_pipeline: deploy success alert write failed: %s", exc)
     return result
 
 
@@ -1163,8 +1163,8 @@ def _deploy_batch(db: Session, promos: list[AutoFixPromotion]) -> dict:
                 summary=f"Auto-deploy batch ({len(promos)} promos) preflight blocked",
                 detail={"phase": "preflight", "rc": rc, "output": out, "batch_ids": batch_ids},
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("promotion_pipeline: batch preflight alert write failed: %s", exc)
         return summary
 
     # 2. Single git pull picks up every merged commit
@@ -1180,8 +1180,8 @@ def _deploy_batch(db: Session, promos: list[AutoFixPromotion]) -> dict:
                 summary=f"Auto-deploy batch ({len(promos)} promos) git pull failed",
                 detail={"phase": "git_pull", "rc": rc, "output": out, "batch_ids": batch_ids},
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("promotion_pipeline: batch git_pull alert write failed: %s", exc)
         return summary
 
     # 3. Single pm2 restart for the whole batch
@@ -1197,8 +1197,8 @@ def _deploy_batch(db: Session, promos: list[AutoFixPromotion]) -> dict:
                 summary=f"Auto-deploy batch ({len(promos)} promos) pm2 restart failed",
                 detail={"phase": "pm2_restart", "rc": rc, "output": out, "batch_ids": batch_ids},
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("promotion_pipeline: batch pm2_restart alert write failed: %s", exc)
         return summary
 
     # 4. Postdeploy gate covers the whole batch — auto-rollback reverts
@@ -1226,8 +1226,8 @@ def _deploy_batch(db: Session, promos: list[AutoFixPromotion]) -> dict:
                 ),
                 detail={"phase": "postdeploy", "rc": rc, "output": out, "batch_ids": batch_ids},
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("promotion_pipeline: batch postdeploy alert write failed: %s", exc)
         return summary
 
     # SUCCESS — mark every promotion deployed
@@ -1244,8 +1244,8 @@ def _deploy_batch(db: Session, promos: list[AutoFixPromotion]) -> dict:
             ),
             detail={"batch_ids": batch_ids, "size": len(promos)},
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("promotion_pipeline: batch success alert write failed: %s", exc)
     return summary
 
 

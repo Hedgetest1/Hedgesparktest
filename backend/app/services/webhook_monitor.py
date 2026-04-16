@@ -106,8 +106,8 @@ def record_check_result(
         if rc is not None:
             key = f"{_REDIS_PREFIX}{shop_domain}"
             rc.set(key, json.dumps(status, default=str), ex=_STATUS_TTL)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("webhook_monitor: record_check_result failed: %s", exc)
 
     # Log significant states
     if severity == "broken":
@@ -164,7 +164,8 @@ def get_fleet_webhook_summary(db: Session) -> dict:
             "SELECT COUNT(*) FROM merchants WHERE install_status = 'active' AND access_token IS NOT NULL"
         )).fetchone()
         total_merchants = total[0] if total else 0
-    except Exception:
+    except Exception as exc:
+        log.warning("webhook_monitor: get_fleet_webhook_summary failed: %s", exc)
         total_merchants = 0
 
     # Scan Redis for all webhook statuses
@@ -202,12 +203,13 @@ def get_fleet_webhook_summary(db: Session) -> dict:
                                 "error": status.get("error", "?"),
                                 "checked_at": status.get("checked_at"),
                             })
-                    except Exception:
+                    except Exception as exc:
+                        log.warning("webhook_monitor: get_fleet_webhook_summary failed: %s", exc)
                         continue
                 if cursor == 0:
                     break
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("webhook_monitor: get_fleet_webhook_summary failed: %s", exc)
 
     return {
         "generated_at": _now_iso(),

@@ -78,6 +78,7 @@ Discounting is a merchant decision requiring explicit approval.
 from __future__ import annotations
 
 import logging
+log = logging.getLogger("segment_monitor_worker")
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -178,7 +179,8 @@ def _load_cursor() -> int:
         from app.core.redis_client import redis_client
         v = redis_client.get(_CURSOR_KEY)
         return int(v) if v else 0
-    except Exception:
+    except Exception as exc:
+        log.warning("segment_monitor_worker: _load_cursor failed: %s", exc)
         return 0
 
 
@@ -186,8 +188,8 @@ def _save_cursor(pos: int) -> None:
     try:
         from app.core.redis_client import redis_client
         redis_client.set(_CURSOR_KEY, str(pos), ex=86400)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("segment_monitor_worker: _save_cursor failed: %s", exc)
 
 
 def _batch_for_cycle(all_shops: list[str]) -> tuple[list[str], int]:

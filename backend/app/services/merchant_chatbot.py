@@ -491,8 +491,8 @@ def process_message(db: Session, shop_domain: str, message: str) -> ChatResponse
     if cls.classification in ("product_question", "unclassified"):
         try:
             perf_answer = answer_performance_question(db, shop_domain, message)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("merchant_chatbot: process_message failed: %s", exc)
 
     # 7. Generate response (store-aware, context-driven)
     if perf_answer:
@@ -536,7 +536,8 @@ def process_message(db: Session, shop_domain: str, message: str) -> ChatResponse
                 response_text = llm_result.answer
             else:
                 response_text = _pick(voice.UNCLASSIFIED, message, shop_domain)
-        except Exception:
+        except Exception as exc:
+            log.warning("merchant_chatbot: process_message failed: %s", exc)
             response_text = _pick(voice.UNCLASSIFIED, message, shop_domain)
     else:
         response_text = _pick(voice.GENERIC_FALLBACK, message, shop_domain)

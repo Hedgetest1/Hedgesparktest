@@ -1339,7 +1339,8 @@ def detect_opportunities_from_metrics(shop_domain: str) -> list[dict]:
             )
             if sip_row and sip_row.learned_thresholds:
                 sip_thresholds = sip_row.learned_thresholds
-        except Exception:
+        except Exception as exc:
+            logger.warning("opportunity_engine: detect_opportunities_from_metrics failed: %s", exc)
             pass  # SIP not available — use global defaults
     finally:
         db.close()
@@ -1556,7 +1557,8 @@ def _persist_signals(signals: list[dict], shop_domain: str) -> None:
                 existing.expires_at = new_expires_at
 
         db.commit()
-    except Exception:
+    except Exception as exc:
+        logger.warning("opportunity_engine: _persist_signals failed: %s", exc)
         db.rollback()
     finally:
         db.close()

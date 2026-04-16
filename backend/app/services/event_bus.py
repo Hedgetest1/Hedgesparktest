@@ -191,8 +191,8 @@ def _record_emit_failure() -> None:
                 db.commit()
             finally:
                 db.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("event_bus: emit failure alert failed: %s", exc)
 
 
 def _record_emit_success() -> None:
@@ -201,8 +201,8 @@ def _record_emit_success() -> None:
         rc = _client()
         if rc is not None:
             rc.delete(_EMIT_FAIL_REDIS_KEY)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("event_bus: emit success redis reset failed: %s", exc)
 
 
 def _emit_postgres(row: dict[str, Any], db: Session | None = None) -> bool:
@@ -236,8 +236,8 @@ def _emit_postgres(row: dict[str, Any], db: Session | None = None) -> bool:
         log.debug("event_bus: postgres emit failed: %s", exc)
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc2:
+            log.warning("event_bus: rollback after postgres emit failed: %s", exc2)
         _record_emit_failure()
         return False
     finally:
@@ -275,8 +275,8 @@ def _emit_postgres_bulk(rows: list[dict], db: Session | None = None) -> int:
         log.warning("event_bus: bulk emit failed: %s", exc)
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc2:
+            log.warning("event_bus: rollback after bulk emit failed: %s", exc2)
         return 0
     finally:
         if close_after:
@@ -406,6 +406,6 @@ def cleanup_old_events(db: Session) -> int:
         log.warning("event_bus: retention cleanup failed: %s", exc)
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc2:
+            log.warning("event_bus: rollback after retention cleanup failed: %s", exc2)
         return 0

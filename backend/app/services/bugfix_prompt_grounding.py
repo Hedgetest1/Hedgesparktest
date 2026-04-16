@@ -113,7 +113,8 @@ def build_file_manifest(
             try:
                 with open(full, "rb") as fh:
                     line_count = sum(1 for _ in fh)
-            except Exception:
+            except Exception as exc:
+                log.warning("bugfix_prompt_grounding: build_file_manifest failed: %s", exc)
                 line_count = 0
             seen.add(path)
             lines.append(f"  {path}   ({line_count} lines, candidate scope)")
@@ -162,8 +163,8 @@ def extract_signatures(file_path: str) -> str:
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
             try:
                 sigs.append(ast.unparse(node))
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("bugfix_prompt_grounding: extract_signatures failed: %s", exc)
         if len(sigs) >= _MAX_SIGNATURES_PER_FILE:
             break
 
@@ -182,14 +183,15 @@ def _format_def(node: ast.FunctionDef | ast.AsyncFunctionDef, source: str) -> st
     prefix = "async def " if isinstance(node, ast.AsyncFunctionDef) else "def "
     try:
         args = ast.unparse(node.args)
-    except Exception:
+    except Exception as exc:
+        log.warning("bugfix_prompt_grounding: _format_def failed: %s", exc)
         args = "..."
     returns = ""
     if node.returns is not None:
         try:
             returns = f" -> {ast.unparse(node.returns)}"
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("bugfix_prompt_grounding: _format_def failed: %s", exc)
     line = f"{prefix}{node.name}({args}){returns}: ..."
     doc = ast.get_docstring(node)
     if doc:
@@ -204,8 +206,8 @@ def _format_class(node: ast.ClassDef, source: str) -> str:
     if node.bases:
         try:
             bases = "(" + ", ".join(ast.unparse(b) for b in node.bases) + ")"
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("bugfix_prompt_grounding: _format_class failed: %s", exc)
     head = f"class {node.name}{bases}: ..."
     methods = []
     for child in node.body:
@@ -242,7 +244,8 @@ def preflight_ground_candidate(candidate, db=None) -> tuple[bool, str]:
     if getattr(candidate, "context_json", None):
         try:
             ctx = _json.loads(candidate.context_json)
-        except Exception:
+        except Exception as exc:
+            log.warning("bugfix_prompt_grounding: preflight_ground_candidate failed: %s", exc)
             ctx = {}
         target = ctx.get("target_file") if isinstance(ctx, dict) else None
         if target and not os.path.isfile(_abs(target)):
@@ -251,7 +254,8 @@ def preflight_ground_candidate(candidate, db=None) -> tuple[bool, str]:
     if getattr(candidate, "patch_files", None):
         try:
             files = _json.loads(candidate.patch_files)
-        except Exception:
+        except Exception as exc:
+            log.warning("bugfix_prompt_grounding: preflight_ground_candidate failed: %s", exc)
             files = []
         for f in files or []:
             if not isinstance(f, str) or not f:
@@ -371,8 +375,8 @@ def check_family_quarantine(
             cleared = rc.get(f"hs:quarantine:cleared:{affected_domain}:{source_type}")
             if cleared:
                 return False, "operator_cleared"
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("bugfix_prompt_grounding: check_family_quarantine failed: %s", exc)
 
     try:
         from app.models.patch_fingerprint import PatchFingerprint
@@ -439,7 +443,8 @@ def get_quarantined_families(db) -> list[dict]:
             {"domain": r[0], "source_type": r[1], "failure_count": int(r[2])}
             for r in rows
         ]
-    except Exception:
+    except Exception as exc:
+        log.warning("bugfix_prompt_grounding: get_quarantined_families failed: %s", exc)
         return []
 
 
@@ -459,5 +464,6 @@ def clear_quarantine(domain: str, source_type: str, ttl_days: int = 7) -> bool:
             "1",
         )
         return True
-    except Exception:
+    except Exception as exc:
+        log.warning("bugfix_prompt_grounding: clear_quarantine failed: %s", exc)
         return False

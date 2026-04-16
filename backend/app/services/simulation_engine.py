@@ -318,7 +318,8 @@ def cleanup_synthetic_merchants(db: Session) -> dict:
                 {"shops": synthetic_shops},
             )
             summary[f"deleted_{table}"] = result.rowcount
-        except Exception:
+        except Exception as exc:
+            log.warning("simulation_engine: cleanup_synthetic_merchants failed: %s", exc)
             summary[f"deleted_{table}"] = 0
 
     # Events
@@ -328,7 +329,8 @@ def cleanup_synthetic_merchants(db: Session) -> dict:
             {"shops": synthetic_shops},
         )
         summary["deleted_events"] = result.rowcount
-    except Exception:
+    except Exception as exc:
+        log.warning("simulation_engine: cleanup_synthetic_merchants failed: %s", exc)
         summary["deleted_events"] = 0
 
     # Merchants last
@@ -337,7 +339,8 @@ def cleanup_synthetic_merchants(db: Session) -> dict:
             text("DELETE FROM merchants WHERE is_synthetic = true"),
         )
         summary["deleted_merchants"] = result.rowcount
-    except Exception:
+    except Exception as exc:
+        log.warning("simulation_engine: cleanup_synthetic_merchants failed: %s", exc)
         summary["deleted_merchants"] = 0
 
     db.flush()
@@ -666,8 +669,8 @@ def get_simulation_status(db: Session) -> dict:
                 {"shops": synthetic_shops},
             ).fetchone()
             status[key] = row[0] if row else 0
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("simulation_engine: get_simulation_status failed: %s", exc)
 
     # Count sandbox-labeled learning artifacts
     try:
@@ -675,7 +678,8 @@ def get_simulation_status(db: Session) -> dict:
             text("SELECT COUNT(*) FROM bugfix_candidates WHERE evidence_source = 'sandbox'"),
         ).fetchone()
         status["synthetic_candidates"] = row[0] if row else 0
-    except Exception:
+    except Exception as exc:
+        log.warning("simulation_engine: get_simulation_status failed: %s", exc)
         status["synthetic_candidates"] = 0
 
     try:
@@ -683,7 +687,8 @@ def get_simulation_status(db: Session) -> dict:
             text("SELECT COUNT(*) FROM system_lessons WHERE evidence_source = 'sandbox'"),
         ).fetchone()
         status["synthetic_lessons"] = row[0] if row else 0
-    except Exception:
+    except Exception as exc:
+        log.warning("simulation_engine: get_simulation_status failed: %s", exc)
         status["synthetic_lessons"] = 0
 
     return status

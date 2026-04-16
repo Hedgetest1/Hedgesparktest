@@ -364,15 +364,15 @@ def _compute_fix_template_key(candidate: BugFixCandidate) -> str | None:
                 tf = ctx.get("target_file")
                 if isinstance(tf, str) and tf:
                     files.append(tf)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("bugfix_pipeline: template key context_json parse failed: %s", exc)
     if candidate.patch_files:
         try:
             for f in json.loads(candidate.patch_files) or []:
                 if isinstance(f, str) and f and f not in files:
                     files.append(f)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("bugfix_pipeline: template key patch_files parse failed: %s", exc)
     if not files:
         return None
 
@@ -1017,8 +1017,8 @@ def _classify_candidate_domain(candidate: BugFixCandidate) -> str | None:
             domain = result.get("domain")
             candidate.affected_domain = domain
             return domain
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("bugfix_pipeline: domain classification failed: %s", exc)
     return None
 
 
@@ -1353,8 +1353,8 @@ def run_bug_triage(db: Session) -> dict:
         try:
             cand.priority_score = min(100, (cand.priority_score or 0) + 20)
             db.flush()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("bugfix_pipeline: fleet-wide priority boost failed: %s", exc)
         summary["created"] += 1
 
     # Recover stuck candidates (applying for >10 min)
@@ -2399,8 +2399,8 @@ def _validate_patch_semantics(patch_diff: str, patch_files_json: str | None) -> 
                         and f"{name} =" not in source
                         and f"{name}:" not in source):
                     return False, f"hallucinated_import: {name} not in {module}"
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("bugfix_pipeline: import validation failed: %s", exc)
 
     # Rule D — untested_significant_change: a non-trivial .py change to
     # app/ code without any test file in the same patch.
@@ -2542,8 +2542,8 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
                         f"Write 3-5 SHORT test functions (not a class). "
                         f"Use unittest.mock.Mock() for db Session parameters."
                     )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("bugfix_pipeline: test co-commit hint generation failed: %s", exc)
 
     # Recurrence-aware context: if this is a follow-up from an ineffective fix,
     # tell the LLM explicitly so it tries a different approach.
@@ -2660,8 +2660,8 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
         domain_context = _get_domain_effectiveness_context(db)
         if domain_context:
             context_parts.append(domain_context)
-    except Exception:
-        pass  # non-critical enhancement
+    except Exception as exc:
+        log.warning("bugfix_pipeline: domain effectiveness context failed: %s", exc)
 
     # Inject relevant lessons from persistent memory + track which were used
     _lesson_ids_used = []
@@ -2672,8 +2672,8 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
             context_parts.append(lesson_context)
         if _lesson_ids_used:
             candidate.lesson_ids_used = json.dumps(_lesson_ids_used)
-    except Exception:
-        pass  # non-critical enhancement
+    except Exception as exc:
+        log.warning("bugfix_pipeline: lesson lookup for proposal failed: %s", exc)
 
     # Inject grounded file manifest + signatures (L1/L5 from the LLM
     # prompt-engineering sprint). The LLM cannot ground its `files` list
@@ -2693,15 +2693,15 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
                 if tf:
                     extra.append(tf)
                     target_file_for_sigs = tf
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("bugfix_pipeline: grounding context_json parse failed: %s", exc)
         if candidate.patch_files:
             try:
                 for pf in json.loads(candidate.patch_files) or []:
                     if pf and pf not in extra:
                         extra.append(pf)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("bugfix_pipeline: grounding patch_files parse failed: %s", exc)
 
         manifest = build_file_manifest(candidate.affected_domain, extra_files=extra)
         if manifest:
@@ -2756,8 +2756,8 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
         try:
             ctx = json.loads(candidate.context_json)
             file_count = len(ctx.get("files", [])) or 1
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("bugfix_pipeline: file_count extraction failed: %s", exc)
     # D3 — template cache short-circuit. If a fresh successful template
     # exists for this (domain, source_type, files) family, reuse its diff
     # without spending LLM budget. The cached payload still flows through
@@ -2921,8 +2921,8 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
         try:
             from app.services.scoring_calibration import get_scoring_calibration
             calibration = get_scoring_calibration(db)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("bugfix_pipeline: scoring calibration lookup failed: %s", exc)
         conf_score, conf_detail = compute_fix_confidence(
             db, candidate, calibration=calibration,
         )
@@ -2953,8 +2953,8 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
                 ),
             }, timeout=5.0)
             candidate.notified_at = _now()
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("bugfix_pipeline: slack proposal notification failed: %s", exc)
 
     # Telegram: send reviewer pre-assessment for non-TIER_0 patches
     if tier != PATCH_TIER_0:
@@ -2967,8 +2967,8 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
                 db.flush()
                 if is_configured():
                     send_reviewer_verdict(assessment, entity_title=candidate.title)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("bugfix_pipeline: reviewer assessment after propose failed: %s", exc)
 
     log.info("bugfix_pipeline: patch proposed id=%d title=%s", candidate.id, candidate.title)
     return True
@@ -3475,8 +3475,8 @@ def _notify_reviewer_block(candidate, assessment):
         from app.services.telegram_agent import send_reviewer_verdict, is_configured
         if is_configured():
             send_reviewer_verdict(assessment, entity_title=candidate.title)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("bugfix_pipeline: telegram reviewer verdict failed: %s", exc)
 
 
 # Maximum auto-applies per calendar day. Hard safety limit.
@@ -3551,8 +3551,8 @@ def _get_domain_budget(db: Session, domain: str) -> int:
             profiles = get_domain_profiles(db)
             if domain in profiles:
                 return profiles[domain].budget
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("bugfix_pipeline: adaptive governance profile lookup failed: %s", exc)
 
         # Fallback: global adaptive thresholds + weakness score
         try:
@@ -3630,8 +3630,8 @@ def reclassify_proposed_candidates(db: Session) -> dict:
             if new_conf != c.fix_confidence:
                 c.fix_confidence = new_conf
                 summary["confidence_updated"] += 1
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("bugfix_pipeline: confidence recalibration failed for candidate=%d: %s", c.id, exc)
     if summary["reclassified"] > 0 or summary["confidence_updated"] > 0:
         db.flush()
     return summary
@@ -3803,8 +3803,8 @@ def run_auto_apply(db: Session, max_per_cycle: int = 1) -> dict:
                             f"*Tests:* passed\n*ID:* {c.id}"
                         ),
                     }, timeout=5.0)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("bugfix_pipeline: auto_apply slack notification failed: %s", exc)
             log.info("auto_apply: SUCCESS id=%d title=%s", c.id, c.title)
         else:
             summary["failed"] += 1
@@ -4013,8 +4013,8 @@ def run_governed_tier1_auto_apply(
             if failed_match:
                 _fail_gate("fingerprint_match", c, f"matches_{failed_match['candidate_id']}")
                 continue
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("bugfix_pipeline: fingerprint pre-check failed: %s", exc)
 
         # G9. Defense-in-depth: never auto-touch the self-healing pipeline
         try:
@@ -4022,8 +4022,8 @@ def run_governed_tier1_auto_apply(
             if touches:
                 _fail_gate("self_healing_touch", c, f"matches={matches[:2]}")
                 continue
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("bugfix_pipeline: self-healing touch check failed: %s", exc)
 
         # G4. Reviewer verdict — strictest check, runs last because it
         # writes a row in reviewer_assessments
@@ -4098,8 +4098,8 @@ def run_governed_tier1_auto_apply(
                         "added_lines": added_lines,
                     },
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("bugfix_pipeline: untested_change alert write failed: %s", exc)
         else:
             summary["failed"] += 1
             log.warning(
@@ -4565,8 +4565,8 @@ def _apply_bugfix_candidate_impl(db: Session, candidate_id: int) -> ApplyResult:
         if patch_path:
             try:
                 _rollback_patch(patch_path)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("bugfix_pipeline: rollback after apply failure failed: %s", exc)
         result.status = "apply_failed"
         result.failure_reason = f"unexpected: {str(exc)[:300]}"
         candidate.status = "apply_failed"
@@ -4579,15 +4579,15 @@ def _apply_bugfix_candidate_impl(db: Session, candidate_id: int) -> ApplyResult:
         if patch_path:
             try:
                 os.unlink(patch_path)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("bugfix_pipeline: patch file cleanup failed: %s", exc)
         # Release file locks acquired by pre_apply_guard
         if _apply_files:
             try:
                 from app.core.pre_apply_guard import release_guard
                 release_guard(_apply_files, "bugfix_pipeline")
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("bugfix_pipeline: guard release failed: %s", exc)
 
 
 def _git_commit_patch(candidate: BugFixCandidate) -> str | None:

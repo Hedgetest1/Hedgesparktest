@@ -242,8 +242,8 @@ def classify_shop(db: Session, shop_domain: str, *, force: bool = False) -> Vert
                 if cached:
                     data = json.loads(cached)
                     return VerticalClassification(**data)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("vertical_classifier: classify_shop failed: %s", exc)
 
     blobs = _sample_products(db, shop_domain)
     aggregate: dict[str, int] = {}
@@ -287,8 +287,8 @@ def classify_shop(db: Session, shop_domain: str, *, force: bool = False) -> Vert
         rc = _client()
         if rc is not None:
             rc.setex(cache_key, _CACHE_TTL_SECONDS, json.dumps(result.__dict__, default=str))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("vertical_classifier: classify_shop failed: %s", exc)
 
     return result
 
@@ -347,8 +347,8 @@ def classify_active_shops_batch(
                 summary=f"Bulk vertical classify completed with {errors}/{len(shops)} errors",
                 detail={"errors": errors, "total": len(shops)},
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("vertical_classifier: classify_active_shops_batch failed: %s", exc)
     return {
         "processed": processed,
         "errors": errors,

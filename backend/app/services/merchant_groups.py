@@ -206,7 +206,7 @@ def get_group_dashboard(db: Session, group_id: int, *, lookback_days: int = 30) 
     if rc is not None:
         try:
             rc.setex(cache_key, _CACHE_TTL_SECONDS, json.dumps(result, default=str))
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("merchant_groups: cache write failed: %s", exc)
 
     return result

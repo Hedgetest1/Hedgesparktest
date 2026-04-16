@@ -204,7 +204,8 @@ def _already_sent_this_month(shop_domain: str, month: str) -> bool:
             return False
         key = f"{_REPORT_IDEMPOTENCY_PREFIX}:{hashlib.md5((shop_domain + month).encode()).hexdigest()[:16]}"
         return rc.exists(key) > 0
-    except Exception:
+    except Exception as exc:
+        log.warning("roi_report: _already_sent_this_month failed: %s", exc)
         return False
 
 
@@ -218,8 +219,8 @@ def _mark_sent_this_month(shop_domain: str, month: str) -> None:
             return
         key = f"{_REPORT_IDEMPOTENCY_PREFIX}:{hashlib.md5((shop_domain + month).encode()).hexdigest()[:16]}"
         rc.setex(key, _REPORT_IDEMPOTENCY_TTL_SECONDS, "1")
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("roi_report: _mark_sent_this_month failed: %s", exc)
 
 
 def send_roi_report(
@@ -254,8 +255,8 @@ def send_roi_report(
                 shop_domain=shop_domain,
                 detail={"error": str(exc)[:500]},
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("roi_report: send_roi_report failed: %s", exc)
         return {"shop_domain": shop_domain, "error": "generation_failed"}
 
     # All email sends MUST go through the email orchestrator (governance,

@@ -356,8 +356,8 @@ async def resend_event_webhook(
             rc = _client()
             if rc is not None:
                 rc.set(f"hs:email_suppressed:{shop_domain}", event_type, ex=86400 * 90)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("resend_webhooks: resend_event_webhook failed: %s", exc)
         try:
             from app.services.email_journey import suppress_email
             suppress_email(db, shop_domain, event_type)

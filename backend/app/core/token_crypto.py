@@ -104,8 +104,8 @@ def _parse_key(raw: str) -> Optional[bytes]:
         key = base64.b64decode(raw + "==")
         if len(key) == 32:
             return key
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("token_crypto: _parse_key failed: %s", exc)
     return None
 
 
@@ -235,7 +235,7 @@ def decrypt_token(stored: str) -> Optional[str]:
     payload_b64 = stored[len(prefix):]
     try:
         payload = base64.b64decode(payload_b64)
-    except Exception:
+    except Exception as exc:
         log.error("token_crypto: decryption failed — invalid base64 payload")
         return None
 
@@ -254,7 +254,8 @@ def decrypt_token(stored: str) -> Optional[str]:
             aesgcm = AESGCM(key)
             plaintext = aesgcm.decrypt(iv, ciphertext_tag, None)
             return plaintext.decode("utf-8")
-        except Exception:
+        except Exception as exc:
+            log.warning("token_crypto: decrypt_token failed: %s", exc)
             continue
 
     log.error(

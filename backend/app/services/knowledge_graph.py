@@ -177,7 +177,8 @@ def _pull_refunds(db: Session, kg: MerchantKG, lookback_days: int = 60) -> None:
     try:
         from app.services.refund_ingest import list_recent_refunds
         rows = list_recent_refunds(kg.shop_domain, days=lookback_days)
-    except Exception:
+    except Exception as exc:
+        log.warning("knowledge_graph: refund data fetch failed: %s", exc)
         return
 
     for r in rows:
@@ -320,8 +321,8 @@ def build_graph(db: Session, shop_domain: str, *, fresh: bool = False) -> Mercha
                     # Full graphs are too big to JSON; we re-build but skip
                     # logging spam by reading the stats.
                     pass
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("knowledge_graph: cache read failed: %s", exc)
 
     kg = MerchantKG(shop_domain=shop_domain)
     _pull_orders(db, kg)
@@ -336,8 +337,8 @@ def build_graph(db: Session, shop_domain: str, *, fresh: bool = False) -> Mercha
         rc = _client()
         if rc is not None:
             rc.setex(cache_key, _CACHE_TTL_SECONDS, json.dumps(kg.stats(), default=str))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("knowledge_graph: cache write failed: %s", exc)
 
     return kg
 

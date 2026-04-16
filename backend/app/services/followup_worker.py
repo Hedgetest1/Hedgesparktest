@@ -76,8 +76,8 @@ def _release_followup_slot(shop_domain: str) -> None:
         rc = _client()
         if rc is not None:
             rc.delete(f"{_REDIS_FOLLOWUP_PREFIX}{shop_domain}")
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("followup_worker: _release_followup_slot failed: %s", exc)
 
 
 def _is_email_suppressed(shop_domain: str) -> bool:
@@ -87,8 +87,8 @@ def _is_email_suppressed(shop_domain: str) -> bool:
         rc = _client()
         if rc is not None:
             return bool(rc.get(f"hs:email_suppressed:{shop_domain}"))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("followup_worker: _is_email_suppressed failed: %s", exc)
     return False
 
 
@@ -214,7 +214,8 @@ def _send_one_followup(
                         usage["sent"], RESEND_MONTHLY_LIMIT, shop_domain)
             summary["skipped"] += 1
             return
-    except Exception:
+    except Exception as exc:
+        log.warning("followup_worker: _send_one_followup failed: %s", exc)
         pass  # Budget check failure is non-fatal — proceed with send
 
     # Redis SET NX guard — claim send slot BEFORE calling Resend

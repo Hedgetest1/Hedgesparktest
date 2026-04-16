@@ -541,8 +541,8 @@ def review_entity(
                     blocking.append(
                         "Patch touches self-healing pipeline files — human review required"
                     )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("reviewer_layer: review_entity failed: %s", exc)
 
         # Elite block 3: prior-failure fingerprint match — if 3+ prior
         # candidates in the same (domain, source_type) have apply_failed
@@ -570,8 +570,8 @@ def review_entity(
                         f"domain '{candidate_domain}' have failed in 90d — "
                         "new approach needed, not auto-approvable"
                     )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("reviewer_layer: review_entity failed: %s", exc)
 
     if entity["type"] == "model_upgrade":
         if entity.get("eval_result") == "fail":

@@ -110,8 +110,8 @@ def _record_cycle(db, result: dict, duration_ms: int) -> None:
         log.warning("nudge_optimization_worker: failed to write worker_log: %s", exc)
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("nudge_optimization_worker: _record_cycle failed: %s", exc)
 
 
 def _run_cycle() -> None:

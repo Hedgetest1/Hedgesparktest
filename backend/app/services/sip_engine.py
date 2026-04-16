@@ -101,8 +101,8 @@ def compute_sip(conn: Connection, shop_domain: str) -> dict[str, Any] | None:
                 nudge_scores = cig_defaults.get("nudge_type_scores") or nudge_scores
                 best_by_signal = cig_defaults.get("best_nudge_by_signal") or best_by_signal
                 log.info("sip_engine: CIG bootstrap applied for %s", shop_domain)
-        except Exception:
-            pass  # CIG not available — use store's own data only
+        except Exception as exc:
+            log.warning("sip_engine: CIG bootstrap failed: %s", exc)
 
     return {
         "shop_domain": shop_domain,

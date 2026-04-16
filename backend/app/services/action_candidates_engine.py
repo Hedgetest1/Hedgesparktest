@@ -107,8 +107,8 @@ def _maybe_refresh_signals(shop_domain: str) -> None:
         from app.core.redis_client import redis_client
         key = f"hs:refresh_claim:{shop_domain}"
         claimed = bool(redis_client.set(key, "1", nx=True, ex=int(_REFRESH_COOLDOWN_SECS) + 10))
-    except Exception:
-        pass  # Redis down — fall through and let per-process dict dedup
+    except Exception as exc:
+        log.warning("action_candidates_engine: redis claim failed: %s", exc)
 
     if not claimed:
         # Another process already doing the refresh — bump our local epoch
@@ -118,8 +118,8 @@ def _maybe_refresh_signals(shop_domain: str) -> None:
 
     try:
         get_or_refresh_signals(shop_domain)
-    except Exception:
-        pass  # signal refresh failures are non-fatal; stale signals degrade gracefully
+    except Exception as exc:
+        log.warning("action_candidates_engine: signal refresh failed: %s", exc)
     finally:
         _refresh_last_run[shop_domain] = time.monotonic()
 
@@ -658,8 +658,8 @@ def generate_action_candidates(shop_domain: str, db: Session) -> list[dict]:
                 improved_ratio = stats["effectiveness"]
                 declined_ratio = stats["declined"] / stats["total"] if stats["total"] > 0 else 0
                 effectiveness_map[at] = improved_ratio - declined_ratio
-    except Exception:
-        pass  # no historical data — all boosts are 0
+    except Exception as exc:
+        log.warning("action_candidates_engine: effectiveness history query failed: %s", exc)
 
     final.sort(
         key=lambda c: _rank_score(

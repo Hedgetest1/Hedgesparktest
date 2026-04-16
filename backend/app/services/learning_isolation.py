@@ -199,8 +199,8 @@ def get_evidence_source_for_candidate(db: Session, candidate) -> str:
                     if merchant.is_synthetic:
                         return "sandbox"
                     return "real_merchant"
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("learning_isolation: get_evidence_source_for_candidate failed: %s", exc)
 
     # Fall back to global classification
     return classify_evidence_source(db)
@@ -272,6 +272,6 @@ def is_synthetic_merchant(db: Session, shop_domain: str) -> bool:
         )
         if merchant is not None:
             return merchant.is_synthetic
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("learning_isolation: is_synthetic_merchant failed: %s", exc)
     return False

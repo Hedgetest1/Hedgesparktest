@@ -120,8 +120,8 @@ def _gather_wow(db: Session, shop_domain: str) -> WoWMetrics:
             m.visitors_this = (metrics.new_visitors_7d or 0) + (metrics.returning_visitors_7d or 0)
             m.new_cart_rate = metrics.new_visitor_cart_rate
             m.returning_cart_rate = metrics.returning_visitor_cart_rate
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("store_insight_engine: _gather_wow failed: %s", exc)
 
     return m
 

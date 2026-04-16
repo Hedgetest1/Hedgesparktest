@@ -109,8 +109,8 @@ def rectify_merchant_profile(
             log.warning("rectify: audit write failed: %s", exc)
             try:
                 db.rollback()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("merchant_privacy: rectify_merchant_profile failed: %s", exc)
 
     return {"status": "ok", "changed": changed}
 
@@ -146,8 +146,8 @@ def object_to_processing(
         log.warning("object: audit write failed: %s", exc)
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("merchant_privacy: object_to_processing failed: %s", exc)
 
     return {
         "status": "opted_out",
@@ -179,11 +179,12 @@ def withdraw_objection(
             approval_mode="self_service",
         )
         db.commit()
-    except Exception:
+    except Exception as exc:
+        log.warning("merchant_privacy: withdraw_objection failed: %s", exc)
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("merchant_privacy: withdraw_objection failed: %s", exc)
 
     return {
         "status": "opted_in",

@@ -68,7 +68,8 @@ def _classify_all_shops(db: Session, per_shop: dict[str, dict]) -> dict[str, str
     for shop in per_shop.keys():
         try:
             out[shop] = get_vertical(db, shop)
-        except Exception:
+        except Exception as exc:
+            log.warning("benchmarks_vertical: _classify_all_shops failed: %s", exc)
             out[shop] = "other"
     return out
 
@@ -95,8 +96,8 @@ def get_vertical_benchmark_report(db: Session, shop_domain: str) -> dict:
             cached = rc.get(cache_key)
             if cached:
                 return json.loads(cached)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("benchmarks_vertical: get_vertical_benchmark_report failed: %s", exc)
 
     try:
         per_shop = _gather_merchant_metrics(db)
@@ -228,8 +229,8 @@ def get_vertical_benchmark_report(db: Session, shop_domain: str) -> dict:
         rc = _client()
         if rc is not None:
             rc.setex(cache_key, _CACHE_TTL_SECONDS, json.dumps(result, default=str))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("benchmarks_vertical: get_vertical_benchmark_report failed: %s", exc)
 
     return result
 
@@ -242,7 +243,8 @@ def get_vertical_pool_stats(db: Session) -> dict:
     """
     try:
         per_shop = _gather_merchant_metrics(db)
-    except Exception:
+    except Exception as exc:
+        log.warning("benchmarks_vertical: get_vertical_pool_stats failed: %s", exc)
         return {"error": "compute_failed", "buckets": {}}
 
     classifications = _classify_all_shops(db, per_shop)

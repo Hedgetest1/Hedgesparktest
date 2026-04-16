@@ -222,7 +222,8 @@ def _assign_variant(
                 for v in variants:
                     if v.get("variant_name") == chosen:
                         return v
-        except Exception:
+        except Exception as exc:
+            log.warning("nudges: _assign_variant failed: %s", exc)
             pass  # Fall through to deterministic default
 
     key    = f"{visitor_id}:{nudge_id}".encode("utf-8")
@@ -322,8 +323,8 @@ def get_active_nudge_public(
             parsed = urlparse(product_url)
             m = re.match(r"(/products/[^/?#]+)", parsed.path)
             product_url = m.group(1) if m else product_url
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("nudges: get_active_nudge_public failed: %s", exc)
 
     # 1. Check whether an active nudge exists for this (shop, product)
     nudge = get_active_nudge(db=db, shop_domain=shop, product_url=product_url)
@@ -429,8 +430,8 @@ def get_active_nudge_public(
                     )
                     try:
                         db.rollback()
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        log.warning("nudges: get_active_nudge_public failed: %s", exc)
 
             log.info(
                 "nudges/active: HOLDOUT nudge_id=%d shop=%s product=%s "

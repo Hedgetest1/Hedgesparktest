@@ -137,7 +137,8 @@ def _compute_intelligence(orders: list[dict]) -> dict:
                 )
                 entry["revenue"] += price * qty
                 entry["units"] += qty
-        except Exception:
+        except Exception as exc:
+            log.warning("instant_onboarding: _compute_intelligence failed: %s", exc)
             continue
 
     aov = total_rev / order_count if order_count > 0 else 0.0
@@ -208,9 +209,10 @@ def compute_instant_intelligence(db: Session, shop_domain: str) -> dict:
             if cached:
                 try:
                     return json.loads(cached)
-                except Exception:
-                    pass
-    except Exception:
+                except Exception as exc:
+                    log.warning("instant_onboarding: compute_instant_intelligence failed: %s", exc)
+    except Exception as exc:
+        log.warning("instant_onboarding: compute_instant_intelligence failed: %s", exc)
         rc = None
 
     orders = _fetch_orders_90d(db, shop_domain)
@@ -220,8 +222,8 @@ def compute_instant_intelligence(db: Session, shop_domain: str) -> dict:
     if rc is not None:
         try:
             rc.setex(_redis_key(shop_domain), _CACHE_TTL_S, json.dumps(snapshot, default=str))
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("instant_onboarding: compute_instant_intelligence failed: %s", exc)
 
     return snapshot
 

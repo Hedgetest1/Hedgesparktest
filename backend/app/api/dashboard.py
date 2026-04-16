@@ -30,7 +30,8 @@ def _to_dict(row: Any) -> dict[str, Any]:
         return dict(row._mapping)
     try:
         return dict(row)
-    except Exception:
+    except Exception as exc:
+        log.warning("dashboard: _to_dict failed: %s", exc)
         return {}
 
 
@@ -43,7 +44,8 @@ def _safe_number(value: Any, default: int | float = 0) -> int | float:
         if "." in str(value):
             return float(value)
         return int(value)
-    except Exception:
+    except Exception as exc:
+        log.warning("dashboard: _safe_number failed: %s", exc)
         return default
 
 
@@ -727,8 +729,8 @@ def _build_revenue_windows(db: Session, shop_domain: str) -> dict:
     try:
         from app.services.revenue_metrics import get_shop_currency
         shop_currency = get_shop_currency(db, shop_domain)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("dashboard: _build_revenue_windows failed: %s", exc)
 
     return {
         "total_revenue_at_risk": round(total_window, 2),
@@ -783,7 +785,8 @@ def _get_calibration_summary(db: Session, shop_domain: str) -> dict[str, Any]:
                 "converter_count": converter_count,
                 "label": "Estimated (low data)" if sample_size > 0 else "Estimated (no order data)",
             }
-    except Exception:
+    except Exception as exc:
+        log.warning("dashboard: _get_calibration_summary failed: %s", exc)
         return {"state": "error", "is_empirical": False, "label": "Estimated"}
 
 
@@ -880,8 +883,8 @@ def get_dashboard_overview(
             if brief:
                 store_brief = brief.to_dict()
                 cs(brief_key, store_brief, 300)  # 5-min cache
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("dashboard: get_dashboard_overview failed: %s", exc)
 
     result = {
         "summary":              _build_summary(db, shop),

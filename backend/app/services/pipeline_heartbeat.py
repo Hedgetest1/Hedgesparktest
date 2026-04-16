@@ -81,7 +81,8 @@ def _redis():
     try:
         from app.core.redis_client import _client
         return _client()
-    except Exception:
+    except Exception as exc:
+        log.warning("pipeline_heartbeat: _redis failed: %s", exc)
         return None
 
 
@@ -103,7 +104,8 @@ def _claim_run_slot() -> bool:
             _REDIS_LAST_RUN_KEY, str(time.time()),
             nx=True, ex=_HEARTBEAT_INTERVAL_S,
         ))
-    except Exception:
+    except Exception as exc:
+        log.warning("pipeline_heartbeat: _claim_run_slot failed: %s", exc)
         return True  # fail-open
 
 
@@ -122,8 +124,8 @@ def _mark_run() -> None:
         return
     try:
         rc.setex(_REDIS_LAST_RUN_KEY, _HEARTBEAT_INTERVAL_S * 2, str(time.time()))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("pipeline_heartbeat: _mark_run failed: %s", exc)
 
 
 def _create_synthetic_alerts(db: Session, run_id: str) -> list[int]:
@@ -371,7 +373,8 @@ def run_heartbeat(db: Session) -> dict:
                 db, run_id=run_id, alert_ids=alert_ids, candidate_id=candidate_id,
             )
             db.commit()
-        except Exception:
+        except Exception as exc:
+            log.warning("pipeline_heartbeat: run_heartbeat failed: %s", exc)
             db.rollback()
         _record_outcome(
             db,

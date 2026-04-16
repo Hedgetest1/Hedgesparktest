@@ -1,5 +1,8 @@
 import os
 from datetime import datetime, timezone
+import logging
+
+log = logging.getLogger("context_builder")
 
 BASE_PATH = "/opt/wishspark"
 BACKEND_PATH = f"{BASE_PATH}/backend/app"
@@ -33,8 +36,8 @@ def extract_fastapi_routes():
                         for line in f:
                             if "@router." in line:
                                 routes.append(f"{path.replace(BASE_PATH, '')} :: {line.strip()}")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("context_builder: extract_fastapi_routes failed: %s", exc)
     return routes
 
 

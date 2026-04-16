@@ -88,7 +88,8 @@ def _redis():
     try:
         from app.core.redis_client import _client
         return _client()
-    except Exception:
+    except Exception as exc:
+        log.warning("signal_webhooks: _redis failed: %s", exc)
         return None
 
 
@@ -167,7 +168,8 @@ def _is_webhook_circuit_open(webhook_id: str) -> bool:
         return False
     try:
         return bool(rc.exists(_circuit_open_key(webhook_id)))
-    except Exception:
+    except Exception as exc:
+        log.warning("signal_webhooks: _is_webhook_circuit_open failed: %s", exc)
         return False
 
 
@@ -186,7 +188,8 @@ def _record_webhook_failure(webhook_id: str) -> int:
             rc.setex(_circuit_open_key(webhook_id), _CIRCUIT_OPEN_TTL_S, "1")
             rc.delete(key)  # reset counter — next check restarts fresh
         return int(count)
-    except Exception:
+    except Exception as exc:
+        log.warning("signal_webhooks: _record_webhook_failure failed: %s", exc)
         return 0
 
 
@@ -197,8 +200,8 @@ def _record_webhook_success(webhook_id: str) -> None:
         return
     try:
         rc.delete(_circuit_fail_key(webhook_id))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("signal_webhooks: _record_webhook_success failed: %s", exc)
 
 
 def list_webhooks(shop_domain: str) -> list[WebhookConfig]:
@@ -240,7 +243,8 @@ def get_or_create_secret(shop_domain: str) -> str:
         new_secret = secrets.token_urlsafe(32)
         rc.setex(_key_secret(shop_domain), _CONFIG_TTL_SECONDS, new_secret)
         return new_secret
-    except Exception:
+    except Exception as exc:
+        log.warning("signal_webhooks: get_or_create_secret failed: %s", exc)
         return ""
 
 
@@ -327,7 +331,8 @@ def delete_webhook(shop_domain: str, webhook_id: str) -> bool:
         else:
             rc.delete(_key_webhooks(shop_domain))
         return True
-    except Exception:
+    except Exception as exc:
+        log.warning("signal_webhooks: delete_webhook failed: %s", exc)
         return False
 
 
@@ -374,7 +379,8 @@ _SLACK_EVENT_TITLES: dict[str, str] = {
 def _is_slack_url(url: str) -> bool:
     try:
         host = (urlparse(url).hostname or "").lower()
-    except Exception:
+    except Exception as exc:
+        log.warning("signal_webhooks: _is_slack_url failed: %s", exc)
         return False
     return host in _SLACK_HOSTS
 
@@ -481,8 +487,8 @@ def emit_signal(
                         error="idempotency_key_exists",
                     ))
                     continue
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("signal_webhooks: emit_signal failed: %s", exc)
 
         is_slack = _is_slack_url(wh.url)
         if is_slack:
@@ -548,8 +554,8 @@ def emit_signal(
                     _CONFIG_TTL_SECONDS,
                     json.dumps([w.to_dict() for w in existing]),
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("signal_webhooks: emit_signal failed: %s", exc)
 
         # Update circuit breaker based on outcome
         if delivered:
@@ -596,7 +602,7 @@ def emit_signal(
                     db.commit()
                 finally:
                     db.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("signal_webhooks: emit_signal failed: %s", exc)
 
     return results

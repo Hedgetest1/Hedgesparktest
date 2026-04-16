@@ -82,7 +82,8 @@ def _slo_health_for_flag(flag: str) -> dict:
     try:
         from app.core.slo import slo_report
         report = slo_report()
-    except Exception:
+    except Exception as exc:
+        log.warning("staged_rollout: _slo_health_for_flag failed: %s", exc)
         return {"healthy": False, "reason": "slo_unavailable"}
 
     breaches = [s for s in report if s["health"] in ("breach", "critical_burn", "latency_breach")]
@@ -111,8 +112,8 @@ def _record_ring_change(flag: str, ring: int) -> None:
             record_silent_return("staged_rollout.ring_write")
             return
         rc.hset(_RING_HIST_KEY, f"{flag}:{ring}", str(int(time.time())))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("staged_rollout: _record_ring_change failed: %s", exc)
 
 
 def _ring_started_at(flag: str, ring: int) -> int | None:
@@ -129,7 +130,8 @@ def _ring_started_at(flag: str, ring: int) -> int | None:
         if isinstance(v, bytes):
             v = v.decode()
         return int(v)
-    except Exception:
+    except Exception as exc:
+        log.warning("staged_rollout: _ring_started_at failed: %s", exc)
         return None
 
 

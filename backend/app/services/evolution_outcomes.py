@@ -247,8 +247,8 @@ def _measure_evolution_goal(
                     evidence["current_lines"] = lines
                     # Without a baseline we can't be sure, so inconclusive
                     return "inconclusive", evidence
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("evolution_outcomes: large_file goal read failed: %s", exc)
         return None, evidence
 
     # Case 3: TODO/FIXME cleanup — check remaining markers
@@ -265,8 +265,8 @@ def _measure_evolution_goal(
                     if remaining == 0:
                         return "effective", evidence
                     return "inconclusive", evidence
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("evolution_outcomes: todo_fixme goal read failed: %s", exc)
         return None, evidence
 
     # Unknown evolution type — let the caller fall back to alert-counting
@@ -291,8 +291,8 @@ def _extract_alert_type(db: Session, candidate: BugFixCandidate) -> str | None:
                     return row[0]
             elif candidate.source_ref.startswith("worker_"):
                 return "worker_repeated_failure"
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("evolution_outcomes: alert_type extraction failed: %s", exc)
     elif candidate.source_type == "recurrence" and candidate.context_json:
         try:
             ctx = json.loads(candidate.context_json)
@@ -305,8 +305,8 @@ def _extract_alert_type(db: Session, candidate: BugFixCandidate) -> str | None:
                 ).fetchone()
                 if row:
                     return row[0]
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("evolution_outcomes: recurrence alert_type lookup failed: %s", exc)
     return None  # unscoped fallback
 
 
@@ -318,8 +318,8 @@ def _extract_worker_name(candidate: BugFixCandidate) -> str | None:
         try:
             ctx = json.loads(candidate.context_json)
             return ctx.get("worker")
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("evolution_outcomes: worker name extraction failed: %s", exc)
     return None
 
 
@@ -401,8 +401,8 @@ def _generate_lesson(db: Session, candidate: BugFixCandidate, outcome: str, evid
                 if files:
                     domain = classify_file(files[0]).get("domain", "unknown")
                     candidate.affected_domain = domain
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("evolution_outcomes: domain classification failed: %s", exc)
 
         # Build lesson
         if outcome == "effective":
@@ -596,8 +596,8 @@ def detect_self_caused_regressions(db: Session) -> dict:
                         "applied_at": str(c.applied_at),
                     },
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("evolution_outcomes: self-regression alert write failed: %s", exc)
 
     if summary["flagged"] > 0:
         db.flush()

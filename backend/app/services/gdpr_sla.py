@@ -144,8 +144,8 @@ def _emit_breach_alert(db: Session, violation: dict) -> bool:
         log.warning("gdpr_sla: alert write failed: %s", exc)
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("gdpr_sla: _emit_breach_alert failed: %s", exc)
         return False
 
 

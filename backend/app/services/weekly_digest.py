@@ -370,8 +370,8 @@ def _shop_conversion_rate(db: Session, shop: str, days: int) -> float:
         if row and row[1] and row[1] > 0 and row[0] and row[0] > 0:
             raw_cvr = float(row[0]) / float(row[1])
             return max(min(raw_cvr, _MAX_CVR_FOR_RISK), 0.005)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("weekly_digest: shop_cvr query failed: %s", exc)
     return 0.02  # conservative 2% fallback
 
 
@@ -413,8 +413,8 @@ def _top_performing_product(db: Session, shop: str, days: int, currency: str) ->
                     f'{row[1]} orders ({currency} {float(row[2] or 0):,.2f} revenue).'
                 ),
             }
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("weekly_digest: top_performing_product query failed: %s", exc)
     return None
 
 
@@ -485,8 +485,8 @@ def _aggregate_revenue_at_risk(
             params,
         ).fetchall()
         views_map = {r[0]: int(r[1]) for r in rows}
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("weekly_digest: product views_map query failed: %s", exc)
 
     enriched = []
     total_loss = 0.0

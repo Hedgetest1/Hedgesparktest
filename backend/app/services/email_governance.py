@@ -466,7 +466,8 @@ def validate_intent(intent) -> GovernanceResult:
         if not subj_check.passed:
             for v in subj_check.violations:
                 result.add_violation(f"brand_subject:{v}")
-    except Exception:
+    except Exception as exc:
+        log.warning("email_governance: validate_intent failed: %s", exc)
         pass  # brand check failure is non-fatal
 
     if result.violations:

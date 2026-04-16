@@ -70,7 +70,8 @@ def get_margin_snapshot(db: Session, shop_domain: str) -> dict:
             raw = rc.get(f"{_CACHE_PREFIX}:{shop_domain}")
             if raw:
                 return json.loads(raw)
-    except Exception:
+    except Exception as exc:
+        log.warning("margin_guard: get_margin_snapshot failed: %s", exc)
         rc = None
 
     snapshot = _compute_margin_snapshot(db, shop_domain)
@@ -82,8 +83,8 @@ def get_margin_snapshot(db: Session, shop_domain: str) -> dict:
                 _CACHE_TTL_S,
                 json.dumps(snapshot, default=str),
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("margin_guard: get_margin_snapshot failed: %s", exc)
 
     return snapshot
 
@@ -121,7 +122,8 @@ def _compute_margin_snapshot(db: Session, shop_domain: str) -> dict:
             ).scalar()
             or 0
         )
-    except Exception:
+    except Exception as exc:
+        log.warning("margin_guard: _compute_margin_snapshot failed: %s", exc)
         revenue = 0.0
 
     # Shop cost defaults
@@ -139,8 +141,8 @@ def _compute_margin_snapshot(db: Session, shop_domain: str) -> dict:
         if row and row[0] is not None:
             cogs_pct = float(row[0])
             precision = "refined"
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("margin_guard: _compute_margin_snapshot failed: %s", exc)
 
     # Per-product COGS coverage — rough check: does the shop have any
     # product_costs rows? If yes, at least "refined"; if covering 80%+ of
@@ -160,8 +162,8 @@ def _compute_margin_snapshot(db: Session, shop_domain: str) -> dict:
             precision = "refined"
         if cost_count >= 20:  # heuristic: shops with 20+ covered skus → "exact"
             precision = "exact"
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("margin_guard: _compute_margin_snapshot failed: %s", exc)
 
     cogs_eur = revenue * cogs_pct
     gross_margin_eur = revenue - cogs_eur

@@ -142,8 +142,8 @@ def synthesize_health(db: Session) -> SystemHealthState:
             prev_status = prev.get("overall_status")
             for d in prev.get("dimensions", []):
                 prev_dims[d["name"]] = d["status"]
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("system_health_synthesizer: synthesize_health failed: %s", exc)
 
     state = SystemHealthState(
         overall_status="healthy",
@@ -275,7 +275,8 @@ def send_telegram_signal(state: SystemHealthState) -> bool:
         if cache_get(cooldown_key) is not None:
             return False  # within cooldown window
         cache_set(cooldown_key, True, cooldown_seconds)
-    except Exception:
+    except Exception as exc:
+        log.warning("system_health_synthesizer: send_telegram_signal failed: %s", exc)
         # Redis down — use file-based cooldown to prevent spam
         import tempfile, os, time as _time
         cooldown_file = os.path.join(tempfile.gettempdir(), f"hs_cto_{cooldown_type}")
@@ -286,7 +287,8 @@ def send_telegram_signal(state: SystemHealthState) -> bool:
                     return False  # within file-based cooldown
             with open(cooldown_file, "w") as f:
                 f.write(str(_time.time()))
-        except Exception:
+        except Exception as exc:
+            log.warning("system_health_synthesizer: send_telegram_signal failed: %s", exc)
             pass  # last resort: allow send
 
     try:

@@ -205,8 +205,8 @@ def compute_fix_confidence(
             effective_lesson_count = effective_lessons
             # Each effective lesson adds trust, diminishing returns
             lesson_bonus = min(_MAX_LESSON_BONUS, effective_lessons * 8)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("candidate_scoring: lesson bonus query failed: %s", exc)
 
     # --- Evidence quality: clear stack trace + culprit = better fix ---
     evidence_pts = 0
@@ -262,7 +262,8 @@ def compute_fix_confidence(
                 novelty_penalty = 8
             else:
                 novelty_penalty = 0
-    except Exception:
+    except Exception as exc:
+        log.warning("candidate_scoring: novelty penalty query failed: %s", exc)
         novelty_penalty = 10  # conservative on error
 
     # Test-only bonus: patches that only touch tests/ are inherently lower risk

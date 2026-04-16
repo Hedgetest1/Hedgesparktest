@@ -406,8 +406,8 @@ def generate_triage_packet(db: Session, incident_id: int) -> dict | None:
             classification = classify_file(incident.culprit)
             subsystem = classification.get("domain", "unknown")
             criticality = classification.get("criticality", "medium")
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("sentry_triage: subsystem classification failed: %s", exc)
 
     # --- Get recurrence history ---
     family_incidents = []
@@ -452,8 +452,8 @@ def generate_triage_packet(db: Session, incident_id: int) -> dict | None:
                 {"id": l.id, "summary": l.summary, "type": l.lesson_type, "confidence": l.confidence}
                 for l in lessons
             ]
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("sentry_triage: related lessons lookup failed: %s", exc)
 
     # --- Find related bugfix candidates ---
     related_candidates = []
@@ -479,8 +479,8 @@ def generate_triage_packet(db: Session, incident_id: int) -> dict | None:
                     {"id": c.id, "title": c.title, "status": c.status, "outcome": c.outcome_status}
                     for c in candidates
                 ]
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("sentry_triage: related candidates lookup failed: %s", exc)
 
     # --- Release correlation ---
     release_context = _build_release_context(db, incident)
@@ -1046,8 +1046,8 @@ def _consume_one_incident(
                 incident.id, source_ref,
             )
             return "suppressed"
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("sentry_triage: thrash check failed: %s", exc)
 
     # --- Create bugfix candidate ---
     # Parse triage packet for context
@@ -1068,8 +1068,8 @@ def _consume_one_incident(
         if incident.culprit:
             classification = classify_file(incident.culprit)
             is_sensitive = classification.get("is_sensitive", False)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("sentry_triage: sensitivity classification failed: %s", exc)
 
     # TIER_2 = never auto-apply, TIER_1 = human approve, TIER_0 = auto-apply safe
     if is_sensitive or criticality == "critical":
@@ -1091,8 +1091,8 @@ def _consume_one_incident(
         from app.services.scoring_calibration import get_scoring_calibration, compute_impact_signal
         calibration = get_scoring_calibration(db)
         impact_signal, impact_detail = compute_impact_signal(db, incident.affected_shop, incident.created_at)
-    except Exception:
-        pass  # calibration is optional — base scoring still works
+    except Exception as exc:
+        log.warning("sentry_triage: calibration/impact lookup failed (non-fatal): %s", exc)
 
     priority_score, priority_detail = compute_priority_score(
         severity=incident.severity,

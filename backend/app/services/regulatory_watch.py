@@ -69,7 +69,8 @@ def _redis():
     try:
         from app.core.redis_client import _client
         return _client()
-    except Exception:
+    except Exception as exc:
+        log.warning("regulatory_watch: _redis failed: %s", exc)
         return None
 
 
@@ -118,7 +119,8 @@ def _check_consent_gate_exists(db: Session) -> bool:
         with open("/opt/wishspark/backend/app/api/track.py", "r") as f:
             src = f.read()
         return "_consent_allows_ingestion" in src
-    except Exception:
+    except Exception as exc:
+        log.warning("regulatory_watch: _check_consent_gate_exists failed: %s", exc)
         return False
 
 
@@ -203,7 +205,8 @@ def _check_gpc_honored(db: Session) -> bool:
         with open("/opt/wishspark/backend/app/api/track.py", "r") as f:
             src = f.read()
         return "sec-gpc" in src.lower() or "globalPrivacyControl" in src.lower()
-    except Exception:
+    except Exception as exc:
+        log.warning("regulatory_watch: _check_gpc_honored failed: %s", exc)
         return False
 
 
@@ -217,7 +220,8 @@ def _check_security_headers(db: Session) -> bool:
             "Strict-Transport-Security",
             "X-Frame-Options",
         ])
-    except Exception:
+    except Exception as exc:
+        log.warning("regulatory_watch: _check_security_headers failed: %s", exc)
         return False
 
 
@@ -236,7 +240,8 @@ def _check_webhook_hmac(db: Session) -> bool:
         with open("/opt/wishspark/backend/app/api/webhooks.py", "r") as f:
             src = f.read()
         return "hmac" in src.lower() and "verify" in src.lower()
-    except Exception:
+    except Exception as exc:
+        log.warning("regulatory_watch: _check_webhook_hmac failed: %s", exc)
         return False
 
 
@@ -292,7 +297,8 @@ def _check_oauth_state_enforced(db: Session) -> bool:
             src = f.read()
         # The fix was: "if not state or not _consume_nonce"
         return "if not state or" in src or "if not state " in src
-    except Exception:
+    except Exception as exc:
+        log.warning("regulatory_watch: _check_oauth_state_enforced failed: %s", exc)
         return False
 
 
@@ -302,7 +308,8 @@ def _check_timing_safe_api_key(db: Session) -> bool:
         with open("/opt/wishspark/backend/app/core/deps.py", "r") as f:
             src = f.read()
         return "hmac.compare_digest" in src
-    except Exception:
+    except Exception as exc:
+        log.warning("regulatory_watch: _check_timing_safe_api_key failed: %s", exc)
         return False
 
 
@@ -576,8 +583,8 @@ def run_regulatory_audit(db: Session) -> dict[str, Any]:
                 last_ts = float(last.decode() if isinstance(last, bytes) else last)
                 if (_now().timestamp() - last_ts) < _AUDIT_COOLDOWN_S:
                     return {"skipped": True, "reason": "cooldown"}
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("regulatory_watch: run_regulatory_audit failed: %s", exc)
 
     from app.models.ops_alert import OpsAlert
     from app.services.audit import write_audit_log
@@ -629,8 +636,8 @@ def run_regulatory_audit(db: Session) -> dict[str, Any]:
                         "regulatory_watch: auto-resolved %s (now compliant)",
                         rule.rule_id,
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("regulatory_watch: run_regulatory_audit failed: %s", exc)
             continue
 
         # Failed
@@ -656,7 +663,8 @@ def run_regulatory_audit(db: Session) -> dict[str, Any]:
             )
             if existing is not None:
                 continue  # already alerted
-        except Exception:
+        except Exception as exc:
+            log.warning("regulatory_watch: run_regulatory_audit failed: %s", exc)
             continue
 
         # Emit new alert
@@ -708,17 +716,18 @@ def run_regulatory_audit(db: Session) -> dict[str, Any]:
             )
             try:
                 db.rollback()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("regulatory_watch: run_regulatory_audit failed: %s", exc)
 
     if report["new_alerts"] > 0 or report["auto_resolved"] > 0:
         try:
             db.commit()
-        except Exception:
+        except Exception as exc:
+            log.warning("regulatory_watch: run_regulatory_audit failed: %s", exc)
             try:
                 db.rollback()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("regulatory_watch: run_regulatory_audit failed: %s", exc)
 
     if report["failed"] > 0:
         log.warning(
@@ -731,8 +740,8 @@ def run_regulatory_audit(db: Session) -> dict[str, Any]:
     if rc is not None:
         try:
             rc.setex(_AUDIT_COOLDOWN_KEY, _AUDIT_COOLDOWN_S, str(_now().timestamp()))
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("regulatory_watch: run_regulatory_audit failed: %s", exc)
 
     return report
 

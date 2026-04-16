@@ -220,6 +220,7 @@ from app.api.legal_pages import router as legal_pages_router
 from app.api.consent_banner import router as consent_banner_router
 
 _startup_log = logging.getLogger("wishspark.startup")
+_middleware_log = logging.getLogger("wishspark.middleware")
 
 
 @asynccontextmanager
@@ -414,8 +415,8 @@ async def slo_timing_middleware(request: Request, call_next):
                 status=500,
                 duration_ms=dur_ms,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            _middleware_log.warning("slo_timing: record_timing (error path): %s", exc)
         raise
 
     try:
@@ -427,8 +428,8 @@ async def slo_timing_middleware(request: Request, call_next):
             status=status,
             duration_ms=dur_ms,
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        _middleware_log.warning("slo_timing: record_timing (success path): %s", exc)
     return response
 
 
@@ -734,8 +735,8 @@ def _startup_telegram_warmup() -> None:
         from app.services.telegram_agent import is_configured, warmup_connection
         if is_configured():
             threading.Thread(target=warmup_connection, daemon=True).start()
-    except Exception:
-        pass  # Non-fatal — connection will be established on first use
+    except Exception as exc:
+        _startup_log.warning("telegram_warmup: %s", exc)
 
 
 @app.get("/")

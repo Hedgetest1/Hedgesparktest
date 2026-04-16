@@ -114,8 +114,8 @@ def should_run_monthly_audit(db: Session | None = None) -> bool:
         from app.core.redis_client import cache_get
         if cache_get(_REDIS_COOLDOWN_KEY) is not None:
             return False
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("monthly_audit: redis cooldown check failed: %s", exc)
 
     return True
 
@@ -136,8 +136,8 @@ def mark_monthly_audit_run(ttl_seconds: int | None = None):
     try:
         from app.core.redis_client import cache_set
         cache_set(_REDIS_COOLDOWN_KEY, True, ttl)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("monthly_audit: redis cooldown mark failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -164,8 +164,8 @@ def _build_codebase_summary() -> str:
         for f in py_files:
             try:
                 total_lines += len(f.read_text().splitlines())
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("monthly_audit: file read failed %s: %s", f, exc)
         lines.append(f"  {name}/: {len(py_files)} files, ~{total_lines} lines")
 
     return "Codebase structure:\n" + "\n".join(lines)
@@ -712,8 +712,8 @@ def _call_opus(context: str) -> str:
     except LLMPayloadViolation as exc:
         log.error("monthly_audit: %s", exc)
         return ""
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("monthly_audit: PII guard check failed: %s", exc)
 
     try:
         resp = httpx.post(
@@ -1090,8 +1090,8 @@ def run_monthly_opus_audit(db: Session) -> dict:
             after_state={"proposals_created": stored, "cycle": cycle},
             status="completed",
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("monthly_audit: audit log write failed: %s", exc)
 
     log.info("monthly_audit: cycle=%s proposals=%d stored=%d", cycle, len(proposals), stored)
 

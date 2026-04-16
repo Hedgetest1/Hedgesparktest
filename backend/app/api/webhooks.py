@@ -193,7 +193,7 @@ async def _ingest_order(
     # Parse JSON
     try:
         payload: dict = json.loads(raw_body)
-    except Exception:
+    except Exception as exc:
         log.warning("webhooks/orders: JSON parse failed for shop=%s", shop_domain)
         raise HTTPException(status_code=400, detail="Invalid JSON body.")
 
@@ -415,8 +415,8 @@ async def shopify_customers_redact(
         customer = payload.get("customer", {})
         customer_id = str(customer.get("id", "")) or None
         customer_email = customer.get("email") or None
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("webhooks: shopify_customers_redact failed: %s", exc)
 
     from app.models.gdpr_request import GdprRequest
     gdpr_req = GdprRequest(
@@ -467,8 +467,8 @@ async def shopify_customers_data_request(
     try:
         payload = json.loads(raw_body)
         customer_id = str(payload.get("customer", {}).get("id", "")) or None
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("webhooks: shopify_customers_data_request failed: %s", exc)
 
     from app.models.gdpr_request import GdprRequest
     gdpr_req = GdprRequest(

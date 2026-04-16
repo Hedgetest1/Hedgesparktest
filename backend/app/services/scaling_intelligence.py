@@ -99,8 +99,8 @@ def capture_daily_snapshot(db: Session) -> SystemSnapshot | None:
             .filter(Merchant.install_status == "active", Merchant.billing_active == True)
             .scalar() or 0
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("scaling_intelligence: capture_daily_snapshot failed: %s", exc)
 
     # Event volume (24h)
     try:
@@ -111,8 +111,8 @@ def capture_daily_snapshot(db: Session) -> SystemSnapshot | None:
             .filter(Event.timestamp >= cutoff_ms)
             .scalar() or 0
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("scaling_intelligence: capture_daily_snapshot failed: %s", exc)
 
     # LLM usage
     try:
@@ -123,16 +123,16 @@ def capture_daily_snapshot(db: Session) -> SystemSnapshot | None:
             m.get("tokens_today", 0) for m in usage.get("modules", {}).values()
         )
         snapshot.llm_estimated_cost_eur = round(daily_tokens / 1000 * 0.006, 4)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("scaling_intelligence: capture_daily_snapshot failed: %s", exc)
 
     # Worker health
     try:
         from app.services.system_summary import _get_worker_health
         wh = _get_worker_health(db)
         snapshot.worker_error_rate = wh.get("error_rate_pct", 0)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("scaling_intelligence: capture_daily_snapshot failed: %s", exc)
 
     # Infrastructure
     try:
@@ -142,8 +142,8 @@ def capture_daily_snapshot(db: Session) -> SystemSnapshot | None:
         snapshot.ram_used_mb = ram.get("used_mb")
         snapshot.ram_total_mb = ram.get("total_mb")
         snapshot.cpu_pct = cpu.get("normalized_pct")
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("scaling_intelligence: capture_daily_snapshot failed: %s", exc)
 
     # Disk usage
     try:
@@ -151,8 +151,8 @@ def capture_daily_snapshot(db: Session) -> SystemSnapshot | None:
         total = stat.f_blocks * stat.f_frsize
         free = stat.f_bfree * stat.f_frsize
         snapshot.disk_used_pct = round((1 - free / total) * 100, 1) if total > 0 else None
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("scaling_intelligence: capture_daily_snapshot failed: %s", exc)
 
     # Operational counts (24h)
     try:
@@ -163,8 +163,8 @@ def capture_daily_snapshot(db: Session) -> SystemSnapshot | None:
             .filter(SupportIncident.created_at >= cutoff)
             .scalar() or 0
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("scaling_intelligence: capture_daily_snapshot failed: %s", exc)
 
     try:
         cutoff = _now() - timedelta(hours=24)
@@ -174,16 +174,16 @@ def capture_daily_snapshot(db: Session) -> SystemSnapshot | None:
             .filter(OpsAlert.created_at >= cutoff)
             .scalar() or 0
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("scaling_intelligence: capture_daily_snapshot failed: %s", exc)
 
     # Warnings count from system_summary
     try:
         from app.services.system_summary import build_system_summary
         summary = build_system_summary(db)
         snapshot.api_warning_count = len(summary.get("warnings", []))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("scaling_intelligence: capture_daily_snapshot failed: %s", exc)
 
     db.add(snapshot)
     db.flush()

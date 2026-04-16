@@ -158,6 +158,6 @@ def run_uninstall_erasure_watchdog(db: Session) -> dict:
             log.warning("uninstall_erasure: commit failed: %s", exc)
             try:
                 db.rollback()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("uninstall_erasure: run_uninstall_erasure_watchdog failed: %s", exc)
     return report

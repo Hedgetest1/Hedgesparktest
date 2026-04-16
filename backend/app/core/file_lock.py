@@ -182,7 +182,8 @@ def _atomic_acquire_all(rc, files: list[str], owner: str) -> FileLockResult | No
     keys = [_lock_key(f) for f in files]
     try:
         result = rc.eval(lua, len(keys), *keys, owner, str(_LOCK_TTL_SECONDS))
-    except Exception:
+    except Exception as exc:
+        log.warning("file_lock: _atomic_acquire_all failed: %s", exc)
         return None
 
     if not result:
@@ -288,8 +289,8 @@ def _release_lock(path: str, owner: str) -> bool:
             """
             result = rc.eval(lua, 1, key, owner)
             return bool(result)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("file_lock: _release_lock failed: %s", exc)
 
     # Fallback
     entry = _fallback_locks.get(key)
@@ -324,8 +325,8 @@ def list_active_locks() -> list[dict]:
                         "source": "redis",
                     })
             return locks
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("file_lock: list_active_locks failed: %s", exc)
 
     # Fallback: in-process locks
     now = time.monotonic()
@@ -352,5 +353,5 @@ def _clear_all_locks() -> None:
         if rc is not None:
             for key in rc.scan_iter("hs:filelock:*"):
                 rc.delete(key)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("file_lock: _clear_all_locks failed: %s", exc)

@@ -171,8 +171,8 @@ async def telegram_webhook(request: Request):
                     f"https://api.telegram.org/bot{_BOT_TOKEN}/answerCallbackQuery",
                     json={"callback_query_id": cb_id, "text": feedback, "show_alert": False},
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("telegram_webhook: answerCallbackQuery failed: %s", exc)
             _background_response(cb_data, cb_chat_id)
             return {"ok": True}
 

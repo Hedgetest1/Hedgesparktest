@@ -221,8 +221,8 @@ def _upsert_candidate_for_vuln(db: Session, vuln: dict) -> int | None:
         )
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("pipeline_self_upgrade: _upsert_candidate_for_vuln failed: %s", exc)
         return None
 
 

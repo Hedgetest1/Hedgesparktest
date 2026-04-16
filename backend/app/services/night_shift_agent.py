@@ -594,7 +594,8 @@ def _persist(db: Session, report: NightShiftReport) -> None:
     # Parse ISO back to datetime for the column type
     try:
         gen_at = _dt.fromisoformat(report.generated_at)
-    except Exception:
+    except Exception as exc:
+        log.warning("night_shift_agent: _persist failed: %s", exc)
         gen_at = _now()
 
     db.execute(

@@ -262,8 +262,8 @@ def write_alert(
         alert.delivery_error = str(exc)[:250]
         try:
             db.flush()
-        except Exception:
-            pass
+        except Exception as exc2:
+            log.warning("alerting: flush after delivery failure failed: %s", exc2)
         log.debug("alert: external delivery error (non-fatal): %s", exc)
 
     # Phase Ω'' — outbound webhook fan-out. Compliance + GDPR sources go to
@@ -285,8 +285,8 @@ def write_alert(
                 "alert_type": alert_type,
                 "summary": summary,
             })
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("alerting: event emit failed: %s", exc)
 
     return alert
 

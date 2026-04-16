@@ -72,7 +72,8 @@ def _redis():
     try:
         from app.core.redis_client import _client
         return _client()
-    except Exception:
+    except Exception as exc:
+        log.warning("regulatory_feed_monitor: _redis failed: %s", exc)
         return None
 
 
@@ -335,8 +336,8 @@ def run_feed_monitor() -> dict[str, Any]:
                 last_ts = float(last.decode() if isinstance(last, bytes) else last)
                 if (_now().timestamp() - last_ts) < _COOLDOWN_S:
                     return {"skipped": True, "reason": "cooldown"}
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("regulatory_feed_monitor: run_feed_monitor failed: %s", exc)
 
     report: dict[str, Any] = {
         "ran_at": _now().isoformat(),
@@ -368,8 +369,8 @@ def run_feed_monitor() -> dict[str, Any]:
                     if rc.get(redis_key):
                         continue  # already seen
                     rc.setex(redis_key, _ITEM_TTL_S, "1")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("regulatory_feed_monitor: run_feed_monitor failed: %s", exc)
 
             report["items_new"] += 1
             all_new_items.append(item)
@@ -419,8 +420,8 @@ def run_feed_monitor() -> dict[str, Any]:
                 log.warning("regulatory_feed: alert write failed: %s", exc)
                 try:
                     db.rollback()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("regulatory_feed_monitor: run_feed_monitor failed: %s", exc)
             finally:
                 db.close()
         except Exception as exc:
@@ -430,8 +431,8 @@ def run_feed_monitor() -> dict[str, Any]:
     if rc is not None:
         try:
             rc.setex(_COOLDOWN_KEY, _COOLDOWN_S, str(_now().timestamp()))
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("regulatory_feed_monitor: run_feed_monitor failed: %s", exc)
 
     if report["items_new"] > 0:
         log.info(
@@ -476,5 +477,6 @@ def get_recent_updates(days: int = 7) -> list[dict[str, Any]]:
             ]
         finally:
             db.close()
-    except Exception:
+    except Exception as exc:
+        log.warning("regulatory_feed_monitor: get_recent_updates failed: %s", exc)
         return []

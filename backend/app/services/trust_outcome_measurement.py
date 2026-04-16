@@ -175,7 +175,8 @@ def _calibrate_contracts(db: Session) -> int:
             .filter(TrustContract.status == "active")
             .all()
         )
-    except Exception:
+    except Exception as exc:
+        log.warning("trust_outcome_measurement: _calibrate_contracts failed: %s", exc)
         return 0
 
     for contract in contracts:
@@ -190,7 +191,8 @@ def _calibrate_contracts(db: Session) -> int:
                 .limit(10)
                 .all()
             )
-        except Exception:
+        except Exception as exc:
+            log.warning("trust_outcome_measurement: _calibrate_contracts failed: %s", exc)
             continue
 
         if len(recent) < _AUTO_PAUSE_MIN_EXECUTIONS:
@@ -228,7 +230,7 @@ def _calibrate_contracts(db: Session) -> int:
                         "sample_size": len(recent),
                     },
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("trust_outcome_measurement: _calibrate_contracts failed: %s", exc)
 
     return paused

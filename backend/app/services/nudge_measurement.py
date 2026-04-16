@@ -323,8 +323,8 @@ def record_nudge_event(
                     "event_type": event_type,
                     "event_id": ev.id,
                 })
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("nudge_measurement: record_nudge_event failed: %s", exc)
 
         return ev
 
@@ -335,8 +335,8 @@ def record_nudge_event(
         )
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("nudge_measurement: record_nudge_event failed: %s", exc)
         return None
 
 
@@ -402,8 +402,8 @@ def record_holdout_assignment(
         )
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("nudge_measurement: record_holdout_assignment failed: %s", exc)
         return None
 
 

@@ -181,7 +181,8 @@ def _merge_real_refund_data(shop_domain: str, signals: list[dict]) -> list[dict]
     try:
         from app.services.refund_ingest import aggregate_product_refunds
         agg = aggregate_product_refunds(shop_domain, days=28)
-    except Exception:
+    except Exception as exc:
+        log.warning("refund_loss: aggregate_product_refunds failed: %s", exc)
         return signals
 
     if not agg:
@@ -239,8 +240,8 @@ def get_refund_loss_report(db: Session, shop_domain: str) -> dict:
             cached = rc.get(cache_key)
             if cached:
                 return json.loads(cached)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("refund_loss: cache read failed: %s", exc)
 
     try:
         signals = _compute_product_loss_signals(db, shop_domain)
@@ -258,8 +259,8 @@ def get_refund_loss_report(db: Session, shop_domain: str) -> dict:
                 shop_domain=shop_domain,
                 detail={"error": str(exc)[:500]},
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("refund_loss: alert write failed: %s", exc)
         return {
             "shop_domain": shop_domain,
             "error": "compute_failed",
@@ -301,7 +302,7 @@ def get_refund_loss_report(db: Session, shop_domain: str) -> dict:
         rc = _client()
         if rc is not None:
             rc.setex(cache_key, _CACHE_TTL_SECONDS, json.dumps(result, default=str))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("refund_loss: cache write failed: %s", exc)
 
     return result

@@ -200,7 +200,8 @@ def detect_drifting_new_installs(db: Session) -> list[dict]:
     try:
         from app.services.goals import get_goals
         from app.services.signal_webhooks import list_webhooks
-    except Exception:
+    except Exception as exc:
+        log.warning("onboarding_health: detect_drifting_new_installs failed: %s", exc)
         get_goals = None  # type: ignore
         list_webhooks = None  # type: ignore
 
@@ -215,13 +216,13 @@ def detect_drifting_new_installs(db: Session) -> list[dict]:
         try:
             if get_goals is not None:
                 goal_count = len(get_goals(shop) or [])
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("onboarding_health: detect_drifting_new_installs failed: %s", exc)
         try:
             if list_webhooks is not None:
                 webhook_count = len(list_webhooks(shop) or [])
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("onboarding_health: detect_drifting_new_installs failed: %s", exc)
 
         if goal_count == 0 and webhook_count == 0 and nudges == 0:
             hours_since = int((now - r.installed_at).total_seconds() / 3600) if r.installed_at else None
@@ -245,7 +246,8 @@ def _redis():
     try:
         from app.core.redis_client import _client
         return _client()
-    except Exception:
+    except Exception as exc:
+        log.warning("onboarding_health: _redis failed: %s", exc)
         return None
 
 
@@ -272,7 +274,8 @@ def _can_send_reengagement(shop: str) -> tuple[bool, int]:
         ep_raw = rc.get(_reengage_episode_key(shop))
         ep = int(ep_raw) if ep_raw else 0
         return True, ep
-    except Exception:
+    except Exception as exc:
+        log.warning("onboarding_health: _can_send_reengagement failed: %s", exc)
         return False, 0
 
 
@@ -291,7 +294,8 @@ def _record_reengagement_sent(shop: str) -> int:
         # this to decide when to involve the operator.
         rc.expire(_reengage_episode_key(shop), 90 * 24 * 3600)
         return int(new_ep)
-    except Exception:
+    except Exception as exc:
+        log.warning("onboarding_health: _record_reengagement_sent failed: %s", exc)
         return 0
 
 
@@ -367,7 +371,8 @@ def _lookup_merchant_email(db: Session, shop_domain: str) -> str | None:
             LIMIT 1
         """), {"shop": shop_domain}).fetchone()
         return row[0] if row and row[0] else None
-    except Exception:
+    except Exception as exc:
+        log.warning("onboarding_health: _lookup_merchant_email failed: %s", exc)
         return None
 
 
@@ -406,8 +411,8 @@ def send_reengagement_for_drifter(db: Session, drifter: dict) -> dict:
                 ),
                 detail=drifter,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("onboarding_health: send_reengagement_for_drifter failed: %s", exc)
         return {"status": "escalated", "episode": current_ep}
 
     to_email = _lookup_merchant_email(db, shop)
@@ -477,7 +482,8 @@ def run_drift_action_loop(db: Session) -> dict:
                 summary["escalated"] += 1
             else:
                 summary["errors"] += 1
-        except Exception:
+        except Exception as exc:
+            log.warning("onboarding_health: run_drift_action_loop failed: %s", exc)
             summary["errors"] += 1
     return summary
 
@@ -608,7 +614,7 @@ def write_onboarding_alerts(db: Session) -> dict:
 
     try:
         db.commit()
-    except Exception:
+    except Exception as exc:
         db.rollback()
         log.exception("onboarding_health: failed to commit alerts")
 

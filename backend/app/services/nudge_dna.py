@@ -130,7 +130,8 @@ def _redis():
     try:
         from app.core.redis_client import _client
         return _client()
-    except Exception:
+    except Exception as exc:
+        log.warning("nudge_dna: redis connect failed: %s", exc)
         return None
 
 
@@ -144,7 +145,8 @@ def get_cached_dna(shop_domain: str) -> dict | None:
         if raw is None:
             return None
         return json.loads(raw)
-    except Exception:
+    except Exception as exc:
+        log.warning("nudge_dna: cache read failed: %s", exc)
         return None
 
 
@@ -157,8 +159,8 @@ def _cache_dna(shop_domain: str, data: dict) -> None:
         rc.setex(
             f"{_CACHE_KEY}:{shop_domain}", _CACHE_TTL_S, json.dumps(data, default=str)
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("nudge_dna: cache write failed: %s", exc)
 
 
 def extract_patterns(
@@ -251,8 +253,8 @@ def extract_patterns(
                             for k in ("headline", "subtext", "badge")
                         ).strip()
                         break
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("nudge_dna: copy_text extraction failed: %s", exc)
 
         if not copy_text:
             continue
@@ -286,8 +288,8 @@ def extract_patterns(
             ).fetchone()
             if hit is not None:
                 stats.conversions += 1
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("nudge_dna: conversion lookup failed: %s", exc)
 
     if not variants:
         return _empty_dna(shop_domain, window_days)

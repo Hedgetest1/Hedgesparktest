@@ -72,6 +72,7 @@ alternative of losing a cycle's work silently.
 
 import json as _json
 import logging
+log = logging.getLogger("aggregation_worker")
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -507,8 +508,8 @@ def _run_cycle_inner() -> None:
                 log(f"retention: cleanup error (non-fatal): {exc}")
                 try:
                     conn.rollback()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("aggregation_worker: _run_cycle_inner failed: %s", exc)
 
             # ---------------------------------------------------------------
             # Closed-loop proof — compute pending action deltas
@@ -540,8 +541,8 @@ def _run_cycle_inner() -> None:
                             text("SELECT DISTINCT shop_domain FROM product_metrics LIMIT 50")
                         ).fetchall()
                         all_shops = {r[0] for r in shop_rows}
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        log.warning("aggregation_worker: _run_cycle_inner failed: %s", exc)
 
                 from app.services.execution_engine import (
                     process_execution_opportunities,
@@ -687,8 +688,8 @@ def _run_cycle_inner() -> None:
                     brief = generate_store_brief(db, shop_d)
                     if brief:
                         _cs(f"hs:brief:{shop_d}", brief.to_dict(), 600)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("aggregation_worker: _run_cycle_inner failed: %s", exc)
         except Exception as exc:
             log(f"proactive precompute error (non-fatal): {exc}")
 
@@ -699,7 +700,8 @@ def _run_cycle_inner() -> None:
         try:
             state.last_run_at = datetime.now(timezone.utc).replace(tzinfo=None)
             db.commit()
-        except Exception:
+        except Exception as exc:
+            log.warning("aggregation_worker: _run_cycle_inner failed: %s", exc)
             pass  # non-fatal — next cycle will update it
 
         log(

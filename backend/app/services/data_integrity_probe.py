@@ -190,8 +190,8 @@ def get_merchant_baseline(db: Session, shop: str) -> dict | None:
             cached = rc.get(key)
             if cached:
                 return _json.loads(cached)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("data_integrity_probe: baseline cache read failed: %s", exc)
 
     baseline = _compute_merchant_baseline(db, shop)
     if baseline is None:
@@ -203,8 +203,8 @@ def get_merchant_baseline(db: Session, shop: str) -> dict | None:
         if rc is not None:
             import json as _json
             rc.setex(key, _BASELINE_CACHE_TTL, _json.dumps(baseline))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("data_integrity_probe: baseline cache write failed: %s", exc)
 
     return baseline
 

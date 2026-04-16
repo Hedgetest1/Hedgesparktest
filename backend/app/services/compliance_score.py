@@ -90,7 +90,8 @@ def _redis():
     try:
         from app.core.redis_client import _client
         return _client()
-    except Exception:
+    except Exception as exc:
+        log.warning("compliance_score: _redis failed: %s", exc)
         return None
 
 
@@ -239,8 +240,8 @@ def _score_retention_sweep() -> dict:
                 "score": _WEIGHTS["retention_sweep"],
                 "detail": "ran within 48h",
             }
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("compliance_score: _score_retention_sweep failed: %s", exc)
     return {
         "weight": _WEIGHTS["retention_sweep"],
         "score": 0,
@@ -320,7 +321,8 @@ def _score_audit_log_integrity() -> dict:
                 "score": 0,
                 "detail": "no audit log chain verification in 48h",
             }
-    except Exception:
+    except Exception as exc:
+        log.warning("compliance_score: _score_audit_log_integrity failed: %s", exc)
         return {
             "weight": _WEIGHTS["audit_log_integrity"],
             "score": _WEIGHTS["audit_log_integrity"] / 2,
@@ -336,8 +338,8 @@ def _score_audit_log_integrity() -> dict:
                 "score": 0,
                 "detail": "ACTIVE audit log tampering detected",
             }
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("compliance_score: _score_audit_log_integrity failed: %s", exc)
 
     return {
         "weight": _WEIGHTS["audit_log_integrity"],
@@ -360,7 +362,8 @@ def _score_breach_response_latency(db: Session) -> dict:
             )
             .all()
         )
-    except Exception:
+    except Exception as exc:
+        log.warning("compliance_score: _score_breach_response_latency failed: %s", exc)
         return {
             "weight": _WEIGHTS["breach_response_latency"],
             "score": _WEIGHTS["breach_response_latency"] / 2,
@@ -474,7 +477,8 @@ def _score_pii_masking_coverage() -> dict:
                 try:
                     with open(path, "r", encoding="utf-8") as f:
                         content = f.read()
-                except Exception:
+                except Exception as exc:
+                    log.warning("compliance_score: _score_pii_masking_coverage failed: %s", exc)
                     continue
                 if _PII_LOG_REGEX.search(content):
                     offenders.append(path.replace("/opt/wishspark/backend/", ""))
@@ -550,8 +554,8 @@ def compute_compliance_score(db: Session) -> dict:
         try:
             import json as _json
             rc.setex(_CACHE_KEY, _CACHE_TTL_S, _json.dumps(result, default=str))
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("compliance_score: compute_compliance_score failed: %s", exc)
 
         # Auto-pause the self-modification pipeline if we dropped below
         # the threshold. The pipeline checks this flag before apply.
@@ -565,8 +569,8 @@ def compute_compliance_score(db: Session) -> dict:
                 )
             else:
                 rc.delete(_AUTO_PAUSE_KEY)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("compliance_score: compute_compliance_score failed: %s", exc)
 
     return result
 
@@ -584,7 +588,8 @@ def get_cached_compliance_score() -> dict | None:
             raw = raw.decode()
         import json as _json
         return _json.loads(raw)
-    except Exception:
+    except Exception as exc:
+        log.warning("compliance_score: get_cached_compliance_score failed: %s", exc)
         return None
 
 
@@ -596,5 +601,6 @@ def is_self_modification_paused() -> bool:
         return False
     try:
         return bool(rc.get(_AUTO_PAUSE_KEY))
-    except Exception:
+    except Exception as exc:
+        log.warning("compliance_score: is_self_modification_paused failed: %s", exc)
         return False

@@ -74,7 +74,8 @@ def _redis():
     try:
         from app.core.redis_client import _client
         return _client()
-    except Exception:
+    except Exception as exc:
+        log.warning("fix_holdout_measurement: _redis failed: %s", exc)
         return None
 
 
@@ -110,8 +111,8 @@ def assign_cohort(candidate_id: int, shop_domains: list[str]) -> dict[str, list[
             data = json.loads(existing)
             if isinstance(data, dict) and "treatment" in data:
                 return data
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("fix_holdout_measurement: assign_cohort failed: %s", exc)
 
     treatment: list[str] = []
     control: list[str] = []
@@ -146,7 +147,8 @@ def get_cohort(candidate_id: int) -> dict[str, list[str]] | None:
         if not raw:
             return None
         return json.loads(raw)
-    except Exception:
+    except Exception as exc:
+        log.warning("fix_holdout_measurement: get_cohort failed: %s", exc)
         return None
 
 
@@ -387,8 +389,8 @@ def _persist_measurement(candidate_id: int, result: dict) -> None:
             _REDIS_TTL_S,
             json.dumps(result, default=str),
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("fix_holdout_measurement: _persist_measurement failed: %s", exc)
 
 
 def get_measurement(candidate_id: int) -> dict | None:
@@ -401,7 +403,8 @@ def get_measurement(candidate_id: int) -> dict | None:
         if not raw:
             return None
         return json.loads(raw)
-    except Exception:
+    except Exception as exc:
+        log.warning("fix_holdout_measurement: get_measurement failed: %s", exc)
         return None
 
 
@@ -417,8 +420,8 @@ def _bump_weekly_savings(lift_eur: float) -> None:
         key = f"{_REDIS_PREFIX_SAVINGS}:{week_key}"
         rc.incrbyfloat(key, lift_eur)
         rc.expire(key, _REDIS_TTL_S)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("fix_holdout_measurement: _bump_weekly_savings failed: %s", exc)
 
 
 def get_weekly_proven_savings(week_offset: int = 0) -> float:
@@ -436,5 +439,6 @@ def get_weekly_proven_savings(week_offset: int = 0) -> float:
         if not raw:
             return 0.0
         return float(raw if isinstance(raw, str) else raw.decode())
-    except Exception:
+    except Exception as exc:
+        log.warning("fix_holdout_measurement: get_weekly_proven_savings failed: %s", exc)
         return 0.0

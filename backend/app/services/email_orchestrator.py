@@ -564,8 +564,8 @@ def _send_intent(db: Session, intent: EmailIntent) -> bool:
         if usage["sent"] >= RESEND_MONTHLY_LIMIT:
             _log_suppressed(db, intent, "email_budget_exhausted")
             return False
-    except Exception:
-        pass  # Budget check failure is fail-open (better to send than silence)
+    except Exception as exc:
+        log.warning("email_orchestrator: budget check failed (fail-open): %s", exc)
 
     # ── Atomic send guard — prevent duplicate sends on parallel execution ──
     if not _claim_send_slot(intent.shop_domain, intent.email_type):
@@ -589,8 +589,8 @@ def _send_intent(db: Session, intent: EmailIntent) -> bool:
         try:
             from app.services.email_performance import record_email_event
             record_email_event(db, intent.shop_domain, intent.email_type, "sent")
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("email_orchestrator: performance record failed: %s", exc)
 
         # Update Redis rate-limit counter
         _increment_send_counter(intent.shop_domain)
@@ -734,8 +734,8 @@ def _increment_send_counter(shop: str) -> None:
         pipe.expire(week_key, 604800)
 
         pipe.execute()
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("email_orchestrator: send counter increment failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -749,8 +749,8 @@ def _is_suppressed(db: Session, shop: str) -> bool:
         journey = get_journey(db, shop)
         if journey and journey.email_suppressed:
             return True
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("email_orchestrator: suppression check failed: %s", exc)
     return False
 
 
@@ -847,8 +847,8 @@ def get_merchant_email_context(db: Session, shop: str) -> dict:
             {"shop": shop},
         ).scalar()
         last_opened = opened_row
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("email_orchestrator: last_opened query failed: %s", exc)
 
     # Classify engagement
     if sent_30d == 0:

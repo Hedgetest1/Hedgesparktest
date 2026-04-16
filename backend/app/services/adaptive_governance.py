@@ -174,16 +174,16 @@ def _gather_evidence(db: Session) -> dict:
             from app.services.loop_health import _compute_trend
             trend = _compute_trend(db, now)
             evidence["trend_direction"] = trend.get("direction", "stable")
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("adaptive_governance: _gather_evidence failed: %s", exc)
 
         # Active thrashing sources
         try:
             from app.services.loop_health import check_thrashing
             thrashing = check_thrashing(db)
             evidence["active_thrashing_sources"] = len(thrashing)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("adaptive_governance: _gather_evidence failed: %s", exc)
 
         # Lesson accuracy (how often lesson-assisted proposals succeed)
         try:
@@ -199,14 +199,15 @@ def _gather_evidence(db: Session) -> dict:
             if lesson_outcomes and lesson_outcomes[0] > 0:
                 evidence["total_lessons_measured"] = lesson_outcomes[0]
                 evidence["lesson_accuracy_rate"] = round(lesson_outcomes[1] / lesson_outcomes[0] * 100, 1)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("adaptive_governance: _gather_evidence failed: %s", exc)
 
         # Global operator feedback
         try:
             feedback = _gather_operator_feedback(db)
             evidence["operator_feedback"] = feedback.get("global", {})
-        except Exception:
+        except Exception as exc:
+            log.warning("adaptive_governance: _gather_evidence failed: %s", exc)
             evidence["operator_feedback"] = {}
 
     except Exception as exc:
@@ -519,8 +520,8 @@ def _gather_operator_feedback(db: Session) -> dict[str, dict]:
                 try:
                     meta = json.loads(meta_json) if isinstance(meta_json, str) else meta_json
                     domain = meta.get("domain")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("adaptive_governance: _gather_operator_feedback failed: %s", exc)
 
             # For bugfix actions without domain in metadata, look up the candidate
             if not domain and "bugfix" in action_type and target_id:
@@ -529,8 +530,8 @@ def _gather_operator_feedback(db: Session) -> dict[str, dict]:
                     c = db.get(BugFixCandidate, int(target_id))
                     if c:
                         domain = getattr(c, "affected_domain", None)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("adaptive_governance: _gather_operator_feedback failed: %s", exc)
 
             # Aggregate
             global_feedback["total"] += 1

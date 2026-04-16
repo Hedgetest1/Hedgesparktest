@@ -545,8 +545,8 @@ def _select_nudge_type(signal_type: str, sip: StoreIntelligenceProfile | None, d
             cig_nudge, cig_score, cig_reason = get_cig_nudge_recommendation(db, sip.shop_domain, signal_type)
             if cig_nudge and cig_score and cig_score > 0:
                 return cig_nudge, cig_score, f"CIG: {cig_reason}"
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("autonomous_loop: CIG nudge recommendation failed: %s", exc)
 
     # Priority 3: Default mapping
     default = _DEFAULT_NUDGE_BY_SIGNAL.get(signal_type, "social_proof")
@@ -788,7 +788,8 @@ def _get_rank_data(db, shop, nudge):
         from app.services.nudge_rank import compute_nudge_rank
         r = compute_nudge_rank(db, shop, [nudge])
         return r[0] if r else None
-    except Exception:
+    except Exception as exc:
+        log.warning("autonomous_loop: nudge rank computation failed: %s", exc)
         return None
 
 def _count_actions_today(db, shop):

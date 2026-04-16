@@ -57,7 +57,8 @@ def _redis():
     try:
         from app.core.redis_client import _client
         return _client()
-    except Exception:
+    except Exception as exc:
+        log.warning("risk_forecast: _redis failed: %s", exc)
         return None
 
 
@@ -113,7 +114,8 @@ def _load_history(shop_domain: str) -> list[dict[str, Any]]:
         if not isinstance(history, list):
             return []
         return [h for h in history if isinstance(h, dict)]
-    except Exception:
+    except Exception as exc:
+        log.warning("risk_forecast: _load_history failed: %s", exc)
         return []
 
 
@@ -198,7 +200,8 @@ def get_risk_forecast(shop_domain: str) -> dict[str, Any]:
     # Build (day_index, rars) points — day 0 = oldest
     try:
         timestamps = [datetime.fromisoformat(str(h["ts"]).replace("Z", "")) for h in history]
-    except Exception:
+    except Exception as exc:
+        log.warning("risk_forecast: get_risk_forecast failed: %s", exc)
         return {
             "shop_domain": shop_domain,
             "status": "history_corrupt",
@@ -281,13 +284,13 @@ def get_risk_forecast(shop_domain: str) -> dict[str, Any]:
                         "delta_pct": round(week_delta_pct, 2),
                         "confidence": confidence,
                     })
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("risk_forecast: get_risk_forecast failed: %s", exc)
                 db.commit()
             finally:
                 db.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("risk_forecast: get_risk_forecast failed: %s", exc)
 
     return {
         "shop_domain": shop_domain,

@@ -62,8 +62,8 @@ def compute_price_sensitivity(db: Session, shop_domain: str) -> dict:
             cached = rc.get(cache_key)
             if cached:
                 return json.loads(cached)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("price_sensitivity: compute_price_sensitivity failed: %s", exc)
 
     now = _now()
 
@@ -241,7 +241,7 @@ def compute_price_sensitivity(db: Session, shop_domain: str) -> dict:
         rc = _client()
         if rc is not None:
             rc.setex(cache_key, _CACHE_TTL, json.dumps(result, default=str))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("price_sensitivity: compute_price_sensitivity failed: %s", exc)
 
     return result

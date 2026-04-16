@@ -82,7 +82,8 @@ def _redis():
     try:
         from app.core.redis_client import _client
         return _client()
-    except Exception:
+    except Exception as exc:
+        log.warning("klaviyo_events: _redis failed: %s", exc)
         return None
 
 
@@ -95,7 +96,8 @@ def is_shop_connected(db: Session, shop_domain: str) -> bool:
             return False
         status = getattr(m, "klaviyo_connection_status", None)
         return status == "connected"
-    except Exception:
+    except Exception as exc:
+        log.warning("klaviyo_events: is_shop_connected failed: %s", exc)
         return False
 
 
@@ -106,7 +108,8 @@ def _is_circuit_open(shop_domain: str) -> bool:
         return False
     try:
         return bool(rc.exists(f"{_CIRCUIT_KEY_PREFIX}:{shop_domain}"))
-    except Exception:
+    except Exception as exc:
+        log.warning("klaviyo_events: _is_circuit_open failed: %s", exc)
         return False
 
 
@@ -147,10 +150,10 @@ def _record_failure(shop_domain: str) -> None:
                     db.commit()
                 finally:
                     db.close()
-            except Exception:
-                pass
-    except Exception:
-        pass
+            except Exception as exc:
+                log.warning("klaviyo_events: _record_failure failed: %s", exc)
+    except Exception as exc:
+        log.warning("klaviyo_events: _record_failure failed: %s", exc)
 
 
 def _record_success(shop_domain: str) -> None:
@@ -160,8 +163,8 @@ def _record_success(shop_domain: str) -> None:
         return
     try:
         rc.delete(f"{_CIRCUIT_KEY_PREFIX}:{shop_domain}:fails")
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("klaviyo_events: _record_success failed: %s", exc)
 
 
 def _rate_limit_allow(shop_domain: str) -> bool:
@@ -177,7 +180,8 @@ def _rate_limit_allow(shop_domain: str) -> bool:
         count = rc.incr(hour_key)
         rc.expire(hour_key, 3700)
         return int(count) <= _RATE_LIMIT_PER_HOUR
-    except Exception:
+    except Exception as exc:
+        log.warning("klaviyo_events: _rate_limit_allow failed: %s", exc)
         return True
 
 

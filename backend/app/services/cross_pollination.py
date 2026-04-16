@@ -99,8 +99,8 @@ def _infer_alert_type(db: Session, candidate) -> str | None:
             )
             if exists:
                 return candidate_alert_type
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("cross_pollination: _infer_alert_type failed: %s", exc)
 
     return None
 
@@ -132,7 +132,8 @@ def _already_pollinated_shops(
     for (ctx_json,) in rows:
         try:
             ctx = json.loads(ctx_json or "{}")
-        except Exception:
+        except Exception as exc:
+            log.warning("cross_pollination: _already_pollinated_shops failed: %s", exc)
             continue
         if isinstance(ctx, dict) and ctx.get("inherited_from") == proven_candidate_id:
             shop = ctx.get("target_shop")

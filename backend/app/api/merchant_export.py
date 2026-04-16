@@ -137,32 +137,32 @@ def export_merchant_data(
             "active_nudges",
             db.query(ActiveNudge).filter(ActiveNudge.shop_domain == shop),
         ))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("merchant_export: export_merchant_data failed: %s", exc)
     try:
         from app.models.nudge_event import NudgeEvent
         table_queries.append((
             "nudge_events",
             db.query(NudgeEvent).filter(NudgeEvent.shop_domain == shop),
         ))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("merchant_export: export_merchant_data failed: %s", exc)
     try:
         from app.models.signal import Signal
         table_queries.append((
             "signals",
             db.query(Signal).filter(Signal.shop_domain == shop),
         ))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("merchant_export: export_merchant_data failed: %s", exc)
     try:
         from app.models.gdpr_request import GdprRequest
         table_queries.append((
             "gdpr_requests",
             db.query(GdprRequest).filter(GdprRequest.shop_domain == shop),
         ))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("merchant_export: export_merchant_data failed: %s", exc)
 
     for table_name, query in table_queries:
         try:
@@ -203,8 +203,8 @@ def export_merchant_data(
         log.warning("merchant_export: audit log write failed: %s", exc)
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("merchant_export: export_merchant_data failed: %s", exc)
 
     headers = {
         "Content-Disposition": (

@@ -91,8 +91,8 @@ def _call_haiku(prompt: str) -> tuple[str | None, float]:
         from app.core.llm_budget import is_provider_backed_off, record_429
         if is_provider_backed_off("anthropic"):
             return None, 0.0
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("chatbot_llm_fallback: backoff check failed: %s", exc)
 
     try:
         resp = httpx.post(
@@ -118,8 +118,8 @@ def _call_haiku(prompt: str) -> tuple[str | None, float]:
         try:
             from app.core.llm_budget import record_429
             record_429("anthropic")
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("chatbot_llm_fallback: record_429 failed: %s", exc)
         return None, 0.0
 
     if resp.status_code != 200:
@@ -212,8 +212,8 @@ def _build_rag_context(db: Session, shop_domain: str) -> dict[str, Any]:
             context["revenue_30d_eur"] = round(float(row[1] or 0), 2)
             context["orders_7d"] = int(row[2] or 0)
             context["revenue_7d_eur"] = round(float(row[3] or 0), 2)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("chatbot_llm_fallback: order stats query failed: %s", exc)
 
     # Top 5 products by recent revenue
     try:
@@ -239,8 +239,8 @@ def _build_rag_context(db: Session, shop_domain: str) -> dict[str, Any]:
                 {"title": str(r[0])[:60], "revenue_eur": round(float(r[1] or 0), 2)}
                 for r in rows
             ]
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("chatbot_llm_fallback: top products query failed: %s", exc)
 
     # Recent opportunity signals
     try:
@@ -261,8 +261,8 @@ def _build_rag_context(db: Session, shop_domain: str) -> dict[str, Any]:
             context["recent_signals_7d"] = [
                 {"type": r[0], "count": int(r[1])} for r in rows
             ]
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("chatbot_llm_fallback: recent signals query failed: %s", exc)
 
     # Active nudges
     try:
@@ -277,8 +277,8 @@ def _build_rag_context(db: Session, shop_domain: str) -> dict[str, Any]:
             or 0
         )
         context["active_nudges"] = active_nudges
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("chatbot_llm_fallback: active nudges query failed: %s", exc)
 
     # RARS from redis history if available
     try:
@@ -291,8 +291,8 @@ def _build_rag_context(db: Session, shop_domain: str) -> dict[str, Any]:
                 if hist:
                     latest = hist[-1]
                     context["rars_current_eur"] = float(latest.get("total_at_risk_eur") or 0)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("chatbot_llm_fallback: RARS history read failed: %s", exc)
 
     return context
 
@@ -409,8 +409,8 @@ def try_llm_fallback(
                 },
             )
             db.commit()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("chatbot_llm_fallback: validation audit write failed: %s", exc)
         return LlmFallbackResult(
             success=False, answer=None, cost_eur=actual_cost, reason=f"invalid:{vreason}",
         )
@@ -419,8 +419,8 @@ def try_llm_fallback(
     try:
         from app.core.llm_budget import record_merchant_charge
         record_merchant_charge(shop_domain, actual_cost or _ESTIMATED_COST_EUR)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("chatbot_llm_fallback: record_merchant_charge failed: %s", exc)
 
     return LlmFallbackResult(
         success=True,

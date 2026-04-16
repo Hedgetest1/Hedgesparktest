@@ -666,8 +666,8 @@ def _cmd_status(db) -> str:
         lines.append("")
         lines.append(f"LLM: €{s['monthly_cost_eur']:.3f} / €{s['monthly_cap_eur']} "
                       f"({s['global_calls_today']} calls today)")
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("telegram_agent: LLM budget fetch failed: %s", exc)
 
     # Infra basics
     try:
@@ -675,8 +675,8 @@ def _cmd_status(db) -> str:
         s = build_system_summary(db)
         ram = s["infra"]["ram"]
         lines.append(f"RAM: {ram.get('usage_pct', '?')}% | CPU: {s['infra']['cpu'].get('load_5m', '?')}")
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("telegram_agent: system summary fetch failed: %s", exc)
 
     return "\n".join(lines)
 
@@ -1417,8 +1417,8 @@ def _cmd_merge(db, args: list[str]) -> str:
     try:
         from app.services.merge_intelligence import compute_merge_recommendation
         merge_rec = compute_merge_recommendation(db, promo_id)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("telegram_agent: merge recommendation failed: %s", exc)
 
     if merge_rec and not merge_rec.recommend:
         reasons = "\n".join(f"  - {r}" for r in merge_rec.reasons[:5])
@@ -1987,11 +1987,11 @@ def send_monthly_report(proposals: list[dict], system_summary: dict) -> bool:
                     mark_cur.close()
                 finally:
                     mark_conn.close()
-            except Exception:
-                pass  # non-critical
+            except Exception as exc:
+                log.warning("telegram_agent: ailab idea mark failed: %s", exc)
 
-    except Exception:
-        pass  # AI Lab unavailable — report ships without market intel
+    except Exception as exc:
+        log.warning("telegram_agent: ailab market intel unavailable: %s", exc)
 
     lines.extend([
         "",
@@ -2246,8 +2246,8 @@ def build_daily_digest(db) -> str:
                             continue
                     if rars_total > 0:
                         lines.append(f"  \u26a0\ufe0f {currency}{rars_total:,.0f} at risk")
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("telegram_agent: RARS digest fetch failed: %s", exc)
 
         # Proven savings
         try:
@@ -2257,8 +2257,8 @@ def build_daily_digest(db) -> str:
                 lines.append(
                     f"  \U0001f6e1 {currency}{savings:,.0f} prevented (holdout-proven)"
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("telegram_agent: proven savings fetch failed: %s", exc)
     except Exception:
         lines.append("")
         lines.append("\U0001f4b0 *Revenue:* data unavailable")
@@ -2288,10 +2288,10 @@ def build_daily_digest(db) -> str:
                             lines.append(f"    {shop}: {m['churn_risk_score']}/100")
                 elif high > 0:
                     lines.append(f"  \U0001f7e1 {high} at elevated churn risk")
-            except Exception:
-                pass
-    except Exception:
-        pass
+            except Exception as exc:
+                log.warning("telegram_agent: churn report failed: %s", exc)
+    except Exception as exc:
+        log.warning("telegram_agent: merchant digest query failed: %s", exc)
 
     # ── 4. SHIELD LINE — compliance + security in one line ──
     try:
@@ -2308,8 +2308,8 @@ def build_daily_digest(db) -> str:
         if score_val < 70:
             if overall_status == "OK":
                 overall_status = "WARNING"
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("telegram_agent: compliance score fetch failed: %s", exc)
 
     # ── 5. PIPELINE — one compact line ──
     try:
@@ -2340,12 +2340,12 @@ def build_daily_digest(db) -> str:
                 pipe_parts.append("\u26a0\ufe0f CAP HIT")
                 if overall_status == "OK":
                     overall_status = "WARNING"
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("telegram_agent: digest LLM budget fetch failed: %s", exc)
 
         lines.append(f"\U0001f916 *Pipeline:* {' \u00b7 '.join(pipe_parts)}")
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("telegram_agent: digest pipeline section failed: %s", exc)
 
     # ── 6. ATTENTION — only things that truly need the founder ──
     # TIER_2 review
@@ -2359,8 +2359,8 @@ def build_daily_digest(db) -> str:
                 f"\U0001f512 {tier2_count} TIER\\_2 fix{'es' if tier2_count > 1 else ''} "
                 f"awaiting your review"
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("telegram_agent: tier2 review count failed: %s", exc)
 
     # Rollbacks
     if rolled_24h > 0:
@@ -2511,8 +2511,8 @@ def build_tier2_weekly_review(db) -> tuple[str, list[list[dict]]]:
                             f" \u2192 \u274c likely reject "
                             f"({int((1 - pred['posterior_mean']) * 100)}%, n={pred['sample_size']})"
                         )
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("telegram_agent: decision prediction failed: %s", exc)
 
         lines.append(
             f"  {risk_emoji} *#{cid}* [{domain}] conf={confidence}% \u00b7 reviewer={verdict}{prediction_badge}"
