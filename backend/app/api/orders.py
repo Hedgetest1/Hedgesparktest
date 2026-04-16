@@ -440,7 +440,36 @@ def get_product_conversions(
                     ORDER BY product_id, timestamp DESC
                 )
 
-                -- Final join: combine views + ATC + real purchases
+                -- 5. True converted visitors: viewers who ALSO purchased this product
+                -- Bridges events (view) → visitor_purchase_sessions → shop_orders
+                -- (line_items contain the product_id). Only counts visitors whose
+                -- purchase included the SAME product they viewed — no cross-attribution.
+                converted AS (
+                    SELECT
+                        e.product_url,
+                        COUNT(DISTINCT e.visitor_id) AS converted_visitors
+                    FROM events e
+                    JOIN visitor_purchase_sessions vps
+                        ON vps.shop_domain = e.shop_domain
+                       AND vps.visitor_id  = e.visitor_id
+                    JOIN shop_orders so
+                        ON so.shop_domain      = vps.shop_domain
+                       AND so.shopify_order_id = vps.shopify_order_id
+                    JOIN pid_to_url pu
+                        ON pu.product_url = e.product_url
+                    WHERE e.shop_domain  = :shop
+                      AND e.product_url  IS NOT NULL
+                      AND e.event_type   IN ('page_view', 'product_view')
+                      AND e.timestamp    > (SELECT ts FROM cutoff_ms)
+                      AND vps.confirmed_at >= (SELECT dt FROM cutoff_dt)
+                      AND EXISTS (
+                          SELECT 1 FROM jsonb_array_elements(so.line_items) AS item
+                          WHERE item->>'product_id' = pu.product_id
+                      )
+                    GROUP BY e.product_url
+                )
+
+                -- Final join: combine views + ATC + real purchases + true conversions
                 SELECT
                     pv.product_url,
                     COALESCE(op.product_title, pv.product_url)  AS product_name,
@@ -449,7 +478,8 @@ def get_product_conversions(
                     COALESCE(a.atc_visitors, 0)                 AS atc_visitors,
                     COALESCE(op.order_count, 0)                 AS purchases,
                     COALESCE(op.units_sold, 0)                  AS units_sold,
-                    COALESCE(op.revenue, 0)                     AS revenue
+                    COALESCE(op.revenue, 0)                     AS revenue,
+                    COALESCE(cv.converted_visitors, 0)          AS converted_visitors
                 FROM product_views pv
                 LEFT JOIN atc a
                     ON a.product_url = pv.product_url
@@ -457,6 +487,8 @@ def get_product_conversions(
                     ON pu.product_url = pv.product_url
                 LEFT JOIN order_products op
                     ON op.product_id = pu.product_id
+                LEFT JOIN converted cv
+                    ON cv.product_url = pv.product_url
                 ORDER BY COALESCE(op.revenue, 0) DESC, pv.total_views DESC
                 LIMIT 20
             """),
@@ -475,9 +507,11 @@ def get_product_conversions(
         purchases = int(r[5] or 0)
         units_sold = int(r[6] or 0)
         revenue = round(float(r[7] or 0), 2)
+        converted_visitors = int(r[8] or 0)
 
-        # CVR: purchases / unique visitors who viewed (not total views)
-        cvr = round(purchases / view_visitors, 4) if view_visitors > 0 else 0.0
+        # True CVR: visitors who viewed this product AND purchased it
+        # (not just total orders, which inflates CVR with POS/external sales)
+        cvr = round(converted_visitors / view_visitors, 4) if view_visitors > 0 else 0.0
         atc_rate = round(atc_visitors / view_visitors, 4) if view_visitors > 0 else 0.0
         avg_order_value = round(revenue / purchases, 2) if purchases > 0 else 0.0
 
