@@ -136,7 +136,7 @@ async def ingest_nudge_event(
     try:
         payload = NudgeEventPayload(**payload_dict)
     except Exception as exc:
-        log.warning("nudge_events: validation failed: %s — raw=%s", exc, str(payload_dict)[:200])
+        log.warning("nudge_events: validation failed: %s — raw=%s", exc, repr(payload_dict)[:200])
         return {"status": "ok"}   # swallow invalid payloads silently
 
     # Validate shop domain format

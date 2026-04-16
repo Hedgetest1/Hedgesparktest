@@ -199,17 +199,14 @@ def get_pixel_status(
     from sqlalchemy import text
     import os
 
-    # Check for any purchase events from this shop
-    row = db.execute(text(
-        "SELECT COUNT(*) FROM shop_orders WHERE shop_domain = :shop AND source = 'pixel'"
+    # Combined check: pixel orders + purchase events in a single query
+    combined = db.execute(text(
+        "SELECT "
+        "  (SELECT COUNT(*) FROM shop_orders WHERE shop_domain = :shop AND source = 'pixel'), "
+        "  (SELECT COUNT(*) FROM events WHERE shop_domain = :shop AND event_type = 'purchase')"
     ), {"shop": shop}).fetchone()
-    pixel_active = (row[0] or 0) > 0
-
-    # Also check for recent events (in case orders haven't happened yet but events flow)
-    event_row = db.execute(text(
-        "SELECT COUNT(*) FROM events WHERE shop_domain = :shop AND event_type = 'purchase'"
-    ), {"shop": shop}).fetchone()
-    has_purchase_events = (event_row[0] or 0) > 0
+    pixel_active = (combined[0] or 0) > 0
+    has_purchase_events = (combined[1] or 0) > 0
 
     # Get the pixel code
     app_url = os.getenv("APP_URL", "")

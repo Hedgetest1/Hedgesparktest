@@ -84,21 +84,25 @@ def intent_summary(
     shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ):
-    base = db.query(VisitorProductState).filter(VisitorProductState.shop_domain == shop)
-
-    total = base.with_entities(func.count(VisitorProductState.id)).scalar() or 0
-    hot = base.filter(VisitorProductState.intent_level == "HOT").with_entities(func.count(VisitorProductState.id)).scalar() or 0
-    warm = base.filter(VisitorProductState.intent_level == "WARM").with_entities(func.count(VisitorProductState.id)).scalar() or 0
-    cold = base.filter(VisitorProductState.intent_level == "COLD").with_entities(func.count(VisitorProductState.id)).scalar() or 0
-
-    avg_score = base.with_entities(func.avg(VisitorProductState.intent_score)).scalar()
-    avg_score = round(float(avg_score), 2) if avg_score is not None else 0
+    from sqlalchemy import case
+    row = (
+        db.query(
+            func.count(VisitorProductState.id),
+            func.count(case((VisitorProductState.intent_level == "HOT", 1))),
+            func.count(case((VisitorProductState.intent_level == "WARM", 1))),
+            func.count(case((VisitorProductState.intent_level == "COLD", 1))),
+            func.avg(VisitorProductState.intent_score),
+        )
+        .filter(VisitorProductState.shop_domain == shop)
+        .one()
+    )
+    avg_score = round(float(row[4]), 2) if row[4] is not None else 0
 
     return {
-        "total_records": total,
-        "hot_records": hot,
-        "warm_records": warm,
-        "cold_records": cold,
+        "total_records": row[0] or 0,
+        "hot_records": row[1] or 0,
+        "warm_records": row[2] or 0,
+        "cold_records": row[3] or 0,
         "average_intent_score": avg_score,
     }
 
