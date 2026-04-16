@@ -304,8 +304,8 @@ def get_aggregate_funnel(db: Session, days: int = 30) -> dict:
             WHERE event_type = :step
               AND created_at >= :cutoff
               AND shop_domain IN (
-                  SELECT DISTINCT shop_domain FROM onboarding_events
-                  WHERE event_type = 'install_completed' AND created_at >= :cutoff
+                  SELECT shop_domain FROM merchants
+                  WHERE install_status = 'active' AND installed_at >= :cutoff
               )
         """), {"step": step, "cutoff": cutoff}).scalar() or 0
 
@@ -316,8 +316,8 @@ def get_aggregate_funnel(db: Session, days: int = 30) -> dict:
             WHERE event_type = :step AND elapsed_seconds IS NOT NULL
               AND created_at >= :cutoff
               AND shop_domain IN (
-                  SELECT DISTINCT shop_domain FROM onboarding_events
-                  WHERE event_type = 'install_completed' AND created_at >= :cutoff
+                  SELECT shop_domain FROM merchants
+                  WHERE install_status = 'active' AND installed_at >= :cutoff
               )
         """), {"step": step, "cutoff": cutoff}).scalar()
 
@@ -352,8 +352,8 @@ def get_aggregate_funnel(db: Session, days: int = 30) -> dict:
                 AS total_time
             FROM onboarding_events
             WHERE shop_domain IN (
-                SELECT DISTINCT shop_domain FROM onboarding_events
-                WHERE event_type = 'install_completed' AND created_at >= :cutoff
+                SELECT shop_domain FROM merchants
+                WHERE install_status = 'active' AND installed_at >= :cutoff
             )
             GROUP BY shop_domain
             HAVING MAX(CASE WHEN event_type = 'onboarding_complete' THEN 1 END) = 1
@@ -375,8 +375,8 @@ def get_aggregate_funnel(db: Session, days: int = 30) -> dict:
             FROM onboarding_events
             WHERE event_type = 'onboarding_complete'
               AND shop_domain IN (
-                  SELECT DISTINCT shop_domain FROM onboarding_events
-                  WHERE event_type = 'install_completed' AND created_at >= :cutoff
+                  SELECT shop_domain FROM merchants
+                  WHERE install_status = 'active' AND installed_at >= :cutoff
               )
             GROUP BY shop_domain
         ) sub

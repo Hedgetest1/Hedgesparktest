@@ -78,25 +78,19 @@ def get_distinct_shops(conn) -> list[str]:
 
 def run_event_retention(conn, now_ms: int) -> int:
     """
-    Delete events older than RETENTION_DAYS, one shop at a time.
+    Delete events older than RETENTION_DAYS in a single batch DELETE.
 
-    Each per-shop DELETE uses the events(shop_domain, timestamp DESC)
-    index efficiently. Returns total rows deleted across all shops.
+    Previously looped over N shops issuing N separate DELETEs (N+1 pattern).
+    At 10k merchants this serialised retention across thousands of round-trips.
+    A single DELETE with a plain timestamp filter hits the same index
+    (timestamp DESC) and removes the N+1 entirely. Returns total rows deleted.
     """
     cutoff_ms = now_ms - (RETENTION_DAYS * 24 * 3_600 * 1_000)
-    shops = get_distinct_shops(conn)
-    total_deleted = 0
-    for shop in shops:
-        result = conn.execute(
-            text("""
-                DELETE FROM events
-                WHERE shop_domain = :shop
-                  AND timestamp   < :cutoff_ms
-            """),
-            {"shop": shop, "cutoff_ms": cutoff_ms},
-        )
-        total_deleted += result.rowcount
-    return total_deleted
+    result = conn.execute(
+        text("DELETE FROM events WHERE timestamp < :cutoff_ms"),
+        {"cutoff_ms": cutoff_ms},
+    )
+    return result.rowcount
 
 
 def run_nudge_event_retention(conn) -> int:

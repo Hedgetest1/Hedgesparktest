@@ -538,7 +538,7 @@ def _run_cycle_inner() -> None:
                     # No active products this cycle — still refresh existing shops
                     try:
                         shop_rows = conn.execute(
-                            text("SELECT DISTINCT shop_domain FROM product_metrics LIMIT 50")
+                            text("SELECT shop_domain FROM merchants WHERE install_status = 'active'")
                         ).fetchall()
                         all_shops = {r[0] for r in shop_rows}
                     except Exception as exc:
