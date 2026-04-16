@@ -184,10 +184,12 @@ def get_monthly_cohorts(
         orders_per_customer = round(orders_total / size, 2)
         revenue_per_customer = round(revenue_total / size, 2)
 
-        # Repeat rate: fraction with 2+ orders
+        # Repeat rate: fraction with orders in 2+ DISTINCT months
+        # Industry standard: "repeat" means the customer returned in a
+        # different month, not just placed 2 orders in the same session.
         repeat_count = sum(
             1 for ck in members
-            if len(customer_orders[ck]) >= 2
+            if len({dt.strftime("%Y-%m") for dt, _ in customer_orders[ck]}) >= 2
         )
         repeat_rate = round(repeat_count / size, 4) if size > 0 else 0.0
 
