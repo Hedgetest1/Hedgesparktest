@@ -552,7 +552,12 @@ def _run_cycle_inner() -> None:
 
                 store_count = 0
                 exec_count = 0
+                _agg_budget_seconds = 240  # 4 min budget inside a 5 min cycle
+                _agg_start = time.monotonic()
                 for shop in all_shops:
+                    if time.monotonic() - _agg_start > _agg_budget_seconds:
+                        log(f"store_metrics: time budget exhausted ({_agg_budget_seconds}s) after {store_count} shops — yielding")
+                        break
                     try:
                         sm = _compute_store_metrics(conn, shop)
                         _upsert_store_metrics(conn, sm)

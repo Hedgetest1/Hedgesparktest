@@ -119,6 +119,8 @@ def run_cycle():
         # write is scoped to the correct tenant.  Querying product_url alone
         # (the previous behaviour) caused cross-tenant data contamination when
         # two shops had products at the same URL path.
+        _PAIR_LIMIT = 5000  # 10k-merchant safe: cap per-cycle to prevent unbounded loops
+        _TIME_BUDGET_SECONDS = 480  # 8 min budget inside a 10 min cycle
         pairs = (
             db.query(
                 VisitorProductState.shop_domain,
@@ -129,12 +131,18 @@ def run_cycle():
                 VisitorProductState.product_url.isnot(None),
             )
             .distinct()
+            .limit(_PAIR_LIMIT)
             .all()
         )
 
-        log(f"found {len(pairs)} (shop_domain, product_url) pairs")
+        log(f"found {len(pairs)} (shop_domain, product_url) pairs (limit {_PAIR_LIMIT})")
 
+        import time as _time
+        _cycle_start = _time.monotonic()
         for shop_domain, product_url in pairs:
+            if _time.monotonic() - _cycle_start > _TIME_BUDGET_SECONDS:
+                log(f"time budget exhausted ({_TIME_BUDGET_SECONDS}s) after {rows_written} rows — yielding")
+                break
             try:
                 update_product_opportunity(db, product_url, shop_domain)
                 log(f"updated opportunity for {shop_domain} | {product_url}")
