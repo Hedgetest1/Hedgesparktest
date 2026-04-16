@@ -213,7 +213,8 @@ def _measure_evolution_goal(
     }
 
     import os
-    backend_dir = "/opt/wishspark/backend"
+    from pathlib import Path as _Path
+    backend_dir = str(_Path(os.environ.get("REPO_ROOT", _Path(__file__).parent.parent.parent.parent)) / "backend")
 
     # Case 1: missing_tests — effective if the test file now exists
     if "missing_test" in proposal_type or "test" in (candidate.title or "").lower():

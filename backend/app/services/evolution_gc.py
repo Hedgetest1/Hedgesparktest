@@ -17,10 +17,16 @@ Cooldown: once per 24 hours (in-process monotonic clock).
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path as _Path
 from typing import NamedTuple
+
+# Derive backend root dynamically so GC checks work in CI (checked-out repo)
+# and on production (/opt/wishspark/backend/).
+_BACKEND_DIR = _Path(os.environ.get("REPO_ROOT", _Path(__file__).parent.parent.parent.parent)) / "backend"
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -170,9 +176,7 @@ def _detect_target_file_changes(db: Session, open_proposals: list[EvolutionPropo
 
     Uses git log to check file modification times. Safe and read-only.
     """
-    from pathlib import Path
-
-    backend_dir = Path("/opt/wishspark/backend")
+    backend_dir = _BACKEND_DIR
     count = 0
 
     for p in open_proposals:

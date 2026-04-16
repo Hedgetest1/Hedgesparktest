@@ -35,7 +35,8 @@ from app.models.evolution_proposal import EvolutionProposal, ENGINE_DEDUP_STATUS
 
 log = logging.getLogger("evolution_engine")
 
-_BACKEND_DIR = Path("/opt/wishspark/backend")
+# Derive backend root dynamically for CI portability.
+_BACKEND_DIR = Path(os.environ.get("REPO_ROOT", Path(__file__).parent.parent.parent.parent)) / "backend"
 
 # Module-level DB session override for weakness scoring. Set to an active
 # session to bypass creating a new one (used by tests for session isolation).

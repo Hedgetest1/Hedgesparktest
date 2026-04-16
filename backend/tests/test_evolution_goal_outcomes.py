@@ -17,6 +17,10 @@ import json
 import os
 import tempfile
 from datetime import datetime, timedelta, timezone
+from pathlib import Path as _Path
+
+# Derive backend root dynamically for CI portability.
+_BACKEND_DIR = str(_Path(os.environ.get("REPO_ROOT", _Path(__file__).parent.parent.parent)) / "backend")
 
 from app.models.bugfix_candidate import BugFixCandidate
 from app.services.evolution_outcomes import (
@@ -57,7 +61,7 @@ def test_missing_test_effective_when_file_exists(db):
     """A missing_tests fix is effective if the test file exists on disk."""
     # Use an actual test file that exists in the repo
     existing_test = "tests/test_bugfix_pipeline.py"
-    assert os.path.isfile(f"/opt/wishspark/backend/{existing_test}"), \
+    assert os.path.isfile(os.path.join(_BACKEND_DIR, existing_test)), \
         "sanity check — the test file must exist for this test to be meaningful"
 
     c = _mk_evo_candidate(

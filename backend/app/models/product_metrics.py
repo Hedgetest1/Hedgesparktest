@@ -94,6 +94,7 @@ class ProductMetrics(Base):
         nullable=False,
         default=utc_now_naive,
         onupdate=utc_now_naive,
+        server_default="now()",
     )
 
     __table_args__ = (

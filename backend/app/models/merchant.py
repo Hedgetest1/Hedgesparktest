@@ -21,7 +21,7 @@ class Merchant(Base):
     access_token   = Column(String,   nullable=True)
 
     plan           = Column(String,   nullable=False, default="starter",   server_default="starter")
-    installed_at   = Column(DateTime, default=_now_utc, nullable=False)
+    installed_at   = Column(DateTime, default=_now_utc, nullable=False, server_default="now()")
     billing_active = Column(Boolean,  default=False,   nullable=False,    server_default="false")
 
     # ---------------------------------------------------------------------------
