@@ -588,8 +588,8 @@ def get_security_guard_blocks_7d() -> int:
                 raw = raw.decode()
             try:
                 total += int(raw)
-            except ValueError:
-                pass
+            except ValueError as exc:
+                log.warning("bugfix_pipeline: get_fix_attempt_count: non-integer Redis value %r: %s", raw, exc)
     except Exception:
         return 0
     return total
@@ -1533,8 +1533,8 @@ def _should_skip_source(db: Session, source_type: str, source_ref: str, summary:
             )
             _escalate_thrashing(db, source_type, source_ref)
             return True
-    except ImportError:
-        pass
+    except ImportError as exc:
+        log.warning("bugfix_pipeline: _is_thrashing_source: thrash module unavailable, skipping suppression: %s", exc)
     return False
 
 
@@ -1847,8 +1847,8 @@ def backfill_priority_scores(db: Session, limit: int = 500) -> dict:
                             or _infer_alert_severity_from_context(c.source_type, ctx)
                         )
                         recurrence_count = int(ctx.get("recurrence_count") or 0)
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as exc:
+                    log.warning("bugfix_pipeline: _score_candidates: could not parse severity/recurrence from context: %s", exc)
 
             age_minutes = 0
             if c.created_at:
@@ -2184,8 +2184,8 @@ def _extract_json(raw: str) -> dict | None:
     # Fast path: try direct parse
     try:
         return json.loads(text)
-    except (json.JSONDecodeError, ValueError):
-        pass
+    except (json.JSONDecodeError, ValueError) as exc:
+        log.debug("bugfix_pipeline: _extract_json_from_text: direct parse failed, falling back to brace-matching: %s", exc)
 
     # Brace-matching: find the outermost { ... } handling string escaping
     start = text.find("{")
@@ -4279,8 +4279,8 @@ def _apply_bugfix_candidate_impl(db: Session, candidate_id: int) -> ApplyResult:
     if candidate.patch_files:
         try:
             _apply_files = json.loads(candidate.patch_files)
-        except (json.JSONDecodeError, ValueError):
-            pass
+        except (json.JSONDecodeError, ValueError) as exc:
+            log.warning("bugfix_pipeline: _apply_patch: could not parse patch_files JSON for candidate %s, treating as empty: %s", candidate.id, exc)
 
     if len(_apply_files) > _MAX_PATCH_FILES:
         result.status = "apply_failed"
@@ -4316,8 +4316,8 @@ def _apply_bugfix_candidate_impl(db: Session, candidate_id: int) -> ApplyResult:
             db.flush()
             _write_apply_alert(db, candidate, result)
             return result
-    except ImportError:
-        pass  # Fallback to legacy forbidden path check below
+    except ImportError as exc:
+        log.warning("bugfix_pipeline: _apply_patch: tier guard module unavailable, falling back to legacy path check: %s", exc)
 
     # Legacy forbidden path check (retained as defense-in-depth)
     forbidden = _check_forbidden_paths(candidate.patch_files)
@@ -4412,8 +4412,8 @@ def _apply_bugfix_candidate_impl(db: Session, candidate_id: int) -> ApplyResult:
             try:
                 _flist = json.loads(candidate.patch_files) if candidate.patch_files else []
                 _new_test_files = [f for f in _flist if f.startswith("tests/")]
-            except (json.JSONDecodeError, ValueError):
-                pass
+            except (json.JSONDecodeError, ValueError) as exc:
+                log.warning("bugfix_pipeline: _apply_patch: could not parse patch_files for new-file check on candidate %s: %s", candidate.id, exc)
 
         if _new_test_files:
             # For new test files: just verify they can be collected by pytest (syntax check)

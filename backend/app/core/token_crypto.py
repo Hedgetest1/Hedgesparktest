@@ -98,8 +98,8 @@ def _parse_key(raw: str) -> Optional[bytes]:
             key = bytes.fromhex(raw)
             if len(key) == 32:
                 return key
-        except ValueError:
-            pass
+        except ValueError as exc:
+            log.debug("token_crypto: _parse_key: hex decode failed, trying base64: %s", exc)
     try:
         key = base64.b64decode(raw + "==")
         if len(key) == 32:
