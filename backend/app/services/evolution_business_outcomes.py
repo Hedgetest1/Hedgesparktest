@@ -135,7 +135,7 @@ def _metrics_sql(shop_filter: bool) -> text:
               {shop_where_events}
         ),
         orders AS (
-            SELECT COUNT(*) AS n, COALESCE(SUM(total_price), 0)::float AS revenue
+            SELECT COUNT(*) AS n, COALESCE(SUM(total_price), 0) AS revenue
             FROM shop_orders
             WHERE created_at >= :start_ts
               AND created_at <  :end_ts

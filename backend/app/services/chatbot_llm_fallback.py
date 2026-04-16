@@ -219,7 +219,7 @@ def _build_rag_context(db: Session, shop_domain: str) -> dict[str, Any]:
                 """
                 SELECT
                     line->>'title' AS title,
-                    SUM((line->>'price')::float * (line->>'quantity')::int) AS revenue
+                    SUM((line->>'price')::numeric * (line->>'quantity')::int) AS revenue
                 FROM shop_orders so,
                      jsonb_array_elements(COALESCE(so.line_items, '[]'::jsonb)) AS line
                 WHERE so.shop_domain = :s AND so.created_at >= :c30

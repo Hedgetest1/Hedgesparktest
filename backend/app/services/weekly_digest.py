@@ -546,8 +546,8 @@ def _revenue_window(db: Session, shop: str, offset_days: int, end_days: int) -> 
         row = db.execute(
             text("""
                 SELECT COUNT(*)::int                        AS cnt,
-                       COALESCE(SUM(total_price), 0)::float AS rev,
-                       COALESCE(AVG(total_price), 0)::float AS aov
+                       COALESCE(SUM(total_price), 0) AS rev,
+                       COALESCE(AVG(total_price), 0) AS aov
                 FROM shop_orders
                 WHERE shop_domain = :shop
                   AND created_at >= NOW() - make_interval(days => :end_d)

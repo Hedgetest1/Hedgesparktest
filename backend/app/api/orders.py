@@ -191,8 +191,8 @@ def _query_window(db: Session, shop: str, days: int) -> dict:
             text("""
                 SELECT
                     COUNT(*)::int                        AS order_count,
-                    COALESCE(SUM(total_price), 0)::float AS total_revenue,
-                    COALESCE(AVG(total_price), 0)::float AS avg_order_value
+                    COALESCE(SUM(total_price), 0) AS total_revenue,
+                    COALESCE(AVG(total_price), 0) AS avg_order_value
                 FROM shop_orders
                 WHERE shop_domain = :shop
                   AND created_at >= NOW() - make_interval(days => :days)
@@ -280,7 +280,7 @@ def get_daily_revenue(
             text("""
                 SELECT
                     d.day::date                              AS day,
-                    COALESCE(SUM(so.total_price), 0)::float  AS revenue,
+                    COALESCE(SUM(so.total_price), 0)  AS revenue,
                     COUNT(so.id)::int                        AS orders
                 FROM generate_series(
                     (CURRENT_DATE - make_interval(days => :days - 1)),

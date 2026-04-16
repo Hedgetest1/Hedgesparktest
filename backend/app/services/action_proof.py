@@ -48,7 +48,7 @@ def _product_metrics_now(db: Session, shop: str, product_url: str, days: int = 7
         order_row = db.execute(
             text("""
                 SELECT COUNT(DISTINCT so.shopify_order_id)::int AS orders,
-                       COALESCE(SUM((item->>'price')::numeric * (item->>'quantity')::int), 0)::float AS revenue
+                       COALESCE(SUM((item->>'price')::numeric * (item->>'quantity')::int), 0) AS revenue
                 FROM shop_orders so,
                      jsonb_array_elements(so.line_items) AS item
                 WHERE so.shop_domain = :shop

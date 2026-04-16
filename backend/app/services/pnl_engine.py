@@ -132,7 +132,7 @@ def get_pnl_report(
             text("""
                 SELECT
                     COUNT(*)::int                        AS order_count,
-                    COALESCE(SUM(total_price), 0)::float AS gross_revenue
+                    COALESCE(SUM(total_price), 0) AS gross_revenue
                 FROM shop_orders
                 WHERE shop_domain = :shop
                   AND created_at >= NOW() - make_interval(days => :days)
@@ -467,8 +467,8 @@ def _compute_real_cogs(
                 )
                 SELECT
                     COUNT(DISTINCT pc.product_key)::int                           AS matched_products,
-                    COALESCE(SUM(pc.cogs_per_unit * li.quantity), 0)::float       AS real_cogs,
-                    COALESCE(SUM(li.unit_price * li.quantity),     0)::float      AS covered_revenue
+                    COALESCE(SUM(pc.cogs_per_unit * li.quantity), 0)       AS real_cogs,
+                    COALESCE(SUM(li.unit_price * li.quantity),     0)      AS covered_revenue
                 FROM line_items_expanded li
                 JOIN product_costs pc
                   ON pc.shop_domain = :shop

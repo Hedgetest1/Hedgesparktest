@@ -362,7 +362,7 @@ def _fetch_daily_series(
             text("""
                 SELECT
                     d.day::date AS day,
-                    COALESCE(SUM(so.total_price), 0)::float AS revenue
+                    COALESCE(SUM(so.total_price), 0) AS revenue
                 FROM generate_series(
                     (CURRENT_DATE - make_interval(days => :days - 1)),
                     CURRENT_DATE,

@@ -319,7 +319,7 @@ def _store_revenue(db: Session, shop: str, days: int) -> float:
     try:
         row = db.execute(
             text("""
-                SELECT COALESCE(SUM(total_price), 0)::float
+                SELECT COALESCE(SUM(total_price), 0)
                 FROM shop_orders
                 WHERE shop_domain = :shop
                   AND created_at >= NOW() - make_interval(days => :days)
