@@ -36,6 +36,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal, get_read_db
 from app.core.deps import require_pro_session
+from app.services.revenue_metrics import get_shop_currency
 
 log = logging.getLogger(__name__)
 
@@ -116,6 +117,7 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
     c_7d = now - timedelta(days=7)
     c_14d = now - timedelta(days=14)
     c_30d = now - timedelta(days=30)
+    currency = get_shop_currency(db, shop)
 
     breakdown: list[dict] = []
 
@@ -159,9 +161,10 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
                         FROM shop_orders
                         WHERE shop_domain = :shop
                           AND created_at >= NOW() - INTERVAL '30 days'
+                          AND (:currency IS NULL OR currency = :currency)
                         """
                     ),
-                    {"shop": shop},
+                    {"shop": shop, "currency": currency},
                 ).scalar()
                 aov = float(aov_row or 50)
             except Exception:
@@ -288,9 +291,10 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
                         FROM shop_orders
                         WHERE shop_domain = :shop
                           AND created_at >= NOW() - INTERVAL '30 days'
+                          AND (:currency IS NULL OR currency = :currency)
                         """
                     ),
-                    {"shop": shop},
+                    {"shop": shop, "currency": currency},
                 ).scalar()
                 or 50
             )
@@ -341,8 +345,9 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
                     SELECT COALESCE(AVG(total_price), 50)
                     FROM shop_orders
                     WHERE shop_domain = :shop
+                      AND (:currency IS NULL OR currency = :currency)
                 """),
-                {"shop": shop},
+                {"shop": shop, "currency": currency},
             ).scalar()
             aov_all = float(aov_row or 50)
         except Exception:
@@ -409,8 +414,9 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
                         FROM shop_orders
                         WHERE shop_domain = :shop
                           AND created_at >= NOW() - INTERVAL '30 days'
+                          AND (:currency IS NULL OR currency = :currency)
                     """),
-                    {"shop": shop},
+                    {"shop": shop, "currency": currency},
                 ).scalar()
                 aov_for_top = float(aov_row or 50)
             except Exception:

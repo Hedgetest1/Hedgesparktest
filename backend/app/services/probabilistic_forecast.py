@@ -39,6 +39,8 @@ from typing import Sequence
 from sqlalchemy import text as sql_text
 from sqlalchemy.orm import Session
 
+from app.services.revenue_metrics import get_shop_currency, get_shop_timezone
+
 log = logging.getLogger("probabilistic_forecast")
 
 _MIN_POINTS_FOR_FORECAST = 7
@@ -138,21 +140,24 @@ def forecast_revenue(
     `horizon_days` ahead with 80/95% prediction intervals."""
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     since = now - timedelta(days=window_days)
+    currency = get_shop_currency(db, shop_domain)
+    tz = get_shop_timezone(db, shop_domain)
 
     try:
         rows = db.execute(
             sql_text(
                 """
-                SELECT DATE(created_at) AS d,
+                SELECT (created_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date AS d,
                        COALESCE(SUM(total_price), 0) AS rev
                 FROM shop_orders
                 WHERE shop_domain = :shop
                   AND created_at >= :since
-                GROUP BY DATE(created_at)
+                  AND (:currency IS NULL OR currency = :currency)
+                GROUP BY (created_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date
                 ORDER BY d ASC
                 """
             ),
-            {"shop": shop_domain, "since": since},
+            {"shop": shop_domain, "since": since, "currency": currency, "tz": tz},
         ).fetchall()
     except Exception as exc:
         log.warning("forecast: revenue query failed: %s", exc)

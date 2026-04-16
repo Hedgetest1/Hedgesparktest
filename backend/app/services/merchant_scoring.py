@@ -25,6 +25,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.services.revenue_metrics import get_shop_currency
+
 log = logging.getLogger("merchant_scoring")
 
 
@@ -76,11 +78,13 @@ def score_merchant(db: Session, shop_domain: str) -> MerchantScore:
         WHERE os.shop_domain = :shop AND os.expires_at > now()
     """), {"shop": shop_domain}).scalar() or 0.0
 
+    currency = get_shop_currency(db, shop_domain)
     monthly_rev = db.execute(text("""
         SELECT COALESCE(SUM(total_price), 0)
         FROM shop_orders
         WHERE shop_domain = :shop AND created_at >= :cutoff
-    """), {"shop": shop_domain, "cutoff": _now() - timedelta(days=30)}).scalar() or 0.0
+          AND (:currency IS NULL OR currency = :currency)
+    """), {"shop": shop_domain, "cutoff": _now() - timedelta(days=30), "currency": currency}).scalar() or 0.0
 
     return MerchantScore(
         shop_domain=shop_domain,
@@ -135,11 +139,13 @@ def _score_traffic(db: Session, shop: str) -> int:
 
 def _score_revenue(db: Session, shop: str) -> int:
     """Score based on actual order volume. Revenue proves the merchant is real."""
+    currency = get_shop_currency(db, shop)
     row = db.execute(text("""
         SELECT COUNT(*), COALESCE(SUM(total_price), 0)
         FROM shop_orders
         WHERE shop_domain = :shop AND created_at >= :cutoff
-    """), {"shop": shop, "cutoff": _now() - timedelta(days=30)}).first()
+          AND (:currency IS NULL OR currency = :currency)
+    """), {"shop": shop, "cutoff": _now() - timedelta(days=30), "currency": currency}).first()
 
     order_count = row[0] if row else 0
     revenue = row[1] if row else 0

@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
 from app.core.deps import require_pro_session
+from app.services.revenue_metrics import get_shop_currency
 
 router = APIRouter(prefix="/pro", tags=["daily_narrative"])
 
@@ -57,6 +58,7 @@ class DailyNarrativeResponse(BaseModel):
 def _compute_narrative(db: Session, shop: str) -> dict:
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    currency = get_shop_currency(db, shop)
     # events.timestamp is epoch milliseconds (NOT a `ts` column)
     start_of_day_ms = int(start_of_day.timestamp() * 1000)
 
@@ -140,9 +142,10 @@ def _compute_narrative(db: Session, shop: str) -> dict:
                     """
                     SELECT COALESCE(SUM(total_price), 0) FROM shop_orders
                     WHERE shop_domain = :shop AND created_at >= :c
+                      AND (:currency IS NULL OR currency = :currency)
                     """
                 ),
-                {"shop": shop, "c": start_of_day},
+                {"shop": shop, "c": start_of_day, "currency": currency},
             ).scalar()
             or 0
         )

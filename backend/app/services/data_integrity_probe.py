@@ -47,6 +47,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.services.revenue_metrics import get_shop_currency, get_shop_timezone
+
 log = logging.getLogger("data_integrity_probe")
 
 # ---------------------------------------------------------------------------
@@ -134,17 +136,20 @@ def _compute_merchant_baseline(db: Session, shop: str) -> dict | None:
 
     now = _now()
     cutoff = now - timedelta(days=90)
+    currency = get_shop_currency(db, shop)
+    tz = get_shop_timezone(db, shop)
     rows = db.execute(text("""
         SELECT
-            DATE(created_at) AS day,
-            EXTRACT(DOW FROM created_at)::int AS dow,
+            (created_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date AS day,
+            EXTRACT(DOW FROM created_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::int AS dow,
             SUM(total_price) AS revenue
         FROM shop_orders
         WHERE shop_domain = :shop
           AND created_at >= :cutoff
+          AND (:currency IS NULL OR currency = :currency)
         GROUP BY day, dow
         ORDER BY day
-    """), {"shop": shop, "cutoff": cutoff}).fetchall()
+    """), {"shop": shop, "cutoff": cutoff, "currency": currency, "tz": tz}).fetchall()
 
     if len(rows) < _MIN_BASELINE_DAYS:
         return None
@@ -216,11 +221,13 @@ def _check_merchant_anomaly(db: Session, shop: str) -> DriftFinding | None:
 
     now = _now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    currency = get_shop_currency(db, shop)
     row = db.execute(text("""
         SELECT COALESCE(SUM(total_price), 0)
         FROM shop_orders
         WHERE shop_domain = :shop AND created_at >= :start
-    """), {"shop": shop, "start": today_start}).fetchone()
+          AND (:currency IS NULL OR currency = :currency)
+    """), {"shop": shop, "start": today_start, "currency": currency}).fetchone()
     if not row:
         return None
 

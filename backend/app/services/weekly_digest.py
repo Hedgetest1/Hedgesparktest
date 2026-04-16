@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.models.opportunity_signal import OpportunitySignal
 from app.services.signal_text import humanize_signal, humanize_action, humanize_headline
 from app.services.revenue_loss import calculate_expected_loss
-from app.services.revenue_metrics import get_shop_aov
+from app.services.revenue_metrics import get_shop_aov, get_shop_currency
 from app.services.action_proof import get_proof_summary
 from app.services.proof_engine import get_digest_proof
 
@@ -542,6 +542,7 @@ def _aggregate_revenue_at_risk(
 
 def _revenue_window(db: Session, shop: str, offset_days: int, end_days: int) -> dict:
     """Revenue stats for shop_orders created between (now - end_days) and (now - offset_days)."""
+    currency = get_shop_currency(db, shop)
     try:
         row = db.execute(
             text("""
@@ -552,8 +553,9 @@ def _revenue_window(db: Session, shop: str, offset_days: int, end_days: int) -> 
                 WHERE shop_domain = :shop
                   AND created_at >= NOW() - make_interval(days => :end_d)
                   AND created_at <  NOW() - make_interval(days => :off_d)
+                  AND (:currency IS NULL OR currency = :currency)
             """),
-            {"shop": shop, "end_d": end_days, "off_d": offset_days},
+            {"shop": shop, "end_d": end_days, "off_d": offset_days, "currency": currency},
         ).fetchone()
         return {
             "order_count": int(row[0] or 0),

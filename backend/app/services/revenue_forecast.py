@@ -354,8 +354,9 @@ def _fetch_daily_series(
     Fetch daily revenue series from shop_orders.
     Returns (currency, [(date, revenue), ...]) zero-filled.
     """
-    from app.services.revenue_metrics import get_shop_currency
+    from app.services.revenue_metrics import get_shop_currency, get_shop_timezone
     currency = get_shop_currency(db, shop_domain) or "USD"
+    tz = get_shop_timezone(db, shop_domain)
 
     try:
         rows = db.execute(
@@ -370,11 +371,12 @@ def _fetch_daily_series(
                 ) AS d(day)
                 LEFT JOIN shop_orders so
                     ON so.shop_domain = :shop
-                   AND so.created_at::date = d.day::date
+                   AND (so.created_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date = d.day::date
+                   AND (:currency IS NULL OR so.currency = :currency)
                 GROUP BY d.day
                 ORDER BY d.day ASC
             """),
-            {"shop": shop_domain, "days": days},
+            {"shop": shop_domain, "days": days, "currency": currency, "tz": tz},
         ).fetchall()
 
         series = [(r[0], float(r[1] or 0)) for r in rows]
@@ -389,16 +391,19 @@ def _fetch_daily_order_counts(
     db: Session, shop_domain: str, days: int,
 ) -> dict[str, int]:
     """Fetch daily order counts keyed by ISO date string."""
+    from app.services.revenue_metrics import get_shop_timezone
+    tz = get_shop_timezone(db, shop_domain)
     try:
         rows = db.execute(
             text("""
-                SELECT created_at::date AS day, COUNT(*)::int AS cnt
+                SELECT (created_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date AS day,
+                       COUNT(*)::int AS cnt
                 FROM shop_orders
                 WHERE shop_domain = :shop
                   AND created_at >= (CURRENT_DATE - make_interval(days => :days - 1))
-                GROUP BY created_at::date
+                GROUP BY (created_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date
             """),
-            {"shop": shop_domain, "days": days},
+            {"shop": shop_domain, "days": days, "tz": tz},
         ).fetchall()
         return {str(r[0]): int(r[1]) for r in rows}
     except Exception:

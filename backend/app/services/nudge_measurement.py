@@ -512,9 +512,11 @@ def get_nudge_attribution(
     exposed_visitors : pre-computed from get_nudge_stats() to avoid a
         redundant query when both are called in sequence.
     """
+    from app.services.revenue_metrics import get_shop_currency
     if exposed_visitors is None:
         exposed_visitors = get_nudge_stats(db, shop_domain, nudge_id)["exposures"]
 
+    currency = get_shop_currency(db, shop_domain)
     window_secs = window_hours * 3600
 
     try:
@@ -550,8 +552,9 @@ def get_nudge_attribution(
                 LEFT JOIN shop_orders so
                   ON  so.shopify_order_id = ap.shopify_order_id
                   AND so.shop_domain      = :shop
+                  AND (:currency IS NULL OR so.currency = :currency)
             """),
-            {"shop": shop_domain, "nudge_id": nudge_id, "window_secs": window_secs},
+            {"shop": shop_domain, "nudge_id": nudge_id, "window_secs": window_secs, "currency": currency},
         ).fetchone()
 
     except Exception as exc:
@@ -857,9 +860,11 @@ def get_holdout_attribution(
     holdout_count : pre-computed from get_holdout_stats() to avoid a
         redundant query when both are called in sequence.
     """
+    from app.services.revenue_metrics import get_shop_currency
     if holdout_count is None:
         holdout_count = get_holdout_stats(db, shop_domain, nudge_id)["holdout_count"]
 
+    currency = get_shop_currency(db, shop_domain)
     window_secs = window_hours * 3600
 
     try:
@@ -895,8 +900,9 @@ def get_holdout_attribution(
                 LEFT JOIN shop_orders so
                   ON  so.shopify_order_id = ap.shopify_order_id
                   AND so.shop_domain      = :shop
+                  AND (:currency IS NULL OR so.currency = :currency)
             """),
-            {"shop": shop_domain, "nudge_id": nudge_id, "window_secs": window_secs},
+            {"shop": shop_domain, "nudge_id": nudge_id, "window_secs": window_secs, "currency": currency},
         ).fetchone()
 
     except Exception as exc:

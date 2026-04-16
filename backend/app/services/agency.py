@@ -146,6 +146,7 @@ def get_agency_dashboard(db: Session, agency_id: int, *, lookback_days: int = 30
     cutoff = _now() - timedelta(days=lookback_days)
     shops = [c.shop_domain for c in clients]
 
+    # TODO(currency): multi-shop aggregation needs per-shop currency
     rows = db.execute(text("""
         SELECT shop_domain,
                COALESCE(SUM(total_price), 0) AS revenue,

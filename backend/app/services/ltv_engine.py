@@ -324,10 +324,13 @@ def get_product_ltv_contribution(
     the product is a "gateway" (first purchase) or "repeat" product.
     """
     from app.core.redis_client import cache_get, cache_set
+    from app.services.revenue_metrics import get_shop_currency
     cache_key = f"hs:ltv:products:{shop_domain}:{limit}"
     cached = cache_get(cache_key)
     if cached is not None:
         return cached
+
+    currency = get_shop_currency(db, shop_domain)
 
     try:
         result = db.execute(
@@ -341,6 +344,7 @@ def get_product_ltv_contribution(
                     FROM shop_orders
                     WHERE shop_domain = :shop
                       AND (customer_id IS NOT NULL OR customer_email IS NOT NULL)
+                      AND (:currency IS NULL OR currency = :currency)
                     GROUP BY cust_key
                 ),
                 product_buyers AS (
@@ -353,6 +357,7 @@ def get_product_ltv_contribution(
                          jsonb_array_elements(so.line_items) li
                     WHERE so.shop_domain = :shop
                       AND (so.customer_id IS NOT NULL OR so.customer_email IS NOT NULL)
+                      AND (:currency IS NULL OR so.currency = :currency)
                 )
                 SELECT
                     pb.product_key,
@@ -373,7 +378,7 @@ def get_product_ltv_contribution(
                 ORDER BY avg_buyer_ltv DESC
                 LIMIT :limit
             """),
-            {"shop": shop_domain, "limit": limit},
+            {"shop": shop_domain, "limit": limit, "currency": currency},
         )
         rows = result.fetchall()
     except Exception as exc:
@@ -411,11 +416,13 @@ def get_predicted_ltv(
     - High AOV + recent = high predicted value
     """
     from app.core.redis_client import cache_get, cache_set
+    from app.services.revenue_metrics import get_shop_currency
     cache_key = f"hs:ltv:predicted:{shop_domain}:{limit}"
     cached = cache_get(cache_key)
     if cached is not None:
         return cached
 
+    currency = get_shop_currency(db, shop_domain)
     now = _now()
     try:
         result = db.execute(
@@ -432,11 +439,12 @@ def get_predicted_ltv(
                 FROM shop_orders
                 WHERE shop_domain = :shop
                   AND (customer_id IS NOT NULL OR customer_email IS NOT NULL)
+                  AND (:currency IS NULL OR currency = :currency)
                 GROUP BY cust_key, customer_email
                 ORDER BY total_spend DESC
                 LIMIT :limit
             """),
-            {"shop": shop_domain, "now": now, "limit": limit},
+            {"shop": shop_domain, "now": now, "limit": limit, "currency": currency},
         )
         rows = result.fetchall()
     except Exception as exc:

@@ -139,6 +139,7 @@ def _metrics_sql(shop_filter: bool) -> text:
             FROM shop_orders
             WHERE created_at >= :start_ts
               AND created_at <  :end_ts
+              AND (:currency IS NULL OR currency = :currency)
               {shop_where_orders}
         )
         SELECT
@@ -158,13 +159,16 @@ def _metrics_for_window(
     Return aggregated metrics over [start, end). If scope_shops is a non-empty
     list, restricts to those shop_domains; otherwise measures globally.
     """
+    from app.services.revenue_metrics import get_shop_currency
     start_epoch_ms = int(start.replace(tzinfo=timezone.utc).timestamp() * 1000)
     end_epoch_ms = int(end.replace(tzinfo=timezone.utc).timestamp() * 1000)
+    currency = get_shop_currency(db, scope_shops[0]) if scope_shops and len(scope_shops) == 1 else None
     params = {
         "start_epoch_ms": start_epoch_ms,
         "end_epoch_ms": end_epoch_ms,
         "start_ts": start,
         "end_ts": end,
+        "currency": currency,
     }
     if scope_shops:
         params["shops"] = list(scope_shops)

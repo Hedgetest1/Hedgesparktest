@@ -37,6 +37,7 @@ from typing import Literal
 from sqlalchemy.orm import Session
 
 from app.core.silent_fallback import record_silent_return
+from app.services.revenue_metrics import get_shop_currency
 
 log = logging.getLogger("goals")
 
@@ -225,13 +226,15 @@ def _compute_current_value(db: Session, shop_domain: str, metric: str) -> float:
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    currency = get_shop_currency(db, shop_domain)
 
     if metric == "monthly_revenue":
         row = db.execute(text("""
             SELECT COALESCE(SUM(total_price), 0)
             FROM shop_orders
             WHERE shop_domain = :shop AND created_at >= :start
-        """), {"shop": shop_domain, "start": month_start}).fetchone()
+              AND (:currency IS NULL OR currency = :currency)
+        """), {"shop": shop_domain, "start": month_start, "currency": currency}).fetchone()
         return float(row[0] or 0)
 
     if metric == "monthly_orders":
@@ -239,7 +242,8 @@ def _compute_current_value(db: Session, shop_domain: str, metric: str) -> float:
             SELECT COUNT(*)
             FROM shop_orders
             WHERE shop_domain = :shop AND created_at >= :start
-        """), {"shop": shop_domain, "start": month_start}).fetchone()
+              AND (:currency IS NULL OR currency = :currency)
+        """), {"shop": shop_domain, "start": month_start, "currency": currency}).fetchone()
         return float(row[0] or 0)
 
     if metric == "aov":
@@ -247,7 +251,8 @@ def _compute_current_value(db: Session, shop_domain: str, metric: str) -> float:
             SELECT COALESCE(AVG(total_price), 0)
             FROM shop_orders
             WHERE shop_domain = :shop AND created_at >= :start
-        """), {"shop": shop_domain, "start": month_start}).fetchone()
+              AND (:currency IS NULL OR currency = :currency)
+        """), {"shop": shop_domain, "start": month_start, "currency": currency}).fetchone()
         return float(row[0] or 0)
 
     if metric == "cvr":

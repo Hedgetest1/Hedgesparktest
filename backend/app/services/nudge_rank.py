@@ -194,6 +194,8 @@ def _batch_group_attribution(
 
     nudge_ids are DB integers — safe for direct interpolation.
     """
+    from app.services.revenue_metrics import get_shop_currency
+    currency = get_shop_currency(db, shop_domain)
     id_list = ", ".join(str(i) for i in nudge_ids)
     sql = text(f"""
         WITH first_events AS (
@@ -230,6 +232,7 @@ def _batch_group_attribution(
         LEFT JOIN shop_orders so
           ON  so.shopify_order_id = ap.shopify_order_id
           AND so.shop_domain      = :shop
+          AND (:currency IS NULL OR so.currency = :currency)
         GROUP BY ap.nudge_id
     """)
 
@@ -237,6 +240,7 @@ def _batch_group_attribution(
         "shop":        shop_domain,
         "event_type":  event_type,
         "window_secs": window_secs,
+        "currency":    currency,
     }).mappings().all()
 
     result: dict[int, dict] = {}

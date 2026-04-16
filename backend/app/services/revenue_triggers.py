@@ -30,6 +30,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.services.revenue_metrics import get_shop_currency
+
 log = logging.getLogger("revenue_triggers")
 
 _TRIGGER_COOLDOWN_HOURS = 48
@@ -251,10 +253,12 @@ def _product_name(db: Session, shop: str, product_url: str) -> str:
 
 def _get_aov(db: Session, shop: str) -> float:
     """Get average order value for a shop. Falls back to €50 if no data."""
+    currency = get_shop_currency(db, shop)
     row = db.execute(text("""
         SELECT AVG(total_price) FROM shop_orders
         WHERE shop_domain = :shop AND created_at >= :cutoff
-    """), {"shop": shop, "cutoff": _now() - timedelta(days=30)}).scalar()
+          AND (:currency IS NULL OR currency = :currency)
+    """), {"shop": shop, "cutoff": _now() - timedelta(days=30), "currency": currency}).scalar()
     return float(row) if row else 50.0
 
 

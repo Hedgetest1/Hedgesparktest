@@ -40,6 +40,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import require_pro_session
+from app.services.revenue_metrics import get_shop_currency
 
 log = logging.getLogger("counterfactual")
 
@@ -75,6 +76,7 @@ def _shop_aov(db: Session, shop: str) -> tuple[float, bool]:
     We deliberately catch only SQLAlchemyError so that coding bugs (NameError,
     KeyError, etc.) surface instead of being silently swallowed."""
     from sqlalchemy.exc import SQLAlchemyError
+    currency = get_shop_currency(db, shop)
     try:
         row = db.execute(
             text(
@@ -83,9 +85,10 @@ def _shop_aov(db: Session, shop: str) -> tuple[float, bool]:
                 FROM shop_orders
                 WHERE shop_domain = :shop
                   AND created_at >= NOW() - INTERVAL '30 days'
+                  AND (:currency IS NULL OR currency = :currency)
                 """
             ),
-            {"shop": shop},
+            {"shop": shop, "currency": currency},
         ).fetchone()
         if row and row[1] and row[0]:
             return float(row[0]), True

@@ -418,6 +418,8 @@ def compute_impact_signal(
         before_start = incident_created_at - timedelta(hours=24)
         after_end = incident_created_at + timedelta(hours=24)
 
+        from app.services.revenue_metrics import get_shop_currency
+        currency = get_shop_currency(db, shop_domain)
         row = db.execute(text("""
             SELECT
                 COUNT(*) FILTER (WHERE created_at < :incident_at) AS orders_before,
@@ -428,11 +430,13 @@ def compute_impact_signal(
             WHERE shop_domain = :shop
               AND created_at >= :before_start
               AND created_at < :after_end
+              AND (:currency IS NULL OR currency = :currency)
         """), {
             "shop": shop_domain,
             "incident_at": incident_created_at,
             "before_start": before_start,
             "after_end": after_end,
+            "currency": currency,
         }).fetchone()
 
         if row and (row[0] or 0) >= 3:

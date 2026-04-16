@@ -30,6 +30,8 @@ import hashlib
 import json
 import logging
 import math
+
+from app.services.revenue_metrics import get_shop_currency
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
@@ -83,6 +85,7 @@ def compute_revenue_genome(db: Session, shop_domain: str) -> dict:
         pass
 
     now = _now()
+    currency = get_shop_currency(db, shop_domain)
     genes = {}
 
     # ═══════════════════════════════════════════════════════════
@@ -242,9 +245,10 @@ def compute_revenue_genome(db: Session, shop_domain: str) -> dict:
             FROM shop_orders
             WHERE shop_domain = :shop
               AND created_at >= :cutoff
+              AND (:currency IS NULL OR currency = :currency)
               AND customer_email IS NOT NULL
               AND customer_email != ''
-        """), {"shop": shop_domain, "cutoff": now - timedelta(days=90)}).fetchone()
+        """), {"shop": shop_domain, "cutoff": now - timedelta(days=90), "currency": currency}).fetchone()
 
         total_customers = customer[0] or 0
         total_orders = customer[1] or 0
@@ -323,9 +327,10 @@ def compute_revenue_genome(db: Session, shop_domain: str) -> dict:
             FROM shop_orders
             WHERE shop_domain = :shop
               AND created_at >= :cutoff
+              AND (:currency IS NULL OR currency = :currency)
             GROUP BY week
             ORDER BY week
-        """), {"shop": shop_domain, "cutoff": now - timedelta(days=90)}).fetchall()
+        """), {"shop": shop_domain, "cutoff": now - timedelta(days=90), "currency": currency}).fetchall()
 
         revs = [float(r[1] or 0) for r in weekly_rev]
         if len(revs) >= 4:

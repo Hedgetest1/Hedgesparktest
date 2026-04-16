@@ -150,6 +150,7 @@ def get_group_dashboard(db: Session, group_id: int, *, lookback_days: int = 30) 
     cutoff = _now() - timedelta(days=lookback_days)
     shops = [m.shop_domain for m in members]
 
+    # TODO(currency): multi-shop aggregation needs per-shop currency
     rows = db.execute(text("""
         SELECT shop_domain,
                COALESCE(SUM(total_price), 0) AS revenue,

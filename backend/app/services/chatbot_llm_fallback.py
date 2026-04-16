@@ -187,6 +187,8 @@ def _build_rag_context(db: Session, shop_domain: str) -> dict[str, Any]:
     c7 = now - timedelta(days=7)
     c30 = now - timedelta(days=30)
 
+    from app.services.revenue_metrics import get_shop_currency
+    currency = get_shop_currency(db, shop_domain)
     context: dict[str, Any] = {"shop_domain": shop_domain}
 
     try:
@@ -200,9 +202,10 @@ def _build_rag_context(db: Session, shop_domain: str) -> dict[str, Any]:
                     COALESCE(SUM(CASE WHEN created_at >= :c7 THEN total_price ELSE 0 END), 0) AS revenue_7d
                 FROM shop_orders
                 WHERE shop_domain = :s AND created_at >= :c30
+                  AND (:currency IS NULL OR currency = :currency)
                 """
             ),
-            {"s": shop_domain, "c7": c7, "c30": c30},
+            {"s": shop_domain, "c7": c7, "c30": c30, "currency": currency},
         ).fetchone()
         if row:
             context["orders_30d"] = int(row[0] or 0)

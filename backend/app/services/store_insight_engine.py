@@ -84,8 +84,10 @@ class ProductSignal:
 
 def _gather_wow(db: Session, shop_domain: str) -> WoWMetrics:
     """Gather week-over-week order/revenue data."""
+    from app.services.revenue_metrics import get_shop_currency
     m = WoWMetrics()
     now = _now()
+    currency = get_shop_currency(db, shop_domain)
     try:
         row = db.execute(sql_text("""
             SELECT
@@ -96,10 +98,12 @@ def _gather_wow(db: Session, shop_domain: str) -> WoWMetrics:
             FROM shop_orders
             WHERE shop_domain = :shop
               AND created_at >= :two_weeks_ago
+              AND (:currency IS NULL OR currency = :currency)
         """), {
             "shop": shop_domain,
             "this_week": now - timedelta(days=7),
             "two_weeks_ago": now - timedelta(days=14),
+            "currency": currency,
         }).fetchone()
         if row:
             m.orders_this = row[0] or 0

@@ -57,6 +57,8 @@ from decimal import Decimal
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.services.revenue_metrics import get_shop_currency
+
 log = logging.getLogger(__name__)
 
 
@@ -127,6 +129,7 @@ def get_pnl_report(
     # ------------------------------------------------------------------
     # 2. Pull gross revenue + order count from shop_orders.
     # ------------------------------------------------------------------
+    currency = get_shop_currency(db, shop_domain)
     try:
         row = db.execute(
             text("""
@@ -136,8 +139,9 @@ def get_pnl_report(
                 FROM shop_orders
                 WHERE shop_domain = :shop
                   AND created_at >= NOW() - make_interval(days => :days)
+                  AND (:currency IS NULL OR currency = :currency)
             """),
-            {"shop": shop_domain, "days": window_days},
+            {"shop": shop_domain, "days": window_days, "currency": currency},
         ).fetchone()
     except Exception as exc:
         log.error("pnl_engine: revenue query failed shop=%s: %s", shop_domain, exc)
@@ -153,7 +157,6 @@ def get_pnl_report(
     # 3. Resolve native currency for display.
     # ------------------------------------------------------------------
     try:
-        from app.services.revenue_metrics import get_shop_currency
         currency = get_shop_currency(db, shop_domain) or "USD"
     except Exception:
         currency = "USD"

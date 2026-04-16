@@ -36,6 +36,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import text as sql_text
 from sqlalchemy.orm import Session
 
+from app.services.revenue_metrics import get_shop_currency
+
 log = logging.getLogger("margin_guard")
 
 _CACHE_PREFIX = "hs:margin_snapshot"
@@ -106,14 +108,16 @@ def _compute_margin_snapshot(db: Session, shop_domain: str) -> dict:
     cutoff = now - timedelta(days=30)
 
     # Revenue (shop_orders)
+    currency = get_shop_currency(db, shop_domain)
     try:
         revenue = float(
             db.execute(
                 sql_text(
                     "SELECT COALESCE(SUM(total_price), 0) FROM shop_orders "
-                    "WHERE shop_domain = :s AND created_at >= :c"
+                    "WHERE shop_domain = :s AND created_at >= :c "
+                    "AND (:currency IS NULL OR currency = :currency)"
                 ),
-                {"s": shop_domain, "c": cutoff},
+                {"s": shop_domain, "c": cutoff, "currency": currency},
             ).scalar()
             or 0
         )

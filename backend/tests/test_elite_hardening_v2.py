@@ -1042,16 +1042,16 @@ _RAW_SQL_FSTRING_ALLOWLIST: set[str] = {
     "app/api/execution_actions.py:384",
     "app/services/weekly_digest.py:476",
     "app/services/evolution_business_outcomes.py:120",
-    "app/services/utm_attribution.py:108",
+    "app/services/utm_attribution.py:111",
     "app/services/simulation_engine.py:317",
     "app/services/simulation_engine.py:665",
     "app/services/nudge_rank.py:148",
-    "app/services/nudge_rank.py:198",
+    "app/services/nudge_rank.py:200",
     "app/services/evolution_outcomes.py:624",
     "app/services/execution_engine.py:713",
     "app/services/execution_engine.py:722",
     "app/services/email_performance.py:63",
-    "app/services/scoring_calibration.py:551",
+    "app/services/scoring_calibration.py:555",
     # gdpr_processor: where clause built from hardcoded ":cid"/":email"
     # filter strings joined with " OR ". Parameters are bound via the
     # second arg to execute().

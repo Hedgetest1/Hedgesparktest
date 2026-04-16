@@ -32,7 +32,7 @@ from app.services.nudge_measurement import (
     get_nudge_lift_report,
 )
 from app.services.action_proof import get_proof_summary
-from app.services.revenue_metrics import get_shop_aov
+from app.services.revenue_metrics import get_shop_aov, get_shop_currency
 
 log = logging.getLogger(__name__)
 
@@ -316,6 +316,7 @@ def _safe_action_revenue(action_proof: dict) -> float:
 # ---------------------------------------------------------------------------
 
 def _store_revenue(db: Session, shop: str, days: int) -> float:
+    currency = get_shop_currency(db, shop)
     try:
         row = db.execute(
             text("""
@@ -323,8 +324,9 @@ def _store_revenue(db: Session, shop: str, days: int) -> float:
                 FROM shop_orders
                 WHERE shop_domain = :shop
                   AND created_at >= NOW() - make_interval(days => :days)
+                  AND (:currency IS NULL OR currency = :currency)
             """),
-            {"shop": shop, "days": days},
+            {"shop": shop, "days": days, "currency": currency},
         ).fetchone()
         return float(row[0] or 0) if row else 0.0
     except Exception:

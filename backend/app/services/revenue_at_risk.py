@@ -42,6 +42,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.services.revenue_metrics import get_shop_currency
+
 log = logging.getLogger("revenue_at_risk")
 
 _CACHE_TTL_SECONDS = 5 * 60  # 5 minutes — cheap live updates
@@ -110,13 +112,15 @@ def _compute_abandoned_high_intent(db: Session, shop: str) -> RARSComponent:
     """
     now = _now()
     cutoff_ms = int((now - timedelta(days=30)).timestamp() * 1000)
+    currency = get_shop_currency(db, shop)
 
     try:
         row = db.execute(text("""
             SELECT
                 COUNT(DISTINCT e.visitor_id) AS high_intent_visitors,
                 (SELECT COALESCE(AVG(total_price), 0) FROM shop_orders
-                 WHERE shop_domain = :shop AND created_at >= NOW() - INTERVAL '30 days') AS aov
+                 WHERE shop_domain = :shop AND created_at >= NOW() - INTERVAL '30 days'
+                   AND (:currency IS NULL OR currency = :currency)) AS aov
             FROM events e
             WHERE e.shop_domain = :shop
               AND e.timestamp >= :cutoff_ms
@@ -129,7 +133,7 @@ def _compute_abandoned_high_intent(db: Session, shop: str) -> RARSComponent:
                   WHERE vps.shop_domain = e.shop_domain
                     AND vps.visitor_id = e.visitor_id
               )
-        """), {"shop": shop, "cutoff_ms": cutoff_ms}).fetchone()
+        """), {"shop": shop, "cutoff_ms": cutoff_ms, "currency": currency}).fetchone()
     except Exception as exc:
         log.debug("rars: abandoned_high_intent query failed: %s", exc)
         return RARSComponent(
@@ -208,6 +212,7 @@ def _compute_nudge_gap(db: Session, shop: str) -> RARSComponent:
     go on to purchase, times the AOV × expected lift a working nudge
     would have delivered (~5-15% effective lift).
     """
+    currency = get_shop_currency(db, shop)
     try:
         row = db.execute(text("""
             SELECT
@@ -220,11 +225,12 @@ def _compute_nudge_gap(db: Session, shop: str) -> RARSComponent:
                       AND ne.created_at >= NOW() - INTERVAL '30 days'
                 ) AS purchases,
                 (SELECT COALESCE(AVG(total_price), 0) FROM shop_orders
-                 WHERE shop_domain = :shop AND created_at >= NOW() - INTERVAL '30 days') AS aov
+                 WHERE shop_domain = :shop AND created_at >= NOW() - INTERVAL '30 days'
+                   AND (:currency IS NULL OR currency = :currency)) AS aov
             FROM nudge_events ne
             JOIN active_nudges n ON n.id = ne.nudge_id
             WHERE n.shop_domain = :shop
-        """), {"shop": shop}).fetchone()
+        """), {"shop": shop, "currency": currency}).fetchone()
     except Exception as exc:
         log.debug("rars: nudge_gap query failed: %s", exc)
         return RARSComponent(
@@ -365,6 +371,7 @@ def _compute_prevented(db: Session, shop: str) -> tuple[float, dict]:
     """
     prevented = 0.0
     evidence: dict = {"sources": []}
+    currency = get_shop_currency(db, shop)
 
     # Source 1: nudge incremental revenue (exposed cvr over holdout cvr × exposures × AOV)
     try:
@@ -377,11 +384,12 @@ def _compute_prevented(db: Session, shop: str) -> tuple[float, dict]:
                 COUNT(*) FILTER (WHERE ne.event_type = 'holdout_assigned'
                     AND ne.created_at >= date_trunc('month', NOW())) AS month_holdout,
                 (SELECT COALESCE(AVG(total_price), 0) FROM shop_orders
-                 WHERE shop_domain = :shop AND created_at >= date_trunc('month', NOW())) AS aov
+                 WHERE shop_domain = :shop AND created_at >= date_trunc('month', NOW())
+                   AND (:currency IS NULL OR currency = :currency)) AS aov
             FROM nudge_events ne
             JOIN active_nudges n ON n.id = ne.nudge_id
             WHERE n.shop_domain = :shop
-        """), {"shop": shop}).fetchone()
+        """), {"shop": shop, "currency": currency}).fetchone()
         if row and row[0]:
             exp = int(row[0])
             pur = int(row[1] or 0)

@@ -19,6 +19,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import text, func
 from sqlalchemy.orm import Session
 
+from app.services.revenue_metrics import get_shop_currency
+
 log = logging.getLogger("store_context")
 
 
@@ -103,11 +105,13 @@ def get_store_context(db: Session, shop_domain: str) -> StoreContext:
         # --- Revenue (from shop_orders, last 7 days) ---
         try:
             cutoff_7d = _now() - timedelta(days=7)
+            currency = get_shop_currency(db, shop_domain)
             row = db.execute(text("""
                 SELECT COUNT(*), COALESCE(SUM(total_price), 0)
                 FROM shop_orders
                 WHERE shop_domain = :shop AND created_at >= :cutoff
-            """), {"shop": shop_domain, "cutoff": cutoff_7d}).fetchone()
+                  AND (:currency IS NULL OR currency = :currency)
+            """), {"shop": shop_domain, "cutoff": cutoff_7d, "currency": currency}).fetchone()
             if row:
                 ctx.orders_7d = row[0] or 0
                 ctx.revenue_7d = float(row[1] or 0)

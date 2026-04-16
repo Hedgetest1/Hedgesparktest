@@ -31,6 +31,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.services.revenue_metrics import get_shop_currency
+
 log = logging.getLogger(__name__)
 
 # Source type display names — matches spark-tracker.js source_type values
@@ -99,6 +101,7 @@ def get_utm_attribution(
     """
     days = max(1, min(days, 90))
     since_ms = int((datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)).timestamp() * 1000)
+    currency = get_shop_currency(db, shop_domain)
 
     # Choose source ordering: ASC for first-touch, DESC for last-touch
     source_order = "ASC" if model == "first_touch" else "DESC"
@@ -143,6 +146,7 @@ def get_utm_attribution(
                        AND so.shop_domain      = vps.shop_domain
                     WHERE vps.shop_domain = :shop
                       AND vps.confirmed_at >= (NOW() - INTERVAL '1 second' * :days_secs)
+                      AND (:currency IS NULL OR so.currency = :currency)
                 )
                 SELECT
                     vs.source_type,
@@ -164,6 +168,7 @@ def get_utm_attribution(
                 "shop":      shop_domain,
                 "since_ms":  since_ms,
                 "days_secs": days * 86400,
+                "currency":  currency,
             },
         ).fetchall()
 
@@ -317,6 +322,7 @@ def get_attribution_summary(
     """
     days = max(1, min(days, 90))
     cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
+    currency = get_shop_currency(db, shop_domain)
     result = {
         "window_days": days,
         "generated_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
@@ -375,10 +381,11 @@ def get_attribution_summary(
             WHERE vps.shop_domain = :shop
               AND vps.confirmed_at >= :cutoff
               AND vps.first_source IS NOT NULL
+              AND (:currency IS NULL OR so.currency = :currency)
             GROUP BY vps.first_source
             ORDER BY cnt DESC
             LIMIT 10
-        """), {"shop": shop_domain, "cutoff": cutoff}).fetchall()
+        """), {"shop": shop_domain, "cutoff": cutoff, "currency": currency}).fetchall()
         result["top_sources_first_touch"] = [
             {"source": r[0], "label": _source_label(r[0]), "orders": r[1], "revenue": round(float(r[2]), 2)}
             for r in ft_rows
@@ -394,10 +401,11 @@ def get_attribution_summary(
             WHERE vps.shop_domain = :shop
               AND vps.confirmed_at >= :cutoff
               AND vps.last_source IS NOT NULL
+              AND (:currency IS NULL OR so.currency = :currency)
             GROUP BY vps.last_source
             ORDER BY cnt DESC
             LIMIT 10
-        """), {"shop": shop_domain, "cutoff": cutoff}).fetchall()
+        """), {"shop": shop_domain, "cutoff": cutoff, "currency": currency}).fetchall()
         result["top_sources_last_touch"] = [
             {"source": r[0], "label": _source_label(r[0]), "orders": r[1], "revenue": round(float(r[2]), 2)}
             for r in lt_rows
@@ -413,10 +421,11 @@ def get_attribution_summary(
             WHERE vps.shop_domain = :shop
               AND vps.confirmed_at >= :cutoff
               AND vps.first_campaign IS NOT NULL
+              AND (:currency IS NULL OR so.currency = :currency)
             GROUP BY vps.first_campaign
             ORDER BY revenue DESC
             LIMIT 10
-        """), {"shop": shop_domain, "cutoff": cutoff}).fetchall()
+        """), {"shop": shop_domain, "cutoff": cutoff, "currency": currency}).fetchall()
         result["top_campaigns"] = [
             {"campaign": r[0], "orders": r[1], "revenue": round(float(r[2]), 2)}
             for r in camp_rows
