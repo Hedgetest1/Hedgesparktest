@@ -78,8 +78,8 @@ def send_email(
                 "email: SUBJECT VIOLATION to=%s: %s",
                 to, subj_check.violations,
             )
-    except Exception:
-        pass  # Brand check import failure is never fatal
+    except Exception as exc:
+        log.warning("email: brand check failed (non-fatal): %s", exc)
 
     api_key = _get_api_key()
     if not api_key:

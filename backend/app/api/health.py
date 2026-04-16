@@ -256,7 +256,8 @@ def merchant_sip_status(shop: str = ""):
             "signals_active": signals,
             "nudges_active": nudges,
         }
-    except Exception:
+    except Exception as exc:
+        log.warning("merchant_intelligence_snapshot: DB read failed: %s", exc)
         return {
             "data_points": 0, "confidence": "none", "trust_score": 0.5,
             "autonomy_level": 0, "signals_active": 0, "nudges_active": 0,

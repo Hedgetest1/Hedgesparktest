@@ -216,6 +216,6 @@ def rollback(flag: str, reason: str) -> dict:
             db.commit()
         finally:
             db.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("rollback_flag: alert commit failed for %s: %s", flag, exc)
     return {"flag": flag, "rolled_back": ok, "reason": reason}

@@ -220,8 +220,8 @@ def _check_lock(path: str) -> str | None:
             if val:
                 return val.decode() if isinstance(val, bytes) else str(val)
             return None
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("file_lock: Redis read failed for %s, falling back to in-process: %s", path, exc)
 
     # Fallback
     entry = _fallback_locks.get(key)

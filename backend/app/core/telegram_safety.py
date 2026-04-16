@@ -106,8 +106,8 @@ def release_execution_lock(entity_type: str, entity_id: str):
         rc = _client()
         if rc:
             rc.delete(key)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("release_execution_lock: Redis delete failed for %s:%s — lock may linger: %s", entity_type, entity_id, exc)
 
 
 # ---------------------------------------------------------------------------
