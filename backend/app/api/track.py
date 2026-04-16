@@ -127,9 +127,9 @@ class TrackPayload(BaseModel):
     event_type: str = Field(..., max_length=64)
     page_url: Optional[str] = Field(None, max_length=2048)
     product_url: Optional[str] = Field(None, max_length=2048)
-    timestamp: Optional[int] = None      # epoch milliseconds
-    dwell_seconds: Optional[int] = None
-    scroll_depth: Optional[int] = None   # mapped to max_scroll_depth column
+    timestamp: Optional[int] = Field(None, ge=0, le=9999999999999)  # epoch ms, max ~2286 CE
+    dwell_seconds: Optional[int] = Field(None, ge=0, le=86400)    # max 24h
+    scroll_depth: Optional[int] = Field(None, ge=0, le=100)       # percentage
 
     # Source attribution — sent by spark-tracker.js since migration j7e0a4b8c3d6.
     source_type: Optional[str] = Field(None, max_length=64)
@@ -714,7 +714,14 @@ def track_event(request: Request, payload: TrackPayload, db: Session = Depends(g
     # Purchase events also persist to shop_orders for revenue analytics
     _persist_purchase(db, payload)
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return JSONResponse(
+            content={"status": "ok", "event_id": None},
+            headers=_CORS_HEADERS,
+        )
 
     # Best-effort geo capture for live visitor map (non-blocking)
     try:
@@ -799,7 +806,11 @@ def track_event_batch(payload: BatchTrackPayload, db: Session = Depends(get_db))
         accepted += 1
 
     if accepted > 0:
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            accepted = 0
 
     return JSONResponse(
         content={"status": "ok", "accepted": accepted, "rejected": rejected},
