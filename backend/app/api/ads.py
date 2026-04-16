@@ -80,7 +80,7 @@ class AdsSpendResponse(BaseModel):
 
 
 @router.get("/pro/ads/networks", response_model=AdsNetworksResponse)
-def get_networks():
+def get_networks(shop: str = Depends(require_pro_session)):
     from app.services.ads_connectors import supported_networks
     return {"networks": list(supported_networks())}
 
