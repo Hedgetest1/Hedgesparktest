@@ -63,6 +63,8 @@ def create_subscription(
     description: str | None = None,
     created_by: str | None = None,
 ) -> OutboundWebhookSubscription:
+    from app.services.signal_webhooks import _validate_webhook_url
+    _validate_webhook_url(target_url)
     sub = OutboundWebhookSubscription(
         shop_domain=shop_domain,
         target_url=target_url,

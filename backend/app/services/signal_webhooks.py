@@ -244,10 +244,32 @@ def get_or_create_secret(shop_domain: str) -> str:
         return ""
 
 
-def create_webhook(shop_domain: str, *, url: str, events: list[str]) -> WebhookConfig | None:
-    # Validate URL (minimal)
+def _validate_webhook_url(url: str) -> None:
+    """Block SSRF — prevent webhooks to internal/cloud metadata services."""
     if not url.startswith("https://"):
         raise ValueError("webhook URL must use https://")
+    parsed = urlparse(url)
+    hostname = (parsed.hostname or "").lower()
+    if not hostname:
+        raise ValueError("webhook URL has no hostname")
+    # Block loopback, link-local, cloud metadata, and RFC 1918 private ranges
+    _BLOCKED_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "[::1]", "metadata.google.internal"}
+    if hostname in _BLOCKED_HOSTS:
+        raise ValueError("webhook URL must not point to internal services")
+    # Block IP ranges: 10.x, 172.16-31.x, 192.168.x, 169.254.x (link-local/metadata)
+    import ipaddress
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            raise ValueError("webhook URL must not point to private/internal IP addresses")
+    except ValueError as exc:
+        if "must not point" in str(exc):
+            raise
+        # Not an IP address — hostname is fine, continue
+
+
+def create_webhook(shop_domain: str, *, url: str, events: list[str]) -> WebhookConfig | None:
+    _validate_webhook_url(url)
     bad_events = [e for e in events if e not in SIGNAL_EVENTS]
     if bad_events:
         raise ValueError(f"unknown events: {bad_events}. Valid: {sorted(SIGNAL_EVENTS)}")
