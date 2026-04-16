@@ -49,7 +49,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, Index, Integer, Numeric, String, UniqueConstraint
+from sqlalchemy import Column, DateTime, Float, Index, Integer, Numeric, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
@@ -80,7 +80,7 @@ class ShopOrder(Base):
 
     # Raw Shopify line items array: [{id, product_id, variant_id, title, quantity, price, sku}, ...]
     # REPLACE WITH REAL ORDER DATA: query this column to compute per-product revenue attribution
-    line_items  = Column(JSONB, nullable=False, default=list, server_default="'[]'")
+    line_items  = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
 
     # Shopify-side order creation timestamp — use for revenue time-window queries
     created_at  = Column(DateTime, nullable=False)

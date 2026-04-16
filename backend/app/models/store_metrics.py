@@ -13,7 +13,7 @@ table (not in JSONB) for scalability and proof loop tracking.
 """
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, Integer, String
+from sqlalchemy import Column, DateTime, Float, Integer, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
@@ -27,7 +27,7 @@ class StoreMetrics(Base):
     shop_domain = Column(String, nullable=False, unique=True)
 
     # Co-viewed product pairs (JSONB array, top 10)
-    co_viewed_pairs = Column(JSONB, nullable=False, default=list, server_default="'[]'")
+    co_viewed_pairs = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
 
     # Cohort snapshot (7d window)
     new_visitors_7d = Column(Integer, nullable=False, default=0, server_default="0")

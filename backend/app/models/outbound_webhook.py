@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
@@ -35,7 +35,7 @@ class OutboundWebhookSubscription(Base):
 
     # JSONB list of event types this subscription wants:
     # ["nudge.fired", "rars.spike", "goal.at_risk", "anomaly.detected", ...]
-    event_types = Column(JSONB, nullable=False, default=list, server_default="'[]'")
+    event_types = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
 
     status = Column(String(16), nullable=False, default="active", server_default="active")  # active|paused|disabled
 

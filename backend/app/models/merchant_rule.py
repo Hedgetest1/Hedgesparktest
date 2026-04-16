@@ -34,7 +34,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
@@ -57,7 +57,7 @@ class MerchantRule(Base):
     # [{"field": "source", "op": "eq", "value": "google"},
     #  {"field": "magnitude", "op": "gt", "value": 1000}]
     # Supported ops: eq, ne, gt, lt, gte, lte, contains, in
-    conditions = Column(JSONB, nullable=False, default=list, server_default="'[]'")
+    conditions = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
 
     # Action — JSONB dict with 'type' + params
     # {"type": "send_klaviyo_event", "event_name": "cart_watch"}
