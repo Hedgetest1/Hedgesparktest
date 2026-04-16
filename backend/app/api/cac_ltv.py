@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db, get_read_db
 from app.core.deps import require_pro_session
+from app.services.revenue_metrics import get_shop_currency
 
 log = logging.getLogger(__name__)
 
@@ -108,6 +109,7 @@ def _get_ltv_metrics(db: Session, shop: str) -> tuple[float, float]:
     predicted_12m_ltv = avg 12-month projected LTV (from ltv_engine)
     """
     try:
+        currency = get_shop_currency(db, shop)
         row = db.execute(
             sql_text(
                 """
@@ -118,9 +120,10 @@ def _get_ltv_metrics(db: Session, shop: str) -> tuple[float, float]:
                 WHERE shop_domain = :s
                   AND customer_email IS NOT NULL
                   AND customer_email <> ''
+                  AND (:currency IS NULL OR currency = :currency)
                 """
             ),
-            {"s": shop},
+            {"s": shop, "currency": currency},
         ).fetchone()
         n = int(row[0] or 0) if row else 0
         rev = float(row[1] or 0) if row else 0.0

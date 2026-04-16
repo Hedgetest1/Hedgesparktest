@@ -375,3 +375,134 @@ class TestProEndpointSmoke:
             params={"product_url": "/products/test-handle"},
         )
         assert resp.status_code in (401, 403)
+
+    # ------------------------------------------------------------------
+    # 26. GET /analytics/clicks — click insights
+    #     Router prefix is /analytics; path is /clicks.
+    # ------------------------------------------------------------------
+
+    def test_click_insights_200(self, client, merchant_a, auth_a):
+        resp = client.get("/analytics/clicks", cookies=auth_a)
+        assert resp.status_code == 200
+
+    def test_click_insights_unauth(self, client):
+        resp = client.get("/analytics/clicks")
+        assert resp.status_code in (401, 403)
+
+    # ------------------------------------------------------------------
+    # 27. GET /conversion-probability/top — top conversion candidates
+    #     Router prefix is /conversion-probability; path is /top.
+    # ------------------------------------------------------------------
+
+    def test_conversion_probability_top_200(self, client, merchant_a, auth_a):
+        resp = client.get("/conversion-probability/top", cookies=auth_a)
+        assert resp.status_code == 200
+
+    def test_conversion_probability_top_unauth(self, client):
+        resp = client.get("/conversion-probability/top")
+        assert resp.status_code in (401, 403)
+
+    # ------------------------------------------------------------------
+    # 28. GET /analytics/funnel — conversion funnel
+    #     Router prefix is /analytics; path is /funnel.
+    # ------------------------------------------------------------------
+
+    def test_funnel_200(self, client, merchant_a, auth_a):
+        resp = client.get("/analytics/funnel", cookies=auth_a)
+        assert resp.status_code == 200
+
+    def test_funnel_unauth(self, client):
+        resp = client.get("/analytics/funnel")
+        assert resp.status_code in (401, 403)
+
+    # ------------------------------------------------------------------
+    # 29. GET /analytics/source-quality — traffic source quality
+    #     Router prefix is /analytics; path is /source-quality.
+    # ------------------------------------------------------------------
+
+    def test_source_quality_200(self, client, merchant_a, auth_a):
+        resp = client.get("/analytics/source-quality", cookies=auth_a)
+        assert resp.status_code == 200
+
+    def test_source_quality_unauth(self, client):
+        resp = client.get("/analytics/source-quality")
+        assert resp.status_code in (401, 403)
+
+    # ------------------------------------------------------------------
+    # 30. GET /products/store-intelligence — store-level intelligence
+    #     Router prefix is /products; path is /store-intelligence.
+    # ------------------------------------------------------------------
+
+    def test_store_intelligence_200(self, client, merchant_a, auth_a):
+        resp = client.get("/products/store-intelligence", cookies=auth_a)
+        assert resp.status_code == 200
+
+    def test_store_intelligence_unauth(self, client):
+        resp = client.get("/products/store-intelligence")
+        assert resp.status_code in (401, 403)
+
+    # ------------------------------------------------------------------
+    # 31. GET /pro/kg/stats — knowledge graph stats
+    #     No prefix; path is /pro/kg/stats.
+    # ------------------------------------------------------------------
+
+    def test_knowledge_graph_stats_200(self, client, merchant_a, auth_a):
+        resp = client.get("/pro/kg/stats", cookies=auth_a)
+        assert resp.status_code == 200
+
+    def test_knowledge_graph_stats_unauth(self, client):
+        resp = client.get("/pro/kg/stats")
+        assert resp.status_code in (401, 403)
+
+    # ------------------------------------------------------------------
+    # 32. GET /pro/anomalies/fusion — anomaly fusion
+    #     No prefix; path is /pro/anomalies/fusion.
+    # ------------------------------------------------------------------
+
+    def test_anomaly_fusion_200(self, client, merchant_a, auth_a):
+        resp = client.get("/pro/anomalies/fusion", cookies=auth_a)
+        assert resp.status_code == 200
+
+    def test_anomaly_fusion_unauth(self, client):
+        resp = client.get("/pro/anomalies/fusion")
+        assert resp.status_code in (401, 403)
+
+    # ------------------------------------------------------------------
+    # 33. GET /pro/causal/explain — causal explainer
+    #     No prefix; path is /pro/causal/explain.
+    # ------------------------------------------------------------------
+
+    def test_causal_explainer_200(self, client, merchant_a, auth_a):
+        resp = client.get("/pro/causal/explain", cookies=auth_a)
+        assert resp.status_code == 200
+
+    def test_causal_explainer_unauth(self, client):
+        resp = client.get("/pro/causal/explain")
+        assert resp.status_code in (401, 403)
+
+    # ------------------------------------------------------------------
+    # 34. GET /pro/revenue-genome — revenue genome breakdown
+    #     No prefix; path is /pro/revenue-genome.
+    # ------------------------------------------------------------------
+
+    def test_revenue_genome_200(self, client, merchant_a, auth_a):
+        resp = client.get("/pro/revenue-genome", cookies=auth_a)
+        assert resp.status_code == 200
+
+    def test_revenue_genome_unauth(self, client):
+        resp = client.get("/pro/revenue-genome")
+        assert resp.status_code in (401, 403)
+
+    # ------------------------------------------------------------------
+    # 35. GET /pro/playbook/{signal_type} — peer playbook
+    #     No prefix; path is /pro/playbook/{signal_type}.
+    #     Use a safe signal_type that won't 422.
+    # ------------------------------------------------------------------
+
+    def test_playbook_200(self, client, merchant_a, auth_a):
+        resp = client.get("/pro/playbook/cart_abandon", cookies=auth_a)
+        assert resp.status_code == 200
+
+    def test_playbook_unauth(self, client):
+        resp = client.get("/pro/playbook/cart_abandon")
+        assert resp.status_code in (401, 403)
