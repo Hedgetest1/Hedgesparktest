@@ -30,6 +30,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.models.evolution_proposal import EvolutionProposal
+from app.core.database import _ailab_dsn
 
 log = logging.getLogger("monthly_evolution_audit")
 
@@ -482,11 +483,7 @@ def _build_market_intelligence() -> str:
     try:
         import psycopg2
         import psycopg2.extras
-        conn = psycopg2.connect(
-            host="localhost", port=5432, dbname="ailab",
-            user="aiuser", password="aipassword",
-            connect_timeout=5,
-        )
+        conn = psycopg2.connect(_ailab_dsn(), connect_timeout=5)
         try:
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 

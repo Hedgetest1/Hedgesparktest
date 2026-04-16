@@ -30,6 +30,14 @@ if not DATABASE_URL:
 # This keeps local development unchanged while enabling a one-env-var
 # switch when migrating to managed Postgres.
 # ---------------------------------------------------------------------------
+def _ailab_dsn() -> str:
+    """Derive ailab DB connection string from DATABASE_URL, swapping dbname to 'ailab'."""
+    from urllib.parse import urlparse, urlunparse
+    db_url = os.environ.get("DATABASE_URL", "postgresql://aiuser:aipassword@localhost:5432/wishspark")
+    parsed = urlparse(db_url)
+    return urlunparse(parsed._replace(path="/ailab"))
+
+
 _connect_args: dict = {}
 _DATABASE_SSL = os.getenv("DATABASE_SSL", "").lower()
 if _DATABASE_SSL == "require":

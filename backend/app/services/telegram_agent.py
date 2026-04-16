@@ -24,6 +24,8 @@ from typing import Any
 
 import httpx
 
+from app.core.database import _ailab_dsn
+
 log = logging.getLogger("telegram_agent")
 
 _BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
@@ -1926,11 +1928,7 @@ def send_monthly_report(proposals: list[dict], system_summary: dict) -> bool:
     try:
         import psycopg2
         import psycopg2.extras
-        ailab_conn = psycopg2.connect(
-            host="localhost", port=5432, dbname="ailab",
-            user="aiuser", password="aipassword",
-            connect_timeout=3,
-        )
+        ailab_conn = psycopg2.connect(_ailab_dsn(), connect_timeout=3)
         try:
             cur = ailab_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             cur.execute("""
@@ -1969,11 +1967,7 @@ def send_monthly_report(proposals: list[dict], system_summary: dict) -> bool:
 
             # Mark reported
             try:
-                mark_conn = psycopg2.connect(
-                    host="localhost", port=5432, dbname="ailab",
-                    user="aiuser", password="aipassword",
-                    connect_timeout=3,
-                )
+                mark_conn = psycopg2.connect(_ailab_dsn(), connect_timeout=3)
                 try:
                     mark_cur = mark_conn.cursor()
                     idea_titles = [i["title"] for i in ideas]

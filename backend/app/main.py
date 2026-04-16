@@ -275,7 +275,7 @@ app.add_middleware(
         "https://hedgesparkhq.com",
         "https://admin.shopify.com",
     ],
-    allow_origin_regex=r"https://[a-zA-Z0-9\-]+\.myshopify\.com",
+    allow_origin_regex=r"https://[a-zA-Z0-9\-]+\.myshopify\.com$",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
