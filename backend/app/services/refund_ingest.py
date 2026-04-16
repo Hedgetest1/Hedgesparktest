@@ -17,7 +17,8 @@ Each stored refund row:
       "product_id": str,        # may be ""
       "product_title": str,
       "quantity": int,
-      "amount_eur": float,
+      "amount_eur": float,      # legacy key name — value is in shop_money currency, NOT EUR
+      "currency": str | None,   # ISO 4217 (e.g. "USD") — None for pre-2026-04-16 refunds
       "reason": str | None,
     }
 """
@@ -72,10 +73,13 @@ def _parse_refund_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
     order_id = str(payload.get("order_id") or "")
     created_at = str(payload.get("created_at") or _now_iso())
     reason = payload.get("note") or payload.get("reason")
+    # Extract currency from Shopify's total_refund_set.shop_money (most reliable)
+    shop_money = payload.get("total_refund_set", {}).get("shop_money", {})
+    currency = str(shop_money.get("currency_code") or payload.get("currency") or "").upper() or None
 
     items = payload.get("refund_line_items") or []
     if not isinstance(items, list) or not items:
-        total = float(payload.get("total_refund_set", {}).get("shop_money", {}).get("amount", 0) or 0)
+        total = float(shop_money.get("amount", 0) or 0)
         if total <= 0:
             total = float(payload.get("amount") or 0)
         rows.append({
@@ -85,7 +89,8 @@ def _parse_refund_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
             "product_id": "",
             "product_title": "Order refund (no line items)",
             "quantity": 1,
-            "amount_eur": round(total, 2),
+            "amount_eur": round(total, 2),  # legacy key name — value is in shop_money currency
+            "currency": currency,
             "reason": reason,
         })
         return rows
@@ -110,7 +115,8 @@ def _parse_refund_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
             "product_id": str(li.get("product_id") or ""),
             "product_title": str(li.get("title") or li.get("name") or "Unknown product")[:200],
             "quantity": qty,
-            "amount_eur": round(amount, 2),
+            "amount_eur": round(amount, 2),  # legacy key name — value is in shop_money currency
+            "currency": currency,
             "reason": reason,
         })
     return rows
