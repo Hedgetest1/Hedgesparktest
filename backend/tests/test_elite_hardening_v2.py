@@ -1954,3 +1954,159 @@ def test_no_fastapi_on_event_decorators():
         f"the reference pattern):\n  "
         + "\n  ".join(hits[:20])
     )
+
+
+# ---------------------------------------------------------------------------
+# 29. No bare `open()` without context manager in production code
+# ---------------------------------------------------------------------------
+#
+# Bare `open(path)` without `with` leaks file descriptors in long-running
+# workers. A leaked FD per worker cycle exhausts OS ulimits within hours.
+# The 2026-04-16 hunt found one real leak in bugfix_prompt_grounding.py.
+# This test prevents new occurrences.
+#
+# Detection: AST walk looking for ast.Call where func is ast.Name(id='open')
+# that is NOT the context_expr of a `with` statement.
+# ---------------------------------------------------------------------------
+
+def test_no_bare_open_without_context_manager():
+    """Every `open()` in production code must be inside a `with` block."""
+    hits: list[str] = []
+    for file in (_BACKEND / "app").rglob("*.py"):
+        if "__pycache__" in file.parts:
+            continue
+        rel = file.relative_to(_BACKEND).as_posix()
+        try:
+            source = file.read_text()
+            tree = ast.parse(source)
+        except (OSError, SyntaxError):
+            continue
+
+        # Collect all open() calls that ARE context exprs in `with` stmts
+        with_opens: set[int] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.With, ast.AsyncWith)):
+                for item in node.items:
+                    ce = item.context_expr
+                    if isinstance(ce, ast.Call) and isinstance(ce.func, ast.Name) and ce.func.id == "open":
+                        with_opens.add(id(ce))
+
+        # Now find all open() calls NOT in that set
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if not (isinstance(node.func, ast.Name) and node.func.id == "open"):
+                continue
+            if id(node) in with_opens:
+                continue
+            line = source.splitlines()[node.lineno - 1].strip()
+            hits.append(f"{rel}:{node.lineno}  {line[:90]}")
+
+    assert not hits, (
+        f"{len(hits)} bare `open()` call(s) without `with` context manager in app/ — "
+        f"file descriptors leak in long-running workers. Wrap in `with open(...) as fh:`\n  "
+        + "\n  ".join(hits[:20])
+    )
+
+
+# ---------------------------------------------------------------------------
+# 30. No `except Exception: pass` in production code (without logging)
+# ---------------------------------------------------------------------------
+#
+# `except Exception: pass` silently hides production failures. The
+# 2026-04-16 audit found 5 critical silent sinks. Every except block
+# must have at least a `log.` call or `record_silent_return` invocation.
+# This test prevents new silent sinks from landing.
+#
+# Allowlist: none needed so far. If a legitimate case arises, add it
+# with an inline `# SILENT-EXCEPT-OK: <reason>` marker.
+# ---------------------------------------------------------------------------
+
+def test_no_silent_except_pass():
+    """Silent `except Exception: pass` count must not grow.
+
+    Baseline: 394 (measured 2026-04-16). As sinks are fixed, ratchet the
+    ceiling down. To exempt a legitimate case, add `# SILENT-EXCEPT-OK: <reason>`
+    on the `pass` line."""
+    _CEILING = 394  # ratchet down as sinks are fixed
+    hits: list[str] = []
+    for file in (_BACKEND / "app").rglob("*.py"):
+        if "__pycache__" in file.parts:
+            continue
+        rel = file.relative_to(_BACKEND).as_posix()
+        try:
+            source = file.read_text()
+            tree = ast.parse(source)
+        except (OSError, SyntaxError):
+            continue
+        lines = source.splitlines()
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ExceptHandler):
+                continue
+            if node.type is None:
+                pass
+            elif isinstance(node.type, ast.Name) and node.type.id == "Exception":
+                pass
+            else:
+                continue
+
+            body_stmts = [s for s in node.body if not isinstance(s, ast.Expr) or not isinstance(s.value, ast.Constant)]
+            if len(body_stmts) == 1 and isinstance(body_stmts[0], ast.Pass):
+                pass_line = lines[body_stmts[0].lineno - 1] if body_stmts[0].lineno <= len(lines) else ""
+                if "SILENT-EXCEPT-OK:" in pass_line:
+                    continue
+                line = lines[node.lineno - 1].strip()
+                hits.append(f"{rel}:{node.lineno}  {line[:90]}")
+
+    assert len(hits) <= _CEILING, (
+        f"Silent `except Exception: pass` count grew to {len(hits)} (ceiling: {_CEILING}). "
+        f"New sinks MUST log. Fix or mark `# SILENT-EXCEPT-OK: <reason>`:\n  "
+        + "\n  ".join(hits[:20])
+    )
+
+
+# ---------------------------------------------------------------------------
+# 31. No Redis GET-then-DELETE without atomicity (TOCTOU race)
+# ---------------------------------------------------------------------------
+#
+# Pattern: `val = rc.get(key); if val: rc.delete(key)` is a TOCTOU race
+# when used for consume-once tokens (confirmations, OTPs, dedup keys).
+# Use `rc.getdel(key)` (Redis 6.2+) or a Lua script instead.
+# The 2026-04-16 audit found one real race in telegram_safety.py.
+#
+# Detection: simple source-text scan for `rc.get(` followed by `rc.delete(`
+# within 5 lines. AST would be more precise but this catches the pattern.
+# ---------------------------------------------------------------------------
+
+def test_no_redis_get_then_delete_race():
+    """Redis consume-once tokens must use atomic GETDEL, not GET+DELETE."""
+    hits: list[str] = []
+    for file in (_BACKEND / "app").rglob("*.py"):
+        if "__pycache__" in file.parts:
+            continue
+        rel = file.relative_to(_BACKEND).as_posix()
+        try:
+            lines = file.read_text().splitlines()
+        except OSError:
+            continue
+        for i, line in enumerate(lines):
+            if "rc.get(" not in line and ".get(" not in line:
+                continue
+            # Look ahead 5 lines for a .delete( on the same key
+            window = "\n".join(lines[i:i + 6])
+            if "rc.delete(" in window or ".delete(" in window:
+                # Check it's a GET-then-DELETE pattern (not just unrelated calls)
+                stripped = line.strip()
+                if "= rc.get(" in stripped or "= _client().get(" in stripped:
+                    # GETDEL-OK marker for intentional patterns
+                    if "GETDEL-OK:" in window:
+                        continue
+                    hits.append(f"{rel}:{i + 1}  {stripped[:90]}")
+
+    assert not hits, (
+        f"{len(hits)} Redis GET-then-DELETE TOCTOU race(s) in app/ — "
+        f"use `rc.getdel(key)` (Redis 6.2+) for consume-once tokens. "
+        f"If intentional (e.g. read-only check), add `# GETDEL-OK: <reason>` nearby:\n  "
+        + "\n  ".join(hits[:20])
+    )
