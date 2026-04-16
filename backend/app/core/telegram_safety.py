@@ -172,11 +172,8 @@ def check_confirmation(action: str, entity_id: str) -> bool:
             from app.core.silent_fallback import record_silent_return
             record_silent_return("telegram_safety.confirm")
             return True  # Redis down — skip confirmation (fail-open)
-        val = rc.get(key)
-        if val:
-            rc.delete(key)  # consume — one-time use
-            return True
-        return False
+        val = rc.getdel(key)  # atomic GET+DELETE — no TOCTOU race
+        return val is not None
     except Exception:
         return True  # error — fail-open
 

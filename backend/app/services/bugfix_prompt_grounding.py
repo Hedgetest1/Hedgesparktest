@@ -111,7 +111,8 @@ def build_file_manifest(
             if not os.path.isfile(full):
                 continue
             try:
-                line_count = sum(1 for _ in open(full, "rb"))
+                with open(full, "rb") as fh:
+                    line_count = sum(1 for _ in fh)
             except Exception:
                 line_count = 0
             seen.add(path)

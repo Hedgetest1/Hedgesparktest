@@ -767,7 +767,7 @@ def create_task(
             product_url=product_url,
             action_type=action_type,
             action_task_id=task.id,
-            signal_type=candidate.get("signal_type") or candidate.get("supporting_signals", [None])[0],
+            signal_type=candidate.get("signal_type") or (candidate.get("supporting_signals") or [None])[0],
             signal_strength=candidate.get("signal_strength"),
         )
         db.commit()
