@@ -247,28 +247,47 @@ async def _exchange_code_for_token(shop: str, code: str) -> Optional[str]:
 # Fetch shop owner email from Shopify
 # ---------------------------------------------------------------------------
 
-async def _fetch_shop_email(shop: str, token: str) -> Optional[str]:
-    """Fetch the shop owner email from Shopify's shop.json API."""
+async def _fetch_shop_metadata(shop: str, token: str) -> dict:
+    """Fetch shop metadata from Shopify's shop.json API.
+
+    Returns dict with keys: email, currency, iana_timezone (any may be None).
+    """
+    result: dict = {"email": None, "currency": None, "iana_timezone": None}
     try:
         url = f"https://{shop}/admin/api/{_SHOPIFY_API_VERSION}/shop.json"
         headers = {"X-Shopify-Access-Token": token}
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(url, headers=headers)
         if resp.status_code == 200:
-            email = resp.json().get("shop", {}).get("email")
+            data = resp.json().get("shop", {})
+            email = data.get("email")
             if email:
-                log.info("shopify_oauth: fetched shop email shop=%s", shop)
-                return str(email).strip()
+                result["email"] = str(email).strip()
+            currency = data.get("currency")
+            if currency:
+                result["currency"] = str(currency).strip().upper()
+            tz = data.get("iana_timezone")
+            if tz:
+                result["iana_timezone"] = str(tz).strip()
+            log.info("shopify_oauth: fetched shop metadata shop=%s currency=%s tz=%s",
+                     shop, result["currency"], result["iana_timezone"])
     except Exception as exc:
-        log.warning("shopify_oauth: could not fetch shop email shop=%s: %s", shop, exc)
-    return None
+        log.warning("shopify_oauth: could not fetch shop metadata shop=%s: %s", shop, exc)
+    return result
 
 
 # ---------------------------------------------------------------------------
 # Merchant upsert
 # ---------------------------------------------------------------------------
 
-def _upsert_merchant(db: Session, shop: str, encrypted_token: str, contact_email: Optional[str] = None) -> Merchant:
+def _upsert_merchant(
+    db: Session,
+    shop: str,
+    encrypted_token: str,
+    contact_email: Optional[str] = None,
+    primary_currency: Optional[str] = None,
+    iana_timezone: Optional[str] = None,
+) -> Merchant:
     row = db.query(Merchant).filter(Merchant.shop_domain == shop).first()
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     if row is None:
@@ -278,17 +297,23 @@ def _upsert_merchant(db: Session, shop: str, encrypted_token: str, contact_email
             plan="starter",
             billing_active=False,
             contact_email=contact_email,
+            primary_currency=primary_currency,
+            iana_timezone=iana_timezone,
             pixel_secret=secrets.token_hex(16),
             gdpr_consent_at=now,
         )
         db.add(row)
-        log.info("shopify_oauth: new merchant created shop=%s", shop)
+        log.info("shopify_oauth: new merchant created shop=%s currency=%s tz=%s", shop, primary_currency, iana_timezone)
     else:
         row.access_token = encrypted_token
         row.install_status = "active"
         row.uninstalled_at = None
         if contact_email:
             row.contact_email = contact_email
+        if primary_currency:
+            row.primary_currency = primary_currency
+        if iana_timezone:
+            row.iana_timezone = iana_timezone
         if not row.pixel_secret:
             row.pixel_secret = secrets.token_hex(16)
         # Re-consent on reinstall
@@ -413,9 +438,14 @@ async def callback(
         )
 
     encrypted_token = encrypt_token(plaintext_token)
-    contact_email = await _fetch_shop_email(shop, plaintext_token)
+    shop_meta = await _fetch_shop_metadata(shop, plaintext_token)
     try:
-        merchant = _upsert_merchant(db, shop, encrypted_token, contact_email=contact_email)
+        merchant = _upsert_merchant(
+            db, shop, encrypted_token,
+            contact_email=shop_meta.get("email"),
+            primary_currency=shop_meta.get("currency"),
+            iana_timezone=shop_meta.get("iana_timezone"),
+        )
     except Exception as exc:
         log.error("shopify_oauth: merchant upsert failed shop=%s: %s", shop, exc)
         return Response("Installation failed — please try again.", status_code=500)

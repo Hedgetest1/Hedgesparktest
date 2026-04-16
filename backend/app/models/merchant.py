@@ -159,6 +159,16 @@ class Merchant(Base):
     # ---------------------------------------------------------------------------
     is_synthetic = Column(Boolean, nullable=False, default=False, server_default="false")
 
+    # ---------------------------------------------------------------------------
+    # Shop locale from Shopify shop.json — used for currency-aware revenue
+    # aggregation and timezone-correct daily breakdowns.
+    # Populated at install/reinstall time from Shopify API.
+    # NULL for merchants installed before this field was added (treated as
+    # primary_currency="EUR", iana_timezone="UTC").
+    # ---------------------------------------------------------------------------
+    primary_currency = Column(String(8), nullable=True)
+    iana_timezone    = Column(String(64), nullable=True)
+
     # Merchant-controlled communication pause — stops all non-critical emails
     # when True. Checked by email_orchestrator before any send.
     email_paused = Column(Boolean, nullable=False, default=False, server_default="false")

@@ -67,23 +67,25 @@ FALLBACK_AOV: float = 50.0
 
 def get_shop_currency(db: Session, shop_domain: str) -> str | None:
     """
-    Return the most-common order currency for the shop, or None when no
-    orders have been ingested.
+    Return the shop's primary currency.
 
-    Uses MODE() (most frequent value) which is deterministic and O(n) on
-    the shop's order rows.  For shops with a single currency, MODE() always
-    returns that currency.  For mixed-currency shops it returns the dominant
-    one.
+    Lookup order:
+    1. merchant.primary_currency (populated from Shopify shop.json at install)
+    2. MODE() over shop_orders.currency (expensive fallback for pre-migration merchants)
 
-    Parameters
-    ----------
-    db          Active SQLAlchemy session.
-    shop_domain Merchant shop domain.
-
-    Returns
-    -------
-    str | None — ISO 4217 currency code (e.g. "USD"), or None if no orders.
+    Returns ISO 4217 code (e.g. "USD") or None if no data available.
     """
+    try:
+        from app.models.merchant import Merchant
+        row = db.query(Merchant.primary_currency).filter(
+            Merchant.shop_domain == shop_domain
+        ).first()
+        if row and row[0]:
+            return str(row[0])
+    except Exception as exc:
+        log.warning("revenue_metrics: primary_currency lookup failed for shop=%s: %s", shop_domain, exc)
+
+    # Fallback: derive from order history (pre-migration merchants)
     try:
         result = db.execute(
             text("""
@@ -104,6 +106,24 @@ def get_shop_currency(db: Session, shop_domain: str) -> str | None:
             shop_domain, exc,
         )
         return None
+
+
+def get_shop_timezone(db: Session, shop_domain: str) -> str:
+    """Return the shop's IANA timezone (e.g. 'America/New_York').
+
+    Falls back to 'UTC' for merchants installed before the timezone field
+    was added, or if the Shopify API didn't return a timezone.
+    """
+    try:
+        from app.models.merchant import Merchant
+        row = db.query(Merchant.iana_timezone).filter(
+            Merchant.shop_domain == shop_domain
+        ).first()
+        if row and row[0]:
+            return str(row[0])
+    except Exception as exc:
+        log.warning("revenue_metrics: iana_timezone lookup failed for shop=%s: %s", shop_domain, exc)
+    return "UTC"
 
 
 def get_shop_aov(

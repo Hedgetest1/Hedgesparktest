@@ -165,14 +165,14 @@ def get_orders_summary(
     if cached is not None:
         return cached
 
-    # 7-day and 30-day windows
-    result_7d = _query_window(db, shop, 7)
-    result_30d = _query_window(db, shop, 30)
-    top_products = _top_products_by_revenue(db, shop, 30)
-
-    # Resolve currency
+    # Resolve currency first — used in all revenue queries
     from app.services.revenue_metrics import get_shop_currency
     currency = get_shop_currency(db, shop) or "USD"
+
+    # 7-day and 30-day windows (filtered by shop's primary currency)
+    result_7d = _query_window(db, shop, 7, currency=currency)
+    result_30d = _query_window(db, shop, 30, currency=currency)
+    top_products = _top_products_by_revenue(db, shop, 30)
 
     summary = {
         "has_orders": result_30d["order_count"] > 0,
@@ -185,7 +185,7 @@ def get_orders_summary(
     return summary
 
 
-def _query_window(db: Session, shop: str, days: int) -> dict:
+def _query_window(db: Session, shop: str, days: int, currency: str | None = None) -> dict:
     try:
         row = db.execute(
             text("""
@@ -196,8 +196,9 @@ def _query_window(db: Session, shop: str, days: int) -> dict:
                 FROM shop_orders
                 WHERE shop_domain = :shop
                   AND created_at >= NOW() - make_interval(days => :days)
+                  AND (:currency IS NULL OR currency = :currency)
             """),
-            {"shop": shop, "days": days},
+            {"shop": shop, "days": days, "currency": currency},
         ).fetchone()
         if row is None:
             return {"order_count": 0, "total_revenue": 0, "avg_order_value": 0}
@@ -272,8 +273,9 @@ def get_daily_revenue(
     if cached is not None:
         return cached
 
-    from app.services.revenue_metrics import get_shop_currency
+    from app.services.revenue_metrics import get_shop_currency, get_shop_timezone
     currency = get_shop_currency(db, shop) or "USD"
+    tz = get_shop_timezone(db, shop)
 
     try:
         rows = db.execute(
@@ -289,11 +291,12 @@ def get_daily_revenue(
                 ) AS d(day)
                 LEFT JOIN shop_orders so
                     ON so.shop_domain = :shop
-                   AND so.created_at::date = d.day::date
+                   AND (so.created_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date = d.day::date
+                   AND so.currency = :currency
                 GROUP BY d.day
                 ORDER BY d.day ASC
             """),
-            {"shop": shop, "days": days},
+            {"shop": shop, "days": days, "tz": tz, "currency": currency},
         ).fetchall()
 
         points = [
