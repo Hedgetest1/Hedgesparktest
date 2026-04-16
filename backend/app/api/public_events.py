@@ -99,8 +99,8 @@ def _lookup_secret(db, shop_domain: str) -> str | None:
         ).fetchone()
         if row and row[0]:
             return str(row[0])
-    except Exception:
-        pass  # column may not exist yet
+    except Exception as exc:
+        log.warning("public_events: secret lookup failed: %s", exc)  # column may not exist yet
 
     import os as _os
     return _os.getenv("PUBLIC_EVENTS_DEV_SECRET", "") or None
@@ -118,9 +118,10 @@ def _rate_allow(shop_domain: str) -> bool:
         count = rc.incr(key)
         rc.expire(key, 75)
         return int(count) <= _RATE_LIMIT_PER_MIN
-    except Exception:
+    except Exception as exc:
         # fail-open: better to over-accept legitimate events than to
         # 429 the merchant on a transient Redis hiccup.
+        log.warning("public_events: rate limit check failed: %s", exc)
         return True
 
 
@@ -140,7 +141,8 @@ def _is_duplicate(shop_domain: str, event_id: str) -> bool:
             return True
         rc.setex(key, _DEDUP_TTL_S, "1")
         return False
-    except Exception:
+    except Exception as exc:
+        log.warning("public_events: dedup check failed: %s", exc)
         return False
 
 
@@ -243,8 +245,8 @@ async def ingest_public_event(
         log.warning("public_events: ingestion failed: %s", exc)
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("public_events: rollback failed: %s", exc)
         raise HTTPException(500, "internal_error")
     finally:
         db.close()

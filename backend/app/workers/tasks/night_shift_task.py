@@ -47,5 +47,5 @@ def run() -> int:
     finally:
         try:
             db.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("night_shift_task: db close failed: %s", exc)

@@ -67,8 +67,8 @@ def release_repair_claim(shop_domain: str, area: str) -> None:
         rc = _client()
         if rc is not None:
             rc.delete(key)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("repair_claim: release failed for %s: %s", key, exc)
 
     _fallback_claims.pop(key, None)
 

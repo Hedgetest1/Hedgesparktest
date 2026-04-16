@@ -42,7 +42,8 @@ def get_public_status():
             cached = rc.get(_CACHE_KEY)
             if cached:
                 return _j.loads(cached)
-    except Exception:
+    except Exception as exc:
+        log.warning("public_status: cache read failed: %s", exc)
         rc = None
 
     components: list[dict] = []
@@ -59,7 +60,8 @@ def get_public_status():
             "status": "operational" if latency_ms < 250 else "degraded",
             "latency_ms": latency_ms,
         })
-    except Exception:
+    except Exception as exc:
+        log.warning("public_status: api health check failed: %s", exc)
         components.append({"name": "API", "status": "outage", "latency_ms": None})
 
     # Database
@@ -67,7 +69,8 @@ def get_public_status():
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         components.append({"name": "Database", "status": "operational"})
-    except Exception:
+    except Exception as exc:
+        log.warning("public_status: database health check failed: %s", exc)
         components.append({"name": "Database", "status": "outage"})
 
     # Workers — read worker_state freshness
@@ -99,7 +102,8 @@ def get_public_status():
             "stale_count": stale,
             "total_count": worker_count,
         })
-    except Exception:
+    except Exception as exc:
+        log.warning("public_status: worker state query failed: %s", exc)
         components.append({"name": "Background workers", "status": "unknown"})
 
     # Self-healing pipeline
@@ -116,7 +120,8 @@ def get_public_status():
             "status": "operational" if critical_24h == 0 else "degraded",
             "critical_24h": critical_24h,
         })
-    except Exception:
+    except Exception as exc:
+        log.warning("public_status: pipeline health query failed: %s", exc)
         components.append({"name": "Self-healing pipeline", "status": "unknown"})
 
     # Recent incidents — last 7 days, critical only
@@ -136,8 +141,8 @@ def get_public_status():
                 "component": r[1],
                 "summary": (r[2] or "")[:140],
             })
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("public_status: incidents query failed: %s", exc)
 
     # Overall status
     statuses = [c.get("status") for c in components]
@@ -161,7 +166,7 @@ def get_public_status():
         try:
             import json as _j
             rc.setex(_CACHE_KEY, _CACHE_TTL, _j.dumps(result, default=str))
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("public_status: cache write failed: %s", exc)
 
     return result

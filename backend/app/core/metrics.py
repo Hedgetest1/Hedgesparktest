@@ -32,8 +32,11 @@ Usage:
 """
 from __future__ import annotations
 
+import logging
 import threading
 import time
+
+log = logging.getLogger("metrics")
 from collections import defaultdict
 from contextlib import contextmanager
 from typing import Generator
@@ -168,7 +171,8 @@ def track_worker_cycle(worker_name: str) -> Generator[None, None, None]:
     start = time.monotonic()
     try:
         yield
-    except Exception:
+    except Exception as exc:
+        log.warning("metrics: worker cycle error for %s: %s", worker_name, exc)
         _worker_errors[worker_name].inc()
         raise
     finally:
@@ -285,7 +289,7 @@ def render_metrics() -> str:
         lines.append("# HELP hs_db_pool_checkedin Idle connections in pool")
         lines.append("# TYPE hs_db_pool_checkedin gauge")
         lines.append(f"hs_db_pool_checkedin {pool.checkedin()}")
-    except Exception:
-        pass  # Pool metrics are best-effort
+    except Exception as exc:
+        log.warning("metrics: db pool metrics collection failed: %s", exc)
 
     return "\n".join(lines) + "\n"

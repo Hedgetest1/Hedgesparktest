@@ -179,7 +179,7 @@ def _get_persistent_model(module: str, provider: str) -> str:
         config = get_active_model(module)
         if config.get("provider") == provider and config.get("model"):
             return config["model"]
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("llm_router: persistent model config read failed: %s", exc)
     # Fallback to constants if DB unavailable or provider mismatch
     return SONNET if provider == "anthropic" else SONNET_OPENAI

@@ -124,14 +124,14 @@ def cache_get(key: str) -> Any | None:
             try:
                 from app.core.metrics import track_cache_miss
                 track_cache_miss()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("redis_client: cache miss tracking failed: %s", exc)
             return None
         try:
             from app.core.metrics import track_cache_hit
             track_cache_hit()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("redis_client: cache hit tracking failed: %s", exc)
         return json.loads(raw)
     except redis.RedisError as exc:
         logger.warning("redis_client.cache_get(%r) failed: %s", key, exc)

@@ -197,8 +197,8 @@ def list_counterfactuals(
     try:
         from app.core.feature_usage import track
         track("counterfactual_explorer", shop)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("counterfactual: feature usage track failed: %s", exc)
 
     aov, aov_is_real = _shop_aov(db, shop)
     cutoff = _now() - timedelta(days=_MAX_LOOKBACK_DAYS)
@@ -266,7 +266,8 @@ def get_counterfactual(
             ),
             {"shop": shop, "id": signal_id},
         ).fetchone()
-    except Exception:
+    except Exception as exc:
+        log.warning("counterfactual: signal detail query failed: %s", exc)
         row = None
     if not row:
         raise HTTPException(404, "signal not found")

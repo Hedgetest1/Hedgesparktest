@@ -81,8 +81,8 @@ def compute_revenue_genome(db: Session, shop_domain: str) -> dict:
             cached = rc.get(cache_key)
             if cached:
                 return json.loads(cached)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("revenue_genome: redis cache read failed: %s", exc)
 
     now = _now()
     currency = get_shop_currency(db, shop_domain)
@@ -414,7 +414,7 @@ def compute_revenue_genome(db: Session, shop_domain: str) -> dict:
         rc = _client()
         if rc is not None:
             rc.setex(cache_key, _CACHE_TTL, json.dumps(result, default=str))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("revenue_genome: redis cache write failed: %s", exc)
 
     return result

@@ -307,8 +307,8 @@ def _get_mode_override() -> str:
             mode = (val.decode() if isinstance(val, bytes) else val).strip().lower()
             if mode in ("off", "limited", "full"):
                 return mode
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("llm_budget: mode_override read failed: %s", exc)
     return "full"
 
 
@@ -325,7 +325,8 @@ def set_mode_override(mode: str) -> bool:
             return False
         rc.set("llm:mode_override", mode, ex=86400 * 30)
         return True
-    except Exception:
+    except Exception as exc:
+        log.warning("llm_budget: mode_override write failed: %s", exc)
         return False
 
 
@@ -345,7 +346,8 @@ def _redis_incr(key: str, ttl: int = 86400) -> int | None:
         if val == 1:
             rc.expire(key, ttl)
         return val
-    except Exception:
+    except Exception as exc:
+        log.warning("llm_budget: redis counter incr failed: %s", exc)
         return None
 
 
@@ -359,7 +361,8 @@ def _redis_get(key: str) -> int:
             return 0
         val = rc.get(key)
         return int(val) if val else 0
-    except Exception:
+    except Exception as exc:
+        log.warning("llm_budget: redis counter read failed: %s", exc)
         return 0
 
 
@@ -375,7 +378,8 @@ def _redis_incrbyfloat(key: str, amount: float, ttl: int = 2678400) -> float | N
         val = rc.incrbyfloat(key, amount)
         rc.expire(key, ttl)
         return float(val)
-    except Exception:
+    except Exception as exc:
+        log.warning("llm_budget: redis cost incr failed: %s", exc)
         return None
 
 
@@ -389,7 +393,8 @@ def _redis_get_float(key: str) -> float:
             return 0.0
         val = rc.get(key)
         return float(val) if val else 0.0
-    except Exception:
+    except Exception as exc:
+        log.warning("llm_budget: redis cost read failed: %s", exc)
         return 0.0
 
 
@@ -716,8 +721,8 @@ def reset_daily_counters():
         if rc:
             for key in rc.scan_iter(match="llm:*", count=100):
                 rc.delete(key)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("llm_budget: redis counter reset failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -875,7 +880,8 @@ def get_effective_monthly_cap() -> float:
             merchants = db.query(Merchant).filter(Merchant.is_active.is_(True)).count()
         finally:
             db.close()
-    except Exception:
+    except Exception as exc:
+        log.warning("llm_budget: merchant count query failed: %s", exc)
         merchants = _effective_cap_cache.get("merchants", 0)
 
     _effective_cap_cache["merchants"] = merchants

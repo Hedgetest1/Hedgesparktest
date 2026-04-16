@@ -12,7 +12,10 @@ values before birthday collision probability reaches 1%).
 """
 from __future__ import annotations
 
+import logging
 import secrets
+
+log = logging.getLogger("request_id")
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -42,8 +45,8 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
             if shop:
                 scope.set_tag("shop_domain", shop)
             scope.set_tag("route", request.url.path)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("request_id: sentry scope enrichment failed: %s", exc)
 
         try:
             response = await call_next(request)
@@ -65,5 +68,6 @@ def _peek_shop_from_cookie(request: Request) -> str | None:
         # Decode without verification — this is for log context only
         payload = jwt.decode(token, options={"verify_signature": False})
         return payload.get("shop")
-    except Exception:
+    except Exception as exc:
+        log.warning("request_id: cookie shop peek failed: %s", exc)
         return None

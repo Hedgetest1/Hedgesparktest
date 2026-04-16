@@ -247,7 +247,8 @@ def _compute_sleep_confidence(
         from app.services.night_shift_calibration import is_calibrated, observation_count
         calibrated = is_calibrated(shop_domain) if shop_domain else False
         obs = observation_count(shop_domain) if shop_domain else 0
-    except Exception:
+    except Exception as exc:
+        log.warning("night_shift: calibration check failed: %s", exc)
         calibrated = False
         obs = 0
 
@@ -472,9 +473,10 @@ def generate_for_shop(db: Session, shop_domain: str, *, force: bool = False) -> 
             if raw:
                 try:
                     return json.loads(raw)
-                except Exception:
-                    pass
-    except Exception:
+                except Exception as exc:
+                    log.warning("night_shift: cached report parse failed: %s", exc)
+    except Exception as exc:
+        log.warning("night_shift: redis cache read failed: %s", exc)
         rc = None
 
     rars = _gather_rars(db, shop_domain)
@@ -556,8 +558,8 @@ def generate_for_shop(db: Session, shop_domain: str, *, force: bool = False) -> 
     try:
         from app.services.night_shift_calibration import record_observation
         record_observation(shop_domain, day=day, score=sleep_score, status=status)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("night_shift: calibration observation record failed: %s", exc)
 
     doc = report.to_dict()
 
@@ -576,8 +578,8 @@ def generate_for_shop(db: Session, shop_domain: str, *, force: bool = False) -> 
         log.warning("night_shift: persistent archive failed for %s: %s", shop_domain, exc)
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("night_shift: rollback after persist failure failed: %s", exc)
 
     return doc
 
@@ -646,7 +648,8 @@ def get_latest_for_shop(shop_domain: str) -> dict | None:
         if not raw:
             return None
         return json.loads(raw)
-    except Exception:
+    except Exception as exc:
+        log.warning("night_shift: latest report read failed: %s", exc)
         return None
 
 
@@ -700,5 +703,6 @@ def should_run_nightly_now() -> bool:
         # SETNX with 26h TTL — tomorrow's lock replaces today's
         ok = rc.set(lock_key, "1", nx=True, ex=26 * 3600)
         return bool(ok)
-    except Exception:
+    except Exception as exc:
+        log.warning("night_shift: day lock check failed: %s", exc)
         return False

@@ -52,8 +52,8 @@ def _check_merchant_rate_limit(shop_domain: str) -> tuple[bool, int]:
             if count > _CHAT_MAX_PER_HOUR:
                 return False, max(1, ttl if ttl > 0 else _CHAT_WINDOW)
             return True, 0
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("chat_support: redis rate limit check failed: %s", exc)
 
     # In-process fallback
     now = time.monotonic()

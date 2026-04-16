@@ -69,7 +69,8 @@ def _compute() -> dict:
             from app.services.revenue_at_risk import get_revenue_at_risk
             try:
                 from app.services.vertical_classifier import get_vertical
-            except Exception:
+            except Exception as exc:
+                log.warning("public_roi_counter: vertical_classifier import failed: %s", exc)
                 get_vertical = None  # type: ignore
 
             pro_merchants = (
@@ -103,8 +104,8 @@ def _compute() -> dict:
                 if get_vertical is not None:
                     try:
                         vertical = get_vertical(db, shop) or "other"
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        log.warning("public_roi_counter: get_vertical failed for %s: %s", shop, exc)
                 vertical_totals[vertical] = vertical_totals.get(vertical, 0.0) + prevented
 
         except Exception as exc:
@@ -156,14 +157,14 @@ def _get_cached_or_compute() -> dict:
             if raw:
                 try:
                     return json.loads(raw)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("public_roi_counter: cache parse failed: %s", exc)
         doc = _compute()
         if rc is not None:
             try:
                 rc.setex(_CACHE_KEY, _CACHE_TTL, json.dumps(doc, default=str))
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("public_roi_counter: cache write failed: %s", exc)
         return doc
     except Exception as exc:
         log.warning("public_roi: cache/compute failed: %s", exc)

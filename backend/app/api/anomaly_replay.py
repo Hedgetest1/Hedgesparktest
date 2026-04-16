@@ -104,8 +104,8 @@ def get_anomaly_replay(
     try:
         from app.core.feature_usage import track
         track("anomaly_replay", shop)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("anomaly_replay: feature usage track failed: %s", exc)
 
     now_ms = _now_ms()
     window_start_ms = now_ms - (minutes * 60 * 1000)

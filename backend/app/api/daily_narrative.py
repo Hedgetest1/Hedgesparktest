@@ -20,6 +20,7 @@ Endpoint: GET /pro/daily-narrative
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
@@ -30,6 +31,8 @@ from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.core.deps import require_pro_session
 from app.services.revenue_metrics import get_shop_currency
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/pro", tags=["daily_narrative"])
 
@@ -76,7 +79,8 @@ def _compute_narrative(db: Session, shop: str) -> dict:
             ).scalar()
             or 0
         )
-    except Exception:
+    except Exception as exc:
+        log.warning("daily_narrative: visitors query failed: %s", exc)
         visitors_today = 0
 
     # --- Intent signals today ---
@@ -100,7 +104,8 @@ def _compute_narrative(db: Session, shop: str) -> dict:
             ).scalar()
             or 0
         )
-    except Exception:
+    except Exception as exc:
+        log.warning("daily_narrative: intent signals query failed: %s", exc)
         intent_count = 0
 
     # --- Nudges fired today ---
@@ -119,7 +124,8 @@ def _compute_narrative(db: Session, shop: str) -> dict:
             ).scalar()
             or 0
         )
-    except Exception:
+    except Exception as exc:
+        log.warning("daily_narrative: nudges fired query failed: %s", exc)
         nudges_fired = 0
 
     # --- Orders today ---
@@ -149,7 +155,8 @@ def _compute_narrative(db: Session, shop: str) -> dict:
             ).scalar()
             or 0
         )
-    except Exception:
+    except Exception as exc:
+        log.warning("daily_narrative: orders query failed: %s", exc)
         orders_today = 0
         revenue_today = 0.0
 
@@ -173,8 +180,8 @@ def _compute_narrative(db: Session, shop: str) -> dict:
             stype = row[1] or "signal"
             stype_human = stype.replace("_", " ").lower()
             top_action = f"{product_url} is showing {stype_human}"
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("daily_narrative: top action query failed: %s", exc)
 
     # --- Compose narrative (deterministic, human-voiced) ---
     def _plural(n: int, singular: str, plural: str) -> str:
@@ -243,7 +250,7 @@ def _compute_narrative(db: Session, shop: str) -> dict:
         fusion_alerts_top = (causal.get("fusion_alerts") or [])[:3]
     except Exception as exc:
         # Never block the digest on a causal failure
-        pass
+        log.warning("daily_narrative: causal explainer failed: %s", exc)
 
     headline = f"Here's your store today · {now.strftime('%A %d %b')}"
 

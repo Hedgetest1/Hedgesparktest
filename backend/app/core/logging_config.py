@@ -20,6 +20,8 @@ import threading
 from datetime import datetime, timezone
 from typing import Any
 
+log = logging.getLogger("logging_config")
+
 # Thread-local storage for request context (request_id, shop_domain)
 _context = threading.local()
 
@@ -42,8 +44,8 @@ def set_worker_context(*, worker_name: str):
         import sentry_sdk
         scope = sentry_sdk.get_current_scope()
         scope.set_tag("worker", worker_name)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("logging_config: sentry worker context failed: %s", exc)
 
 
 class JSONFormatter(logging.Formatter):

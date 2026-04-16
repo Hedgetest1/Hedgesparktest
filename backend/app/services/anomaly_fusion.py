@@ -380,7 +380,8 @@ def fuse(db: Session, shop_domain: str) -> dict:
             cached = rc.get(cache_key)
             if cached:
                 return _j.loads(cached)
-    except Exception:
+    except Exception as exc:
+        log.warning("anomaly_fusion: redis cache read failed: %s", exc)
         rc = None
 
     signals: list[AtomicSignal] = []
@@ -406,8 +407,8 @@ def fuse(db: Session, shop_domain: str) -> dict:
                 shop_domain=shop_domain,
                 detail={"failures": extractor_failures},
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("anomaly_fusion: extractor failure alert write failed: %s", exc)
 
     by_name = {s.name: s for s in signals}
 
@@ -472,6 +473,6 @@ def fuse(db: Session, shop_domain: str) -> dict:
         try:
             import json as _j
             rc.setex(cache_key, 300, _j.dumps(result, default=str))
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("anomaly_fusion: redis cache write failed: %s", exc)
     return result

@@ -20,8 +20,11 @@ imports.
 from __future__ import annotations
 
 import json as _json
+import logging
 
 from sqlalchemy import text
+
+log = logging.getLogger("product_metrics_task")
 
 
 BATCH_SIZE = 100  # products per cycle — prevents cycle overflow at scale
@@ -419,8 +422,8 @@ def compute_metrics(conn, shop_domain: str, product_url: str, now_ms: int) -> di
                     if b.get("blk") != peak_block.get("blk"):
                         off_peak_hour_views += int(b.get("v", 0))
                         off_peak_hour_carts += int(b.get("c", 0))
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("product_metrics_task: hourly blocks parse failed: %s", exc)
 
     landing_views = int(m.get("landing_views_24h") or 0)
     landing_carts = int(m.get("landing_carts_24h") or 0)

@@ -207,7 +207,8 @@ def delete_goal(shop_domain: str, metric: str) -> bool:
         else:
             rc.delete(_key(shop_domain))
         return True
-    except Exception:
+    except Exception as exc:
+        log.warning("goals: delete_goal redis error: %s", exc)
         return False
 
 
@@ -381,8 +382,8 @@ def check_goals_at_risk(db: Session, shop_domain: str) -> list[GoalProgress]:
                     m = db.query(Merchant).filter(Merchant.shop_domain == shop_domain).first()
                     if m:
                         merchant_email = getattr(m, "contact_email", None)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("goals: merchant email lookup failed: %s", exc)
                 if merchant_email:
                     forward_event_async(
                         shop_domain=shop_domain,
@@ -412,7 +413,7 @@ def check_goals_at_risk(db: Session, shop_domain: str) -> list[GoalProgress]:
                     for p in risky if p.metric == "monthly_revenue"
                 ),
             })
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("goals: event_emitter fan-out failed: %s", exc)
 
     return risky

@@ -132,7 +132,8 @@ def _get_quota_usage(shop_domain: str, action_type: str) -> tuple[int, int] | No
             int(today_raw) if today_raw else 0,
             int(week_raw) if week_raw else 0,
         )
-    except Exception:
+    except Exception as exc:
+        log.warning("trust_contract: quota read failed: %s", exc)
         return None
 
 
@@ -226,7 +227,8 @@ def can_execute(
     if contract.scope_type != "all":
         try:
             scope_values = json.loads(contract.scope_values or "[]")
-        except Exception:
+        except Exception as exc:
+            log.warning("trust_contract: scope_values parse failed: %s", exc)
             scope_values = []
         if target_url and contract.scope_type == "products":
             if target_url not in scope_values:
@@ -310,8 +312,8 @@ def can_execute(
         contract.revoked_reason = f"auto_pause:rev_drop_{drop_pct:.1f}%"
         try:
             db.flush()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("trust_contract: auto-pause flush failed: %s", exc)
         return CanExecuteResult(
             False, f"auto_paused_rev_drop:{drop_pct:.1f}%", contract.id,
         )
@@ -389,8 +391,8 @@ def record_execution(
             "discount_pct": discount_pct,
             "holdout_pct": holdout_pct,
         })
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("trust_contract: event_emitter fan-out failed: %s", exc)
 
     # β6 — emit to the internal event bus (ClickHouse-shaped), so the
     # analytics dashboards can aggregate trust executions alongside
@@ -409,8 +411,8 @@ def record_execution(
                 "execution_id": log_row.id,
             },
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("trust_contract: event_bus emit failed: %s", exc)
 
     # β4 — forward to Klaviyo so merchants can build flows on autonomous
     # executions ("when HedgeSpark fires a price test, notify my team").
@@ -599,8 +601,8 @@ def revoke_contract(
             shop_domain=contract.shop_domain,
             metadata={"reason": reason, "action_type": contract.action_type},
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("trust_contract: revoke audit log failed: %s", exc)
     return contract
 
 
@@ -637,6 +639,6 @@ def panic_stop(db: Session, shop_domain: str, reason: str = "panic") -> int:
             shop_domain=shop_domain,
             metadata={"revoked_count": len(rows), "reason": reason},
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("trust_contract: panic_stop audit log failed: %s", exc)
     return len(rows)

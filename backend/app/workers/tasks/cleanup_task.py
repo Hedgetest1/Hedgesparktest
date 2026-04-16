@@ -108,8 +108,8 @@ def sweep_stuck_candidates(db: Session) -> int:
         try:
             from app.core.telegram_safety import release_execution_lock
             release_execution_lock("bugfix", str(c.id))
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.warning("cleanup: execution lock release failed for candidate #%s: %s", c.id, exc)
 
         try:
             from app.services.alerting import write_alert
@@ -119,8 +119,8 @@ def sweep_stuck_candidates(db: Session) -> int:
                 summary=f"Bugfix #{c.id} stuck in 'applying' for >10min — recovered to 'apply_failed'",
                 detail={"candidate_id": c.id, "title": c.title},
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.warning("cleanup: alert write failed for candidate #%s: %s", c.id, exc)
 
         _log.info("stuck-candidate sweep: recovered #%s from 'applying' → 'apply_failed'", c.id)
 

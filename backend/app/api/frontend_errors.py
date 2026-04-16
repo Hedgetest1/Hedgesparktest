@@ -152,7 +152,8 @@ def _rate_limit_check(ip: str) -> bool:
         if n == 1:
             r.expire(key, 60)
         return int(n) <= _RATE_LIMIT_PER_MIN
-    except Exception:
+    except Exception as exc:
+        log.warning("frontend_errors: rate limit check failed: %s", exc)
         return True  # fail-open on any redis hiccup
 
 
@@ -217,7 +218,8 @@ def report_frontend_error(
             raw = json.dumps(payload.extra, default=str)
             if len(raw) <= _MAX_EXTRA_BYTES:
                 extra_json = raw
-        except Exception:
+        except Exception as exc:
+            log.warning("frontend_errors: extra json serialization failed: %s", exc)
             extra_json = None
 
     detail = {
@@ -253,7 +255,7 @@ def report_frontend_error(
         # Never let a logging error cascade to the frontend.
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("frontend_errors: rollback failed: %s", exc)
 
     return {"accepted": True, "source": source}

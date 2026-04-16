@@ -431,8 +431,8 @@ def get_revenue_at_risk(db: Session, shop_domain: str) -> dict:
             cached = rc.get(cache_key)
             if cached:
                 return json.loads(cached)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("revenue_at_risk: redis cache read failed: %s", exc)
 
     components = []
     try:
@@ -454,8 +454,8 @@ def get_revenue_at_risk(db: Session, shop_domain: str) -> dict:
                 shop_domain=shop_domain,
                 detail={"error": str(exc)[:500]},
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("revenue_at_risk: alert write failed: %s", exc)
 
     total = sum(c.loss_eur for c in components)
     prevented, prevent_evidence = _compute_prevented(db, shop_domain)
@@ -494,13 +494,13 @@ def get_revenue_at_risk(db: Session, shop_domain: str) -> dict:
         rc = _client()
         if rc is not None:
             rc.setex(cache_key, _CACHE_TTL_SECONDS, json.dumps(result, default=str))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("revenue_at_risk: redis cache write failed: %s", exc)
 
     try:
         from app.services.risk_forecast import record_rars_snapshot
         record_rars_snapshot(shop_domain, total)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("revenue_at_risk: rars snapshot record failed: %s", exc)
 
     return result

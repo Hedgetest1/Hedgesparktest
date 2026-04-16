@@ -78,8 +78,8 @@ def get_instant_intelligence(
             if cached:
                 data = _json.loads(cached)
                 return InstantIntelligenceResponse(**data)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("instant_intelligence: cache read failed: %s", exc)
 
     # Cache miss — trigger async backfill and return 'computing'
     trigger_instant_intelligence_async(shop)

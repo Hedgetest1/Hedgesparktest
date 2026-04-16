@@ -2028,7 +2028,7 @@ def test_no_silent_except_pass():
     Baseline: 394 (measured 2026-04-16). As sinks are fixed, ratchet the
     ceiling down. To exempt a legitimate case, add `# SILENT-EXCEPT-OK: <reason>`
     on the `pass` line."""
-    _CEILING = 394  # ratchet down as sinks are fixed
+    _CEILING = 328  # ratcheted from 394 on 2026-04-16 (100 sinks fixed)
     hits: list[str] = []
     for file in (_BACKEND / "app").rglob("*.py"):
         if "__pycache__" in file.parts:

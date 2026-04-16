@@ -95,7 +95,8 @@ def _cache_get(shop: str) -> dict | None:
         if raw is None:
             return None
         return json.loads(raw)
-    except Exception:
+    except Exception as exc:
+        log.warning("roi_hero: cache read failed: %s", exc)
         return None
 
 
@@ -108,8 +109,8 @@ def _cache_set(shop: str, data: dict) -> None:
             record_silent_return("roi_hero.cache_write")
             return
         rc.setex(f"{_CACHE_PREFIX}:{shop}", _CACHE_TTL_S, json.dumps(data, default=str))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("roi_hero: cache write failed: %s", exc)
 
 
 def _compute_roi_hero(db: Session, shop: str) -> dict:
@@ -167,10 +168,12 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
                     {"shop": shop, "currency": currency},
                 ).scalar()
                 aov = float(aov_row or 50)
-            except Exception:
+            except Exception as exc:
+                log.warning("roi_hero: aov lookup failed: %s", exc)
                 aov = 50.0
             saved_30d_actions = round(lift_visitors * aov, 2)
-    except Exception:
+    except Exception as exc:
+        log.warning("roi_hero: nudge lift query failed: %s", exc)
         saved_30d_actions = 0.0
 
     if saved_30d_actions > 0:
@@ -200,7 +203,8 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
             ).scalar()
             or 0
         )
-    except Exception:
+    except Exception as exc:
+        log.warning("roi_hero: trust contract query failed: %s", exc)
         saved_30d_trust = 0.0
 
     if saved_30d_trust > 0:
@@ -217,7 +221,8 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
     try:
         from app.services.fix_holdout_measurement import get_weekly_proven_savings
         weekly_system = get_weekly_proven_savings(week_offset=0)
-    except Exception:
+    except Exception as exc:
+        log.warning("roi_hero: weekly proven savings failed: %s", exc)
         weekly_system = 0.0
 
     # --- 4. RARS prevented — from RARS history ---
@@ -236,8 +241,8 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
                     prevented_rars_30d = float(
                         prevented_entries[-1].get("prevented_eur_this_month") or 0
                     )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("roi_hero: rars history lookup failed: %s", exc)
 
     if prevented_rars_30d > 0:
         breakdown.append(
@@ -299,7 +304,8 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
                 or 50
             )
             return round(lift_visitors * aov, 2)
-        except Exception:
+        except Exception as exc:
+            log.warning("roi_hero: cvr lift window query failed: %s", exc)
             return 0.0
 
     saved_7d = _cvr_lift_eur_window(c_7d)
@@ -350,10 +356,11 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
                 {"shop": shop, "currency": currency},
             ).scalar()
             aov_all = float(aov_row or 50)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("roi_hero: all-time aov lookup failed: %s", exc)
         total_all_time = round(lift_visitors_all * aov_all, 2)
-    except Exception:
+    except Exception as exc:
+        log.warning("roi_hero: all-time total query failed: %s", exc)
         total_all_time = total_30d
 
     # Trust-contract all-time on top
@@ -372,7 +379,8 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
             ).scalar()
             or 0
         )
-    except Exception:
+    except Exception as exc:
+        log.warning("roi_hero: all-time trust query failed: %s", exc)
         total_all_time_trust = 0.0
 
     total_all_time = max(total_all_time + total_all_time_trust, total_30d)
@@ -419,8 +427,8 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
                     {"shop": shop, "currency": currency},
                 ).scalar()
                 aov_for_top = float(aov_row or 50)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("roi_hero: top win aov lookup failed: %s", exc)
             product = (row[1] or "").replace("/products/", "") or "your store"
             top_win_dict = {
                 "title": f"{row[0]} on {product[:40]}",
@@ -428,8 +436,8 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
                 "narrative": "Biggest single win in the last 30 days",
                 "when": row[2].isoformat() if row[2] else "",
             }
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("roi_hero: top win query failed: %s", exc)
 
     # --- 8. Plan cost + ROI ratio ---
     plan_cost = 49.0  # default — could look up merchant plan
@@ -440,8 +448,8 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
         ).fetchone()
         if plan_row and plan_row[0] == "pro":
             plan_cost = 99.0
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("roi_hero: plan cost lookup failed: %s", exc)
 
     roi_ratio = (total_30d / plan_cost) if plan_cost > 0 else 0.0
 

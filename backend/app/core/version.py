@@ -62,8 +62,8 @@ def _capture_git_describe() -> str:
         )
         if result.returncode == 0:
             return result.stdout.strip()
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("version: git describe failed: %s", exc)
     return "unknown"
 
 

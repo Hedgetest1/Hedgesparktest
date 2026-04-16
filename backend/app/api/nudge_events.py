@@ -195,7 +195,7 @@ async def ingest_nudge_event(
             log.error("nudge_events: commit failed: %s", exc)
             try:
                 db.rollback()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("nudge_events: rollback failed: %s", exc)
 
     return {"status": "ok"}

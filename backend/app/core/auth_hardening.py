@@ -42,7 +42,8 @@ def _redis():
     try:
         from app.core.redis_client import _client
         return _client()
-    except Exception:
+    except Exception as exc:
+        log.warning("auth_hardening: redis client init failed: %s", exc)
         return None
 
 
@@ -146,8 +147,8 @@ def _write_alert(
             db.commit()
         finally:
             db.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("auth_hardening: alert write failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +241,7 @@ def run_startup_audit() -> None:
                 db.commit()
             finally:
                 db.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("auth_hardening: startup audit alert write failed: %s", exc)
     else:
         log.info("auth_hardening: all %d critical secrets OK", len(rows))

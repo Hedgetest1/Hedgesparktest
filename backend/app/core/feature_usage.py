@@ -72,7 +72,8 @@ def _redis():
     try:
         from app.core.redis_client import _client
         return _client()
-    except Exception:
+    except Exception as exc:
+        log.warning("feature_usage: redis client init failed: %s", exc)
         return None
 
 
@@ -116,8 +117,8 @@ def stats(feature: str) -> dict:
                 if isinstance(ts_raw, bytes):
                     ts_raw = ts_raw.decode()
                 last_used_ts = int(ts_raw)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("feature_usage: stats read failed for %s: %s", feature, exc)
     return {
         "feature": feature,
         "description": reg.description if reg else None,

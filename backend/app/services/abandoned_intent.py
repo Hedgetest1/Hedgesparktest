@@ -51,8 +51,8 @@ def compute_abandoned_intent(db: Session, shop_domain: str) -> dict:
             cached = rc.get(cache_key)
             if cached:
                 return json.loads(cached)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("abandoned_intent: redis cache read failed: %s", exc)
 
     now = _now()
     cutoff = now - timedelta(days=7)
@@ -244,8 +244,8 @@ def compute_abandoned_intent(db: Session, shop_domain: str) -> dict:
         rc = _client()
         if rc is not None:
             rc.setex(cache_key, _CACHE_TTL, json.dumps(result, default=str))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("abandoned_intent: redis cache write failed: %s", exc)
 
     return result
 

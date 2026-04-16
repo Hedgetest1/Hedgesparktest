@@ -47,7 +47,7 @@ def run() -> None:
         _log.warning("data_integrity_probe: error (non-fatal): %s", exc)
         try:
             db.rollback()
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.warning("data_integrity_task: db rollback failed: %s", exc)
     finally:
         db.close()

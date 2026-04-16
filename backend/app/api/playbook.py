@@ -81,16 +81,16 @@ def get_playbook_for_signal(
     try:
         from app.core.feature_usage import track
         track("competitor_playbook", shop)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("playbook: feature usage track failed: %s", exc)
 
     # Vertical of the requesting shop
     vertical = "other"
     try:
         from app.services.vertical_classifier import get_vertical
         vertical = get_vertical(db, shop) or "other"
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("playbook: vertical classifier failed: %s", exc)
 
     cutoff = _now() - timedelta(days=_LOOKBACK_DAYS)
 

@@ -54,8 +54,8 @@ def _digest_sent_for_merchant(shop_domain: str, week_key: str) -> bool:
         rc = _client()
         if rc is not None:
             return bool(rc.get(f"{_REDIS_PREFIX}{shop_domain}:{week_key}"))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("merchant_digest: dedup check failed: %s", exc)
     return False
 
 
@@ -71,8 +71,8 @@ def _mark_digest_sent(shop_domain: str, week_key: str, success: bool):
                 "week": week_key,
             })
             rc.set(f"{_REDIS_PREFIX}{shop_domain}:{week_key}", value, ex=_DEDUP_TTL)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("merchant_digest: mark sent failed: %s", exc)
 
 
 def run_merchant_digest_cycle(db: Session) -> dict:
@@ -202,7 +202,8 @@ def get_digest_delivery_status(db: Session) -> dict:
             )
             .count()
         )
-    except Exception:
+    except Exception as exc:
+        log.warning("merchant_digest: eligible count query failed: %s", exc)
         eligible = 0
 
     # Check delivery status from Redis
@@ -226,12 +227,13 @@ def get_digest_delivery_status(db: Session) -> dict:
                             else:
                                 shop = key.replace(_REDIS_PREFIX, "").replace(f":{week_key}", "")
                                 failed_shops.append(shop)
-                    except Exception:
+                    except Exception as exc:
+                        log.warning("merchant_digest: delivery status parse failed: %s", exc)
                         continue
                 if cursor == 0:
                     break
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("merchant_digest: redis delivery scan failed: %s", exc)
 
     return {
         "week": week_key,

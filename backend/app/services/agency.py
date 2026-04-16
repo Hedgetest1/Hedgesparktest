@@ -146,14 +146,15 @@ def get_agency_dashboard(db: Session, agency_id: int, *, lookback_days: int = 30
     cutoff = _now() - timedelta(days=lookback_days)
     shops = [c.shop_domain for c in clients]
 
-    # TODO(currency): multi-shop aggregation needs per-shop currency
     rows = db.execute(text("""
-        SELECT shop_domain,
-               COALESCE(SUM(total_price), 0) AS revenue,
+        SELECT so.shop_domain,
+               COALESCE(SUM(so.total_price), 0) AS revenue,
                COUNT(*) AS orders
-        FROM shop_orders
-        WHERE shop_domain = ANY(:shops) AND created_at >= :cut
-        GROUP BY shop_domain
+        FROM shop_orders so
+        LEFT JOIN merchants m ON m.shop_domain = so.shop_domain
+        WHERE so.shop_domain = ANY(:shops) AND so.created_at >= :cut
+          AND (m.primary_currency IS NULL OR so.currency = m.primary_currency)
+        GROUP BY so.shop_domain
     """), {"shops": shops, "cut": cutoff}).fetchall()
 
     by_shop: dict[str, dict] = {}

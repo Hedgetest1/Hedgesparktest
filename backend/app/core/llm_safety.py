@@ -36,10 +36,13 @@ Public API
 """
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Iterable
+
+log = logging.getLogger("llm_safety")
 
 
 class Severity(Enum):
@@ -220,7 +223,8 @@ def _is_strict_mode() -> bool:
     try:
         from app.core.feature_flags import is_enabled
         return is_enabled("llm_strict_safety")
-    except Exception:
+    except Exception as exc:
+        log.warning("llm_safety: feature flag check failed: %s", exc)
         return True  # fail closed
 
 
@@ -324,5 +328,5 @@ def _audit(
             db.commit()
         finally:
             db.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("llm_safety: audit alert write failed: %s", exc)

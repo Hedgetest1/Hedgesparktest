@@ -42,9 +42,12 @@ Public API
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 from typing import Any
+
+log = logging.getLogger("llm_pii_guard")
 
 
 class LLMPayloadViolation(Exception):
@@ -227,8 +230,8 @@ def _bump_violation_counter() -> None:
         key = f"{_COUNTER_KEY}:{day}"
         rc.incr(key)
         rc.expire(key, 90 * 24 * 3600)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("llm_pii_guard: violation counter bump failed: %s", exc)
 
 
 def get_violation_count_7d() -> int:
@@ -254,5 +257,6 @@ def get_violation_count_7d() -> int:
             except ValueError:
                 pass
         return total
-    except Exception:
+    except Exception as exc:
+        log.warning("llm_pii_guard: violation count read failed: %s", exc)
         return 0
