@@ -32,7 +32,7 @@ class CommunityTemplate(Base):
     author_label = Column(String(120), nullable=True)  # display name (optional)
 
     # Vertical scoping — surfaced first to merchants in the same vertical.
-    vertical = Column(String(32), nullable=False, default="other")
+    vertical = Column(String(32), nullable=False, default="other", server_default="other")
 
     # The actual template payload — JSONB for flexibility. The shape
     # depends on template_type:
@@ -41,13 +41,13 @@ class CommunityTemplate(Base):
     payload = Column(JSONB, nullable=False)
 
     # Engagement stats
-    upvotes = Column(Integer, nullable=False, default=0)
-    clone_count = Column(Integer, nullable=False, default=0)
+    upvotes = Column(Integer, nullable=False, default=0, server_default="0")
+    clone_count = Column(Integer, nullable=False, default=0, server_default="0")
 
-    status = Column(String(16), nullable=False, default="published")  # published|hidden|removed
+    status = Column(String(16), nullable=False, default="published", server_default="published")  # published|hidden|removed
 
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
-    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)
 
     __table_args__ = (
         Index("ix_community_templates_type_vertical", "template_type", "vertical"),
@@ -62,7 +62,7 @@ class CommunityTemplateClone(Base):
     id = Column(Integer, primary_key=True)
     template_id = Column(Integer, ForeignKey("community_templates.id"), nullable=False, index=True)
     shop_domain = Column(String, nullable=False, index=True)
-    cloned_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    cloned_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
 
     __table_args__ = (
         UniqueConstraint("template_id", "shop_domain", name="uq_community_clones_template_shop"),

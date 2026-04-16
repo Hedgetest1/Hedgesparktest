@@ -57,7 +57,7 @@ class AutonomousAction(Base):
     sip_nudge_score = Column(Float, nullable=True)     # SIP nudge_type_score used
 
     # Execution status
-    status = Column(String(16), nullable=False, default="proposed", index=True)
+    status = Column(String(16), nullable=False, default="proposed", server_default="proposed", index=True)
     deployed_at = Column(DateTime, nullable=True)
     holdout_pct = Column(Integer, nullable=True)
 
@@ -75,7 +75,7 @@ class AutonomousAction(Base):
     rollback_reason = Column(Text, nullable=True)
 
     # Bootstrap flag: manually-forced experiments are excluded from SIP learning
-    is_bootstrap = Column(Boolean, nullable=False, default=False)
+    is_bootstrap = Column(Boolean, nullable=False, default=False, server_default="false")
 
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
-    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)

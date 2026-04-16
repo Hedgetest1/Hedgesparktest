@@ -32,7 +32,7 @@ class SystemLesson(Base):
     __tablename__ = "system_lessons"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc)
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
 
     # Domain this lesson applies to (from project_brain classifier)
     # e.g., "webhooks", "tracking", "auth", "billing", "intelligence"
@@ -53,13 +53,13 @@ class SystemLesson(Base):
     source_type = Column(String(32), nullable=True)
 
     # Quality control
-    confidence = Column(Float, nullable=False, default=0.7)
-    evidence_count = Column(Integer, nullable=False, default=1)
+    confidence = Column(Float, nullable=False, default=0.7, server_default="0.7")
+    evidence_count = Column(Integer, nullable=False, default=1, server_default="1")
     last_reinforced_at = Column(DateTime, nullable=True)
 
     # Status lifecycle: active → stale → retired
     # Or: active → contradicted (if opposing evidence found)
-    status = Column(String(16), nullable=False, default="active")
+    status = Column(String(16), nullable=False, default="active", server_default="active")
 
     # Dedup key — prevents duplicate lessons for same finding
     dedup_key = Column(String(256), nullable=True)

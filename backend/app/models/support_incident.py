@@ -19,23 +19,23 @@ class SupportIncident(Base):
     __tablename__ = "support_incidents"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc)
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
 
     # Merchant context
     shop_domain = Column(String(255), nullable=False, index=True)
 
     # Source + original input
-    source = Column(String(32), nullable=False, default="merchant_chat")
+    source = Column(String(32), nullable=False, default="merchant_chat", server_default="merchant_chat")
     original_message = Column(Text, nullable=False)
 
     # Classification
     classification = Column(String(64), nullable=False)  # product_question, bug_report, etc.
-    severity = Column(String(16), nullable=False, default="low")  # low/medium/high/critical
+    severity = Column(String(16), nullable=False, default="low", server_default="low")  # low/medium/high/critical
     confidence = Column(String(16), nullable=True)  # high/medium/low
     affected_area = Column(String(64), nullable=True)  # dashboard, tracker, klaviyo, etc.
 
     # Status lifecycle
-    status = Column(String(32), nullable=False, default="open")
+    status = Column(String(32), nullable=False, default="open", server_default="open")
     # open → triaged → investigating → resolved → dismissed
 
     # Autonomous pipeline links

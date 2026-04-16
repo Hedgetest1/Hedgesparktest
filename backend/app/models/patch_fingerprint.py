@@ -23,7 +23,7 @@ class PatchFingerprint(Base):
     __tablename__ = "patch_fingerprints"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc)
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
 
     # SHA-256 hash of normalized patch identity (title + files + diff prefix)
     fingerprint = Column(String(64), nullable=False)
@@ -58,7 +58,7 @@ class PatchFingerprint(Base):
 
     # Confidence penalty — decremented on each failure for this fingerprint
     # Starts at 1.0, drops by 0.3 on each failure. At 0.0, fingerprint is blacklisted.
-    confidence = Column(Float, nullable=False, default=1.0)
+    confidence = Column(Float, nullable=False, default=1.0, server_default="1.0")
 
     # Learning isolation: classifies the evidence environment.
     # pre_merchant | internal_test | sandbox | real_merchant

@@ -33,7 +33,7 @@ class StoreIntelligenceProfile(Base):
 
     id = Column(Integer, primary_key=True)
     shop_domain = Column(String, nullable=False, unique=True, index=True)
-    profile_version = Column(Integer, nullable=False, default=1)
+    profile_version = Column(Integer, nullable=False, default=1, server_default="1")
 
     # ── Behavioral baselines (store-wide rolling averages) ──
     baseline_cart_rate = Column(Float, nullable=True)         # 7d cart conversion rate
@@ -75,23 +75,23 @@ class StoreIntelligenceProfile(Base):
     signal_frequency_30d = Column(JSONB, nullable=True)
 
     # ── Confidence & freshness ──
-    data_points_total = Column(Integer, nullable=False, default=0)
-    confidence_level = Column(String(8), nullable=False, default="low")  # low / medium / high
+    data_points_total = Column(Integer, nullable=False, default=0, server_default="0")
+    confidence_level = Column(String(8), nullable=False, default="low", server_default="low")  # low / medium / high
 
     # ── Trust (scalar + multi-dimensional profile) ──
-    trust_score = Column(Float, nullable=False, default=0.5)
+    trust_score = Column(Float, nullable=False, default=0.5, server_default="0.5")
     # {"execution_reliability": 0.5, "measurement_integrity": 0.5,
     #  "outcome_quality": 0.5, "stability": 0.5, "overall": 0.5}
     trust_profile = Column(JSONB, nullable=True)
-    autonomous_paused = Column(Boolean, nullable=False, default=False)
+    autonomous_paused = Column(Boolean, nullable=False, default=False, server_default="false")
     pause_reason = Column(String(256), nullable=True)
 
     # ── Autonomy level (0–5, earned through outcomes) ──
     # 0=observe, 1=suggest, 2=assisted, 3=semi-auto, 4=full-auto, 5=aggressive
-    autonomy_level = Column(Integer, nullable=False, default=0)
+    autonomy_level = Column(Integer, nullable=False, default=0, server_default="0")
 
     # ── Measurement health ──
-    measurement_health = Column(String(16), nullable=False, default="healthy")  # healthy/degraded/broken
+    measurement_health = Column(String(16), nullable=False, default="healthy", server_default="healthy")  # healthy/degraded/broken
     measurement_health_detail = Column(String(512), nullable=True)
 
     # ── Nudge type cooldowns ──
@@ -102,15 +102,15 @@ class StoreIntelligenceProfile(Base):
     nudge_interaction_matrix = Column(JSONB, nullable=True)
 
     # ── Autonomous action history counters ──
-    total_autonomous_actions = Column(Integer, nullable=False, default=0)
-    total_positive_outcomes = Column(Integer, nullable=False, default=0)
-    total_rollbacks = Column(Integer, nullable=False, default=0)
-    contradiction_count = Column(Integer, nullable=False, default=0)
+    total_autonomous_actions = Column(Integer, nullable=False, default=0, server_default="0")
+    total_positive_outcomes = Column(Integer, nullable=False, default=0, server_default="0")
+    total_rollbacks = Column(Integer, nullable=False, default=0, server_default="0")
+    contradiction_count = Column(Integer, nullable=False, default=0, server_default="0")
     last_outcome_at = Column(DateTime, nullable=True)
 
-    computed_at = Column(DateTime, nullable=False, default=utc_now_naive)
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
-    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
+    computed_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)
 
 
 class SipSnapshot(Base):
@@ -122,8 +122,8 @@ class SipSnapshot(Base):
     snapshot_week = Column(DateTime, nullable=False)  # ISO week start (Monday)
     profile_data = Column(JSONB, nullable=False)      # full SIP as JSON
     baseline_cart_rate = Column(Float, nullable=True)  # denormalized for fast queries
-    data_points = Column(Integer, nullable=False, default=0)
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    data_points = Column(Integer, nullable=False, default=0, server_default="0")
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
 
     __table_args__ = (
         UniqueConstraint(

@@ -65,7 +65,7 @@ class NudgeImpressionDaily(Base):
     impression_date = Column(Date, nullable=False)
 
     # Row creation timestamp — used for retention cleanup
-    created_at      = Column(DateTime, nullable=False, default=utc_now_naive)
+    created_at      = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
 
     __table_args__ = (
         # Dedup constraint — enforces one-impression-per-day at DB level.

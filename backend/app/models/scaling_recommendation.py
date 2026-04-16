@@ -19,7 +19,7 @@ class ScalingRecommendation(Base):
     __tablename__ = "scaling_recommendations"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc)
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
 
     resource_type = Column(String(64), nullable=False)  # vps, redis, llm_budget, email, database
     title = Column(String(255), nullable=False)
@@ -29,13 +29,13 @@ class ScalingRecommendation(Base):
     projected_value = Column(String(128), nullable=True)
     projected_horizon_days = Column(Integer, nullable=True, default=30)
 
-    severity = Column(String(16), nullable=False, default="info")  # info / warning / critical
-    confidence = Column(String(16), nullable=False, default="low")  # low / medium / high
+    severity = Column(String(16), nullable=False, default="info", server_default="info")  # info / warning / critical
+    confidence = Column(String(16), nullable=False, default="low", server_default="low")  # low / medium / high
 
     estimated_cost_increase_eur = Column(Numeric(18, 2), nullable=True)
 
     # Lifecycle
-    status = Column(String(32), nullable=False, default="active")  # active / acknowledged / dismissed
+    status = Column(String(32), nullable=False, default="active", server_default="active")  # active / acknowledged / dismissed
     acknowledged_by = Column(String(128), nullable=True)
     acknowledged_at = Column(DateTime, nullable=True)
 

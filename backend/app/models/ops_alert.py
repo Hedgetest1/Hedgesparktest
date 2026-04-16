@@ -26,7 +26,7 @@ class OpsAlert(Base):
     __tablename__ = "ops_alerts"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc)
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
 
     severity = Column(String(16), nullable=False)      # critical | warning | info
     source = Column(String(64), nullable=False)         # component that raised it
@@ -34,7 +34,7 @@ class OpsAlert(Base):
     shop_domain = Column(String, nullable=True)         # tenant scope if applicable
     summary = Column(String(512), nullable=False)       # human/agent-readable summary
     detail = Column(Text, nullable=True)                # JSON or text with full context
-    resolved = Column(Boolean, nullable=False, default=False)
+    resolved = Column(Boolean, nullable=False, default=False, server_default="false")
     resolved_at = Column(DateTime, nullable=True)
 
     # External delivery tracking (Slack, etc.)

@@ -55,10 +55,10 @@ class ActionTask(Base):
     action_type = Column(String, nullable=False)   # SCARCITY_NUDGE | PRICE_TEST | …
 
     # Lifecycle state — see module docstring.
-    status = Column(String, nullable=False, default="pending")
+    status = Column(String, nullable=False, default="pending", server_default="pending")
 
     # Who or what created this task.
-    triggered_by = Column(String, nullable=False, default="manual")
+    triggered_by = Column(String, nullable=False, default="manual", server_default="manual")
 
     # Which agent instance claimed this task (set atomically with FOR UPDATE).
     # NULL = unclaimed.
@@ -75,8 +75,8 @@ class ActionTask(Base):
     confidence    = Column(Float, nullable=True)
     urgency       = Column(Float, nullable=True)
 
-    created_at   = Column(DateTime, nullable=False, default=utc_now_naive)
-    updated_at   = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
+    created_at   = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    updated_at   = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)
     executed_at  = Column(DateTime, nullable=True)   # set when status → executing
     completed_at = Column(DateTime, nullable=True)   # set when status → done | failed | dismissed
 

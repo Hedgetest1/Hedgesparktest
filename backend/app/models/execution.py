@@ -35,36 +35,36 @@ class ExecutionOpportunity(Base):
     opp_type = Column(String(16), nullable=False)
     product_a = Column(String, nullable=False)
     product_b = Column(String, nullable=False)
-    audience_size = Column(Integer, nullable=False, default=0)
+    audience_size = Column(Integer, nullable=False, default=0, server_default="0")
     suggested_message = Column(Text, nullable=True)
     timing = Column(String(128), nullable=True)
     expected_impact = Column(Text, nullable=True)
-    is_active = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
-    refreshed_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    is_active = Column(Boolean, nullable=False, default=True, server_default="true")
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    refreshed_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
 
     # Execution lifecycle
-    execution_status = Column(String(16), nullable=False, default="suggested")
+    execution_status = Column(String(16), nullable=False, default="suggested", server_default="suggested")
     executed_at = Column(DateTime, nullable=True)
     execution_mode = Column(String(16), nullable=True)
     execution_note = Column(String(500), nullable=True)
 
     # Holdout configuration
-    holdout_pct = Column(Integer, nullable=False, default=20)
-    enforcement_mode = Column(String(16), nullable=False, default="unknown")  # email | onsite | unknown
+    holdout_pct = Column(Integer, nullable=False, default=20, server_default="20")
+    enforcement_mode = Column(String(16), nullable=False, default="unknown", server_default="unknown")  # email | onsite | unknown
 
     # Before/after measurement (precomputed by worker)
     post_return_rate = Column(Float, nullable=True)
     post_view_rate = Column(Float, nullable=True)
     post_purchase_rate = Column(Float, nullable=True)
-    post_sample_size = Column(Integer, nullable=False, default=0)
+    post_sample_size = Column(Integer, nullable=False, default=0, server_default="0")
     delta_return_rate = Column(Float, nullable=True)
     delta_view_rate = Column(Float, nullable=True)
     delta_purchase_rate = Column(Float, nullable=True)
 
     # Exposed vs holdout (counterfactual, precomputed by worker)
-    exposed_sample_size = Column(Integer, nullable=False, default=0)
-    holdout_sample_size = Column(Integer, nullable=False, default=0)
+    exposed_sample_size = Column(Integer, nullable=False, default=0, server_default="0")
+    holdout_sample_size = Column(Integer, nullable=False, default=0, server_default="0")
     return_rate_exposed = Column(Float, nullable=True)
     view_rate_exposed = Column(Float, nullable=True)
     purchase_rate_exposed = Column(Float, nullable=True)
@@ -93,8 +93,8 @@ class ExecutionAudience(Base):
     execution_id = Column(String(12), nullable=False)
     shop_domain = Column(String, nullable=False)
     visitor_id = Column(String, nullable=False)
-    group_type = Column(String(8), nullable=False, default="exposed")  # exposed | holdout
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    group_type = Column(String(8), nullable=False, default="exposed", server_default="exposed")  # exposed | holdout
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
 
     __table_args__ = (
         Index("uq_exec_aud_exec_visitor", "execution_id", "visitor_id", unique=True),
@@ -113,13 +113,13 @@ class ExecutionTracking(Base):
     execution_id = Column(String(12), nullable=False)
     shop_domain = Column(String, nullable=False)
     visitor_id = Column(String, nullable=False)
-    group_type = Column(String(8), nullable=False, default="exposed")  # exposed | holdout
-    exposed_at = Column(DateTime, nullable=False, default=utc_now_naive)
-    returned = Column(Boolean, nullable=False, default=False)
-    viewed_product_b = Column(Boolean, nullable=False, default=False)
-    purchased_product_b = Column(Boolean, nullable=False, default=False)
-    leakage_suspected = Column(Boolean, nullable=False, default=False)
-    updated_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    group_type = Column(String(8), nullable=False, default="exposed", server_default="exposed")  # exposed | holdout
+    exposed_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    returned = Column(Boolean, nullable=False, default=False, server_default="false")
+    viewed_product_b = Column(Boolean, nullable=False, default=False, server_default="false")
+    purchased_product_b = Column(Boolean, nullable=False, default=False, server_default="false")
+    leakage_suspected = Column(Boolean, nullable=False, default=False, server_default="false")
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
 
     __table_args__ = (
         Index("uq_exec_track_exec_visitor", "execution_id", "visitor_id", unique=True),
@@ -136,12 +136,12 @@ class ExecutionBaseline(Base):
     id = Column(Integer, primary_key=True)
     execution_id = Column(String(12), nullable=False)
     shop_domain = Column(String, nullable=False)
-    captured_at = Column(DateTime, nullable=False, default=utc_now_naive)
-    audience_size = Column(Integer, nullable=False, default=0)
+    captured_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    audience_size = Column(Integer, nullable=False, default=0, server_default="0")
     return_rate = Column(Float, nullable=True)
     view_rate = Column(Float, nullable=True)
     purchase_rate = Column(Float, nullable=True)
-    tracked_count = Column(Integer, nullable=False, default=0)
+    tracked_count = Column(Integer, nullable=False, default=0, server_default="0")
     product_b = Column(String, nullable=True)
     product_b_views_24h = Column(Integer, nullable=True)
     product_b_carts_24h = Column(Integer, nullable=True)

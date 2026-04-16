@@ -35,19 +35,19 @@ class OutboundWebhookSubscription(Base):
 
     # JSONB list of event types this subscription wants:
     # ["nudge.fired", "rars.spike", "goal.at_risk", "anomaly.detected", ...]
-    event_types = Column(JSONB, nullable=False, default=list)
+    event_types = Column(JSONB, nullable=False, default=list, server_default="'[]'")
 
-    status = Column(String(16), nullable=False, default="active")  # active|paused|disabled
+    status = Column(String(16), nullable=False, default="active", server_default="active")  # active|paused|disabled
 
     # Health
     last_success_at = Column(DateTime, nullable=True)
     last_failure_at = Column(DateTime, nullable=True)
-    consecutive_failures = Column(Integer, nullable=False, default=0)
-    auto_disabled = Column(Boolean, nullable=False, default=False)
+    consecutive_failures = Column(Integer, nullable=False, default=0, server_default="0")
+    auto_disabled = Column(Boolean, nullable=False, default=False, server_default="false")
 
     description = Column(String(200), nullable=True)
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
-    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)
     created_by = Column(String, nullable=True)
 
     __table_args__ = (
@@ -65,12 +65,12 @@ class OutboundWebhookDelivery(Base):
     event_id = Column(String(64), nullable=False, index=True)  # idempotency key
     payload = Column(JSONB, nullable=False)
 
-    status = Column(String(16), nullable=False, default="pending")  # pending|delivered|failed|dead
-    attempts = Column(Integer, nullable=False, default=0)
+    status = Column(String(16), nullable=False, default="pending", server_default="pending")  # pending|delivered|failed|dead
+    attempts = Column(Integer, nullable=False, default=0, server_default="0")
     response_status = Column(Integer, nullable=True)
     response_body = Column(Text, nullable=True)
 
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
     last_attempted_at = Column(DateTime, nullable=True)
     delivered_at = Column(DateTime, nullable=True)
 

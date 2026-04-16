@@ -52,28 +52,28 @@ class TrustContract(Base):
     action_type = Column(String, nullable=False)  # SCARCITY_NUDGE | PRICE_TEST | FLASH_INCENTIVE | ...
 
     # --- Quotas ---
-    max_per_day = Column(Integer, nullable=False, default=3)
-    max_per_week = Column(Integer, nullable=False, default=10)
+    max_per_day = Column(Integer, nullable=False, default=3, server_default="3")
+    max_per_week = Column(Integer, nullable=False, default=10, server_default="10")
 
     # --- Price bounds (for PRICE_TEST / FLASH_INCENTIVE) ---
     # discount_floor_pct: -10 = allow up to 10% price cut (most aggressive)
     # discount_ceiling_pct: 0 = never allow markup; 5 = allow up to +5%
-    discount_floor_pct = Column(Float, nullable=False, default=-5.0)
-    discount_ceiling_pct = Column(Float, nullable=False, default=0.0)
+    discount_floor_pct = Column(Float, nullable=False, default=-5.0, server_default="-5.0")
+    discount_ceiling_pct = Column(Float, nullable=False, default=0.0, server_default="0.0")
 
     # --- Safety gates ---
-    confidence_threshold = Column(Float, nullable=False, default=0.80)  # [0..1]
-    auto_pause_on_drop_pct = Column(Float, nullable=False, default=15.0)  # rev drop %
-    require_holdout = Column(Boolean, nullable=False, default=True)
+    confidence_threshold = Column(Float, nullable=False, default=0.80, server_default="0.80")  # [0..1]
+    auto_pause_on_drop_pct = Column(Float, nullable=False, default=15.0, server_default="15.0")  # rev drop %
+    require_holdout = Column(Boolean, nullable=False, default=True, server_default="true")
 
     # --- Scope ---
-    scope_type = Column(String, nullable=False, default="all")  # all | products | collections | tags
+    scope_type = Column(String, nullable=False, default="all", server_default="all")  # all | products | collections | tags
     scope_values = Column(Text, nullable=True)  # JSON array, null for scope_type=all
 
     # --- Lifecycle ---
-    status = Column(String, nullable=False, default="active")  # active | paused | revoked | expired
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
-    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
+    status = Column(String, nullable=False, default="active", server_default="active")  # active | paused | revoked | expired
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)
     revoked_at = Column(DateTime, nullable=True)
     revoked_reason = Column(String, nullable=True)  # 'panic' | 'auto_pause:rev_drop' | 'merchant' | ...
 
@@ -100,7 +100,7 @@ class TrustExecutionLog(Base):
     action_type = Column(String, nullable=False)
     target_url = Column(String, nullable=True)  # product/collection affected
 
-    executed_at = Column(DateTime, nullable=False, default=utc_now_naive, index=True)
+    executed_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", index=True)
 
     # Snapshot of the decision
     confidence = Column(Float, nullable=True)

@@ -26,7 +26,7 @@ class AuditLog(Base):
     __tablename__ = "audit_log"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc)
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
 
     # Who performed the action
     actor_type = Column(String(32), nullable=False)   # system | worker | agent | merchant | admin
@@ -47,7 +47,7 @@ class AuditLog(Base):
     after_state = Column(Text, nullable=True)    # JSON
 
     # Outcome
-    status = Column(String(32), nullable=False, default="completed")  # completed | failed | skipped
+    status = Column(String(32), nullable=False, default="completed", server_default="completed")  # completed | failed | skipped
 
     # Governance
     approval_mode = Column(String(32), nullable=True)  # autonomous | human_approved | None

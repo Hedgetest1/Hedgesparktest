@@ -30,7 +30,7 @@ class InboundEmail(Base):
     __tablename__ = "inbound_emails"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc)
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
 
     # Dedup
     message_id = Column(String(256), nullable=True, unique=True)
@@ -54,7 +54,7 @@ class InboundEmail(Base):
 
     # Routing
     routing_action = Column(String(64), nullable=True)
-    routing_status = Column(String(16), nullable=False, default="pending")
+    routing_status = Column(String(16), nullable=False, default="pending", server_default="pending")
     # pending | classified | routed | escalated | archived | responded
     routed_at = Column(DateTime, nullable=True)
 

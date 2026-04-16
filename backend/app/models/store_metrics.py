@@ -27,12 +27,12 @@ class StoreMetrics(Base):
     shop_domain = Column(String, nullable=False, unique=True)
 
     # Co-viewed product pairs (JSONB array, top 10)
-    co_viewed_pairs = Column(JSONB, nullable=False, default=list)
+    co_viewed_pairs = Column(JSONB, nullable=False, default=list, server_default="'[]'")
 
     # Cohort snapshot (7d window)
-    new_visitors_7d = Column(Integer, nullable=False, default=0)
-    returning_visitors_7d = Column(Integer, nullable=False, default=0)
+    new_visitors_7d = Column(Integer, nullable=False, default=0, server_default="0")
+    returning_visitors_7d = Column(Integer, nullable=False, default=0, server_default="0")
     new_visitor_cart_rate = Column(Float, nullable=True)
     returning_visitor_cart_rate = Column(Float, nullable=True)
 
-    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)

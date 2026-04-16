@@ -69,7 +69,7 @@ class ShopOrder(Base):
 
     # Revenue fields
     total_price = Column(Numeric(18, 2), nullable=False)
-    currency    = Column(String, nullable=False, default="EUR")
+    currency    = Column(String, nullable=False, default="EUR", server_default="EUR")
 
     # Optional customer link — NULL for guest checkouts
     customer_id    = Column(String, nullable=True)
@@ -80,13 +80,13 @@ class ShopOrder(Base):
 
     # Raw Shopify line items array: [{id, product_id, variant_id, title, quantity, price, sku}, ...]
     # REPLACE WITH REAL ORDER DATA: query this column to compute per-product revenue attribution
-    line_items  = Column(JSONB, nullable=False, default=list)
+    line_items  = Column(JSONB, nullable=False, default=list, server_default="'[]'")
 
     # Shopify-side order creation timestamp — use for revenue time-window queries
     created_at  = Column(DateTime, nullable=False)
 
     # Server-side ingestion timestamp — use for dedup auditing, not analytics
-    ingested_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    ingested_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
 
     # Ingestion source: "pixel" (client-side Custom Pixel) or "webhook" (Shopify Admin API)
     # Pixel rows have line_items=[] and customer_id/email=None.

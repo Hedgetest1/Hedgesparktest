@@ -35,7 +35,7 @@ class DailyBrief(Base):
     brief_date = Column(Date, nullable=False)
 
     # Wall-clock time when this row was written.
-    generated_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    generated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
 
     # The single merchant-facing headline sentence.  Always populated.
     headline = Column(String, nullable=False)
@@ -48,7 +48,7 @@ class DailyBrief(Base):
     top_action = Column(String, nullable=True)
 
     # Count of distinct signal instances detected across all products.
-    signals_count = Column(Integer, nullable=False, default=0)
+    signals_count = Column(Integer, nullable=False, default=0, server_default="0")
 
     # Top 3 products serialised as a JSON string.
     # Schema: list of {product_url, product_label, signal_type,
@@ -59,7 +59,7 @@ class DailyBrief(Base):
     # Pro plan: AI-generated narrative paragraph (optional, async).
     # NULL means the worker has not yet run or AI is not configured.
     summary_text = Column(Text, nullable=True)
-    summary_generated = Column(Boolean, nullable=False, default=False)
+    summary_generated = Column(Boolean, nullable=False, default=False, server_default="false")
 
     __table_args__ = (
         UniqueConstraint(

@@ -26,13 +26,13 @@ class AdSpendDaily(Base):
     campaign_id = Column(String(64), nullable=False)
     campaign_name = Column(String(200), nullable=True)
 
-    spend_eur = Column(Numeric(18, 2), nullable=False, default=0)
-    impressions = Column(Integer, nullable=False, default=0)
-    clicks = Column(Integer, nullable=False, default=0)
-    conversions = Column(Integer, nullable=False, default=0)
-    revenue_attributed_eur = Column(Numeric(18, 2), nullable=False, default=0)
+    spend_eur = Column(Numeric(18, 2), nullable=False, default=0, server_default="0")
+    impressions = Column(Integer, nullable=False, default=0, server_default="0")
+    clicks = Column(Integer, nullable=False, default=0, server_default="0")
+    conversions = Column(Integer, nullable=False, default=0, server_default="0")
+    revenue_attributed_eur = Column(Numeric(18, 2), nullable=False, default=0, server_default="0")
 
-    ingested_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    ingested_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
 
     __table_args__ = (
         UniqueConstraint("shop_domain", "date", "network", "campaign_id",
@@ -58,12 +58,12 @@ class AdConnection(Base):
     account_id = Column(String(128), nullable=True)
     account_name = Column(String(200), nullable=True)
 
-    status = Column(String(16), nullable=False, default="connected")  # connected|disconnected|error
+    status = Column(String(16), nullable=False, default="connected", server_default="connected")  # connected|disconnected|error
     last_synced_at = Column(DateTime, nullable=True)
     last_error = Column(String(500), nullable=True)
 
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
-    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)
 
     __table_args__ = (
         UniqueConstraint("shop_domain", "network", name="uq_ad_conn_shop_network"),

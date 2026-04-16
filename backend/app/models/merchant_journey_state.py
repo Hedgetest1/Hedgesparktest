@@ -68,10 +68,10 @@ class MerchantJourneyState(Base):
     # Possible values:
     #   new, invited, opened, clicked, onboarding, active,
     #   followed_up, activated_lite, activated_pro, replied
-    current_stage = Column(String(32), nullable=False, default="new")
+    current_stage = Column(String(32), nullable=False, default="new", server_default="new")
 
-    created_at = Column(DateTime, nullable=False, default=_now_utc)
-    updated_at = Column(DateTime, nullable=False, default=_now_utc, onupdate=_now_utc)
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
+    updated_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()", onupdate=_now_utc)
 
     __table_args__ = (
         Index("ix_journey_shop", "shop_domain"),

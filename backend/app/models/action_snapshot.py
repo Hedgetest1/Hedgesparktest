@@ -37,7 +37,7 @@ class ActionSnapshot(Base):
     # Lifecycle
     snapshot_at = Column(DateTime, nullable=False)
     compare_after = Column(DateTime, nullable=False)
-    delta_computed = Column(Boolean, nullable=False, default=False)
+    delta_computed = Column(Boolean, nullable=False, default=False, server_default="false")
 
     # Delta results
     delta_cvr = Column(Float, nullable=True)

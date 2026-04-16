@@ -34,12 +34,12 @@ class PublicProofShare(Base):
     generic_text = Column(String(512), nullable=True)
 
     # Tracking
-    view_count = Column(Integer, nullable=False, default=0)
-    click_cta_count = Column(Integer, nullable=False, default=0)
-    installs_attributed = Column(Integer, nullable=False, default=0)
+    view_count = Column(Integer, nullable=False, default=0, server_default="0")
+    click_cta_count = Column(Integer, nullable=False, default=0, server_default="0")
+    installs_attributed = Column(Integer, nullable=False, default=0, server_default="0")
 
     expires_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
 
 
 class ShareEvent(Base):
@@ -51,4 +51,4 @@ class ShareEvent(Base):
     event_type = Column(String(16), nullable=False)  # "share", "view", "click_cta", "install"
     channel = Column(String(32), nullable=True)       # "twitter", "copy", "direct"
     referrer = Column(String(512), nullable=True)
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")

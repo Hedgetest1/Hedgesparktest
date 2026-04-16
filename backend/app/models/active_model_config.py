@@ -21,8 +21,8 @@ class ActiveModelConfig(Base):
     module = Column(String(64), nullable=False)        # orchestrator | bugfix_proposal | evolution_audit
     provider = Column(String(32), nullable=False)
     model_name = Column(String(128), nullable=False)
-    is_active = Column(Boolean, nullable=False, default=True)
-    activated_at = Column(DateTime, nullable=False, default=_now_utc)
+    is_active = Column(Boolean, nullable=False, default=True, server_default="true")
+    activated_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
     activated_by = Column(String(128), nullable=False)
     deactivated_at = Column(DateTime, nullable=True)
     replaced_by_id = Column(Integer, nullable=True)    # points to the row that replaced this one

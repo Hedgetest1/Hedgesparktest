@@ -44,7 +44,7 @@ class ProjectBrainSnapshot(Base):
     __tablename__ = "project_brain_snapshots"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc)
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
     snapshot_type = Column(String(16), nullable=False)        # full | codebase | runtime
 
     # Structured knowledge (JSON)
@@ -59,7 +59,7 @@ class ProjectBrainSnapshot(Base):
     open_evolution = Column(Integer, nullable=True)
 
     # Constitution version tag — links to the code-defined constitution
-    constitution_version = Column(String(16), nullable=False, default="v1")
+    constitution_version = Column(String(16), nullable=False, default="v1", server_default="v1")
 
     __table_args__ = (
         Index("ix_brain_snapshots_type_created", "snapshot_type", "created_at"),

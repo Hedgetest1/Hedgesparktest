@@ -19,12 +19,12 @@ class SystemSnapshot(Base):
     __tablename__ = "system_snapshots"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc)
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
     date_bucket = Column(Date, nullable=False, unique=True)
 
     # Merchant counts
-    active_merchants = Column(Integer, nullable=False, default=0)
-    billing_active_merchants = Column(Integer, nullable=False, default=0)
+    active_merchants = Column(Integer, nullable=False, default=0, server_default="0")
+    billing_active_merchants = Column(Integer, nullable=False, default=0, server_default="0")
 
     # Event volume
     total_events_24h = Column(Integer, nullable=True)

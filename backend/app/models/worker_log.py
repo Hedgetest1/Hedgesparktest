@@ -26,13 +26,13 @@ class WorkerLog(Base):
 
     worker_name = Column(String, nullable=False)
 
-    started_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    started_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
     finished_at = Column(DateTime, nullable=True)
 
     # Counts for the completed cycle.
-    shops_processed = Column(Integer, nullable=False, default=0)
-    rows_written = Column(Integer, nullable=False, default=0)
-    errors = Column(Integer, nullable=False, default=0)
+    shops_processed = Column(Integer, nullable=False, default=0, server_default="0")
+    rows_written = Column(Integer, nullable=False, default=0, server_default="0")
+    errors = Column(Integer, nullable=False, default=0, server_default="0")
 
     # Last exception message, populated when errors > 0.
     error_detail = Column(String, nullable=True)

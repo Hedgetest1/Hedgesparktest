@@ -57,7 +57,7 @@ class MerchantRule(Base):
     # [{"field": "source", "op": "eq", "value": "google"},
     #  {"field": "magnitude", "op": "gt", "value": 1000}]
     # Supported ops: eq, ne, gt, lt, gte, lte, contains, in
-    conditions = Column(JSONB, nullable=False, default=list)
+    conditions = Column(JSONB, nullable=False, default=list, server_default="'[]'")
 
     # Action — JSONB dict with 'type' + params
     # {"type": "send_klaviyo_event", "event_name": "cart_watch"}
@@ -66,17 +66,17 @@ class MerchantRule(Base):
     # {"type": "write_note", "body": "Watch this one"}
     action = Column(JSONB, nullable=False)
 
-    status = Column(String(16), nullable=False, default="draft")  # draft|active|paused|disabled
+    status = Column(String(16), nullable=False, default="draft", server_default="draft")  # draft|active|paused|disabled
 
     # Rate limiting — max fires per hour per rule (prevents runaway loops)
-    max_per_hour = Column(Integer, nullable=False, default=30)
+    max_per_hour = Column(Integer, nullable=False, default=30, server_default="30")
 
     # Statistics
-    fired_count = Column(Integer, nullable=False, default=0)
+    fired_count = Column(Integer, nullable=False, default=0, server_default="0")
     last_fired_at = Column(DateTime, nullable=True)
 
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
-    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)
     created_by = Column(String, nullable=True)
 
     __table_args__ = (

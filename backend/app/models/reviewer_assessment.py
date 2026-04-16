@@ -35,7 +35,7 @@ class ReviewerAssessment(Base):
     __tablename__ = "reviewer_assessments"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc)
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
 
     # What was reviewed
     entity_type = Column(String(64), nullable=False)          # bugfix_candidate | evolution_proposal | action_approval | model_upgrade | scaling_recommendation
@@ -46,7 +46,7 @@ class ReviewerAssessment(Base):
     risk_level = Column(String(16), nullable=False)           # low | medium | high | critical
     strategic_alignment = Column(String(16), nullable=False)  # strong | medium | weak
     confidence = Column(String(16), nullable=False)           # low | medium | high
-    auto_approvable = Column(Boolean, nullable=False, default=False)
+    auto_approvable = Column(Boolean, nullable=False, default=False, server_default="false")
 
     # Explanation
     summary = Column(Text, nullable=False)

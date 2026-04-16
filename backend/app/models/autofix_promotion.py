@@ -19,11 +19,11 @@ class AutoFixPromotion(Base):
     __tablename__ = "autofix_promotions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc)
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
     bugfix_candidate_id = Column(Integer, nullable=False)
     git_commit_sha = Column(String(64), nullable=False)
     branch_name = Column(String(128), nullable=True)
-    status = Column(String(32), nullable=False, default="pending")
+    status = Column(String(32), nullable=False, default="pending", server_default="pending")
     ci_url = Column(String(512), nullable=True)
     ci_result = Column(Text, nullable=True)
     decided_by = Column(String(128), nullable=True)

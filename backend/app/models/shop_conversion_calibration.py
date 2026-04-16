@@ -25,10 +25,10 @@ class ShopConversionCalibration(Base):
     shop_domain = Column(String, nullable=False)
 
     # Increments on each retrain — useful for audit and debugging
-    model_version = Column(Integer, nullable=False, default=1)
+    model_version = Column(Integer, nullable=False, default=1, server_default="1")
 
     # Training window
-    lookback_days = Column(Integer, nullable=False, default=30)
+    lookback_days = Column(Integer, nullable=False, default=30, server_default="30")
 
     # Training dataset counts
     sample_size     = Column(Integer, nullable=False)   # total product-viewing visitors
@@ -49,10 +49,10 @@ class ShopConversionCalibration(Base):
 
     # True when data meets minimum thresholds for empirical use.
     # False → model is in FALLBACK mode; apply_calibration() returns inferred unchanged.
-    is_empirical = Column(Boolean, nullable=False, default=False)
+    is_empirical = Column(Boolean, nullable=False, default=False, server_default="false")
 
     # Last training timestamp — used for staleness check in get_or_train_model()
-    trained_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    trained_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
 
     __table_args__ = (
         UniqueConstraint("shop_domain", name="uq_scc_shop_domain"),

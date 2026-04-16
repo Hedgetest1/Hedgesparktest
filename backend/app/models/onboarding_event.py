@@ -40,7 +40,7 @@ class OnboardingEvent(Base):
     __tablename__ = "onboarding_events"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc)
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
 
     shop_domain = Column(String, nullable=False)
     event_type = Column(String(64), nullable=False)

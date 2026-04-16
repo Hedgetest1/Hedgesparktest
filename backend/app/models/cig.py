@@ -64,13 +64,13 @@ class CigCohort(Base):
     playbooks = Column(JSONB, nullable=True)
 
     # ── Meta ──
-    merchant_count = Column(Integer, nullable=False, default=0)
-    total_data_points = Column(Integer, nullable=False, default=0)
-    confidence_level = Column(String(8), nullable=False, default="low")
+    merchant_count = Column(Integer, nullable=False, default=0, server_default="0")
+    total_data_points = Column(Integer, nullable=False, default=0, server_default="0")
+    confidence_level = Column(String(8), nullable=False, default="low", server_default="low")
 
-    computed_at = Column(DateTime, nullable=False, default=utc_now_naive)
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
-    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
+    computed_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)
 
 
 class CigMerchantMapping(Base):
@@ -96,5 +96,5 @@ class CigMerchantMapping(Base):
     # Store fingerprint used for matching (snapshot for audit)
     fingerprint = Column(JSONB, nullable=True)
 
-    computed_at = Column(DateTime, nullable=False, default=utc_now_naive)
-    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
+    computed_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)

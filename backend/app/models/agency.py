@@ -33,10 +33,10 @@ class Agency(Base):
     custom_subdomain = Column(String(120), nullable=True, unique=True)
 
     # Default revenue-share applied when adding a client
-    default_revshare_pct = Column(Float, nullable=False, default=20.0)
+    default_revshare_pct = Column(Float, nullable=False, default=20.0, server_default="20.0")
 
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
-    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)
 
 
 class AgencyClient(Base):
@@ -47,10 +47,10 @@ class AgencyClient(Base):
     shop_domain = Column(String, nullable=False, index=True)
 
     nickname = Column(String(200), nullable=True)
-    revshare_pct = Column(Float, nullable=False, default=20.0)
+    revshare_pct = Column(Float, nullable=False, default=20.0, server_default="20.0")
 
-    status = Column(String(16), nullable=False, default="active")  # active|paused|removed
-    onboarded_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    status = Column(String(16), nullable=False, default="active", server_default="active")  # active|paused|removed
+    onboarded_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
 
     __table_args__ = (
         UniqueConstraint("agency_id", "shop_domain", name="uq_agency_client_agency_shop"),

@@ -38,12 +38,12 @@ class GdprRequest(Base):
     customer_email = Column(String, nullable=True)
 
     # "pending" | "processing" | "completed" | "failed"
-    status = Column(String, nullable=False, default="pending")
+    status = Column(String, nullable=False, default="pending", server_default="pending")
 
     # Raw Shopify webhook payload for audit trail
     payload = Column(Text, nullable=True)
 
-    created_at = Column(DateTime, nullable=False, default=_now_utc)
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
     processed_at = Column(DateTime, nullable=True)
 
     # Populated on failure — stores exception message for operator review

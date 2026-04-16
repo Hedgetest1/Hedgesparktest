@@ -139,9 +139,9 @@ class ActiveNudge(Base):
     )
 
     # Lifecycle
-    status        = Column(String,  nullable=False, default="active")
-    created_at    = Column(DateTime, nullable=False, default=utc_now_naive)
-    updated_at    = Column(DateTime, nullable=False, default=utc_now_naive)
+    status        = Column(String,  nullable=False, default="active", server_default="active")
+    created_at    = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    updated_at    = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
     expires_at    = Column(DateTime, nullable=False)
     deactivated_at = Column(DateTime, nullable=True)
 
@@ -153,7 +153,7 @@ class ActiveNudge(Base):
     ai_compose_pending       = Column(Boolean, nullable=True, default=False)
 
     # Bootstrap flag: manually-forced experiments excluded from SIP learning
-    is_bootstrap             = Column(Boolean, nullable=False, default=False)
+    is_bootstrap             = Column(Boolean, nullable=False, default=False, server_default="false")
 
     # Segment context at time of last refresh
     visitor_count            = Column(Integer, nullable=True)

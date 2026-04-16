@@ -37,12 +37,12 @@ class SentryIncident(Base):
     __tablename__ = "sentry_incidents"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc)
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
 
     # --- Source tracking ---
     # Resend message ID or email Message-ID header — exact dedup key
     source_message_id = Column(String(256), nullable=True, unique=True)
-    source_type = Column(String(32), nullable=False, default="email")  # email | webhook | manual
+    source_type = Column(String(32), nullable=False, default="email", server_default="email")  # email | webhook | manual
 
     # --- Raw preservation ---
     raw_subject = Column(String(512), nullable=True)
@@ -69,10 +69,10 @@ class SentryIncident(Base):
     # --- Grouping ---
     # Points to the first incident with the same fingerprint (the "family head")
     family_head_id = Column(Integer, nullable=True)
-    recurrence_count = Column(Integer, nullable=False, default=1)
+    recurrence_count = Column(Integer, nullable=False, default=1, server_default="1")
 
     # --- Triage state ---
-    status = Column(String(32), nullable=False, default="received")
+    status = Column(String(32), nullable=False, default="received", server_default="received")
     parse_error = Column(String(512), nullable=True)
 
     # --- AI triage ---

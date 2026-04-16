@@ -39,7 +39,7 @@ class ActionOutcome(Base):
     evaluated_at = Column(DateTime, nullable=True)
 
     # pending | success | no_effect | degraded | unknown
-    outcome_status = Column(String(16), nullable=False, default="pending")
+    outcome_status = Column(String(16), nullable=False, default="pending", server_default="pending")
     outcome_detail = Column(Text, nullable=True)  # JSON or descriptive text
 
     __table_args__ = (

@@ -22,7 +22,7 @@ class EmailEvent(Base):
     __tablename__ = "email_events"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc)
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
 
     # Resend event fields
     resend_email_id = Column(String(128), nullable=False)

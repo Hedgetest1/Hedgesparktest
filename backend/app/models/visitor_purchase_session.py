@@ -67,7 +67,7 @@ class VisitorPurchaseSession(Base):
     confirmed_at = Column(DateTime, nullable=False)
 
     # Server receipt time — for audit and lag measurement.
-    ingested_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    ingested_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
 
     # First-touch attribution snapshot (resolved at conversion time)
     first_source = Column(String(64), nullable=True)       # first event's source_type

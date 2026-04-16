@@ -50,7 +50,7 @@ class NudgeEvent(Base):
     event_type  = Column(String,   nullable=False)
 
     # Server receipt time (UTC) — used as the exposure timestamp for attribution
-    created_at  = Column(DateTime, nullable=False, default=utc_now_naive)
+    created_at  = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
 
     # Optional JSON payload for future extensibility
     # v1: stores copy_variant at time of shown event

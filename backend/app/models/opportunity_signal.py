@@ -15,12 +15,12 @@ class OpportunitySignal(Base):
     product_url = Column(String, nullable=False)
     signal_type = Column(String, nullable=False)
 
-    signal_strength = Column(Float, nullable=False, default=0.0)
+    signal_strength = Column(Float, nullable=False, default=0.0, server_default="0.0")
     signal_confidence = Column(String(16), nullable=False, default="high", server_default="high")
     explanation = Column(String, nullable=True)
 
-    detected_at = Column(DateTime, nullable=False, default=utc_now_naive)
-    refreshed_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    detected_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    refreshed_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
 
     # NO Python default → evita TTL = 0
     expires_at = Column(DateTime, nullable=False)

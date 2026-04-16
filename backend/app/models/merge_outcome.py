@@ -20,9 +20,9 @@ class MergeOutcome(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     promotion_id = Column(Integer, nullable=False)
     bugfix_candidate_id = Column(Integer, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=_now_utc)
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
     merge_commit_sha = Column(String(64), nullable=True)
-    evaluation_status = Column(String(16), nullable=False, default="pending")
+    evaluation_status = Column(String(16), nullable=False, default="pending", server_default="pending")
     evaluated_at = Column(DateTime, nullable=True)
     detail = Column(Text, nullable=True)
 

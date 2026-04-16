@@ -39,7 +39,7 @@ class MetaReview(Base):
     __tablename__ = "meta_reviews"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc)
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
     review_window = Column(String(32), nullable=False)  # e.g. "2026-W13"
     status = Column(String(16), nullable=False)                       # completed | skipped
     skipped_reason = Column(String(256), nullable=True)

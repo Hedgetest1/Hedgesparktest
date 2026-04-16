@@ -23,8 +23,8 @@ class BugFixCandidate(Base):
     __tablename__ = "bugfix_candidates"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc)
-    status = Column(String(32), nullable=False, default="open")
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
+    status = Column(String(32), nullable=False, default="open", server_default="open")
 
     # Source of the bug signal
     source_type = Column(String(32), nullable=False)   # ops_alert | worker_log | outcome | manual

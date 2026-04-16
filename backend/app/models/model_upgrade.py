@@ -18,7 +18,7 @@ class ModelUpgradeProposal(Base):
     __tablename__ = "model_upgrade_proposals"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc)
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
 
     # Current vs candidate
     current_provider = Column(String(32), nullable=False)
@@ -30,10 +30,10 @@ class ModelUpgradeProposal(Base):
     # Proposal
     reason = Column(Text, nullable=True)
     expected_benefit = Column(Text, nullable=True)
-    risk_level = Column(String(16), nullable=False, default="LEVEL_2")
+    risk_level = Column(String(16), nullable=False, default="LEVEL_2", server_default="LEVEL_2")
 
     # Evaluation
-    status = Column(String(16), nullable=False, default="pending")
+    status = Column(String(16), nullable=False, default="pending", server_default="pending")
     eval_result = Column(String(16), nullable=True)      # pass | inconclusive | fail
     eval_detail = Column(Text, nullable=True)             # JSON
     eval_at = Column(DateTime, nullable=True)
