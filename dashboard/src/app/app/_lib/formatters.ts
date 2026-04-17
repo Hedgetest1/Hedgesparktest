@@ -57,3 +57,77 @@ export function intentDotClass(intent?: string): string {
       return "bg-slate-400 shadow-[0_0_10px_rgba(148,163,184,0.5)]";
   }
 }
+
+/**
+ * Compact money formatter — the shared replacement for the dozens of
+ * local `fmtEur(n)` helpers scattered across dashboard cards, every
+ * one of which hardcoded `€`.
+ *
+ *   formatMoneyCompact(0)          → "$0"   (default currency = USD)
+ *   formatMoneyCompact(0, "EUR")   → "€0"
+ *   formatMoneyCompact(1234)       → "$1.2k"
+ *   formatMoneyCompact(123456)     → "$123k"
+ *   formatMoneyCompact(1_234_567)  → "$1.2M"
+ *   formatMoneyCompact(-500, "GBP") → "-£500"
+ *
+ * The symbol comes from a 24-code ISO 4217 mapping that mirrors the
+ * backend `app/core/currency.py` table. Unknown codes render as
+ * `CODE amount` (safer than guessing a glyph).
+ *
+ * Why not just call `Intl.NumberFormat`?
+ *   1. Intl produces `€1,234` not `€1.2k` — the k/M compaction is the
+ *      entire reason we have local helpers.
+ *   2. Intl throws on invalid currency codes — we want a safe fallback.
+ *   3. Stable output across browsers/locales — our dashboard is EN-only,
+ *      we don't want locale-dependent separators.
+ *
+ * Match the backend app.core.currency.currency_symbol() table so a
+ * merchant sees the same symbol on server-rendered pages and on client
+ * dashboards.
+ */
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+  CAD: "CA$",
+  AUD: "A$",
+  NZD: "NZ$",
+  JPY: "¥",
+  CNY: "¥",
+  CHF: "CHF ",
+  SEK: "kr",
+  NOK: "kr",
+  DKK: "kr",
+  PLN: "zł",
+  CZK: "Kč",
+  HUF: "Ft",
+  BRL: "R$",
+  MXN: "MX$",
+  INR: "₹",
+  SGD: "S$",
+  HKD: "HK$",
+  KRW: "₩",
+  ZAR: "R",
+  AED: "د.إ ",
+  ILS: "₪",
+};
+
+export function currencySymbol(code?: string | null): string {
+  const c = (code || "USD").toUpperCase().trim();
+  return CURRENCY_SYMBOLS[c] ?? `${c} `;
+}
+
+export function formatMoneyCompact(
+  value: number | null | undefined,
+  currency: string = "USD",
+): string {
+  const sym = currencySymbol(currency);
+  if (value == null || Number.isNaN(value)) return `${sym}0`;
+  if (value === 0) return `${sym}0`;
+  const neg = value < 0 ? "-" : "";
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) return `${neg}${sym}${(abs / 1_000_000).toFixed(1)}M`;
+  if (abs >= 10_000)    return `${neg}${sym}${Math.round(abs / 1000)}k`;
+  if (abs >= 1_000)     return `${neg}${sym}${(abs / 1000).toFixed(1)}k`;
+  return `${neg}${sym}${Math.round(abs).toLocaleString("en")}`;
+}

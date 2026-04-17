@@ -12,6 +12,7 @@
 
 import { useEffect, useState } from "react";
 import { apiClient } from "@/app/lib/api-client";
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
 
 type Metric = {
   value: number;
@@ -57,11 +58,10 @@ const SCOPE_LABELS: Record<string, string> = {
   insufficient: "vertical pool still warming up",
 };
 
+// Benchmark figures are EUR-normalized upstream. Shared helper
+// keeps the symbol table in _lib/formatters.ts.
 function fmtMoney(n: number): string {
-  if (n === 0) return "€0";
-  const a = Math.abs(n);
-  if (a >= 1000) return "€" + (a / 1000).toFixed(a >= 10_000 ? 0 : 1) + "k";
-  return "€" + Math.round(a);
+  return formatMoneyCompact(n, "EUR");
 }
 
 function fmtMetric(metric: string, v: number): string {

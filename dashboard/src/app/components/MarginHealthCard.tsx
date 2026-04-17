@@ -16,6 +16,7 @@
 
 import { useEffect, useState } from "react";
 import { apiClient } from "@/app/lib/api-client";
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
 import {
   DetailDrawer,
   DrawerExplainer,
@@ -66,12 +67,11 @@ const PRECISION_META: Record<string, { label: string; note: string; color: strin
   },
 };
 
-const fmtEur = (n: number) => {
-  if (n === 0) return "€0";
-  if (n >= 10_000) return `€${Math.round(n / 1000)}k`;
-  if (n >= 1000) return `€${(n / 1000).toFixed(1)}k`;
-  return `€${Math.round(n).toLocaleString("en")}`;
-};
+// Shape from GET /pro/margin/snapshot — revenue/cogs/margin are stored
+// in EUR by the ingestion pipeline (order_ingestion._normalize_to_eur).
+// Display therefore uses EUR; routing through the shared
+// formatMoneyCompact helper keeps the symbol table in a single place.
+const fmt = (n: number) => formatMoneyCompact(n, "EUR");
 
 export function MarginHealthCard({ apiBase, isProUser }: { apiBase: string; isProUser: boolean }) {
   const [data, setData] = useState<Snapshot | null>(null);
@@ -208,15 +208,15 @@ export function MarginHealthCard({ apiBase, isProUser }: { apiBase: string; isPr
           }}
         >
           <span>
-            Revenue <b style={{ color: "#cbd5e1" }}>{fmtEur(data.revenue_eur)}</b>
+            Revenue <b style={{ color: "#cbd5e1" }}>{fmt(data.revenue_eur)}</b>
           </span>
           <span>·</span>
           <span>
-            Costs <b style={{ color: "#cbd5e1" }}>{fmtEur(data.cogs_eur)}</b>
+            Costs <b style={{ color: "#cbd5e1" }}>{fmt(data.cogs_eur)}</b>
           </span>
           <span>·</span>
           <span>
-            Kept <b style={{ color }}>{fmtEur(data.gross_margin_eur)}</b>
+            Kept <b style={{ color }}>{fmt(data.gross_margin_eur)}</b>
           </span>
         </div>
       </div>
@@ -244,15 +244,15 @@ export function MarginHealthCard({ apiBase, isProUser }: { apiBase: string; isPr
         <DrawerBigStat
           label="Current gross margin"
           value={`${data.gross_margin_pct.toFixed(0)}%`}
-          sublabel={`${fmtEur(data.gross_margin_eur)} kept over the last 30 days`}
+          sublabel={`${fmt(data.gross_margin_eur)} kept over the last 30 days`}
           color={color}
         />
 
         <DrawerKeyValueList
           items={[
-            { label: "Revenue (30d)", value: fmtEur(data.revenue_eur) },
-            { label: "Product costs", value: fmtEur(data.cogs_eur) },
-            { label: "Kept after costs", value: fmtEur(data.gross_margin_eur), color },
+            { label: "Revenue (30d)", value: fmt(data.revenue_eur) },
+            { label: "Product costs", value: fmt(data.cogs_eur) },
+            { label: "Kept after costs", value: fmt(data.gross_margin_eur), color },
             { label: "Safety floor", value: `${data.min_required_margin_pct.toFixed(0)}%` },
             { label: "Room to move", value: `${headroom.toFixed(0)} pts`, color },
           ]}

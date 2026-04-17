@@ -14,6 +14,7 @@
 
 import { useEffect, useState } from "react";
 import { apiClient } from "@/app/lib/api-client";
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
 import {
   DetailDrawer,
   DrawerExplainer,
@@ -68,12 +69,11 @@ const SOURCE_ICONS: Record<string, string> = {
   referral: "🤝",
 };
 
-const fmt = (n: number) => {
-  if (n === 0) return "€0";
-  if (n >= 10_000) return `€${Math.round(n / 1000)}k`;
-  if (n >= 1000) return `€${(n / 1000).toFixed(1)}k`;
-  return `€${Math.round(n).toLocaleString("en")}`;
-};
+// MTA revenue figures are EUR-normalized by the backend
+// (order_ingestion._normalize_to_eur) — all SUM(*_eur) columns are
+// safe to render in EUR. Routing through the shared helper means
+// the symbol table lives in one place (_lib/formatters.ts).
+const fmt = (n: number) => formatMoneyCompact(n, "EUR");
 
 export function MtaCompareCard({ apiBase, isProUser }: { apiBase: string; isProUser: boolean }) {
   const [data, setData] = useState<CompareData | null>(null);
