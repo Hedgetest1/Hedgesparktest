@@ -45,7 +45,54 @@ from sqlalchemy.orm import Session
 
 log = logging.getLogger("event_bus")
 
-_BACKEND = os.getenv("EVENT_BUS_BACKEND", "postgres").lower()
+# Allowed backends. ClickHouse is documented in the module header as a
+# future migration target; however, the implementation does not exist.
+# Accepting `EVENT_BUS_BACKEND=clickhouse` at config time was a stub
+# trap: `emit()` silently dropped events while `emit_batch()` ignored
+# the setting entirely and wrote to postgres anyway. Result: inconsistent
+# hidden data loss, uncaught at startup.
+#
+# We now refuse any non-postgres backend at import time — the operator
+# gets a CRITICAL log line + an ops_alert and the setting is forced
+# back to postgres so events keep flowing. When ClickHouse lands, add
+# it to `_SUPPORTED_BACKENDS` AND implement `_emit_clickhouse` +
+# `_emit_clickhouse_bulk` in one atomic change.
+_SUPPORTED_BACKENDS: frozenset[str] = frozenset({"postgres"})
+_BACKEND_RAW = os.getenv("EVENT_BUS_BACKEND", "postgres").lower()
+if _BACKEND_RAW not in _SUPPORTED_BACKENDS:
+    log.critical(
+        "event_bus: unsupported EVENT_BUS_BACKEND=%r — forcing 'postgres'. "
+        "This is a config error, not a silent capability. Supported: %s",
+        _BACKEND_RAW, sorted(_SUPPORTED_BACKENDS),
+    )
+    try:
+        from app.core.database import SessionLocal as _SL
+        from app.services.alerting import write_alert as _wa
+        _db = _SL()
+        try:
+            _wa(
+                _db,
+                severity="critical",
+                source="event_bus",
+                alert_type="event_bus_unsupported_backend",
+                summary=f"EVENT_BUS_BACKEND={_BACKEND_RAW!r} is not implemented. "
+                        f"Forcing 'postgres' so events keep flowing.",
+                detail={
+                    "configured": _BACKEND_RAW,
+                    "supported": sorted(_SUPPORTED_BACKENDS),
+                    "action": "Remove EVENT_BUS_BACKEND from env or set to 'postgres'.",
+                },
+            )
+            _db.commit()
+        finally:
+            _db.close()
+    except Exception as _exc:
+        # SILENT-EXCEPT-OK: startup-path alert write — we already logged
+        # CRITICAL above; a secondary failure here (Redis/DB not yet up
+        # during boot) must not crash the app. The critical log is the
+        # authoritative signal; the ops_alert is a convenience.
+        log.warning("event_bus: startup alert write failed: %s", _exc)
+_BACKEND = "postgres" if _BACKEND_RAW not in _SUPPORTED_BACKENDS else _BACKEND_RAW
 _RETENTION_DAYS = int(os.getenv("EVENT_BUS_RETENTION_DAYS", "90"))
 
 # Allowed event names — prevents typos and namespace pollution.
@@ -114,17 +161,10 @@ def emit(
         "props": props,
     }
 
-    if _BACKEND == "postgres":
-        return _emit_postgres(row, db=db)
-    if _BACKEND == "clickhouse":
-        # TODO when ClickHouse is installed: batched HTTP insert. For now
-        # we refuse silently so the caller never blocks on a broken
-        # future backend.
-        log.warning("event_bus: clickhouse backend not yet implemented")
-        return False
-
-    log.warning("event_bus: unknown backend %s", _BACKEND)
-    return False
+    # _BACKEND is normalized at import time — only postgres is ever
+    # reached here. New backends (e.g. clickhouse) must be added to
+    # _SUPPORTED_BACKENDS together with their _emit_<backend> impl.
+    return _emit_postgres(row, db=db)
 
 
 def emit_batch(events: list[dict[str, Any]], db: Session | None = None) -> int:

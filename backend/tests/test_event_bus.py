@@ -114,3 +114,35 @@ class TestAllowlist:
     def test_core_events_present(self):
         for core in ("page_view", "add_to_cart", "checkout_completed", "trust_action_executed"):
             assert core in _ALLOWED_EVENT_NAMES
+
+
+class TestBackendStubTrap:
+    """
+    Pre-2026-04-17: accepting EVENT_BUS_BACKEND=clickhouse made emit()
+    silently drop events while emit_batch() ignored the setting and
+    wrote to postgres. Hidden data loss + behavioural inconsistency.
+
+    Post-fix: only `postgres` is a supported backend. Any other value
+    is normalized back to postgres at module import, with a CRITICAL
+    log + an ops_alert surfaced to operators.
+    """
+    def test_only_postgres_is_supported(self):
+        from app.services.event_bus import _SUPPORTED_BACKENDS, _BACKEND
+        assert _SUPPORTED_BACKENDS == frozenset({"postgres"}), (
+            "Only postgres is implemented. Adding a new backend requires "
+            "also implementing _emit_<backend> + _emit_<backend>_bulk."
+        )
+        assert _BACKEND == "postgres"
+
+    def test_emit_batch_honors_normalized_backend(self, db):
+        """emit_batch must write to postgres regardless of config drift."""
+        payload = [{
+            "event_name": "page_view",
+            "shop_domain": SHOP,
+            "visitor_id": "batch_test",
+            "source": "stub_trap_test",
+        }]
+        written = emit_batch(payload, db=db)
+        assert written == 1
+        rows = query(db, SHOP, event_name="page_view", limit=5)
+        assert any(r.get("source") == "stub_trap_test" for r in rows)
