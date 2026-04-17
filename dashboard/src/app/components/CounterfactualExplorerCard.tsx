@@ -14,6 +14,7 @@
 
 import { useState } from "react";
 import { CardError, CardSkeleton, useCardFetch } from "./_CardStates";
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
 
 type Scenario = {
   days_ago: number;
@@ -43,15 +44,14 @@ type CfResponse = {
   total_max_save_eur: number;
   entries: CfEntry[];
   headline: string;
+  // Shop's native currency (USD/EUR/GBP/…) — every `_eur` field above
+  // is denominated in this currency.
+  currency?: string;
   generated_at: string;
 };
 
-function fmtMoney(n: number): string {
-  if (!n) return "€0";
-  const a = Math.abs(n);
-  if (a >= 1000) return "€" + (a / 1000).toFixed(a >= 10000 ? 0 : 1) + "k";
-  return "€" + Math.round(a);
-}
+const fmtMoney = (n: number, currency?: string): string =>
+  formatMoneyCompact(n, currency || "USD");
 
 function prettyType(t: string): string {
   return t.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
@@ -108,7 +108,7 @@ export function CounterfactualExplorerCard({
             If you&apos;d acted sooner
           </h3>
           <p className="mt-1 text-[11px] text-slate-500">
-            Based on your real AOV ({fmtMoney(data.aov_eur)}{!data.aov_is_real && " est."}) and the signal detection timeline.
+            Based on your real AOV ({fmtMoney(data.aov_eur, data.currency)}{!data.aov_is_real && " est."}) and the signal detection timeline.
           </p>
         </div>
         <div className="flex-shrink-0 rounded-xl border border-amber-400/25 bg-amber-500/[0.08] px-3 py-2 text-right">
@@ -116,7 +116,7 @@ export function CounterfactualExplorerCard({
             Max recoverable now
           </div>
           <div className="text-[22px] font-extrabold tabular-nums text-amber-300">
-            {fmtMoney(data.total_max_save_eur)}
+            {fmtMoney(data.total_max_save_eur, data.currency)}
           </div>
         </div>
       </div>
@@ -156,10 +156,10 @@ export function CounterfactualExplorerCard({
                 </div>
                 <div className="flex-shrink-0 text-right">
                   <div className="text-[13px] font-bold tabular-nums text-amber-300">
-                    {fmtMoney(entry.max_save_eur)}
+                    {fmtMoney(entry.max_save_eur, data.currency)}
                   </div>
                   <div className="text-[9px] text-slate-600">
-                    ~{fmtMoney(entry.per_day_loss_eur)}/day
+                    ~{fmtMoney(entry.per_day_loss_eur, data.currency)}/day
                   </div>
                 </div>
               </button>
@@ -177,7 +177,7 @@ export function CounterfactualExplorerCard({
                       >
                         <div className="text-[9px] text-slate-600">{s.label}</div>
                         <div className="text-[12px] font-bold tabular-nums text-amber-300">
-                          {fmtMoney(s.saved_eur)}
+                          {fmtMoney(s.saved_eur, data.currency)}
                         </div>
                       </div>
                     ))}

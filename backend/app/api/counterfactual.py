@@ -40,6 +40,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import require_pro_session
+from app.core.currency import format_money
 from app.services.revenue_metrics import get_shop_currency
 
 log = logging.getLogger("counterfactual")
@@ -97,7 +98,9 @@ def _shop_aov(db: Session, shop: str) -> tuple[float, bool]:
     return _DEFAULT_AOV_EUR, False
 
 
-def _compute_cf_for_signal(row, aov: float, aov_is_real: bool) -> dict:
+def _compute_cf_for_signal(
+    row, aov: float, aov_is_real: bool, currency: str | None = None
+) -> dict:
     """
     row = (id, signal_type, product_url, signal_strength, detected_at, estimated_loss)
     """
@@ -149,8 +152,9 @@ def _compute_cf_for_signal(row, aov: float, aov_is_real: bool) -> dict:
         "aov_used_eur": round(aov, 2),
         "aov_is_real": aov_is_real,
         "headline": (
-            f"Acting now recovers €{max_save:.0f} from this signal. "
-            f"Every day you wait costs ~€{per_day_loss:.0f}."
+            f"Acting now recovers {format_money(max_save, currency, compact=True)} "
+            f"from this signal. Every day you wait costs "
+            f"~{format_money(per_day_loss, currency, compact=True)}."
             if max_save > 0 else
             "Signal still accruing — check back in 24h for a meaningful counterfactual."
         ),
@@ -185,6 +189,9 @@ class CounterfactualListResponse(BaseModel):
     total_max_save_eur: float
     entries: list[CounterfactualEntry] = Field(default_factory=list)
     headline: str
+    # Shop's native currency (USD/EUR/GBP/…) — every `_eur` field in
+    # this payload is denominated in this currency.
+    currency: str = "USD"
     generated_at: str
 
 
@@ -201,6 +208,7 @@ def list_counterfactuals(
         log.warning("counterfactual: feature usage track failed: %s", exc)
 
     aov, aov_is_real = _shop_aov(db, shop)
+    currency = get_shop_currency(db, shop) or "USD"
     cutoff = _now() - timedelta(days=_MAX_LOOKBACK_DAYS)
 
     try:
@@ -226,7 +234,7 @@ def list_counterfactuals(
         log.warning("counterfactual: signal query failed for %s: %s", shop, exc)
         rows = []
 
-    entries = [_compute_cf_for_signal(r, aov, aov_is_real) for r in rows]
+    entries = [_compute_cf_for_signal(r, aov, aov_is_real, currency) for r in rows]
     total_max_save = round(sum(e["max_save_eur"] for e in entries), 2)
 
     return {
@@ -238,10 +246,12 @@ def list_counterfactuals(
         "entries": entries,
         "headline": (
             f"Acting on all {len(entries)} open signals now would recover "
-            f"~€{total_max_save:.0f}. Every day of delay keeps this number climbing."
+            f"~{format_money(total_max_save, currency, compact=True)}. "
+            f"Every day of delay keeps this number climbing."
             if total_max_save > 0 else
             "No open signals with measurable counterfactual impact yet."
         ),
+        "currency": currency,
         "generated_at": _now().isoformat(),
     }
 
@@ -254,6 +264,7 @@ def get_counterfactual(
 ):
     """Detail view for a single signal's counterfactual."""
     aov, aov_is_real = _shop_aov(db, shop)
+    currency = get_shop_currency(db, shop) or "USD"
     try:
         row = db.execute(
             text(
@@ -271,4 +282,4 @@ def get_counterfactual(
         row = None
     if not row:
         raise HTTPException(404, "signal not found")
-    return _compute_cf_for_signal(row, aov, aov_is_real)
+    return _compute_cf_for_signal(row, aov, aov_is_real, currency)

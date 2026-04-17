@@ -81,6 +81,7 @@ class NightShiftReport:
     journal: list[dict]
     metrics: dict  # snapshot numbers used for the narrative
     status: str  # "quiet", "active", "alarm"
+    currency: str = "USD"  # shop's native currency — `metrics._eur` fields are in this
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -547,6 +548,7 @@ def generate_for_shop(db: Session, shop_domain: str, *, force: bool = False) -> 
         sleep_confidence=sleep_score,
         sleep_confidence_label=sleep_label,
         journal=[j.to_dict() for j in journal],
+        currency=currency or "USD",
         metrics={
             "rars_total_eur": float(rars.get("total_at_risk_eur") or 0),
             "prevented_24h_eur": prevented_24h,

@@ -33,6 +33,10 @@ class NightShiftReport(BaseModel):
     journal: list[dict[str, Any]] = Field(default_factory=list)
     metrics: dict[str, Any] = Field(default_factory=dict)
     status: str | None = None
+    # Shop's native currency (USD/EUR/GBP/…) — the `_eur` metric keys
+    # are denominated in this currency. Dashboard uses it to render
+    # `rars_total_eur` and `prevented_24h_eur` with the right symbol.
+    currency: str = "USD"
 
 
 class TimelineEntry(BaseModel):

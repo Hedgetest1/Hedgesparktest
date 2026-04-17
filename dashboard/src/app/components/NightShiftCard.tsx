@@ -24,6 +24,7 @@ import { useState } from "react";
 import { apiClient } from "@/app/lib/api-client";
 import { CardSkeleton, CardError, CardEmpty, useCardFetch } from "./_CardStates";
 import { reportFrontendError } from "../lib/error-reporter";
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
 
 type TopAction = {
   kind: string;
@@ -67,6 +68,9 @@ type NightShiftReport = {
     sleep_confidence_provenance?: Provenance;
   };
   status: "quiet" | "active" | "alarm" | string;
+  // Shop's native currency — `top_action.estimated_impact_eur` and
+  // `metrics.*_eur` fields are denominated in this currency.
+  currency?: string;
 };
 
 const STATUS_ACCENT: Record<string, { bar: string; glow: string; pill: string; pillBg: string }> = {
@@ -81,12 +85,8 @@ const VERDICT_COLOR: Record<string, string> = {
   rejected: "#f87171",
 };
 
-function fmtMoney(n: number): string {
-  if (!n) return "€0";
-  const a = Math.abs(n);
-  if (a >= 1000) return "€" + (a / 1000).toFixed(a >= 10000 ? 0 : 1) + "k";
-  return "€" + Math.round(a);
-}
+const fmtMoney = (n: number, currency?: string): string =>
+  formatMoneyCompact(n, currency || "USD");
 
 function relativeTime(iso: string): string {
   try {
@@ -250,7 +250,7 @@ export function NightShiftCard({
             </span>
             {data.top_action.estimated_impact_eur > 0 && (
               <span className="rounded-md border border-amber-400/30 bg-amber-500/[0.08] px-2 py-0.5 text-[11px] font-extrabold tabular-nums text-amber-300">
-                +{fmtMoney(data.top_action.estimated_impact_eur)}/mo
+                +{fmtMoney(data.top_action.estimated_impact_eur, data.currency)}/mo
               </span>
             )}
           </div>
