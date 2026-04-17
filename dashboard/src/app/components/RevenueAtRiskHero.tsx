@@ -29,6 +29,8 @@ type RARSData = {
   prevented_eur_this_month: number;
   net_roi_eur: number;
   components: RARSComponent[];
+  // Shop's native currency — `_eur`-suffixed fields are in this currency.
+  currency?: string;
   generated_at: string | null;
   headline: string | null;
 };
@@ -44,13 +46,13 @@ const SOURCE_LABELS: Record<string, { label: string; icon: string }> = {
   goal_gap:              { label: "Below your target",         icon: "🎯" },
 };
 
-function fmtMoney(n: number): string {
-  if (n === 0) return "€0";
-  const absN = Math.abs(n);
-  if (absN >= 1000) {
-    return (n < 0 ? "-" : "") + "€" + (absN / 1000).toFixed(absN >= 10_000 ? 0 : 1) + "k";
-  }
-  return (n < 0 ? "-" : "") + "€" + Math.round(absN);
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
+
+// Currency-aware formatter. RARS payload contains `currency` (native
+// ISO code). Pass it through so a USD merchant sees "$1,234 at risk",
+// a GBP merchant sees "£1,234", etc.
+function fmtMoney(n: number, currency?: string): string {
+  return formatMoneyCompact(n, currency || "USD");
 }
 
 export function RevenueAtRiskHero({
@@ -180,7 +182,7 @@ export function RevenueAtRiskHero({
             textShadow: hasRisk ? "0 0 30px rgba(251,191,36,0.25)" : "none",
           }}
         >
-          {fmtMoney(totalAtRisk)}
+          {fmtMoney(totalAtRisk, data?.currency)}
         </div>
         {hasRisk && (
           <div className="mb-2 text-[12px] text-slate-500">at risk</div>
@@ -202,7 +204,7 @@ export function RevenueAtRiskHero({
             Already prevented
           </div>
           <div className="text-[20px] font-extrabold tabular-nums text-emerald-400">
-            {fmtMoney(prevented)}
+            {fmtMoney(prevented, data?.currency)}
           </div>
           <div className="ml-auto text-[11px] text-slate-400">
             Net ROI vs. subscription:
@@ -210,7 +212,7 @@ export function RevenueAtRiskHero({
               className={`ml-1 font-bold tabular-nums ${netRoi >= 0 ? "text-emerald-400" : "text-rose-400"}`}
             >
               {netRoi >= 0 ? "+" : ""}
-              {fmtMoney(netRoi)}
+              {fmtMoney(netRoi, data?.currency)}
             </span>
           </div>
         </div>
@@ -238,7 +240,7 @@ export function RevenueAtRiskHero({
                   </span>
                 </div>
                 <div className="mt-1 text-[18px] font-extrabold tabular-nums text-white">
-                  {fmtMoney(c.loss_eur)}
+                  {fmtMoney(c.loss_eur, data?.currency)}
                 </div>
                 {expanded && (
                   <div className="mt-1 text-[10px] leading-snug text-slate-500">

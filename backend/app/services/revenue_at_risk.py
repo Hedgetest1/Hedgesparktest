@@ -495,6 +495,7 @@ def get_revenue_at_risk(db: Session, shop_domain: str) -> dict:
     )
     result = report.to_dict()
     result["_prevent_evidence"] = prevent_evidence
+    result["currency"] = currency or "USD"
 
     try:
         from app.core.redis_client import _client

@@ -24,6 +24,9 @@ class PriceSensitivityResponse(BaseModel):
     bands: list[dict[str, Any]] = Field(default_factory=list)
     products: list[dict[str, Any]] = Field(default_factory=list)
     headline: str
+    # Shop's native currency — price-band labels and product price
+    # fields are in this currency.
+    currency: str = "USD"
     generated_at: str
 
 

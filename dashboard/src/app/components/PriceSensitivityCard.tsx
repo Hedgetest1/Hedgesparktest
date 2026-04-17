@@ -13,6 +13,7 @@
 
 import { useState } from "react";
 import { CardSkeleton, CardError, CardEmpty, useCardFetch } from "./_CardStates";
+import { currencySymbol } from "@/app/app/_lib/formatters";
 import {
   DetailDrawer,
   DrawerExplainer,
@@ -45,6 +46,11 @@ type PriceSensData = {
   bands: PriceBand[];
   products: BarrierProduct[];
   headline: string;
+  // Shop's native currency — product.price is in this currency.
+  // Band labels are already native-aware on the backend (the price_
+  // sensitivity service renders bucket labels with the shop symbol
+  // at compute time).
+  currency?: string;
 };
 
 export function PriceSensitivityCard({
@@ -96,6 +102,7 @@ export function PriceSensitivityCard({
   const bestBand = allBands.reduce((a, b) => (a.cvr_pct >= b.cvr_pct ? a : b), allBands[0]);
   const worstBand = allBands.reduce((a, b) => (a.cvr_pct <= b.cvr_pct ? a : b), allBands[0]);
   const topBarrier = data.products[0];
+  const sym = currencySymbol(data.currency);
   const barrierCount = data.products.length;
 
   return (
@@ -176,7 +183,7 @@ export function PriceSensitivityCard({
                       {p.product_name}
                     </span>
                     <span className="flex-shrink-0 text-[15px] font-extrabold tabular-nums text-amber-300">
-                      €{p.price.toFixed(0)}
+                      {sym}{p.price.toFixed(0)}
                     </span>
                   </div>
                   <p className="mt-1 text-[11px] leading-relaxed text-amber-400/70">
@@ -306,7 +313,7 @@ export function PriceSensitivityCard({
                         flexShrink: 0,
                       }}
                     >
-                      €{p.price.toFixed(0)}
+                      {sym}{p.price.toFixed(0)}
                     </div>
                   </div>
                   <div
@@ -335,7 +342,7 @@ export function PriceSensitivityCard({
               value: `below band median`,
             },
           ]}
-          note="Price bands are relative to your own catalog, not to industry averages. A €500 product can be in the sweet spot for one store and a barrier for another — what matters is the distribution inside your own store, not absolute price."
+          note={`Price bands are relative to your own catalog, not to industry averages. A ${sym}500 product can be in the sweet spot for one store and a barrier for another — what matters is the distribution inside your own store, not absolute price.`}
         />
 
         {topBarrier ? (
@@ -343,7 +350,7 @@ export function PriceSensitivityCard({
             headline="Start here"
             primary={{
               label: `Review ${topBarrier.product_name}`,
-              description: `This product is priced at €${topBarrier.price.toFixed(
+              description: `This product is priced at ${sym}${topBarrier.price.toFixed(
                 0,
               )} and getting ${topBarrier.views_7d} views with only ${topBarrier.cvr_pct.toFixed(
                 1,

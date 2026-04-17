@@ -29,6 +29,9 @@ class RARSResponse(BaseModel):
     prevented_eur_this_month: float = 0.0
     net_roi_eur: float = 0.0
     components: list[RARSComponentResponse] = Field(default_factory=list)
+    # Shop's native currency — all `_eur`-suffixed fields above are
+    # in this currency. Component `loss_eur` too.
+    currency: str = "USD"
     generated_at: str | None = None
     headline: str | None = None
 

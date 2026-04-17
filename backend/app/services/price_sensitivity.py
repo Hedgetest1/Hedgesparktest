@@ -249,6 +249,7 @@ def compute_price_sensitivity(db: Session, shop_domain: str) -> dict:
         "bands": bands,
         "products": product_analysis,
         "headline": headline,
+        "currency": currency or "USD",
         "generated_at": now.isoformat(),
     }
 
