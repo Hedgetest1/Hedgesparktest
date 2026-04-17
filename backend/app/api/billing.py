@@ -123,6 +123,62 @@ def _shopify_headers(token: str) -> dict:
     }
 
 
+def _write_billing_alert(
+    *,
+    operation: str,
+    shop: str,
+    severity: str = "warning",
+    http_status: int | None = None,
+    error_body: str | None = None,
+    exception_type: str | None = None,
+    charge_id: str | None = None,
+) -> None:
+    """
+    Surface a Shopify Billing API failure as an ops_alert so operators
+    see outages on the dashboard / Telegram / digest before merchant
+    complaints pile up.
+
+    Opens a fresh SessionLocal to avoid adding a `db` param to the 3
+    async call sites (minimal signature surface). Failures in alerting
+    MUST NOT crash the billing flow — wrapped in try/except so the
+    merchant's 502/retry path is never blocked by an observability write.
+    """
+    try:
+        from app.core.database import SessionLocal
+        from app.services.alerting import write_alert
+        _db = SessionLocal()
+        try:
+            summary_bits = [f"Shopify billing API failure: {operation}", f"shop={shop}"]
+            if http_status is not None:
+                summary_bits.append(f"status={http_status}")
+            if exception_type:
+                summary_bits.append(f"exc={exception_type}")
+            write_alert(
+                _db,
+                severity=severity,
+                source="billing",
+                alert_type="billing_api_failure",
+                summary=" ".join(summary_bits),
+                shop_domain=shop,
+                detail={
+                    "operation": operation,
+                    "shop": shop,
+                    "charge_id": charge_id,
+                    "http_status": http_status,
+                    "error_body": (error_body or "")[:200],
+                    "exception_type": exception_type,
+                },
+            )
+            _db.commit()
+        finally:
+            _db.close()
+    except Exception as exc:
+        # Observability write must never crash the billing flow.
+        # The log.error on the caller side is already the authoritative
+        # record — this alert is a convenience for ops visibility.
+        log.warning("billing: write_billing_alert failed: %s", exc)
+
+
 async def _create_charge(shop: str, token: str) -> Optional[dict]:
     """
     Call POST /recurring_application_charges and return the charge object,
@@ -151,6 +207,13 @@ async def _create_charge(shop: str, token: str) -> Optional[dict]:
                 "billing: create_charge failed shop=%s status=%d body=%s",
                 shop, resp.status_code, resp.text[:300],
             )
+            _write_billing_alert(
+                operation="create_charge",
+                shop=shop,
+                http_status=resp.status_code,
+                error_body=resp.text,
+                severity="warning",
+            )
             return None
         data   = resp.json()
         charge = data.get("recurring_application_charge")
@@ -162,6 +225,13 @@ async def _create_charge(shop: str, token: str) -> Optional[dict]:
         return charge
     except Exception as exc:
         log.error("billing: create_charge exception shop=%s: %s", shop, exc)
+        _write_billing_alert(
+            operation="create_charge",
+            shop=shop,
+            exception_type=type(exc).__name__,
+            error_body=str(exc),
+            severity="warning",
+        )
         return None
 
 
@@ -177,6 +247,9 @@ async def _fetch_charge(shop: str, token: str, charge_id: str) -> Optional[dict]
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(url, headers=_shopify_headers(token))
         if resp.status_code == 404:
+            # 404 is expected when a charge has been deleted/expired upstream
+            # — merchant-side fallback kicks in, not an API outage. Do NOT
+            # alert on 404 (would be noisy and non-actionable).
             log.warning("billing: charge not found shop=%s charge_id=%s", shop, charge_id)
             return None
         if resp.status_code != 200:
@@ -184,10 +257,26 @@ async def _fetch_charge(shop: str, token: str, charge_id: str) -> Optional[dict]
                 "billing: fetch_charge failed shop=%s charge_id=%s status=%d",
                 shop, charge_id, resp.status_code,
             )
+            _write_billing_alert(
+                operation="fetch_charge",
+                shop=shop,
+                http_status=resp.status_code,
+                error_body=getattr(resp, "text", None),
+                charge_id=charge_id,
+                severity="warning",
+            )
             return None
         return resp.json().get("recurring_application_charge")
     except Exception as exc:
         log.error("billing: fetch_charge exception shop=%s charge_id=%s: %s", shop, charge_id, exc)
+        _write_billing_alert(
+            operation="fetch_charge",
+            shop=shop,
+            exception_type=type(exc).__name__,
+            error_body=str(exc),
+            charge_id=charge_id,
+            severity="warning",
+        )
         return None
 
 
@@ -210,9 +299,28 @@ async def _activate_charge(shop: str, token: str, charge_id: str) -> bool:
             "billing: activate failed shop=%s charge_id=%s status=%d body=%s",
             shop, charge_id, resp.status_code, resp.text[:200],
         )
+        # activate failures are higher-impact: merchant already approved
+        # the charge but we can't complete the transition. Surface as
+        # `critical` so operators page-respond instead of batching.
+        _write_billing_alert(
+            operation="activate_charge",
+            shop=shop,
+            http_status=resp.status_code,
+            error_body=resp.text,
+            charge_id=charge_id,
+            severity="critical",
+        )
         return False
     except Exception as exc:
         log.error("billing: activate exception shop=%s charge_id=%s: %s", shop, charge_id, exc)
+        _write_billing_alert(
+            operation="activate_charge",
+            shop=shop,
+            exception_type=type(exc).__name__,
+            error_body=str(exc),
+            charge_id=charge_id,
+            severity="critical",
+        )
         return False
 
 
