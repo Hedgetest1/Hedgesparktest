@@ -145,7 +145,7 @@
   try {
     __hs_err_shop = SHOP_DOMAIN;
     __hs_err_endpoint = API_URL.replace(/\/track$/, "/public/tracker-error");
-    window.__hsTrackerVersion = 11;
+    window.__hsTrackerVersion = 12;
   } catch (_) {}
 
   // ---------------------------------------------------------------------------
@@ -1104,6 +1104,104 @@
   // installed in Shopify Admin > Settings > Customer events.
   // See: tracker/spark-pixel.js
   // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
+  // 9. UX frustration signals — rage click + pogo stick
+  //
+  // Rage click:  3+ clicks on the same element within 2 seconds.
+  //              Usually signals a UI dead-end (button not working,
+  //              link visually broken, layout confusion).
+  // Pogo stick:  visitor hits a page, bounces back within 3 seconds.
+  //              Signals content mismatch or slow load.
+  //
+  // Both self-limit to AT MOST 1 event per type per page load so a
+  // pathological visitor can't flood our backend. Backend aggregates
+  // per shop-day and raises ux_frustration_spike when rates climb
+  // above baseline.
+  // ---------------------------------------------------------------------------
+  try {
+    var _rageClickTargetKey = null;
+    var _rageClickTimes = [];   // sliding window of click timestamps
+    var _rageClickFired = false;
+    var _RAGE_WINDOW_MS = 2000;
+    var _RAGE_COUNT = 3;
+
+    function _elementKey(el) {
+      if (!el) return null;
+      try {
+        var tag = String(el.tagName || "").toLowerCase();
+        var id = el.id ? "#" + el.id : "";
+        var cls = el.className && typeof el.className === "string"
+          ? "." + el.className.split(/\s+/).slice(0, 2).join(".")
+          : "";
+        return (tag + id + cls).slice(0, 120);
+      } catch (_) { return null; }
+    }
+
+    document.addEventListener("click", function (e) {
+      try {
+        if (_rageClickFired) return;
+        var key = _elementKey(e.target);
+        if (!key) return;
+        var now = Date.now();
+        if (_rageClickTargetKey !== key) {
+          _rageClickTargetKey = key;
+          _rageClickTimes = [];
+        }
+        _rageClickTimes.push(now);
+        // Keep only clicks inside the sliding window
+        while (_rageClickTimes.length && now - _rageClickTimes[0] > _RAGE_WINDOW_MS) {
+          _rageClickTimes.shift();
+        }
+        if (_rageClickTimes.length >= _RAGE_COUNT) {
+          _rageClickFired = true;
+          sendEventBatched("rage_click", {
+            product_url: detectProductUrl(),
+            meta: { target: key, clicks: _rageClickTimes.length },
+          });
+        }
+      } catch (_) {}
+    }, true);
+  } catch (bootErr) {
+    __hs_report_error("spark-tracker.rage_click_setup", bootErr, null);
+  }
+
+  try {
+    // Pogo-stick = back nav within 3s of page load. We observe via
+    // PerformanceNavigationTiming + pagehide — if the visitor navigates
+    // away via history.back() in under 3s from load, fire pogo_stick.
+    var _pageLoadedAt = Date.now();
+    var _POGO_THRESHOLD_MS = 3000;
+    var _pogoFired = false;
+
+    window.addEventListener("pagehide", function () {
+      try {
+        if (_pogoFired) return;
+        var elapsed = Date.now() - _pageLoadedAt;
+        if (elapsed >= _POGO_THRESHOLD_MS) return;
+        // Only count as pogo-stick if the visitor is actually going back
+        // (not forward to checkout, not closing the tab).
+        var navType = null;
+        try {
+          var navEntries = performance.getEntriesByType("navigation");
+          navType = navEntries && navEntries[0] ? navEntries[0].type : null;
+        } catch (_) {}
+        _pogoFired = true;
+        // sendBeacon path is better here — fetch may be canceled on unload.
+        var payload = buildPayload("pogo_stick", {
+          product_url: detectProductUrl(),
+          meta: { dwell_ms: elapsed, nav_type: navType },
+        });
+        if (navigator.sendBeacon) {
+          try {
+            navigator.sendBeacon(API_URL, new Blob([JSON.stringify(payload)], {type: "application/json"}));
+          } catch (_) {}
+        }
+      } catch (_) {}
+    });
+  } catch (bootErr) {
+    __hs_report_error("spark-tracker.pogo_stick_setup", bootErr, null);
+  }
 
   } // end _hedgesparkBoot
 

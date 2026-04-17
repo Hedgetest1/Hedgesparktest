@@ -105,6 +105,12 @@ _ALLOWED_EVENT_TYPES: frozenset[str] = frozenset({
     "purchase",
     "begin_checkout",
     "view_cart",
+    # UX frustration signals (tracker-emitted). `rage_click` = 3+ rapid
+    # clicks on same element; `pogo_stick` = back-navigation within
+    # 3s of page load. Both are volume-sampled — the tracker self-limits
+    # to at most 1 per type per page so we never drown in events.
+    "rage_click",
+    "pogo_stick",
 })
 
 

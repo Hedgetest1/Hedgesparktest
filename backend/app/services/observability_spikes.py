@@ -270,6 +270,98 @@ def detect_p95_slow_trends(db: Session) -> int:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# UX frustration spike — rage_click + pogo_stick volume per shop
+# ---------------------------------------------------------------------------
+# Thresholds are intentionally conservative. For a normal shop, a
+# single rage_click event is noise (one confused visitor). When a layout
+# bug or broken button hits, you see 50+ rage_clicks on the same target
+# in a day — THAT is actionable signal.
+_UX_FRUSTRATION_RAGE_THRESHOLD = 30   # rage_clicks per shop per day
+_UX_FRUSTRATION_POGO_THRESHOLD = 80   # pogo_stick events per shop per day
+_UX_FRUSTRATION_COOLDOWN_KEY = "hs:spike:ux_frustration:{shop}:{day}"
+_UX_FRUSTRATION_COOLDOWN_TTL = 86400
+
+
+def detect_ux_frustration_spikes(db: Session) -> int:
+    """Scan events last 24h for rage_click + pogo_stick volume per shop.
+    Emit `ux_frustration_spike` when a shop crosses either threshold.
+
+    Uses the existing `events` table (tracker-emitted) rather than a
+    new Redis sink — event volume for these signals is bounded by the
+    tracker's per-page self-limit (1 per page max), so the write load
+    is tiny and DB aggregation is cheap."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    day = now.strftime("%Y-%m-%d")
+    cutoff_ms = int((now - timedelta(hours=24)).timestamp() * 1000)
+
+    try:
+        rows = db.execute(
+            sql_text(
+                """
+                SELECT shop_domain,
+                       SUM(CASE WHEN event_type = 'rage_click'  THEN 1 ELSE 0 END) AS rage,
+                       SUM(CASE WHEN event_type = 'pogo_stick'  THEN 1 ELSE 0 END) AS pogo
+                FROM events
+                WHERE event_type IN ('rage_click', 'pogo_stick')
+                  AND timestamp >= :cutoff_ms
+                GROUP BY shop_domain
+                HAVING SUM(CASE WHEN event_type = 'rage_click' THEN 1 ELSE 0 END) >= :rage_t
+                    OR SUM(CASE WHEN event_type = 'pogo_stick' THEN 1 ELSE 0 END) >= :pogo_t
+                """
+            ),
+            {
+                "cutoff_ms": cutoff_ms,
+                "rage_t": _UX_FRUSTRATION_RAGE_THRESHOLD,
+                "pogo_t": _UX_FRUSTRATION_POGO_THRESHOLD,
+            },
+        ).fetchall()
+    except Exception as exc:
+        log.warning("ux frustration spike scan failed: %s", exc)
+        return 0
+
+    fired = 0
+    for shop, rage, pogo in rows:
+        if not shop:
+            continue
+        rage = int(rage or 0)
+        pogo = int(pogo or 0)
+        key = _UX_FRUSTRATION_COOLDOWN_KEY.format(shop=shop, day=day)
+        if not _cooldown_ok(key, _UX_FRUSTRATION_COOLDOWN_TTL):
+            continue
+        try:
+            from app.services.alerting import write_alert
+            dominant = "rage_click" if rage >= pogo else "pogo_stick"
+            write_alert(
+                db,
+                severity="warning",
+                source=f"ux_frustration:{shop}"[:64],
+                alert_type="ux_frustration_spike",
+                summary=(
+                    f"UX frustration spike on {shop}: "
+                    f"{rage} rage clicks, {pogo} pogo-sticks in 24h "
+                    f"(dominant={dominant})"
+                ),
+                detail={
+                    "shop_domain": shop,
+                    "rage_clicks_24h": rage,
+                    "pogo_sticks_24h": pogo,
+                    "dominant_signal": dominant,
+                    "threshold_rage": _UX_FRUSTRATION_RAGE_THRESHOLD,
+                    "threshold_pogo": _UX_FRUSTRATION_POGO_THRESHOLD,
+                },
+            )
+            fired += 1
+        except Exception as exc:
+            log.warning("ux frustration spike alert write failed shop=%s: %s", shop, exc)
+    return fired
+
+
+# ---------------------------------------------------------------------------
+# Unified entrypoint — called from aggregation_worker cycle
+# ---------------------------------------------------------------------------
+
+
 def run_all_spike_detectors(db: Session) -> dict[str, int]:
     """Run every detector and return a count-per-type summary. Each
     detector is wrapped in its own try/except so a failure in one does
@@ -279,6 +371,7 @@ def run_all_spike_detectors(db: Session) -> dict[str, int]:
         ("tracker_runtime_error_spike", detect_tracker_error_spikes),
         ("frontend_error_spike",        detect_frontend_error_spike),
         ("p95_slow_trend",              detect_p95_slow_trends),
+        ("ux_frustration_spike",        detect_ux_frustration_spikes),
     ):
         try:
             results[name] = fn(db)

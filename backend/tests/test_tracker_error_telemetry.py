@@ -175,3 +175,40 @@ class TestSpikeDetectors:
         from app.services.observability_spikes import detect_p95_slow_trends
         fired = detect_p95_slow_trends(db)
         assert fired == 0  # no crash, no alert, no exception
+
+    def test_ux_frustration_spike_fires_on_threshold(self, db, merchant_a):
+        """Seed rage_click events above threshold → spike alert fires."""
+        from app.models.event import Event
+        import time as _t
+        now_ms = int(_t.time() * 1000)
+        # Seed 31 rage_clicks (threshold is 30) from distinct visitors
+        # so the DB aggregation sees real volume.
+        for i in range(31):
+            db.add(Event(
+                shop_domain="test-shop-a.myshopify.com",
+                visitor_id=f"v{i}",
+                event_type="rage_click",
+                timestamp=now_ms,
+            ))
+        db.flush()
+        from app.services.observability_spikes import detect_ux_frustration_spikes
+        fired = detect_ux_frustration_spikes(db)
+        assert fired >= 1
+        assert _count_alerts(db, "ux_frustration_spike") >= 1
+
+    def test_ux_frustration_spike_below_threshold_no_alert(self, db, merchant_a):
+        """Seed events under the threshold → no alert."""
+        from app.models.event import Event
+        import time as _t
+        now_ms = int(_t.time() * 1000)
+        for i in range(5):
+            db.add(Event(
+                shop_domain="test-shop-a.myshopify.com",
+                visitor_id=f"v{i}",
+                event_type="rage_click",
+                timestamp=now_ms,
+            ))
+        db.flush()
+        from app.services.observability_spikes import detect_ux_frustration_spikes
+        fired = detect_ux_frustration_spikes(db)
+        assert fired == 0
