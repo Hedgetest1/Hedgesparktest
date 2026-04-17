@@ -616,6 +616,14 @@ def generate_store_brief(db: Session, shop_domain: str) -> StoreBrief | None:
     brief.priority_insight = generate_store_insight(db, shop_domain)
 
     # --- Raw data ---
+    # Resolve shop currency so the hero can render revenue in native
+    # symbol. Fallback to USD when lookup returns None (brand-new shop).
+    try:
+        from app.services.revenue_metrics import get_shop_currency
+        _currency = get_shop_currency(db, shop_domain) or "USD"
+    except Exception:
+        _currency = "USD"
+
     brief.data = {
         "visitors_7d": wow.visitors_this,
         "orders_this_week": wow.orders_this,
@@ -625,6 +633,7 @@ def generate_store_brief(db: Session, shop_domain: str) -> StoreBrief | None:
         "revenue_change_pct": round(rev_change, 1) if rev_change is not None else None,
         "cart_rate": round(avg_cart, 4) if wow.new_cart_rate is not None else None,
         "products_tracked": len(products),
+        "currency": _currency,
         # Bottlenecks now carry the real numbers the hero renders, so the
         # dashboard never has to invent placeholder views/carts values.
         "conversion_bottlenecks": [

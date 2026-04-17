@@ -21,6 +21,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { apiClient } from "@/app/lib/api-client";
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
 
 type TopProduct = {
   id: string;
@@ -47,18 +48,8 @@ type InstantIntel = {
   narrative?: string | null;
 };
 
-const CURRENCY_SYMBOLS: Record<string, string> = {
-  EUR: "€",
-  USD: "$",
-  GBP: "£",
-};
-
-const fmt = (n: number, currency = "EUR"): string => {
-  const sym = CURRENCY_SYMBOLS[currency] || currency;
-  if (n >= 10_000) return `${sym}${Math.round(n / 1000)}k`;
-  if (n >= 1000) return `${sym}${(n / 1000).toFixed(1)}k`;
-  return `${sym}${Math.round(n).toLocaleString("en")}`;
-};
+const fmt = (n: number, currency = "USD"): string =>
+  formatMoneyCompact(n, currency);
 
 const LS_KEY = "hs_instant_intel_dismissed";
 
@@ -115,7 +106,7 @@ export function InstantIntelligenceCard({ apiBase }: { apiBase: string }) {
   // on the ROI hero, they no longer need the preview. We keep this simple
   // and let the merchant dismiss manually.
 
-  const currency = data.currency || "EUR";
+  const currency = data.currency || "USD";
   const isReady = data.status === "ready";
   const isComputing = data.status === "computing";
   const isEmpty = data.status === "empty";

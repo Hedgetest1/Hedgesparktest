@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/app/lib/api-client";
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
 import {
   DetailDrawer,
   DrawerExplainer,
@@ -48,6 +49,9 @@ type Response = {
   total_customers_scored: number;
   by_risk_band: Record<string, number>;
   customers: Customer[];
+  // Shop's native currency (USD/EUR/GBP/…) — `avg_order_value_eur`
+  // is denominated in this currency.
+  currency?: string;
 };
 
 const BAND_META: Record<
@@ -88,10 +92,8 @@ const fmtDays = (d: number): string => {
   return `${Math.round(d / 30)} months`;
 };
 
-const fmtEur = (n: number): string => {
-  if (n >= 1000) return `€${(n / 1000).toFixed(1)}k`;
-  return `€${Math.round(n)}`;
-};
+const fmtEur = (n: number, currency?: string): string =>
+  formatMoneyCompact(n, currency || "USD");
 
 export function CustomerChurnCard({ apiBase, isProUser }: { apiBase: string; isProUser: boolean }) {
   const [data, setData] = useState<Response | null>(null);
@@ -280,7 +282,7 @@ export function CustomerChurnCard({ apiBase, isProUser }: { apiBase: string; isP
                   }}
                 >
                   <div style={{ color: "#94a3b8", fontSize: "10px" }}>Avg order</div>
-                  <div style={{ fontWeight: 600 }}>{fmtEur(c.factors.avg_order_value_eur)}</div>
+                  <div style={{ fontWeight: 600 }}>{fmtEur(c.factors.avg_order_value_eur, data?.currency)}</div>
                 </div>
 
                 {/* Band badge */}
@@ -370,7 +372,7 @@ export function CustomerChurnCard({ apiBase, isProUser }: { apiBase: string; isP
               },
               {
                 label: "Average order value",
-                value: fmtEur(selected.factors.avg_order_value_eur),
+                value: fmtEur(selected.factors.avg_order_value_eur, data?.currency),
               },
               {
                 label: "Activity trend",

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { CardSkeleton, CardError, CardEmpty, useCardFetch } from "./_CardStates";
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
 import {
   DetailDrawer,
   DrawerExplainer,
@@ -40,6 +41,9 @@ type BriefData = {
   products_tracked?: number;
   conversion_bottlenecks?: Bottleneck[];
   top_converters?: string[];
+  // Shop's native currency (USD/EUR/GBP/…) — `revenue_*` fields
+  // above are denominated in this currency.
+  currency?: string;
 };
 type IntelligenceBrief = {
   signals: Signal[];
@@ -63,10 +67,8 @@ const DIR_COLOR: Record<string, string> = { up: "text-emerald-400", down: "text-
 
 /* ── Formatters ── */
 
-function fmt$(n: number | undefined | null): string {
-  if (n == null) return "$0";
-  return n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${n.toFixed(0)}`;
-}
+const fmt$ = (n: number | undefined | null, currency?: string): string =>
+  formatMoneyCompact(n ?? 0, currency || "USD");
 function fmtPct(n: number | undefined | null): string {
   if (n == null) return "\u2014";
   return `${n >= 0 ? "+" : ""}${n.toFixed(0)}%`;
@@ -215,7 +217,7 @@ export function IntelligenceHero({
           <div className="group rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3.5 transition-colors hover:bg-white/[0.04]">
             <div className="text-[12px] font-bold uppercase tracking-wider text-slate-500">Revenue</div>
             <div className="mt-1.5 flex items-baseline gap-1.5">
-              <span className="text-[1.75rem] font-extrabold tabular-nums text-white">{fmt$(d.revenue_this_week)}</span>
+              <span className="text-[1.75rem] font-extrabold tabular-nums text-white">{fmt$(d.revenue_this_week, d.currency)}</span>
               {revChange != null && (
                 <span className={`text-[13px] font-bold ${revChange >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                   {fmtPct(revChange)}
@@ -393,7 +395,7 @@ export function IntelligenceHero({
 
       <DrawerBigStat
         label="Revenue this week"
-        value={fmt$(d.revenue_this_week)}
+        value={fmt$(d.revenue_this_week, d.currency)}
         sublabel={
           revChange != null
             ? `${revChange >= 0 ? "+" : ""}${revChange.toFixed(0)}% vs the week before`

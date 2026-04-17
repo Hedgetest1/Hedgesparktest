@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db, get_read_db
 from app.core.deps import require_pro_session
 from app.services.customer_churn_scorer import score_shop_customers
+from app.services.revenue_metrics import get_shop_currency
 
 router = APIRouter(prefix="/pro", tags=["customer_churn"])
 
@@ -31,9 +32,14 @@ def list_at_risk_customers(
         "medium": sum(1 for c in scored if c["risk_band"] == "medium"),
         "low": sum(1 for c in scored if c["risk_band"] == "low"),
     }
+    # Resolve shop currency so the dashboard renders `avg_order_value_eur`
+    # with the merchant's native symbol. Falls back to USD when lookup
+    # returns None (brand-new shop with no order history yet).
+    currency = get_shop_currency(db, shop) or "USD"
     return {
         "shop_domain": shop,
         "total_customers_scored": len(scored),
         "by_risk_band": summary,
         "customers": scored,
+        "currency": currency,
     }
