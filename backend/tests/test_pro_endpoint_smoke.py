@@ -156,7 +156,7 @@ class TestProEndpointSmoke:
 
     def test_margin_snapshot_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/margin/snapshot", cookies=auth_a)
-        assert resp.status_code == 200
+        _assert_shape(resp, "shop_domain")
 
     def test_margin_snapshot_unauth(self, client):
         resp = client.get("/pro/margin/snapshot")
@@ -168,7 +168,7 @@ class TestProEndpointSmoke:
 
     def test_nudge_dna_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/nudge-dna", cookies=auth_a)
-        assert resp.status_code == 200
+        _assert_shape(resp, "shop_domain")
 
     def test_nudge_dna_unauth(self, client):
         resp = client.get("/pro/nudge-dna")
@@ -207,7 +207,7 @@ class TestProEndpointSmoke:
 
     def test_cohorts_monthly_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/cohorts/monthly", cookies=auth_a)
-        assert resp.status_code == 200
+        _assert_shape(resp, "cohorts", "overall", "window_months")
 
     def test_cohorts_monthly_unauth(self, client):
         resp = client.get("/pro/cohorts/monthly")
@@ -235,7 +235,7 @@ class TestProEndpointSmoke:
 
     def test_refund_losses_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/refund-losses", cookies=auth_a)
-        assert resp.status_code == 200
+        _assert_shape(resp, "shop_domain")
 
     def test_refund_losses_unauth(self, client):
         resp = client.get("/pro/refund-losses")
@@ -247,7 +247,7 @@ class TestProEndpointSmoke:
 
     def test_risk_forecast_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/risk-forecast", cookies=auth_a)
-        assert resp.status_code == 200
+        _assert_shape(resp, "shop_domain")
 
     def test_risk_forecast_unauth(self, client):
         resp = client.get("/pro/risk-forecast")
@@ -259,7 +259,7 @@ class TestProEndpointSmoke:
 
     def test_price_sensitivity_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/price-sensitivity", cookies=auth_a)
-        assert resp.status_code == 200
+        _assert_shape(resp, "shop_domain")
 
     def test_price_sensitivity_unauth(self, client):
         resp = client.get("/pro/price-sensitivity")
@@ -291,7 +291,7 @@ class TestProEndpointSmoke:
             params={"product_url": "/products/test-handle"},
             cookies=auth_a,
         )
-        assert resp.status_code == 200
+        _assert_shape(resp, "shop_domain")
 
     def test_segments_unauth(self, client):
         resp = client.get(
@@ -306,7 +306,7 @@ class TestProEndpointSmoke:
 
     def test_customer_churn_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/customer-churn", cookies=auth_a)
-        assert resp.status_code == 200
+        _assert_shape(resp, "shop_domain")
 
     def test_customer_churn_unauth(self, client):
         resp = client.get("/pro/customer-churn")
@@ -319,6 +319,12 @@ class TestProEndpointSmoke:
     def test_nudges_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/nudges", cookies=auth_a)
         assert resp.status_code == 200
+        # Shape may be list or dict depending on router; assert non-empty
+        # structure either way — the smoke contract is "endpoint returns
+        # something parseable".
+        data = resp.json()
+        assert data is not None
+        assert isinstance(data, (list, dict))
 
     def test_nudges_unauth(self, client):
         resp = client.get("/pro/nudges")
@@ -332,6 +338,9 @@ class TestProEndpointSmoke:
     def test_trust_contracts_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/trust/contracts", cookies=auth_a)
         assert resp.status_code == 200
+        data = resp.json()
+        # Trust contracts returns a list of contract dicts
+        assert isinstance(data, list) or isinstance(data, dict)
 
     def test_trust_contracts_unauth(self, client):
         resp = client.get("/pro/trust/contracts")
@@ -345,6 +354,8 @@ class TestProEndpointSmoke:
     def test_rules_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/rules", cookies=auth_a)
         assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, (list, dict))
 
     def test_rules_unauth(self, client):
         resp = client.get("/pro/rules")
@@ -356,7 +367,7 @@ class TestProEndpointSmoke:
 
     def test_roi_report_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/roi-report", cookies=auth_a)
-        assert resp.status_code == 200
+        _assert_shape(resp, "shop_domain")
 
     def test_roi_report_unauth(self, client):
         resp = client.get("/pro/roi-report")
@@ -369,6 +380,8 @@ class TestProEndpointSmoke:
     def test_shares_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/shares", cookies=auth_a)
         assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, (list, dict))
 
     def test_shares_unauth(self, client):
         resp = client.get("/pro/shares")
@@ -381,7 +394,7 @@ class TestProEndpointSmoke:
 
     def test_proof_report_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/proof-report", cookies=auth_a)
-        assert resp.status_code == 200
+        _assert_shape(resp, "has_proof", "headline", "generated_at")
 
     def test_proof_report_unauth(self, client):
         resp = client.get("/pro/proof-report")
@@ -393,7 +406,7 @@ class TestProEndpointSmoke:
 
     def test_instant_intelligence_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/instant-intelligence", cookies=auth_a)
-        assert resp.status_code == 200
+        _assert_shape(resp, "shop_domain")
 
     def test_instant_intelligence_unauth(self, client):
         resp = client.get("/pro/instant-intelligence")
@@ -411,7 +424,7 @@ class TestProEndpointSmoke:
             params={"product_url": "/products/test-handle"},
             cookies=auth_a,
         )
-        assert resp.status_code == 200
+        _assert_shape(resp, "product_url", "scroll", "window_hours")
 
     def test_heatmap_unauth(self, client):
         resp = client.get(
@@ -428,6 +441,8 @@ class TestProEndpointSmoke:
     def test_click_insights_200(self, client, merchant_a, auth_a):
         resp = client.get("/analytics/clicks", cookies=auth_a)
         assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, (list, dict))
 
     def test_click_insights_unauth(self, client):
         resp = client.get("/analytics/clicks")
@@ -441,6 +456,8 @@ class TestProEndpointSmoke:
     def test_conversion_probability_top_200(self, client, merchant_a, auth_a):
         resp = client.get("/conversion-probability/top", cookies=auth_a)
         assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, (list, dict))
 
     def test_conversion_probability_top_unauth(self, client):
         resp = client.get("/conversion-probability/top")
@@ -454,6 +471,8 @@ class TestProEndpointSmoke:
     def test_funnel_200(self, client, merchant_a, auth_a):
         resp = client.get("/analytics/funnel", cookies=auth_a)
         assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, (list, dict))
 
     def test_funnel_unauth(self, client):
         resp = client.get("/analytics/funnel")
@@ -467,6 +486,8 @@ class TestProEndpointSmoke:
     def test_source_quality_200(self, client, merchant_a, auth_a):
         resp = client.get("/analytics/source-quality", cookies=auth_a)
         assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, (list, dict))
 
     def test_source_quality_unauth(self, client):
         resp = client.get("/analytics/source-quality")
@@ -480,6 +501,8 @@ class TestProEndpointSmoke:
     def test_store_intelligence_200(self, client, merchant_a, auth_a):
         resp = client.get("/products/store-intelligence", cookies=auth_a)
         assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, (list, dict))
 
     def test_store_intelligence_unauth(self, client):
         resp = client.get("/products/store-intelligence")
@@ -493,6 +516,8 @@ class TestProEndpointSmoke:
     def test_knowledge_graph_stats_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/kg/stats", cookies=auth_a)
         assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, (list, dict))
 
     def test_knowledge_graph_stats_unauth(self, client):
         resp = client.get("/pro/kg/stats")
@@ -505,7 +530,7 @@ class TestProEndpointSmoke:
 
     def test_anomaly_fusion_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/anomalies/fusion", cookies=auth_a)
-        assert resp.status_code == 200
+        _assert_shape(resp, "shop_domain")
 
     def test_anomaly_fusion_unauth(self, client):
         resp = client.get("/pro/anomalies/fusion")
@@ -518,7 +543,7 @@ class TestProEndpointSmoke:
 
     def test_causal_explainer_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/causal/explain", cookies=auth_a)
-        assert resp.status_code == 200
+        _assert_shape(resp, "shop_domain")
 
     def test_causal_explainer_unauth(self, client):
         resp = client.get("/pro/causal/explain")
@@ -531,7 +556,7 @@ class TestProEndpointSmoke:
 
     def test_revenue_genome_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/revenue-genome", cookies=auth_a)
-        assert resp.status_code == 200
+        _assert_shape(resp, "shop_domain")
 
     def test_revenue_genome_unauth(self, client):
         resp = client.get("/pro/revenue-genome")
@@ -546,6 +571,8 @@ class TestProEndpointSmoke:
     def test_playbook_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/playbook/cart_abandon", cookies=auth_a)
         assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, (list, dict))
 
     def test_playbook_unauth(self, client):
         resp = client.get("/pro/playbook/cart_abandon")
