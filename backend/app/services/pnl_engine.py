@@ -212,7 +212,8 @@ def get_pnl_report(
     # ------------------------------------------------------------------
     # 7. Human-readable verdict.
     # ------------------------------------------------------------------
-    symbol = "€" if currency == "EUR" else "$"
+    from app.core.currency import currency_symbol
+    symbol = currency_symbol(currency)
     if net_margin_pct >= 20:
         verdict = (
             f"You keep ~{net_margin_pct:.0f}¢ of every {symbol}1 — healthy margin range for DTC."

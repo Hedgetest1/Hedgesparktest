@@ -151,7 +151,8 @@ def get_store_lift_summary(
     total_exposed_cvr = 0.0
     total_holdout_cvr = 0.0
     total_revenue     = 0.0
-    currency          = "USD"
+    from app.services.revenue_metrics import get_shop_currency
+    currency          = get_shop_currency(db, shop) or "USD"
     nudge_breakdown   = []
 
     valid_nudges = 0

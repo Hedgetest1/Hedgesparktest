@@ -300,11 +300,13 @@ def _compute_below_benchmark(db: Session, shop: str) -> RARSComponent:
 
     recovery = float(report.get("total_recovery_potential_eur") or 0)
     band = report.get("band") or "unknown"
+    from app.core.currency import format_money
+    currency = get_shop_currency(db, shop)
     return RARSComponent(
         source="below_benchmark",
         loss_eur=recovery,
         narrative=(
-            f"€{recovery:.0f}/month recoverable if you moved from current position "
+            f"{format_money(recovery, currency)}/month recoverable if you moved from current position "
             f"to top 25% of {band}-band peers"
             if recovery > 0 else
             f"At or above peer benchmarks for {band} band ✓"
@@ -462,16 +464,23 @@ def get_revenue_at_risk(db: Session, shop_domain: str) -> dict:
     _PRO_TIER_COST_EUR = 99.0
     net_roi = prevented - _PRO_TIER_COST_EUR
 
+    from app.core.currency import format_money
+    currency = get_shop_currency(db, shop_domain)
+    total_str = format_money(total, currency)
+    prevented_str = format_money(prevented, currency)
+    net_roi_str = format_money(net_roi, currency)
+    sub_str = format_money(_PRO_TIER_COST_EUR, currency)
+
     if total <= 0:
         headline = "✨ No significant revenue at risk — your shop is healthy across all tracked signals."
     elif net_roi > 0:
         headline = (
-            f"€{total:.0f}/mo at risk — HedgeSpark already prevented €{prevented:.0f} this month "
-            f"(net ROI +€{net_roi:.0f} vs your €{_PRO_TIER_COST_EUR:.0f} subscription)"
+            f"{total_str}/mo at risk — HedgeSpark already prevented {prevented_str} this month "
+            f"(net ROI +{net_roi_str} vs your {sub_str} subscription)"
         )
     else:
         headline = (
-            f"€{total:.0f}/mo at risk — the biggest drivers are listed below. "
+            f"{total_str}/mo at risk — the biggest drivers are listed below. "
             f"Open each to see the action plan."
         )
 

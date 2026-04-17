@@ -238,10 +238,10 @@ def _build_headline(proof: dict) -> str:
     if lift and lift > 0:
         return f"+{lift:.0f}% conversion lift, measured with holdout testing"
     revenue = proof.get("incremental_revenue")
-    currency = proof.get("currency", "$")
+    currency = proof.get("currency")
     if revenue and revenue > 0:
-        symbol = "€" if currency == "EUR" else "$"
-        return f"{symbol}{revenue:,.0f} incremental revenue recovered"
+        from app.core.currency import format_money
+        return f"{format_money(revenue, currency)} incremental revenue recovered"
     return "Conversion improvement measured with holdout testing"
 
 

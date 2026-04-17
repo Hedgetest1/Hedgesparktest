@@ -47,6 +47,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.currency import format_money as _format_money
 from app.services.revenue_metrics import get_shop_currency, get_shop_timezone
 
 log = logging.getLogger("data_integrity_probe")
@@ -258,8 +259,8 @@ def _check_merchant_anomaly(db: Session, shop: str) -> DriftFinding | None:
         severity=severity,
         summary=(
             f"Today's revenue on {shop} is a {direction}: "
-            f"€{today_revenue:.0f} vs shop's seasonality-adjusted "
-            f"expected €{expected:.0f} ({stdev_multiple:.1f}σ {direction})"
+            f"{_format_money(today_revenue, currency)} vs shop's seasonality-adjusted "
+            f"expected {_format_money(expected, currency)} ({stdev_multiple:.1f}σ {direction})"
         ),
         detail={
             "today_revenue": round(today_revenue, 2),

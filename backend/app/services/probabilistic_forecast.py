@@ -188,21 +188,23 @@ def forecast_revenue(
         else 0.0
     )
 
+    from app.core.currency import format_money
+    point_str = format_money(point, currency)
     if delta_pct > 5:
         direction = "rising"
         headline = (
             f"Revenue trending up: next {horizon_days} days projected at "
-            f"€{point:,.0f}/day (+{delta_pct:.0f}% vs last week's average)."
+            f"{point_str}/day (+{delta_pct:.0f}% vs last week's average)."
         )
     elif delta_pct < -5:
         direction = "falling"
         headline = (
             f"Revenue cooling: next {horizon_days} days projected at "
-            f"€{point:,.0f}/day ({delta_pct:.0f}% vs last week's average)."
+            f"{point_str}/day ({delta_pct:.0f}% vs last week's average)."
         )
     else:
         direction = "stable"
-        headline = f"Revenue stable around €{point:,.0f}/day."
+        headline = f"Revenue stable around {point_str}/day."
 
     return {
         "shop_domain": shop_domain,

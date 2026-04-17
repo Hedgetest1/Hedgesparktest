@@ -197,15 +197,19 @@ def preview(input_url: str) -> dict:
     profile = get_profile(vertical)
     roi = _estimate_recovery(products, vertical)
 
+    # Pre-signup demo: we don't know the shop's currency yet (Shopify's
+    # public /products.json doesn't expose it). Show raw numbers with a
+    # "in your currency" note instead of guessing a symbol.
     narrative = (
         f"Detected: {profile.display_name}. "
         f"We scanned {len(products)} products and your range averages "
-        f"€{roi['avg_price_eur']}. At your vertical's typical "
-        f"{roi['vertical_baseline_cvr_pct']}% conversion rate, "
-        f"a 1k-visitor month would generate ~{roi['estimated_monthly_orders']} orders "
-        f"≈ €{roi['estimated_monthly_revenue_eur']}/mo. "
+        f"{roi['avg_price_eur']:,.0f} (in your store's currency). "
+        f"At your vertical's typical {roi['vertical_baseline_cvr_pct']}% "
+        f"conversion rate, a 1k-visitor month would generate "
+        f"~{roi['estimated_monthly_orders']} orders "
+        f"≈ {roi['estimated_monthly_revenue_eur']:,.0f}/mo. "
         f"Hedge Spark typically recovers ~15% of that "
-        f"(€{roi['estimated_recovery_eur']}/mo) within the first 30 days "
+        f"({roi['estimated_recovery_eur']:,.0f}/mo) within the first 30 days "
         f"— this is just an estimate, the real number is bigger or smaller "
         f"depending on traffic and execution."
     )

@@ -205,7 +205,7 @@ def _build_holdout_proof(
     weighted_hld_cvr = 0.0
     total_attributed = 0.0
     total_incremental = 0.0
-    currency = "USD"
+    currency = get_shop_currency(db, shop_domain) or "USD"
     nudge_details = []
     valid = 0
 

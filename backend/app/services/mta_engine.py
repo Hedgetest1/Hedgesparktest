@@ -395,12 +395,15 @@ def compute_mta(
 def compare_models(
     db: Session, shop_domain: str, window_days: int = 30
 ) -> dict:
+    from app.core.currency import format_money
+    from app.services.revenue_metrics import get_shop_currency
     """Run ALL 5 attribution models and return a side-by-side comparison.
 
     This is the killer UX moment: "Meta is credited €2,100 under first-touch
     but only €450 under last-touch — that's a 4.6× swing and it tells you
     Meta is a discovery driver, not a closer."
     """
+    currency = get_shop_currency(db, shop_domain)
     by_model: dict[str, dict] = {}
     for m in _MODELS.keys():
         by_model[m] = compute_mta(db, shop_domain, model=m, window_days=window_days)  # type: ignore
@@ -445,8 +448,8 @@ def compare_models(
         if biggest_swing[best_model] > biggest_swing[worst_model] * 1.5:
             headline = (
                 f"{biggest_swing['source']} is credited "
-                f"€{biggest_swing[best_model]:,.0f} under {best_model.replace('_', '-')} "
-                f"but only €{biggest_swing[worst_model]:,.0f} under {worst_model.replace('_', '-')} "
+                f"{format_money(biggest_swing[best_model], currency)} under {best_model.replace('_', '-')} "
+                f"but only {format_money(biggest_swing[worst_model], currency)} under {worst_model.replace('_', '-')} "
                 f"— {biggest_swing['swing_pct']}% swing."
             )
 

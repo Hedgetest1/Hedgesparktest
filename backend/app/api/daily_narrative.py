@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import require_pro_session
+from app.core.currency import format_money
 from app.services.revenue_metrics import get_shop_currency
 
 log = logging.getLogger(__name__)
@@ -203,7 +204,7 @@ def _compute_narrative(db: Session, shop: str) -> dict:
             f"{_plural(nudges_fired, 'nudge', 'nudges')}, "
             f"and you've already closed {orders_today} "
             f"{_plural(orders_today, 'order', 'orders')} "
-            f"({_fmt_eur(revenue_today)})."
+            f"({format_money(revenue_today, currency, compact=True)})."
         )
     elif nudges_fired > 0:
         p3 = (
@@ -214,7 +215,7 @@ def _compute_narrative(db: Session, shop: str) -> dict:
         p3 = (
             f"You've closed {orders_today} "
             f"{_plural(orders_today, 'order', 'orders')} today "
-            f"({_fmt_eur(revenue_today)})."
+            f"({format_money(revenue_today, currency, compact=True)})."
         )
     else:
         p3 = "No conversions yet today — HedgeSpark is watching for the right moment to act."
@@ -264,12 +265,6 @@ def _compute_narrative(db: Session, shop: str) -> dict:
         "fusion_alerts": fusion_alerts_top,
         "generated_at": now.isoformat(),
     }
-
-
-def _fmt_eur(n: float) -> str:
-    if n >= 1000:
-        return f"€{n / 1000:.1f}k"
-    return f"€{round(n)}"
 
 
 @router.get("/daily-narrative", response_model=DailyNarrativeResponse)

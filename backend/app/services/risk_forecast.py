@@ -250,10 +250,13 @@ def get_risk_forecast(shop_domain: str) -> dict[str, Any]:
 
     if confidence in ("high", "medium") and week_delta_pct > 30:
         try:
+            from app.core.currency import format_money
             from app.core.database import SessionLocal
             from app.services.alerting import write_alert
+            from app.services.revenue_metrics import get_shop_currency
             db = SessionLocal()
             try:
+                currency = get_shop_currency(db, shop_domain)
                 write_alert(
                     db,
                     severity="info",  # projection, not an incident
@@ -261,7 +264,7 @@ def get_risk_forecast(shop_domain: str) -> dict[str, Any]:
                     alert_type="rars_volatility_projected",
                     summary=(
                         f"Projected RARS jump >30% for {shop_domain}: "
-                        f"€{today_value:.0f} → €{forecast_value:.0f}"
+                        f"{format_money(today_value, currency)} → {format_money(forecast_value, currency)}"
                     ),
                     shop_domain=shop_domain,
                     detail={

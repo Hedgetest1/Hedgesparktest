@@ -291,6 +291,7 @@ def _pick_top_action(
     rars: dict,
     causal: dict,
     fusion: dict,
+    currency: str | None = None,
 ) -> tuple[dict | None, list[JournalEntry]]:
     """
     Return the single most impactful action + journal entries explaining
@@ -301,6 +302,7 @@ def _pick_top_action(
       3. Top fusion alert with a recommended_action
       4. None
     """
+    from app.core.currency import format_money
     journal: list[JournalEntry] = []
 
     # 1. RARS components
@@ -319,7 +321,7 @@ def _pick_top_action(
             journal.append(JournalEntry(
                 signal=f"rars.{best.get('source','unknown')}",
                 verdict="kept",
-                reason=f"€{loss:.0f}/mo at risk — highest-value actionable lever.",
+                reason=f"{format_money(loss, currency)}/mo at risk — highest-value actionable lever.",
                 weight=loss,
             ))
             # Mark others as considered-but-rejected
@@ -331,7 +333,7 @@ def _pick_top_action(
                     journal.append(JournalEntry(
                         signal=f"rars.{c.get('source','unknown')}",
                         verdict="watched",
-                        reason=f"€{clos:.0f}/mo at risk — lower priority tonight.",
+                        reason=f"{format_money(clos, currency)}/mo at risk — lower priority tonight.",
                         weight=clos,
                     ))
             return action, journal
@@ -484,7 +486,11 @@ def generate_for_shop(db: Session, shop_domain: str, *, force: bool = False) -> 
     causal = _gather_causal(db, shop_domain)
     prevented_24h = _gather_prevented_today(db, shop_domain)
 
-    top_action, journal = _pick_top_action(rars=rars, causal=causal, fusion=fusion)
+    from app.services.revenue_metrics import get_shop_currency
+    currency = get_shop_currency(db, shop_domain)
+    top_action, journal = _pick_top_action(
+        rars=rars, causal=causal, fusion=fusion, currency=currency
+    )
 
     # Add general "watched" signals to the journal so merchants see the
     # full reasoning chain even on quiet nights
