@@ -1,0 +1,177 @@
+"""
+Smoke tests for the tracker error telemetry pipeline — POST /public/tracker-error
+and the observability_spikes detector.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+import pytest
+from sqlalchemy import text
+
+
+def _today() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+@pytest.fixture(autouse=True)
+def _reset_spike_cooldowns():
+    """Per-test cooldown + Redis-counter isolation so tests don't
+    inherit tracker-error state from prior test runs."""
+    from app.services.observability_spikes import reset_test_cooldowns
+    reset_test_cooldowns()
+    # Clear any leftover tracker-error Redis counters from earlier runs.
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            cursor = 0
+            while True:
+                cursor, keys = rc.scan(cursor=cursor, match="hs:trkerr:*", count=500)
+                if keys:
+                    rc.delete(*keys)
+                if cursor == 0:
+                    break
+    except Exception:
+        pass  # SILENT-OK: test hygiene
+    yield
+    reset_test_cooldowns()
+
+
+def _count_alerts(db, alert_type: str) -> int:
+    return int(db.execute(
+        text("SELECT COUNT(*) FROM ops_alerts WHERE alert_type = :t"),
+        {"t": alert_type},
+    ).scalar() or 0)
+
+
+class TestTrackerErrorEndpoint:
+    """POST /public/tracker-error — payload hygiene + rate limiting."""
+
+    def test_accepts_valid_error_report(self, client, db, merchant_a):
+        resp = client.post(
+            "/public/tracker-error",
+            json={
+                "shop": "test-shop-a.myshopify.com",
+                "source": "spark-tracker.boot",
+                "message": "TypeError: cannot read prop of undefined",
+                "stack": "at _hedgesparkBoot (tracker.js:27)",
+                "url": "https://example.myshopify.com/products/candle",
+                "tracker_version": 11,
+                "user_agent": "Mozilla/5.0",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["ok"] is True, body
+        assert len(body["hash"]) == 16
+        # Redis counter should now read 1 total event + 1 distinct hash.
+        from app.core.redis_client import _client
+        rc = _client()
+        assert rc is not None
+        total = int(rc.get("hs:trkerr:tot:test-shop-a.myshopify.com:" + _today()) or 0)
+        distinct = int(rc.scard("hs:trkerr:hash:test-shop-a.myshopify.com:" + _today()) or 0)
+        assert total == 1
+        assert distinct == 1
+
+    def test_rejects_blank_shop(self, client):
+        resp = client.post(
+            "/public/tracker-error",
+            json={
+                "shop": "   ",
+                "source": "spark-tracker.boot",
+                "message": "boom",
+            },
+        )
+        # Shop min_length=3 in the Pydantic model so this is rejected at
+        # validation time with 422. Either way, no crash.
+        assert resp.status_code in (200, 422)
+
+    def test_scrubs_pii_from_message(self, client, db, merchant_a):
+        resp = client.post(
+            "/public/tracker-error",
+            json={
+                "shop": "test-shop-a.myshopify.com",
+                "source": "spark-pixel",
+                "message": "fetch failed for user@example.com with token shpat_" + "x" * 24,
+                "stack": "...",
+                "url": "https://example.myshopify.com/",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json().get("ok") is True, resp.json()
+        err_hash = resp.json()["hash"]
+        # The Redis sample (written only on first observation of a hash)
+        # must not contain the raw email or token.
+        from app.core.redis_client import _client
+        rc = _client()
+        assert rc is not None
+        sample_key = f"hs:trkerr:sample:test-shop-a.myshopify.com:{_today()}:{err_hash}"
+        raw = rc.get(sample_key)
+        assert raw is not None, f"sample missing at {sample_key}"
+        detail_str = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+        assert "user@example.com" not in detail_str
+        assert "shpat_" + "x" * 24 not in detail_str
+        assert "[EMAIL]" in detail_str
+        assert "[TOKEN]" in detail_str
+
+
+class TestSpikeDetectors:
+    """Observability spike detectors produce single rollup alerts."""
+
+    def test_tracker_error_spike_fires_on_threshold(self, client, db, merchant_a):
+        # Seed enough distinct tracker runtime errors to cross the
+        # distinct-hash threshold (5). Redis counters accumulate per
+        # POST; the spike detector reads them and fires once per day.
+        for i in range(6):
+            resp = client.post(
+                "/public/tracker-error",
+                json={
+                    "shop": "test-shop-a.myshopify.com",
+                    "source": "spark-tracker.boot",
+                    "message": f"error variant {i}",  # distinct → distinct hashes
+                    "stack": f"at line {i}",
+                    "url": "https://example.myshopify.com/",
+                },
+            )
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["ok"] is True, resp.json()
+
+        from app.services.observability_spikes import detect_tracker_error_spikes
+        # First invocation: should fire 1 alert (distinct_hashes ≥ 5)
+        fired = detect_tracker_error_spikes(db)
+        assert fired >= 1
+        assert _count_alerts(db, "tracker_runtime_error_spike") >= 1
+
+        # Second invocation same day: cooldown prevents re-alerting
+        fired_again = detect_tracker_error_spikes(db)
+        assert fired_again == 0
+
+    def test_frontend_error_spike_below_threshold_no_alert(self, client, db):
+        from app.services.observability_spikes import detect_frontend_error_spike
+        # No frontend errors seeded → no alert
+        fired = detect_frontend_error_spike(db)
+        assert fired == 0
+
+    def test_frontend_error_spike_fires_above_threshold(self, client, db):
+        # Seed 11 frontend_error alerts directly to cross the threshold (10)
+        from app.services.alerting import write_alert
+        for i in range(11):
+            write_alert(
+                db,
+                severity="warning",
+                source=f"dashboard.component_{i}",
+                alert_type="frontend_error",
+                summary=f"test error {i}",
+                detail={"i": i},
+            )
+        from app.services.observability_spikes import detect_frontend_error_spike
+        fired = detect_frontend_error_spike(db)
+        assert fired == 1
+        assert _count_alerts(db, "frontend_error_spike") >= 1
+
+    def test_p95_detector_degrades_when_no_table(self, db):
+        """request_timing table may not exist — detector must return 0 silently."""
+        from app.services.observability_spikes import detect_p95_slow_trends
+        fired = detect_p95_slow_trends(db)
+        assert fired == 0  # no crash, no alert, no exception

@@ -339,6 +339,23 @@ def _run_cycle_inner() -> None:
         except Exception as exc:
             log(f"nudge expiry error (non-fatal): {exc}")
 
+        # ------------------------------------------------------------------ #
+        # Observability spikes — elevate high-volume low-severity signals     #
+        # (tracker runtime errors, dashboard frontend errors, p95 drift)      #
+        # into single ops_alert events the bugfix_pipeline can triage.        #
+        # Each detector is independently try/except'd inside the service.     #
+        # ------------------------------------------------------------------ #
+        try:
+            from app.services.observability_spikes import run_all_spike_detectors
+            spike_summary = run_all_spike_detectors(db)
+            total_spikes = sum(spike_summary.values())
+            if total_spikes > 0:
+                db.commit()
+                log(f"observability_spikes: {spike_summary}")
+        except Exception as exc:
+            db.rollback()
+            log(f"observability_spikes error (non-fatal): {exc}")
+
         state = _load_state(db)
         last_watermark = state.last_watermark or 0
         log(f"last_watermark={last_watermark}")

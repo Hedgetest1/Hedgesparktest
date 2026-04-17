@@ -48,6 +48,8 @@ ALLOWLIST: set[str] = {
     "services/benchmarks.py",             # Peer benchmarks — computes across shops
     "services/benchmarks_vertical.py",    # Vertical-scoped peer averages
     "services/network_aggregate.py",
+    "services/observability_spikes.py",   # Dashboard-wide + fleet-wide spike detection
+
     "services/ops_triage.py",             # Ops-scope triage
     "api/public_status.py",               # Public status endpoint (no shop)
     "api/public_roi_counter.py",          # Already iterates merchants explicitly

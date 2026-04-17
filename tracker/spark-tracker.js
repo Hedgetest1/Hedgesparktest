@@ -20,8 +20,70 @@
   if (window.__wishsparkInit) return;
   window.__wishsparkInit = true;
 
+  // ---------------------------------------------------------------------------
+  // Error telemetry — ONLY for HedgeSpark tracker code
+  //
+  // Previously the outer try/catch swallowed tracker boot errors silently.
+  // window.onerror is also too-broad (fires for every storefront JS error,
+  // most not ours). Instead we hook ONLY the tracker's own top-level
+  // try/catch and surface errors to /public/tracker-error.
+  //
+  // The reporter is intentionally tiny + idempotent + rate-limited by
+  // a per-page in-memory set (prevents a tight error loop flooding our
+  // backend from a single broken theme). Transport is sendBeacon if
+  // available, fetch keepalive otherwise, and everything is a no-op on
+  // any failure so reporting itself can never crash the storefront.
+  // ---------------------------------------------------------------------------
+  var __hs_err_seen = {};
+  var __hs_err_endpoint = null;
+  var __hs_err_shop = null;
+  var __hs_err_max_per_page = 5;
+  var __hs_err_count = 0;
+  function __hs_report_error(source, err, extra) {
+    try {
+      if (__hs_err_count >= __hs_err_max_per_page) return;
+      var msg = "";
+      var stack = "";
+      if (err) {
+        msg = String(err && err.message ? err.message : err).slice(0, 1500);
+        stack = String(err && err.stack ? err.stack : "").slice(0, 3500);
+      }
+      if (extra) msg = (extra + " | " + msg).slice(0, 1900);
+      // Dedup identical messages inside one page lifetime
+      var key = source + "::" + msg.slice(0, 200);
+      if (__hs_err_seen[key]) return;
+      __hs_err_seen[key] = true;
+      __hs_err_count++;
+      if (!__hs_err_endpoint || !__hs_err_shop) return;
+      var body = JSON.stringify({
+        shop: __hs_err_shop,
+        source: source,
+        message: msg,
+        stack: stack,
+        url: String(window.location.href || "").slice(0, 500),
+        tracker_version: (window.__hsTrackerVersion || null),
+        user_agent: String(navigator.userAgent || "").slice(0, 300),
+      });
+      if (navigator.sendBeacon) {
+        try {
+          navigator.sendBeacon(__hs_err_endpoint, new Blob([body], {type: "application/json"}));
+          return;
+        } catch (_) {}
+      }
+      try {
+        fetch(__hs_err_endpoint, {
+          method: "POST",
+          keepalive: true,
+          headers: {"Content-Type": "application/json"},
+          body: body,
+        }).catch(function () {});
+      } catch (_) {}
+    } catch (_) { /* reporting must never throw */ }
+  }
+
   try { _hedgesparkBoot(); } catch (bootErr) {
     try { console.warn("[HedgeSpark] tracker boot error (non-fatal):", bootErr); } catch (_) {}
+    __hs_report_error("spark-tracker.boot", bootErr, null);
   }
 
   function _hedgesparkBoot() {
@@ -78,6 +140,13 @@
     console.warn("[HedgeSpark] tracker loaded but no shop param found");
     return;
   }
+
+  // Wire the error reporter now that we know the shop + origin.
+  try {
+    __hs_err_shop = SHOP_DOMAIN;
+    __hs_err_endpoint = API_URL.replace(/\/track$/, "/public/tracker-error");
+    window.__hsTrackerVersion = 11;
+  } catch (_) {}
 
   // ---------------------------------------------------------------------------
   // Visitor identity — persisted in localStorage across sessions
