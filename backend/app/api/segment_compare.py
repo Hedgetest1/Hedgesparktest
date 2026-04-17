@@ -35,6 +35,10 @@ class SegmentCompareResponse(BaseModel):
     product_a: SegmentSnapshotResponse
     product_b: SegmentSnapshotResponse
     delta: CompareDeltaResponse
+    # Shop's native currency (USD/EUR/GBP/…) — revenue_delta_eur and
+    # loss_gap_eur are denominated in this currency; narrative prose
+    # renders numbers via format_money() against this symbol.
+    currency: str = "USD"
     generated_at: str
 
 

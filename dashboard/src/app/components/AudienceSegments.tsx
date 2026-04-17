@@ -13,6 +13,7 @@
 
 import { useEffect, useState } from "react";
 import { apiClient, getHeaders, type paths } from "../lib/api-client";
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
 
 // Generated response type — single source of truth for /pro/segments.
 // Regenerate via `npm run api:types` after backend Pydantic changes.
@@ -31,6 +32,9 @@ type ProductSegments = {
   product_url: string;
   segments: Segment[];
   total_active: number;
+  // Shop's native currency — each segment's revenue_window is
+  // denominated in this currency.
+  currency?: string;
   loading: boolean;
   error: boolean;
 };
@@ -119,6 +123,8 @@ export function AudienceSegments({
             product_url: productUrl,
             segments: segs,
             total_active: json.total_active_visitors || 0,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            currency: (json as any).currency as string | undefined,
             error: false,
           };
         } catch {
@@ -290,7 +296,7 @@ export function AudienceSegments({
                       </div>
                       <span className="w-16 text-right text-[11px] tabular-nums text-slate-500">
                         {seg.revenue_window > 0
-                          ? `$${Math.round(seg.revenue_window)}`
+                          ? formatMoneyCompact(seg.revenue_window, p.currency || "USD")
                           : "—"}
                       </span>
                     </div>

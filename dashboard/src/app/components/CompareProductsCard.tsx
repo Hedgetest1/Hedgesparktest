@@ -11,6 +11,7 @@
 
 import { useState } from "react";
 import { apiClient } from "@/app/lib/api-client";
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
 
 type SegmentSnapshot = {
   product_url: string;
@@ -34,11 +35,14 @@ type CompareData = {
     loss_gap_eur: number;
     narrative: string;
   };
+  // Shop's native currency — revenue_delta_eur / loss_gap_eur are
+  // denominated in this currency.
+  currency?: string;
   generated_at: string;
 };
 
-function fmtMoney(n: number): string {
-  return "€" + Math.round(Math.abs(n)).toLocaleString();
+function fmtMoney(n: number, currency?: string): string {
+  return formatMoneyCompact(Math.abs(n), currency || "USD");
 }
 
 export function CompareProductsCard({
@@ -150,7 +154,7 @@ export function CompareProductsCard({
                   </div>
                   <div className="mt-1 truncate text-[11px] text-slate-400">{snap.product_url}</div>
                   <div className="mt-2 text-[18px] font-extrabold tabular-nums text-white">
-                    {fmtMoney(snap.estimated_revenue_window)}
+                    {fmtMoney(snap.estimated_revenue_window, data.currency)}
                   </div>
                   <div className="mt-0.5 text-[9px] text-slate-500">
                     {snap.hot_visitors} hot · {snap.warm_visitors} warm · {snap.cold_visitors} cold

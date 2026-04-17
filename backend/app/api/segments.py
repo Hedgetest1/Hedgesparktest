@@ -143,6 +143,9 @@ class SegmentsResponse(BaseModel):
     warm: SegmentBlock
     cold: SegmentBlock
     meta: SegmentsMetaBlock
+    # Shop's native currency (USD/EUR/GBP/…) — each segment's
+    # `estimated_revenue_window` is denominated in this currency.
+    currency: str = "USD"
 
 
 
@@ -196,9 +199,18 @@ def get_audience_segments(
         shop, canonical, hours,
     )
 
-    return segment_product_visitors(
+    result = segment_product_visitors(
         db=db,
         shop_domain=shop,
         product_url=canonical,
         hours=hours,
     )
+    # Inject shop currency so the dashboard can render each segment's
+    # estimated_revenue_window in the merchant's native symbol. Falls
+    # back to USD when the lookup returns None.
+    try:
+        from app.services.revenue_metrics import get_shop_currency
+        result["currency"] = get_shop_currency(db, shop) or "USD"
+    except Exception:
+        result["currency"] = "USD"
+    return result

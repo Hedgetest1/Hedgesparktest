@@ -103,6 +103,15 @@ def compare_two_products(
     hot_delta = a.hot_visitors - b.hot_visitors
     revenue_delta = a.estimated_revenue_window - b.estimated_revenue_window
 
+    # Resolve shop currency so the narrative prose uses native symbol.
+    try:
+        from app.core.currency import format_money
+        from app.services.revenue_metrics import get_shop_currency
+        currency = get_shop_currency(db, shop_domain) or "USD"
+    except Exception:
+        currency = "USD"
+        from app.core.currency import format_money
+
     if abs(revenue_delta) < 10:
         winner = "tie"
         loss_gap = 0.0
@@ -114,18 +123,18 @@ def compare_two_products(
         winner = "A"
         loss_gap = revenue_delta
         narrative = (
-            f"Product A is pulling €{revenue_delta:.0f} more in the current "
-            f"{hours}h window than Product B. Investigate what drives A "
-            f"(traffic source, landing page, pricing) and apply to B."
+            f"Product A is pulling {format_money(revenue_delta, currency, compact=True)} "
+            f"more in the current {hours}h window than Product B. Investigate "
+            f"what drives A (traffic source, landing page, pricing) and apply to B."
         )
     else:
         winner = "B"
         loss_gap = abs(revenue_delta)
+        gap_money = format_money(abs(revenue_delta), currency, compact=True)
         narrative = (
-            f"Product B is pulling €{abs(revenue_delta):.0f} more in the "
-            f"current {hours}h window than Product A. Product A is the "
-            f"underperformer — €{abs(revenue_delta):.0f} at risk until "
-            f"you close the gap."
+            f"Product B is pulling {gap_money} more in the current {hours}h "
+            f"window than Product A. Product A is the underperformer — "
+            f"{gap_money} at risk until you close the gap."
         )
 
     now_iso = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
@@ -141,5 +150,6 @@ def compare_two_products(
             "loss_gap_eur": round(loss_gap, 2),
             "narrative": narrative,
         },
+        "currency": currency,
         "generated_at": now_iso,
     }
