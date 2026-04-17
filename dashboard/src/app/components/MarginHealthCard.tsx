@@ -236,7 +236,7 @@ export function MarginHealthCard({ apiBase, isProUser }: { apiBase: string; isPr
       >
         <DrawerExplainer
           body={
-            "This is how much of every € you keep after paying for the product (what Shopify charges to " +
+            "This is how much of every sale you keep after paying for the product (what Shopify charges to " +
             "make + ship it). It's your safety cushion. When HedgeSpark runs a price test, it refuses any " +
             "discount that would drop this number below your safety floor — even if your trust contract " +
             "would otherwise allow it. Belt AND braces."

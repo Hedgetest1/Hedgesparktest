@@ -26,7 +26,7 @@ import {
   DrawerBarChart,
 } from "./DetailDrawer";
 import { CardSkeleton, CardError, CardEmpty, useCardFetch } from "./_CardStates";
-import { formatMoneyCompact } from "@/app/app/_lib/formatters";
+import { formatMoneyCompact, currencySymbol } from "@/app/app/_lib/formatters";
 
 type BreakdownItem = {
   source: string;
@@ -450,7 +450,7 @@ export function ROIHeroBanner({ apiBase, isProUser }: { apiBase: string; isProUs
           { label: "All time", value: fmtEurBig(data.total_saved_eur_all_time) },
           {
             label: "Your subscription",
-            value: `€${data.plan_cost_eur_monthly}/mo`,
+            value: `${formatMoneyCompact(data.plan_cost_eur_monthly, data.currency)}/mo`,
           },
           {
             label: "Money back vs cost",
@@ -500,7 +500,7 @@ export function ROIHeroBanner({ apiBase, isProUser }: { apiBase: string; isProUs
               value: Math.round(b.amount_eur),
             }))}
             color="#10b981"
-            unit="€"
+            unit={currencySymbol(data.currency)}
           />
         </>
       )}

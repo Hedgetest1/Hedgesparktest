@@ -50,6 +50,9 @@ class DailyNarrativeResponse(BaseModel):
     # Optional so older clients keep working.
     why: dict | None = None
     fusion_alerts: list[dict] = []
+    # Shop's native currency (USD/EUR/GBP/…) — dashboard renders
+    # `stats.revenue_today_eur` with the matching symbol.
+    currency: str = "USD"
     generated_at: str
 
 
@@ -263,6 +266,7 @@ def _compute_narrative(db: Session, shop: str) -> dict:
         "top_next_action": top_action,
         "why": why_block,
         "fusion_alerts": fusion_alerts_top,
+        "currency": currency or "USD",
         "generated_at": now.isoformat(),
     }
 

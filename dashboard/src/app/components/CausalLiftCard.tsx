@@ -237,7 +237,7 @@ export function CausalLiftCard({
       >
         <DrawerExplainer
           body={
-            "Most dashboards tell you 'your nudges drove €X in revenue' by counting purchases from " +
+            "Most dashboards tell you 'your nudges drove X in revenue' by counting purchases from " +
             "visitors who happened to see a nudge. That's correlation — it can't tell you whether " +
             "those visitors would have bought anyway. HedgeSpark holds back a small fraction of " +
             "eligible visitors at random and shows them nothing. The gap between the two groups is " +

@@ -11,6 +11,7 @@
 
 import { useEffect, useState } from "react";
 import { apiClient } from "@/app/lib/api-client";
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
 
 type NarrativeData = {
   shop_domain: string;
@@ -24,6 +25,8 @@ type NarrativeData = {
     revenue_today_eur: number;
   };
   top_next_action: string | null;
+  // Shop's native currency — `revenue_today_eur` is denominated here.
+  currency?: string;
   generated_at: string;
 };
 
@@ -135,8 +138,8 @@ export function DailyNarrativeBlock({ apiBase, isProUser }: { apiBase: string; i
         </span>
         <span>·</span>
         <span>
-          <b style={{ color: "#10b981" }}>{data.stats.orders_today}</b> orders · €
-          {data.stats.revenue_today_eur.toLocaleString("en")}
+          <b style={{ color: "#10b981" }}>{data.stats.orders_today}</b> orders ·{" "}
+          {formatMoneyCompact(data.stats.revenue_today_eur, data.currency || "USD")}
         </span>
       </div>
     </div>

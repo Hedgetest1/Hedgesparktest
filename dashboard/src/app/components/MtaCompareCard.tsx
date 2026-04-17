@@ -14,7 +14,7 @@
 
 import { useEffect, useState } from "react";
 import { apiClient } from "@/app/lib/api-client";
-import { formatMoneyCompact } from "@/app/app/_lib/formatters";
+import { formatMoneyCompact, currencySymbol } from "@/app/app/_lib/formatters";
 import {
   DetailDrawer,
   DrawerExplainer,
@@ -375,7 +375,7 @@ export function MtaCompareCard({ apiBase, isProUser }: { apiBase: string; isProU
               value: Math.round(activeRow[m.key] as number),
             }))}
             color="#a78bfa"
-            unit="€"
+            unit={currencySymbol(data.currency)}
           />
 
           <DrawerSectionHeading>What this means</DrawerSectionHeading>
