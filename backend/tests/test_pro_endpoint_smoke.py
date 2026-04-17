@@ -45,6 +45,30 @@ def _override_read_db(db):
     fastapi_app.dependency_overrides.pop(get_read_db, None)
 
 
+def _assert_shape(resp, *required_keys: str) -> dict:
+    """
+    Status + shape assertion for smoke tests.
+
+    Status-only assertions only catch crashes. Shape assertions catch
+    DATA REGRESSIONS: a SELECT query that silently returns an empty dict,
+    a response_model that drifts away from the runtime payload, a field
+    that got renamed upstream but not here. The cost of one extra `assert`
+    per endpoint is negligible; the catch rate is worth it.
+
+    Usage:
+        data = _assert_shape(resp, "roi_ratio", "headline_message")
+    """
+    assert resp.status_code == 200, f"expected 200, got {resp.status_code}: {resp.text[:200]}"
+    data = resp.json()
+    assert isinstance(data, dict), f"expected dict response, got {type(data).__name__}"
+    missing = [k for k in required_keys if k not in data]
+    assert not missing, (
+        f"response missing required keys: {missing}. "
+        f"Got keys: {sorted(data.keys())[:15]}"
+    )
+    return data
+
+
 # ---------------------------------------------------------------------------
 # Smoke test class
 # ---------------------------------------------------------------------------
@@ -59,7 +83,11 @@ class TestProEndpointSmoke:
 
     def test_roi_hero_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/roi-hero", cookies=auth_a)
-        assert resp.status_code == 200
+        _assert_shape(
+            resp,
+            "shop_domain", "roi_ratio", "headline_message",
+            "total_saved_eur_30d", "breakdown", "plan_cost_eur_monthly",
+        )
 
     def test_roi_hero_unauth(self, client):
         resp = client.get("/pro/roi-hero")
@@ -71,7 +99,10 @@ class TestProEndpointSmoke:
 
     def test_daily_narrative_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/daily-narrative", cookies=auth_a)
-        assert resp.status_code == 200
+        data = _assert_shape(
+            resp, "shop_domain", "headline", "paragraphs", "stats", "generated_at",
+        )
+        assert isinstance(data["paragraphs"], list)
 
     def test_daily_narrative_unauth(self, client):
         resp = client.get("/pro/daily-narrative")
@@ -83,7 +114,10 @@ class TestProEndpointSmoke:
 
     def test_cac_ltv_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/cac-ltv", cookies=auth_a)
-        assert resp.status_code == 200
+        _assert_shape(
+            resp, "shop_domain", "cac_eur", "avg_ltv_eur", "ratio",
+            "status", "headline",
+        )
 
     def test_cac_ltv_unauth(self, client):
         resp = client.get("/pro/cac-ltv")
@@ -95,7 +129,7 @@ class TestProEndpointSmoke:
 
     def test_mta_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/mta?model=last_touch", cookies=auth_a)
-        assert resp.status_code == 200
+        _assert_shape(resp, "shop_domain", "sources", "total_revenue_eur")
 
     def test_mta_unauth(self, client):
         resp = client.get("/pro/mta?model=last_touch")
@@ -107,7 +141,10 @@ class TestProEndpointSmoke:
 
     def test_visitor_journeys_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/visitor-journeys", cookies=auth_a)
-        assert resp.status_code == 200
+        data = _assert_shape(
+            resp, "shop_domain", "journeys", "total_found", "window_days",
+        )
+        assert isinstance(data["journeys"], list)
 
     def test_visitor_journeys_unauth(self, client):
         resp = client.get("/pro/visitor-journeys")
@@ -144,7 +181,7 @@ class TestProEndpointSmoke:
 
     def test_abandoned_intent_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/abandoned-intent", cookies=auth_a)
-        assert resp.status_code == 200
+        _assert_shape(resp, "shop_domain", "products", "session_insights", "headline")
 
     def test_abandoned_intent_unauth(self, client):
         resp = client.get("/pro/abandoned-intent")
@@ -157,7 +194,7 @@ class TestProEndpointSmoke:
 
     def test_revenue_autopsy_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/revenue-autopsy", cookies=auth_a)
-        assert resp.status_code == 200
+        _assert_shape(resp, "shop_domain", "products", "summary", "headline")
 
     def test_revenue_autopsy_unauth(self, client):
         resp = client.get("/pro/revenue-autopsy")
@@ -182,7 +219,11 @@ class TestProEndpointSmoke:
 
     def test_revenue_at_risk_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/revenue-at-risk", cookies=auth_a)
-        assert resp.status_code == 200
+        data = _assert_shape(
+            resp, "shop_domain", "total_at_risk_eur",
+            "prevented_eur_this_month", "components",
+        )
+        assert isinstance(data["components"], list)
 
     def test_revenue_at_risk_unauth(self, client):
         resp = client.get("/pro/revenue-at-risk")
@@ -230,7 +271,10 @@ class TestProEndpointSmoke:
 
     def test_pnl_200(self, client, merchant_a, auth_a):
         resp = client.get("/pro/pnl", cookies=auth_a)
-        assert resp.status_code == 200
+        _assert_shape(
+            resp, "window_days", "currency", "gross_revenue",
+            "net_profit", "net_margin_pct", "verdict",
+        )
 
     def test_pnl_unauth(self, client):
         resp = client.get("/pro/pnl")

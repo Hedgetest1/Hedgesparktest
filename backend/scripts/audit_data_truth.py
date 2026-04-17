@@ -33,6 +33,40 @@ APP_DIR = BACKEND_DIR / "app"
 # Known false positives (file:pattern pairs that have been manually verified)
 _ALLOWLIST: set[str] = set()
 
+# Files whose purpose IS currency/detection — scanning them is noise.
+# These files are either:
+#   - the centralized currency helper module (app/core/currency.py)
+#   - regex-based PII / governance detection (must contain € and $ literals)
+#   - a private _SYMBOLS mapper (the legitimate source of truth)
+_FILE_ALLOWLIST: set[str] = {
+    "app/core/currency.py",
+    "app/services/response_guardrails.py",
+    "app/services/evolution_bet_governance.py",
+}
+
+# Per-line allowlist for narrow, manually-verified false positives.
+# Format: "<rel_path>:<lineno>" → one-line justification.
+_LINE_ALLOWLIST: dict[str, str] = {
+    # _SYMBOLS mapper — legacy local copy of the currency helper, safe.
+    "app/services/revenue_triggers.py:271": "_SYMBOLS mapper dict is the currency source, not a hardcoded symbol",
+    # LLM internal budget is €5/mo by policy; "€" is correct unit for LLM spend.
+    "app/services/scaling_intelligence.py:368": "LLM budget is €-denominated by policy (CLAUDE.md §8.1)",
+    "app/services/scaling_intelligence.py:369": "LLM budget is €-denominated by policy (CLAUDE.md §8.1)",
+    # Shopify webhook payload already includes currency — this is the default
+    # for a payload that explicitly lacks it, not a merchant-facing display.
+    "app/services/order_ingestion.py:274": "Shopify webhook default — ingestion-layer safety net, not display",
+    "app/services/pnl_engine.py:162": "Exception-path fallback after get_shop_currency() raises — defensive",
+    "app/services/storefront_preview.py:156": "Pre-signup demo: currency unknown; narrative explicitly labels 'in your store's currency'",
+}
+
+# Per-line fallbacks that are DEFENSIVE (e.g. `get_shop_currency(db, shop) or "USD"`).
+# These are a safety net, not a hardcoded currency — the shop currency is
+# resolved at runtime; the "USD" is only the last-resort fallback for a
+# shop that has neither primary_currency nor order history.
+_DEFENSIVE_FALLBACK_RE = re.compile(
+    r'(get_shop_currency|_dominant_currency|payload\.get\(["\']currency["\']\))\s*\([^)]*\)\s*or\s*["\']USD["\']',
+)
+
 
 @dataclass
 class Finding:
@@ -60,7 +94,7 @@ def _scan_files() -> list[tuple[Path, list[str]]]:
 
 def _allowlisted(filepath: str, lineno: int) -> bool:
     key = f"{filepath}:{lineno}"
-    return key in _ALLOWLIST
+    return key in _ALLOWLIST or key in _LINE_ALLOWLIST
 
 
 # ---------------------------------------------------------------------------
@@ -80,15 +114,36 @@ def check_money_aggregation(files: list[tuple[Path, list[str]]]) -> list[Finding
         rel = str(path.relative_to(BACKEND_DIR))
         if "/test" in rel or "scripts/" in rel:
             continue
+        # Track triple-quote docstring regions so we skip description text.
+        in_docstring = False
         for i, line in enumerate(lines, 1):
+            stripped = line.strip()
+            # Flip docstring state on triple-quote lines.
+            triple_count = stripped.count('"""') + stripped.count("'''")
+            if triple_count == 1:
+                in_docstring = not in_docstring
+                continue
+            if in_docstring:
+                continue
+            # Ignore comment descriptions that happen to mention SUM(...)
+            if stripped.startswith(("#", "//", "*")):
+                continue
             if _MONEY_AGG_RE.search(line) and not _CURRENCY_GUARD_RE.search(line):
-                # Check surrounding context (5 lines before/after) for currency filter
-                context = "\n".join(lines[max(0, i - 6):i + 5])
+                # Columns suffixed with _eur are already currency-normalized
+                # (the ingestion pipeline converts to EUR at write-time via
+                # `order_ingestion._normalize_to_eur`). Aggregating them is
+                # SAFE because every row is already in the same unit.
+                if re.search(r"SUM\s*\(\s*\w*_eur\b", line, re.IGNORECASE):
+                    continue
+                # Check the enclosing SQL block (25 lines before, 30 after).
+                # A SUM() can be 20+ lines from its WHERE clause when the
+                # query has CTEs, GROUP BY, ORDER BY, LIMIT, etc.
+                context = "\n".join(lines[max(0, i - 26):i + 30])
                 if "currency" not in context.lower():
                     if not _allowlisted(rel, i):
                         findings.append(Finding(
                             check="money_aggregation_no_currency",
-                            file=rel, line=i, code=line.strip(),
+                            file=rel, line=i, code=stripped,
                             severity="critical",
                             explanation="SUM/AVG on money column without currency filter — "
                                         "multi-currency merchants will see mixed totals",
@@ -111,8 +166,18 @@ def check_hardcoded_currency(files: list[tuple[Path, list[str]]]) -> list[Findin
         rel = str(path.relative_to(BACKEND_DIR))
         if "/test" in rel or "scripts/" in rel:
             continue
+        if rel in _FILE_ALLOWLIST:
+            continue
+        # Track triple-quote docstring regions so we skip description text.
+        in_docstring = False
         for i, line in enumerate(lines, 1):
             stripped = line.strip()
+            triple_count = stripped.count('"""') + stripped.count("'''")
+            if triple_count == 1:
+                in_docstring = not in_docstring
+                continue
+            if in_docstring:
+                continue
             if stripped.startswith("#") or stripped.startswith("//"):
                 continue
             if _HARDCODED_CURRENCY_RE.search(line):
@@ -120,6 +185,9 @@ def check_hardcoded_currency(files: list[tuple[Path, list[str]]]) -> list[Findin
                 if "no_data_response" in line or "placeholder" in line.lower():
                     continue
                 if "test" in line.lower() or "example" in line.lower():
+                    continue
+                # Defensive "currency = ... or 'USD'" fallbacks are safe
+                if _DEFENSIVE_FALLBACK_RE.search(line):
                     continue
                 if not _allowlisted(rel, i):
                     findings.append(Finding(

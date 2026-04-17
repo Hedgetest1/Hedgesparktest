@@ -67,6 +67,23 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2b-bis. Data-truth audit — catches currency drift (hardcoded €/$, SUM
+# without currency filter), DST-unsafe timezone SQL, hardcoded DB creds.
+# Baseline 0-findings reached on 2026-04-17 after centralizing
+# app/core/currency.py + fixing 11 callers. Strict mode blocks commits
+# with ANY critical finding (money_aggregation_no_currency,
+# double_timezone_conversion, hardcoded_credentials). Warnings are
+# reported but do not block — they surface false positives to refine.
+# ---------------------------------------------------------------------------
+step "Data-truth audit (audit_data_truth.py --strict)"
+if "$PY" scripts/audit_data_truth.py --strict > /tmp/preflight_data_truth.log 2>&1; then
+    ok "no currency drift, tz leaks, or credential leaks"
+else
+    bad "data-truth regressions detected — see /tmp/preflight_data_truth.log"
+    tail -30 /tmp/preflight_data_truth.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2c. Model drift audit — catches SQLAlchemy model ↔ DB schema drift
 # ---------------------------------------------------------------------------
 step "Model drift audit (audit_model_drift.py)"
