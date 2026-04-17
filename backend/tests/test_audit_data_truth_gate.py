@@ -161,6 +161,81 @@ def test_audit_strict_still_ignores_frontend_warnings(injected_frontend_hardcode
     assert code == 0
 
 
+@pytest.fixture
+def injected_div_by_zero(tmp_path):
+    """Inject a .py file with an unguarded division by a count-ish var."""
+    path = APP_DIR / "services" / "_DELETE_ME_div_probe.py"
+    path.write_text(
+        '"""Throwaway fixture file for div-by-zero audit test."""\n\n'
+        'def bad_metric(rows):\n'
+        '    count = len(rows)\n'
+        '    # No guard before the divide — count could be 0\n'
+        '    avg = sum(r["value"] for r in rows) / count\n'
+        '    return avg\n'
+    )
+    yield path
+    if path.exists():
+        path.unlink()
+
+
+def test_audit_flags_division_by_zero(injected_div_by_zero):
+    """Unguarded `/ count` should be flagged by the new check."""
+    code, out = _run_audit(strict=False)
+    assert code == 0  # warning-level does not block
+    assert injected_div_by_zero.name in out, (
+        f"division_by_zero_unguarded must surface injected file:\n{out[:800]}"
+    )
+    assert "division_by_zero_unguarded" in out
+
+
+@pytest.fixture
+def injected_guarded_division(tmp_path):
+    """Inject a file where the division IS properly guarded. Must NOT fire."""
+    path = APP_DIR / "services" / "_DELETE_ME_guarded_probe.py"
+    path.write_text(
+        '"""Throwaway fixture — guarded division, audit should NOT flag."""\n\n'
+        'def good_metric(rows):\n'
+        '    count = len(rows)\n'
+        '    if count > 0:\n'
+        '        return sum(r["value"] for r in rows) / count\n'
+        '    return 0\n'
+    )
+    yield path
+    if path.exists():
+        path.unlink()
+
+
+def test_audit_does_not_flag_guarded_division(injected_guarded_division):
+    """Locking in the guard detection: `if count > 0` before divide is safe."""
+    _, out = _run_audit(strict=False)
+    assert injected_guarded_division.name not in out, (
+        "Guarded division incorrectly flagged — regex regression:\n"
+        + out[:1200]
+    )
+
+
+@pytest.fixture
+def injected_stats_claim(tmp_path):
+    """Inject a file that renders a lift_pct claim without any significance import."""
+    path = APP_DIR / "services" / "_DELETE_ME_claim_probe.py"
+    path.write_text(
+        '"""Throwaway fixture — marketing claim without significance test."""\n\n'
+        'def build_payload(exposed, holdout):\n'
+        '    lift_pct = round((exposed - holdout) / holdout * 100, 1) if holdout else 0\n'
+        '    return {"message": f"+{lift_pct}% lift measured"}\n'
+    )
+    yield path
+    if path.exists():
+        path.unlink()
+
+
+def test_audit_flags_claim_without_significance(injected_stats_claim):
+    """A `+{lift_pct}%` claim in a file without z_test/p_value imports fires."""
+    _, out = _run_audit(strict=False)
+    assert injected_stats_claim.name in out
+    assert "stats_claim_without_significance" in out
+
+
 def test_audit_script_is_wired_into_preflight():
     """
     Locks in the preflight integration. If a future refactor drops the

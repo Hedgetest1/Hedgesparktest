@@ -266,6 +266,198 @@ def check_timezone_safety(files: list[tuple[Path, list[str]]]) -> list[Finding]:
 
 
 # ---------------------------------------------------------------------------
+# Check 3b: Division by zero without guard
+# ---------------------------------------------------------------------------
+#
+# Python's `/` raises ZeroDivisionError on 0; `//` same. A `/ count`
+# or `/ len(rows)` without a prior guard silently crashes the endpoint
+# when the denominator is 0 — and our endpoints often have `try/except
+# Exception` wrappers that swallow the crash and return empty payloads.
+#
+# The pattern we catch: `<token> / count` / `<token> / len(...)` /
+# `<token> / total` where the line has NO `if ... > 0` or `or 1` guard
+# in the preceding 3 lines. False positives are acceptable — the fix
+# is to add an explicit guard, which is free.
+
+_DIV_SUSPECT_RE = re.compile(
+    r"/\s*(count|total|n|len\([^)]+\)|len_[a-z_]+|size|sample_size)\b",
+    re.IGNORECASE,
+)
+_DIV_GUARD_RE = re.compile(
+    r"\bif\s+\w+\s*>\s*0|"
+    r"\bor\s+1\b|"
+    r"\bmax\s*\(\s*\w+\s*,\s*1\s*\)|"
+    r"\w+\s+or\s+1\b",
+    re.IGNORECASE,
+)
+
+
+def check_division_by_zero(files: list[tuple[Path, list[str]]]) -> list[Finding]:
+    findings = []
+    for path, lines in files:
+        rel = str(path.relative_to(BACKEND_DIR))
+        if "/test" in rel or "scripts/" in rel:
+            continue
+        for i, line in enumerate(lines, 1):
+            stripped = line.strip()
+            # Skip comments, docstrings (cheap heuristic), SQL string interiors
+            if stripped.startswith(("#", "//", "*", '"""', "'''", ":param", ":return")):
+                continue
+            if "/" not in line:
+                continue
+            if not _DIV_SUSPECT_RE.search(line):
+                continue
+            # Ternary guard on same line e.g. `x / n if n else 0`
+            if re.search(r"\bif\s+\w+\b[^#\n]*\belse\b", line):
+                continue
+            # Preceding 3-line window: look for a guard
+            ctx = "\n".join(lines[max(0, i - 4):i])
+            if _DIV_GUARD_RE.search(ctx):
+                continue
+            # Skip SQL string literals (NULLIF handles div-by-zero in SQL)
+            if "NULLIF" in line.upper() or "nullif" in line.lower():
+                continue
+            if not _allowlisted(rel, i):
+                findings.append(Finding(
+                    check="division_by_zero_unguarded",
+                    file=rel, line=i, code=stripped[:120],
+                    severity="warning",
+                    explanation=(
+                        "Division by a potentially-zero denominator without a "
+                        "preceding guard. Use `x / n if n else 0` or "
+                        "`x / max(n, 1)` to avoid silent endpoint 500s."
+                    ),
+                ))
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Check 3c: Statistical claims without significance test
+# ---------------------------------------------------------------------------
+#
+# Any code that writes "lift_pct", "uplift", "+X%", "improvement" into
+# a merchant-facing payload must back the claim with a significance
+# test. The product promise (§0 CLAUDE.md) is "no false claims, ever"
+# — every +€X recovered is holdout-measured with p<0.05. The audit
+# catches string constructions that look like uplift claims in files
+# that don't import a significance helper (z_test, chi_square, etc.).
+
+_CLAIM_RE = re.compile(
+    r'["\']\s*\+?\s*\{[^}]*lift|'
+    r'["\']\s*\+\{[^}]*pct|'
+    r'lift_pct.*:\s*round\(|'
+    r'uplift.*:\s*round\(',
+    re.IGNORECASE,
+)
+# Require ACTUAL use of a significance primitive — not just a prose
+# mention in a docstring. Each pattern below is a concrete call site
+# or import, so the word "significance" in a comment can't silence the
+# audit.
+_SIGNIFICANCE_TOKENS = re.compile(
+    r"\bz_test\s*\(|"
+    r"\bchi_square\s*\(|"
+    r"\bp_value\s*[=<>]|"
+    r"\bconfidence_interval\s*\(|"
+    r"\bmargin_of_error\s*\(|"
+    r"\bholdout_active\b|"
+    r"from\s+scipy\.stats|"
+    r"import\s+statsmodels",
+    re.IGNORECASE,
+)
+
+
+def check_stats_claims(files: list[tuple[Path, list[str]]]) -> list[Finding]:
+    findings = []
+    for path, lines in files:
+        rel = str(path.relative_to(BACKEND_DIR))
+        if "/test" in rel or "scripts/" in rel:
+            continue
+        # Fast path: if the whole file contains a significance token,
+        # every claim inside it is presumed backed.
+        whole = "\n".join(lines)
+        if _SIGNIFICANCE_TOKENS.search(whole):
+            continue
+        for i, line in enumerate(lines, 1):
+            stripped = line.strip()
+            if stripped.startswith(("#", "//", "*", '"""', "'''")):
+                continue
+            if _CLAIM_RE.search(line):
+                if not _allowlisted(rel, i):
+                    findings.append(Finding(
+                        check="stats_claim_without_significance",
+                        file=rel, line=i, code=stripped[:120],
+                        severity="warning",
+                        explanation=(
+                            "Merchant-facing claim (lift_pct/uplift) in a file "
+                            "that doesn't import any significance primitive "
+                            "(z_test/chi_square/p_value). §0 CLAUDE.md: no "
+                            "false claims, every +€X recovered must be "
+                            "holdout-measured with p<0.05."
+                        ),
+                    ))
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Check 3d: CVR computed from independent populations
+# ---------------------------------------------------------------------------
+#
+# A common silent bug: `cvr = purchases / visitors` where `purchases`
+# comes from `shop_orders` (paid customers — may not even be tracked
+# visitors) and `visitors` comes from `events` (anonymous). The two
+# populations are disjoint, so dividing produces a number that has no
+# real meaning. The correct shape is:
+#   purchases-among-tracked-visitors / tracked-visitors
+#
+# Heuristic: flag any assignment like `cvr = ... purchases ... / ...
+# visitors` where both source variables come from different SELECT
+# statements (can't analyze statically; flag for manual review).
+
+_CVR_PATTERN_RE = re.compile(
+    r"(cvr|conversion_rate|conversion_pct)\s*=\s*[^=]*\b"
+    r"(purchases|converted|buyers|customers)\b[^=]*/[^=]*\b"
+    r"(visitors|sessions|unique_visitors)\b",
+    re.IGNORECASE,
+)
+_CVR_SAFE_TOKEN_RE = re.compile(
+    r"converted_visitors|tracked_visitors|visitor_purchase_sessions|"
+    r"JOIN\s+[^\n]*visitor",
+    re.IGNORECASE,
+)
+
+
+def check_cvr_independent_populations(files: list[tuple[Path, list[str]]]) -> list[Finding]:
+    findings = []
+    for path, lines in files:
+        rel = str(path.relative_to(BACKEND_DIR))
+        if "/test" in rel or "scripts/" in rel:
+            continue
+        for i, line in enumerate(lines, 1):
+            stripped = line.strip()
+            if stripped.startswith(("#", "//", "*", '"""', "'''")):
+                continue
+            if _CVR_PATTERN_RE.search(line):
+                # Skip when the same module uses the safe JOIN pattern
+                ctx = "\n".join(lines[max(0, i - 20):i + 20])
+                if _CVR_SAFE_TOKEN_RE.search(ctx):
+                    continue
+                if not _allowlisted(rel, i):
+                    findings.append(Finding(
+                        check="cvr_independent_populations",
+                        file=rel, line=i, code=stripped[:120],
+                        severity="warning",
+                        explanation=(
+                            "CVR computed from purchases / visitors where the "
+                            "two populations may be disjoint (shop_orders has "
+                            "buyers who may never have been tracked visitors). "
+                            "Use converted_visitors from the events→vps→orders "
+                            "JOIN so numerator and denominator share a cohort."
+                        ),
+                    ))
+    return findings
+
+
+# ---------------------------------------------------------------------------
 # Check 4: Hardcoded DB credentials
 # ---------------------------------------------------------------------------
 
@@ -416,6 +608,9 @@ ALL_CHECKS = [
     ("Hardcoded currency symbols", check_hardcoded_currency),
     ("DST-unsafe timezone patterns", check_timezone_safety),
     ("Hardcoded database credentials", check_hardcoded_credentials),
+    ("Division by zero without guard", check_division_by_zero),
+    ("Statistical claims without significance", check_stats_claims),
+    ("CVR from independent populations", check_cvr_independent_populations),
 ]
 
 
