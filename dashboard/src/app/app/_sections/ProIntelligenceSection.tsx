@@ -13,7 +13,7 @@ import { GatewayProducts } from "../../components/GatewayProducts";
 import { PnlReport } from "../../components/PnlReport";
 import { PredictedLtv } from "../../components/PredictedLtv";
 import { formatDisplayMoney, type DisplayCurrency } from "../../lib/currency";
-import { prettyText } from "../_lib/formatters";
+import { prettyText, formatMoneyCompact } from "../_lib/formatters";
 
 // These types are loose on purpose — the parent passes through the OpenAPI-
 // generated types, which are specific enough for the parent to bind safely.
@@ -54,23 +54,23 @@ export function ProIntelligenceSection(p: ProIntelligenceSectionProps) {
               <div>
                 <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">7-day forecast</div>
                 <div className="mt-1 text-2xl font-bold text-white">
-                  {forecastData.currency === "EUR" ? "€" : "$"}{(forecastData.forecast_7d?.revenue ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  {formatMoneyCompact(forecastData.forecast_7d?.revenue ?? 0, forecastData.currency)}
                 </div>
                 <div className="mt-0.5 text-[11px] text-slate-500">
-                  range {forecastData.currency === "EUR" ? "€" : "$"}{(forecastData.forecast_7d?.revenue_low ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  range {formatMoneyCompact(forecastData.forecast_7d?.revenue_low ?? 0, forecastData.currency)}
                   {" — "}
-                  {forecastData.currency === "EUR" ? "€" : "$"}{(forecastData.forecast_7d?.revenue_high ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  {formatMoneyCompact(forecastData.forecast_7d?.revenue_high ?? 0, forecastData.currency)}
                 </div>
               </div>
               <div>
                 <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">30-day forecast</div>
                 <div className="mt-1 text-2xl font-bold text-white">
-                  {forecastData.currency === "EUR" ? "€" : "$"}{(forecastData.forecast_30d?.revenue ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  {formatMoneyCompact(forecastData.forecast_30d?.revenue ?? 0, forecastData.currency)}
                 </div>
                 <div className="mt-0.5 text-[11px] text-slate-500">
-                  range {forecastData.currency === "EUR" ? "€" : "$"}{(forecastData.forecast_30d?.revenue_low ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  range {formatMoneyCompact(forecastData.forecast_30d?.revenue_low ?? 0, forecastData.currency)}
                   {" — "}
-                  {forecastData.currency === "EUR" ? "€" : "$"}{(forecastData.forecast_30d?.revenue_high ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  {formatMoneyCompact(forecastData.forecast_30d?.revenue_high ?? 0, forecastData.currency)}
                 </div>
               </div>
               <div>

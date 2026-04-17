@@ -11,6 +11,7 @@ import {
   formatNumber,
   formatPct,
   formatDecimal,
+  formatMoneyCompact,
 } from "../_lib/formatters";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -55,8 +56,8 @@ export function ProductPerformanceSection(p: ProductPerformanceSectionProps) {
               You&apos;re potentially leaving{" "}
               {isProUser ? (
                 <>
-                  <span className="font-semibold">~€{totalLoss}</span>
-                  <span className="ml-1 text-[11px] text-rose-200/50">(est. 2% CVR × {resolvedCcy} {resolvedAov} AOV{!resolvedAovIsReal ? " est." : ""})</span>
+                  <span className="font-semibold">~{formatMoneyCompact(totalLoss, resolvedCcy)}</span>
+                  <span className="ml-1 text-[11px] text-rose-200/50">(est. 2% CVR × {formatMoneyCompact(resolvedAov, resolvedCcy)} AOV{!resolvedAovIsReal ? " est." : ""})</span>
                 </>
               ) : (
                 <span role="button" className="cursor-pointer text-rose-300/50 transition hover:text-rose-300/70" onClick={() => setUpgradeModalOpen(true)}>
@@ -198,8 +199,8 @@ export function ProductPerformanceSection(p: ProductPerformanceSectionProps) {
                     {row.estimated_loss != null ? (
                       isProUser ? (
                         <span className="cursor-default" title="Estimated from views × baseline conversion × AOV">
-                          <span className="block text-[12px] tabular-nums text-amber-400/80">€{row.estimated_loss} potential lost</span>
-                          <span className="block text-[10px] text-slate-500">based on 2% conversion · {resolvedCcy} {resolvedAov} AOV{!resolvedAovIsReal ? " (est.)" : ""}</span>
+                          <span className="block text-[12px] tabular-nums text-amber-400/80">{formatMoneyCompact(row.estimated_loss, resolvedCcy)} potential lost</span>
+                          <span className="block text-[10px] text-slate-500">based on 2% conversion · {formatMoneyCompact(resolvedAov, resolvedCcy)} AOV{!resolvedAovIsReal ? " (est.)" : ""}</span>
                         </span>
                       ) : (
                         <span
