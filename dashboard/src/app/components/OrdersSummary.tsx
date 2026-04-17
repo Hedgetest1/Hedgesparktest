@@ -187,7 +187,7 @@ export function OrdersSummary({
           }
           why={
             "A truth card anchors every other number on the dashboard. When the smart cards claim " +
-            "'we recovered €X', this is where you confirm the base reality those claims sit on."
+            "'we recovered X revenue', this is where you confirm the base reality those claims sit on."
           }
         />
 

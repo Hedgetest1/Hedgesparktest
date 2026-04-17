@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import require_pro_session
+from app.services.revenue_metrics import get_shop_currency
 
 log = logging.getLogger(__name__)
 
@@ -63,6 +64,9 @@ class VisitorJourneysResponse(BaseModel):
     window_days: int
     total_found: int
     journeys: list[VisitorJourney]
+    # Shop's native currency (USD/EUR/GBP/…) — each journey's
+    # revenue_eur is denominated in this currency.
+    currency: str = "USD"
     generated_at: str
 
 
@@ -242,5 +246,6 @@ def get_visitor_journeys(
         window_days=window_days,
         total_found=len(journeys),
         journeys=journeys,
+        currency=get_shop_currency(db, shop) or "USD",
         generated_at=now.isoformat(),
     )

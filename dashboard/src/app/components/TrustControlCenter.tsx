@@ -23,6 +23,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { apiClient } from "@/app/lib/api-client";
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
 
 type Contract = {
   id: number;
@@ -65,6 +66,9 @@ type Summary = {
   revenue_impact_eur: number;
   effective_rate: number;
   contracts: Contract[];
+  // Shop's native currency — revenue_impact_eur and execution
+  // revenue_delta_eur are denominated in this currency.
+  currency?: string;
 };
 
 const ACTION_META: Record<string, { label: string; icon: string; color: string; desc: string }> = {
@@ -94,13 +98,8 @@ const ACTION_META: Record<string, { label: string; icon: string; color: string; 
   },
 };
 
-const fmtEur = (n: number): string => {
-  if (n === 0) return "€0";
-  const abs = Math.abs(n);
-  const sign = n < 0 ? "-" : "";
-  if (abs >= 1000) return `${sign}€${(abs / 1000).toFixed(abs >= 10_000 ? 0 : 1)}k`;
-  return `${sign}€${Math.round(abs)}`;
-};
+const fmtEur = (n: number, currency?: string): string =>
+  formatMoneyCompact(n, currency || "USD");
 
 const fmtPct = (n: number, decimals = 0): string => `${n.toFixed(decimals)}%`;
 
@@ -337,7 +336,7 @@ export function TrustControlCenter({ apiBase, isProUser }: { apiBase: string; is
         />
         <StatPill
           label="Revenue impact (30d)"
-          value={fmtEur(summary?.revenue_impact_eur || 0)}
+          value={fmtEur(summary?.revenue_impact_eur || 0, summary?.currency)}
           sub="holdout-measured"
           color={summary && summary.revenue_impact_eur >= 0 ? "#10b981" : "#ef4444"}
         />
@@ -605,7 +604,7 @@ export function TrustControlCenter({ apiBase, isProUser }: { apiBase: string; is
                       textAlign: "right",
                     }}
                   >
-                    {x.revenue_delta_eur != null ? fmtEur(x.revenue_delta_eur) : "—"}
+                    {x.revenue_delta_eur != null ? fmtEur(x.revenue_delta_eur, summary?.currency) : "—"}
                   </div>
                   <span
                     style={{

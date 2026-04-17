@@ -12,6 +12,7 @@
 
 import { useEffect, useState } from "react";
 import { apiClient } from "@/app/lib/api-client";
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
 
 
 type GoalProgress = {
@@ -31,9 +32,9 @@ const METRIC_LABELS: Record<string, string> = {
   cvr: "Conversion rate",
 };
 
-function fmtForMetric(metric: string, v: number): string {
+function fmtForMetric(metric: string, v: number, currency?: string): string {
   if (metric === "monthly_revenue" || metric === "aov") {
-    return "€" + Math.round(v).toLocaleString();
+    return formatMoneyCompact(v, currency || "USD");
   }
   if (metric === "cvr") return v.toFixed(1) + "%";
   return Math.round(v).toLocaleString();
@@ -55,6 +56,7 @@ export function MonthlyTargetsCard({
   isProUser: boolean;
 }) {
   const [progress, setProgress] = useState<GoalProgress[]>([]);
+  const [currency, setCurrency] = useState<string>("USD");
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [newMetric, setNewMetric] = useState<string>("monthly_revenue");
@@ -68,7 +70,9 @@ export function MonthlyTargetsCard({
       const { data: j, error: err } = await apiClient.GET("/pro/goals/progress");
       if (!err && j) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        setProgress(((j as any).progress as GoalProgress[]) || []);
+        const body = j as any;
+        setProgress((body.progress as GoalProgress[]) || []);
+        if (body.currency) setCurrency(body.currency);
       }
     } catch {
       // silent
@@ -206,11 +210,11 @@ export function MonthlyTargetsCard({
                       {METRIC_LABELS[p.metric] || p.metric}
                     </div>
                     <div className="mt-0.5 text-[10px] text-slate-500">
-                      now <span className="font-mono tabular-nums text-slate-300">{fmtForMetric(p.metric, p.current_value)}</span>
+                      now <span className="font-mono tabular-nums text-slate-300">{fmtForMetric(p.metric, p.current_value, currency)}</span>
                       <span className="mx-1">·</span>
-                      projected <span className="font-mono tabular-nums text-slate-300">{fmtForMetric(p.metric, p.projected_value)}</span>
+                      projected <span className="font-mono tabular-nums text-slate-300">{fmtForMetric(p.metric, p.projected_value, currency)}</span>
                       <span className="mx-1">·</span>
-                      target <span className="font-mono tabular-nums text-slate-300">{fmtForMetric(p.metric, p.target_value)}</span>
+                      target <span className="font-mono tabular-nums text-slate-300">{fmtForMetric(p.metric, p.target_value, currency)}</span>
                     </div>
                   </div>
                   <button

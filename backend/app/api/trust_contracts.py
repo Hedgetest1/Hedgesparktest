@@ -114,6 +114,9 @@ class TrustSummaryResponse(BaseModel):
     revenue_impact_eur: float
     effective_rate: float
     contracts: list[TrustContractResponse]
+    # Shop's native currency (USD/EUR/GBP/…) — revenue_impact_eur is
+    # denominated in this currency.
+    currency: str = "USD"
 
 
 class PanicResponse(BaseModel):
@@ -465,6 +468,7 @@ def trust_summary(
     )
     effective_rate = (effective_rows / measured_rows) if measured_rows > 0 else 0.0
 
+    from app.services.revenue_metrics import get_shop_currency
     return TrustSummaryResponse(
         shop_domain=shop,
         active_contracts=active,
@@ -473,4 +477,5 @@ def trust_summary(
         revenue_impact_eur=float(revenue_impact),
         effective_rate=float(effective_rate),
         contracts=[_contract_to_response(c) for c in contracts],
+        currency=get_shop_currency(db, shop) or "USD",
     )

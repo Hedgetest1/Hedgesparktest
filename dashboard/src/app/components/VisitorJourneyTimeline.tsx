@@ -13,6 +13,7 @@
 
 import { useEffect, useState } from "react";
 import { apiClient } from "@/app/lib/api-client";
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
 
 type Touch = {
   source: string;
@@ -37,6 +38,8 @@ type JourneysResponse = {
   window_days: number;
   total_found: number;
   journeys: Journey[];
+  // Shop's native currency — each journey's revenue_eur is denominated here.
+  currency?: string;
 };
 
 const SOURCE_ICONS: Record<string, string> = {
@@ -75,10 +78,8 @@ const fmtHours = (h: number): string => {
   return rem > 0 ? `${days}d ${rem}h` : `${days}d`;
 };
 
-const fmtEur = (n: number): string => {
-  if (n >= 1000) return `€${(n / 1000).toFixed(1)}k`;
-  return `€${Math.round(n)}`;
-};
+const fmtEur = (n: number, currency?: string): string =>
+  formatMoneyCompact(n, currency || "USD");
 
 export function VisitorJourneyTimeline({
   apiBase,
@@ -178,7 +179,7 @@ export function VisitorJourneyTimeline({
                 fontVariantNumeric: "tabular-nums",
               }}
             >
-              +{fmtEur(j.revenue_eur)}
+              +{fmtEur(j.revenue_eur, data.currency)}
             </div>
           </div>
 

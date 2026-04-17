@@ -53,6 +53,10 @@ class GoalsProgressResponse(BaseModel):
     progress: list[GoalProgressResponse]
     at_risk_count: int = 0
     off_track_count: int = 0
+    # Shop's native currency (USD/EUR/GBP/…) — `target_value`,
+    # `current_value`, and `projected_value` for revenue/aov metrics
+    # are denominated in this currency.
+    currency: str = "USD"
 
 
 @router.get(
@@ -128,6 +132,7 @@ def get_progress(
     end-of-month values and at-risk classification.
     """
     from app.services.goals import compute_goal_progress
+    from app.services.revenue_metrics import get_shop_currency
     progress = compute_goal_progress(db, shop)
     at_risk = sum(1 for p in progress if p.status == "at_risk")
     off_track = sum(1 for p in progress if p.status == "off_track")
@@ -136,4 +141,5 @@ def get_progress(
         progress=[GoalProgressResponse(**p.to_dict()) for p in progress],
         at_risk_count=at_risk,
         off_track_count=off_track,
+        currency=get_shop_currency(db, shop) or "USD",
     )
