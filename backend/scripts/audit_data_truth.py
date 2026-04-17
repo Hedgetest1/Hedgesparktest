@@ -73,6 +73,11 @@ _LINE_ALLOWLIST: dict[str, str] = {
     "app/api/mta.py:46": "Pydantic response_model default; service overrides with shop currency",
     "app/api/mta.py:57": "Pydantic response_model default; service overrides with shop currency",
     "app/api/benchmarks.py:55": "Pydantic response_model default; service overrides with shop currency",
+    # ─── Self-referential defensive fallbacks inside currency helpers ───
+    # The file's job IS currency resolution; the "USD" literal is the
+    # last-resort fallback if every lookup path fails. Not a display string.
+    "app/services/mta_engine.py:104": "Defensive `return \"USD\"` inside _resolve_currency except block — the helper's own fallback",
+    "app/services/revenue_at_risk.py:498": "Defensive `currency or \"USD\"` guard at response assembly — same safety-net pattern as _DEFENSIVE_FALLBACK_RE",
 }
 
 # Per-line fallbacks that are DEFENSIVE (e.g. `get_shop_currency(db, shop) or "USD"`).
