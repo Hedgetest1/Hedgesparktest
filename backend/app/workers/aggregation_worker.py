@@ -372,6 +372,21 @@ def _run_cycle_inner() -> None:
             db.rollback()
             log(f"lighthouse_monitor error (non-fatal): {exc}")
 
+        # ------------------------------------------------------------------ #
+        # LLM guardrail benchmark — once-per-week Sunday 04:00-06:00 UTC.     #
+        # Runs the structural test_llm_propose_bench.py suite via subprocess #
+        # pytest (fake LLM stubs — zero API cost, ~4s). Alerts on regression.#
+        # ------------------------------------------------------------------ #
+        try:
+            from app.services.llm_benchmark_monitor import run_weekly_check
+            llm_result = run_weekly_check(db)
+            if llm_result.get("ran"):
+                db.commit()
+                log(f"llm_benchmark_monitor: {llm_result}")
+        except Exception as exc:
+            db.rollback()
+            log(f"llm_benchmark_monitor error (non-fatal): {exc}")
+
         state = _load_state(db)
         last_watermark = state.last_watermark or 0
         log(f"last_watermark={last_watermark}")
