@@ -59,6 +59,11 @@ _LINE_ALLOWLIST: dict[str, str] = {
     "app/services/order_ingestion.py:274": "Shopify webhook default — ingestion-layer safety net, not display",
     "app/services/pnl_engine.py:162": "Exception-path fallback after get_shop_currency() raises — defensive",
     "app/services/storefront_preview.py:156": "Pre-signup demo: currency unknown; narrative explicitly labels 'in your store's currency'",
+    # ─── stats_claim_without_significance allowlist (manually verified) ──
+    "app/api/playbook.py:219": "Peer-network aggregate: avg_lift computed from SQL AVG((treatment_cvr - control_cvr) / control_cvr); per-row holdout is by construction, per-row significance is upstream in autonomous_actions writes (nudge_measurement).",
+    "app/api/playbook.py:220": "Peer-network aggregate: best_lift over holdout-measured rows — same source as avg_lift on line 219.",
+    "app/services/conversion_service.py:144": "expected_uplift is a PREDICTED value from a heuristic model; the key name explicitly says 'expected' not 'measured'. Not a claim about post-hoc lift.",
+    "app/services/share_engine.py:239": "share_engine consumes pre-measured holdout data from proof_engine — the message correctly says 'measured with holdout testing' because the lift is already holdout-measured by the time it reaches this file.",
 }
 
 # Per-line fallbacks that are DEFENSIVE (e.g. `get_shop_currency(db, shop) or "USD"`).
@@ -399,12 +404,17 @@ _CLAIM_RE = re.compile(
 # or import, so the word "significance" in a comment can't silence the
 # audit.
 _SIGNIFICANCE_TOKENS = re.compile(
-    r"\bz_test\s*\(|"
-    r"\bchi_square\s*\(|"
+    # Accept both `z_test(` and `_z_test(` (underscore prefix for
+    # private helpers). Word boundary alone doesn't help because `_`
+    # is a word character in regex — leading `\b` would NOT match
+    # between `_` and `z`. We allow an optional `_` before the name.
+    r"(?<![a-zA-Z])_?z_test\s*\(|"
+    r"(?<![a-zA-Z])_?chi_square\s*\(|"
     r"\bp_value\s*[=<>]|"
-    r"\bconfidence_interval\s*\(|"
-    r"\bmargin_of_error\s*\(|"
+    r"(?<![a-zA-Z])_?confidence_interval\s*\(|"
+    r"(?<![a-zA-Z])_?margin_of_error\s*\(|"
     r"\bholdout_active\b|"
+    r"\bsignificance\s*[:=]|"
     r"from\s+scipy\.stats|"
     r"import\s+statsmodels",
     re.IGNORECASE,
