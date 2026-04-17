@@ -118,7 +118,7 @@ def _score_security_probes() -> dict:
         }
     passed = sum(1 for r in results if r.get("passed"))
     total = len(results)
-    pct = passed / total
+    pct = passed / total if total else 0.0
     return {
         "weight": _WEIGHTS["security_probes"],
         "score": round(_WEIGHTS["security_probes"] * pct, 1),

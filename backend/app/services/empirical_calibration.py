@@ -436,7 +436,9 @@ def train_shop_model(
     # ------------------------------------------------------------------ #
     # 4. Compute calibration parameters                                   #
     # ------------------------------------------------------------------ #
-    base_cvr                  = converter_count / sample_size
+    # sample_size is guaranteed >= _MIN_SAMPLE_SIZE by the threshold
+    # check above; defensive `or 1` in case upstream invariant changes.
+    base_cvr                  = converter_count / sample_size if sample_size else 0.0
     converter_mean            = sum(converter_indices) / len(converter_indices)
     non_converter_mean        = (
         sum(non_converter_indices) / len(non_converter_indices)

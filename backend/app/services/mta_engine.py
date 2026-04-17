@@ -224,7 +224,9 @@ def _model_time_decay(journey: Journey) -> dict[str, float]:
     for t in journey.touches:
         delta_days = max(0.0, (journey.purchase_at - t.ts).total_seconds() / 86400.0)
         weights.append(math.exp(-lam * delta_days))
-    total = sum(weights) or 1.0
+    total = sum(weights)
+    if total <= 0:
+        return {journey.touches[0].source: 1.0} if journey.touches else {}
     out: dict[str, float] = defaultdict(float)
     for t, w in zip(journey.touches, weights):
         out[t.source] += w / total

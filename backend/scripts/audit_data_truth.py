@@ -283,11 +283,16 @@ _DIV_SUSPECT_RE = re.compile(
     r"/\s*(count|total|n|len\([^)]+\)|len_[a-z_]+|size|sample_size)\b",
     re.IGNORECASE,
 )
-_DIV_GUARD_RE = re.compile(
-    r"\bif\s+\w+\s*>\s*0|"
-    r"\bor\s+1\b|"
-    r"\bmax\s*\(\s*\w+\s*,\s*1\s*\)|"
-    r"\w+\s+or\s+1\b",
+# A guard specifically on the denominator variable. We look for any of:
+#   - `if <denom>` / `if <denom> > 0` / `if <denom> >= 1`
+#   - `if not <denom>` / `if <denom> == 0`  (early-return pattern)
+#   - `max(<denom>, 1)`
+#   - `<denom> or 1` / `<denom> or 0.0001`
+# The denominator name is captured from the division and interpolated
+# into a guard regex so we only accept guards that actually cover THIS
+# specific variable, not some unrelated `if other_var > 0`.
+_DIV_GENERIC_GUARD_RE = re.compile(
+    r"\bmax\s*\(\s*\w+\s*,\s*[01]\s*\)",
     re.IGNORECASE,
 )
 
@@ -298,21 +303,61 @@ def check_division_by_zero(files: list[tuple[Path, list[str]]]) -> list[Finding]
         rel = str(path.relative_to(BACKEND_DIR))
         if "/test" in rel or "scripts/" in rel:
             continue
+        # Track triple-quote docstring regions so we skip prose mentions
+        # of `x / total` inside module/class/function docstrings.
+        in_docstring = False
         for i, line in enumerate(lines, 1):
             stripped = line.strip()
-            # Skip comments, docstrings (cheap heuristic), SQL string interiors
-            if stripped.startswith(("#", "//", "*", '"""', "'''", ":param", ":return")):
+            triple_count = stripped.count('"""') + stripped.count("'''")
+            if triple_count == 1:
+                in_docstring = not in_docstring
                 continue
-            if "/" not in line:
+            if in_docstring:
                 continue
-            if not _DIV_SUSPECT_RE.search(line):
+            # Skip comments
+            if stripped.startswith(("#", "//", "*", ":param", ":return")):
                 continue
+            # Strip trailing inline comment — `# 0..1, fraction hits / total`
+            # is prose even when the code before the # is valid Python.
+            code_only = re.sub(r"\s+#.*$", "", line)
+            if "/" not in code_only:
+                continue
+            m = _DIV_SUSPECT_RE.search(code_only)
+            if not m:
+                continue
+            denom = m.group(1).lower()
             # Ternary guard on same line e.g. `x / n if n else 0`
-            if re.search(r"\bif\s+\w+\b[^#\n]*\belse\b", line):
+            if re.search(r"\bif\s+\w+\b[^#\n]*\belse\b", code_only):
                 continue
-            # Preceding 3-line window: look for a guard
-            ctx = "\n".join(lines[max(0, i - 4):i])
-            if _DIV_GUARD_RE.search(ctx):
+            # Preceding 25-line window: look for a guard specifically on
+            # the denominator variable captured by the regex. Generic
+            # early-return patterns count (`if not rows: return` guards
+            # `total = len(rows)` at module scope).
+            ctx = "\n".join(lines[max(0, i - 26):i])
+            # Build a denom-aware guard pattern. For `len(rows)` the
+            # denom is "len(rows)" — the inner variable is what we
+            # actually need to check against.
+            inner_var = denom
+            len_match = re.match(r"len\(([^)]+)\)", denom)
+            if len_match:
+                inner_var = len_match.group(1).strip()
+            denom_guards = [
+                # `if <denom> == 0` / `if <denom> > 0` / `if total <= 0`
+                # (also matches inside an `or` clause of a compound guard).
+                rf"\b{re.escape(inner_var)}\s*(==|>=?|<=?|!=)\s*\d",
+                # `if not <denom>` / `if <denom>:` / `if <denom> and ...`
+                rf"\bif\s+not\s+{re.escape(inner_var)}\b",
+                rf"\bif\s+{re.escape(inner_var)}\s*[=:><)\s]",
+                rf"\b{re.escape(inner_var)}\s+or\s+[0-9]",
+                # `total = <expr> or 1` — the LHS var is guarded by the
+                # `or <truthy>` pattern on the RHS. Common Python idiom.
+                rf"\b{re.escape(inner_var)}\s*=[^=\n]*\bor\s+[0-9]",
+                # Also accept: `if not <plural-of-inner>` where inner is a
+                # collection name (e.g. `if not rows` guards `len(rows)`)
+            ]
+            if any(re.search(p, ctx, re.IGNORECASE) for p in denom_guards):
+                continue
+            if _DIV_GENERIC_GUARD_RE.search(ctx):
                 continue
             # Skip SQL string literals (NULLIF handles div-by-zero in SQL)
             if "NULLIF" in line.upper() or "nullif" in line.lower():

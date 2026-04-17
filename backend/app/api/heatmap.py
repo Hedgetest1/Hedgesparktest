@@ -133,7 +133,7 @@ def _compute_scroll_buckets(
     bucket_50_75 = sum(1 for r in rows if 50 < float(r[1] or 0) <= 75)
     bucket_75_100 = sum(1 for r in rows if float(r[1] or 0) > 75)
 
-    avg_scroll = sum(float(r[1] or 0) for r in rows) / total
+    avg_scroll = sum(float(r[1] or 0) for r in rows) / total if total else 0.0
     median_scroll = sorted(float(r[1] or 0) for r in rows)[total // 2]
 
     def pct(n: int) -> float:

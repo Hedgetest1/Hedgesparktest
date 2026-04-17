@@ -387,7 +387,7 @@ def _aggregate_signal_distribution(members: list[dict]) -> dict | None:
             for sig in freq:
                 signal_counts[sig] += 1
 
-    if not signal_counts:
+    if not signal_counts or total <= 0:
         return None
 
     return {sig: round(count / total, 3) for sig, count in signal_counts.items()}
