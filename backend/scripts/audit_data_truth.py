@@ -29,6 +29,8 @@ from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 APP_DIR = BACKEND_DIR / "app"
+REPO_ROOT = BACKEND_DIR.parent
+DASHBOARD_SRC = REPO_ROOT / "dashboard" / "src"
 
 # Known false positives (file:pattern pairs that have been manually verified)
 _ALLOWLIST: set[str] = set()
@@ -301,6 +303,114 @@ def check_hardcoded_credentials(files: list[tuple[Path, list[str]]]) -> list[Fin
 # Main
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Check 5: Frontend hardcoded currency — TSX/TS files under dashboard/src/
+# ---------------------------------------------------------------------------
+#
+# The backend data-truth audit is strict: currency drift on the server is
+# blocked at commit time. But merchants see the dashboard, not the server.
+# A card that hardcodes `€${amount}` ships wrong symbols to every non-EUR
+# shop regardless of backend correctness. This check closes the gap.
+#
+# Pattern: look for €, £, ¥, $-prefixed money literals in .ts/.tsx under
+# dashboard/src/. Exempt the central currency module itself (it IS the
+# symbol table), FX-rate tables, fallback branches inside `catch` blocks
+# in the central helper, and storybook/snapshot fixtures.
+#
+# Findings are WARNING severity (reportable but non-blocking) because
+# pre-existing violations need migration one component at a time; making
+# it critical would block every commit until the full sweep lands.
+
+_FRONTEND_CURRENCY_RE = re.compile(r'[`"\']€|[`"\']£|[`"\']¥|\$\{')
+_FRONTEND_SKIP_FILES: set[str] = {
+    # The central currency module defines the symbol lookup — allowed.
+    "app/lib/currency.ts",
+    # Formatters without money rendering (other format helpers).
+    "app/app/_lib/formatters.ts",
+}
+
+
+def _scan_frontend_files() -> list[tuple[Path, list[str]]]:
+    """Load .ts/.tsx files under dashboard/src/ with their lines."""
+    results = []
+    if not DASHBOARD_SRC.exists():
+        return results
+    for ext in ("*.ts", "*.tsx"):
+        for f in sorted(DASHBOARD_SRC.rglob(ext)):
+            p = str(f)
+            if "node_modules" in p or "_generated" in p or ".next" in p:
+                continue
+            try:
+                lines = f.read_text().splitlines()
+                results.append((f, lines))
+            except Exception:
+                continue
+    return results
+
+
+# Narrower money-literal regex. Three cases we want to flag:
+#   1. A non-ASCII currency symbol (€, £, ¥) — almost certainly money
+#      since none of these appear in UI text for non-money purposes.
+#   2. A `"$N"` / `'$N'` literal where N is a digit — hardcoded dollar
+#      amount outside a template literal.
+#   3. A `` `$${expr}` `` pattern — double-dollar prefix in a template
+#      literal is the idiom for a hardcoded $ sign followed by a variable.
+# Template-literal variable interpolation `${foo}` without a currency
+# prefix is NOT money and must NOT be flagged.
+_FRONTEND_MONEY_LITERAL_RE = re.compile(
+    r'€|£|¥|'
+    r'["\']\$\d|'
+    r'\$\$\{',
+)
+
+
+def check_frontend_hardcoded_currency(
+    files: list[tuple[Path, list[str]]],
+) -> list[Finding]:
+    findings: list[Finding] = []
+    for path, lines in files:
+        rel = str(path.relative_to(DASHBOARD_SRC.parent))
+        # Normalize windows-style separators just in case
+        rel = rel.replace("\\", "/")
+        # Strip leading "src/" so allowlist keys match the dashboard layout
+        rel_short = rel[4:] if rel.startswith("src/") else rel
+        if rel_short in _FRONTEND_SKIP_FILES:
+            continue
+        for i, line in enumerate(lines, 1):
+            stripped = line.strip()
+            # Skip JS/TS comments + JSDoc lines
+            if stripped.startswith(("//", "/*", "*")):
+                continue
+            # Skip import lines
+            if stripped.startswith(("import ", "export ")) and "from " in stripped:
+                continue
+            if _FRONTEND_MONEY_LITERAL_RE.search(line):
+                # Skip regex-like lines (they don't actually render)
+                if "regex" in line.lower() or "/g" in line or "/i" in line:
+                    continue
+                # Skip lines that reference the central helper (they ARE
+                # routing through formatDisplayMoney).
+                if "formatDisplayMoney" in line or "createMoneyFormatter" in line:
+                    continue
+                findings.append(Finding(
+                    check="frontend_hardcoded_currency",
+                    file=f"dashboard/{rel}",
+                    line=i,
+                    code=stripped[:120],
+                    severity="warning",
+                    explanation=(
+                        "Hardcoded currency literal in dashboard — non-EUR merchants "
+                        "may see the wrong symbol. Route through "
+                        "formatDisplayMoney() from lib/currency.ts instead."
+                    ),
+                ))
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
 ALL_CHECKS = [
     ("Money aggregation without currency filter", check_money_aggregation),
     ("Hardcoded currency symbols", check_hardcoded_currency),
@@ -319,6 +429,13 @@ def main():
     for name, check_fn in ALL_CHECKS:
         findings = check_fn(files)
         all_findings.extend(findings)
+
+    # Frontend sweep — separate file set. Findings are WARNING-level so
+    # --strict does not block on pre-existing violations; the gate is
+    # still observable (non-zero findings count) to drive migration.
+    frontend_files = _scan_frontend_files()
+    if frontend_files:
+        all_findings.extend(check_frontend_hardcoded_currency(frontend_files))
 
     if use_json:
         print(json.dumps([asdict(f) for f in all_findings], indent=2))

@@ -113,6 +113,54 @@ def test_audit_bites_on_hardcoded_euro_symbol(injected_hardcoded_euro):
     assert "hardcoded_currency" in out
 
 
+@pytest.fixture
+def injected_frontend_hardcoded_euro(tmp_path):
+    """Inject a fake .tsx file under dashboard/src/ with hardcoded €."""
+    from pathlib import Path as _Path
+    dashboard_src = _Path("/opt/wishspark/dashboard/src")
+    if not dashboard_src.exists():
+        pytest.skip("dashboard/src not present in this checkout")
+    path = dashboard_src / "app" / "_DELETE_ME_probe.tsx"
+    path.write_text(
+        "// Throwaway fixture file for frontend audit test\n"
+        "export function Demo() {\n"
+        "  return <span>€42 hardcoded</span>;\n"
+        "}\n"
+    )
+    yield path
+    if path.exists():
+        path.unlink()
+
+
+def test_audit_flags_frontend_hardcoded_currency(injected_frontend_hardcoded_euro):
+    """
+    The frontend scan must catch a hardcoded € in dashboard TSX. It
+    reports as `warning` severity (non-blocking in strict mode) so
+    pre-existing violations don't block commits — but the finding IS
+    surfaced so drift is visible.
+    """
+    code, out = _run_audit(strict=False)
+    # Non-strict exit is 0 regardless of warning count.
+    assert code == 0
+    assert injected_frontend_hardcoded_euro.name in out, (
+        "frontend_hardcoded_currency must report injected file:\n"
+        + out[:1000]
+    )
+    assert "frontend_hardcoded_currency" in out
+
+
+def test_audit_strict_still_ignores_frontend_warnings(injected_frontend_hardcoded_euro):
+    """
+    --strict currently blocks on CRITICAL only. Frontend violations are
+    warnings by design — the full-migration sweep is a follow-up effort;
+    making every hardcoded € block commits would freeze the repo until
+    the sweep lands.
+    """
+    code, _ = _run_audit(strict=True)
+    # Clean repo → exit 0 even with 116 frontend warnings.
+    assert code == 0
+
+
 def test_audit_script_is_wired_into_preflight():
     """
     Locks in the preflight integration. If a future refactor drops the
