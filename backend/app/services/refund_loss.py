@@ -271,6 +271,16 @@ def get_refund_loss_report(db: Session, shop_domain: str) -> dict:
 
     total_loss = sum(s["loss_eur"] for s in signals)
 
+    # Shop's native currency for money rendering. Never raises — fallback
+    # USD so the response always carries a valid ISO code.
+    try:
+        from app.services.revenue_metrics import get_shop_currency
+        from app.core.currency import format_money as _fmt
+        currency = get_shop_currency(db, shop_domain) or "USD"
+    except Exception:
+        currency = "USD"
+        _fmt = lambda v, c: f"{v:.0f}"  # noqa: E731
+
     if not signals:
         headline = (
             "No significant product loss signals in the last 28 days. "
@@ -279,12 +289,12 @@ def get_refund_loss_report(db: Session, shop_domain: str) -> dict:
     elif total_loss >= 500:
         headline = (
             f"⚠️ {len(signals)} products are losing momentum — "
-            f"projected loss €{total_loss:.0f}/month if the decline continues."
+            f"projected loss {_fmt(total_loss, currency)}/month if the decline continues."
         )
     else:
         headline = (
             f"{len(signals)} products showing early decline — "
-            f"projected loss €{total_loss:.0f}/month."
+            f"projected loss {_fmt(total_loss, currency)}/month."
         )
 
     result = {
@@ -292,6 +302,7 @@ def get_refund_loss_report(db: Session, shop_domain: str) -> dict:
         "total_loss_eur_per_month": round(total_loss, 2),
         "product_count": len(signals),
         "products": signals,
+        "currency": currency,
         "generated_at": _now().isoformat(),
         "method": "order_frequency_decline_proxy_v1",
         "headline": headline,

@@ -31,6 +31,8 @@ class CausalLiftResponse(BaseModel):
     holdout_visitors: int | None = None
     methodology: str
     detail: str
+    # Shop's native currency — attributed_revenue_eur is in this currency.
+    currency: str = "USD"
 
 
 class RecommendationImpactResponse(BaseModel):

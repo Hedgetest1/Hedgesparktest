@@ -35,6 +35,9 @@ class RefundLossResponse(BaseModel):
     total_loss_eur_per_month: float = 0.0
     product_count: int = 0
     products: list[ProductLossRow] = Field(default_factory=list)
+    # Shop's native currency — all `_eur`-suffixed + price fields are
+    # in this currency (USD/EUR/GBP/…). Historical suffix name.
+    currency: str = "USD"
     generated_at: str | None = None
     method: str | None = None
     headline: str | None = None

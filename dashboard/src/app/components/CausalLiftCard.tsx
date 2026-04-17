@@ -24,6 +24,8 @@ import {
   DrawerNextAction,
 } from "./DetailDrawer";
 
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
+
 type CausalData = {
   total_lift_pct: number;
   attributed_revenue_eur: number;
@@ -32,11 +34,12 @@ type CausalData = {
   exposed_visitors: number;
   holdout_visitors: number;
   detail: string;
+  // Shop's native currency — `_eur` field is in this currency.
+  currency?: string;
 };
 
-function fmtEur(n: number): string {
-  if (n >= 1000) return `€${(n / 1000).toFixed(1)}k`;
-  return `€${Math.round(n)}`;
+function fmtEur(n: number, currency?: string): string {
+  return formatMoneyCompact(n, currency || "USD");
 }
 
 export function CausalLiftCard({
@@ -172,7 +175,7 @@ export function CausalLiftCard({
               Revenue proven
             </div>
             <div className="mt-1 text-[32px] font-extrabold tabular-nums text-violet-300">
-              {fmtEur(data.attributed_revenue_eur)}
+              {fmtEur(data.attributed_revenue_eur, data.currency)}
             </div>
             <div className="mt-0.5 text-[10px] text-violet-400/70">
               from your nudges
@@ -264,7 +267,7 @@ export function CausalLiftCard({
           items={[
             {
               label: "Revenue proven",
-              value: fmtEur(data.attributed_revenue_eur),
+              value: fmtEur(data.attributed_revenue_eur, data.currency),
               color: "#a78bfa",
             },
             {

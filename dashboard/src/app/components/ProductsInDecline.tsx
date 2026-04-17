@@ -27,21 +27,22 @@ type ProductRow = {
   reason: string;
 };
 
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
+
 type RefundLossData = {
   shop_domain: string;
   total_loss_eur_per_month: number;
   product_count: number;
   products: ProductRow[];
+  // Shop's native currency — product price/loss fields are native.
+  currency?: string;
   generated_at: string | null;
   method: string | null;
   headline: string | null;
 };
 
-function fmtMoney(n: number): string {
-  if (n === 0) return "€0";
-  const absN = Math.abs(n);
-  if (absN >= 1000) return "€" + (absN / 1000).toFixed(absN >= 10_000 ? 0 : 1) + "k";
-  return "€" + Math.round(absN);
+function fmtMoney(n: number, currency?: string): string {
+  return formatMoneyCompact(n, currency || "USD");
 }
 
 export function ProductsInDecline({
@@ -117,7 +118,7 @@ export function ProductsInDecline({
               Projected loss
             </div>
             <div className="text-[18px] font-extrabold tabular-nums text-rose-300">
-              {fmtMoney(total)}/mo
+              {fmtMoney(total, data?.currency)}/mo
             </div>
           </div>
         )}
@@ -149,7 +150,7 @@ export function ProductsInDecline({
                     -{p.decline_pct.toFixed(0)}%
                   </td>
                   <td className="py-2 pl-2 text-right font-mono font-semibold tabular-nums text-rose-300">
-                    {fmtMoney(p.loss_eur)}
+                    {fmtMoney(p.loss_eur, data?.currency)}
                   </td>
                 </tr>
               ))}

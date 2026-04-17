@@ -26,6 +26,8 @@ class ROIReportResponse(BaseModel):
     net_roi_eur: float
     components: list[dict] = Field(default_factory=list)
     headline: str
+    # Shop's native currency — all `_eur`-suffixed fields are native.
+    currency: str = "USD"
     generated_at: str
 
 

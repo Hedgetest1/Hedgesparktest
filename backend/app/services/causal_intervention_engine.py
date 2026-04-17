@@ -168,6 +168,11 @@ def measure_nudge_lift(db: Session, shop_domain: str) -> dict:
         lift_pct = 0
         confidence = 0
 
+    try:
+        from app.services.revenue_metrics import get_shop_currency
+        currency = get_shop_currency(db, shop_domain) or "USD"
+    except Exception:
+        currency = "USD"
     return {
         "shop_domain": shop_domain,
         "total_lift_pct": round(lift_pct, 2),
@@ -181,6 +186,7 @@ def measure_nudge_lift(db: Session, shop_domain: str) -> dict:
             f"Measured {nudges_measured} nudges with holdout groups. "
             f"CVR lift: {lift_pct:+.1f}% at {confidence}% confidence."
         ) if nudges_measured > 0 else "Insufficient holdout data.",
+        "currency": currency,
     }
 
 

@@ -24,6 +24,8 @@ class AbandonedIntentResponse(BaseModel):
     products: list[dict[str, Any]] = Field(default_factory=list)
     session_insights: dict[str, Any] = Field(default_factory=dict)
     headline: str
+    # Shop's native currency — loss/price fields in products are native.
+    currency: str = "USD"
     generated_at: str
 
 

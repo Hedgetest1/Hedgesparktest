@@ -63,6 +63,10 @@ class ROIReport:
     email_body_html: str
     email_body_text: str
     generated_at: str
+    # Shop's native currency for money rendering (USD/EUR/GBP/…).
+    # `_eur`-suffixed fields above are actually in this currency —
+    # the suffix is a historical misnomer.
+    currency: str = "USD"
 
     def to_dict(self) -> dict:
         return {
@@ -74,6 +78,7 @@ class ROIReport:
             "net_roi_eur": round(self.net_roi_eur, 2),
             "components": self.components,
             "headline": self.headline,
+            "currency": self.currency,
             "generated_at": self.generated_at,
         }
 
@@ -175,6 +180,12 @@ def generate_roi_report(db: Session, shop_domain: str) -> ROIReport:
             "review the detected sources below."
         )
 
+    try:
+        from app.services.revenue_metrics import get_shop_currency
+        currency = get_shop_currency(db, shop_domain) or "USD"
+    except Exception:
+        currency = "USD"
+
     now = _now()
     report = ROIReport(
         shop_domain=shop_domain,
@@ -188,6 +199,7 @@ def generate_roi_report(db: Session, shop_domain: str) -> ROIReport:
         email_body_html="",
         email_body_text="",
         generated_at=now.isoformat(),
+        currency=currency,
     )
     report.email_body_html = _render_email_html(report)
     report.email_body_text = _render_email_text(report)

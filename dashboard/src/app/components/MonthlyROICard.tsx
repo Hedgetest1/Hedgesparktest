@@ -13,6 +13,8 @@
 import { useEffect, useState } from "react";
 import { apiClient } from "@/app/lib/api-client";
 
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
+
 type ROIData = {
   shop_domain: string;
   month: string;
@@ -22,14 +24,13 @@ type ROIData = {
   net_roi_eur: number;
   components: Array<{ source: string; loss_eur: number }>;
   headline: string;
+  // Shop's native currency — all `_eur`-suffixed fields are native.
+  currency?: string;
   generated_at: string;
 };
 
-function fmtMoney(n: number): string {
-  if (n === 0) return "€0";
-  const absN = Math.abs(n);
-  if (absN >= 1000) return (n < 0 ? "-" : "") + "€" + (absN / 1000).toFixed(absN >= 10_000 ? 0 : 1) + "k";
-  return (n < 0 ? "-" : "") + "€" + Math.round(absN);
+function fmtMoney(n: number, currency?: string): string {
+  return formatMoneyCompact(n, currency || "USD");
 }
 
 export function MonthlyROICard({
@@ -82,7 +83,7 @@ export function MonthlyROICard({
             You pay
           </div>
           <div className="mt-1 text-[18px] font-extrabold tabular-nums text-slate-300">
-            {fmtMoney(data.cost_eur)}
+            {fmtMoney(data.cost_eur, data.currency)}
           </div>
         </div>
         <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
@@ -90,7 +91,7 @@ export function MonthlyROICard({
             Detected at risk
           </div>
           <div className="mt-1 text-[18px] font-extrabold tabular-nums text-amber-300">
-            {fmtMoney(data.at_risk_detected_eur)}
+            {fmtMoney(data.at_risk_detected_eur, data.currency)}
           </div>
         </div>
         <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/[0.06] p-3">
@@ -98,7 +99,7 @@ export function MonthlyROICard({
             Prevented
           </div>
           <div className="mt-1 text-[18px] font-extrabold tabular-nums text-emerald-400">
-            {fmtMoney(data.prevented_eur)}
+            {fmtMoney(data.prevented_eur, data.currency)}
           </div>
         </div>
       </div>
@@ -116,7 +117,7 @@ export function MonthlyROICard({
         </div>
         <div className="text-[22px] font-extrabold tabular-nums" style={{ color: roiColor }}>
           {data.net_roi_eur >= 0 ? "+" : ""}
-          {fmtMoney(data.net_roi_eur)}
+          {fmtMoney(data.net_roi_eur, data.currency)}
         </div>
       </div>
     </div>

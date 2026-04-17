@@ -34,6 +34,8 @@ type BenchmarkData = {
   peer_count: number;
   metrics: Record<string, BenchmarkMetric>;
   total_recovery_potential_eur: number;
+  // Shop's native currency — `_eur` fields are native.
+  currency?: string;
   generated_at: string | null;
   note?: string | null;
   error?: string | null;
@@ -46,17 +48,16 @@ const METRIC_LABELS: Record<string, string> = {
   revenue_growth_30d_pct: "Revenue growth",
 };
 
-function fmtMoney(n: number): string {
-  if (n === 0) return "€0";
-  const absN = Math.abs(n);
-  if (absN >= 1000) return "€" + (absN / 1000).toFixed(absN >= 10_000 ? 0 : 1) + "k";
-  return "€" + Math.round(absN);
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
+
+function fmtMoney(n: number, currency?: string): string {
+  return formatMoneyCompact(n, currency || "USD");
 }
 
-function fmtMetricValue(metric: string, v: number): string {
+function fmtMetricValue(metric: string, v: number, currency?: string): string {
   if (metric === "revenue_growth_30d_pct") return v.toFixed(0) + "%";
   if (metric === "orders_per_day") return v.toFixed(1);
-  if (metric === "monthly_revenue" || metric === "aov") return fmtMoney(v);
+  if (metric === "monthly_revenue" || metric === "aov") return fmtMoney(v, currency);
   return String(Math.round(v));
 }
 
@@ -145,7 +146,7 @@ export function PeerBenchmarksCard({
               Could recover
             </div>
             <div className="text-[18px] font-extrabold tabular-nums text-amber-300">
-              {fmtMoney(totalRecovery)}/mo
+              {fmtMoney(totalRecovery, data?.currency)}/mo
             </div>
           </div>
         )}
@@ -164,11 +165,11 @@ export function PeerBenchmarksCard({
                       {METRIC_LABELS[metric] || metric}
                     </span>
                     <span className="text-[10px] text-slate-500">
-                      you: <span className="font-mono tabular-nums text-slate-300">{fmtMetricValue(metric, m.value)}</span>
+                      you: <span className="font-mono tabular-nums text-slate-300">{fmtMetricValue(metric, m.value, data?.currency)}</span>
                     </span>
                   </div>
                   <div className="mt-1 text-[10px] text-slate-500">
-                    p25 {fmtMetricValue(metric, m.p25)} · p50 {fmtMetricValue(metric, m.p50)} · p75 {fmtMetricValue(metric, m.p75)}
+                    p25 {fmtMetricValue(metric, m.p25, data?.currency)} · p50 {fmtMetricValue(metric, m.p50, data?.currency)} · p75 {fmtMetricValue(metric, m.p75, data?.currency)}
                   </div>
                 </div>
                 <div
@@ -187,7 +188,7 @@ export function PeerBenchmarksCard({
               </div>
               {m.recovery_to_p75_eur > 0 && (
                 <div className="mt-1.5 text-[10px] text-amber-300">
-                  → moving to p75 = <span className="font-semibold">+{fmtMoney(m.recovery_to_p75_eur)}/mo</span>
+                  → moving to p75 = <span className="font-semibold">+{fmtMoney(m.recovery_to_p75_eur, data?.currency)}/mo</span>
                 </div>
               )}
             </div>

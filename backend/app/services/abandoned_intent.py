@@ -67,12 +67,19 @@ def compute_abandoned_intent(db: Session, shop_domain: str) -> dict:
         ORDER BY visitor_id, timestamp
     """), {"shop": shop_domain, "cutoff": cutoff}).fetchall()
 
+    try:
+        from app.services.revenue_metrics import get_shop_currency
+        currency = get_shop_currency(db, shop_domain) or "USD"
+    except Exception:
+        currency = "USD"
+
     if not rows:
         return {
             "shop_domain": shop_domain,
             "products": [],
             "session_insights": {},
             "headline": "Insufficient data for intent analysis.",
+            "currency": currency,
             "generated_at": now.isoformat(),
         }
 
@@ -236,6 +243,7 @@ def compute_abandoned_intent(db: Session, shop_domain: str) -> dict:
         "products": products,
         "session_insights": session_insights,
         "headline": headline,
+        "currency": currency,
         "generated_at": now.isoformat(),
     }
 
