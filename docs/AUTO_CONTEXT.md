@@ -1,5 +1,5 @@
 # WishSpark Auto Context
-Auto-generated: 2026-04-17T22:09:23.240366 UTC
+Auto-generated: 2026-04-17T22:53:29.398977 UTC
 
 ## Project Root
 /opt/wishspark
@@ -128,6 +128,7 @@ Auto-generated: 2026-04-17T22:09:23.240366 UTC
 /backend/app/api/track.py
 /backend/app/api/track_purchase.py
 /backend/app/api/tracker.py
+/backend/app/api/tracker_error.py
 /backend/app/api/trust_contracts.py
 /backend/app/api/visitor_journeys.py
 /backend/app/api/visitor_scores.py
@@ -244,6 +245,7 @@ Auto-generated: 2026-04-17T22:09:23.240366 UTC
 /backend/app/services/nudge_measurement.py
 /backend/app/services/nudge_optimizer.py
 /backend/app/services/nudge_rank.py
+/backend/app/services/observability_spikes.py
 /backend/app/services/onboarding.py
 /backend/app/services/onboarding_funnel.py
 /backend/app/services/onboarding_health.py

@@ -1,5 +1,5 @@
 # WishSpark Server Context
-Auto-generated: 2026-04-17T22:09:23.238666 UTC
+Auto-generated: 2026-04-17T22:53:29.396936 UTC
 
 ## Base Path
 /opt/wishspark
@@ -127,6 +127,7 @@ Process Manager: PM2
 /backend/app/api/track.py
 /backend/app/api/track_purchase.py
 /backend/app/api/tracker.py
+/backend/app/api/tracker_error.py
 /backend/app/api/trust_contracts.py
 /backend/app/api/visitor_journeys.py
 /backend/app/api/visitor_scores.py
@@ -243,6 +244,7 @@ Process Manager: PM2
 /backend/app/services/nudge_measurement.py
 /backend/app/services/nudge_optimizer.py
 /backend/app/services/nudge_rank.py
+/backend/app/services/observability_spikes.py
 /backend/app/services/onboarding.py
 /backend/app/services/onboarding_funnel.py
 /backend/app/services/onboarding_health.py
@@ -714,6 +716,7 @@ Process Manager: PM2
 /backend/app/api/action_tasks.py :: @router.get("/tasks/{task_id}")
 /backend/app/api/action_tasks.py :: @router.get(
 /backend/app/api/revenue_at_risk.py :: @router.get(
+/backend/app/api/tracker_error.py :: @router.post("/public/tracker-error")
 /backend/app/api/risk_forecast.py :: @router.get("/pro/risk-forecast", response_model=RiskForecastResponse)
 /backend/app/api/shopify_admin_api.py :: @router.get("/inventory")
 /backend/app/api/shopify_admin_api.py :: @router.post("/discount")
