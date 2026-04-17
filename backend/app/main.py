@@ -649,6 +649,15 @@ async def metrics_middleware(request: Request, call_next):
     with track_request(request.method, path) as ctx:
         response = await call_next(request)
         ctx["status"] = response.status_code
+        # Opportunistic p95 snapshot flush — called on every request,
+        # gated by a 5-min Redis lock so only ONE worker actually writes
+        # per window. Zero overhead when gate is cold (one Redis GET).
+        # See app/services/p95_snapshot.py for the reader side.
+        try:
+            from app.services.p95_snapshot import maybe_flush
+            maybe_flush()
+        except Exception:
+            pass  # SILENT-EXCEPT-OK: snapshot flush failure must never abort a response
         return response
 
 

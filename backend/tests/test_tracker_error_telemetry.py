@@ -170,11 +170,67 @@ class TestSpikeDetectors:
         assert fired == 1
         assert _count_alerts(db, "frontend_error_spike") >= 1
 
-    def test_p95_detector_degrades_when_no_table(self, db):
-        """request_timing table may not exist — detector must return 0 silently."""
+    def test_p95_detector_no_data_returns_zero(self, db):
+        """No Redis buckets exist → detector returns 0 silently."""
+        # Clean any stray p95 keys (fixture doesn't touch this namespace).
+        try:
+            from app.core.redis_client import _client
+            rc = _client()
+            if rc is not None:
+                cursor = 0
+                while True:
+                    cursor, keys = rc.scan(cursor=cursor, match="hs:p95:*", count=200)
+                    if keys:
+                        rc.delete(*keys)
+                    if cursor == 0:
+                        break
+        except Exception:
+            pass  # SILENT-OK: test hygiene
         from app.services.observability_spikes import detect_p95_slow_trends
         fired = detect_p95_slow_trends(db)
-        assert fired == 0  # no crash, no alert, no exception
+        assert fired == 0
+
+    def test_p95_detector_fires_on_drift(self, db):
+        """Seed Redis buckets simulating 7-day baseline of 50ms + last
+        24h of 200ms → detector fires (4× ratio ≥ 1.5× threshold)."""
+        import json as _json
+        from datetime import datetime, timezone, timedelta
+        from app.core.redis_client import _client
+        rc = _client()
+        assert rc is not None
+        # Clean
+        cursor = 0
+        while True:
+            cursor, keys = rc.scan(cursor=cursor, match="hs:p95:*", count=200)
+            if keys:
+                rc.delete(*keys)
+            if cursor == 0:
+                break
+
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        route = "/pro/test-drift"
+        # Baseline (prior 7 days, excluding last 24h): 48 buckets at 50ms each,
+        # 100 samples per bucket → 4800 samples total.
+        for hour_offset in range(25, 25 + 48):
+            hour = (now - timedelta(hours=hour_offset)).strftime("%Y-%m-%dT%H")
+            rc.setex(
+                f"hs:p95:{route}:{hour}",
+                8 * 86400,
+                _json.dumps({"p95_ms": 50.0, "count": 100, "hour": hour}),
+            )
+        # Recent (last 24h): 20 buckets at 200ms each, 100 samples per bucket.
+        for hour_offset in range(20):
+            hour = (now - timedelta(hours=hour_offset)).strftime("%Y-%m-%dT%H")
+            rc.setex(
+                f"hs:p95:{route}:{hour}",
+                8 * 86400,
+                _json.dumps({"p95_ms": 200.0, "count": 100, "hour": hour}),
+            )
+
+        from app.services.observability_spikes import detect_p95_slow_trends
+        fired = detect_p95_slow_trends(db)
+        assert fired >= 1
+        assert _count_alerts(db, "p95_slow_trend") >= 1
 
     def test_ux_frustration_spike_fires_on_threshold(self, db, merchant_a):
         """Seed rage_click events above threshold → spike alert fires."""

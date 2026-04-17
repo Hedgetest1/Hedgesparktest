@@ -41,10 +41,15 @@ const BUDGET_FILE = path.join(DASHBOARD, "lighthouse-budget.json");
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const out = { baseUrl: process.env.LH_BASE_URL || "http://127.0.0.1:3000", only: null };
+  const out = {
+    baseUrl: process.env.LH_BASE_URL || "http://127.0.0.1:3000",
+    only: null,
+    json: false,  // --json: emit machine-readable summary to stdout
+  };
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--url") out.baseUrl = args[++i];
     else if (args[i] === "--only") out.only = args[++i];
+    else if (args[i] === "--json") out.json = true;
   }
   return out;
 }
@@ -77,10 +82,15 @@ const CATEGORIES = [
 ];
 
 async function main() {
-  const { baseUrl, only } = parseArgs();
+  const { baseUrl, only, json: jsonMode } = parseArgs();
   const cfg = loadBudget();
   const routes = only ? [only] : cfg.routes;
   const budgets = cfg.budgets;
+
+  // In JSON mode we suppress the human-readable progress prints so stdout
+  // is clean JSON. Stderr still carries errors. This lets the Python
+  // wrapper parse stdout directly without stripping ANSI / column headers.
+  const log = jsonMode ? () => {} : (...a) => console.log(...a);
 
   const chromePath = resolveChromePath();
   if (chromePath) process.env.CHROME_PATH = chromePath;
@@ -114,11 +124,15 @@ async function main() {
   };
 
   const failures = [];
-  console.log(`run_lighthouse: base=${baseUrl} routes=${routes.length}`);
-  console.log(
+  // In JSON mode we collect per-route audit metrics — the Python cron
+  // wrapper needs LCP/CLS/TBT specifically (not just category scores)
+  // for slow-trend analysis.
+  const routeResults = [];
+  log(`run_lighthouse: base=${baseUrl} routes=${routes.length}`);
+  log(
     `budgets: P≥${budgets.performance}  A≥${budgets.accessibility}  BP≥${budgets.best_practices}  SEO≥${budgets.seo}`,
   );
-  console.log();
+  log();
 
   try {
     for (const route of routes) {
@@ -138,10 +152,43 @@ async function main() {
         if (bad) failures.push({ route, cat: c.label, actual, budget });
         return `${c.label.slice(0, 3).toUpperCase()}:${actual ?? "ERR"}${bad ? "✗" : ""}`;
       }).join("  ");
-      console.log(`  ${route.padEnd(12)}  ${marks}`);
+      log(`  ${route.padEnd(12)}  ${marks}`);
+
+      if (jsonMode) {
+        // Core Web Vitals + perf sub-metrics. `numericValue` is always
+        // in ms for these audits. Missing audits surface as null.
+        const a = lhr.audits || {};
+        const pick = (id) => a[id]?.numericValue ?? null;
+        routeResults.push({
+          route,
+          scores: s,
+          metrics: {
+            lcp_ms: pick("largest-contentful-paint"),
+            fcp_ms: pick("first-contentful-paint"),
+            tbt_ms: pick("total-blocking-time"),
+            tti_ms: pick("interactive"),
+            cls:    a["cumulative-layout-shift"]?.numericValue ?? null,
+            si_ms:  pick("speed-index"),
+          },
+        });
+      }
     }
   } finally {
     await chrome.kill();
+  }
+
+  if (jsonMode) {
+    // Single JSON blob to stdout — consumed by lighthouse_monitor.py.
+    process.stdout.write(JSON.stringify({
+      base_url: baseUrl,
+      generated_at: new Date().toISOString(),
+      budgets,
+      routes: routeResults,
+      failures,
+    }) + "\n");
+    // Exit 0 even on failures in JSON mode — the wrapper decides what to
+    // do with regressions based on historical baselines, not a hard gate.
+    process.exit(0);
   }
 
   if (failures.length > 0) {

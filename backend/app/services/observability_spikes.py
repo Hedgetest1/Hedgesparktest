@@ -248,21 +248,130 @@ _P95_COOLDOWN_TTL = 86400
 
 
 def detect_p95_slow_trends(db: Session) -> int:
-    """Placeholder — the Redis-based p95 snapshot capture pipeline is
-    pending. Until then this detector returns 0 (no-op, no crash) so
-    run_all_spike_detectors can invoke it unconditionally.
+    """Scan Redis per-(route, hour) p95 buckets and alert when the
+    last-24h median p95 for a route exceeds the prior 7-day median by
+    `_P95_DRIFT_RATIO` AND the absolute value is ≥ `_P95_MIN_ABS_MS`.
 
-    See task A4 (observability_spikes p95 snapshot capture) — the
-    capture path writes per-route rolling p95 samples to Redis and
-    this function will query them. The detector logic (drift ratio,
-    minimum sample thresholds, cooldown) is fully specified in the
-    constants above — just the data source needs wiring.
-    """
-    # Acknowledge parameters so type-check / linters don't flag unused.
-    _ = (db, _P95_WINDOW_HOURS, _P95_BASELINE_DAYS, _P95_DRIFT_RATIO,
-         _P95_MIN_SAMPLES, _P95_MIN_ABS_MS, _P95_COOLDOWN_KEY,
-         _P95_COOLDOWN_TTL)
-    return 0
+    Data source: `app/services/p95_snapshot.py` flushes the in-process
+    request histograms to Redis every 5 min via the backend middleware.
+    Buckets live at `hs:p95:{route}:{hour_iso}` with 8d TTL.
+
+    Returns the number of routes for which a regression alert fired."""
+    import json
+    import statistics
+    from app.services.p95_snapshot import iter_bucket_keys
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    day_key = now.strftime("%Y-%m-%d")
+
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("observability_spikes.p95_scan.no_client")
+            return 0
+    except Exception:
+        from app.core.silent_fallback import record_silent_return
+        record_silent_return("observability_spikes.p95_scan.exception")
+        return 0
+
+    # Group buckets by route — bucket key layout is hs:p95:{route}:{hour}
+    # where route itself may contain colons. Split from the right to
+    # isolate the hour segment first.
+    per_route_buckets: dict[str, list[tuple[str, dict]]] = {}
+    try:
+        for key in iter_bucket_keys(rc, pattern="hs:p95:*"):
+            # Filter out meta keys like hs:p95:last_flush_ts / hs:p95:flush_lock
+            if key in ("hs:p95:last_flush_ts", "hs:p95:flush_lock"):
+                continue
+            parts = key.split(":")
+            if len(parts) < 4:
+                continue
+            hour = parts[-1]
+            route = ":".join(parts[2:-1])
+            try:
+                raw = rc.get(key)
+                if not raw:
+                    continue
+                bucket = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+            except Exception:
+                continue
+            per_route_buckets.setdefault(route, []).append((hour, bucket))
+    except Exception as exc:
+        log.warning("p95 bucket scan failed: %s", exc)
+        return 0
+
+    # For each route, partition buckets into recent-24h vs prior baseline.
+    recent_threshold = (now - timedelta(hours=_P95_WINDOW_HOURS)).strftime("%Y-%m-%dT%H")
+    baseline_threshold = (now - timedelta(days=_P95_BASELINE_DAYS)).strftime("%Y-%m-%dT%H")
+
+    fired = 0
+    for route, buckets in per_route_buckets.items():
+        recent = []
+        baseline = []
+        recent_count = 0
+        baseline_count = 0
+        for hour, bucket in buckets:
+            if hour >= recent_threshold:
+                p95 = float(bucket.get("p95_ms") or 0)
+                if p95 > 0:
+                    recent.append(p95)
+                    recent_count += int(bucket.get("count") or 0)
+            elif hour >= baseline_threshold:
+                p95 = float(bucket.get("p95_ms") or 0)
+                if p95 > 0:
+                    baseline.append(p95)
+                    baseline_count += int(bucket.get("count") or 0)
+
+        if recent_count < _P95_MIN_SAMPLES or baseline_count < _P95_MIN_SAMPLES:
+            continue
+        if not recent or not baseline:
+            continue
+
+        recent_p95 = statistics.median(recent)
+        baseline_p95 = statistics.median(baseline)
+
+        if recent_p95 < _P95_MIN_ABS_MS:
+            continue
+        if baseline_p95 <= 0:
+            continue
+        ratio = recent_p95 / baseline_p95
+        if ratio < _P95_DRIFT_RATIO:
+            continue
+
+        key = _P95_COOLDOWN_KEY.format(route=route, day=day_key)
+        if not _cooldown_ok(key, _P95_COOLDOWN_TTL):
+            continue
+
+        try:
+            from app.services.alerting import write_alert
+            write_alert(
+                db,
+                severity="warning",
+                source=f"p95_drift:{route}"[:64],
+                alert_type="p95_slow_trend",
+                summary=(
+                    f"p95 drift on {route}: "
+                    f"{recent_p95:.0f}ms (last 24h, n={recent_count}) vs "
+                    f"{baseline_p95:.0f}ms (prior 7d, n={baseline_count}) — "
+                    f"{ratio:.2f}× slower"
+                ),
+                detail={
+                    "route": route,
+                    "recent_p95_ms": round(recent_p95, 2),
+                    "baseline_p95_ms": round(baseline_p95, 2),
+                    "ratio": round(ratio, 3),
+                    "recent_samples": recent_count,
+                    "baseline_samples": baseline_count,
+                    "threshold_ratio": _P95_DRIFT_RATIO,
+                },
+            )
+            fired += 1
+        except Exception as exc:
+            log.warning("p95 drift alert write failed route=%s: %s", route, exc)
+
+    return fired
 
 
 # ---------------------------------------------------------------------------

@@ -92,6 +92,34 @@ class _Histogram:
                 "inf": self._count,
             }
 
+    def percentile(self, pct: float) -> float | None:
+        """Estimate the `pct` percentile (0.0-1.0) from bucket counts.
+
+        Uses linear interpolation inside the bucket that contains the
+        target rank — same approach as Prometheus histogram_quantile.
+        Returns None when there are no samples. Upper-bound capped at
+        the largest defined bucket boundary (i.e. sub-Infinity)."""
+        with self._lock:
+            total = self._count
+            if total <= 0:
+                return None
+            target = total * pct
+            cumulative = 0
+            prev_bound = 0.0
+            for i, bound in enumerate(self._buckets):
+                cumulative += self._bucket_counts[i]
+                if cumulative >= target:
+                    # Linear interpolation inside the bucket.
+                    bucket_count = self._bucket_counts[i]
+                    if bucket_count <= 0:
+                        return float(bound)
+                    # Rank inside this bucket (0.0-1.0 of its count).
+                    rank_in_bucket = (target - (cumulative - bucket_count)) / bucket_count
+                    return float(prev_bound + rank_in_bucket * (bound - prev_bound))
+                prev_bound = float(bound)
+            # Beyond the largest bucket — cap at its upper bound.
+            return float(self._buckets[-1])
+
 
 # ---------------------------------------------------------------------------
 # Global metric instances
@@ -196,6 +224,38 @@ def track_cache_miss():
 
 def track_error(error_type: str):
     _error_count[error_type].inc()
+
+
+def compute_p95_per_route() -> dict[str, dict]:
+    """Return a dict of {path_group: {p95_ms, count}} across all recorded
+    request histograms. Used by the p95 snapshot flusher to write
+    per-(route, hour) rolling samples into Redis for slow-trend detection.
+
+    Values are in MILLISECONDS (the internal histogram stores seconds)."""
+    out: dict[str, dict] = {}
+    # Merge across methods per path — a route's p95 is what users feel
+    # regardless of GET vs POST. Most of our paths are single-method anyway.
+    per_path: dict[str, _Histogram] = {}
+    for (method, path), hist in list(_request_duration.items()):
+        # Merge: create a synthetic histogram with combined bucket counts.
+        existing = per_path.get(path)
+        if existing is None:
+            per_path[path] = hist
+        else:
+            # We can't merge the two histogram instances in place (their
+            # internal locks are independent). Instead, emit the larger
+            # one — p95 of a route dominated by one method is close enough.
+            if hist._count > existing._count:  # type: ignore[attr-defined]
+                per_path[path] = hist
+    for path, hist in per_path.items():
+        p95_seconds = hist.percentile(0.95)
+        if p95_seconds is None:
+            continue
+        out[path] = {
+            "p95_ms": round(p95_seconds * 1000.0, 2),
+            "count": hist._count,  # type: ignore[attr-defined]
+        }
+    return out
 
 
 # ---------------------------------------------------------------------------

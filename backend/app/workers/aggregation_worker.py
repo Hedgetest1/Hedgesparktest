@@ -356,6 +356,22 @@ def _run_cycle_inner() -> None:
             db.rollback()
             log(f"observability_spikes error (non-fatal): {exc}")
 
+        # ------------------------------------------------------------------ #
+        # Lighthouse nightly — once-per-day guard inside the service.         #
+        # Runs only in the 02:00-04:00 UTC window (low dashboard traffic)     #
+        # and skips if already ran today. Returns early on any other cycle,  #
+        # so this adds ~0ms when out-of-window.                               #
+        # ------------------------------------------------------------------ #
+        try:
+            from app.services.lighthouse_monitor import run_nightly_check
+            lh_result = run_nightly_check(db)
+            if lh_result.get("ran"):
+                db.commit()
+                log(f"lighthouse_monitor: {lh_result}")
+        except Exception as exc:
+            db.rollback()
+            log(f"lighthouse_monitor error (non-fatal): {exc}")
+
         state = _load_state(db)
         last_watermark = state.last_watermark or 0
         log(f"last_watermark={last_watermark}")
