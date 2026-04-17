@@ -83,6 +83,25 @@ _DEFENSIVE_FALLBACK_RE = re.compile(
     r'(get_shop_currency|_dominant_currency|payload\.get\(["\']currency["\']\))\s*\([^)]*\)\s*or\s*["\']USD["\']',
 )
 
+# Pydantic model field declarations like `currency: str = "USD"` are
+# response-model DEFAULTS — the service layer always overrides them
+# with the actual shop currency. Flagging these as hardcoded is a
+# false positive (the default is a safety net for cold-start cases).
+# Matches: `currency: str = "USD"` / `currency: str | None = "USD"` /
+# `currency: Optional[str] = "USD"`.
+_PYDANTIC_FIELD_DEFAULT_RE = re.compile(
+    r'^\s*currency\s*:\s*[\w\[\]| ,]+\s*=\s*["\']USD["\']',
+    re.IGNORECASE,
+)
+
+# Exception-handler fallback — `currency = "USD"` inside an `except`
+# block is the catch-all when the real lookup raises. We look back
+# a few lines to see if the enclosing context is an `except` handler.
+_EXCEPTION_FALLBACK_LINE_RE = re.compile(
+    r'^\s*currency\s*=\s*["\']USD["\']\s*$',
+    re.IGNORECASE,
+)
+
 
 @dataclass
 class Finding:
@@ -239,6 +258,17 @@ def check_hardcoded_currency(files: list[tuple[Path, list[str]]]) -> list[Findin
                 # Defensive "currency = ... or 'USD'" fallbacks are safe
                 if _DEFENSIVE_FALLBACK_RE.search(line):
                     continue
+                # Pydantic response-model field defaults (`currency: str = "USD"`)
+                # are overridden by the service layer — not a hardcode.
+                if _PYDANTIC_FIELD_DEFAULT_RE.match(line):
+                    continue
+                # Exception-handler fallback: `currency = "USD"` on its own
+                # line AFTER an `except` clause within 4 lines is the
+                # defensive catch-all for a failed get_shop_currency() call.
+                if _EXCEPTION_FALLBACK_LINE_RE.match(line):
+                    preceding = "\n".join(lines[max(0, i - 5):i])
+                    if re.search(r"except\s+Exception", preceding):
+                        continue
                 if not _allowlisted(rel, i):
                     findings.append(Finding(
                         check="hardcoded_currency",

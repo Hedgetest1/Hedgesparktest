@@ -212,7 +212,10 @@ def get_proof_summary(db: Session, shop_domain: str, days: int = 30) -> dict:
             .all()
         )
     except Exception:
-        return {"actions_measured": 0, "improvements": [], "total_revenue_delta": 0}
+        return {
+            "actions_measured": 0, "improvements": [],
+            "total_revenue_delta": 0, "currency": "USD",
+        }
 
     improvements = []
     total_rev_delta = 0.0
@@ -228,10 +231,16 @@ def get_proof_summary(db: Session, shop_domain: str, days: int = 30) -> dict:
             })
         total_rev_delta += float(s.delta_revenue_7d or 0)
 
+    try:
+        from app.services.revenue_metrics import get_shop_currency
+        currency = get_shop_currency(db, shop_domain) or "USD"
+    except Exception:
+        currency = "USD"
     return {
         "actions_measured": len(snapshots),
         "improvements": improvements,
         "total_revenue_delta": round(total_rev_delta, 2),
+        "currency": currency,
     }
 
 

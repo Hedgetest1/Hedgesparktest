@@ -48,6 +48,8 @@ class CacLtvResponse(BaseModel):
     status: str  # 'healthy' | 'ok' | 'unprofitable' | 'no_data'
     headline: str
     ad_spend_source: str
+    # Shop's native currency — all `_eur` fields above are native.
+    currency: str = "USD"
     generated_at: str
 
 
@@ -157,6 +159,7 @@ def get_cac_ltv(
     customers_acquired = _count_new_customers(db, shop, window_days)
     ad_spend, ad_source = _get_ad_spend(db, shop, window_days)
     observed_ltv, predicted_ltv = _get_ltv_metrics(db, shop)
+    currency = get_shop_currency(db, shop)
 
     cac = (ad_spend / customers_acquired) if customers_acquired > 0 else 0.0
 
@@ -197,5 +200,6 @@ def get_cac_ltv(
         status=status,
         headline=headline,
         ad_spend_source=ad_source,
+        currency=currency or "USD",
         generated_at=now.isoformat(),
     )

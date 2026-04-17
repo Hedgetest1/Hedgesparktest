@@ -12,6 +12,7 @@
 
 import { useEffect, useState } from "react";
 import { apiClient } from "@/app/lib/api-client";
+import { formatMoneyCompact, currencySymbol } from "@/app/app/_lib/formatters";
 import {
   DetailDrawer,
   DrawerExplainer,
@@ -32,15 +33,15 @@ type CacLtvData = {
   status: string;
   headline: string;
   ad_spend_source: string;
+  // Shop's native currency — `_eur` fields above are in this currency.
+  currency?: string;
   generated_at: string;
 };
 
-const fmt = (n: number) => {
-  if (n === 0) return "€0";
-  if (n >= 10_000) return `€${Math.round(n / 1000)}k`;
-  if (n >= 1000) return `€${(n / 1000).toFixed(1)}k`;
-  return `€${Math.round(n).toLocaleString("en")}`;
-};
+// Compact native-currency formatter. Routed through the shared helper
+// so the symbol table lives in one place (_lib/formatters.ts).
+const makeFmt = (currency?: string) =>
+  (n: number) => formatMoneyCompact(n, currency || "USD");
 
 const STATUS_META: Record<string, { color: string; icon: string; label: string }> = {
   healthy: { color: "#10b981", icon: "🟢", label: "Healthy" },
@@ -70,6 +71,9 @@ export function UnitEconomicsCard({ apiBase, isProUser }: { apiBase: string; isP
 
   const meta = STATUS_META[data.status] || STATUS_META.no_data;
   const hasData = data.status !== "no_data";
+  const fmt = makeFmt(data.currency);
+  // Native-currency unit prefix for prose ("for every $1 spent" / "for every €1 spent").
+  const sym = currencySymbol(data.currency);
 
   return (
     <>
@@ -155,7 +159,7 @@ export function UnitEconomicsCard({ apiBase, isProUser }: { apiBase: string; isP
                 {data.ratio.toFixed(1)}×
               </div>
               <div style={{ color: "#94a3b8", fontSize: "14px" }}>
-                money back for every €1 spent
+                money back for every {sym}1 spent
               </div>
             </>
           ) : (
@@ -207,9 +211,9 @@ export function UnitEconomicsCard({ apiBase, isProUser }: { apiBase: string; isP
         <DrawerExplainer
           body={
             "This is the most important number for a growing store. It answers one question: " +
-            "for every €1 you spend to bring in a new customer, how much do you get back from them " +
-            "over the next 12 months? If it's less than €1, you're bleeding cash. " +
-            "If it's more than €3, you're in a healthy spot and can press the accelerator on ads."
+            `for every ${sym}1 you spend to bring in a new customer, how much do you get back from them ` +
+            `over the next 12 months? If it's less than ${sym}1, you're bleeding cash. ` +
+            `If it's more than ${sym}3, you're in a healthy spot and can press the accelerator on ads.`
           }
           why={
             "Almost every store that goes bankrupt had this number below 1 for months without knowing. " +
@@ -220,8 +224,8 @@ export function UnitEconomicsCard({ apiBase, isProUser }: { apiBase: string; isP
         {hasData ? (
           <>
             <DrawerBigStat
-              label="For every €1 spent on ads"
-              value={`€${data.ratio.toFixed(2)}`}
+              label={`For every ${sym}1 spent on ads`}
+              value={`${sym}${data.ratio.toFixed(2)}`}
               sublabel="comes back over the next 12 months"
               color={meta.color}
             />
@@ -270,7 +274,7 @@ export function UnitEconomicsCard({ apiBase, isProUser }: { apiBase: string; isP
                   border: "1px solid rgba(16,185,129,0.25)",
                 }}
               >
-                <b style={{ color: "#10b981" }}>3× or more — Healthy</b>. You can safely spend more on ads to grow faster. Every € is working hard for you.
+                <b style={{ color: "#10b981" }}>3× or more — Healthy</b>. You can safely spend more on ads to grow faster. Every {sym}1 is working hard for you.
               </div>
               <div
                 style={{

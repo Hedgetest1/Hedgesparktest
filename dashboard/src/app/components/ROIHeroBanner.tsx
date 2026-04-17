@@ -26,6 +26,7 @@ import {
   DrawerBarChart,
 } from "./DetailDrawer";
 import { CardSkeleton, CardError, CardEmpty, useCardFetch } from "./_CardStates";
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
 
 type BreakdownItem = {
   source: string;
@@ -52,17 +53,18 @@ type ROIData = {
   plan_cost_eur_monthly: number;
   roi_ratio: number;
   headline_message: string;
+  // Shop's native currency — `_eur` fields above are denominated here.
+  currency?: string;
   generated_at: string;
 };
 
-const fmtEurBig = (n: number): string => {
-  if (n === 0) return "€0";
-  const abs = Math.abs(n);
-  if (abs >= 1_000_000) return `€${(n / 1_000_000).toFixed(1)}M`;
-  if (abs >= 10_000) return `€${Math.round(n / 1000)}k`;
-  if (abs >= 1000) return `€${(n / 1000).toFixed(1)}k`;
-  return `€${Math.round(n).toLocaleString("en")}`;
-};
+// Compact money formatter routed through the shared helper so the
+// symbol comes from the merchant's native currency (USD/EUR/GBP/…).
+// The `currency` argument is the `data.currency` field from the
+// /pro/roi-hero response; `formatMoneyCompact` falls back to "USD"
+// safely when it's missing.
+const makeFmtBig = (currency?: string) =>
+  (n: number) => formatMoneyCompact(n, currency || "USD");
 
 // Animated count-up hook
 function useCountUp(target: number, durationMs = 1200): number {
@@ -143,6 +145,7 @@ export function ROIHeroBanner({ apiBase, isProUser }: { apiBase: string; isProUs
   const deltaNegative = delta != null && delta < 0;
 
   const isHero = data.total_saved_eur_30d > 0;
+  const fmtEurBig = makeFmtBig(data.currency);
 
   return (
     <>
@@ -301,7 +304,7 @@ export function ROIHeroBanner({ apiBase, isProUser }: { apiBase: string; isProUs
             >
               <span style={{ fontSize: "16px" }}>🎯</span>
               <span>
-                ROI: {data.roi_ratio.toFixed(1)}× your €{data.plan_cost_eur_monthly}/mo subscription
+                ROI: {data.roi_ratio.toFixed(1)}× your {fmtEurBig(data.plan_cost_eur_monthly)}/mo subscription
               </span>
             </div>
           )}

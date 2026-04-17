@@ -53,6 +53,9 @@ type AutopsyData = {
     top_decline_cause: string;
   };
   headline: string;
+  // Shop's native currency — every money field in products + summary
+  // is in this currency.
+  currency?: string;
 };
 
 const CAUSE_COLORS: Record<string, string> = {
@@ -67,17 +70,17 @@ const CAUSE_LABELS: Record<string, string> = {
   value: "Order value",
 };
 
-function fmtEur(n: number): string {
-  const abs = Math.abs(n);
-  const sign = n < 0 ? "-" : "+";
-  if (abs >= 1000) return `${sign}€${(abs / 1000).toFixed(1)}k`;
-  return `${sign}€${Math.round(abs)}`;
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
+
+// Currency-aware formatters for the Autopsy card. The merchant's
+// native currency comes from the /pro/revenue-autopsy response.
+function fmtEur(n: number, currency?: string): string {
+  const base = formatMoneyCompact(Math.abs(n), currency || "USD");
+  return n < 0 ? `-${base}` : `+${base}`;
 }
 
-function fmtEurAbs(n: number): string {
-  const abs = Math.abs(n);
-  if (abs >= 1000) return `€${(abs / 1000).toFixed(1)}k`;
-  return `€${Math.round(abs)}`;
+function fmtEurAbs(n: number, currency?: string): string {
+  return formatMoneyCompact(Math.abs(n), currency || "USD");
 }
 
 export function RevenueAutopsyCard({
@@ -163,7 +166,7 @@ export function RevenueAutopsyCard({
                 Leaking per week
               </div>
               <div className="mt-1 text-[24px] font-extrabold tabular-nums text-rose-300">
-                -{fmtEurAbs(weeklyLoss)}
+                -{fmtEurAbs(weeklyLoss, data?.currency)}
               </div>
             </div>
           )}
@@ -202,7 +205,7 @@ export function RevenueAutopsyCard({
                       isDeclining ? "text-rose-400" : "text-emerald-400"
                     }`}
                   >
-                    {fmtEur(p.revenue_delta_eur)}
+                    {fmtEur(p.revenue_delta_eur, data?.currency)}
                     <span className="ml-1 text-[10px] font-semibold text-slate-500">/wk</span>
                   </div>
                 </div>
@@ -265,7 +268,7 @@ export function RevenueAutopsyCard({
         {weeklyLoss > 0 && (
           <DrawerBigStat
             label="Weekly revenue at risk"
-            value={`-${fmtEurAbs(weeklyLoss)}`}
+            value={`-${fmtEurAbs(weeklyLoss, data?.currency)}`}
             sublabel={`Driven mostly by ${CAUSE_LABELS[topCause] || topCause} across ${
               decliningProducts.length
             } declining product${decliningProducts.length === 1 ? "" : "s"}`}
@@ -354,7 +357,7 @@ export function RevenueAutopsyCard({
                       flexShrink: 0,
                     }}
                   >
-                    {fmtEur(p.revenue_delta_eur)}
+                    {fmtEur(p.revenue_delta_eur, data?.currency)}
                   </div>
                 </div>
 
@@ -394,7 +397,7 @@ export function RevenueAutopsyCard({
                             fontVariantNumeric: "tabular-nums",
                           }}
                         >
-                          {fmtEur(impact)}
+                          {fmtEur(impact, data?.currency)}
                         </span>
                       </div>
                     );
@@ -431,6 +434,7 @@ export function RevenueAutopsyCard({
               label: `Fix ${worstDecline.product_name}`,
               description: `This product is losing ${fmtEurAbs(
                 worstDecline.revenue_delta_eur,
+                data?.currency,
               )}/week, driven primarily by ${
                 (CAUSE_LABELS[worstDecline.primary_cause] || worstDecline.primary_cause).toLowerCase()
               }. ${worstDecline.narrative}`,

@@ -70,6 +70,9 @@ class ROIHeroResponse(BaseModel):
     plan_cost_eur_monthly: float
     roi_ratio: float
     headline_message: str
+    # Shop's native currency — all `_eur`-suffixed money fields above
+    # are in this currency (USD/EUR/GBP/…). Historical name.
+    currency: str = "USD"
     generated_at: str
 
 
@@ -521,6 +524,7 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
         "plan_cost_eur_monthly": plan_cost,
         "roi_ratio": round(roi_ratio, 2),
         "headline_message": headline,
+        "currency": currency or "USD",
         "generated_at": now.isoformat(),
     }
 

@@ -93,6 +93,9 @@ class ActionProofSummaryResponse(BaseModel):
     actions_measured: int
     improvements: list[ActionProofImprovement]
     total_revenue_delta: float
+    # Shop's native currency — delta_revenue + total_revenue_delta are
+    # in this currency. Dashboard renders with the matching symbol.
+    currency: str = "USD"
 
 
 class ActionTaskRow(BaseModel):

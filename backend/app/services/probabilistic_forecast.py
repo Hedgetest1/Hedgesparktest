@@ -226,6 +226,9 @@ def forecast_revenue(
         "direction": direction,
         "confidence": _confidence_label(len(values), r2),
         "headline": headline,
+        # Shop's native currency — forecast_point + observed_values are
+        # in this currency. Dashboard renders with the matching symbol.
+        "currency": currency or "USD",
         "generated_at": now.isoformat(),
     }
 

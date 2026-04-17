@@ -21,6 +21,8 @@ import {
   DrawerSparkline,
 } from "./DetailDrawer";
 
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
+
 type ForecastData = {
   shop_domain: string;
   method: string;
@@ -42,15 +44,12 @@ type ForecastData = {
   confidence: string;
   headline: string;
   status?: string;
+  // Shop's native currency — forecast/observed values are native.
+  currency?: string;
 };
 
-const fmt = (n: number): string => {
-  if (n === 0) return "€0";
-  const abs = Math.abs(n);
-  if (abs >= 10_000) return `€${Math.round(n / 1000)}k`;
-  if (abs >= 1000) return `€${(n / 1000).toFixed(1)}k`;
-  return `€${Math.round(n).toLocaleString("en")}`;
-};
+const makeFmt = (currency?: string) =>
+  (n: number) => formatMoneyCompact(n, currency || "USD");
 
 const DIRECTION_META: Record<string, { color: string; arrow: string; label: string }> = {
   rising: { color: "#10b981", arrow: "↑", label: "Trending up" },
@@ -84,6 +83,7 @@ export function RevenueForecastCard({ apiBase, isProUser }: { apiBase: string; i
 
   if (!isProUser || loading || !data) return null;
   if (data.status === "insufficient_data") return null;
+  const fmt = makeFmt(data.currency);
 
   const dir = DIRECTION_META[data.direction] || DIRECTION_META.stable;
 

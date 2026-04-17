@@ -256,13 +256,27 @@ def compute_product_autopsy(db: Session, shop_domain: str) -> dict:
         cause_counts[a["primary_cause"]] = cause_counts.get(a["primary_cause"], 0) + 1
     top_cause = max(cause_counts, key=cause_counts.get) if cause_counts else "none"
 
+    # Resolve native currency for money rendering. Fallback USD so we
+    # NEVER blow up on a lookup failure — the response always carries
+    # a valid ISO code.
+    try:
+        from app.services.revenue_metrics import get_shop_currency
+        from app.core.currency import format_money as _fmt_money
+        currency = get_shop_currency(db, shop_domain) or "USD"
+    except Exception:
+        currency = "USD"
+        _fmt_money = lambda v, c: f"{v:.0f}"  # noqa: E731
+
     if declining:
         headline = (
-            f"{len(declining)} products declining (−€{total_loss:.0f}/week). "
+            f"{len(declining)} products declining (−{_fmt_money(total_loss, currency)}/week). "
             f"Main cause: {top_cause}."
         )
     elif growing:
-        headline = f"All {len(growing)} tracked products are growing (+€{total_gain:.0f}/week)."
+        headline = (
+            f"All {len(growing)} tracked products are growing "
+            f"(+{_fmt_money(total_gain, currency)}/week)."
+        )
     else:
         headline = "Insufficient data for revenue autopsy this period."
 
@@ -277,6 +291,7 @@ def compute_product_autopsy(db: Session, shop_domain: str) -> dict:
             "top_decline_cause": top_cause,
         },
         "headline": headline,
+        "currency": currency,
         "generated_at": now.isoformat(),
     }
 

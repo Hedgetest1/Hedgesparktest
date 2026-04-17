@@ -31,6 +31,10 @@ class RevenueAutopsyResponse(BaseModel):
     products: list[dict[str, Any]] = Field(default_factory=list)
     summary: RevenueAutopsySummary
     headline: str
+    # Shop's native currency — all money fields in products/summary
+    # (revenue_delta_eur, total_loss_per_week, impact_eur, aov_*) are
+    # in this currency.
+    currency: str = "USD"
     generated_at: str
 
 

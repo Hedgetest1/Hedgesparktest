@@ -1,5 +1,5 @@
 # WishSpark Auto Context
-Auto-generated: 2026-04-13T19:00:01.843044 UTC
+Auto-generated: 2026-04-17T08:00:01.545264 UTC
 
 ## Project Root
 /opt/wishspark
@@ -14,6 +14,7 @@ Auto-generated: 2026-04-13T19:00:01.843044 UTC
 
 ## Backend API Modules
 /backend/app/api/__init__.py
+/backend/app/api/_types.py
 /backend/app/api/abandoned_intent.py
 /backend/app/api/action_tasks.py
 /backend/app/api/actions.py
@@ -23,6 +24,7 @@ Auto-generated: 2026-04-13T19:00:01.843044 UTC
 /backend/app/api/ai_actions.py
 /backend/app/api/annotations.py
 /backend/app/api/anomaly_fusion.py
+/backend/app/api/anomaly_replay.py
 /backend/app/api/attribution.py
 /backend/app/api/auth.py
 /backend/app/api/auth_posture.py
@@ -41,6 +43,7 @@ Auto-generated: 2026-04-13T19:00:01.843044 UTC
 /backend/app/api/consent_banner.py
 /backend/app/api/conversion_probability.py
 /backend/app/api/cost_config.py
+/backend/app/api/counterfactual.py
 /backend/app/api/customer_churn.py
 /backend/app/api/daily_narrative.py
 /backend/app/api/dashboard.py
@@ -84,6 +87,7 @@ Auto-generated: 2026-04-13T19:00:01.843044 UTC
 /backend/app/api/ops.py
 /backend/app/api/orders.py
 /backend/app/api/outbound_webhooks.py
+/backend/app/api/playbook.py
 /backend/app/api/pnl.py
 /backend/app/api/price_intelligence.py
 /backend/app/api/price_sensitivity.py
@@ -97,7 +101,6 @@ Auto-generated: 2026-04-13T19:00:01.843044 UTC
 /backend/app/api/realtime_stream.py
 /backend/app/api/refund_loss.py
 /backend/app/api/resend_webhooks.py
-/backend/app/api/revenue_actions.py
 /backend/app/api/revenue_at_risk.py
 /backend/app/api/revenue_autopsy.py
 /backend/app/api/revenue_genome.py
@@ -147,7 +150,6 @@ Auto-generated: 2026-04-13T19:00:01.843044 UTC
 /backend/app/services/alerting.py
 /backend/app/services/annotations.py
 /backend/app/services/anomaly_fusion.py
-/backend/app/services/attribution.py
 /backend/app/services/audience_segments.py
 /backend/app/services/audit.py
 /backend/app/services/auto_responder.py
@@ -209,7 +211,6 @@ Auto-generated: 2026-04-13T19:00:01.843044 UTC
 /backend/app/services/inbound_email_processor.py
 /backend/app/services/instant_onboarding.py
 /backend/app/services/intelligence_report.py
-/backend/app/services/intent_engine.py
 /backend/app/services/klaviyo_connection.py
 /backend/app/services/klaviyo_events.py
 /backend/app/services/klaviyo_export.py
@@ -277,7 +278,6 @@ Auto-generated: 2026-04-13T19:00:01.843044 UTC
 /backend/app/services/revenue_genome.py
 /backend/app/services/revenue_loss.py
 /backend/app/services/revenue_metrics.py
-/backend/app/services/revenue_recovery_engine.py
 /backend/app/services/revenue_triggers.py
 /backend/app/services/reviewer_layer.py
 /backend/app/services/risk_forecast.py
@@ -398,7 +398,6 @@ Auto-generated: 2026-04-13T19:00:01.843044 UTC
 /app/groups
 /app/marketplace
 /cookies
-/insights
 /install
 /pricing
 /privacy

@@ -37,15 +37,17 @@ function shortProduct(url?: string | null): string {
   return url.length > 30 ? url.slice(0, 28) + "…" : url;
 }
 
-function fmtDelta(value: number): string {
-  if (value >= 1000) return `+€${(value / 1000).toFixed(1)}k`;
-  return `+€${Math.round(value)}`;
+import { formatMoneyCompact } from "@/app/app/_lib/formatters";
+
+// Currency-aware delta formatters. Routed through the shared helper
+// so the symbol comes from the /actions/proof response.currency.
+function fmtDelta(value: number, currency?: string): string {
+  const base = formatMoneyCompact(Math.round(value), currency || "USD");
+  return value >= 0 ? `+${base}` : base;
 }
 
-function fmtDeltaAbs(value: number): string {
-  const abs = Math.abs(value);
-  if (abs >= 1000) return `€${(abs / 1000).toFixed(1)}k`;
-  return `€${Math.round(abs)}`;
+function fmtDeltaAbs(value: number, currency?: string): string {
+  return formatMoneyCompact(Math.abs(value), currency || "USD");
 }
 
 export function ProofHeroCard({
@@ -96,6 +98,8 @@ export function ProofHeroCard({
   const cvrSign = deltaCvr > 0 ? "+" : deltaCvr < 0 ? "-" : "";
   const improvements = data.improvements;
   const positiveCount = improvements.filter((i) => (i.delta_revenue ?? 0) > 0).length;
+  // Optional in the response_model; defaults to USD on the backend.
+  const ccy = (data as { currency?: string }).currency;
 
   return (
     <>
@@ -103,7 +107,7 @@ export function ProofHeroCard({
         role="button"
         tabIndex={0}
         aria-haspopup="dialog"
-        aria-label={`Open proof-of-impact details — ${fmtDelta(totalDelta)} total revenue recovered, ${improvements.length} improvements measured`}
+        aria-label={`Open proof-of-impact details — ${fmtDelta(totalDelta, ccy)} total revenue recovered, ${improvements.length} improvements measured`}
         onClick={() => setDrawerOpen(true)}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -130,7 +134,7 @@ export function ProofHeroCard({
           {totalDelta > 0 && (
             <div>
               <div className="text-[42px] font-extrabold leading-none tracking-tight tabular-nums text-emerald-300">
-                {fmtDelta(totalDelta)}
+                {fmtDelta(totalDelta, ccy)}
               </div>
               <div className="mt-1 text-[12px] font-semibold uppercase tracking-wider text-emerald-400/80">
                 Revenue recovered
@@ -198,7 +202,7 @@ export function ProofHeroCard({
         {totalDelta > 0 && (
           <DrawerBigStat
             label="Total revenue recovered"
-            value={fmtDelta(totalDelta)}
+            value={fmtDelta(totalDelta, ccy)}
             sublabel={`Across ${improvements.length} measured improvement${
               improvements.length === 1 ? "" : "s"
             } · ${positiveCount} positive outcome${positiveCount === 1 ? "" : "s"}`}
@@ -224,7 +228,7 @@ export function ProofHeroCard({
             },
             {
               label: "Total revenue delta",
-              value: `${totalDelta >= 0 ? "+" : "-"}${fmtDeltaAbs(totalDelta)}`,
+              value: `${totalDelta >= 0 ? "+" : "-"}${fmtDeltaAbs(totalDelta, ccy)}`,
               color: totalDelta >= 0 ? "#10b981" : "#f43f5e",
             },
           ]}
@@ -294,7 +298,7 @@ export function ProofHeroCard({
                       }}
                     >
                       {dr >= 0 ? "+" : "-"}
-                      {fmtDeltaAbs(dr)}
+                      {fmtDeltaAbs(dr, ccy)}
                     </div>
                     {dcvr !== 0 && (
                       <div
