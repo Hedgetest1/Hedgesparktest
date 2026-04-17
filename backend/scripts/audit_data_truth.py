@@ -64,6 +64,15 @@ _LINE_ALLOWLIST: dict[str, str] = {
     "app/api/playbook.py:220": "Peer-network aggregate: best_lift over holdout-measured rows — same source as avg_lift on line 219.",
     "app/services/conversion_service.py:144": "expected_uplift is a PREDICTED value from a heuristic model; the key name explicitly says 'expected' not 'measured'. Not a claim about post-hoc lift.",
     "app/services/share_engine.py:239": "share_engine consumes pre-measured holdout data from proof_engine — the message correctly says 'measured with holdout testing' because the lift is already holdout-measured by the time it reaches this file.",
+    # ─── Pydantic default-value allowlist (response_model `currency: str = "USD"`) ───
+    # These are default-currency literals on Pydantic response models.
+    # They are NOT hardcoded display currencies — the service layer
+    # overrides them with the shop's actual currency before serializing.
+    # The default is a safety net for cases where the service fails to
+    # resolve (e.g. brand-new merchant with no orders yet).
+    "app/api/mta.py:46": "Pydantic response_model default; service overrides with shop currency",
+    "app/api/mta.py:57": "Pydantic response_model default; service overrides with shop currency",
+    "app/api/benchmarks.py:55": "Pydantic response_model default; service overrides with shop currency",
 }
 
 # Per-line fallbacks that are DEFENSIVE (e.g. `get_shop_currency(db, shop) or "USD"`).
