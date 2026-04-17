@@ -44,6 +44,51 @@ _GENERIC_RECURRENCE_THRESHOLD = 3
 # fires across N+ distinct shops, create a fleet-wide candidate.
 _FLEET_WIDE_MIN_SHOPS = 3
 
+# Pipeline-internal alert types. These are alerts EMITTED by the
+# self-healing pipeline itself (bugfix application, deploy, tier1 auto-
+# apply, governance reports, compute-exception wrappers). Consuming them
+# as triage input creates a fix-the-fixer infinite loop:
+#
+#   candidate X fails → pipeline writes `bugfix_apply_failed` alert →
+#   next triage run picks it up → creates candidate Y "fix the failed
+#   candidate X" → Y also fails → pipeline writes another alert → ...
+#
+# Root cause of the 180 Telegram messages / 96 msg/day digest spam
+# observed on 2026-04-16. The `handled_alert_types` tuple for Rule 7
+# and `handled_for_fleet` tuple for Rule 8 both exclude this set. The
+# `_create_candidate()` guard below adds a defensive second layer — even
+# if a future rule forgets to exclude them, the candidate never lands.
+_PIPELINE_INTERNAL_ALERT_TYPES: tuple[str, ...] = (
+    # bugfix_pipeline.py
+    "bugfix_apply_failed",
+    "bugfix_rolled_back",
+    "chronic_thrashing",
+    "governed_tier1_applied",
+    "lesson_pending_promotion",
+    "manual_intervention_required",
+    "possible_self_regression",
+    "post_merge_regression",
+    # promotion_pipeline.py
+    "deploy_failed",
+    "deploy_rolled_back",
+    "deploy_succeeded",
+    "remote_ci_failed",
+    # compute-exception wrappers (the module threw, not a product bug)
+    "rars_compute_failed",
+    "benchmark_compute_failed",
+    "refund_loss_compute_failed",
+    "roi_report_generate_failed",
+    # audit-integrity signals handled out-of-band (never auto-fixed)
+    "audit_log_tampering",
+    # LLM-side guardrails surface as alerts but are fixed by prompt tuning,
+    # not by code patches
+    "chatbot_llm_hallucination",
+    # Regulatory + compliance signals require human review
+    "breach_response_required",
+    "compliance_gap",
+    "regulatory_update",
+)
+
 
 # ---------------------------------------------------------------------------
 # Patch fingerprinting — prevents retrying identical failed approaches
@@ -1134,6 +1179,8 @@ def run_bug_triage(db: Session) -> dict:
             summary_text=alert[2],
             context={"alert_id": alert[0], "shop": alert[1], "detail": alert[3]},
         )
+        if candidate is None:
+            continue
         summary["created"] += 1
 
         # Back-link: update any support incidents linked to this alert
@@ -1230,10 +1277,10 @@ def run_bug_triage(db: Session) -> dict:
         "merchant_reported_bug",
         "frontend_error",
         "semantic_drift",
-        # Self-healing meta — already managed by the pipeline itself
-        "chronic_thrashing",
-        "bugfix_apply_failed",
-        "bugfix_rolled_back",
+        # Self-healing meta — alerts that the pipeline ITSELF emits.
+        # Consuming them here would create an infinite fix-the-fixer loop
+        # (root cause of the 180 Telegram messages on 2026-04-16).
+        *_PIPELINE_INTERNAL_ALERT_TYPES,
     )
     generic_alerts = db.execute(text("""
         SELECT alert_type, source, MAX(id) AS latest_id, MAX(shop_domain) AS shop,
@@ -1290,15 +1337,13 @@ def run_bug_triage(db: Session) -> dict:
     #   webhook:resend_rejected:order_42 → webhook:resend_rejected:*
     handled_for_fleet = (
         "frontend_error",  # frontend errors are visibility-only, no auto-fix
-        "chronic_thrashing",
-        "bugfix_apply_failed",
-        "bugfix_rolled_back",
         "heartbeat_synthetic_test",
         "heartbeat_ok",
         "heartbeat_failed",
-        "deploy_succeeded",
-        "deploy_failed",
-        "deploy_rolled_back",
+        # Pipeline-internal alerts must not loop through fleet-wide triage
+        # either. `_PIPELINE_INTERNAL_ALERT_TYPES` is the single source of
+        # truth used by Rule 7 and the defensive candidate guard.
+        *_PIPELINE_INTERNAL_ALERT_TYPES,
     )
     fleet_alerts = db.execute(text("""
         SELECT alert_type,
@@ -1349,6 +1394,8 @@ def run_bug_triage(db: Session) -> dict:
                 "scope": "fleet_wide",
             },
         )
+        if cand is None:
+            continue
         # Bump priority for fleet-wide candidates — they heal N shops at once
         try:
             cand.priority_score = min(100, (cand.priority_score or 0) + 20)
@@ -1774,10 +1821,54 @@ def _infer_domain_criticality(affected_domain: str | None) -> str:
     return _LOCAL_CRITICALITY.get(affected_domain, "medium")
 
 
+def _is_pipeline_self_reference(context: dict | None) -> str | None:
+    """
+    Return a non-empty reason if `context` points back to the pipeline
+    itself (as input source). Used to refuse creating candidates that
+    would loop: a candidate "fix the failed-candidate alert" re-triggers
+    the same failure → writes another alert → another candidate → ...
+
+    Treats any of these as self-reference:
+      1. `context['alert_type']` or `context['type']` is in
+         `_PIPELINE_INTERNAL_ALERT_TYPES`.
+      2. `context['source']` starts with a pipeline-owned prefix
+         (bugfix_apply, governance, deploy, promotion).
+      3. `context['candidate_id']` / `context['source_candidate_id']` is
+         set — this directly references another candidate by ID.
+    """
+    if not isinstance(context, dict):
+        return None
+    alert_type = (context.get("alert_type") or context.get("type") or "").strip()
+    if alert_type and alert_type in _PIPELINE_INTERNAL_ALERT_TYPES:
+        return f"alert_type={alert_type} is pipeline-internal"
+    source = (context.get("source") or "").strip()
+    for prefix in ("bugfix_apply", "bugfix_propose", "governance", "deploy", "promotion", "reviewer_layer"):
+        if source.startswith(prefix):
+            return f"source={source} is pipeline-owned"
+    for key in ("candidate_id", "source_candidate_id", "parent_candidate_id"):
+        if context.get(key):
+            return f"context.{key} references a prior candidate"
+    return None
+
+
 def _create_candidate(
     db: Session, *, source_type: str, source_ref: str,
     title: str, summary_text: str, context: dict,
-) -> BugFixCandidate:
+) -> BugFixCandidate | None:
+    # Defensive loop guard: refuse to create a candidate whose input is
+    # the pipeline's own emission. Belt-and-suspenders alongside the
+    # `handled_alert_types` / `handled_for_fleet` exclusion tuples.
+    # Without this, a future rule that forgets to exclude a new internal
+    # alert type re-opens the fix-the-fixer loop silently.
+    self_ref_reason = _is_pipeline_self_reference(context)
+    if self_ref_reason:
+        log.warning(
+            "bugfix_pipeline: refused self-referential candidate "
+            "source_type=%s source_ref=%s reason=%s",
+            source_type, source_ref, self_ref_reason,
+        )
+        return None
+
     # Compute priority at creation time so run_auto_propose and
     # run_auto_apply can order meaningfully. The affected_domain is not
     # yet known here (it's resolved later by _classify_candidate_domain
