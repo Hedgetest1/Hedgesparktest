@@ -105,7 +105,32 @@ _MONEY_AGG_RE = re.compile(
     r"SUM\s*\(\s*(total_price|amount|revenue|refund_amount|price|revenue_delta)",
     re.IGNORECASE,
 )
-_CURRENCY_GUARD_RE = re.compile(r"currency", re.IGNORECASE)
+# A legit currency control is a SQL or Python pattern, not the word
+# "currency" in a comment or docstring. We accept any of:
+#   - `:currency` bind param (parameterized filter)
+#   - `currency =` / `currency IS NULL` / `currency IN (` (WHERE filter)
+#   - `GROUP BY ... currency` (aggregation partitioned by currency)
+#   - `SELECT currency` / `SELECT COALESCE(currency` (column in output)
+#   - a Python kwarg literal like `"currency": currency`
+# Comments are stripped BEFORE this check so the word "currency" in
+# an explanatory comment ("# no currency filter yet") cannot mask a
+# real regression (the pre-2026-04-17 behavior that this audit gate
+# exists to prevent).
+_CURRENCY_GUARD_RE = re.compile(
+    r":currency\b|"
+    r"\bcurrency\s*(=|IS\s+NULL|IS\s+NOT\s+NULL|IN\s*\()|"
+    r"\bGROUP\s+BY\b[^\n]*\bcurrency\b|"
+    r"\bSELECT\b[^\n]*\bcurrency\b|"
+    r"COALESCE\s*\(\s*currency\b|"
+    r"['\"]currency['\"]\s*:",
+    re.IGNORECASE,
+)
+
+
+_SQL_CONTEXT_RE = re.compile(
+    r"\b(SELECT|FROM|WHERE|GROUP\s+BY|HAVING|ORDER\s+BY)\b",
+    re.IGNORECASE,
+)
 
 
 def check_money_aggregation(files: list[tuple[Path, list[str]]]) -> list[Finding]:
@@ -114,21 +139,20 @@ def check_money_aggregation(files: list[tuple[Path, list[str]]]) -> list[Finding
         rel = str(path.relative_to(BACKEND_DIR))
         if "/test" in rel or "scripts/" in rel:
             continue
-        # Track triple-quote docstring regions so we skip description text.
-        in_docstring = False
         for i, line in enumerate(lines, 1):
             stripped = line.strip()
-            # Flip docstring state on triple-quote lines.
-            triple_count = stripped.count('"""') + stripped.count("'''")
-            if triple_count == 1:
-                in_docstring = not in_docstring
-                continue
-            if in_docstring:
-                continue
             # Ignore comment descriptions that happen to mention SUM(...)
             if stripped.startswith(("#", "//", "*")):
                 continue
             if _MONEY_AGG_RE.search(line) and not _CURRENCY_GUARD_RE.search(line):
+                # Require a SQL keyword nearby. Without this, the audit
+                # flags prose like "Returns: covered_revenue: SUM(price ×
+                # quantity) over matched line items" inside docstrings.
+                # Real SQL queries always have SELECT/FROM/WHERE within
+                # a few lines of the SUM().
+                narrow_ctx = "\n".join(lines[max(0, i - 6):i + 10])
+                if not _SQL_CONTEXT_RE.search(narrow_ctx):
+                    continue
                 # Columns suffixed with _eur are already currency-normalized
                 # (the ingestion pipeline converts to EUR at write-time via
                 # `order_ingestion._normalize_to_eur`). Aggregating them is
@@ -138,8 +162,18 @@ def check_money_aggregation(files: list[tuple[Path, list[str]]]) -> list[Finding
                 # Check the enclosing SQL block (25 lines before, 30 after).
                 # A SUM() can be 20+ lines from its WHERE clause when the
                 # query has CTEs, GROUP BY, ORDER BY, LIMIT, etc.
-                context = "\n".join(lines[max(0, i - 26):i + 30])
-                if "currency" not in context.lower():
+                #
+                # Strip Python comments first — the word "currency" in
+                # an explanatory comment ("# no currency filter yet")
+                # previously produced a false negative. We only trust
+                # SQL/kwarg patterns, not prose.
+                raw = lines[max(0, i - 26):i + 30]
+                stripped_ctx = [
+                    re.sub(r"#.*$", "", ln) for ln in raw
+                    if not ln.lstrip().startswith("#")
+                ]
+                context = "\n".join(stripped_ctx)
+                if not _CURRENCY_GUARD_RE.search(context):
                     if not _allowlisted(rel, i):
                         findings.append(Finding(
                             check="money_aggregation_no_currency",
