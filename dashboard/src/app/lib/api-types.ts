@@ -5748,6 +5748,11 @@ export interface components {
             };
             /** Headline */
             headline: string;
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
             /** Generated At */
             generated_at: string;
         };
@@ -5812,6 +5817,11 @@ export interface components {
             improvements: components["schemas"]["ActionProofImprovement"][];
             /** Total Revenue Delta */
             total_revenue_delta: number;
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
         };
         /**
          * ActionTaskRow
@@ -6290,6 +6300,11 @@ export interface components {
              * @default 0
              */
             total_recovery_potential_eur: number;
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
             /** Generated At */
             generated_at?: string | null;
             /** Note */
@@ -6321,6 +6336,11 @@ export interface components {
             headline: string;
             /** Ad Spend Source */
             ad_spend_source: string;
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
             /** Generated At */
             generated_at: string;
         };
@@ -6371,6 +6391,11 @@ export interface components {
             methodology: string;
             /** Detail */
             detail: string;
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
         };
         /** ChatRequest */
         ChatRequest: {
@@ -6630,6 +6655,11 @@ export interface components {
             entries?: components["schemas"]["CounterfactualEntry"][];
             /** Headline */
             headline: string;
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
             /** Generated At */
             generated_at: string;
         };
@@ -6724,6 +6754,11 @@ export interface components {
             fusion_alerts: {
                 [key: string]: unknown;
             }[];
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
             /** Generated At */
             generated_at: string;
         };
@@ -7192,6 +7227,11 @@ export interface components {
              * @default 0
              */
             off_track_count: number;
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
         };
         /** GroupCreateIn */
         GroupCreateIn: {
@@ -7199,11 +7239,8 @@ export interface components {
             name: string;
             /** Description */
             description?: string | null;
-            /**
-             * Base Currency
-             * @default EUR
-             */
-            base_currency: string;
+            /** Base Currency */
+            base_currency?: string | null;
         };
         /** GroupCreateResponse */
         GroupCreateResponse: {
@@ -7675,6 +7712,8 @@ export interface components {
             precision: string;
             /** Min Required Margin Pct */
             min_required_margin_pct: number;
+            /** Currency */
+            currency: string;
             /** Computed At */
             computed_at: string;
         };
@@ -7852,6 +7891,11 @@ export interface components {
             total_orders: number;
             /** Headline */
             headline: string | null;
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
             /** Generated At */
             generated_at: string;
         };
@@ -7873,6 +7917,11 @@ export interface components {
             sources: components["schemas"]["MtaSource"][];
             /** Path Samples */
             path_samples: string[];
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
             /** Generated At */
             generated_at: string;
         };
@@ -7923,6 +7972,11 @@ export interface components {
             };
             /** Status */
             status?: string | null;
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
         };
         /**
          * NudgeAbExperimentBlock
@@ -8543,6 +8597,11 @@ export interface components {
             }[];
             /** Headline */
             headline: string;
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
             /** Generated At */
             generated_at: string;
         };
@@ -9101,6 +9160,11 @@ export interface components {
             net_roi_eur: number;
             /** Components */
             components?: components["schemas"]["RARSComponentResponse"][];
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
             /** Generated At */
             generated_at?: string | null;
             /** Headline */
@@ -9138,6 +9202,11 @@ export interface components {
             roi_ratio: number;
             /** Headline Message */
             headline_message: string;
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
             /** Generated At */
             generated_at: string;
         };
@@ -9161,6 +9230,11 @@ export interface components {
             }[];
             /** Headline */
             headline: string;
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
             /** Generated At */
             generated_at: string;
         };
@@ -9213,6 +9287,11 @@ export interface components {
             product_count: number;
             /** Products */
             products?: components["schemas"]["ProductLossRow"][];
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
             /** Generated At */
             generated_at?: string | null;
             /** Method */
@@ -9266,6 +9345,11 @@ export interface components {
             summary: components["schemas"]["RevenueAutopsySummary"];
             /** Headline */
             headline: string;
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
             /** Generated At */
             generated_at: string;
         };
@@ -9514,6 +9598,11 @@ export interface components {
             product_a: components["schemas"]["SegmentSnapshotResponse"];
             product_b: components["schemas"]["SegmentSnapshotResponse"];
             delta: components["schemas"]["CompareDeltaResponse"];
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
             /** Generated At */
             generated_at: string;
         };
@@ -9597,6 +9686,11 @@ export interface components {
             warm: components["schemas"]["SegmentBlock"];
             cold: components["schemas"]["SegmentBlock"];
             meta: components["schemas"]["SegmentsMetaBlock"];
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
         };
         /**
          * SessionTimelineResponse
@@ -10220,6 +10314,11 @@ export interface components {
             effective_rate: number;
             /** Contracts */
             contracts: components["schemas"]["TrustContractResponse"][];
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -10312,6 +10411,11 @@ export interface components {
             total_found: number;
             /** Journeys */
             journeys: components["schemas"]["VisitorJourney"][];
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
             /** Generated At */
             generated_at: string;
         };

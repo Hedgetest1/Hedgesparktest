@@ -104,13 +104,14 @@ def compare_two_products(
     revenue_delta = a.estimated_revenue_window - b.estimated_revenue_window
 
     # Resolve shop currency so the narrative prose uses native symbol.
+    # format_money is unconditionally available; only the DB lookup
+    # can fail.
+    from app.core.currency import format_money
     try:
-        from app.core.currency import format_money
         from app.services.revenue_metrics import get_shop_currency
         currency = get_shop_currency(db, shop_domain) or "USD"
     except Exception:
         currency = "USD"
-        from app.core.currency import format_money
 
     if abs(revenue_delta) < 10:
         winner = "tie"

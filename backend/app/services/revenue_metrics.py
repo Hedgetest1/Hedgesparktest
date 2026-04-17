@@ -65,23 +65,114 @@ log = logging.getLogger(__name__)
 FALLBACK_AOV: float = 50.0
 
 
+# Redis cache for shop currency. A shop's primary_currency is set from
+# Shopify shop.json at install and essentially never changes. With 20+
+# Pro endpoints calling get_shop_currency() on every dashboard paint,
+# caching cuts ~25 DB round-trips per paint down to 1 per TTL window
+# (bounded Redis lookup instead). At 10k merchants this is load we
+# genuinely avoid. 1-hour TTL is a safe compromise — merchants who
+# change their Shopify base currency see the new symbol within an hour
+# (and can force-refresh by uninstall/reinstall which wipes the key).
+_CURRENCY_CACHE_PREFIX = "hs:shop_ccy:v1"
+_CURRENCY_CACHE_TTL_SECONDS = 3600
+
+
+def _cache_key(shop_domain: str) -> str:
+    return f"{_CURRENCY_CACHE_PREFIX}:{shop_domain}"
+
+
+def _cache_enabled() -> bool:
+    """Skip the cache under APP_ENV=test. The test suite uses SAVEPOINT
+    rollback for per-test hermeticity; a Redis cache that outlives the
+    SAVEPOINT would leak state between tests that share a shop_domain
+    (merchant fixtures reuse 'test-shop-a.myshopify.com' across tests).
+    Prod + staging read & write normally."""
+    import os
+    return os.environ.get("APP_ENV") != "test"
+
+
+def _cache_get(shop_domain: str) -> str | None:
+    """Best-effort Redis read. Never raises — a Redis outage falls
+    through to the authoritative DB lookup. Observed via
+    record_silent_return so cache-degradation is visible in metrics."""
+    if not _cache_enabled():
+        return None
+    from app.core.silent_fallback import record_silent_return
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            record_silent_return("revenue_metrics.currency_cache.get.no_client")
+            return None
+        raw = rc.get(_cache_key(shop_domain))
+        if not raw:
+            # Genuine cache miss — expected on first read per shop per TTL.
+            # Don't count as a failure; caller proceeds to authoritative lookup.
+            return None
+        # redis-py returns bytes by default; decode safely.
+        return raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+    except Exception:
+        record_silent_return("revenue_metrics.currency_cache.get.exception")
+        return None
+
+
+def _cache_set(shop_domain: str, currency: str) -> None:
+    """Best-effort Redis write. Never raises — cache write is fire-and-forget
+    optimization, observed via record_silent_return on failure."""
+    if not _cache_enabled():
+        return
+    from app.core.silent_fallback import record_silent_return
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            record_silent_return("revenue_metrics.currency_cache.set.no_client")
+            return
+        rc.setex(_cache_key(shop_domain), _CURRENCY_CACHE_TTL_SECONDS, currency)
+    except Exception:
+        record_silent_return("revenue_metrics.currency_cache.set.exception")
+
+
+def invalidate_shop_currency_cache(shop_domain: str) -> None:
+    """Public hook — call when a merchant's primary_currency changes
+    (uninstall/reinstall, manual currency switch). No-op on Redis miss.
+    The 1h TTL is the upper bound on staleness even when this fails."""
+    from app.core.silent_fallback import record_silent_return
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            record_silent_return("revenue_metrics.currency_cache.invalidate.no_client")
+            return
+        rc.delete(_cache_key(shop_domain))
+    except Exception:
+        record_silent_return("revenue_metrics.currency_cache.invalidate.exception")
+
+
 def get_shop_currency(db: Session, shop_domain: str) -> str | None:
     """
     Return the shop's primary currency.
 
     Lookup order:
-    1. merchant.primary_currency (populated from Shopify shop.json at install)
-    2. MODE() over shop_orders.currency (expensive fallback for pre-migration merchants)
+    1. Redis cache (1h TTL) — avoids ~25 DB round-trips per dashboard paint
+    2. merchant.primary_currency (populated from Shopify shop.json at install)
+    3. MODE() over shop_orders.currency (expensive fallback for pre-migration merchants)
 
     Returns ISO 4217 code (e.g. "USD") or None if no data available.
     """
+    cached = _cache_get(shop_domain)
+    if cached:
+        return cached
+
     try:
         from app.models.merchant import Merchant
         row = db.query(Merchant.primary_currency).filter(
             Merchant.shop_domain == shop_domain
         ).first()
         if row and row[0]:
-            return str(row[0])
+            currency = str(row[0])
+            _cache_set(shop_domain, currency)
+            return currency
     except Exception as exc:
         log.warning("revenue_metrics: primary_currency lookup failed for shop=%s: %s", shop_domain, exc)
 
@@ -98,7 +189,9 @@ def get_shop_currency(db: Session, shop_domain: str) -> str | None:
         )
         row = result.fetchone()
         if row and row[0]:
-            return str(row[0])
+            currency = str(row[0])
+            _cache_set(shop_domain, currency)
+            return currency
         return None
     except Exception as exc:
         log.warning(

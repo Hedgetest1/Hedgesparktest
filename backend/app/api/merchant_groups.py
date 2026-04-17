@@ -27,7 +27,10 @@ router = APIRouter(tags=["merchant_groups"])
 class GroupCreateIn(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=500)
-    base_currency: str = Field(default="EUR", max_length=8)
+    # When omitted, the endpoint resolves to the creator's shop native
+    # currency via get_shop_currency(). A USD merchant creating a group
+    # without an explicit preference should get USD, not EUR.
+    base_currency: str | None = Field(default=None, max_length=8)
 
 
 class MemberAddIn(BaseModel):
@@ -93,9 +96,15 @@ def create_group_endpoint(
     db: Session = Depends(get_db),
 ):
     from app.services.merchant_groups import create_group, add_member
+    from app.services.revenue_metrics import get_shop_currency
     email = _owner_email_for(db, shop)
+    # Default group base currency to the creator's shop native currency
+    # when the client doesn't specify. Falls back to USD for brand-new
+    # shops with no resolvable currency (consistent with the rest of
+    # the dashboard). Fixes an EUR-only default that broke USD merchants.
+    base_ccy = payload.base_currency or get_shop_currency(db, shop) or "USD"
     g = create_group(db, name=payload.name, owner_email=email,
-                     description=payload.description, base_currency=payload.base_currency)
+                     description=payload.description, base_currency=base_ccy)
     add_member(db, g.id, shop, label="primary", is_primary=True)
     return {"id": g.id, "name": g.name, "owner_email": g.owner_email}
 

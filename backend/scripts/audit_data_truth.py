@@ -78,12 +78,10 @@ _LINE_ALLOWLIST: dict[str, str] = {
     # last-resort fallback if every lookup path fails. Not a display string.
     "app/services/mta_engine.py:104": "Defensive `return \"USD\"` inside _resolve_currency except block — the helper's own fallback",
     "app/services/revenue_at_risk.py:498": "Defensive `currency or \"USD\"` guard at response assembly — same safety-net pattern as _DEFENSIVE_FALLBACK_RE",
-    # ─── Exception-handler fallbacks after get_shop_currency() raises ───
-    # Same pattern as pnl_engine.py:162 (already allowlisted) — these are
-    # last-resort USD fallbacks in except blocks that catch raw SQL / ORM
-    # failures from get_shop_currency(). Not hardcoded displays.
-    "app/api/segments.py:215": "Exception-path fallback after get_shop_currency() raises — defensive",
-    "app/services/store_insight_engine.py:625": "Exception-path fallback after get_shop_currency() raises — defensive",
+    # NB: exception-handler fallbacks (currency = "USD" / _currency = "USD"
+    # / result["currency"] = "USD" inside `except Exception:`) are now
+    # auto-suppressed by _EXCEPTION_FALLBACK_LINE_RE — they used to need
+    # per-line allowlist entries. Widened on 2026-04-17.
 }
 
 # Per-line fallbacks that are DEFENSIVE (e.g. `get_shop_currency(db, shop) or "USD"`).
@@ -105,11 +103,22 @@ _PYDANTIC_FIELD_DEFAULT_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Exception-handler fallback — `currency = "USD"` inside an `except`
-# block is the catch-all when the real lookup raises. We look back
-# a few lines to see if the enclosing context is an `except` handler.
+# Exception-handler fallback — assigning "USD" inside an `except` block
+# is the catch-all when the real lookup raises. We look back a few
+# lines to see if the enclosing context is an `except` handler.
+# Accepts any of:
+#   currency = "USD"
+#   _currency = "USD"
+#   result["currency"] = "USD"
+#   result.currency = "USD"
+# These are all defensive last-resort assignments after get_shop_currency()
+# raises — not display-layer hardcodes.
 _EXCEPTION_FALLBACK_LINE_RE = re.compile(
-    r'^\s*currency\s*=\s*["\']USD["\']\s*$',
+    r'^\s*(?:'
+    r'_?currency\s*=\s*["\']USD["\']|'  # bare (or _prefixed) variable assignment
+    r'[\w.]+\[\s*["\']currency["\']\s*\]\s*=\s*["\']USD["\']|'  # dict key assignment
+    r'[\w.]+\.currency\s*=\s*["\']USD["\']'  # attribute assignment
+    r')\s*$',
     re.IGNORECASE,
 )
 

@@ -161,12 +161,16 @@ def forecast_revenue(
         ).fetchall()
     except Exception as exc:
         log.warning("forecast: revenue query failed: %s", exc)
-        return _empty_forecast(shop_domain, "revenue", horizon_days, window_days)
+        return _empty_forecast(
+            shop_domain, "revenue", horizon_days, window_days,
+            currency=currency or "USD",
+        )
 
     if len(rows) < _MIN_POINTS_FOR_FORECAST:
         return _empty_forecast(
             shop_domain, "revenue", horizon_days, window_days,
             reason=f"only {len(rows)} days of data",
+            currency=currency or "USD",
         )
 
     dates = [str(r[0]) for r in rows]
@@ -355,7 +359,8 @@ def forecast_churn(
 
 
 def _empty_forecast(
-    shop: str, metric: str, horizon: int, window: int, reason: str = "insufficient_data"
+    shop: str, metric: str, horizon: int, window: int, reason: str = "insufficient_data",
+    currency: str = "USD",
 ) -> dict:
     return {
         "shop_domain": shop,
@@ -379,4 +384,7 @@ def _empty_forecast(
         "r_squared": 0.0,
         "direction": "stable",
         "confidence": "insufficient",
+        # Keep the response_shape stable across happy + empty paths so the
+        # dashboard can always read `currency` without optional-chaining.
+        "currency": currency,
     }

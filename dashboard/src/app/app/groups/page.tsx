@@ -93,8 +93,12 @@ export default function GroupsPage() {
     if (!newName.trim()) return;
     setCreating(true);
     try {
+      // Omit base_currency — the backend resolves it from the creator's
+      // shop native currency (get_shop_currency). Sending a hardcoded
+      // "EUR" here broke USD/GBP/etc. merchants who saw their group
+      // totals mis-labelled.
       const { error: err } = await apiClient.POST("/pro/groups", {
-        body: { name: newName.trim(), base_currency: "EUR" },
+        body: { name: newName.trim() },
       });
       if (!err) {
         setNewName("");
