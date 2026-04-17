@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { formatNumber } from "../_lib/formatters";
+import { formatNumber, currencySymbol } from "../_lib/formatters";
 
 export type TopProductShape = {
   product_id?: string;
@@ -159,14 +159,14 @@ export function ProductInsightPanel({
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-xl border border-emerald-400/[0.15] bg-emerald-500/[0.06] px-4 py-3">
                   <div className="text-[10px] text-slate-500">+1% conversion / day</div>
-                  <div className="mt-1 text-[20px] font-semibold tabular-nums text-emerald-300">{ccy === "EUR" ? "€" : ccy === "GBP" ? "£" : "$"}{uplift1}</div>
+                  <div className="mt-1 text-[20px] font-semibold tabular-nums text-emerald-300">{currencySymbol(ccy)}{uplift1}</div>
                   <div className="mt-0.5 text-[10px] text-slate-600">
                     {views24h} views × 1% × {ccy} {aov}{!aovIsReal && " (est.)"}
                   </div>
                 </div>
                 <div className="rounded-xl border border-emerald-400/[0.22] bg-emerald-500/[0.09] px-4 py-3">
                   <div className="text-[10px] text-slate-500">+2% conversion / day</div>
-                  <div className="mt-1 text-[20px] font-semibold tabular-nums text-emerald-300">{ccy === "EUR" ? "€" : ccy === "GBP" ? "£" : "$"}{uplift2}</div>
+                  <div className="mt-1 text-[20px] font-semibold tabular-nums text-emerald-300">{currencySymbol(ccy)}{uplift2}</div>
                   <div className="mt-0.5 text-[10px] text-slate-600">
                     {views24h} views × 2% × {ccy} {aov}{!aovIsReal && " (est.)"}
                   </div>

@@ -10,6 +10,7 @@
 import { SectionHeading } from "../_components/SectionHeading";
 import { ConnectToolsPanel } from "../../components/ConnectToolsPanel";
 import { YourTeamPanel } from "../../components/YourTeamPanel";
+import { currencySymbol } from "../_lib/formatters";
 
 type CostDefaults = {
   default_cogs_pct?: number | null;
@@ -130,7 +131,7 @@ export function SettingsSection(p: SettingsSectionProps) {
                       : "text-slate-500 hover:text-slate-300"
                   }`}
                 >
-                  <span className="mr-1.5 tabular-nums">{c === "USD" ? "$" : "€"}</span>
+                  <span className="mr-1.5 tabular-nums">{currencySymbol(c)}</span>
                   {c}
                 </button>
               );
@@ -196,7 +197,7 @@ export function SettingsSection(p: SettingsSectionProps) {
             <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Shipping per order</span>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[12px] text-slate-500">
-                {p.displayCurrency === "EUR" ? "€" : "$"}
+                {currencySymbol(p.displayCurrency)}
               </span>
               <input
                 type="number" inputMode="decimal" step="0.01" min="0"
@@ -213,7 +214,7 @@ export function SettingsSection(p: SettingsSectionProps) {
             <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Ad spend / month</span>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[12px] text-slate-500">
-                {p.displayCurrency === "EUR" ? "€" : "$"}
+                {currencySymbol(p.displayCurrency)}
               </span>
               <input
                 type="number" inputMode="decimal" step="1" min="0"
@@ -245,7 +246,7 @@ export function SettingsSection(p: SettingsSectionProps) {
             <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Payment flat</span>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[12px] text-slate-500">
-                {p.displayCurrency === "EUR" ? "€" : "$"}
+                {currencySymbol(p.displayCurrency)}
               </span>
               <input
                 type="number" inputMode="decimal" step="0.01" min="0"
