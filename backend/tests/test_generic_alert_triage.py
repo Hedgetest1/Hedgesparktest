@@ -156,6 +156,39 @@ def test_pipeline_self_reference_guard_blocks_deploy_failed(db):
     assert loop_cand is None
 
 
+def test_pipeline_self_reference_guard_blocks_fleet_wide_deploy_failed(db):
+    """
+    Rule 8 (fleet-wide) consumes alerts that appear across ≥ 3 shops.
+    Previously the fleet tuple missed `governed_tier1_applied` and
+    `deploy_succeeded` — any new pipeline-internal alert that happens
+    to affect ≥ 3 shops would spawn a fleet-wide fix-the-fixer candidate.
+
+    This test seeds the classic fan-out shape for a pipeline-internal
+    alert and asserts that NO fleet_wide candidate is created.
+    """
+    # Seed 4 distinct shops each reporting the same pipeline-internal
+    # alert type — fleet threshold is 3, so this would trigger Rule 8
+    # if the alert type weren't excluded.
+    for shop_idx in range(4):
+        shop = f"fleet-test-{shop_idx}.myshopify.com"
+        _seed_alerts(
+            db, alert_type="governed_tier1_applied",
+            source=f"bugfix_apply:candidate_{shop_idx}",
+            count=2, severity="warning", shop=shop,
+        )
+    run_bug_triage(db)
+    fleet_cand = (
+        db.query(BugFixCandidate)
+        .filter(BugFixCandidate.source_type == "fleet_wide")
+        .filter(BugFixCandidate.source_ref.like("fleet:governed_tier1_applied:%"))
+        .first()
+    )
+    assert fleet_cand is None, (
+        "Rule 8 fleet-wide must not consume pipeline-internal alert types "
+        "— that's the exact loop shape that caused the 2026-04-16 spam"
+    )
+
+
 def test_pipeline_self_reference_guard_rejects_candidate_id_context(db):
     """
     Direct unit test of `_is_pipeline_self_reference`: any context that
