@@ -101,11 +101,19 @@ def compute_price_sensitivity(db: Session, shop_domain: str) -> dict:
                 product_prices[url] = price
 
     if not product_prices:
+        # Resolve currency on the empty path so the dashboard keeps
+        # rendering in the native symbol during warming state.
+        try:
+            from app.services.revenue_metrics import get_shop_currency as _gsc_early
+            _currency_empty = _gsc_early(db, shop_domain) or "USD"
+        except Exception:
+            _currency_empty = "USD"
         return {
             "shop_domain": shop_domain,
             "bands": [],
             "products": [],
             "headline": "Insufficient order data for price sensitivity analysis.",
+            "currency": _currency_empty,
             "generated_at": now.isoformat(),
         }
 

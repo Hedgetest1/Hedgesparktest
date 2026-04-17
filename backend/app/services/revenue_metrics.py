@@ -201,22 +201,127 @@ def get_shop_currency(db: Session, shop_domain: str) -> str | None:
         return None
 
 
+# Timezone cache — same rationale as the currency cache. Shop timezone
+# is set at install and virtually never changes. Key: hs:shop_tz:v1:{shop}.
+_TIMEZONE_CACHE_PREFIX = "hs:shop_tz:v1"
+_TIMEZONE_CACHE_TTL_SECONDS = 3600  # 1h — matches currency TTL
+
+
+def _tz_cache_key(shop_domain: str) -> str:
+    return f"{_TIMEZONE_CACHE_PREFIX}:{shop_domain}"
+
+
+def _tz_cache_get(shop_domain: str) -> str | None:
+    if not _cache_enabled():
+        return None
+    from app.core.silent_fallback import record_silent_return
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            record_silent_return("revenue_metrics.timezone_cache.get.no_client")
+            return None
+        raw = rc.get(_tz_cache_key(shop_domain))
+        if not raw:
+            return None
+        return raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+    except Exception:
+        record_silent_return("revenue_metrics.timezone_cache.get.exception")
+        return None
+
+
+def _tz_cache_set(shop_domain: str, tz: str) -> None:
+    if not _cache_enabled():
+        return
+    from app.core.silent_fallback import record_silent_return
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            record_silent_return("revenue_metrics.timezone_cache.set.no_client")
+            return
+        rc.setex(_tz_cache_key(shop_domain), _TIMEZONE_CACHE_TTL_SECONDS, tz)
+    except Exception:
+        record_silent_return("revenue_metrics.timezone_cache.set.exception")
+
+
 def get_shop_timezone(db: Session, shop_domain: str) -> str:
     """Return the shop's IANA timezone (e.g. 'America/New_York').
 
     Falls back to 'UTC' for merchants installed before the timezone field
     was added, or if the Shopify API didn't return a timezone.
+
+    Redis-cached (1h TTL) — called on every dashboard paint by the
+    aggregation queries and forecast service; a per-request DB round-trip
+    for a value that effectively never changes is wasted work.
     """
+    cached = _tz_cache_get(shop_domain)
+    if cached:
+        return cached
     try:
         from app.models.merchant import Merchant
         row = db.query(Merchant.iana_timezone).filter(
             Merchant.shop_domain == shop_domain
         ).first()
         if row and row[0]:
-            return str(row[0])
+            tz = str(row[0])
+            _tz_cache_set(shop_domain, tz)
+            return tz
     except Exception as exc:
         log.warning("revenue_metrics: iana_timezone lookup failed for shop=%s: %s", shop_domain, exc)
+    # Don't cache the UTC fallback — we want to re-probe in case the
+    # merchant's timezone lands after a reinstall.
     return "UTC"
+
+
+# AOV cache. Unlike currency/timezone, AOV CAN change as new orders
+# arrive, so the TTL is short (5 min — matches aggregation_worker cycle)
+# and the key includes the currency filter. Keeps the value fresh while
+# still saving 9+ callers from re-computing on every dashboard paint.
+_AOV_CACHE_PREFIX = "hs:shop_aov:v1"
+_AOV_CACHE_TTL_SECONDS = 300  # 5 min
+
+
+def _aov_cache_key(shop_domain: str, currency: str | None) -> str:
+    # Use "blended" marker when currency is None so the cache key is
+    # deterministic and never collides with a currency called "".
+    ccy = currency or "blended"
+    return f"{_AOV_CACHE_PREFIX}:{shop_domain}:{ccy}"
+
+
+def _aov_cache_get(shop_domain: str, currency: str | None) -> float | None:
+    if not _cache_enabled():
+        return None
+    from app.core.silent_fallback import record_silent_return
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            record_silent_return("revenue_metrics.aov_cache.get.no_client")
+            return None
+        raw = rc.get(_aov_cache_key(shop_domain, currency))
+        if not raw:
+            return None
+        decoded = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+        return float(decoded)
+    except Exception:
+        record_silent_return("revenue_metrics.aov_cache.get.exception")
+        return None
+
+
+def _aov_cache_set(shop_domain: str, currency: str | None, aov: float) -> None:
+    if not _cache_enabled():
+        return
+    from app.core.silent_fallback import record_silent_return
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            record_silent_return("revenue_metrics.aov_cache.set.no_client")
+            return
+        rc.setex(_aov_cache_key(shop_domain, currency), _AOV_CACHE_TTL_SECONDS, f"{aov:.6f}")
+    except Exception:
+        record_silent_return("revenue_metrics.aov_cache.set.exception")
 
 
 def get_shop_aov(
@@ -240,6 +345,13 @@ def get_shop_aov(
     float — real AOV if orders exist, FALLBACK_AOV otherwise.
             Always returns a positive float.  Never raises.
 
+    Caching
+    -------
+    Redis-cached with a 5-minute TTL (keyed by shop_domain + currency).
+    Matches the aggregation_worker cycle so merchants see new AOV
+    reflected within one cycle. Test suite skips the cache via
+    APP_ENV=test to preserve SAVEPOINT hermeticity.
+
     Logging
     -------
     Logs at WARNING when the fallback path is taken so operators can
@@ -247,6 +359,9 @@ def get_shop_aov(
     Logs at DEBUG when the real AOV is resolved so log analysis can
     track revenue context over time.
     """
+    cached = _aov_cache_get(shop_domain, currency)
+    if cached is not None:
+        return cached
     try:
         if currency:
             result = db.execute(
@@ -292,6 +407,11 @@ def get_shop_aov(
             "revenue_metrics: resolved AOV=%.2f for shop=%s currency=%s",
             aov, shop_domain, currency or "blended",
         )
+        # Cache ONLY the real-AOV happy path — we don't want to pin
+        # FALLBACK_AOV for 5 min because the merchant's first real order
+        # could land within that window and the dashboard should reflect
+        # it on the next paint.
+        _aov_cache_set(shop_domain, currency, aov)
         return aov
 
     except Exception as exc:

@@ -170,6 +170,40 @@ def merchant_b(db: Session) -> Merchant:
     return m
 
 
+# EUR merchant fixture for native-currency correctness tests. A separate
+# fixture (not just patching merchant_a) so existing tests that assume a
+# USD/unset-currency shop keep working.
+SHOP_EUR = "test-shop-eur.myshopify.com"
+
+
+@pytest.fixture()
+def merchant_eur(db: Session) -> Merchant:
+    """Pro merchant explicitly set to EUR.
+
+    Used by currency-correctness smoke tests to prove that endpoints
+    don't silently emit `"USD"` for every shop — they read the shop's
+    real primary_currency through get_shop_currency().
+    """
+    m = Merchant(
+        shop_domain=SHOP_EUR,
+        plan="pro",
+        billing_active=True,
+        install_status="active",
+        session_version=0,
+        contact_email="owner@test-shop-eur.com",
+        primary_currency="EUR",
+    )
+    db.add(m)
+    db.flush()
+    return m
+
+
+@pytest.fixture()
+def auth_eur(merchant_eur) -> dict:
+    """Auth cookies for the EUR merchant."""
+    return auth_cookies(SHOP_EUR)
+
+
 # ---------------------------------------------------------------------------
 # Auth helpers
 # ---------------------------------------------------------------------------

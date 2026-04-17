@@ -22,6 +22,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { apiClient } from "@/app/lib/api-client";
 import { formatMoneyCompact } from "@/app/app/_lib/formatters";
+import { reportFrontendError } from "@/app/lib/error-reporter";
 
 type TopProduct = {
   id: string;
@@ -71,7 +72,17 @@ export function InstantIntelligenceCard({ apiBase }: { apiBase: string }) {
       const { data: j, error } = await apiClient.GET("/pro/instant-intelligence");
       if (error || !j) return;
       setData(j as unknown as InstantIntel);
-    } catch {}
+    } catch (err) {
+      // Never silently swallow — report to the dashboard error channel so
+      // the ops digest can track fetch failures on this card. Empty body
+      // path above is tolerated (returns null data), but a thrown
+      // exception is a bug we need visibility on.
+      reportFrontendError({
+        component: "InstantIntelligenceCard",
+        error_type: "fetch_failed",
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
   }, []);
 
   useEffect(() => {

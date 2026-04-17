@@ -302,6 +302,15 @@ def get_merchant_benchmark_report(db: Session, shop_domain: str) -> dict:
         log.warning("benchmarks: get_merchant_benchmark_report failed: %s", exc)
         pass  # fall through to compute
 
+    # Resolve currency ONCE up front so every return path below can
+    # include it. Empty/warming/error responses must still carry the
+    # merchant's native symbol for dashboard rendering.
+    try:
+        from app.services.revenue_metrics import get_shop_currency
+        _currency = get_shop_currency(db, shop_domain) or "USD"
+    except Exception:
+        _currency = "USD"
+
     try:
         per_shop = _gather_merchant_metrics(db)
     except Exception as exc:
@@ -323,6 +332,7 @@ def get_merchant_benchmark_report(db: Session, shop_domain: str) -> dict:
             "shop_domain": shop_domain,
             "error": "compute_failed",
             "metrics": {},
+            "currency": _currency,
         }
 
     my_metrics = per_shop.get(shop_domain)
@@ -333,6 +343,7 @@ def get_merchant_benchmark_report(db: Session, shop_domain: str) -> dict:
             "peer_count": 0,
             "metrics": {},
             "total_recovery_potential_eur": 0.0,
+            "currency": _currency,
             "generated_at": _now().isoformat(),
             "note": "insufficient_shop_data: <5 orders in last 30 days",
         }
@@ -351,6 +362,7 @@ def get_merchant_benchmark_report(db: Session, shop_domain: str) -> dict:
             ),
             "metrics": {},
             "total_recovery_potential_eur": 0.0,
+            "currency": _currency,
             "generated_at": _now().isoformat(),
             "note": f"insufficient_peers: need >={_MIN_PEERS_PER_BAND} peers in band '{band}'",
         }
@@ -389,21 +401,16 @@ def get_merchant_benchmark_report(db: Session, shop_domain: str) -> dict:
             "narrative": narrative,
         }
 
-    # Shop's native currency for money-field rendering. Failures in
-    # the lookup fall back to USD — the response MUST always carry a
-    # valid ISO code so the dashboard never has to guess.
-    try:
-        from app.services.revenue_metrics import get_shop_currency
-        currency = get_shop_currency(db, shop_domain) or "USD"
-    except Exception:
-        currency = "USD"
+    # Reuse the `_currency` resolved at the top of this function — the
+    # lookup is already cached by get_shop_currency() but dropping this
+    # second call also saves one round-trip on cache-miss paths.
     result = {
         "shop_domain": shop_domain,
         "band": band,
         "peer_count": peer_count,
         "metrics": metrics_out,
         "total_recovery_potential_eur": round(total_recovery, 2),
-        "currency": currency,
+        "currency": _currency,
         "generated_at": _now().isoformat(),
     }
 

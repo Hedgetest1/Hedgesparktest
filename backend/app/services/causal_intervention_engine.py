@@ -98,6 +98,15 @@ def measure_nudge_lift(db: Session, shop_domain: str) -> dict:
     """), {"shop": shop_domain, "cutoff": cutoff}).fetchall()
 
     if not rows:
+        # Resolve currency even on the empty path so the dashboard can
+        # render placeholders in the native symbol. Same "keep response
+        # shape stable across happy + empty" principle as
+        # probabilistic_forecast._empty_forecast.
+        try:
+            from app.services.revenue_metrics import get_shop_currency
+            currency = get_shop_currency(db, shop_domain) or "USD"
+        except Exception:
+            currency = "USD"
         return {
             "shop_domain": shop_domain,
             "total_lift_pct": 0,
@@ -106,6 +115,7 @@ def measure_nudge_lift(db: Session, shop_domain: str) -> dict:
             "nudges_measured": 0,
             "methodology": "rct_holdout",
             "detail": "No nudge events with holdout data in last 30 days.",
+            "currency": currency,
         }
 
     # Aggregate by nudge
