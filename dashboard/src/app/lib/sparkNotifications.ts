@@ -14,6 +14,8 @@
  * No spam. No fake urgency. No backend dependency.
  */
 
+import { formatMoneyCompact } from "../app/_lib/formatters";
+
 export type SparkNotification = {
   id: string;
   type: "proof" | "critical" | "pattern";
@@ -95,6 +97,10 @@ function isThrottled(notifId: string, history: HistoryEntry[]): boolean {
 /**
  * Generate notifications from current sparkActions.
  * Returns only the notifications that should be shown (after throttling).
+ *
+ * `currency` is the shop's native currency (USD/EUR/GBP/…) — used for
+ * rendering `impactValue` with the right symbol in the notification
+ * detail string. Defaults to USD when omitted.
  */
 export function generateNotifications(
   actions: Array<{
@@ -108,6 +114,7 @@ export function generateNotifications(
     targetSection: string;
   }>,
   settings: NotificationSettings,
+  currency: string = "USD",
 ): SparkNotification[] {
   if (!settings.enabled) return [];
 
@@ -147,7 +154,7 @@ export function generateNotifications(
             id,
             type: "critical",
             message: a.title,
-            detail: `~$${a.impactValue}/week at risk`,
+            detail: `~${formatMoneyCompact(a.impactValue, currency)}/week at risk`,
             target: "what-next",
             timestamp: now,
           });

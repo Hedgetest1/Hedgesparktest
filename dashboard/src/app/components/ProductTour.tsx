@@ -55,7 +55,7 @@ const STEPS: Step[] = [
     id: "margin-health",
     title: "Your safety cushion",
     body:
-      "Your profit headroom — how much of every € you keep after costs. " +
+      "Your profit headroom — how much of every sale you keep after costs. " +
       "If you try a discount that would push you into the red, we refuse it. " +
       "Drag the slider inside to test what-if scenarios.",
     placement: "top",

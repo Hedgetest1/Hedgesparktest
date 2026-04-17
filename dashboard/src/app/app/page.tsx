@@ -2004,7 +2004,7 @@ function PageInner() {
   useEffect(() => {
     if (sparkActions.length === 0) return;
     const settings = loadSettings();
-    const notifs = generateNotifications(sparkActions, settings);
+    const notifs = generateNotifications(sparkActions, settings, resolvedCcy);
     if (notifs.length > 0) setActiveToasts(notifs);
   }, [sparkActions]);
 
