@@ -30,6 +30,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.currency import format_money
 from app.services.revenue_metrics import get_shop_currency
 
 log = logging.getLogger("revenue_triggers")
@@ -135,7 +136,7 @@ def _find_best_trigger(db: Session, shop: str) -> dict | None:
                 f"but zero completed purchases. That pattern usually means something "
                 f"between cart and checkout is creating friction.\n\n"
                 f"At your store's average order value, closing even a fraction of these "
-                f"could recover ~{_format_money(weekly_loss, currency)} per week.\n\n"
+                f"could recover ~{format_money(weekly_loss, currency, decimals=0)} per week.\n\n"
                 f"Your dashboard has specific recommendations for this product."
             ),
         }
@@ -264,20 +265,6 @@ def _get_aov(db: Session, shop: str) -> float:
           AND total_price > 0
     """), {"shop": shop, "cutoff": _now() - timedelta(days=30), "currency": currency}).scalar()
     return float(row) if row else 50.0
-
-
-def _currency_symbol(currency: str | None) -> str:
-    """Map ISO currency code to display symbol."""
-    _SYMBOLS = {"USD": "$", "EUR": "€", "GBP": "£", "CAD": "CA$", "AUD": "A$"}
-    return _SYMBOLS.get((currency or "USD").upper(), (currency or "USD") + " ")
-
-
-def _format_money(amount: float, currency: str | None = None) -> str:
-    """Format a money amount for email display using the shop's native currency."""
-    sym = _currency_symbol(currency)
-    if amount >= 1000:
-        return f"{sym}{amount:,.0f}"
-    return f"{sym}{amount:.0f}"
 
 
 def _is_on_cooldown(shop: str) -> bool:
