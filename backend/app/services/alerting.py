@@ -343,25 +343,29 @@ def resolve_stale_alerts(db: Session) -> int:
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     total = 0
 
-    # Tier 1: severity-based staleness
-    severity_cutoffs = [
-        ("info", now - timedelta(hours=_STALE_INFO_AGE_HOURS)),
-        ("warning", now - timedelta(hours=_STALE_WARNING_AGE_HOURS)),
-        ("critical", now - timedelta(hours=_STALE_CRITICAL_AGE_HOURS)),
-    ]
-    for severity, cutoff in severity_cutoffs:
-        result = db.execute(
-            text("""
-                UPDATE ops_alerts
-                SET resolved = true,
-                    resolved_at = :now
-                WHERE resolved = false
-                  AND severity = :sev
-                  AND created_at < :cutoff
-            """),
-            {"now": now, "sev": severity, "cutoff": cutoff},
-        )
-        total += result.rowcount or 0
+    # Tier 1: severity-based staleness — single UPDATE with a
+    # per-severity cutoff disjunction. Previously 3 separate UPDATEs
+    # produced 3 round-trips + 3 index scans on the (resolved, severity,
+    # created_at) index. The combined statement keeps the same matching
+    # semantics but touches the table once.
+    cut_info = now - timedelta(hours=_STALE_INFO_AGE_HOURS)
+    cut_warn = now - timedelta(hours=_STALE_WARNING_AGE_HOURS)
+    cut_crit = now - timedelta(hours=_STALE_CRITICAL_AGE_HOURS)
+    result = db.execute(
+        text("""
+            UPDATE ops_alerts
+            SET resolved = true,
+                resolved_at = :now
+            WHERE resolved = false
+              AND (
+                   (severity = 'info'     AND created_at < :cut_info)
+                OR (severity = 'warning'  AND created_at < :cut_warn)
+                OR (severity = 'critical' AND created_at < :cut_crit)
+              )
+        """),
+        {"now": now, "cut_info": cut_info, "cut_warn": cut_warn, "cut_crit": cut_crit},
+    )
+    total += result.rowcount or 0
 
     # Tier 2: known-noise alert types — resolve aggressively (no age gate)
     if _AUTO_RESOLVE_NOISE_TYPES:
