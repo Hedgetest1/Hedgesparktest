@@ -93,6 +93,17 @@ class SourceCredit:
     last_touches: int
 
 
+def _resolve_currency(db: Session, shop_domain: str) -> str:
+    """Resolve the shop's native currency for display. Falls back to USD
+    when the lookup fails so the response always carries a valid ISO
+    code — the dashboard never needs to guess a symbol."""
+    try:
+        from app.services.revenue_metrics import get_shop_currency
+        return get_shop_currency(db, shop_domain) or "USD"
+    except Exception:
+        return "USD"
+
+
 # ---------------------------------------------------------------------------
 # Touchpoint extraction
 # ---------------------------------------------------------------------------
@@ -382,6 +393,11 @@ def compute_mta(
             for c in sources_sorted
         ],
         "path_samples": path_samples,
+        # Shop's native currency — the dashboard reads this so it can
+        # render total_revenue_eur + per-source revenue_credit_eur with
+        # the correct symbol (the `_eur` suffix is historical — the
+        # underlying values are in NATIVE currency).
+        "currency": _resolve_currency(db, shop_domain),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -467,5 +483,6 @@ def compare_models(
         ),
         "headline": headline,
         "by_model": by_model,
+        "currency": _resolve_currency(db, shop_domain),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }

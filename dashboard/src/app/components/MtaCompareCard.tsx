@@ -44,6 +44,8 @@ type CompareData = {
   total_revenue_eur: number;
   total_orders: number;
   headline: string | null;
+  // Shop's native currency for money rendering (USD/EUR/GBP/…).
+  currency?: string;
   generated_at: string;
 };
 
@@ -69,11 +71,13 @@ const SOURCE_ICONS: Record<string, string> = {
   referral: "🤝",
 };
 
-// MTA revenue figures are EUR-normalized by the backend
-// (order_ingestion._normalize_to_eur) — all SUM(*_eur) columns are
-// safe to render in EUR. Routing through the shared helper means
-// the symbol table lives in one place (_lib/formatters.ts).
-const fmt = (n: number) => formatMoneyCompact(n, "EUR");
+// MTA revenue figures are in the shop's NATIVE currency (the `_eur`
+// suffix on field names is historical — the actual numbers come from
+// shop_orders.total_price scoped by currency upstream). Dashboard
+// reads the `currency` field from the response and renders with the
+// matching symbol.
+const makeFmt = (currency?: string) =>
+  (n: number) => formatMoneyCompact(n, currency || "USD");
 
 export function MtaCompareCard({ apiBase, isProUser }: { apiBase: string; isProUser: boolean }) {
   const [data, setData] = useState<CompareData | null>(null);
@@ -97,6 +101,7 @@ export function MtaCompareCard({ apiBase, isProUser }: { apiBase: string; isProU
 
   if (!isProUser || loading || !data) return null;
   if (data.total_orders === 0) return null;
+  const fmt = makeFmt(data.currency);
 
   const topRows = data.matrix.slice(0, 8);
   const activeRow = drawerSource ? data.matrix.find((r) => r.source === drawerSource) : null;
@@ -137,7 +142,7 @@ export function MtaCompareCard({ apiBase, isProUser }: { apiBase: string; isProU
               What brings the sale
             </h3>
             <div style={{ color: "#94a3b8", fontSize: "12px", marginTop: "2px" }}>
-              {data.total_orders} orders · €{data.total_revenue_eur.toLocaleString("en")} · last {data.window_days} days · click for details
+              {data.total_orders} orders · {fmt(data.total_revenue_eur)} · last {data.window_days} days · click for details
             </div>
           </div>
         </div>

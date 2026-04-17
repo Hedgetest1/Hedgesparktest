@@ -179,6 +179,9 @@ def _compute_margin_snapshot(db: Session, shop_domain: str) -> dict:
         "cogs_pct_used": round(cogs_pct * 100, 2),
         "precision": precision,
         "min_required_margin_pct": round(min_margin, 2),
+        # Native currency the numbers above are denominated in. The
+        # dashboard uses this to pick the correct symbol when rendering.
+        "currency": currency or "USD",
         "computed_at": now.isoformat(),
     }
 

@@ -28,6 +28,11 @@ router = APIRouter(prefix="/pro/margin", tags=["margin_guard"])
 class MarginSnapshot(BaseModel):
     shop_domain: str
     window_days: int
+    # Revenue/cogs/margin amounts are in the shop's NATIVE currency
+    # (USD/EUR/GBP/JPY/…), resolved via revenue_metrics.get_shop_currency
+    # and scoped by `currency = :currency` in the underlying query.
+    # The `_eur` suffix in the field names is a historical artefact —
+    # the `currency` field is the authoritative ISO code for display.
     revenue_eur: float
     cogs_eur: float
     gross_margin_eur: float
@@ -35,6 +40,7 @@ class MarginSnapshot(BaseModel):
     cogs_pct_used: float
     precision: str
     min_required_margin_pct: float
+    currency: str
     computed_at: str
 
 

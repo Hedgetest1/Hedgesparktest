@@ -39,6 +39,10 @@ type VerticalBenchmarkData = {
   peer_count: number;
   metrics: Record<string, Metric>;
   total_recovery_potential_eur: number;
+  // Shop's native currency — money fields (monthly_revenue, aov,
+  // total_recovery_potential_eur, fallback_baselines.aov_baseline_eur)
+  // are all in this currency. `_eur` suffix on field names is historical.
+  currency?: string;
   generated_at: string;
   note?: string;
   fallback_baselines?: { cvr_baseline_pct?: number; aov_baseline_eur?: number };
@@ -58,16 +62,17 @@ const SCOPE_LABELS: Record<string, string> = {
   insufficient: "vertical pool still warming up",
 };
 
-// Benchmark figures are EUR-normalized upstream. Shared helper
-// keeps the symbol table in _lib/formatters.ts.
-function fmtMoney(n: number): string {
-  return formatMoneyCompact(n, "EUR");
+// Benchmark figures are in the shop's NATIVE currency (`_eur` suffix
+// on field names is historical). The component reads the `currency`
+// field from the response and passes it down to this helper.
+function fmtMoney(n: number, currency?: string): string {
+  return formatMoneyCompact(n, currency || "USD");
 }
 
-function fmtMetric(metric: string, v: number): string {
+function fmtMetric(metric: string, v: number, currency?: string): string {
   if (metric === "revenue_growth_30d_pct") return v.toFixed(0) + "%";
   if (metric === "orders_per_day") return v.toFixed(1);
-  if (metric === "monthly_revenue" || metric === "aov") return fmtMoney(v);
+  if (metric === "monthly_revenue" || metric === "aov") return fmtMoney(v, currency);
   return String(Math.round(v));
 }
 
@@ -169,7 +174,7 @@ export function VerticalBenchmarksCard({
           <div className="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 text-[11px] text-slate-500">
             Industry medians (fallback):
             {" "}{data.fallback_baselines.cvr_baseline_pct && `CVR ${data.fallback_baselines.cvr_baseline_pct}% · `}
-            {data.fallback_baselines.aov_baseline_eur && `AOV ${fmtMoney(data.fallback_baselines.aov_baseline_eur)}`}
+            {data.fallback_baselines.aov_baseline_eur && `AOV ${fmtMoney(data.fallback_baselines.aov_baseline_eur, data.currency)}`}
           </div>
         )}
       </div>
@@ -215,7 +220,7 @@ export function VerticalBenchmarksCard({
               Could recover
             </div>
             <div className="text-[18px] font-extrabold tabular-nums text-amber-300">
-              {fmtMoney(totalRecovery)}/mo
+              {fmtMoney(totalRecovery, data?.currency)}/mo
             </div>
           </div>
         )}
@@ -234,11 +239,11 @@ export function VerticalBenchmarksCard({
                       {METRIC_LABELS[metric] || metric}
                     </span>
                     <span className="text-[10px] text-slate-500">
-                      you: <span className="font-mono tabular-nums text-slate-300">{fmtMetric(metric, m.value)}</span>
+                      you: <span className="font-mono tabular-nums text-slate-300">{fmtMetric(metric, m.value, data?.currency)}</span>
                     </span>
                   </div>
                   <div className="mt-1 text-[10px] text-slate-500">
-                    p25 {fmtMetric(metric, m.p25)} · p50 {fmtMetric(metric, m.p50)} · p75 {fmtMetric(metric, m.p75)}
+                    p25 {fmtMetric(metric, m.p25, data?.currency)} · p50 {fmtMetric(metric, m.p50, data?.currency)} · p75 {fmtMetric(metric, m.p75, data?.currency)}
                   </div>
                 </div>
                 <div
@@ -256,7 +261,7 @@ export function VerticalBenchmarksCard({
               </div>
               {m.recovery_to_p75_eur > 0 && (
                 <div className="mt-1.5 text-[10px] text-amber-300">
-                  → moving to p75 = <span className="font-semibold">+{fmtMoney(m.recovery_to_p75_eur)}/mo</span>
+                  → moving to p75 = <span className="font-semibold">+{fmtMoney(m.recovery_to_p75_eur, data?.currency)}/mo</span>
                 </div>
               )}
             </li>

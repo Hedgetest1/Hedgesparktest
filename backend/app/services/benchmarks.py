@@ -389,12 +389,21 @@ def get_merchant_benchmark_report(db: Session, shop_domain: str) -> dict:
             "narrative": narrative,
         }
 
+    # Shop's native currency for money-field rendering. Failures in
+    # the lookup fall back to USD — the response MUST always carry a
+    # valid ISO code so the dashboard never has to guess.
+    try:
+        from app.services.revenue_metrics import get_shop_currency
+        currency = get_shop_currency(db, shop_domain) or "USD"
+    except Exception:
+        currency = "USD"
     result = {
         "shop_domain": shop_domain,
         "band": band,
         "peer_count": peer_count,
         "metrics": metrics_out,
         "total_recovery_potential_eur": round(total_recovery, 2),
+        "currency": currency,
         "generated_at": _now().isoformat(),
     }
 

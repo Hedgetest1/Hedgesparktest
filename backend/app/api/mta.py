@@ -43,6 +43,7 @@ class MtaResponse(BaseModel):
     avg_touches_per_journey: float
     sources: list[MtaSource]
     path_samples: list[str]
+    currency: str = "USD"
     generated_at: str
 
 
@@ -53,6 +54,7 @@ class MtaCompareResponse(BaseModel):
     total_revenue_eur: float
     total_orders: int
     headline: str | None
+    currency: str = "USD"
     generated_at: str
 
 
@@ -87,5 +89,6 @@ def compare_mta(
         total_revenue_eur=data["total_revenue_eur"],
         total_orders=data["total_orders"],
         headline=data["headline"],
+        currency=data.get("currency") or "USD",
         generated_at=data["generated_at"],
     )

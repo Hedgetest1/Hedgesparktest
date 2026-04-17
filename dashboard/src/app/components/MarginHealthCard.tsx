@@ -35,6 +35,9 @@ type Snapshot = {
   cogs_pct_used: number;
   precision: string;
   min_required_margin_pct: number;
+  // Shop's native currency — the `_eur` field names are historical;
+  // the actual numbers are in this currency (USD for US shops, etc.)
+  currency?: string;
   computed_at: string;
 };
 
@@ -67,11 +70,13 @@ const PRECISION_META: Record<string, { label: string; note: string; color: strin
   },
 };
 
-// Shape from GET /pro/margin/snapshot — revenue/cogs/margin are stored
-// in EUR by the ingestion pipeline (order_ingestion._normalize_to_eur).
-// Display therefore uses EUR; routing through the shared
-// formatMoneyCompact helper keeps the symbol table in a single place.
-const fmt = (n: number) => formatMoneyCompact(n, "EUR");
+// Format compact money using the shop's NATIVE currency (USD/EUR/GBP/…).
+// The `_eur` suffix on field names is historical — the actual numbers
+// come from shop_orders.total_price (native) scoped by currency in
+// margin_guard.py. The `data.currency` field is the authoritative ISO
+// code for rendering. Fallback to "USD" if missing (never throws).
+const makeFmt = (currency?: string) =>
+  (n: number) => formatMoneyCompact(n, currency || "USD");
 
 export function MarginHealthCard({ apiBase, isProUser }: { apiBase: string; isProUser: boolean }) {
   const [data, setData] = useState<Snapshot | null>(null);
@@ -108,6 +113,7 @@ export function MarginHealthCard({ apiBase, isProUser }: { apiBase: string; isPr
 
   if (!isProUser || loading || !data) return null;
 
+  const fmt = makeFmt(data.currency);
   const precision = PRECISION_META[data.precision] || PRECISION_META.rough;
   const headroom = data.gross_margin_pct - data.min_required_margin_pct;
   const healthy = data.gross_margin_pct >= data.min_required_margin_pct + 10;

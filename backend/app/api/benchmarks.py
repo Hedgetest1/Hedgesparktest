@@ -49,6 +49,10 @@ class BenchmarkResponse(BaseModel):
     peer_count: int = 0
     metrics: dict[str, BenchmarkMetric] = Field(default_factory=dict)
     total_recovery_potential_eur: float = 0.0
+    # Shop's native currency — dashboard renders recovery potential +
+    # per-metric money values with the matching symbol (the `_eur`
+    # suffix is historical; the underlying value is native).
+    currency: str = "USD"
     generated_at: str | None = None
     note: str | None = None
     error: str | None = None
