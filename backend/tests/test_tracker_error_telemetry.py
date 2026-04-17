@@ -212,3 +212,66 @@ class TestSpikeDetectors:
         from app.services.observability_spikes import detect_ux_frustration_spikes
         fired = detect_ux_frustration_spikes(db)
         assert fired == 0
+
+
+class TestSentrySpikeDetectors:
+    """Sentry incident rate spike + regression detection tests."""
+
+    def _seed_incidents(self, db, *, count, fingerprint=None, triage_status=None, created_offset_sec=0):
+        """Helper to seed sentry_incidents rows for tests."""
+        from app.models.sentry_incident import SentryIncident
+        from datetime import datetime, timezone, timedelta
+        base_ts = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=created_offset_sec)
+        for i in range(count):
+            db.add(SentryIncident(
+                created_at=base_ts,
+                source_type="sentry_webhook",
+                status="parsed",
+                ai_triage_status=triage_status,
+                fingerprint=fingerprint or f"fp_{i}",
+                error_type="TypeError",
+                error_title=f"test incident {i}",
+            ))
+        db.flush()
+
+    def test_sentry_rate_spike_fires_when_rate_triples(self, db):
+        # 12 incidents in the last 5 min (window is 15 min) crossing
+        # the absolute floor of 10 with baseline of 0 → unambiguous spike.
+        self._seed_incidents(db, count=12, created_offset_sec=60)
+        from app.services.observability_spikes import detect_sentry_rate_spikes
+        fired = detect_sentry_rate_spikes(db)
+        assert fired == 1
+        assert _count_alerts(db, "sentry_incident_rate_spike") == 1
+
+    def test_sentry_rate_spike_below_floor_no_alert(self, db):
+        # 5 incidents is below the 10-absolute floor even with no baseline.
+        self._seed_incidents(db, count=5, created_offset_sec=60)
+        from app.services.observability_spikes import detect_sentry_rate_spikes
+        fired = detect_sentry_rate_spikes(db)
+        assert fired == 0
+
+    def test_sentry_regression_fires_when_fixed_fp_returns(self, db):
+        # Old incident (1 hour ago) with triage_status=consumed — the fix shipped.
+        self._seed_incidents(
+            db, count=1, fingerprint="fp_regression",
+            triage_status="consumed", created_offset_sec=3600,
+        )
+        # New incident in the last 30 min with SAME fingerprint → regression.
+        self._seed_incidents(
+            db, count=2, fingerprint="fp_regression",
+            triage_status="pending", created_offset_sec=60,
+        )
+        from app.services.observability_spikes import detect_sentry_regressions
+        fired = detect_sentry_regressions(db)
+        assert fired == 1
+        assert _count_alerts(db, "sentry_regression") >= 1
+
+    def test_sentry_regression_no_alert_when_fp_never_consumed(self, db):
+        # Even with new incidents, no consumed predecessor → no regression.
+        self._seed_incidents(
+            db, count=3, fingerprint="fp_fresh",
+            triage_status="pending", created_offset_sec=60,
+        )
+        from app.services.observability_spikes import detect_sentry_regressions
+        fired = detect_sentry_regressions(db)
+        assert fired == 0

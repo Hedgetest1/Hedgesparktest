@@ -358,6 +358,198 @@ def detect_ux_frustration_spikes(db: Session) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Sentry incident rate spike
+# ---------------------------------------------------------------------------
+# The Sentry → webhook → sentry_triage → bugfix_pipeline pipeline is
+# already fully wired (40+ real incidents ingested). But the pipeline
+# is PER-INCIDENT: it triages each issue individually and only acts
+# when a fingerprint crosses the recurrence threshold. That misses
+# the "everything broke at once" scenario — 100 incidents in 10
+# minutes across different fingerprints is a big deploy regression,
+# not 100 separate issues. This detector emits a single rate-spike
+# alert when the 15-min incident rate exceeds 3× the trailing-24h
+# baseline (minimum 10 incidents to avoid sparse-traffic noise).
+_SENTRY_SPIKE_WINDOW_MIN = 15
+_SENTRY_SPIKE_BASELINE_HOURS = 24
+_SENTRY_SPIKE_MIN_ABSOLUTE = 10
+_SENTRY_SPIKE_RATIO = 3.0
+_SENTRY_SPIKE_COOLDOWN_KEY = "hs:spike:sentry_rate:{hour}"
+_SENTRY_SPIKE_COOLDOWN_TTL = 3600  # 1/hour max
+
+
+def detect_sentry_rate_spikes(db: Session) -> int:
+    """Scan sentry_incidents last 15 min for volume that spikes above
+    the trailing 24h baseline. Catches the "big deploy regression"
+    that's invisible to the per-fingerprint triage threshold.
+
+    Alert emitted with severity=critical because a Sentry rate spike
+    almost always correlates with a just-deployed change that broke
+    multiple paths at once."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    hour = now.strftime("%Y-%m-%dT%H")
+    recent_cutoff = now - timedelta(minutes=_SENTRY_SPIKE_WINDOW_MIN)
+    baseline_cutoff = now - timedelta(hours=_SENTRY_SPIKE_BASELINE_HOURS)
+
+    try:
+        row = db.execute(
+            sql_text(
+                """
+                WITH recent AS (
+                    SELECT COUNT(*) AS n,
+                           COUNT(DISTINCT fingerprint) AS distinct_fp
+                    FROM sentry_incidents
+                    WHERE created_at >= :recent_cutoff
+                ),
+                baseline AS (
+                    SELECT COUNT(*) AS n
+                    FROM sentry_incidents
+                    WHERE created_at >= :baseline_cutoff
+                      AND created_at <  :recent_cutoff
+                )
+                SELECT recent.n::int         AS recent_n,
+                       recent.distinct_fp::int AS recent_fp,
+                       baseline.n::int       AS baseline_n
+                FROM recent, baseline
+                """
+            ),
+            {
+                "recent_cutoff": recent_cutoff,
+                "baseline_cutoff": baseline_cutoff,
+            },
+        ).fetchone()
+    except Exception as exc:
+        log.warning("sentry rate spike query failed: %s", exc)
+        return 0
+
+    if not row:
+        return 0
+    recent_n = int(row[0] or 0)
+    recent_fp = int(row[1] or 0)
+    baseline_n = int(row[2] or 0)
+
+    if recent_n < _SENTRY_SPIKE_MIN_ABSOLUTE:
+        return 0
+
+    # Baseline is 24h; window is 15min. Rate-normalize: expected
+    # incidents in a 15-min window = baseline_n × (15/1440).
+    expected = baseline_n * (_SENTRY_SPIKE_WINDOW_MIN / (_SENTRY_SPIKE_BASELINE_HOURS * 60))
+    # Avoid divide-by-zero; if baseline is empty, any 10+ recent incidents
+    # is unambiguously a spike.
+    if expected > 0 and recent_n / expected < _SENTRY_SPIKE_RATIO:
+        return 0
+
+    key = _SENTRY_SPIKE_COOLDOWN_KEY.format(hour=hour)
+    if not _cooldown_ok(key, _SENTRY_SPIKE_COOLDOWN_TTL):
+        return 0
+
+    try:
+        from app.services.alerting import write_alert
+        write_alert(
+            db,
+            severity="critical",
+            source="sentry_rate_spike",
+            alert_type="sentry_incident_rate_spike",
+            summary=(
+                f"Sentry incident rate spike: {recent_n} incidents / "
+                f"{recent_fp} distinct fingerprints in last "
+                f"{_SENTRY_SPIKE_WINDOW_MIN}min "
+                f"(baseline 24h: {baseline_n})"
+            ),
+            detail={
+                "window_minutes": _SENTRY_SPIKE_WINDOW_MIN,
+                "recent_incidents": recent_n,
+                "recent_distinct_fingerprints": recent_fp,
+                "baseline_24h_incidents": baseline_n,
+                "expected_in_window": round(expected, 2),
+                "ratio": round(recent_n / expected, 2) if expected > 0 else None,
+                "threshold_ratio": _SENTRY_SPIKE_RATIO,
+            },
+        )
+        return 1
+    except Exception as exc:
+        log.warning("sentry rate spike alert write failed: %s", exc)
+        return 0
+
+
+# ---------------------------------------------------------------------------
+# Sentry fingerprint regression — a previously-resolved issue returns
+# ---------------------------------------------------------------------------
+# When an incident's fingerprint matches one that was linked to a
+# `consumed` (= bugfix shipped) candidate, it's a regression — the
+# fix failed. This deserves an immediate ops_alert regardless of
+# recurrence threshold so ops can rollback.
+
+
+def detect_sentry_regressions(db: Session) -> int:
+    """Emit `sentry_regression` alert when an incident in the last 30
+    min matches a fingerprint that has a consumed bugfix candidate.
+
+    `consumed` means the bugfix pipeline took action on this
+    fingerprint. If the same fingerprint fires NEW incidents after
+    that, the fix didn't hold. This is always critical."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    recent_cutoff = now - timedelta(minutes=30)
+
+    try:
+        rows = db.execute(
+            sql_text(
+                """
+                SELECT DISTINCT si_new.fingerprint,
+                                COUNT(*) AS n,
+                                MAX(si_new.id) AS latest_id
+                FROM sentry_incidents si_new
+                WHERE si_new.created_at >= :cutoff
+                  AND si_new.fingerprint IS NOT NULL
+                  AND EXISTS (
+                      SELECT 1
+                      FROM sentry_incidents si_old
+                      WHERE si_old.fingerprint = si_new.fingerprint
+                        AND si_old.ai_triage_status = 'consumed'
+                        AND si_old.created_at < si_new.created_at
+                  )
+                GROUP BY si_new.fingerprint
+                """
+            ),
+            {"cutoff": recent_cutoff},
+        ).fetchall()
+    except Exception as exc:
+        log.warning("sentry regression scan failed: %s", exc)
+        return 0
+
+    fired = 0
+    for fingerprint, n, latest_id in rows:
+        if not fingerprint:
+            continue
+        # Cooldown per fingerprint per hour
+        hour = now.strftime("%Y-%m-%dT%H")
+        cooldown_key = f"hs:spike:sentry_regression:{fingerprint}:{hour}"
+        if not _cooldown_ok(cooldown_key, 3600):
+            continue
+        try:
+            from app.services.alerting import write_alert
+            write_alert(
+                db,
+                severity="critical",
+                source=f"sentry_regression:{fingerprint[:32]}",
+                alert_type="sentry_regression",
+                summary=(
+                    f"Sentry regression: fingerprint={fingerprint[:20]} "
+                    f"returned ({int(n)} new incidents in 30min) after "
+                    f"bugfix was marked consumed"
+                ),
+                detail={
+                    "fingerprint": fingerprint,
+                    "recent_count_30min": int(n),
+                    "latest_incident_id": int(latest_id),
+                },
+            )
+            fired += 1
+        except Exception as exc:
+            log.warning("sentry regression alert write failed fp=%s: %s", fingerprint, exc)
+    return fired
+
+
+# ---------------------------------------------------------------------------
 # Unified entrypoint — called from aggregation_worker cycle
 # ---------------------------------------------------------------------------
 
@@ -368,10 +560,12 @@ def run_all_spike_detectors(db: Session) -> dict[str, int]:
     NOT block the others."""
     results: dict[str, int] = {}
     for name, fn in (
-        ("tracker_runtime_error_spike", detect_tracker_error_spikes),
-        ("frontend_error_spike",        detect_frontend_error_spike),
-        ("p95_slow_trend",              detect_p95_slow_trends),
-        ("ux_frustration_spike",        detect_ux_frustration_spikes),
+        ("tracker_runtime_error_spike",  detect_tracker_error_spikes),
+        ("frontend_error_spike",         detect_frontend_error_spike),
+        ("p95_slow_trend",               detect_p95_slow_trends),
+        ("ux_frustration_spike",         detect_ux_frustration_spikes),
+        ("sentry_incident_rate_spike",   detect_sentry_rate_spikes),
+        ("sentry_regression",            detect_sentry_regressions),
     ):
         try:
             results[name] = fn(db)
