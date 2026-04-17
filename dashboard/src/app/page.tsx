@@ -225,7 +225,7 @@ function RoiCounterBanner() {
       <div className="mx-auto mt-10 max-w-[48rem] px-6">
         <div
           role="figure"
-          aria-label={`€${formatted} recovered across the HedgeSpark network in the last 30 days`}
+          aria-label={`${formatted} recovered across the HedgeSpark network in the last 30 days`}
           onMouseEnter={() => setHovering(true)}
           onMouseLeave={() => setHovering(false)}
           className="group relative overflow-hidden rounded-2xl border border-emerald-400/[0.12] bg-emerald-500/[0.03] p-6 backdrop-blur transition-colors hover:border-emerald-400/[0.22]"
@@ -243,10 +243,13 @@ function RoiCounterBanner() {
               Live · Network Impact · Last 30 Days
             </div>
             <div className="mt-2 font-mono text-[40px] font-extrabold tabular-nums leading-none text-white sm:text-[56px]">
-              €{formatted}
+              {formatted}
+            </div>
+            <div className="mt-1 text-[10px] uppercase tracking-wide text-slate-500">
+              money recovered · merchant native currencies
             </div>
             <div className="mt-2 text-[13px] text-slate-400">
-              recovered across {doc.shops_contributing} Shopify merchant{doc.shops_contributing === 1 ? "" : "s"}
+              across {doc.shops_contributing} Shopify merchant{doc.shops_contributing === 1 ? "" : "s"}
             </div>
           </div>
 
@@ -268,7 +271,7 @@ function RoiCounterBanner() {
                   >
                     <span className="capitalize text-slate-300">{v.vertical.replace(/_/g, " ")}</span>
                     <span className="font-mono tabular-nums text-emerald-300">
-                      €{new Intl.NumberFormat("en-US").format(Math.round(v.prevented_eur))}
+                      {new Intl.NumberFormat("en-US").format(Math.round(v.prevented_eur))}
                     </span>
                   </div>
                 ))}
@@ -496,9 +499,9 @@ function Problem() {
       accent: "#d4893a",
     },
     {
-      number: "$193",
+      number: "193",
       unit: "/day",
-      highlight: "at risk",
+      highlight: "at risk · your currency",
       desc: "Right now, products in your store are losing money every single day. You just can't see which ones.",
       accent: "#a855f7",
     },
@@ -1653,7 +1656,7 @@ function TrustWall() {
     },
     {
       k: "Holdout-proven savings",
-      v: "Every saved € is statistically defended",
+      v: "Every amount saved is statistically defended",
       icon: "📊",
     },
     {
@@ -1688,7 +1691,7 @@ function TrustWall() {
               </span>
             </h2>
             <p className="mx-auto mt-5 max-w-[640px] text-[17px] leading-relaxed text-slate-400">
-              Every € we save you is measured against a real control group. Every autonomous action
+              Every amount we save you is measured against a real control group. Every autonomous action
               runs inside bounds you set. Every claim is audit-logged. HedgeSpark is engineered
               to survive scrutiny, not to survive a demo.
             </p>

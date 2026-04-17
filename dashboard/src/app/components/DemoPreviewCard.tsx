@@ -40,11 +40,16 @@ type PreviewResponse = {
   hint?: string;
 };
 
+// Pre-signup demo: we don't know the shop's currency (Shopify's public
+// /products.json doesn't expose it), so we render raw compact numbers
+// and let the narrative text add the "in your store's currency" note.
+// Passing this through formatDisplayMoney would hardcode a symbol we
+// can't verify — honesty wins.
 function fmtMoney(n: number): string {
-  if (n === 0) return "€0";
+  if (n === 0) return "0";
   const a = Math.abs(n);
-  if (a >= 1000) return "€" + (a / 1000).toFixed(a >= 10_000 ? 0 : 1) + "k";
-  return "€" + Math.round(a);
+  if (a >= 1000) return (a / 1000).toFixed(a >= 10_000 ? 0 : 1) + "k";
+  return String(Math.round(a));
 }
 
 export function DemoPreviewCard({ installUrl }: { installUrl: string }) {

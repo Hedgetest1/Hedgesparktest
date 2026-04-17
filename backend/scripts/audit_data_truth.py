@@ -78,6 +78,12 @@ _LINE_ALLOWLIST: dict[str, str] = {
     # last-resort fallback if every lookup path fails. Not a display string.
     "app/services/mta_engine.py:104": "Defensive `return \"USD\"` inside _resolve_currency except block — the helper's own fallback",
     "app/services/revenue_at_risk.py:498": "Defensive `currency or \"USD\"` guard at response assembly — same safety-net pattern as _DEFENSIVE_FALLBACK_RE",
+    # ─── Exception-handler fallbacks after get_shop_currency() raises ───
+    # Same pattern as pnl_engine.py:162 (already allowlisted) — these are
+    # last-resort USD fallbacks in except blocks that catch raw SQL / ORM
+    # failures from get_shop_currency(). Not hardcoded displays.
+    "app/api/segments.py:215": "Exception-path fallback after get_shop_currency() raises — defensive",
+    "app/services/store_insight_engine.py:625": "Exception-path fallback after get_shop_currency() raises — defensive",
 }
 
 # Per-line fallbacks that are DEFENSIVE (e.g. `get_shop_currency(db, shop) or "USD"`).

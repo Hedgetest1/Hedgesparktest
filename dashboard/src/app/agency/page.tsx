@@ -12,6 +12,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { formatMoneyCompact } from "../app/_lib/formatters";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://api.hedgesparkhq.com";
 const STORAGE_KEY = "hs_agency_email";
@@ -36,12 +37,12 @@ type AgencyDashboard = {
   top_client: ClientRow | null;
 };
 
-function fmtMoney(n: number): string {
-  if (n === 0) return "€0";
-  const a = Math.abs(n);
-  if (a >= 1000) return "€" + (a / 1000).toFixed(a >= 10_000 ? 0 : 1) + "k";
-  return "€" + Math.round(a);
-}
+// Agency console aggregates revenue across multiple client shops that may
+// each use different native currencies (USD/EUR/GBP/…). For the rollup we
+// default to USD — the agency-level API should either convert to a chosen
+// base currency on the backend or expose each client's native currency in
+// `ClientRow`. Until then, USD is the safest default for display.
+const fmtMoney = (n: number): string => formatMoneyCompact(n, "USD");
 
 export default function AgencyPage() {
   const [email, setEmail] = useState<string>("");

@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/app/lib/api-client";
+import { formatMoneyCompact } from "../_lib/formatters";
 
 type GroupMember = { shop_domain: string; label: string | null; is_primary: boolean };
 type Group = {
@@ -42,13 +43,8 @@ type DashboardResponse = {
   generated_at: string;
 };
 
-function fmtMoney(n: number, currency = "EUR"): string {
-  if (n === 0) return currency === "EUR" ? "€0" : `${currency}0`;
-  const a = Math.abs(n);
-  const sym = currency === "EUR" ? "€" : currency + " ";
-  if (a >= 1000) return sym + (a / 1000).toFixed(a >= 10_000 ? 0 : 1) + "k";
-  return sym + Math.round(a);
-}
+const fmtMoney = (n: number, currency: string = "USD"): string =>
+  formatMoneyCompact(n, currency);
 
 export default function GroupsPage() {
   const [groups, setGroups] = useState<Group[]>([]);
