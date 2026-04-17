@@ -452,17 +452,31 @@ def get_loop_health(db: Session) -> dict:
     """), {"cutoff": month_ago}).fetchall()
     outcomes_30d = {r[0]: r[1] for r in outcome_rows}
 
-    # Stuck items
-    stuck_items = []
-    for status, max_hours in _STUCK_HOURS.items():
-        cutoff = now - timedelta(hours=max_hours)
-        count = db.execute(text("""
-            SELECT COUNT(*) FROM bugfix_candidates
-            WHERE status = :status AND created_at <= :cutoff
-        """), {"status": status, "cutoff": cutoff}).fetchone()
-        cnt = count[0] if count else 0
-        if cnt > 0:
-            stuck_items.append({"status": status, "count": cnt, "threshold_hours": max_hours})
+    # Stuck items — single aggregation instead of 5 per-status queries.
+    # Each status has its own threshold hour cutoff; the CASE expression
+    # encodes that mapping in SQL so we walk the table once.
+    stuck_rows = db.execute(text("""
+        SELECT status, COUNT(*) AS cnt
+        FROM bugfix_candidates
+        WHERE (status = 'open'            AND created_at <= :cut_open)
+           OR (status = 'analyzed'        AND created_at <= :cut_analyzed)
+           OR (status = 'patch_proposed'  AND created_at <= :cut_proposed)
+           OR (status = 'approved'        AND created_at <= :cut_approved)
+           OR (status = 'applying'        AND created_at <= :cut_applying)
+        GROUP BY status
+    """), {
+        "cut_open":     now - timedelta(hours=_STUCK_HOURS["open"]),
+        "cut_analyzed": now - timedelta(hours=_STUCK_HOURS["analyzed"]),
+        "cut_proposed": now - timedelta(hours=_STUCK_HOURS["patch_proposed"]),
+        "cut_approved": now - timedelta(hours=_STUCK_HOURS["approved"]),
+        "cut_applying": now - timedelta(hours=_STUCK_HOURS["applying"]),
+    }).fetchall()
+    stuck_map = {r[0]: r[1] for r in stuck_rows}
+    stuck_items = [
+        {"status": status, "count": stuck_map[status], "threshold_hours": max_hours}
+        for status, max_hours in _STUCK_HOURS.items()
+        if stuck_map.get(status, 0) > 0
+    ]
 
     # Thrashing sources
     thrashing = check_thrashing(db)
@@ -834,17 +848,30 @@ def score_subsystem_weakness(db: Session, lookback_days: int = 30) -> list[dict]
             _add_signal(d, "open_candidate")
 
     # --- Signal source 4: Stuck candidates ---
+    # Single query instead of 5 per-status scans. The per-status time
+    # cutoff is encoded in a disjunction so we touch the bugfix_candidates
+    # table once for all stuck detection.
     now = _now()
-    for status_name, max_hours in _STUCK_HOURS.items():
-        stuck_cutoff = now - timedelta(hours=max_hours)
-        stuck_rows = db.execute(text("""
-            SELECT patch_files FROM bugfix_candidates
-            WHERE status = :status AND created_at <= :cutoff
-              AND patch_files IS NOT NULL
-        """), {"status": status_name, "cutoff": stuck_cutoff}).fetchall()
-        for row in stuck_rows:
-            for d in _extract_domains_from_files(row[0]):
-                _add_signal(d, "stuck")
+    stuck_rows = db.execute(text("""
+        SELECT patch_files FROM bugfix_candidates
+        WHERE patch_files IS NOT NULL
+          AND (
+               (status = 'open'           AND created_at <= :cut_open)
+            OR (status = 'analyzed'       AND created_at <= :cut_analyzed)
+            OR (status = 'patch_proposed' AND created_at <= :cut_proposed)
+            OR (status = 'approved'       AND created_at <= :cut_approved)
+            OR (status = 'applying'       AND created_at <= :cut_applying)
+          )
+    """), {
+        "cut_open":     now - timedelta(hours=_STUCK_HOURS["open"]),
+        "cut_analyzed": now - timedelta(hours=_STUCK_HOURS["analyzed"]),
+        "cut_proposed": now - timedelta(hours=_STUCK_HOURS["patch_proposed"]),
+        "cut_approved": now - timedelta(hours=_STUCK_HOURS["approved"]),
+        "cut_applying": now - timedelta(hours=_STUCK_HOURS["applying"]),
+    }).fetchall()
+    for row in stuck_rows:
+        for d in _extract_domains_from_files(row[0]):
+            _add_signal(d, "stuck")
 
     # --- Compute scores ---
     try:
