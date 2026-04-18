@@ -8,6 +8,7 @@ export const viewport: Viewport = {
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ErrorReporterInstaller } from "./components/ErrorReporterInstaller";
+import { RumInstaller } from "./components/RumInstaller";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -111,6 +112,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <ErrorReporterInstaller />
+        <RumInstaller />
         {children}
       </body>
     </html>

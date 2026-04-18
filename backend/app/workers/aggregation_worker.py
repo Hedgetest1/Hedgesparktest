@@ -428,6 +428,22 @@ def _run_cycle_inner() -> None:
             log(f"lighthouse_monitor error (non-fatal): {exc}")
 
         # ------------------------------------------------------------------ #
+        # RUM p75 regression check — once-per-day guard inside the service.  #
+        # Scans live (route, metric) pairs, compares today p75 vs 7-day      #
+        # median, fires rum_regression alerts. Same 02-04 UTC window as      #
+        # Lighthouse. Zero LLM cost; pure quantile math.                     #
+        # ------------------------------------------------------------------ #
+        try:
+            from app.services.rum_monitor import run_daily_regression_check
+            rum_result = run_daily_regression_check(db)
+            if rum_result.get("ran"):
+                db.commit()
+                log(f"rum_monitor: {rum_result}")
+        except Exception as exc:
+            db.rollback()
+            log(f"rum_monitor error (non-fatal): {exc}")
+
+        # ------------------------------------------------------------------ #
         # LLM guardrail benchmark — once-per-week Sunday 04:00-06:00 UTC.     #
         # Runs the structural test_llm_propose_bench.py suite via subprocess #
         # pytest (fake LLM stubs — zero API cost, ~4s). Alerts on regression.#
