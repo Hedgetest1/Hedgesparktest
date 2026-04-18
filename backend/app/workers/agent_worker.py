@@ -1993,11 +1993,33 @@ def _run_worker_watchdog():
         db.close()
 
 
+def _run_dashboard_asset_probe():
+    """Runtime probe that detects served-HTML-vs-built-chunks drift.
+    Born 2026-04-18 late after the landing rendered as unstyled white
+    because a rebuild replaced on-disk chunks while the PM2 process
+    kept its old in-memory manifest. Probe owns its own 5min cooldown
+    via should_run(). Alert is deduped by UTC hour (Redis SETNX)."""
+    from app.workers.tasks import dashboard_asset_probe_task
+    if not dashboard_asset_probe_task.should_run():
+        return
+    try:
+        dashboard_asset_probe_task.run()
+    except Exception as exc:
+        log(f"dashboard_asset_probe error (non-fatal): {exc}")
+    finally:
+        dashboard_asset_probe_task.mark_done()
+
+
 def run_cycle():
     started_at = datetime.now(timezone.utc).replace(tzinfo=None)
     standby = is_self_heal_in_standby()
     if standby:
         log("run_cycle: SELF-HEAL STANDBY active — mutating phases skipped")
+
+    # Phase 0-pre-1: Dashboard asset probe — 5 min cadence, catches the
+    # "stale Next.js in-memory manifest" class of bugs that slip past
+    # HTTP-200-on-/ monitors.
+    _run_dashboard_asset_probe()
 
     # Phase 0-pre0: Worker watchdog (α5) — resurrect stale workers FIRST
     _run_worker_watchdog()

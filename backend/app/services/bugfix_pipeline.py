@@ -94,6 +94,13 @@ _PIPELINE_INTERNAL_ALERT_TYPES: tuple[str, ...] = (
     # Letting Rule 7 also create a candidate from the ops_alert would
     # yield a duplicate for the same underlying bug and waste LLM budget.
     "sentry_fingerprint_storm",
+    # dashboard_asset_drift signals a rebuild-without-restart condition.
+    # Remedy is a process restart (`pm2 restart wishspark-dashboard`) or
+    # a full `./dashboard/scripts/deploy.sh`, NOT a code patch. The alert
+    # detail payload already embeds the remedy string, so the operator
+    # channel has everything it needs — an LLM-authored patch here would
+    # be guessing at a non-code problem.
+    "dashboard_asset_drift",
 )
 
 

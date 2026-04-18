@@ -318,6 +318,28 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2s. Live dashboard asset audit. Born 2026-04-18 late after the landing
+# rendered as unstyled white for the founder. Root cause: `npx next build`
+# ran mid-lifetime of the `wishspark-dashboard` PM2 process; the running
+# process's in-memory chunk manifest pointed at hashes that were deleted
+# during rebuild, so served HTML referenced a CSS chunk that returned 500.
+# `curl /` was 200 (HTML envelope fine) — only fetching the chunks caught
+# it. This audit:
+#   1) compares .next/BUILD_ID mtime vs dashboard PM2 process start time
+#      (block if rebuild newer than process = forgot to restart),
+#   2) fetches /, /app, /pricing and verifies every _next chunk 200s.
+# Skips cleanly when dashboard is unreachable (backend-only commits).
+# ---------------------------------------------------------------------------
+step "Live dashboard asset audit (audit_dashboard_live.py)"
+if "$PY" "$BACKEND/scripts/audit_dashboard_live.py" --strict > /tmp/preflight_dash_live.log 2>&1; then
+    _DASH_SUMMARY=$(tail -1 /tmp/preflight_dash_live.log | tr -d '\r')
+    ok "${_DASH_SUMMARY:-dashboard assets green}"
+else
+    bad "dashboard asset drift — see /tmp/preflight_dash_live.log"
+    tail -15 /tmp/preflight_dash_live.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2n. SSR body-size floor. Locks in the 2026-04-15 landing SSR fix —
 # every prerendered page under `.next/server/app/*.html` must ship
 # > 3 KB of real body content. A broken "use client" component that

@@ -735,9 +735,26 @@ exclusion to add.
 
 ## 15. Deploy
 
+**Dashboard (use the atomic script — it's the only safe way):**
 ```bash
-cd /opt/wishspark/dashboard && npx next build   # rebuild frontend
-pm2 restart ecosystem.config.js                  # restart all processes
+/opt/wishspark/dashboard/scripts/deploy.sh       # build + restart + verify
+```
+
+The script runs `npx next build`, restarts the `wishspark-dashboard` PM2
+process, then invokes `audit_dashboard_live.py --strict` to confirm
+every `_next/static` chunk referenced in the served HTML resolves 200.
+Non-zero exit = the deploy is broken and must be investigated before
+declaring it done. Born 2026-04-18 after a rebuild-without-restart
+silently served a landing that pointed at a deleted CSS chunk (500) —
+merchants saw an unstyled white page while PM2 + `/` + `/system/health`
+all reported green. **Never skip the verification step.** The same
+invariant is enforced at preflight time via `audit_dashboard_live.py`
+(preflight step 2s) so commits cannot ship with drift.
+
+**Backend + workers:**
+```bash
+pm2 restart wishspark-backend                    # backend only
+pm2 restart ecosystem.config.js                  # restart ALL processes
 pm2 logs wishspark-backend --lines 20            # verify startup
 ```
 
