@@ -13,6 +13,7 @@
 
 import { useEffect, useState } from "react";
 import { apiClient } from "@/app/lib/api-client";
+import { reportFrontendError } from "@/app/lib/error-reporter";
 
 type WebhookSub = {
   id: number;
@@ -63,7 +64,18 @@ export function IntegrationsCard({
         setWebhooks(w.subscriptions || []);
         setAds(a.connections || []);
       })
-      .catch(() => { if (active) { setWebhooks([]); setAds([]); } })
+      .catch((err: unknown) => {
+        if (!active) return;
+        setWebhooks([]);
+        setAds([]);
+        const e = err as { name?: string; message?: string } | null;
+        reportFrontendError({
+          component: "IntegrationsCard",
+          error_type: (e && e.name) || "IntegrationsFetchError",
+          message: (e && e.message) || "webhooks/ads status failed",
+          severity: "warning",
+        });
+      })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [apiBase, isProUser]);

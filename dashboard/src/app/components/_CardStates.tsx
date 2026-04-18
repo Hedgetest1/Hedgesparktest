@@ -22,6 +22,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { reportFrontendError } from "../lib/error-reporter";
 
 export type CardFetchState = "loading" | "ready" | "empty" | "error";
 
@@ -113,21 +114,29 @@ export function CardEmpty({
 /**
  * useCardFetch — typed fetch wrapper with automatic loading/error/empty state.
  *
+ * Every failed fetch is reported to the self-healing pipeline via
+ * reportFrontendError so the autonomous repair loop sees card-level
+ * breakage. Pass `component` to identify the caller in ops_alerts;
+ * when omitted we derive it from the URL path tail.
+ *
  * Usage:
  *   const { data, state, retry } = useCardFetch<PayloadT>({
  *     url: `${apiBase}/pro/foo`,
  *     enabled: isProUser && !!apiBase,
  *     isEmpty: (d) => !d.entries?.length,
+ *     component: "FooCard",
  *   });
  */
 export function useCardFetch<T>({
   url,
   enabled,
   isEmpty,
+  component,
 }: {
   url: string;
   enabled: boolean;
   isEmpty?: (data: T) => boolean;
+  component?: string;
 }) {
   const [data, setData] = useState<T | null>(null);
   const [state, setState] = useState<CardFetchState>("loading");
@@ -161,9 +170,27 @@ export function useCardFetch<T>({
           setState("ready");
         }
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         if (!activeRef.current) return;
         setState("error");
+        const e = err as { name?: string; message?: string } | null;
+        const derivedComponent =
+          component ||
+          (() => {
+            try {
+              const path = new URL(url, "http://_").pathname;
+              return `useCardFetch(${path.split("/").filter(Boolean).slice(-2).join("/")})`;
+            } catch {
+              return "useCardFetch";
+            }
+          })();
+        reportFrontendError({
+          component: derivedComponent,
+          error_type: (e && e.name) || "CardFetchError",
+          message: (e && e.message) || "card fetch failed",
+          severity: "warning",
+          extra: { url },
+        });
       });
     return () => {
       activeRef.current = false;

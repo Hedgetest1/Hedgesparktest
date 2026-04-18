@@ -50,7 +50,16 @@ export default function ProofPage() {
     fetch(`${API}/public/proof/${t}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d) setData(d); else setError(true); })
-      .catch(() => setError(true));
+      .catch((err: unknown) => {
+        setError(true);
+        const e = err as { name?: string; message?: string } | null;
+        reportFrontendError({
+          component: "ProofPage",
+          error_type: (e && e.name) || "ProofFetchError",
+          message: (e && e.message) || "public proof fetch failed",
+          severity: "warning",
+        });
+      });
   }, []);
 
   const trackCta = () => {

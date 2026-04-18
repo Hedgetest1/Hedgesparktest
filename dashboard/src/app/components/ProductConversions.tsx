@@ -15,6 +15,7 @@
 
 import { useEffect, useState } from "react";
 import { apiClient, type paths } from "../lib/api-client";
+import { reportFrontendError } from "../lib/error-reporter";
 import { CardSkeleton, CardError, CardEmpty, useCardFetch } from "./_CardStates";
 import {
   DetailDrawer,
@@ -171,8 +172,16 @@ export function ProductConversions({
         if (res.data != null) setDrawerData(res.data);
         else setDrawerError(true);
       })
-      .catch(() => {
-        if (active) setDrawerError(true);
+      .catch((err: unknown) => {
+        if (!active) return;
+        setDrawerError(true);
+        const e = err as { name?: string; message?: string } | null;
+        reportFrontendError({
+          component: "ProductConversionsDrawer",
+          error_type: (e && e.name) || "HeatmapFetchError",
+          message: (e && e.message) || "product heatmap fetch failed",
+          severity: "warning",
+        });
       })
       .finally(() => {
         if (active) setDrawerLoading(false);

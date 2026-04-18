@@ -25,6 +25,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { reportFrontendError } from "../lib/error-reporter";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -112,7 +113,16 @@ function trackOnboardingEvent(
       session_number: sessionNumber,
       context: context || null,
     }),
-  }).catch(() => { /* silent */ });
+  }).catch((err: unknown) => {
+    const e = err as { name?: string; message?: string } | null;
+    reportFrontendError({
+      component: "OnboardingEvent",
+      error_type: (e && e.name) || "OnboardingEventError",
+      message: (e && e.message) || "onboarding event POST failed",
+      severity: "info",
+      extra: { event_type: eventType },
+    });
+  });
 }
 
 // Dismissal persistence — localStorage so it persists across sessions

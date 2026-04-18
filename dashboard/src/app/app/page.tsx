@@ -43,6 +43,7 @@ import { KpiInsightModal } from "./_components/KpiInsightModal";
 import { ProductInsightPanel } from "./_components/ProductInsightPanel";
 import { SettingsSection } from "./_sections/SettingsSection";
 import { ProIntelligenceSection } from "./_sections/ProIntelligenceSection";
+import { SectionErrorBoundary } from "../components/SectionErrorBoundary";
 import { BehavioralIntelligenceSection } from "./_sections/BehavioralIntelligenceSection";
 import { ProductPerformanceSection } from "./_sections/ProductPerformanceSection";
 import { WhatNextSection } from "./_sections/WhatNextSection";
@@ -864,7 +865,18 @@ function PageInner() {
     fetch(endpoint, { headers: apiHeaders(), credentials: "include", cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
       .then((json) => { if (active) setBrief(json); })
-      .catch(() => { if (active) setBrief(null); })
+      .catch((err: unknown) => {
+        if (!active) return;
+        setBrief(null);
+        const e = err as { name?: string; message?: string } | null;
+        reportFrontendError({
+          component: "DailyBrief",
+          error_type: (e && e.name) || "BriefFetchError",
+          message: (e && e.message) || "daily brief fetch failed",
+          severity: "warning",
+          extra: { tier },
+        });
+      })
       .finally(() => { if (active) setBriefLoading(false); });
     return () => { active = false; };
   }, [shop, tier]);
@@ -1475,7 +1487,15 @@ function PageInner() {
             : ""
         );
       })
-      .catch(() => { /* silent */ });
+      .catch((err: unknown) => {
+        const e = err as { name?: string; message?: string } | null;
+        reportFrontendError({
+          component: "CostConfig",
+          error_type: (e && e.name) || "CostConfigFetchError",
+          message: (e && e.message) || "cost config fetch failed",
+          severity: "info",
+        });
+      });
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shop]);
@@ -1647,7 +1667,15 @@ function PageInner() {
         return r.ok ? r.json() : null;
       })
       .then((d) => { if (d?.klaviyo) setKlaviyoStatus(d.klaviyo); })
-      .catch(() => { /* integrations status is supplementary */ });
+      .catch((err: unknown) => {
+        const e = err as { name?: string; message?: string } | null;
+        reportFrontendError({
+          component: "KlaviyoStatus",
+          error_type: (e && e.name) || "IntegrationsStatusError",
+          message: (e && e.message) || "klaviyo status fetch failed",
+          severity: "info",
+        });
+      });
   }, [shop]);
 
   const klaviyoIsConnected = klaviyoStatus?.status === "connected";
@@ -2574,12 +2602,14 @@ function PageInner() {
               )}
 
               {/* 3 — Signals/Findings (extracted to _sections/SignalsSection.tsx) */}
-              <SignalsSection
-                alerts={alerts}
-                strongSignals={strongSignals}
-                earlySignals={earlySignals}
-                isColdStart={isColdStart}
-              />
+              <SectionErrorBoundary name="Signals">
+                <SignalsSection
+                  alerts={alerts}
+                  strongSignals={strongSignals}
+                  earlySignals={earlySignals}
+                  isColdStart={isColdStart}
+                />
+              </SectionErrorBoundary>
 
               {/* ═══ HOT PRODUCTS — 3 cards per row ═══ */}
               {topProducts.length > 0 && (
@@ -2634,25 +2664,29 @@ function PageInner() {
 
               {/* 4 — Product Performance (extracted to _sections/ProductPerformanceSection.tsx) */}
               {mergedProducts.length > 0 && (
-                <ProductPerformanceSection
-                  mergedProducts={mergedProducts}
-                  isProUser={isProUser}
-                  resolvedCcy={resolvedCcy}
-                  resolvedAov={resolvedAov}
-                  resolvedAovIsReal={resolvedAovIsReal}
-                  shortUrl={shortUrl}
-                  setUpgradeModalOpen={setUpgradeModalOpen}
-                />
+                <SectionErrorBoundary name="Product Performance">
+                  <ProductPerformanceSection
+                    mergedProducts={mergedProducts}
+                    isProUser={isProUser}
+                    resolvedCcy={resolvedCcy}
+                    resolvedAov={resolvedAov}
+                    resolvedAovIsReal={resolvedAovIsReal}
+                    shortUrl={shortUrl}
+                    setUpgradeModalOpen={setUpgradeModalOpen}
+                  />
+                </SectionErrorBoundary>
               )}
 
               {/* 5 — WHAT TO DO NEXT (extracted to _sections/WhatNextSection.tsx) */}
               {sparkActions.length > 0 && (
-                <WhatNextSection
-                  sparkActions={sparkActions}
-                  isProUser={isProUser}
-                  displayCurrency={displayCurrency}
-                  setUpgradeModalOpen={setUpgradeModalOpen}
-                />
+                <SectionErrorBoundary name="What to do next">
+                  <WhatNextSection
+                    sparkActions={sparkActions}
+                    isProUser={isProUser}
+                    displayCurrency={displayCurrency}
+                    setUpgradeModalOpen={setUpgradeModalOpen}
+                  />
+                </SectionErrorBoundary>
               )}
 
               {/* 6 — Weekly Trend */}
@@ -2756,13 +2790,15 @@ function PageInner() {
               </section>
 
               {/* 9 — Sessions + Clicks (extracted to _sections/SessionsSection.tsx) */}
-              <SessionsSection
-                isProUser={isProUser}
-                sessions={sessions}
-                clicks={clicks}
-                formatDuration={formatDuration}
-                shortUrl={shortUrl}
-              />
+              <SectionErrorBoundary name="Sessions & Clicks">
+                <SessionsSection
+                  isProUser={isProUser}
+                  sessions={sessions}
+                  clicks={clicks}
+                  formatDuration={formatDuration}
+                  shortUrl={shortUrl}
+                />
+              </SectionErrorBoundary>
 
               {/* 10 — Live Radar + World Map */}
               <section id="section-live">
@@ -2980,69 +3016,75 @@ function PageInner() {
 
               {/* Pro — Revenue Forecast + Attribution + LTV Intelligence */}
               {isProUser && (
-                <ProIntelligenceSection
-                  displayCurrency={displayCurrency}
-                  forecastData={forecastData}
-                  attrSummary={attrSummary}
-                  ltvData={ltvData}
-                  pnlData={pnlData}
-                  gatewayProductsData={gatewayProductsData}
-                  predictedLtvData={predictedLtvData}
-                  priceIntel={priceIntel}
-                  marketIntel={marketIntel}
-                />
+                <SectionErrorBoundary name="Pro Intelligence">
+                  <ProIntelligenceSection
+                    displayCurrency={displayCurrency}
+                    forecastData={forecastData}
+                    attrSummary={attrSummary}
+                    ltvData={ltvData}
+                    pnlData={pnlData}
+                    gatewayProductsData={gatewayProductsData}
+                    predictedLtvData={predictedLtvData}
+                    priceIntel={priceIntel}
+                    marketIntel={marketIntel}
+                  />
+                </SectionErrorBoundary>
               )}
 
               {/* Pro — Behavioral DNA (extracted to _sections/BehavioralIntelligenceSection.tsx) */}
               {isProUser && behavioralData && (
-                <BehavioralIntelligenceSection
-                  data={behavioralData}
-                  displayCurrency={displayCurrency}
-                />
+                <SectionErrorBoundary name="Behavioral Intelligence">
+                  <BehavioralIntelligenceSection
+                    data={behavioralData}
+                    displayCurrency={displayCurrency}
+                  />
+                </SectionErrorBoundary>
               )}
 
               {/* 11 — Settings / Integrations (all tiers) — extracted to _sections/SettingsSection.tsx */}
-              <SettingsSection
-                apiBase={API_BASE}
-                shop={shop}
-                tier={tier}
-                isProUser={isProUser}
-                displayCurrency={displayCurrency}
-                setDisplayCurrency={setDisplayCurrency}
-                costDefaults={costDefaults}
-                costFormCogsPct={costFormCogsPct}
-                setCostFormCogsPct={setCostFormCogsPct}
-                costFormShipping={costFormShipping}
-                setCostFormShipping={setCostFormShipping}
-                costFormAdSpend={costFormAdSpend}
-                setCostFormAdSpend={setCostFormAdSpend}
-                costFormPayPct={costFormPayPct}
-                setCostFormPayPct={setCostFormPayPct}
-                costFormPayFlat={costFormPayFlat}
-                setCostFormPayFlat={setCostFormPayFlat}
-                costSaving={costSaving}
-                costSavedMsg={costSavedMsg}
-                costSyncing={costSyncing}
-                costSyncMsg={costSyncMsg}
-                pnlData={pnlData}
-                handleCostDefaultsSave={handleCostDefaultsSave}
-                handleShopifyCogsSync={handleShopifyCogsSync}
-                klaviyoStatus={klaviyoStatus}
-                klaviyoIsConnected={klaviyoIsConnected}
-                klaviyoKeyInput={klaviyoKeyInput}
-                setKlaviyoKeyInput={setKlaviyoKeyInput}
-                klaviyoConnecting={klaviyoConnecting}
-                klaviyoShowReplace={klaviyoShowReplace}
-                setKlaviyoShowReplace={setKlaviyoShowReplace}
-                klaviyoMessage={klaviyoMessage}
-                setKlaviyoMessage={setKlaviyoMessage}
-                handleKlaviyoConnect={handleKlaviyoConnect}
-                handleKlaviyoDisconnect={handleKlaviyoDisconnect}
-                privacyOptedOut={privacyOptedOut}
-                privacyLoading={privacyLoading}
-                handlePrivacyToggle={handlePrivacyToggle}
-                setUpgradeModalOpen={setUpgradeModalOpen}
-              />
+              <SectionErrorBoundary name="Settings & Integrations">
+                <SettingsSection
+                  apiBase={API_BASE}
+                  shop={shop}
+                  tier={tier}
+                  isProUser={isProUser}
+                  displayCurrency={displayCurrency}
+                  setDisplayCurrency={setDisplayCurrency}
+                  costDefaults={costDefaults}
+                  costFormCogsPct={costFormCogsPct}
+                  setCostFormCogsPct={setCostFormCogsPct}
+                  costFormShipping={costFormShipping}
+                  setCostFormShipping={setCostFormShipping}
+                  costFormAdSpend={costFormAdSpend}
+                  setCostFormAdSpend={setCostFormAdSpend}
+                  costFormPayPct={costFormPayPct}
+                  setCostFormPayPct={setCostFormPayPct}
+                  costFormPayFlat={costFormPayFlat}
+                  setCostFormPayFlat={setCostFormPayFlat}
+                  costSaving={costSaving}
+                  costSavedMsg={costSavedMsg}
+                  costSyncing={costSyncing}
+                  costSyncMsg={costSyncMsg}
+                  pnlData={pnlData}
+                  handleCostDefaultsSave={handleCostDefaultsSave}
+                  handleShopifyCogsSync={handleShopifyCogsSync}
+                  klaviyoStatus={klaviyoStatus}
+                  klaviyoIsConnected={klaviyoIsConnected}
+                  klaviyoKeyInput={klaviyoKeyInput}
+                  setKlaviyoKeyInput={setKlaviyoKeyInput}
+                  klaviyoConnecting={klaviyoConnecting}
+                  klaviyoShowReplace={klaviyoShowReplace}
+                  setKlaviyoShowReplace={setKlaviyoShowReplace}
+                  klaviyoMessage={klaviyoMessage}
+                  setKlaviyoMessage={setKlaviyoMessage}
+                  handleKlaviyoConnect={handleKlaviyoConnect}
+                  handleKlaviyoDisconnect={handleKlaviyoDisconnect}
+                  privacyOptedOut={privacyOptedOut}
+                  privacyLoading={privacyLoading}
+                  handlePrivacyToggle={handlePrivacyToggle}
+                  setUpgradeModalOpen={setUpgradeModalOpen}
+                />
+              </SectionErrorBoundary>
 
             </div>
           )}
