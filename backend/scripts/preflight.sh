@@ -267,6 +267,21 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2p. Scheduled-jobs map sync. Verifies every `def _run_*` helper in
+# agent_worker.py is documented in docs/reality_scheduled_jobs.md and
+# vice-versa. Born 2026-04-18 after the B1 incident — the reality map
+# is load-bearing (prevents proposing duplicate scheduled jobs), so
+# drift is a structural bug not a documentation nit.
+# ---------------------------------------------------------------------------
+step "Scheduled-jobs map sync (audit_scheduled_jobs_map.py)"
+if "$PY" "$BACKEND/scripts/audit_scheduled_jobs_map.py" > /tmp/preflight_jobs_map.log 2>&1; then
+    ok "agent_worker _run_* helpers all documented"
+else
+    bad "scheduled-jobs map drift — see /tmp/preflight_jobs_map.log"
+    tail -25 /tmp/preflight_jobs_map.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2n. SSR body-size floor. Locks in the 2026-04-15 landing SSR fix —
 # every prerendered page under `.next/server/app/*.html` must ship
 # > 3 KB of real body content. A broken "use client" component that
