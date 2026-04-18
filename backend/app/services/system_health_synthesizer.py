@@ -175,10 +175,6 @@ def synthesize_health(db: Session) -> SystemHealthState:
                            and prev_dims[dim.name] != dim.status)
             dimensions.append(dim)
             evidence += 1
-            if dim.status == "critical":
-                issues.append(f"{dim.name}: {dim.detail}")
-            elif dim.status == "degraded" and dim.trend == "worsening":
-                issues.append(f"{dim.name} worsening: {dim.detail}")
         except Exception as exc:
             log.debug("cto_signal: %s failed: %s", fn.__name__, exc)
 
@@ -190,6 +186,22 @@ def synthesize_health(db: Session) -> SystemHealthState:
     _OPS_ONLY_DIMENSIONS = {"alerts", "fix_rate"}
     actionable_dims = [d for d in dimensions if d.name not in _OPS_ONLY_DIMENSIONS]
     ops_dims = [d for d in dimensions if d.name in _OPS_ONLY_DIMENSIONS]
+
+    # 2026-04-18 ramification fix: previously top_issues only included
+    # critical dims + degraded+worsening dims. That left stable-degraded
+    # dimensions invisible on the transition Telegram message (e.g., when
+    # liveness turns degraded+stable the founder saw "🟡 SYSTEM: DEGRADED"
+    # with no explanation). Now surface EVERY founder-actionable non-healthy
+    # dim, plus any critical ops-only dim that drove state (rare path).
+    for _dim in actionable_dims:
+        if _dim.status == "critical":
+            issues.append(f"{_dim.name}: {_dim.detail}")
+        elif _dim.status == "degraded":
+            _suffix = " (worsening)" if _dim.trend == "worsening" else ""
+            issues.append(f"{_dim.name}: {_dim.detail}{_suffix}")
+    for _dim in ops_dims:
+        if _dim.status == "critical":
+            issues.append(f"{_dim.name} (ops): {_dim.detail}")
 
     actionable_critical = sum(1 for d in actionable_dims if d.status == "critical")
     actionable_degraded = sum(1 for d in actionable_dims if d.status == "degraded")
