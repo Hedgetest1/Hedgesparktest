@@ -12,6 +12,7 @@ import { SectionHeading } from "../_components/SectionHeading";
 import { GatewayProducts } from "../../components/GatewayProducts";
 import { PnlReport } from "../../components/PnlReport";
 import { PredictedLtv } from "../../components/PredictedLtv";
+import { SectionErrorBoundary } from "../../components/SectionErrorBoundary";
 import { formatDisplayMoney, type DisplayCurrency } from "../../lib/currency";
 import { prettyText, formatMoneyCompact } from "../_lib/formatters";
 
@@ -398,13 +399,19 @@ export function ProIntelligenceSection(p: ProIntelligenceSectionProps) {
       {/* Profit Intelligence */}
       <div className="mt-6">
         <SectionHeading eyebrow="Profit Intelligence" title="What you actually keep" />
-        <PnlReport data={pnlData} displayCurrency={displayCurrency} />
+        <SectionErrorBoundary name="Profit & Loss">
+          <PnlReport data={pnlData} displayCurrency={displayCurrency} />
+        </SectionErrorBoundary>
       </div>
 
       {/* Gateway Products + Predicted LTV */}
       <div className="mt-6 grid gap-4 xl:grid-cols-2">
-        <GatewayProducts data={gatewayProductsData} displayCurrency={displayCurrency} />
-        <PredictedLtv data={predictedLtvData} displayCurrency={displayCurrency} />
+        <SectionErrorBoundary name="Gateway Products">
+          <GatewayProducts data={gatewayProductsData} displayCurrency={displayCurrency} />
+        </SectionErrorBoundary>
+        <SectionErrorBoundary name="Predicted LTV">
+          <PredictedLtv data={predictedLtvData} displayCurrency={displayCurrency} />
+        </SectionErrorBoundary>
       </div>
 
       {/* Price + Market Intelligence */}

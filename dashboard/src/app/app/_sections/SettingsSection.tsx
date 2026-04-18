@@ -10,6 +10,7 @@
 import { SectionHeading } from "../_components/SectionHeading";
 import { ConnectToolsPanel } from "../../components/ConnectToolsPanel";
 import { YourTeamPanel } from "../../components/YourTeamPanel";
+import { SectionErrorBoundary } from "../../components/SectionErrorBoundary";
 import { currencySymbol } from "../_lib/formatters";
 
 type CostDefaults = {
@@ -532,8 +533,12 @@ export function SettingsSection(p: SettingsSectionProps) {
       {/* Pro-only: outbound webhooks + team collab */}
       {p.isProUser && (
         <div className="mt-4 space-y-4">
-          <ConnectToolsPanel apiBase={p.apiBase} shop={p.shop} isProUser={p.isProUser} />
-          <YourTeamPanel apiBase={p.apiBase} shop={p.shop} isProUser={p.isProUser} />
+          <SectionErrorBoundary name="Connected Tools">
+            <ConnectToolsPanel apiBase={p.apiBase} shop={p.shop} isProUser={p.isProUser} />
+          </SectionErrorBoundary>
+          <SectionErrorBoundary name="Your Team">
+            <YourTeamPanel apiBase={p.apiBase} shop={p.shop} isProUser={p.isProUser} />
+          </SectionErrorBoundary>
         </div>
       )}
     </section>
