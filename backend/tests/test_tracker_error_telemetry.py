@@ -331,3 +331,59 @@ class TestSentrySpikeDetectors:
         from app.services.observability_spikes import detect_sentry_regressions
         fired = detect_sentry_regressions(db)
         assert fired == 0
+
+    def test_sentry_fingerprint_storm_fires_for_new_fp(self, db):
+        """New fingerprint with 15+ incidents in the last 10 min → critical."""
+        # All 16 incidents use the SAME new fingerprint, all inside the
+        # 10-min storm window.
+        self._seed_incidents(
+            db, count=16, fingerprint="fp_storm_a",
+            triage_status=None, created_offset_sec=60,
+        )
+        from app.services.observability_spikes import detect_sentry_fingerprint_storm
+        fired = detect_sentry_fingerprint_storm(db)
+        assert fired == 1
+        assert _count_alerts(db, "sentry_fingerprint_storm") == 1
+
+    def test_sentry_fingerprint_storm_ignores_old_fingerprints(self, db):
+        """An OLD fingerprint with new occurrences must NOT trip the
+        fingerprint-storm alert — that class is for brand-new bugs
+        only. sentry_regression handles the returned-fingerprint case."""
+        # Seed a historical sighting 2 hours ago.
+        self._seed_incidents(
+            db, count=1, fingerprint="fp_old_returner",
+            triage_status="parsed", created_offset_sec=7200,
+        )
+        # Now 16 more incidents in the last minute with the same fp.
+        self._seed_incidents(
+            db, count=16, fingerprint="fp_old_returner",
+            triage_status=None, created_offset_sec=30,
+        )
+        from app.services.observability_spikes import detect_sentry_fingerprint_storm
+        fired = detect_sentry_fingerprint_storm(db)
+        assert fired == 0
+
+    def test_sentry_fingerprint_storm_below_threshold_no_alert(self, db):
+        """14 < 15 threshold → no alert even if fingerprint is new."""
+        self._seed_incidents(
+            db, count=14, fingerprint="fp_storm_small",
+            triage_status=None, created_offset_sec=60,
+        )
+        from app.services.observability_spikes import detect_sentry_fingerprint_storm
+        fired = detect_sentry_fingerprint_storm(db)
+        assert fired == 0
+
+    def test_sentry_fingerprint_storm_distinct_alerts_per_fp(self, db):
+        """Two brand-new storming fingerprints in the same window → two alerts."""
+        self._seed_incidents(
+            db, count=16, fingerprint="fp_storm_x",
+            triage_status=None, created_offset_sec=60,
+        )
+        self._seed_incidents(
+            db, count=16, fingerprint="fp_storm_y",
+            triage_status=None, created_offset_sec=90,
+        )
+        from app.services.observability_spikes import detect_sentry_fingerprint_storm
+        fired = detect_sentry_fingerprint_storm(db)
+        assert fired == 2
+        assert _count_alerts(db, "sentry_fingerprint_storm") == 2

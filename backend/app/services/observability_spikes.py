@@ -672,6 +672,109 @@ _SENTRY_STUCK_COOLDOWN_KEY = "hs:spike:sentry_triage_stuck:{hour}"
 _SENTRY_STUCK_COOLDOWN_TTL = 3600
 
 
+# ---------------------------------------------------------------------------
+# Sentry fingerprint-storm detector
+# ---------------------------------------------------------------------------
+# A NEW fingerprint (one never observed before this window) that fires
+# at high velocity inside a short window. Distinct from:
+#   - sentry_rate_spike: aggregate volume across ALL fingerprints (catches
+#     "deploy broke many things"; noisy for a single new bug).
+#   - sentry_regression: fingerprint that was consumed returns (catches
+#     "fix didn't hold"; does nothing for a brand-new bug).
+#   - per-fingerprint triage threshold (30/hour): eventually triggers but
+#     only after significant damage has accumulated.
+#
+# Fingerprint-storm catches: "we just shipped something and ONE critical
+# path is exploding — thousands of merchants about to hit it". We want an
+# alert BEFORE the per-fingerprint threshold because time-to-notification
+# matters for a storming bug.
+#
+# Criteria:
+#   1. All occurrences of this fingerprint fall within the last
+#      _STORM_WINDOW_MIN minutes. MIN(created_at) >= window_cutoff means
+#      the fingerprint is NEW (no historical sightings beyond window).
+#   2. Count in the window >= _STORM_MIN_COUNT.
+#   3. Per-fingerprint hourly cooldown so one storm doesn't alert every cycle.
+# ---------------------------------------------------------------------------
+_STORM_WINDOW_MIN = 10
+_STORM_MIN_COUNT = 15
+_STORM_COOLDOWN_SECONDS = 3600
+
+
+def detect_sentry_fingerprint_storm(db: Session) -> int:
+    """Emit `sentry_fingerprint_storm` when a previously-unseen
+    fingerprint accumulates _STORM_MIN_COUNT+ incidents inside the
+    trailing _STORM_WINDOW_MIN window. Severity critical — a new,
+    fast-firing bug signals fresh regression that ops should look at
+    without waiting for the per-fingerprint triage threshold."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    window_cutoff = now - timedelta(minutes=_STORM_WINDOW_MIN)
+
+    try:
+        rows = db.execute(
+            sql_text(
+                """
+                SELECT fingerprint,
+                       COUNT(*) AS n,
+                       MIN(created_at) AS first_seen,
+                       MAX(created_at) AS last_seen
+                FROM sentry_incidents
+                WHERE fingerprint IS NOT NULL
+                GROUP BY fingerprint
+                HAVING MIN(created_at) >= :window_cutoff
+                   AND COUNT(*) >= :min_count
+                """
+            ),
+            {
+                "window_cutoff": window_cutoff,
+                "min_count": _STORM_MIN_COUNT,
+            },
+        ).fetchall()
+    except Exception as exc:
+        log.warning("sentry fingerprint-storm scan failed: %s", exc)
+        return 0
+
+    fired = 0
+    for fingerprint, n, first_seen, last_seen in rows:
+        if not fingerprint:
+            continue
+        hour = now.strftime("%Y-%m-%dT%H")
+        cooldown_key = f"hs:spike:sentry_fp_storm:{fingerprint}:{hour}"
+        if not _cooldown_ok(cooldown_key, _STORM_COOLDOWN_SECONDS):
+            continue
+        duration_sec = None
+        if first_seen and last_seen:
+            try:
+                duration_sec = int((last_seen - first_seen).total_seconds())
+            except Exception:
+                duration_sec = None
+        try:
+            from app.services.alerting import write_alert
+            write_alert(
+                db,
+                severity="critical",
+                source=f"sentry_fp_storm:{fingerprint[:32]}",
+                alert_type="sentry_fingerprint_storm",
+                summary=(
+                    f"New Sentry fingerprint storm: "
+                    f"{int(n)} incidents in the last {_STORM_WINDOW_MIN}min "
+                    f"for a fingerprint never seen before this window"
+                    + (f" (burst over {duration_sec}s)" if duration_sec else "")
+                ),
+                detail={
+                    "fingerprint": fingerprint,
+                    "count": int(n),
+                    "window_minutes": _STORM_WINDOW_MIN,
+                    "burst_duration_seconds": duration_sec,
+                    "threshold_count": _STORM_MIN_COUNT,
+                },
+            )
+            fired += 1
+        except Exception as exc:
+            log.warning("sentry fingerprint-storm alert write failed: %s", exc)
+    return fired
+
+
 def detect_sentry_triage_stuck(db: Session) -> int:
     """Alert when the sentry_triage consumer queue has backed up —
     i.e. many `ready` incidents unlinked for more than 6h. Catches
@@ -755,6 +858,7 @@ def run_all_spike_detectors(db: Session) -> dict[str, int]:
         ("ux_frustration_spike",         detect_ux_frustration_spikes),
         ("sentry_incident_rate_spike",   detect_sentry_rate_spikes),
         ("sentry_regression",            detect_sentry_regressions),
+        ("sentry_fingerprint_storm",     detect_sentry_fingerprint_storm),
         ("sentry_triage_stuck",          detect_sentry_triage_stuck),
     ):
         try:
