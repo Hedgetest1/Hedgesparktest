@@ -728,11 +728,27 @@ def _run_daily_digest():
     """
     Send daily health digest to Telegram — ONCE per calendar day (Europe/Rome).
 
+    Scheduled for 08:00+ Rome (B7 gate): previous behaviour was "first
+    cycle after Rome midnight" which often fired at ~00:05 and was noisy.
+
+    Silence policy (B6, founder Option B): if the state is quiet (no
+    attention items AND overall health is healthy), skip the send but
+    still mark the day as done so we don't recompute on every cycle.
+
     Dedup: stored in worker_state.last_digest_date (DB column).
     Survives PM2 restarts, Redis resets, process crashes.
     """
-    from app.services.telegram_agent import send_daily_digest, is_configured
+    from app.services.telegram_agent import (
+        send_daily_digest,
+        is_digest_quiet,
+        is_configured,
+    )
     if not is_configured():
+        return
+
+    # B7 — 08:00 Rome gate.
+    from zoneinfo import ZoneInfo as _ZI
+    if datetime.now(_ZI("Europe/Rome")).hour < 8:
         return
 
     today = _today_rome()
@@ -740,13 +756,24 @@ def _run_daily_digest():
     db = SessionLocal()
     try:
         from sqlalchemy import text
-        # Check if already sent today (DB is the source of truth)
+        # Check if already sent (or silenced) today — DB is source of truth.
         row = db.execute(text(
             "SELECT last_digest_date FROM worker_state WHERE worker_name = 'agent_worker'"
         )).fetchone()
 
         if row and row[0] == today:
-            return  # already sent today
+            return  # already decided for today
+
+        # B6 — Silence policy (Option B). Mark today as done so the
+        # decision isn't recomputed every cycle.
+        if is_digest_quiet(db):
+            db.execute(text(
+                "UPDATE worker_state SET last_digest_date = :today "
+                "WHERE worker_name = 'agent_worker'"
+            ), {"today": today})
+            db.commit()
+            log(f"daily_digest: silenced for {today} — quiet state")
+            return
 
         # Send digest
         sent = send_daily_digest(db)

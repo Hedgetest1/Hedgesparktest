@@ -2088,6 +2088,78 @@ def send_scaling_alert(recommendation: dict, forecast: dict) -> bool:
 # Daily health digest
 # ---------------------------------------------------------------------------
 
+def is_digest_quiet(db) -> bool:
+    """
+    Decide whether today's digest state has nothing that needs founder
+    attention. Used by the scheduler to implement silence policy
+    (Option B — send only when ATTENTION or higher).
+
+    Returns True when ALL of:
+      - system_health overall_status == 'healthy'
+      - No TIER_2 candidates awaiting review
+      - No rollbacks in last 24h
+      - No unresolved critical ops_alerts in last 24h
+      - No single alert_type exceeding 20 rows in last 24h (spike)
+
+    Uses the same truth sources as build_daily_digest.attention_lines —
+    if you add a new attention source there, mirror it here, or the
+    scheduler will silence a message that should have fired. Fails open
+    (returns False → send) on any query error rather than suppress.
+    """
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import text as sql_text
+
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    cutoff_24h = now_utc - timedelta(hours=24)
+
+    try:
+        from app.core.redis_client import cache_get
+        health = cache_get("hs:system_health")
+        if not health:
+            from app.services.system_health_synthesizer import synthesize_health
+            health = synthesize_health(db).to_dict()
+        if (health or {}).get("overall_status") != "healthy":
+            return False
+    except Exception as exc:
+        log.warning("telegram_agent: is_digest_quiet health probe failed: %s", exc)
+        return False
+
+    try:
+        if (db.execute(sql_text(
+            "SELECT COUNT(*) FROM bugfix_candidates "
+            "WHERE status='patch_proposed' AND patch_risk_tier=2"
+        )).scalar() or 0) > 0:
+            return False
+        if (db.execute(sql_text(
+            "SELECT COUNT(*) FROM bugfix_candidates "
+            "WHERE status='rolled_back' AND applied_at >= :c"
+        ), {"c": cutoff_24h}).scalar() or 0) > 0:
+            return False
+        if (db.execute(sql_text(
+            "SELECT COUNT(*) FROM ops_alerts "
+            "WHERE severity='critical' AND resolved=false AND created_at >= :c"
+        ), {"c": cutoff_24h}).scalar() or 0) > 0:
+            return False
+        # Same filter rule as build_daily_digest attention B3b — only
+        # unresolved warning/critical counts as a "spike" for silence
+        # purposes. Self-resolving probes (heartbeat_synthetic_test) and
+        # info-level telemetry do not silence the silence.
+        spike = db.execute(sql_text(
+            "SELECT alert_type FROM ops_alerts "
+            "WHERE created_at >= :c "
+            "  AND severity IN ('warning', 'critical') "
+            "  AND resolved = false "
+            "GROUP BY alert_type HAVING COUNT(*) > 20 LIMIT 1"
+        ), {"c": cutoff_24h}).scalar()
+        if spike:
+            return False
+    except Exception as exc:
+        log.warning("telegram_agent: is_digest_quiet attention-probe failed: %s", exc)
+        return False
+
+    return True
+
+
 def build_daily_digest(db) -> str:
     """
     Founder morning newspaper. Scannable in 3 seconds.
@@ -2179,9 +2251,18 @@ def build_daily_digest(db) -> str:
             "GROUP BY 1"
         ), {"s": cutoff_14d, "e": cutoff_7d}).fetchall()
 
-        # Use the highest-volume currency as the "primary" number for the
-        # compact summary, and list the rest as a secondary line.
-        primary_tw = rows_tw[0] if rows_tw else None
+        # B5 — Founder-primary currency wins when it has data; else fall
+        # back to highest-volume currency. Default EUR (founder's mental
+        # model), overridable via FOUNDER_PRIMARY_CURRENCY env.
+        import os as _os_env
+        _founder_primary = _os_env.environ.get("FOUNDER_PRIMARY_CURRENCY", "EUR").upper()
+        primary_tw = None
+        for _r in rows_tw:
+            if str(_r[0]).upper() == _founder_primary:
+                primary_tw = _r
+                break
+        if primary_tw is None:
+            primary_tw = rows_tw[0] if rows_tw else None
         rev_tw = float(primary_tw[1]) if primary_tw else 0.0
         orders_tw = int(primary_tw[2]) if primary_tw else 0
         primary_ccy_code = str(primary_tw[0]).upper() if primary_tw else "EUR"
@@ -2362,6 +2443,53 @@ def build_daily_digest(db) -> str:
             f"\u21a9\ufe0f {rolled_24h} rollback{'s' if rolled_24h > 1 else ''} in the last 24h"
         )
 
+    # B3a — Critical unresolved ops_alerts (24h). Max 3 distinct types.
+    try:
+        crit_rows = db.execute(sql_text(
+            "SELECT alert_type, COUNT(*) AS n FROM ops_alerts "
+            "WHERE severity='critical' AND resolved=false "
+            "  AND created_at >= :c "
+            "GROUP BY alert_type ORDER BY n DESC LIMIT 3"
+        ), {"c": cutoff_24h}).fetchall()
+        for _row in crit_rows:
+            _name = (_row[0] or "?").replace("_", "\\_")
+            _n = int(_row[1] or 0)
+            _suffix = f" \u00d7{_n}" if _n > 1 else ""
+            attention_lines.append(f"\U0001f534 critical: {_name}{_suffix}")
+    except Exception as exc:
+        log.warning("telegram_agent: critical-alerts attention failed: %s", exc)
+
+    # B3b — Sustained unresolved warning/critical spike in 24h.
+    # Filters: (a) severity is real (not info/debug), (b) still unresolved —
+    # skips self-healing probes like heartbeat_synthetic_test (300/day but
+    # all self-resolve) and info-level telemetry like regulatory_update.
+    try:
+        spike_rows = db.execute(sql_text(
+            "SELECT alert_type, COUNT(*) AS n FROM ops_alerts "
+            "WHERE created_at >= :c "
+            "  AND severity IN ('warning', 'critical') "
+            "  AND resolved = false "
+            "GROUP BY alert_type HAVING COUNT(*) > 20 "
+            "ORDER BY n DESC LIMIT 2"
+        ), {"c": cutoff_24h}).fetchall()
+        for _row in spike_rows:
+            _name = (_row[0] or "?").replace("_", "\\_")
+            _n = int(_row[1] or 0)
+            attention_lines.append(f"\u26a0\ufe0f spike: {_name} \u00d7{_n} in 24h")
+    except Exception as exc:
+        log.warning("telegram_agent: spike attention failed: %s", exc)
+
+    # B3c — Pipeline liveness stall (from cached health dimensions).
+    try:
+        if health:
+            for _d in health.get("dimensions", []):
+                if _d.get("name") == "liveness" and _d.get("status") == "degraded":
+                    _det = _d.get("detail") or "check /status"
+                    attention_lines.append(f"\U0001f504 pipeline stalled: {_det}")
+                    break
+    except Exception as exc:
+        log.warning("telegram_agent: liveness attention failed: %s", exc)
+
     if attention_lines:
         lines.append("")
         lines.append("\u261d\ufe0f *Needs you:*")
@@ -2369,10 +2497,11 @@ def build_daily_digest(db) -> str:
             lines.append(f"  {al}")
 
     # ── 7. FINALIZE HEADLINE ──
-    # If CTO says CRITICAL but nothing actually needs the founder,
-    # downgrade to keep the headline honest. The raw ops status is
-    # still visible via /status.
-    if overall_status == "CRITICAL" and not attention_lines:
+    # B4 — If CTO says WARNING/CRITICAL but nothing actually needs the
+    # founder, downgrade to keep the headline honest. An orange/red
+    # headline without a "Needs you:" line was misleading (shows state
+    # without teaching action). Raw ops state remains visible via /status.
+    if overall_status in ("WARNING", "CRITICAL") and not attention_lines:
         overall_status = "OK"
 
     status_emoji = {
