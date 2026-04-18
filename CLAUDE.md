@@ -827,3 +827,68 @@ If the request looks like one of these, STOP and respond with the
 pushback before executing. The right move is almost always "I'm going
 to resist this for reason X — do you still want to proceed?" rather
 than quietly executing and hoping nobody notices.
+
+---
+
+## 19. Turn-close ritual (applies every non-trivial turn)
+
+**The gap the founder caught (2026-04-18):** the rules in §1–§18 and
+the memory files exist, but Claude only applies them consistently when
+explicitly pressured — reverting to "complete task + report" by
+default. This section forces the ritual to fire natively, in every
+end-of-turn reply, so "omniscient + proactive" stops being aspirational
+and becomes the operating mode.
+
+**Definition of omniscient here:** already knows, does not discover
+when asked. If Claude has to be pushed to grep for siblings, run the
+rubric, or surface structural preventers — that is NOT omniscient. The
+ritual fires BEFORE the founder asks.
+
+Before sending the final reply after a commit (or a meaningful
+decision), walk through the axes *visibly in the reply*. If a step
+returns nothing *after an actual attempt*, say so explicitly
+("sibling grep came up empty" ≠ silently skipped).
+
+1. **AXIS 1 — Thing itself.** Commit hash + test count + one-line
+   summary of what changed. Boring but mandatory.
+2. **AXIS 2 — Sibling hunt.** Distill the bug's pattern signature into
+   a grep (e.g., `is_active` → attribute-ghost class; `5\.0` → stale
+   doctrine default; `if status == "X"` → state/reason coupling).
+   Run it in the same turn — NOT "next session". Report each hit
+   file:line with classification (🔴 fix / 🟡 verify / ⚫ skip).
+   "I'll get to it later" = punt = failure. Empirical ratio from the
+   April 2026 hunts: 1 reported bug → 3–4 hidden siblings.
+3. **AXIS 3 — Improvement branches.** Did the work expose 1–3 adjacent
+   improvements (perf, UX, observability, test coverage, scale, DX)?
+   One line each. Or: "none found after hunting X, Y, Z" — not empty
+   silence.
+4. **AXIS 4 — Structural preventer.** What test / lint / audit script
+   would have caught THIS class *before* it shipped? Propose it and
+   add it in the same turn if cheap. Examples: invariant test
+   ("degraded overall_status → top_issues must be non-empty"), audit
+   script (scan for €5 hardcoded defaults next to LLM budget calls),
+   pre-commit pattern (block `is_active` references on Merchant).
+5. **Devil's advocate.** One paragraph minimum: why THIS fix might be
+   subtly wrong — new noise mode, ordering bug, interaction with
+   another pipeline, broken assumption at scale, wrong timezone
+   boundary. If nothing found after actively looking, say
+   "audit came up empty", never "perfect" or "complete".
+6. **Brutal rubric score.** Per `project_brutal_scoring_rubric.md`,
+   domain-by-domain, weighted math, no rounding. A 7.3 is a 7.3. If
+   the reply claims 9+ / "11/10" / "elite" / "killer" on any domain,
+   the rubric audit MUST appear in the same reply
+   (`feedback_no_11_10_claim_without_brutal_audit.md`). The latest
+   score goes in SESSION_STATE.
+
+**Trivial turns** (single typo fix, formatting cleanup, memory-file
+write, question-answer with no commit) may skip axes 2–4 but still
+close with a short 5–6.
+
+**Anti-pattern to refuse:** ending a turn with *"shipped X, tests
+pass, ready for next step"* and nothing else. That is the pre-§19
+failure mode. A turn with no challenge, no grep, no score, no surfaced
+improvement is a failed turn *even if the commit is correct*.
+
+**Escape valve:** if the founder writes "skip ritual" / "just ship" /
+"fast path", honor it for that turn — but resume §19 on the next
+non-trivial turn without being reminded.
