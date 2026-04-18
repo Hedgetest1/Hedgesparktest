@@ -207,6 +207,9 @@ def get_revenue_forecast(
     last_day = daily_series[-1][0]
     n = len(revenues)  # trend line current position
 
+    forecast_1d = _project_window(
+        slope, intercept, n, daily_stddev, last_day, 1, dow_factors,
+    )
     forecast_7d = _project_window(
         slope, intercept, n, daily_stddev, last_day, 7, dow_factors,
     )
@@ -238,6 +241,20 @@ def get_revenue_forecast(
         from app.services.prediction_log import log_prediction as _log_prediction
         today = _now().date()
         if confidence is not None:  # only log forecasts we'd actually show
+            # 1-day forecast: the fast-maturing channel. Matures tomorrow
+            # so the MA-1 accuracy card shows real MAPE inside a merchant's
+            # first 8 days instead of the ~56 days the 30d horizon takes.
+            _log_prediction(
+                db,
+                shop_domain=shop_domain,
+                metric="forecast_1d_revenue",
+                predicted_value=forecast_1d.get("revenue", 0.0),
+                predicted_low=forecast_1d.get("revenue_low"),
+                predicted_high=forecast_1d.get("revenue_high"),
+                horizon_date=today + _td(days=1),
+                currency=currency,
+                confidence=confidence,
+            )
             _log_prediction(
                 db,
                 shop_domain=shop_domain,
@@ -273,6 +290,7 @@ def get_revenue_forecast(
             "total_revenue": round(total_revenue, 2),
             "avg_daily_revenue": round(avg_daily, 2),
         },
+        "forecast_1d": forecast_1d,
         "forecast_7d": forecast_7d,
         "forecast_30d": forecast_30d,
         "trend": {

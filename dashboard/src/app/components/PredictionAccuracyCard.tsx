@@ -50,6 +50,7 @@ type Payload = {
 };
 
 const METRIC_LABELS: Record<string, string> = {
+  forecast_1d_revenue: "Tomorrow's revenue forecast",
   forecast_7d_revenue: "7-day revenue forecast",
   forecast_30d_revenue: "30-day revenue forecast",
 };

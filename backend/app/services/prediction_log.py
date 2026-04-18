@@ -51,7 +51,18 @@ MIN_PREDICTIONS_FOR_REPORT = 8
 
 # Supported metrics. Keep in sync with frontend copy + log_prediction
 # validation + compute_accuracy report shape.
-METRICS = ("forecast_7d_revenue", "forecast_30d_revenue")
+#
+# `forecast_1d_revenue` added 2026-04-18 as the fast-maturing companion to
+# the 7d/30d forecasts: a 1-day horizon means the first matured prediction
+# arrives tomorrow, and the 8-prediction honest-floor clears in 8 days
+# instead of the ~56 days a 30d-horizon requires. Accuracy receipts start
+# showing real numbers inside merchants' first sprint, not their second
+# month.
+METRICS = (
+    "forecast_1d_revenue",
+    "forecast_7d_revenue",
+    "forecast_30d_revenue",
+)
 
 _LOOKBACK_DAYS = 120  # how far back we look for matured predictions
 
