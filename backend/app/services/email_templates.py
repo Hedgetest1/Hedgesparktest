@@ -911,6 +911,194 @@ _RENDERERS = {
 }
 
 
+def _render_night_shift_digest(ctx: dict) -> tuple[str, str, str]:
+    """
+    MA-6 moat amplification email. Mirrors the on-dashboard Night Shift
+    report: headline + prevented-this-shift + top action + journal rows.
+    The receipt-style body is the point — merchants see what the
+    autonomous pipeline did while they slept. Competitors publish uptime
+    badges; we publish the actual work log.
+
+    Context shape (from night_shift_agent.generate_for_shop):
+        shop_name: str
+        headline: str
+        narrative: str
+        sleep_score: float (0-100) | None
+        sleep_label: str | None
+        prevented_eur_24h: float
+        currency: str
+        top_action: dict | None  (source, narrative, impact_eur?)
+        journal: list[dict]       (signal, verdict, reason, weight)
+        rars_total: float | None
+    """
+    shop_name = ctx.get("shop_name") or "your store"
+    headline = ctx.get("headline") or "Overnight shift complete"
+    narrative = ctx.get("narrative") or ""
+    sleep_label = ctx.get("sleep_label")
+    sleep_score = ctx.get("sleep_score")
+    prevented = float(ctx.get("prevented_eur_24h") or 0)
+    currency = ctx.get("currency") or "USD"
+    rars_total = ctx.get("rars_total")
+    top_action = ctx.get("top_action") or {}
+    journal = ctx.get("journal") or []
+
+    # Currency-safe money format — mirrors dashboard logic
+    def _fmt(amount: float) -> str:
+        try:
+            from app.core.currency import format_money
+            return format_money(amount, currency)
+        except Exception:
+            return f"{amount:,.0f} {currency}"
+
+    body_parts = [
+        _heading(headline),
+        _p(narrative, color="#cbd5e1") if narrative else "",
+    ]
+
+    # Sleep confidence strip (only if we have a score)
+    if sleep_score is not None and sleep_label:
+        color = (
+            "#34d399" if sleep_score >= 80
+            else "#e8a04e" if sleep_score >= 60
+            else "#fb7185"
+        )
+        body_parts.append(
+            f'<div style="margin:20px 0;padding:14px 16px;border-radius:12px;'
+            f'border:1px solid {color}40;background:{color}0d;">'
+            f'<div style="font-size:10px;font-weight:700;letter-spacing:0.18em;'
+            f'text-transform:uppercase;color:#94a3b8;">Sleep confidence</div>'
+            f'<div style="margin-top:6px;font-size:22px;font-weight:800;color:{color};">'
+            f'{sleep_label} <span style="font-size:14px;color:#94a3b8;">'
+            f'({int(sleep_score)}/100)</span></div></div>'
+        )
+
+    # Prevented + at-risk KPIs (side by side where data permits)
+    kpi_cards = []
+    if prevented > 0:
+        kpi_cards.append(
+            f'<td style="padding:0 6px 0 0;vertical-align:top;width:50%;">'
+            f'<div style="padding:14px 16px;border-radius:12px;border:1px solid rgba(52,211,153,0.22);'
+            f'background:rgba(52,211,153,0.06);">'
+            f'<div style="font-size:10px;font-weight:700;letter-spacing:0.16em;'
+            f'text-transform:uppercase;color:#94a3b8;">Prevented last 24h</div>'
+            f'<div style="margin-top:4px;font-size:22px;font-weight:800;color:#34d399;">'
+            f'{_fmt(prevented)}</div></div></td>'
+        )
+    if rars_total is not None and float(rars_total) > 0:
+        kpi_cards.append(
+            f'<td style="padding:0 0 0 6px;vertical-align:top;width:50%;">'
+            f'<div style="padding:14px 16px;border-radius:12px;border:1px solid rgba(232,160,78,0.22);'
+            f'background:rgba(232,160,78,0.06);">'
+            f'<div style="font-size:10px;font-weight:700;letter-spacing:0.16em;'
+            f'text-transform:uppercase;color:#94a3b8;">Revenue at risk</div>'
+            f'<div style="margin-top:4px;font-size:22px;font-weight:800;color:#e8a04e;">'
+            f'{_fmt(float(rars_total))}/mo</div></div></td>'
+        )
+    if kpi_cards:
+        body_parts.append(
+            '<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+            'width="100%" style="margin:10px 0 4px 0;"><tr>'
+            + "".join(kpi_cards)
+            + '</tr></table>'
+        )
+
+    # Top action
+    if top_action and top_action.get("narrative"):
+        body_parts.append(
+            _section_title("Top action flagged", accent="warm")
+            + _p(top_action.get("narrative", ""), color="#e2e8f0")
+        )
+        if top_action.get("source"):
+            body_parts.append(
+                _p(
+                    f"Signal source: <code style='color:#c4b5fd;font-family:monospace;'>"
+                    f"{top_action.get('source')}</code>",
+                    color="#64748b",
+                )
+            )
+
+    # Journal (cap at 6 entries — email readability)
+    if journal:
+        body_parts.append(_section_title("What the pipeline watched", accent="cool"))
+        for entry in journal[:6]:
+            verdict = entry.get("verdict") or "watched"
+            signal = entry.get("signal") or "unknown"
+            reason = entry.get("reason") or ""
+            v_color = {
+                "acted": "#34d399",
+                "flagged": "#e8a04e",
+                "watched": "#94a3b8",
+                "ignored": "#64748b",
+            }.get(verdict, "#94a3b8")
+            body_parts.append(
+                f'<div style="margin:6px 0;padding:8px 12px;border-left:2px solid {v_color};'
+                f'background:rgba(255,255,255,0.02);">'
+                f'<div style="font-size:10px;font-weight:700;letter-spacing:0.12em;'
+                f'text-transform:uppercase;color:{v_color};">'
+                f'{verdict} · {signal}</div>'
+                f'<div style="margin-top:3px;font-size:13px;color:#cbd5e1;">{reason}</div>'
+                f'</div>'
+            )
+
+    body_parts.append(_separator())
+    body_parts.append(
+        _p(
+            "No competitor publishes what their self-healing pipeline actually "
+            "did overnight. This is the receipt.",
+            color="#64748b",
+        )
+    )
+    body_parts.append(_button("Open dashboard", _DASHBOARD_URL))
+    body_parts.append(
+        _p(
+            "You can pause this email anytime from Settings → Notifications.",
+            color="#64748b",
+        )
+    )
+
+    subject = f"{shop_name}: overnight shift — {headline[:72]}"
+    body_html = "".join(body_parts)
+
+    # Plain-text variant — includes the same headline + top action + journal
+    plain_lines = [headline, ""]
+    if narrative:
+        plain_lines.append(narrative)
+        plain_lines.append("")
+    if sleep_score is not None and sleep_label:
+        plain_lines.append(f"Sleep confidence: {sleep_label} ({int(sleep_score)}/100)")
+        plain_lines.append("")
+    if prevented > 0:
+        plain_lines.append(f"Prevented last 24h: {_fmt(prevented)}")
+    if rars_total is not None and float(rars_total) > 0:
+        plain_lines.append(f"Revenue at risk: {_fmt(float(rars_total))}/mo")
+    if top_action and top_action.get("narrative"):
+        plain_lines.append("")
+        plain_lines.append("Top action flagged:")
+        plain_lines.append(f"  {top_action.get('narrative')}")
+    if journal:
+        plain_lines.append("")
+        plain_lines.append("What the pipeline watched:")
+        for entry in journal[:6]:
+            plain_lines.append(
+                f"  • {(entry.get('verdict') or 'watched').upper()} — "
+                f"{entry.get('signal') or 'unknown'}: {entry.get('reason') or ''}"
+            )
+    plain_lines.append("")
+    plain_lines.append(f"Open dashboard: {_DASHBOARD_URL}")
+    plain_lines.append("")
+    plain_lines.append("Pause this email: Settings → Notifications")
+    plain_lines.append("— HedgeSpark")
+    plain_text = "\n".join(plain_lines)
+
+    return subject, _wrap_html(subject, body_html), plain_text
+
+
+# Post-definition registration — the renderer below is declared after
+# the _RENDERERS dict literal, so we wire it in explicitly to avoid
+# forward-reference issues at module-load.
+_RENDERERS["night_shift_digest"] = _render_night_shift_digest
+
+
 def render_email(
     email_type: str,
     context: dict,

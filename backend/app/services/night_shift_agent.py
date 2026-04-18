@@ -689,6 +689,18 @@ def run_nightly_for_all_pro(db: Session) -> int:
             n += 1
         except Exception as exc:
             log.warning("night_shift: generate failed for %s: %s", shop, exc)
+
+    # MA-6 — also send the digest email for every shop whose report
+    # generated successfully. Email send is idempotent per UTC day, so
+    # repeated calls to run_nightly_for_all_pro won't spam inboxes.
+    # Wrapped in try/except so one bad inbox can't break report gen.
+    try:
+        from app.services.night_shift_email import run_for_all_pro as _send_emails
+        tally = _send_emails(db)
+        log.info("night_shift_email: tally=%s", tally)
+    except Exception as exc:
+        log.warning("night_shift_email: batch send failed (non-fatal): %s", exc)
+
     return n
 
 
