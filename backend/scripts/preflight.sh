@@ -251,6 +251,22 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2o. Stale doctrine-default audit. Catches `.get("monthly_cap_eur", 5.0)`
+# class patterns that silently go stale when doctrine moves (today: dev
+# LLM cap went €5 → €10 but two callers kept the literal 5.0 as
+# fallback). Guard-default zeros (divide-by-zero safety) are permitted;
+# named constants (MONTHLY_EUR_CAP) are preferred. Born 2026-04-18
+# from the B2 sibling hunt after commit 8bae843.
+# ---------------------------------------------------------------------------
+step "Stale doctrine-default audit (audit_stale_doctrine_defaults.py)"
+if "$PY" "$BACKEND/scripts/audit_stale_doctrine_defaults.py" > /tmp/preflight_doctrine.log 2>&1; then
+    ok "no stale literal fallbacks against doctrine keys"
+else
+    bad "stale doctrine defaults detected — see /tmp/preflight_doctrine.log"
+    tail -20 /tmp/preflight_doctrine.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2n. SSR body-size floor. Locks in the 2026-04-15 landing SSR fix —
 # every prerendered page under `.next/server/app/*.html` must ship
 # > 3 KB of real body content. A broken "use client" component that
