@@ -51,6 +51,7 @@ ALLOWLIST: set[str] = {
     "services/observability_spikes.py",   # Dashboard-wide + fleet-wide spike detection
 
     "services/ops_triage.py",             # Ops-scope triage
+    "services/on_alert_responder.py",     # Operator-scope alert triage — cross-shop by design
     "api/public_status.py",               # Public status endpoint (no shop)
     "api/public_roi_counter.py",          # Already iterates merchants explicitly
     "services/monthly_evolution_audit.py",

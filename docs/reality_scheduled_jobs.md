@@ -37,7 +37,7 @@ All singletons (fork mode, instances=1). Cross-process claim via
 
 ## Internal sub-tasks inside agent_worker.py (cycle = 15 min)
 
-Agent worker calls 42 `_run_*` helpers on every cycle. Each helper
+Agent worker calls 43 `_run_*` helpers on every cycle. Each helper
 self-gates via one of: in-process monotonic cooldown, DB
 `worker_state.last_*_date`, Redis key, or time-of-day condition.
 Listed here in execution order with the actual gate.
@@ -79,6 +79,7 @@ Listed here in execution order with the actual gate.
 | `_run_billing_sync` | no gate | every cycle |
 | `_run_scoring_self_eval` | **Sunday only** (`weekday() == 6`) | weekly |
 | `_run_sentry_triage` | in-process cooldown | ~5-15min effective |
+| `_run_on_alert_responder` | **env `ON_ALERT_RESPONDER_ENABLED=0` default OFF** — framework only until founder approves LLM spend | polls unresolved critical ops_alerts last 24h; framework mode builds context packets without calling LLM |
 | `_run_stale_alert_cleanup` | `worker_state` dedup | hourly |
 | `_run_cto_health_check` | cooldown (5min transition / 4h critical-repeat) | on state-change |
 | `_run_approval_expiry_sweep` | no gate | every cycle |

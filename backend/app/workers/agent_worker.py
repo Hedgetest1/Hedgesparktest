@@ -1465,6 +1465,39 @@ def _check_sentry_webhook_health(db):
         )
 
 
+def _run_on_alert_responder():
+    """A8: autonomous triage of new critical ops_alerts.
+
+    FRAMEWORK ONLY as of 2026-04-18 — the poll + context-packet logic
+    ships behind env flag ON_ALERT_RESPONDER_ENABLED=0 (default).
+    When enabled, Claude will triage each unresolved critical alert
+    within the same agent_worker cycle it lands in (rather than
+    waiting for the 08:00 daily brief).
+
+    Flipping the flag to 1 requires founder sign-off on the money-spend
+    scope (~€1-3/mo LLM estimated) per `on_alert_responder.py` docstring.
+    """
+    db = SessionLocal()
+    try:
+        from app.services.on_alert_responder import run as _run_responder
+        report = _run_responder(db)
+        if report.get("alerts_found", 0) > 0:
+            log(
+                f"on_alert_responder: mode={report['mode']} "
+                f"found={report['alerts_found']} "
+                f"contexts_built={report['contexts_built']} "
+                f"llm_calls={report['llm_calls_made']}"
+            )
+    except Exception as exc:
+        log(f"on_alert_responder error (non-fatal): {exc}")
+        try:
+            db.rollback()
+        except Exception as exc:
+            log.warning("agent_worker: _run_on_alert_responder failed: %s", exc)
+    finally:
+        db.close()
+
+
 def _run_sentry_triage():
     """Generate AI triage packets, consume into candidates, re-evaluate skipped."""
     # Phase A: Generate triage packets for newly parsed incidents
@@ -2144,6 +2177,8 @@ def run_cycle():
 
     # Phase 7n: Sentry incident triage — generate AI debugging packets
     _run_sentry_triage()
+
+    _run_on_alert_responder()
 
     # Phase 7k: Scoring intelligence self-evaluation (every cycle, lightweight)
     _run_scoring_self_eval()
