@@ -737,12 +737,18 @@ def _run_daily_digest():
 
     Dedup: stored in worker_state.last_digest_date (DB column).
     Survives PM2 restarts, Redis resets, process crashes.
+
+    Audit log (2026-04-18, B1 residue closure): every state transition
+    writes an audit_log row with actor_name='agent_worker' and
+    action_type='daily_digest_decision' so hit-rate / silence-rate /
+    failure-rate can be measured with a SQL query.
     """
     from app.services.telegram_agent import (
         send_daily_digest,
         is_digest_quiet,
         is_configured,
     )
+    from app.services.audit import write_audit_log
     if not is_configured():
         return
 
@@ -771,6 +777,19 @@ def _run_daily_digest():
                 "UPDATE worker_state SET last_digest_date = :today "
                 "WHERE worker_name = 'agent_worker'"
             ), {"today": today})
+            try:
+                write_audit_log(
+                    db,
+                    actor_type="worker",
+                    actor_name="agent_worker",
+                    action_type="daily_digest_decision",
+                    target_type="digest",
+                    target_id=today,
+                    status="silenced_quiet",
+                    metadata={"date_rome": today},
+                )
+            except Exception as exc:
+                log(f"daily_digest audit log (silenced) failed: {exc}")
             db.commit()
             log(f"daily_digest: silenced for {today} — quiet state")
             return
@@ -782,9 +801,40 @@ def _run_daily_digest():
             db.execute(text(
                 "UPDATE worker_state SET last_digest_date = :today WHERE worker_name = 'agent_worker'"
             ), {"today": today})
+            try:
+                write_audit_log(
+                    db,
+                    actor_type="worker",
+                    actor_name="agent_worker",
+                    action_type="daily_digest_decision",
+                    target_type="digest",
+                    target_id=today,
+                    status="sent",
+                    metadata={"date_rome": today},
+                )
+            except Exception as exc:
+                log(f"daily_digest audit log (sent) failed: {exc}")
             db.commit()
             log(f"daily_digest: sent for {today}")
         else:
+            # Retryable failure — no worker_state update, but DO record the
+            # attempt so failure-rate is measurable. The audit row carries
+            # the attempt timestamp; repeated cycles will write repeated
+            # rows until the send succeeds (bounded by the Rome-day dedup).
+            try:
+                write_audit_log(
+                    db,
+                    actor_type="worker",
+                    actor_name="agent_worker",
+                    action_type="daily_digest_decision",
+                    target_type="digest",
+                    target_id=today,
+                    status="send_failed",
+                    metadata={"date_rome": today},
+                )
+                db.commit()
+            except Exception as exc:
+                log(f"daily_digest audit log (failed) failed: {exc}")
             log("daily_digest: send failed — will retry next cycle")
     except Exception as exc:
         log(f"daily_digest error (non-fatal): {exc}")
