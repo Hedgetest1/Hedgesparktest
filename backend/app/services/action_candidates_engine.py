@@ -104,9 +104,11 @@ def _maybe_refresh_signals(shop_domain: str) -> None:
     # so a crashed claimant frees the lock automatically.
     claimed = True
     try:
-        from app.core.redis_client import redis_client
-        key = f"hs:refresh_claim:{shop_domain}"
-        claimed = bool(redis_client.set(key, "1", nx=True, ex=int(_REFRESH_COOLDOWN_SECS) + 10))
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            key = f"hs:refresh_claim:{shop_domain}"
+            claimed = bool(rc.set(key, "1", nx=True, ex=int(_REFRESH_COOLDOWN_SECS) + 10))
     except Exception as exc:
         log.warning("action_candidates_engine: redis claim failed: %s", exc)
 

@@ -176,8 +176,13 @@ _CURSOR_KEY = "hs:segmon:cursor"
 
 def _load_cursor() -> int:
     try:
-        from app.core.redis_client import redis_client
-        v = redis_client.get(_CURSOR_KEY)
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("segment_monitor.load_cursor.redis_down")
+            return 0
+        v = rc.get(_CURSOR_KEY)
         return int(v) if v else 0
     except Exception as exc:
         _log.warning("segment_monitor_worker: _load_cursor failed: %s", exc)
@@ -186,8 +191,13 @@ def _load_cursor() -> int:
 
 def _save_cursor(pos: int) -> None:
     try:
-        from app.core.redis_client import redis_client
-        redis_client.set(_CURSOR_KEY, str(pos), ex=86400)
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("segment_monitor.save_cursor.redis_down")
+            return
+        rc.set(_CURSOR_KEY, str(pos), ex=86400)
     except Exception as exc:
         _log.warning("segment_monitor_worker: _save_cursor failed: %s", exc)
 

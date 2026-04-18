@@ -282,6 +282,27 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2q. redis_client import correctness. Born 2026-04-18 after three
+# sibling bugs were found in the same sprint: frontend_errors.py and
+# rum.py imported `get_redis` (never existed); segment_monitor_worker.py
+# and action_candidates_engine.py imported `redis_client` (also never
+# existed). Each hid inside `try/except Exception` blocks and fail-opened
+# silently for weeks. Action_candidates was the worst — the Redis SETNX
+# claim silently let every process think it won, defeating cross-process
+# refresh serialization.
+# This audit parses redis_client.py once, builds the allowlist of actual
+# exports, then checks every `from app.core.redis_client import NAME`
+# against it. Fast and narrow — catches the exact bug class we saw.
+# ---------------------------------------------------------------------------
+step "Redis-client import correctness (audit_redis_client_imports.py)"
+if "$PY" "$BACKEND/scripts/audit_redis_client_imports.py" --strict > /tmp/preflight_redis_imports.log 2>&1; then
+    ok "all redis_client imports resolve to real names"
+else
+    bad "non-existent redis_client import — see /tmp/preflight_redis_imports.log"
+    tail -25 /tmp/preflight_redis_imports.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2n. SSR body-size floor. Locks in the 2026-04-15 landing SSR fix —
 # every prerendered page under `.next/server/app/*.html` must ship
 # > 3 KB of real body content. A broken "use client" component that
