@@ -2406,10 +2406,10 @@ def build_daily_digest(db) -> str:
 
         # LLM spend — compact
         try:
-            from app.core.llm_budget import get_usage_summary
+            from app.core.llm_budget import MONTHLY_EUR_CAP, get_usage_summary
             budget = get_usage_summary()
             spent = budget.get("monthly_cost_eur", 0)
-            cap = budget.get("monthly_cap_eur", 5.0)
+            cap = budget.get("monthly_cap_eur", MONTHLY_EUR_CAP)
             pipe_parts.append(f"LLM \u20ac{spent:.2f}/\u20ac{cap:.0f}")
             if budget.get("monthly_cap_reached"):
                 pipe_parts.append("\u26a0\ufe0f CAP HIT")

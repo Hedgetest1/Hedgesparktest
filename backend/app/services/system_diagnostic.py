@@ -63,11 +63,11 @@ def build_system_diagnostic(db: Session) -> dict:
 
     # --- 2. LLM budget ---
     try:
-        from app.core.llm_budget import get_usage_summary
+        from app.core.llm_budget import MONTHLY_EUR_CAP, get_usage_summary
         budget = get_usage_summary()
         diag["llm_budget"] = {
             "monthly_cost_eur": budget.get("monthly_cost_eur", 0),
-            "monthly_cap_eur": budget.get("monthly_cap_eur", 5.0),
+            "monthly_cap_eur": budget.get("monthly_cap_eur", MONTHLY_EUR_CAP),
             "cap_reached": budget.get("monthly_cap_reached", False),
             "blocked_today": budget.get("blocked_today", 0),
             "provider_429s": {k: v.get("total_429s", 0) for k, v in budget.get("provider_429_state", {}).items()},

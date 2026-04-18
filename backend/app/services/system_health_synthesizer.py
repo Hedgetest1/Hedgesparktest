@@ -187,21 +187,33 @@ def synthesize_health(db: Session) -> SystemHealthState:
     actionable_dims = [d for d in dimensions if d.name not in _OPS_ONLY_DIMENSIONS]
     ops_dims = [d for d in dimensions if d.name in _OPS_ONLY_DIMENSIONS]
 
-    # 2026-04-18 ramification fix: previously top_issues only included
-    # critical dims + degraded+worsening dims. That left stable-degraded
-    # dimensions invisible on the transition Telegram message (e.g., when
-    # liveness turns degraded+stable the founder saw "🟡 SYSTEM: DEGRADED"
-    # with no explanation). Now surface EVERY founder-actionable non-healthy
-    # dim, plus any critical ops-only dim that drove state (rare path).
-    for _dim in actionable_dims:
-        if _dim.status == "critical":
+    # 2026-04-18: surface every founder-actionable non-healthy dim + any
+    # critical ops-only dim, SORTED by severity so the Telegram 3-line cap
+    # always shows the worst first. Priority order:
+    #   (0) critical actionable  (1) degraded+worsening actionable
+    #   (2) degraded+stable actionable  (3) critical ops-only
+    def _severity_key(d):
+        if d.name in _OPS_ONLY_DIMENSIONS:
+            return (3, d.name)  # ops critical always last
+        if d.status == "critical":
+            return (0, d.name)
+        if d.status == "degraded" and d.trend == "worsening":
+            return (1, d.name)
+        return (2, d.name)  # degraded+stable
+
+    _surfaceable = [
+        d for d in dimensions
+        if (d.name not in _OPS_ONLY_DIMENSIONS and d.status in ("critical", "degraded"))
+        or (d.name in _OPS_ONLY_DIMENSIONS and d.status == "critical")
+    ]
+    for _dim in sorted(_surfaceable, key=_severity_key):
+        if _dim.name in _OPS_ONLY_DIMENSIONS:
+            issues.append(f"{_dim.name} (ops): {_dim.detail}")
+        elif _dim.status == "critical":
             issues.append(f"{_dim.name}: {_dim.detail}")
-        elif _dim.status == "degraded":
+        else:
             _suffix = " (worsening)" if _dim.trend == "worsening" else ""
             issues.append(f"{_dim.name}: {_dim.detail}{_suffix}")
-    for _dim in ops_dims:
-        if _dim.status == "critical":
-            issues.append(f"{_dim.name} (ops): {_dim.detail}")
 
     actionable_critical = sum(1 for d in actionable_dims if d.status == "critical")
     actionable_degraded = sum(1 for d in actionable_dims if d.status == "degraded")

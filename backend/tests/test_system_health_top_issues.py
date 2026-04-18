@@ -122,3 +122,76 @@ def test_top_issues_surfaces_critical_ops_only_dim():
     )
     assert any("alerts" in i and "(ops)" in i for i in state.top_issues), \
         f"critical ops dim missing from top_issues: {state.top_issues}"
+
+
+def test_top_issues_severity_sort_critical_before_degraded():
+    """With the Telegram 3-line cap, critical must land ABOVE degraded
+    in top_issues so the worst dim is always visible. Before the
+    2026-04-18 severity-sort, insertion order was dimension-iteration
+    order (workers→pipeline→liveness→...), so a degraded 'workers'
+    would bury a critical 'liveness' at index 2."""
+    state = _run_with_dims(
+        workers=("degraded", "stable", "workers degraded"),
+        liveness=("critical", "stable", "liveness broken"),
+    )
+    # Find indices
+    liveness_idx = next(
+        (i for i, issue in enumerate(state.top_issues) if "liveness" in issue), -1,
+    )
+    workers_idx = next(
+        (i for i, issue in enumerate(state.top_issues) if "workers" in issue), -1,
+    )
+    assert liveness_idx != -1 and workers_idx != -1
+    assert liveness_idx < workers_idx, \
+        f"critical 'liveness' must sort BEFORE degraded 'workers': {state.top_issues}"
+
+
+def test_top_issues_severity_sort_worsening_before_stable():
+    """Among degraded dims, worsening must come before stable so
+    accelerating problems get the top Telegram slot."""
+    state = _run_with_dims(
+        workers=("degraded", "stable", "workers stable-degraded"),
+        liveness=("degraded", "worsening", "liveness worsening"),
+    )
+    liveness_idx = next(
+        (i for i, issue in enumerate(state.top_issues) if "liveness" in issue), -1,
+    )
+    workers_idx = next(
+        (i for i, issue in enumerate(state.top_issues) if "workers" in issue), -1,
+    )
+    assert liveness_idx != -1 and workers_idx != -1
+    assert liveness_idx < workers_idx, \
+        f"worsening 'liveness' must sort BEFORE stable 'workers': {state.top_issues}"
+
+
+def test_invariant_degraded_overall_always_has_at_least_one_top_issue():
+    """AXIS-4 structural preventer for bug class C2: whenever
+    overall_status is not 'healthy', top_issues MUST be non-empty.
+    Otherwise the CTO Telegram transition message says 'DEGRADED' with
+    no explanation — the exact 2026-04-18 regression."""
+    # Case 1: critical actionable
+    s1 = _run_with_dims(workers=("critical", "stable", "x"),
+                        pipeline=("critical", "stable", "y"))
+    assert s1.overall_status != "healthy"
+    assert len(s1.top_issues) >= 1
+
+    # Case 2: two degraded actionable
+    s2 = _run_with_dims(workers=("degraded", "stable", "a"),
+                        pipeline=("degraded", "stable", "b"))
+    assert s2.overall_status != "healthy"
+    assert len(s2.top_issues) >= 1
+
+    # Case 3: degraded+worsening mix
+    s3 = _run_with_dims(workers=("degraded", "worsening", "w"))
+    # 1 degraded alone doesn't escalate past healthy — but if it did,
+    # the invariant still must hold. Test the escalation path:
+    s3b = _run_with_dims(workers=("degraded", "worsening", "w"),
+                         pipeline=("degraded", "stable", "p"))
+    assert s3b.overall_status != "healthy"
+    assert len(s3b.top_issues) >= 1
+
+    # Case 4: pure ops critical (alerts=critical)
+    s4 = _run_with_dims(alerts=("critical", "stable", "spike"))
+    assert s4.overall_status != "healthy"
+    assert len(s4.top_issues) >= 1, \
+        "ops-only critical must still produce a top_issues line (with (ops) tag)"
