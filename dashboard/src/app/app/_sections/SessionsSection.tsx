@@ -6,6 +6,7 @@
  */
 
 import { SectionHeading } from "../_components/SectionHeading";
+import { SectionErrorBoundary } from "../../components/SectionErrorBoundary";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface SessionsSectionProps {
@@ -25,6 +26,7 @@ export function SessionsSection(p: SessionsSectionProps) {
       <div className="grid gap-4 xl:grid-cols-2">
 
         {/* Left — Session Replay */}
+        <SectionErrorBoundary name="Recent Visitor Journeys">
         <div>
           <SectionHeading eyebrow="Sessions" title="Recent visitor journeys" />
           {sessions.length === 0 ? (
@@ -77,8 +79,10 @@ export function SessionsSection(p: SessionsSectionProps) {
             </div>
           )}
         </div>
+        </SectionErrorBoundary>
 
         {/* Right — Click Insights */}
+        <SectionErrorBoundary name="Click Insights">
         <div>
           <SectionHeading eyebrow="Clicks" title="What visitors click" />
           {clicks.length === 0 ? (
@@ -121,6 +125,7 @@ export function SessionsSection(p: SessionsSectionProps) {
             </div>
           )}
         </div>
+        </SectionErrorBoundary>
 
       </div>
     </section>
