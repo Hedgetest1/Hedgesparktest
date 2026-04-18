@@ -164,6 +164,56 @@ def _save_state(db, state: WorkerState, new_watermark: int) -> None:
 # WorkerLog helper
 # ---------------------------------------------------------------------------
 
+# Cycle-time regression guard. The 5-min SLEEP_SECONDS interval is the
+# outer bound. A cycle that pushes 60s (20% of window) is very slow
+# and warrants a look. A cycle that pushes 180s (60% of window) is
+# one step from thrashing — two concurrent cycles would overlap.
+# Thresholds below trigger a single alert per-hour via a Redis cooldown
+# so we don't alert-storm on a slow-cycle streak.
+_CYCLE_SLOW_WARN_MS = 60_000     # 60s — slow
+_CYCLE_SLOW_CRIT_MS = 180_000    # 3min — nearly-thrashing
+_CYCLE_ALERT_COOLDOWN_KEY = "hs:alert:agg_cycle_slow:{hour}"
+_CYCLE_ALERT_COOLDOWN_TTL = 3600
+
+
+def _maybe_alert_slow_cycle(db, duration_ms: int) -> None:
+    """If the cycle took over the warn/crit threshold, emit a single
+    `aggregation_cycle_slow` ops_alert. Cooldown 1/hour so a stretch of
+    slow cycles doesn't create an alert storm. Never raises."""
+    if duration_ms < _CYCLE_SLOW_WARN_MS:
+        return
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        hour = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
+        key = _CYCLE_ALERT_COOLDOWN_KEY.format(hour=hour)
+        if rc is not None:
+            acquired = rc.set(key, "1", nx=True, ex=_CYCLE_ALERT_COOLDOWN_TTL)
+            if not acquired:
+                return
+        severity = "critical" if duration_ms >= _CYCLE_SLOW_CRIT_MS else "warning"
+        from app.services.alerting import write_alert
+        write_alert(
+            db,
+            severity=severity,
+            source="aggregation_worker",
+            alert_type="aggregation_cycle_slow",
+            summary=(
+                f"aggregation_worker cycle took {duration_ms}ms "
+                f"({duration_ms/1000:.1f}s) — threshold "
+                f"{_CYCLE_SLOW_CRIT_MS if severity=='critical' else _CYCLE_SLOW_WARN_MS}ms"
+            ),
+            detail={
+                "duration_ms": duration_ms,
+                "warn_threshold_ms": _CYCLE_SLOW_WARN_MS,
+                "crit_threshold_ms": _CYCLE_SLOW_CRIT_MS,
+                "sleep_seconds": SLEEP_SECONDS,
+            },
+        )
+    except Exception as exc:
+        log(f"_maybe_alert_slow_cycle error (non-fatal): {exc}")
+
+
 def _write_log(
     db,
     started_at: datetime,
@@ -188,6 +238,11 @@ def _write_log(
     )
     db.add(entry)
     db.commit()
+    # Regression guard — if this cycle was suspiciously slow, elevate
+    # to an ops_alert (1/hour cooldown so we don't alert-storm on
+    # a slow-cycle streak). Runs AFTER commit so the log row lands
+    # even if the alert write fails.
+    _maybe_alert_slow_cycle(db, duration_ms)
 
 
 # ---------------------------------------------------------------------------
