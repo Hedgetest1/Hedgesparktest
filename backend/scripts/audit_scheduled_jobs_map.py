@@ -30,6 +30,7 @@ from pathlib import Path
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 REPO_ROOT = BACKEND_ROOT.parent
 AGENT_WORKER = BACKEND_ROOT / "app" / "workers" / "agent_worker.py"
+TASKS_DIR = BACKEND_ROOT / "app" / "workers" / "tasks"
 DOC_MAP = REPO_ROOT / "docs" / "reality_scheduled_jobs.md"
 
 # The docs file uses a markdown table section for agent_worker's sub-tasks.
@@ -68,6 +69,27 @@ def _extract_defined_fns(py_path: Path) -> set[str]:
     return names
 
 
+def _extract_task_modules(tasks_dir: Path) -> set[str]:
+    """Every `*_task.py` in app/workers/tasks/ is a scheduled-job unit.
+    Exclude __init__ and private leading-underscore helpers."""
+    if not tasks_dir.exists():
+        return set()
+    return {
+        p.stem
+        for p in tasks_dir.glob("*_task.py")
+        if not p.stem.startswith("_")
+    }
+
+
+def _extract_documented_task_modules(md_text: str) -> set[str]:
+    """Scan the full docs file for every `<name>_task` mention. Any task
+    module shipped to app/workers/tasks/ MUST appear at least once in
+    the reality map so the B1-class "duplicate scheduled job" incident
+    never repeats. We don't require a specific section or format — a
+    single mention anywhere in the file counts as documented."""
+    return set(re.findall(r"\b([a-z][a-z0-9_]*_task)\b", md_text))
+
+
 def main(argv: list[str]) -> int:
     warn_only = "--warn-only" in argv
 
@@ -78,29 +100,40 @@ def main(argv: list[str]) -> int:
         print(f"audit_scheduled_jobs_map: docs map not found — {DOC_MAP}")
         return 2
 
+    doc_text = DOC_MAP.read_text()
+
     defined = _extract_defined_fns(AGENT_WORKER)
-    documented = _extract_documented_fns(DOC_MAP.read_text())
+    documented = _extract_documented_fns(doc_text)
+    task_modules = _extract_task_modules(TASKS_DIR)
+    documented_tasks = _extract_documented_task_modules(doc_text)
 
-    missing = defined - documented  # in code but not in docs
-    stale = documented - defined    # in docs but not in code
+    missing = defined - documented        # in code but not in docs
+    stale = documented - defined          # in docs but not in code
+    missing_tasks = task_modules - documented_tasks  # task module not in docs
 
-    if not missing and not stale:
+    # Stale task-module detection is intentionally skipped: the regex
+    # would match module names referenced as examples, inside removed
+    # sections, or in narrative prose. False positives aren't worth the
+    # guard. The filesystem side (modules exist → must be documented) is
+    # the load-bearing half.
+
+    if not missing and not stale and not missing_tasks:
         print(
             f"audit_scheduled_jobs_map: clean — {len(defined)} agent_worker "
-            f"_run_* helpers all documented"
+            f"_run_* helpers + {len(task_modules)} task modules all documented"
         )
         return 0
 
     print(
-        f"audit_scheduled_jobs_map: DRIFT between agent_worker.py and "
+        f"audit_scheduled_jobs_map: DRIFT between workers and "
         f"docs/reality_scheduled_jobs.md"
     )
     print()
 
     if missing:
         print(
-            f"  {len(missing)} function(s) defined in code but NOT documented "
-            f"(add a row to docs/reality_scheduled_jobs.md):"
+            f"  {len(missing)} agent_worker function(s) defined in code but "
+            f"NOT documented (add a row to the agent_worker table):"
         )
         for fn in sorted(missing):
             print(f"    + {fn}")
@@ -108,16 +141,25 @@ def main(argv: list[str]) -> int:
 
     if stale:
         print(
-            f"  {len(stale)} function(s) documented but NOT found in code "
-            f"(remove the row, or fix the function name):"
+            f"  {len(stale)} agent_worker function(s) documented but NOT "
+            f"found in code (remove the row, or fix the function name):"
         )
         for fn in sorted(stale):
             print(f"    - {fn}")
         print()
 
+    if missing_tasks:
+        print(
+            f"  {len(missing_tasks)} task module(s) in app/workers/tasks/ "
+            f"but NOT mentioned anywhere in the docs (add at least one "
+            f"row under the appropriate worker's section):"
+        )
+        for mod in sorted(missing_tasks):
+            print(f"    + {mod}  (app/workers/tasks/{mod}.py)")
+        print()
+
     print(
-        "Fix: edit docs/reality_scheduled_jobs.md — the "
-        "'Internal sub-tasks inside agent_worker.py' table."
+        "Fix: edit docs/reality_scheduled_jobs.md."
     )
     print(
         "The map is load-bearing (see 2026-04-18 B1 incident); drift is a "

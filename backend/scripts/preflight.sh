@@ -303,6 +303,21 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2r. CLAUDE.md §6 ↔ ecosystem.config.js drift gate. CLAUDE.md §6 is the
+# first place an operator looks during an outage; a documented-but-missing
+# (or running-but-undocumented) PM2 process wastes triage minutes. This
+# audit parses both and fails on any name drift in either direction.
+# Runs in milliseconds.
+# ---------------------------------------------------------------------------
+step "PM2 map sync (audit_claude_md_pm2_map.py)"
+if "$PY" "$BACKEND/scripts/audit_claude_md_pm2_map.py" > /tmp/preflight_pm2_map.log 2>&1; then
+    ok "CLAUDE.md §6 matches ecosystem.config.js"
+else
+    bad "PM2 map drift — see /tmp/preflight_pm2_map.log"
+    tail -25 /tmp/preflight_pm2_map.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2n. SSR body-size floor. Locks in the 2026-04-15 landing SSR fix —
 # every prerendered page under `.next/server/app/*.html` must ship
 # > 3 KB of real body content. A broken "use client" component that

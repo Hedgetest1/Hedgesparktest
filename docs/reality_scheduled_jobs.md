@@ -109,6 +109,10 @@ Main loop calls `run_product_metrics_task` + `run_store_metrics_task`
 | `watchdog_task.run` | per-hour cooldown | hourly |
 | `webhook_health_task.run` | per-day cooldown | daily |
 | `cleanup_task.run` (30d nudge_impression_daily) | DELETE WHERE inline | every cycle (idempotent) |
+| `data_integrity_task.run` | in-process 6h `should_run()` | semantic-drift probe; iterates N merchants so off-cycle from the 5-min main loop |
+| `nudge_compose_task.run` | `ai_compose_pending=True` flag + per-cycle batch cap + `protection_state()` | AI variant upgrade for Pro nudges; self-protects against LLM budget degradation |
+| `night_shift_task.run` | `night_shift_task.is_due()` → `should_run_nightly_now()` day-lock | wraps `night_shift_agent.run_nightly_for_all_pro` once per day; also triggers MA-6 email batch |
+| `rollout_promotion_task.run` | in-process 5-min cooldown | walks flag registry; `promote_if_healthy` handles dwell + SLO gate per flag |
 | `_check_cycle_time_regression` | per-hour cooldown (Redis) | 60s warn / 180s critical threshold; creates `aggregation_cycle_slow` ops_alert |
 
 ---
