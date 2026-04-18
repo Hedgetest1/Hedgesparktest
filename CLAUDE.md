@@ -449,7 +449,8 @@ quarantine. Scope is locked to safety/efficiency/cost/executability
 - `TRACKER_VERSION` in `app/core/tracker_version.py`. **Bump on every
   `tracker/*.js` change.** Script tag URL: `{APP_URL}/tracker.js?v={VERSION}`.
 - Stale tags auto-cleaned on next onboarding cycle.
-- Currently at v9 (post worldwide compliance sprint).
+- Currently at **v12** (post A1/A7 self-healing sprint — tracker error
+  telemetry + rage-click/pogo-stick detection).
 
 ---
 
@@ -659,6 +660,27 @@ must satisfy:
 | `hs:merchant_opt_out:{shop}` | Art. 21 opt-out flag | none |
 | `llm:monthly_cost:{month}` | LLM spend | 35d |
 | `llm:daily:{module}:{date}` | LLM calls per module | 7d |
+| `hs:shop_ccy:v1:{shop}` | shop primary currency cache | 1h |
+| `hs:shop_tz:v1:{shop}` | shop IANA timezone cache | 1h |
+| `hs:shop_aov:v1:{shop}:{ccy}` | shop AOV cache | 5min |
+| `hs:trkerr:tot:{shop}:{date}` | tracker error volume (A1) | 7d |
+| `hs:trkerr:hash:{shop}:{date}` | tracker distinct-error set (A1) | 7d |
+| `hs:trkerr:sample:{shop}:{date}:{hash}` | tracker first-seen detail | 7d |
+| `hs:trkerr:burst:{shop}` | tracker endpoint burst rate-limit | 1min |
+| `hs:trkerr:day:{shop}` | tracker endpoint daily rate-limit | 24h |
+| `hs:p95:{route}:{hour}` | per-route p95 latency bucket (A4) | 8d |
+| `hs:p95:last_flush_ts` | p95 flusher timestamp | 10min |
+| `hs:p95:flush_lock` | p95 flusher cross-worker lock | 1min |
+| `hs:lighthouse:last_run:{date}` | Lighthouse daily dedup (A3) | 30h |
+| `hs:lighthouse:hist:{route}` | Lighthouse per-route history | 14d |
+| `hs:llm_bench:last_run:{iso_week}` | LLM benchmark weekly dedup (A5) | 8d |
+| `hs:llm_bench:history` | LLM benchmark 8-week rolling list | 90d |
+| `hs:spike:tracker_runtime:{shop}:{day}` | tracker spike cooldown | 24h |
+| `hs:spike:frontend_error:{hour}` | frontend spike cooldown | 1h |
+| `hs:spike:ux_frustration:{shop}:{day}` | UX spike cooldown | 24h |
+| `hs:spike:sentry_rate:{hour}` | Sentry rate-spike cooldown | 1h |
+| `hs:spike:sentry_regression:{fp}:{hour}` | Sentry regression cooldown | 1h |
+| `hs:spike:p95_drift:{route}:{day}` | p95 drift cooldown | 24h |
 
 ---
 

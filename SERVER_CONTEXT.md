@@ -1,5 +1,5 @@
 # WishSpark Server Context
-Auto-generated: 2026-04-17T22:53:29.396936 UTC
+Auto-generated: 2026-04-18T00:17:33.313113 UTC
 
 ## Base Path
 /opt/wishspark
@@ -217,6 +217,8 @@ Process Manager: PM2
 /backend/app/services/knowledge_graph.py
 /backend/app/services/learning_isolation.py
 /backend/app/services/lesson_gc.py
+/backend/app/services/lighthouse_monitor.py
+/backend/app/services/llm_benchmark_monitor.py
 /backend/app/services/loop_health.py
 /backend/app/services/ltv_engine.py
 /backend/app/services/margin_guard.py
@@ -256,6 +258,7 @@ Process Manager: PM2
 /backend/app/services/order_ingestion.py
 /backend/app/services/outbound_webhooks.py
 /backend/app/services/outcome_evaluator.py
+/backend/app/services/p95_snapshot.py
 /backend/app/services/pipeline_heartbeat.py
 /backend/app/services/pipeline_self_upgrade.py
 /backend/app/services/pnl_engine.py
