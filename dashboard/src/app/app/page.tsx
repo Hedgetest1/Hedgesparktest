@@ -2472,6 +2472,7 @@ function PageInner() {
               <RecentActions actions={recentActions} />
 
               {/* 1 — Daily Brief */}
+              <SectionErrorBoundary name="Daily Brief">
               <section id="section-brief">
                 <BriefHero
                   brief={effectiveBrief}
@@ -2502,11 +2503,13 @@ function PageInner() {
                   })()}
                 />
               </section>
+              </SectionErrorBoundary>
 
               {/* ── Level 2 separator ── */}
               <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
 
               {/* 2 — Store pulse */}
+              <SectionErrorBoundary name="Store Pulse">
               <section id="section-overview">
                 <SectionHeading
                   eyebrow="Store Pulse"
@@ -2536,12 +2539,15 @@ function PageInner() {
                 </div>
                 </>)}
               </section>
+              </SectionErrorBoundary>
 
               {/* Real orders / revenue section */}
+              <SectionErrorBoundary name="Revenue">
               <section id="section-revenue">
                 <OrdersSummary apiBase={API_BASE} shop={shop} displayCurrency={displayCurrency} />
                 <ProductConversions apiBase={API_BASE} shop={shop} />
               </section>
+              </SectionErrorBoundary>
 
               {/* Revenue at risk banner — below KPI grid, above signals */}
               {isProUser
@@ -2613,6 +2619,7 @@ function PageInner() {
 
               {/* ═══ HOT PRODUCTS — 3 cards per row ═══ */}
               {topProducts.length > 0 && (
+                <SectionErrorBoundary name="Hot Products">
                 <section>
                   <SectionHeading eyebrow="Hot Products" title="Where buyers are active" />
 
@@ -2660,6 +2667,7 @@ function PageInner() {
                     />
                   </div>
                 </section>
+                </SectionErrorBoundary>
               )}
 
               {/* 4 — Product Performance (extracted to _sections/ProductPerformanceSection.tsx) */}
@@ -2690,6 +2698,7 @@ function PageInner() {
               )}
 
               {/* 6 — Weekly Trend */}
+              <SectionErrorBoundary name="Weekly Trend">
               <section>
                 <SectionHeading
                   eyebrow="Trend"
@@ -2735,8 +2744,10 @@ function PageInner() {
                   </div>
                 )}
               </section>
+              </SectionErrorBoundary>
 
               {/* 7 — Top Pages */}
+              <SectionErrorBoundary name="Top Pages">
               <section>
                 <SectionHeading eyebrow="Pages" title="Where visitors spend time" />
                 {topPages.length === 0 ? (
@@ -2770,8 +2781,10 @@ function PageInner() {
                   </div>
                 )}
               </section>
+              </SectionErrorBoundary>
 
               {/* 8 — Conversion Funnel (Pro) */}
+              <SectionErrorBoundary name="Funnel">
               <section id="section-funnel">
                 {isProUser && (
                 <SectionHeading
@@ -2788,6 +2801,7 @@ function PageInner() {
                   <FunnelVisualization steps={funnelSteps} />
                 )}
               </section>
+              </SectionErrorBoundary>
 
               {/* 9 — Sessions + Clicks (extracted to _sections/SessionsSection.tsx) */}
               <SectionErrorBoundary name="Sessions & Clicks">
@@ -2801,6 +2815,7 @@ function PageInner() {
               </SectionErrorBoundary>
 
               {/* 10 — Live Radar + World Map */}
+              <SectionErrorBoundary name="Live Radar">
               <section id="section-live">
                 <SectionHeading
                   eyebrow="Live Radar"
@@ -2812,6 +2827,7 @@ function PageInner() {
                   coldStartPhase={coldStartPhase}
                 />
               </section>
+              </SectionErrorBoundary>
 
 
               {/* ═══ PRO ZONE SEPARATOR ═══ */}
@@ -2947,6 +2963,7 @@ function PageInner() {
 
               {/* Pro — Audience Segments */}
               {isProUser && (
+                <SectionErrorBoundary name="Audience Segments">
                 <section id="section-audience">
                   <SectionHeading
                     eyebrow="Audience"
@@ -2960,10 +2977,12 @@ function PageInner() {
                     topProducts={topProducts}
                   />
                 </section>
+                </SectionErrorBoundary>
               )}
 
               {/* Pro — Nudge Performance */}
               {isProUser && (
+                <SectionErrorBoundary name="Nudge Performance">
                 <section id="section-nudges">
                   <SectionHeading
                     eyebrow="Nudges"
@@ -2977,10 +2996,12 @@ function PageInner() {
                     displayCurrency={displayCurrency}
                   />
                 </section>
+                </SectionErrorBoundary>
               )}
 
               {/* Pro — Holdout Lift Report */}
               {isProUser && (
+                <SectionErrorBoundary name="Holdout Lift">
                 <section id="section-lift">
                   <SectionHeading
                     eyebrow="Proof"
@@ -2989,10 +3010,12 @@ function PageInner() {
                   />
                   <LiftReport apiBase={API_BASE} shop={shop} apiHeaders={apiHeaders} displayCurrency={displayCurrency} />
                 </section>
+                </SectionErrorBoundary>
               )}
 
               {/* Pro — Scroll Intelligence + Cohort Retention side by side */}
               {isProUser && (
+                <SectionErrorBoundary name="Scroll & Cohorts">
                 <section id="section-scroll-cohorts">
                   <div className="grid gap-4 xl:grid-cols-2">
                     <div>
@@ -3012,6 +3035,7 @@ function PageInner() {
                     </div>
                   </div>
                 </section>
+                </SectionErrorBoundary>
               )}
 
               {/* Pro — Revenue Forecast + Attribution + LTV Intelligence */}
