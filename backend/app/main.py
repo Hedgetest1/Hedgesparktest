@@ -640,25 +640,53 @@ def prometheus_metrics():
 
 @app.middleware("http")
 async def metrics_middleware(request: Request, call_next):
-    """Track request latency and status for Prometheus."""
+    """Track request latency and status for Prometheus + opportunistic
+    p95-snapshot flush.
+
+    Intentional exclusions from `track_request` (per-route histograms):
+      - `/metrics`      — Prometheus scrape, serializes the histograms
+                          themselves; including it would create a
+                          self-referential latency signal.
+      - `/health`       — PM2 internal probe (localhost), not merchant
+                          traffic. Would saturate histograms for a
+                          synthetic endpoint.
+      - `/system/health` — Traefik + external healthcheck probes.
+                          Same reason.
+
+    These three paths DO NOT contribute to p95 route stats. The p95
+    slow-trend detector (observability_spikes.detect_p95_slow_trends)
+    therefore excludes them by design — this is the correct behavior
+    because route latency regressions that merchants feel live on
+    other paths.
+
+    However, we DO call `maybe_flush()` on these paths too — if a
+    low-traffic dev period has 100% of traffic on health probes,
+    skipping the flush call would stall p95 snapshotting entirely.
+    The flush itself is rate-limited by a Redis lock to 1/5min.
+    """
     path = request.url.path
-    # Skip metrics endpoint itself and health checks
-    if path in ("/metrics", "/health", "/system/health"):
-        return await call_next(request)
-    ctx: dict = {}
-    with track_request(request.method, path) as ctx:
+    skip_tracking = path in ("/metrics", "/health", "/system/health")
+
+    if skip_tracking:
         response = await call_next(request)
-        ctx["status"] = response.status_code
-        # Opportunistic p95 snapshot flush — called on every request,
-        # gated by a 5-min Redis lock so only ONE worker actually writes
-        # per window. Zero overhead when gate is cold (one Redis GET).
-        # See app/services/p95_snapshot.py for the reader side.
-        try:
-            from app.services.p95_snapshot import maybe_flush
-            maybe_flush()
-        except Exception:
-            pass  # SILENT-EXCEPT-OK: snapshot flush failure must never abort a response
-        return response
+    else:
+        ctx: dict = {}
+        with track_request(request.method, path) as ctx:
+            response = await call_next(request)
+            ctx["status"] = response.status_code
+
+    # Opportunistic p95 snapshot flush — called on EVERY request
+    # (including skipped-tracking paths) so low-traffic windows still
+    # flush accumulated histograms. Rate-limited by a 5-min Redis lock
+    # so only ONE worker writes per window. Zero overhead when gate
+    # is cold (one Redis GET). See app/services/p95_snapshot.py.
+    try:
+        from app.services.p95_snapshot import maybe_flush
+        maybe_flush()
+    except Exception:
+        pass  # SILENT-EXCEPT-OK: snapshot flush failure must never abort a response
+
+    return response
 
 
 def _startup_env_audit() -> None:
