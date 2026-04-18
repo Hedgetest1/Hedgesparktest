@@ -101,6 +101,10 @@ NAMESPACES: list[Namespace] = [
               "per-fingerprint regression cooldown"),
     Namespace("hs:spike:p95_drift:{route}:{day}",  0.005, 100, 86400,
               "per-route p95-drift cooldown"),
+    Namespace("hs:spike:sentry_triage_stuck:{hour}", 0.00005, 100, 3600,
+              "global Sentry triage stuck-queue cooldown"),
+    Namespace("hs:alert:agg_cycle_slow:{hour}",    0.00005, 100, 3600,
+              "global aggregation-cycle slow cooldown"),
     # ─── Pre-existing keys that scale per-merchant ───────────────────
     Namespace("hs:symap:{shop}:{shopify_y}",  50.0, 120, 90*86400,
               "visitor identity bridge — ~50 visitors/shop at any time"),

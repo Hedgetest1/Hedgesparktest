@@ -659,6 +659,86 @@ def detect_sentry_regressions(db: Session) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Sentry triage stuck-queue detector
+# ---------------------------------------------------------------------------
+# Catches the class of silent failure we hit 2026-04-18: the sentry
+# triage consume_triage_queue filter skipped family members, leaving
+# them in `ready` state forever. A detector that alerts when
+# unlinked-ready incidents accumulate > N for > M hours catches this
+# kind of handoff breakage without requiring a specific code-path audit.
+_SENTRY_STUCK_THRESHOLD_COUNT = 20        # > 20 unlinked-ready
+_SENTRY_STUCK_THRESHOLD_AGE_HOURS = 6     # oldest > 6h old
+_SENTRY_STUCK_COOLDOWN_KEY = "hs:spike:sentry_triage_stuck:{hour}"
+_SENTRY_STUCK_COOLDOWN_TTL = 3600
+
+
+def detect_sentry_triage_stuck(db: Session) -> int:
+    """Alert when the sentry_triage consumer queue has backed up —
+    i.e. many `ready` incidents unlinked for more than 6h. Catches
+    broken-handoff class of bugs in the triage → bugfix pipeline."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    cutoff = now - timedelta(hours=_SENTRY_STUCK_THRESHOLD_AGE_HOURS)
+    hour = now.strftime("%Y-%m-%dT%H")
+
+    try:
+        row = db.execute(
+            sql_text(
+                """
+                SELECT COUNT(*) AS stuck_count,
+                       MIN(created_at) AS oldest
+                FROM sentry_incidents
+                WHERE ai_triage_status = 'ready'
+                  AND linked_bugfix_candidate_id IS NULL
+                  AND created_at < :cutoff
+                """
+            ),
+            {"cutoff": cutoff},
+        ).fetchone()
+    except Exception as exc:
+        log.warning("sentry triage stuck-queue scan failed: %s", exc)
+        return 0
+
+    if not row:
+        return 0
+    count = int(row[0] or 0)
+    oldest = row[1]
+    if count < _SENTRY_STUCK_THRESHOLD_COUNT:
+        return 0
+
+    key = _SENTRY_STUCK_COOLDOWN_KEY.format(hour=hour)
+    if not _cooldown_ok(key, _SENTRY_STUCK_COOLDOWN_TTL):
+        return 0
+
+    age_hours = None
+    if oldest:
+        age_hours = round((now - oldest).total_seconds() / 3600, 1)
+
+    try:
+        from app.services.alerting import write_alert
+        write_alert(
+            db,
+            severity="warning",
+            source="sentry_triage_stuck",
+            alert_type="sentry_triage_stuck",
+            summary=(
+                f"sentry_triage queue stuck: {count} unlinked `ready` "
+                f"incidents older than {_SENTRY_STUCK_THRESHOLD_AGE_HOURS}h "
+                f"(oldest {age_hours}h old). Consumer handoff broken."
+            ),
+            detail={
+                "stuck_count": count,
+                "oldest_age_hours": age_hours,
+                "threshold_count": _SENTRY_STUCK_THRESHOLD_COUNT,
+                "threshold_age_hours": _SENTRY_STUCK_THRESHOLD_AGE_HOURS,
+            },
+        )
+        return 1
+    except Exception as exc:
+        log.warning("sentry triage stuck alert write failed: %s", exc)
+        return 0
+
+
+# ---------------------------------------------------------------------------
 # Unified entrypoint — called from aggregation_worker cycle
 # ---------------------------------------------------------------------------
 
@@ -675,6 +755,7 @@ def run_all_spike_detectors(db: Session) -> dict[str, int]:
         ("ux_frustration_spike",         detect_ux_frustration_spikes),
         ("sentry_incident_rate_spike",   detect_sentry_rate_spikes),
         ("sentry_regression",            detect_sentry_regressions),
+        ("sentry_triage_stuck",          detect_sentry_triage_stuck),
     ):
         try:
             results[name] = fn(db)

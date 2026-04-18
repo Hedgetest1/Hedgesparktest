@@ -951,12 +951,25 @@ def consume_triage_queue(db: Session, max_per_cycle: int = 5) -> dict:
     """
     summary = {"consumed": 0, "skipped": 0, "deduped": 0, "suppressed": 0, "errors": 0}
 
-    # Find ready incidents that are family heads (not members)
+    # Find ready incidents that still need processing.
+    #
+    # Previously this filter included `family_head_id.is_(None)` (only
+    # process family HEADS, not members). Removed 2026-04-18 — it left
+    # 13 member incidents stuck at `ready` indefinitely because when a
+    # head is consumed/skipped, cascades to members were never wired.
+    #
+    # Correct behavior: every unlinked `ready` incident flows through
+    # `_consume_one_incident`. That function's dedup check (existing
+    # open/analyzed/patch_proposed/approved/applying candidate for the
+    # same fingerprint → link + mark consumed) handles members of a
+    # family whose head already created a candidate. Members of a
+    # skipped head re-evaluate against the recurrence threshold and
+    # get appropriately `skipped` or promoted based on their own
+    # recurrence_count — which may now exceed the head's count.
     ready = (
         db.query(SentryIncident)
         .filter(
             SentryIncident.ai_triage_status == "ready",
-            SentryIncident.family_head_id.is_(None),  # only family heads
             SentryIncident.linked_bugfix_candidate_id.is_(None),  # not already linked
         )
         .order_by(SentryIncident.created_at.asc())
