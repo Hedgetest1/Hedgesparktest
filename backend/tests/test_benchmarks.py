@@ -144,19 +144,21 @@ def test_insufficient_shop_data_for_empty_shop(db):
 
 
 # ---------------------------------------------------------------------------
-# Full benchmark path — N>=10 peers in same band
+# Full benchmark path — N>=30 peers in same band (2026-04-18 honesty floor)
 # ---------------------------------------------------------------------------
 
 def test_full_benchmark_returns_metrics_when_enough_peers(db):
-    """With 12 peers in the small band, the report returns metrics."""
-    # Plant 12 small-band shops (€3k-€15k/month)
+    """With 32 peers in the small band, the report returns metrics."""
+    # Plant 32 small-band shops (€3k-€15k/month). 30 is the new honesty
+    # floor (MA-4); we seed 32 to stay safely above it after de-duplication
+    # and eligibility checks.
     peers = []
-    for i in range(12):
+    for i in range(32):
         shop = f"bench-peer-{i}.myshopify.com"
         db.add(Merchant(shop_domain=shop, plan="pro", billing_active=True,
                         install_status="active", session_version=0))
-        # Spread revenues across the small band: €5k to €12k
-        revenue = 5_000 + i * 600
+        # Spread revenues across the small band: €5k to €15k
+        revenue = 5_000 + i * 300
         aov = 100 + i * 5
         count = int(revenue / aov)
         _mk_orders_for_shop(db, shop, count=count, price=aov)
@@ -172,7 +174,7 @@ def test_full_benchmark_returns_metrics_when_enough_peers(db):
 
     report = get_merchant_benchmark_report(db, target_shop)
     assert report["band"] == "small"
-    assert report["peer_count"] >= 10, f"expected >=10 peers, got {report}"
+    assert report["peer_count"] >= 30, f"expected >=30 peers, got {report}"
     assert "metrics" in report
     assert "monthly_revenue" in report["metrics"]
     m = report["metrics"]["monthly_revenue"]
@@ -180,3 +182,76 @@ def test_full_benchmark_returns_metrics_when_enough_peers(db):
     assert "recovery_to_p75_eur" in m
     assert "narrative" in m
     assert "status" in m
+
+
+def test_29_peers_returns_insufficient_peers(db):
+    """AXIS-4 honesty lock: 29 peers in the same band must NOT unlock
+    benchmarks. Protects against accidental threshold relaxation in
+    future refactors. 30 is the statistical-honesty floor, not a
+    negotiable parameter.
+
+    Note: the target shop is itself in the pool when percentiles are
+    computed, so we seed 28 OTHER shops + 1 target = 29 total peers in
+    the micro band. A loosened threshold of 29 would trigger a false
+    pass; we want to fail closed.
+
+    We use the MICRO band (revenue < €3k) intentionally to isolate this
+    test from the small-band peer pool that the full-benchmark test
+    seeds — tests share the live DB (SAVEPOINT rollback at the
+    connection level; Redis cache TTL 6h) so band isolation is the
+    cleanest way to keep this assertion deterministic.
+    """
+    # Clear any cached benchmark payload for our target shop — prior
+    # failed test runs may have cached an insufficient or out-of-date
+    # payload under this key.
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            cursor = 0
+            while True:
+                cursor, keys = rc.scan(cursor=cursor, match="hs:benchmarks:*", count=200)
+                if keys:
+                    rc.delete(*keys)
+                if cursor == 0:
+                    break
+    except Exception:
+        pass
+
+    # Plant 28 micro-band shops (monthly revenue < €3k) — with the
+    # target, total = 29 < 30 floor.
+    for i in range(28):
+        shop = f"bench-micro-floor-{i}.myshopify.com"
+        db.add(Merchant(shop_domain=shop, plan="pro", billing_active=True,
+                        install_status="active", session_version=0))
+        # Revenue 1200 + i*50 → 1200..2550 (all micro, which is 0-3000).
+        price_per_order = 40 + i * 2
+        count = 30  # steady order volume per shop
+        _mk_orders_for_shop(db, shop, count=count, price=price_per_order)
+
+    target = "bench-micro-target.myshopify.com"
+    db.add(Merchant(shop_domain=target, plan="pro", billing_active=True,
+                    install_status="active", session_version=0))
+    # Target monthly revenue ≈ 20 × 50 = €1000 (micro band).
+    _mk_orders_for_shop(db, target, count=20, price=50.0)
+    db.commit()
+
+    report = get_merchant_benchmark_report(db, target)
+    # Must NOT return metrics — the honest lock state.
+    assert "note" in report, (
+        f"29 peers must trigger insufficient_peers; got: {report}"
+    )
+    assert "peer" in report["note"].lower() or "insufficient" in report["note"]
+
+
+def test_insufficient_peers_narrative_explains_unlock_condition(db):
+    """The narrative the merchant SEES when locked must explain why it's
+    locked AND what unlocks it. Protects against a future refactor that
+    strips the copy back to a generic 'no data' message — which violates
+    CLAUDE.md §5 (idiot-proof copy: every empty state says WHY + WHAT)."""
+    from app.services.benchmarks import _STATUS_NARRATIVES
+    narrative = _STATUS_NARRATIVES["insufficient_peers"]
+    assert "30" in narrative, (
+        f"lock narrative must name the 30-peer threshold; got: {narrative}"
+    )
+    assert "peer" in narrative.lower()

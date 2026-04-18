@@ -52,7 +52,20 @@ from app.services.vertical_prompt_pack import get_profile
 
 log = logging.getLogger("benchmarks_vertical")
 
-_MIN_PEERS_PER_VERTICAL_BAND = 8  # k-anonymity floor
+# k-anonymity + statistical-meaningfulness floor for (vertical, band).
+#
+# Lifted from 8 → 30 on 2026-04-18 alongside benchmarks.py (MA-4 honesty
+# badge). A vertical bucket with 8 peers has enormous percentile variance;
+# shipping "your beauty CVR is p42 vs beauty peers" against 8 shops is a
+# half-truth the user trusts more than it deserves. 30 is the statistics
+# textbook floor for stable quantile estimation under normal-ish
+# distributions.
+#
+# With fewer than 30 peers per (vertical, band), this module falls through
+# to vertical-only, then to band-only v1, then to insufficient_peers. At
+# our current scale (2 merchants) every call terminates at
+# insufficient_peers — correct and honest until our merchant base grows.
+_MIN_PEERS_PER_VERTICAL_BAND = 30
 _CACHE_TTL_SECONDS = 6 * 3600
 _CACHE_KEY_PREFIX = "hs:bench_v2:v1"
 _METRICS = ("monthly_revenue", "aov", "orders_per_day", "revenue_growth_30d_pct")

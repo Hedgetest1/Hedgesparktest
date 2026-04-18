@@ -53,7 +53,20 @@ _REVENUE_BANDS: list[tuple[str, float, float]] = [
     ("xlarge", 150_000.0, float("inf")),
 ]
 
-_MIN_PEERS_PER_BAND = 10   # k-anonymity floor — below this, return insufficient_peers
+# k-anonymity + statistical-meaningfulness floor.
+#
+# Lifted from 10 → 30 on 2026-04-18 (MA-4 honesty badge) for two reasons:
+#   1. Percentile stability — with only 10 samples per band, p75 variance is
+#      huge. A tail outlier moves p75 by 20%+. Claiming "your CVR is p37"
+#      against a 10-sample baseline is half-truth (CLAUDE.md §2 rule 2).
+#   2. Competitive honesty differentiator — Varos publishes benchmarks at
+#      3-5 peer thresholds. We publish at 30+ and show "Insufficient peer
+#      data — benchmarks unlock at 30 peers in your band" below that. The
+#      lock signal itself becomes a trust proof.
+#
+# Below this floor: return {"status": "insufficient_peers", narrative} and
+# NEVER render percentile numbers. The frontend shows the lock state.
+_MIN_PEERS_PER_BAND = 30
 _CACHE_TTL_SECONDS = 6 * 3600
 _CACHE_KEY_PREFIX = "hs:benchmarks:v1"
 
@@ -218,7 +231,15 @@ _STATUS_NARRATIVES = {
     "top_quartile": "📈 You're in the top 25% of peers — one more push and you hit the top decile.",
     "above_median": "👍 You're above the median but below the top quartile — recoverable upside exists.",
     "below_median": "🔻 You're below the median. Moving to p50 would materially recover lost revenue.",
-    "insufficient_peers": "Not enough peer data yet to benchmark this metric reliably.",
+    # Honest lock state — NEVER shows fake numbers below the floor.
+    # Copy explains WHY it's locked (statistical honesty) and WHAT unlocks it
+    # (30+ peers in the same band) so merchants understand the gate is a
+    # trust signal, not a product gap.
+    "insufficient_peers": (
+        "🔒 Benchmarks unlock at 30+ peers in your revenue band. "
+        "We won't publish numbers computed from too few peers — "
+        "percentile ranks derived from small samples are noise, not signal."
+    ),
 }
 
 

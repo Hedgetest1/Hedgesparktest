@@ -188,7 +188,10 @@ def test_vertical_pool_stats_shape(db):
     stats = get_vertical_pool_stats(db)
     assert "buckets" in stats
     assert "k_floor" in stats
-    assert stats["k_floor"] == 8
+    # k_floor raised 8 → 30 on 2026-04-18 (MA-4 honesty badge). 30 is
+    # the statistical floor for stable percentile estimation; below that,
+    # percentile claims from vertical×band buckets are half-truths.
+    assert stats["k_floor"] == 30
     assert isinstance(stats["buckets"], dict)
 
 
