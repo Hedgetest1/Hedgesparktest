@@ -311,6 +311,94 @@ def attempt(db: Session) -> dict:
     return report
 
 
+def manual_restart(db: Session, *, actor_name: str) -> dict:
+    """Operator-initiated restart — invoked from Telegram command
+    `/dashboard-restart`. Bypasses the "only act on existing alert"
+    logic because the operator is explicitly asking.
+
+    Still honors the hourly rate limit (max 3/hour) so a flapping
+    operator can't spam pm2.
+
+    Returns a telemetry dict:
+        {
+            "ok": bool,
+            "action": "rate_limited" | "restarted" | "restart_failed",
+            "restart_error": str,
+            "post_probe_failures": list[str] | None,
+        }
+    """
+    from app.services.audit import write_audit_log
+
+    report: dict = {
+        "ok": False,
+        "action": None,
+        "restart_error": "",
+        "post_probe_failures": None,
+    }
+
+    if _rate_limited():
+        report["action"] = "rate_limited"
+        return report
+
+    _record_attempt()
+
+    restart_ok, restart_err = _pm2_restart()
+    report["restart_error"] = restart_err
+
+    if not restart_ok:
+        report["action"] = "restart_failed"
+        try:
+            write_audit_log(
+                db,
+                actor_type="operator",
+                actor_name=actor_name,
+                action_type=_AUDIT_ACTION,
+                target_type="pm2_process",
+                target_id=_PM2_PROCESS,
+                status="failed",
+                before_state={"origin": "manual_restart"},
+                after_state={"restart_error": restart_err},
+            )
+            db.commit()
+        except Exception as exc:
+            log.warning("dashboard_auto_remediation: manual audit write failed: %s", exc)
+            try:
+                db.rollback()
+            except Exception:
+                pass  # SILENT-EXCEPT-OK: rollback best-effort after primary write error already logged
+        return report
+
+    time.sleep(_WARMUP_S)
+    post_failures = _probe_after_restart()
+    report["post_probe_failures"] = post_failures
+    report["ok"] = not post_failures
+    report["action"] = "restarted"
+
+    try:
+        write_audit_log(
+            db,
+            actor_type="operator",
+            actor_name=actor_name,
+            action_type=_AUDIT_ACTION,
+            target_type="pm2_process",
+            target_id=_PM2_PROCESS,
+            status="completed" if not post_failures else "failed",
+            before_state={"origin": "manual_restart"},
+            after_state={
+                "post_restart_failures": (post_failures or [])[:20],
+            },
+        )
+        db.commit()
+    except Exception as exc:
+        log.warning("dashboard_auto_remediation: manual audit write failed: %s", exc)
+        try:
+            db.rollback()
+        except Exception:
+            pass  # SILENT-EXCEPT-OK: rollback best-effort after primary write error already logged
+
+    return report
+
+
 def _write_outcome(
     db: Session,
     *,

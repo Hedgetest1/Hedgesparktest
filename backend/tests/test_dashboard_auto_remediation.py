@@ -247,3 +247,64 @@ def test_followup_types_excluded_from_bugfix_pipeline():
     from app.services.bugfix_pipeline import _PIPELINE_INTERNAL_ALERT_TYPES
     assert remed._FOLLOWUP_OK in _PIPELINE_INTERNAL_ALERT_TYPES
     assert remed._FOLLOWUP_FAIL in _PIPELINE_INTERNAL_ALERT_TYPES
+
+
+def test_manual_restart_happy_path(db, monkeypatch):
+    monkeypatch.setattr(remed, "_pm2_restart", lambda: (True, ""))
+    monkeypatch.setattr(remed, "_probe_after_restart", lambda: [])
+
+    report = remed.manual_restart(db, actor_name="telegram:test")
+
+    assert report["ok"] is True
+    assert report["action"] == "restarted"
+
+    audits = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.action_type == remed._AUDIT_ACTION,
+            AuditLog.actor_type == "operator",
+            AuditLog.actor_name == "telegram:test",
+        )
+        .all()
+    )
+    assert len(audits) == 1
+    assert audits[0].status == "completed"
+
+
+def test_manual_restart_rate_limited(db, monkeypatch):
+    monkeypatch.setattr(remed, "_rate_limited", lambda: True)
+
+    called = {"restart": False}
+    monkeypatch.setattr(
+        remed, "_pm2_restart", lambda: (_called_wrapper(called, "restart"), "")
+    )
+
+    report = remed.manual_restart(db, actor_name="telegram:test")
+    assert report["action"] == "rate_limited"
+    assert called["restart"] is False
+
+
+def test_manual_restart_restart_failure(db, monkeypatch):
+    monkeypatch.setattr(remed, "_pm2_restart", lambda: (False, "pm2 missing"))
+
+    report = remed.manual_restart(db, actor_name="operator")
+
+    assert report["action"] == "restart_failed"
+    assert "pm2 missing" in report["restart_error"]
+
+    audit = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.action_type == remed._AUDIT_ACTION,
+            AuditLog.actor_type == "operator",
+            AuditLog.actor_name == "operator",
+        )
+        .first()
+    )
+    assert audit is not None
+    assert audit.status == "failed"
+
+
+def _called_wrapper(dct, key):
+    dct[key] = True
+    return True

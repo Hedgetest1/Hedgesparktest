@@ -148,6 +148,82 @@ def get_llm_budget(
     return get_usage_summary()
 
 
+@router.get("/dashboard-health")
+def get_dashboard_health(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Live status of the dashboard-drift preventer pipeline.
+
+    Surfaces:
+      * unresolved `dashboard_asset_drift` alerts (detection)
+      * unresolved `dashboard_asset_drift_auto_remediation_failed` alerts
+        (escalations needing operator attention)
+      * current UTC-hour auto-remediation attempt counter + whether the
+        kill switch is engaged
+      * last remediation audit_log row (success/failure + timestamp)
+
+    Use this to verify the four-layer self-heal system is operating as
+    expected without tailing logs. Frontend `/ops/` tile consumes this
+    directly.
+    """
+    from datetime import timedelta
+    from app.services import dashboard_auto_remediation as remed
+    from app.core.redis_client import _client
+
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=24)
+
+    unresolved_drift = db.execute(
+        text(
+            "SELECT id, created_at, summary, detail "
+            "FROM ops_alerts WHERE alert_type = :k AND resolved = false "
+            "AND created_at >= :c ORDER BY created_at DESC LIMIT 5"
+        ),
+        {"k": remed._ALERT_TYPE, "c": cutoff},
+    ).mappings().all()
+
+    escalations = db.execute(
+        text(
+            "SELECT id, created_at, summary, detail "
+            "FROM ops_alerts WHERE alert_type = :k AND resolved = false "
+            "AND created_at >= :c ORDER BY created_at DESC LIMIT 5"
+        ),
+        {"k": remed._FOLLOWUP_FAIL, "c": cutoff},
+    ).mappings().all()
+
+    last_remediation = db.execute(
+        text(
+            "SELECT id, created_at, status, target_id, metadata_json "
+            "FROM audit_log WHERE action_type = :a "
+            "ORDER BY created_at DESC LIMIT 1"
+        ),
+        {"a": remed._AUDIT_ACTION},
+    ).mappings().first()
+
+    hour_count = 0
+    on_cooldown = False
+    try:
+        rc = _client()
+        if rc is not None:
+            count_raw = rc.get(remed._rate_limit_key())
+            hour_count = int(count_raw) if count_raw is not None else 0
+            on_cooldown = bool(rc.exists(remed._cooldown_key()))
+    except Exception as exc:
+        log.warning("dashboard-health: redis read failed: %s", exc)
+
+    return {
+        "preventer_enabled": remed.is_enabled(),
+        "unresolved_drift_alerts": [dict(r) for r in unresolved_drift],
+        "unresolved_escalations": [dict(r) for r in escalations],
+        "this_hour": {
+            "attempts": hour_count,
+            "limit": remed._RATE_LIMIT_PER_HOUR,
+            "on_back_to_back_cooldown": on_cooldown,
+        },
+        "last_remediation": dict(last_remediation) if last_remediation else None,
+    }
+
+
 @router.get("/silent-fallback")
 def get_silent_fallback_summary(
     days: int = Query(default=1, ge=1, le=7),

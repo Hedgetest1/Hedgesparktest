@@ -547,6 +547,7 @@ _ALL_COMMANDS = {
     "/promotions", "/merge",
     "/review",
     "/incidents", "/meta_review", "/digest", "/webhooks",
+    "/dashboard_restart",
     "/help",
 }
 
@@ -601,6 +602,7 @@ def handle_command(command: str, db=None, chat_id: str | None = None) -> str:
         "/cleanup_cancel": lambda: _cmd_cleanup_cancel(db, chat_id=chat_id),
         "/cleanup_safe": lambda: _cmd_cleanup_safe(db, chat_id=chat_id),
         "/rollback": lambda: _cmd_rollback(db, args),
+        "/dashboard_restart": lambda: _cmd_dashboard_restart(db, chat_id=chat_id),
         "/help": lambda: _cmd_help(db),
     }
 
@@ -1341,6 +1343,51 @@ def _cmd_rollback(db, args: list[str]) -> str:
         release_execution_lock("bugfix", str(candidate_id))
 
 
+def _cmd_dashboard_restart(db, *, chat_id: str | None = None) -> str:
+    """Operator-initiated `pm2 restart wishspark-dashboard` for the stale
+    Next.js manifest bug class. Honors the same hourly rate limit the
+    autonomous remediation uses. Writes an audit_log entry with
+    actor_type=operator."""
+    if db is None:
+        return "No DB session available."
+    # Write command — require authorized chat
+    if chat_id is not None and chat_id != _CHAT_ID:
+        return "❌ Write commands require authorized operator chat."
+
+    from app.services import dashboard_auto_remediation as remed
+    report = remed.manual_restart(db, actor_name=f"telegram:{chat_id or 'console'}")
+
+    if report["action"] == "rate_limited":
+        return (
+            "⏳ *Dashboard restart rate-limited*\n\n"
+            f"Max {remed._RATE_LIMIT_PER_HOUR} restarts/hour. If the dashboard "
+            "is still broken after the hour window, the cause is not a "
+            "manifest drift — investigate pm2 logs + backend."
+        )
+    if report["action"] == "restart_failed":
+        return (
+            "❌ *Dashboard restart failed*\n\n"
+            f"`{_safe_html((report.get('restart_error') or '')[:160])}`\n\n"
+            "Manual intervention needed — SSH + `pm2 logs wishspark-dashboard`."
+        )
+    # restarted
+    if report["ok"]:
+        return (
+            "✅ *Dashboard restarted — all assets resolve 200*\n\n"
+            f"`pm2 restart {remed._PM2_PROCESS} --update-env`\n"
+            "Audit row written."
+        )
+    failures = report.get("post_probe_failures") or []
+    first = _safe_html(failures[0][:140]) if failures else ""
+    return (
+        "⚠️ *Dashboard restarted but probe still red*\n\n"
+        f"Residual failures: {len(failures)}\n"
+        f"First: `{first}`\n\n"
+        "Not a manifest-drift bug — investigate build output + "
+        "pm2 logs."
+    )
+
+
 def _cmd_promotions(db) -> str:
     """List promotions needing operator action."""
     if db is None:
@@ -1870,6 +1917,7 @@ def _cmd_help(db) -> str:
         "/weakness \u2014 subsystem weakness ranking\n\n"
         "/cleanup \u2014 resolve all alerts + dismiss all incidents\n"
         "/rollback <id> \u2014 revert an applied bugfix\n"
+        "/dashboard_restart \u2014 force pm2 restart wishspark-dashboard + asset probe\n"
         "/help \u2014 this message"
     )
 

@@ -612,3 +612,52 @@ class TestEdgeCases:
         from app.services.telegram_agent import handle_command
         result = handle_command("/merge", db=db, chat_id=AUTHORIZED_CHAT)
         assert "Usage" in result
+
+
+class TestDashboardRestart:
+    """Cover /dashboard_restart — operator-initiated pm2 restart."""
+
+    def test_unauthorized_blocked(self, db):
+        from app.services.telegram_agent import handle_command
+        result = handle_command(
+            "/dashboard_restart", db=db, chat_id=UNAUTHORIZED_CHAT
+        )
+        assert "Unauthorized" in result
+
+    def test_restart_happy_path(self, db, monkeypatch):
+        from app.services.telegram_agent import handle_command
+        from app.services import dashboard_auto_remediation as remed
+        monkeypatch.setattr(remed, "_rate_limited", lambda: False)
+        monkeypatch.setattr(remed, "_record_attempt", lambda: None)
+        monkeypatch.setattr(remed, "_pm2_restart", lambda: (True, ""))
+        monkeypatch.setattr(remed, "_probe_after_restart", lambda: [])
+        monkeypatch.setattr(remed.time, "sleep", lambda *_a, **_kw: None)
+
+        result = handle_command(
+            "/dashboard_restart", db=db, chat_id=AUTHORIZED_CHAT
+        )
+        assert "Dashboard restarted" in result
+        assert "all assets resolve 200" in result
+
+    def test_restart_rate_limited(self, db, monkeypatch):
+        from app.services.telegram_agent import handle_command
+        from app.services import dashboard_auto_remediation as remed
+        monkeypatch.setattr(remed, "_rate_limited", lambda: True)
+
+        result = handle_command(
+            "/dashboard_restart", db=db, chat_id=AUTHORIZED_CHAT
+        )
+        assert "rate-limited" in result.lower()
+
+    def test_restart_failed_escalation(self, db, monkeypatch):
+        from app.services.telegram_agent import handle_command
+        from app.services import dashboard_auto_remediation as remed
+        monkeypatch.setattr(remed, "_rate_limited", lambda: False)
+        monkeypatch.setattr(remed, "_record_attempt", lambda: None)
+        monkeypatch.setattr(remed, "_pm2_restart", lambda: (False, "pm2 missing"))
+
+        result = handle_command(
+            "/dashboard_restart", db=db, chat_id=AUTHORIZED_CHAT
+        )
+        assert "restart failed" in result.lower()
+        assert "pm2 missing" in result

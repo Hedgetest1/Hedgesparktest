@@ -28,6 +28,36 @@ def _op_headers():
 # Alerts API
 # ---------------------------------------------------------------------------
 
+def test_dashboard_health_requires_auth(client):
+    resp = client.get("/ops/dashboard-health")
+    assert resp.status_code == 401
+
+
+def test_dashboard_health_shape(client, db):
+    """GET /ops/dashboard-health returns the full preventer-state shape."""
+    from app.services.alerting import write_alert
+    write_alert(
+        db,
+        severity="critical",
+        source="dashboard_asset_probe",
+        alert_type="dashboard_asset_drift",
+        summary="unresolved test drift",
+        detail={"failures": ["/: asset X returned HTTP 500"]},
+    )
+    db.commit()
+    resp = client.get("/ops/dashboard-health", headers=_op_headers())
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "preventer_enabled" in data
+    assert "unresolved_drift_alerts" in data
+    assert "unresolved_escalations" in data
+    assert "this_hour" in data
+    assert data["this_hour"]["limit"] == 3
+    assert isinstance(data["this_hour"]["attempts"], int)
+    assert any(a.get("summary") == "unresolved test drift"
+               for a in data["unresolved_drift_alerts"])
+
+
 def test_list_alerts_requires_auth(client):
     """No X-API-Key → 401."""
     resp = client.get("/ops/alerts")
