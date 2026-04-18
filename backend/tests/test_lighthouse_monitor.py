@@ -190,3 +190,73 @@ class TestFailurePath:
         assert result["ran"] is True
         assert result["status"] == "subprocess_failed"
         assert _count_alerts(db, "lighthouse_run_failed") >= 1
+
+
+class TestPublicOrigin:
+    """
+    Locks the public-origin path so merchant-observed perf regressions
+    are detected separately from app-code regressions (rubric domain 5
+    → 9.0). Without this, enabling LH_PUBLIC_ENABLED silently (or a
+    refactor dropping the multi-origin loop) would mask CDN/TLS drift.
+    """
+
+    def test_public_origin_fires_distinct_alert_class(self, db, monkeypatch):
+        """With LH_PUBLIC_ENABLED=1, a regression on the public run emits
+        `lighthouse_regression_public`, not the local alert class."""
+        monkeypatch.setattr(
+            "app.services.lighthouse_monitor._LH_PUBLIC_ENABLED", True
+        )
+        from app.services.lighthouse_monitor import (
+            run_nightly_check, _append_history,
+        )
+        from app.core.redis_client import _client
+        rc = _client()
+        # Seed public-origin history with a healthy baseline.
+        for i in range(7):
+            _append_history(
+                rc, "/app",
+                {"lcp_ms": 1200.0, "tbt_ms": 150.0, "cls": 0.05},
+                f"2026-04-{10+i}T03:00",
+                origin="public",
+            )
+        # Also seed local with stable metrics so local does NOT regress.
+        for i in range(7):
+            _append_history(
+                rc, "/app",
+                {"lcp_ms": 1200.0, "tbt_ms": 150.0, "cls": 0.05},
+                f"2026-04-{10+i}T03:00",
+                origin="local",
+            )
+
+        with patch(
+            "app.services.lighthouse_monitor._run_lighthouse_subprocess",
+            side_effect=[
+                # local run — stable
+                _stub_lh_result([("/app", {"lcp_ms": 1250.0, "tbt_ms": 150.0, "cls": 0.05})]),
+                # public run — big LCP regression (network/CDN slowdown)
+                _stub_lh_result([("/app", {"lcp_ms": 2500.0, "tbt_ms": 150.0, "cls": 0.05})]),
+            ],
+        ):
+            result = run_nightly_check(db, force=True)
+
+        assert result["ran"] is True
+        # Per-origin breakdown exposed for ops visibility.
+        assert "origins" in result
+        assert "local" in result["origins"]
+        assert "public" in result["origins"]
+        # Only the public alert class fires — local is stable.
+        assert _count_alerts(db, "lighthouse_regression_public") >= 1
+        assert _count_alerts(db, "lighthouse_regression") == 0
+
+    def test_public_disabled_by_default(self, db):
+        """Without LH_PUBLIC_ENABLED the public origin is not exercised —
+        protects prod from a synthetic pull nobody authorized."""
+        from app.services.lighthouse_monitor import run_nightly_check
+        with patch(
+            "app.services.lighthouse_monitor._run_lighthouse_subprocess",
+            return_value=_stub_lh_result([("/app", {"lcp_ms": 1200.0, "cls": 0.05, "tbt_ms": 150.0})]),
+        ) as mocked:
+            result = run_nightly_check(db, force=True)
+        # Only ONE subprocess invocation when public is disabled.
+        assert mocked.call_count == 1
+        assert "public" not in (result.get("origins") or {})
