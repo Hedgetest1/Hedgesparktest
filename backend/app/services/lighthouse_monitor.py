@@ -36,6 +36,33 @@ from sqlalchemy.orm import Session
 log = logging.getLogger("lighthouse_monitor")
 
 _LH_SCRIPT = "/opt/wishspark/dashboard/scripts/run_lighthouse.mjs"
+
+# Target URL — defaults to loopback, overridable via LH_BASE_URL env.
+#
+# SCOPE LIMITATION (honest disclosure):
+#   Loopback Lighthouse measures SERVER-LOCAL render — same box as the
+#   backend, no Traefik TLS, no CDN, no merchant network path. The
+#   numbers we collect are the UPPER BOUND of what a merchant could
+#   see (best case). A regression here indicates the APP code got
+#   slower; a regression merchants actually feel might ALSO include
+#   network/CDN/TLS regressions we won't catch from here.
+#
+# To measure merchant-observed performance, set LH_BASE_URL to the
+# public domain (e.g. https://app.hedgesparkhq.com). Trade-off: the
+# public run is subject to staging/prod traffic during the run window
+# and the 02-04 UTC gate may coincide with CDN cache warmth variance.
+# We keep loopback as default because:
+#   1. Consistency — same environment run-over-run, trend is honest
+#   2. Zero external dependency — no DNS, no CDN, no TLS cert renewal
+#   3. Regression signal is strictly about code, which is what we own
+#
+# What we DON'T catch (accepted):
+#   - Traefik routing latency
+#   - Let's Encrypt cert handshake costs
+#   - Cloudflare (once wired) CDN perf
+#   - Real-user network conditions
+#   These belong in a separate RUM (real-user monitoring) layer, not
+#   this detector. Documented in project_brutal_scoring_rubric.md.
 _LH_BASE_URL = os.getenv("LH_BASE_URL", "http://127.0.0.1:3000")
 _LH_TIMEOUT_SECONDS = 240  # Lighthouse is slow; 4-min budget per full run
 
