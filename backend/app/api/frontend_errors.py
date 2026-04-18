@@ -141,8 +141,8 @@ def _client_ip(request: Request) -> str:
 def _rate_limit_check(ip: str) -> bool:
     """Return True if the caller is under the limit, False if blocked."""
     try:
-        from app.core.redis_client import get_redis
-        r = get_redis()
+        from app.core.redis_client import _client
+        r = _client()
         if r is None:
             from app.core.silent_fallback import record_silent_return
             record_silent_return("frontend_errors.rate_limit")
