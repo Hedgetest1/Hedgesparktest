@@ -88,6 +88,28 @@
   if (window.__wishsparkNudgeInit) return;
   window.__wishsparkNudgeInit = true;
 
+  // Minimal error reporter — posts to /public/tracker-error. Never throws.
+  // We don't dedup at this layer (nudge emits rarely); the backend
+  // per-shop/day hash set absorbs duplicates if they happen.
+  function _hsReportErr(source, err) {
+    try {
+      if (!err || !window.__wsNudgeShop || !window.__wsNudgeEndpoint) return;
+      var body = JSON.stringify({
+        shop: window.__wsNudgeShop,
+        source: source,
+        message: String((err && err.message) || err).slice(0, 1500),
+        stack: String((err && err.stack) || "").slice(0, 3500),
+        url: String(window.location && window.location.href || "").slice(0, 500),
+        tracker_version: 13,
+        user_agent: String(navigator.userAgent || "").slice(0, 300),
+      });
+      if (navigator.sendBeacon) {
+        try { navigator.sendBeacon(window.__wsNudgeEndpoint, new Blob([body], {type:"application/json"})); return; } catch(_){}
+      }
+      fetch(window.__wsNudgeEndpoint, {method:"POST", keepalive:true, headers:{"Content-Type":"application/json"}, body:body}).catch(function(){});
+    } catch (_) {}
+  }
+
   // ---------------------------------------------------------------------------
   // Configuration — resolved from script src ?shop= param
   // ---------------------------------------------------------------------------
@@ -122,6 +144,12 @@
   if (!SHOP_DOMAIN || !API_HOST) {
     return;
   }
+
+  // Expose resolved config to the error reporter defined above.
+  try {
+    window.__wsNudgeShop = SHOP_DOMAIN;
+    window.__wsNudgeEndpoint = API_HOST + "/public/tracker-error";
+  } catch (_) {}
 
   // ---------------------------------------------------------------------------
   // Product page detection
@@ -472,17 +500,23 @@
             data.copy_variant  || ""
           );
         })
-        .catch(function () {});
-    } catch (_) {}
+        .catch(function (err) {
+          _hsReportErr("spark-nudge.fetchAndRender.fetch", err);
+        });
+    } catch (err) {
+      _hsReportErr("spark-nudge.fetchAndRender", err);
+    }
   }
 
   // ---------------------------------------------------------------------------
   // Entry point
   // ---------------------------------------------------------------------------
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", fetchAndRender);
+    document.addEventListener("DOMContentLoaded", function () {
+      try { fetchAndRender(); } catch (err) { _hsReportErr("spark-nudge.boot", err); }
+    });
   } else {
-    fetchAndRender();
+    try { fetchAndRender(); } catch (err) { _hsReportErr("spark-nudge.boot", err); }
   }
 
 })();

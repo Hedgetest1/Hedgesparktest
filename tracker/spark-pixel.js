@@ -39,6 +39,31 @@ var API_URL      = "https://api.hedgesparkhq.com/track";
 var SHOP_DOMAIN  = "hedgespark-dev.myshopify.com";
 var PIXEL_SECRET = "2b6e9710a2726322ddce9ba51b3cb543";
 
+// Minimal error reporter — Shopify Custom Pixel sandbox has `fetch` but
+// limited browser APIs. Posts to /public/tracker-error keepalive; silent
+// on any failure of its own so it can never affect the pixel's main work.
+function _hsReportErr(source, err) {
+  try {
+    if (!SHOP_DOMAIN || !err) return;
+    var endpoint = "https://api.hedgesparkhq.com/public/tracker-error";
+    var body = JSON.stringify({
+      shop: SHOP_DOMAIN,
+      source: source,
+      message: String((err && err.message) || err).slice(0, 1500),
+      stack: String((err && err.stack) || "").slice(0, 3500),
+      url: "",  // pixel sandbox doesn't reliably expose window.location
+      tracker_version: 13,
+      user_agent: "",
+    });
+    if (typeof fetch !== "undefined") {
+      fetch(endpoint, {
+        method: "POST", keepalive: true,
+        headers: {"Content-Type": "application/json"}, body: body,
+      }).catch(function () {});
+    }
+  } catch (_) {}
+}
+
 analytics.subscribe("checkout_completed", function (event) {
   try {
     var checkout = event.data.checkout;
@@ -158,5 +183,10 @@ analytics.subscribe("checkout_completed", function (event) {
       mode:    "cors"
     }).catch(function () {});
 
-  } catch (_) {}
+  } catch (err) {
+    // Surface pixel-side failures instead of swallowing them. Common
+    // causes: Shopify sandbox API changes, unexpected checkout shape,
+    // network transport issues.
+    _hsReportErr("spark-pixel.checkout_completed", err);
+  }
 });

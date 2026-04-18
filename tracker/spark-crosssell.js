@@ -28,6 +28,26 @@
 
   if (window.__hsCrossSell) return; // prevent double-init
 
+  // Minimal error reporter — posts to /public/tracker-error. Never throws.
+  function _hsReportErr(source, err) {
+    try {
+      if (!err || !window.__wsXsShop || !window.__wsXsEndpoint) return;
+      var body = JSON.stringify({
+        shop: window.__wsXsShop,
+        source: source,
+        message: String((err && err.message) || err).slice(0, 1500),
+        stack: String((err && err.stack) || "").slice(0, 3500),
+        url: String(window.location && window.location.href || "").slice(0, 500),
+        tracker_version: 13,
+        user_agent: String(navigator.userAgent || "").slice(0, 300),
+      });
+      if (navigator.sendBeacon) {
+        try { navigator.sendBeacon(window.__wsXsEndpoint, new Blob([body], {type:"application/json"})); return; } catch(_){}
+      }
+      fetch(window.__wsXsEndpoint, {method:"POST", keepalive:true, headers:{"Content-Type":"application/json"}, body:body}).catch(function(){});
+    } catch (_) {}
+  }
+
   var CACHE_KEY = "hs_crosssell_eligibility";
   var CACHE_TTL_MS = 300000; // 5 minutes
 
@@ -59,6 +79,14 @@
   var visitorId = "";
   try {
     visitorId = localStorage.getItem("hedgespark_visitor_id") || "";
+  } catch (_) {}
+
+  // Wire the error reporter now that we know shop + API origin.
+  try {
+    if (SHOP_DOMAIN) {
+      window.__wsXsShop = SHOP_DOMAIN;
+      window.__wsXsEndpoint = (API_URL || window.location.origin) + "/public/tracker-error";
+    }
   } catch (_) {}
 
   // ---------------------------------------------------------------------------
@@ -188,7 +216,11 @@
   // Boot: load cache or fetch
   // ---------------------------------------------------------------------------
 
-  if (!loadCache()) {
-    fetchEligibility();
+  try {
+    if (!loadCache()) {
+      fetchEligibility();
+    }
+  } catch (err) {
+    _hsReportErr("spark-crosssell.boot", err);
   }
 })();

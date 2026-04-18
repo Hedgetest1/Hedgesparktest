@@ -1,6 +1,33 @@
 (function () {
   "use strict";
 
+  // Minimal error reporter — posts to /public/tracker-error. Never throws.
+  // Fires at most once per page-load since attribution runs once.
+  function _hsReportErr(source, err) {
+    try {
+      if (!err || !window.__wsAttrShop || !window.__wsAttrEndpoint) return;
+      var body = JSON.stringify({
+        shop: window.__wsAttrShop,
+        source: source,
+        message: String((err && err.message) || err).slice(0, 1500),
+        stack: String((err && err.stack) || "").slice(0, 3500),
+        url: String(window.location && window.location.href || "").slice(0, 500),
+        tracker_version: 13,
+        user_agent: String(navigator.userAgent || "").slice(0, 300),
+      });
+      if (navigator.sendBeacon) {
+        try { navigator.sendBeacon(window.__wsAttrEndpoint, new Blob([body], {type:"application/json"})); return; } catch(_){}
+      }
+      fetch(window.__wsAttrEndpoint, {method:"POST", keepalive:true, headers:{"Content-Type":"application/json"}, body:body}).catch(function(){});
+    } catch (_) {}
+  }
+
+  try { _hsAttrMain(); } catch (err) {
+    _hsReportErr("spark-attribution.boot", err);
+  }
+
+  function _hsAttrMain() {
+
   // ---------------------------------------------------------------------------
   // spark-attribution.js — Visitor-to-order attribution for Hedge Spark
   //
@@ -97,6 +124,12 @@
     return;
   }
 
+  // Wire the error reporter now that we know shop + API origin.
+  try {
+    window.__wsAttrShop = SHOP_DOMAIN;
+    window.__wsAttrEndpoint = (API_BASE || window.location.origin) + "/public/tracker-error";
+  } catch (_) {}
+
   // ---------------------------------------------------------------------------
   // 2. Resolve visitor_id from localStorage
   //    Written by spark-tracker.js on every product page visit.
@@ -192,10 +225,15 @@
           console.warn("[HedgeSpark] Attribution endpoint returned HTTP " + resp.status);
         }
       })
-      .catch(function () {
-        // Network failure — silent. Attribution is best-effort; order data is
-        // already in shop_orders via the Shopify webhook and is not lost.
+      .catch(function (err) {
+        // Network failure — attribution is best-effort (order data is already
+        // in shop_orders via Shopify webhook), but the failure itself is
+        // observability-relevant if it spikes.
+        _hsReportErr("spark-attribution.fetch", err);
       });
-  } catch (_) {}
+  } catch (err) {
+    _hsReportErr("spark-attribution.send", err);
+  }
 
+  }  // end _hsAttrMain
 })();
