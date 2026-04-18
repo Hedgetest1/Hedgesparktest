@@ -1,49 +1,51 @@
 "use client";
 
 /**
- * Root route-level error boundary.
+ * RouteErrorFallback — shared UI for per-route error.tsx files.
  *
- * Next.js App Router convention: a file named `error.tsx` at a route
- * segment catches errors raised during rendering of any component in
- * that segment or its descendants that are not already caught by a
- * nested boundary. This sits at the ROOT and covers every page not
- * overridden by a sub-segment error.tsx (e.g. /app has its own more
- * tailored boundary — see app/error.tsx).
+ * We cannot place a single error.tsx at the src/app/ root because that
+ * file intercepts ANY hydration glitch on the landing page and replaces
+ * the marketing content with a minimalist fallback — see the 2026-04-11
+ * landing regression and test_root_layout_has_no_route_level_error_tsx.
  *
- * Fires BEFORE global-error.tsx in the chain: layout crashes still
- * escalate to global-error; component-level render errors are caught
- * here first and keep the rest of the site alive.
+ * Instead, each route that can meaningfully crash gets its own thin
+ * error.tsx under its own directory (/install/error.tsx, /pricing/error.tsx,
+ * etc). Those tsx files delegate to this shared fallback to keep the
+ * copy + design consistent without duplicating JSX across six routes.
  *
- * Every invocation reports to the self-healing pipeline via
- * reportFrontendError so the autonomous repair loop learns about
- * route-level render failures.
- *
- * Reference: https://nextjs.org/docs/app/api-reference/file-conventions/error
+ * The fallback reports the error to the self-healing pipeline via
+ * reportFrontendError (component = next:route:{route}) and offers
+ * reset + "back to home" CTAs.
  */
 
 import { useEffect } from "react";
-import { reportFrontendError } from "./lib/error-reporter";
+import { reportFrontendError } from "../lib/error-reporter";
 
-export default function Error({
+export function RouteErrorFallback({
   error,
   reset,
+  route,
+  severity = "warning",
 }: {
   error: Error & { digest?: string };
   reset: () => void;
+  route: string;
+  severity?: "critical" | "warning" | "info";
 }) {
   useEffect(() => {
     reportFrontendError({
-      component: "next:route-error",
+      component: `next:route:${route}`,
       error_type: error.name || "RouteError",
       message: error.message || "route render failed",
       stack: error.stack || null,
-      severity: "warning",
+      severity,
       extra: {
         digest: error.digest ?? null,
+        route,
         path: typeof window !== "undefined" ? window.location.pathname : null,
       },
     });
-  }, [error]);
+  }, [error, route, severity]);
 
   return (
     <div className="flex min-h-[60vh] items-center justify-center bg-[#07070f] px-6">
@@ -56,8 +58,13 @@ export default function Error({
         </h2>
         <p className="mt-3 text-sm text-rose-200/70">
           An automated report has been sent to engineering. The rest of
-          the app keeps working — try again or head home.
+          the site keeps working — try again or head home.
         </p>
+        {error.digest && (
+          <p className="mt-2 inline-block rounded bg-black/30 px-2 py-1 font-mono text-[11px] text-rose-300/70">
+            ref: {error.digest}
+          </p>
+        )}
         <div className="mt-5 flex items-center justify-center gap-3">
           <button
             type="button"
