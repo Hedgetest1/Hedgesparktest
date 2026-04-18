@@ -189,6 +189,84 @@ def test_pipeline_self_reference_guard_blocks_fleet_wide_deploy_failed(db):
     )
 
 
+def test_sentry_fingerprint_storm_excluded_from_rule_7(db):
+    """
+    sentry_fingerprint_storm is a LEADING ops-visibility alert for a
+    new fast-firing fingerprint. The underlying sentry_incidents already
+    flow into sentry_triage.consume_triage_queue, which creates candidates
+    directly from the incident rows. Allowing Rule 7 to also create a
+    candidate from the ops_alert yields a duplicate for the same
+    underlying bug and wastes LLM budget.
+
+    Lock: 5 recurring storm alerts MUST NOT produce an ops_alert_generic
+    candidate.
+    """
+    _seed_alerts(
+        db, alert_type="sentry_fingerprint_storm",
+        source="sentry_fp_storm:deadbeefcafe1234",
+        count=5, severity="critical",
+    )
+    run_bug_triage(db)
+    dup = (
+        db.query(BugFixCandidate)
+        .filter(BugFixCandidate.source_type == "ops_alert_generic")
+        .filter(BugFixCandidate.source_ref.like("generic:sentry_fingerprint_storm:%"))
+        .first()
+    )
+    assert dup is None, (
+        "sentry_fingerprint_storm must be excluded from Rule 7 so the "
+        "underlying sentry_triage fingerprint-level path is the sole "
+        "candidate-creating surface for that bug"
+    )
+
+
+def test_rum_regression_routes_through_rule_7(db):
+    """
+    RUM p75 regression is a new alert class (2026-04-18). It has NO
+    parallel triage path — visibility + triage go through Rule 7. Lock
+    the contract: 3 recurring rum_regression alerts → ops_alert_generic
+    candidate.
+    """
+    _seed_alerts(
+        db, alert_type="rum_regression",
+        source="rum:/app",
+        count=4, severity="warning",
+    )
+    run_bug_triage(db)
+    cand = (
+        db.query(BugFixCandidate)
+        .filter(BugFixCandidate.source_type == "ops_alert_generic")
+        .filter(BugFixCandidate.source_ref.like("generic:rum_regression:%"))
+        .first()
+    )
+    assert cand is not None, (
+        "rum_regression is not pipeline-internal — a recurring run MUST "
+        "become a candidate so the self-healing pipeline investigates the "
+        "perf drift automatically"
+    )
+
+
+def test_lighthouse_regression_public_routes_through_rule_7(db):
+    """
+    Same contract as rum_regression but for the public-origin Lighthouse
+    class introduced in 2026-04-18. Ensures merchant-observed perf drift
+    does not silently accumulate.
+    """
+    _seed_alerts(
+        db, alert_type="lighthouse_regression_public",
+        source="lighthouse:public:/app",
+        count=4, severity="warning",
+    )
+    run_bug_triage(db)
+    cand = (
+        db.query(BugFixCandidate)
+        .filter(BugFixCandidate.source_type == "ops_alert_generic")
+        .filter(BugFixCandidate.source_ref.like("generic:lighthouse_regression_public:%"))
+        .first()
+    )
+    assert cand is not None
+
+
 def test_pipeline_self_reference_guard_rejects_candidate_id_context(db):
     """
     Direct unit test of `_is_pipeline_self_reference`: any context that

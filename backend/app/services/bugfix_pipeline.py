@@ -87,6 +87,13 @@ _PIPELINE_INTERNAL_ALERT_TYPES: tuple[str, ...] = (
     "breach_response_required",
     "compliance_gap",
     "regulatory_update",
+    # sentry_fingerprint_storm is a LEADING ops-visibility alert for a
+    # new, fast-firing fingerprint. The underlying sentry_incidents for
+    # that fingerprint already flow into sentry_triage.consume_triage_queue,
+    # which creates bugfix_candidates directly from the incident rows.
+    # Letting Rule 7 also create a candidate from the ops_alert would
+    # yield a duplicate for the same underlying bug and waste LLM budget.
+    "sentry_fingerprint_storm",
 )
 
 
