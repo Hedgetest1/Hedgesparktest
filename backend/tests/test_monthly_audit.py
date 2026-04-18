@@ -12,6 +12,7 @@ from app.services.monthly_evolution_audit import (
     _parse_proposals,
     _store_proposals,
     _audit_cycle_id,
+    _build_drift_preventer_state,
     MAX_PROPOSALS_PER_RUN,
 )
 from app.services.system_summary import (
@@ -397,3 +398,48 @@ def test_monthly_report_format(mock_send):
     assert "Improve caching" in sent_text
     assert "€" in sent_text
     assert "/evolution" in sent_text
+
+
+# ---------------------------------------------------------------------------
+# Gap 5 — dashboard-drift preventer self-audit context
+# ---------------------------------------------------------------------------
+
+def test_drift_preventer_context_quiet_state(db):
+    """No alerts in 30d → context says 'preventer is quiet' and asks
+    whether new Next.js features need probe coverage."""
+    out = _build_drift_preventer_state(db)
+    assert "Dashboard-drift preventer (30d):" in out
+    assert "Detections: 0" in out
+    assert "SELF-AUDIT QUESTION" in out
+    # Self-audit should name the specific drift modes the Opus auditor
+    # is meant to check against.
+    assert "service worker" in out.lower()
+    assert "middleware" in out.lower()
+    assert "preventer is quiet" in out
+
+
+def test_drift_preventer_context_with_escalation(db):
+    """Recent escalation samples surface in the Opus context so the
+    audit can spot a drift mode the probe does not cover."""
+    from app.services.alerting import write_alert
+    write_alert(
+        db,
+        severity="critical",
+        source="dashboard_auto_remediation",
+        alert_type="dashboard_asset_drift_auto_remediation_failed",
+        summary="probe still failing after restart",
+        detail={
+            "reason": "probe_still_failing",
+            "post_restart_failures": [
+                "/: asset /_next/static/middleware-chunk-X.js returned HTTP 500"
+            ],
+        },
+    )
+    db.commit()
+
+    out = _build_drift_preventer_state(db)
+    assert "Escalations (pm2 restart did not clear): 1" in out
+    assert "Last escalation sample: " in out
+    assert "middleware-chunk-X.js" in out
+    # Quiet-state tail should NOT appear when escalations exist
+    assert "preventer is quiet" not in out

@@ -451,6 +451,109 @@ def _build_support_patterns(db: Session) -> str:
         return f"Support patterns unavailable: {exc}"
 
 
+def _build_drift_preventer_state(db: Session) -> str:
+    """Self-improvement audit context for the dashboard-drift preventer.
+
+    Surfaces the last 30 days of `dashboard_asset_drift` detections +
+    remediation outcomes so Opus can judge whether the four-layer
+    preventer is still covering the full set of drift modes (chunk
+    CSS/JS, middleware bundles, service workers, edge runtime chunks,
+    route-level CSS). If the data shows repeated escalations or new
+    drift modes not covered by the probe routes, Opus can propose a
+    scope extension — infra_cost=none/small, no merchant-visible
+    surface change.
+
+    Gap 5 of the dashboard-drift full-wiring plan
+    (feature_dashboard_drift_preventer.md).
+    """
+    from sqlalchemy import text
+    try:
+        cutoff = _now() - timedelta(days=30)
+
+        # Count detections, auto-remediation outcomes
+        rows = db.execute(
+            text(
+                """
+                SELECT alert_type, COUNT(*) AS cnt
+                FROM ops_alerts
+                WHERE alert_type IN (
+                    'dashboard_asset_drift',
+                    'dashboard_asset_drift_auto_remediated',
+                    'dashboard_asset_drift_auto_remediation_failed'
+                )
+                  AND created_at >= :cutoff
+                GROUP BY alert_type
+                """
+            ),
+            {"cutoff": cutoff},
+        ).fetchall()
+        counts = {r[0]: r[1] for r in rows}
+
+        detections = counts.get("dashboard_asset_drift", 0)
+        remediated = counts.get("dashboard_asset_drift_auto_remediated", 0)
+        escalations = counts.get(
+            "dashboard_asset_drift_auto_remediation_failed", 0
+        )
+
+        # Sample failure strings from the last escalation — this is where
+        # a new drift mode would show up (novel asset path, new Next.js
+        # feature, etc.)
+        last_escalation = db.execute(
+            text(
+                """
+                SELECT detail
+                FROM ops_alerts
+                WHERE alert_type = 'dashboard_asset_drift_auto_remediation_failed'
+                  AND created_at >= :cutoff
+                ORDER BY created_at DESC LIMIT 1
+                """
+            ),
+            {"cutoff": cutoff},
+        ).mappings().first()
+        sample = ""
+        if last_escalation:
+            try:
+                d = last_escalation["detail"]
+                if isinstance(d, str):
+                    import json as _json
+                    d = _json.loads(d)
+                failures = (d or {}).get("post_restart_failures") or []
+                if failures:
+                    sample = str(failures[0])[:200]
+            except Exception:  # noqa: BLE001
+                sample = ""
+
+        lines = [
+            "Dashboard-drift preventer (30d):",
+            f"  Detections: {detections}",
+            f"  Auto-remediated: {remediated}",
+            f"  Escalations (pm2 restart did not clear): {escalations}",
+            "  Probe routes: /, /app, /pricing (HEAD-probes every "
+            "/_next/static/{chunks,media}/* asset referenced)",
+            "",
+            "SELF-AUDIT QUESTION (only raise a bet if answer is YES):",
+            "  Are there asset patterns or Next.js features not covered "
+            "by the probe (e.g., service worker chunks, middleware "
+            "bundles, edge runtime chunks, route-level CSS loaded "
+            "outside the three probed routes, fetched ES modules not "
+            "matching /_next/static/...)?",
+            "  Escalation pattern that would justify a scope-extension "
+            "bet: >0 escalations with failure samples pointing at "
+            "asset paths the probe regex does not match.",
+        ]
+        if sample:
+            lines.append(f"  Last escalation sample: {sample}")
+        if escalations == 0 and detections <= 1:
+            lines.append(
+                "  Current state: preventer is quiet. No bet needed — "
+                "leave it alone unless a new Next.js feature has been "
+                "introduced that bypasses the current probe."
+            )
+        return "\n".join(lines)
+    except Exception as exc:
+        return f"Dashboard-drift preventer state unavailable: {exc}"
+
+
 def _build_action_effectiveness(db: Session) -> str:
     """Closed-loop: which action types actually improve merchant metrics."""
     try:
@@ -1008,6 +1111,8 @@ def run_monthly_opus_audit(db: Session) -> dict:
         _build_action_effectiveness(db),
         "",
         _build_system_metrics(db),
+        "",
+        _build_drift_preventer_state(db),
         "",
         _build_market_intelligence(),
     ]
