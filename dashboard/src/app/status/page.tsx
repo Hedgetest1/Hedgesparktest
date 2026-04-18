@@ -28,10 +28,17 @@ type Incident = {
   summary: string;
 };
 
+type SelfHealProof = {
+  autonomous_fixes_7d: number;
+  autonomous_fixes_30d: number;
+  last_fix_at: string | null;
+};
+
 type StatusResponse = {
   overall: "operational" | "degraded" | "outage";
   components: Component[];
   incidents: Incident[];
+  self_heal_proof?: SelfHealProof;
   checked_at: string;
 };
 
@@ -124,6 +131,55 @@ export default function StatusPage() {
             </div>
           </div>
         </div>
+
+        {/* Self-heal proof — MA-3 receipts no competitor can publish */}
+        {data?.self_heal_proof && (
+          <section className="mb-10">
+            <h2 className="mb-3 text-[12px] font-bold uppercase tracking-[0.18em] text-[#e8a04e]">
+              Autonomous fixes — receipts
+            </h2>
+            <div className="rounded-2xl border border-[#e8a04e]/25 bg-gradient-to-br from-[#e8a04e]/[0.06] via-transparent to-[#7c3aed]/[0.04] p-6">
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                    Last 7 days
+                  </div>
+                  <div className="mt-1 text-[28px] font-extrabold tabular-nums text-[#e8a04e]">
+                    {data.self_heal_proof.autonomous_fixes_7d}
+                  </div>
+                  <div className="text-[11px] text-slate-500">incidents auto-fixed</div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                    Last 30 days
+                  </div>
+                  <div className="mt-1 text-[28px] font-extrabold tabular-nums text-slate-100">
+                    {data.self_heal_proof.autonomous_fixes_30d}
+                  </div>
+                  <div className="text-[11px] text-slate-500">incidents auto-fixed</div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                    Latest fix
+                  </div>
+                  <div className="mt-1 text-[18px] font-bold tabular-nums text-slate-200">
+                    {relativeTime(data.self_heal_proof.last_fix_at)}
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    from the append-only audit log
+                  </div>
+                </div>
+              </div>
+              <p className="mt-5 text-[12px] leading-relaxed text-slate-400">
+                Every number above comes from our append-only audit log.
+                Competitors publish uptime badges; we publish the actual
+                log of what the self-healing pipeline did. If a merchant
+                was about to be affected by a bug, odds are our pipeline
+                caught it before the merchant did.
+              </p>
+            </div>
+          </section>
+        )}
 
         {/* Components */}
         <section className="mb-10">

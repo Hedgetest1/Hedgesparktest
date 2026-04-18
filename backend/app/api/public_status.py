@@ -124,6 +124,40 @@ def get_public_status():
         log.warning("public_status: pipeline health query failed: %s", exc)
         components.append({"name": "Self-healing pipeline", "status": "unknown"})
 
+    # Self-heal proof counter (MA-3) — the "receipts" competitors cannot
+    # publish. Counts autonomous-pipeline actions (bugfix applied, governed
+    # TIER_1 auto-apply, auto-approved) in 7d and 30d windows from the
+    # append-only audit_log. No merchant data, no PII — pure action counts.
+    # Rendered on the public /status page as "Pipeline fixed N incidents in
+    # last 7 days" next to a link to the audit chain.
+    self_heal_proof: dict = {
+        "autonomous_fixes_7d": 0,
+        "autonomous_fixes_30d": 0,
+        "last_fix_at": None,
+    }
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(text("""
+                SELECT
+                    COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days') AS n7,
+                    COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days') AS n30,
+                    MAX(created_at) AS last_at
+                FROM audit_log
+                WHERE action_type IN (
+                    'bugfix_applied',
+                    'bugfix_auto_approved',
+                    'governed_tier1_applied'
+                )
+                  AND status = 'completed'
+            """)).first()
+        if row:
+            self_heal_proof["autonomous_fixes_7d"] = int(row[0] or 0)
+            self_heal_proof["autonomous_fixes_30d"] = int(row[1] or 0)
+            last_at = row[2]
+            self_heal_proof["last_fix_at"] = last_at.isoformat() if last_at else None
+    except Exception as exc:
+        log.warning("public_status: self_heal_proof query failed: %s", exc)
+
     # Recent incidents — last 7 days, critical only
     try:
         with engine.connect() as conn:
@@ -159,6 +193,7 @@ def get_public_status():
         "overall": overall,
         "components": components,
         "incidents": incidents,
+        "self_heal_proof": self_heal_proof,
         "checked_at": _now_iso(),
     }
 
