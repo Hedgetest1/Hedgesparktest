@@ -659,13 +659,10 @@ must satisfy:
 |---|---|---|
 | `hs:symap:{shop}:{shopify_y}` | shopify_y → visitor_id map | 90d |
 | `hs:wh_status:{shop}` | webhook health | 48h |
-| `hs:digest:sent:{date}` | daily digest dedup | 48h |
-| `hs:digest:lock:{date}` | daily digest lock | 1h |
 | `hs:mdigest:{shop}:{week}` | merchant weekly digest dedup | 14d |
 | `hs:repair_claim:{shop}:{area}` | distributed repair lock | 5min |
 | `hs:refresh_claim:{shop}` | action candidates refresh claim | 40s |
 | `hs:segmon:cursor` | segment monitor round-robin cursor | 24h |
-| `hs:reengagement:{shop}:{date}` | re-engagement email dedup | 14d |
 | `hs:merchant_opt_out:{shop}` | Art. 21 opt-out flag | none |
 | `llm:monthly_cost:{month}` | LLM spend | 35d |
 | `llm:daily:{module}:{date}` | LLM calls per module | 7d |
@@ -690,6 +687,15 @@ must satisfy:
 | `hs:spike:sentry_rate:{hour}` | Sentry rate-spike cooldown | 1h |
 | `hs:spike:sentry_regression:{fp}:{hour}` | Sentry regression cooldown | 1h |
 | `hs:spike:p95_drift:{route}:{day}` | p95 drift cooldown | 24h |
+
+**Note (2026-04-18):** This table is the CURATED list. The backend
+currently uses ~150 Redis prefixes total; the rest are tracked
+internally by their owning modules and scheduled for catalog sweep.
+Verify with `backend/scripts/audit_claude_md_redis_keys.py` (standalone —
+not yet preflight-blocking until the backlog is closed). Any NEW key
+added after 2026-04-18 should land in this table in the same commit.
+**Daily digest dedup is DB-based** (`worker_state.last_digest_date`),
+not Redis — removed stale `hs:digest:*` rows.
 
 ---
 
