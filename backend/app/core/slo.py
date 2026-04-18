@@ -149,13 +149,28 @@ class SLO:
 
 
 CATALOGUE: list[SLO] = [
-    SLO("pro_rars",         "/pro/rars",                  "GET", 99.5, 800),
-    SLO("pro_causal",       "/pro/causal/explain",        "GET", 99.0, 1500),
-    SLO("pro_anomalies",    "/pro/anomalies/fusion",      "GET", 99.0, 1500),
-    SLO("pro_night_shift",  "/pro/night-shift/latest",    "GET", 99.5, 800),
-    SLO("track",            "/track",                     "POST", 99.9, 200),
-    SLO("webhooks",         "/webhooks/shopify",          "POST", 99.9, 400),
-    SLO("system_health",    "/system/health",             "GET", 99.9, 300),
+    # Merchant-critical request paths (daily use). Availability targets
+    # follow business criticality: anything the dashboard fetches every
+    # page-load is 99.9%; anything Pro-only but non-blocking is 99.0.
+    # Latency targets are P95 — chosen to match merchant perception
+    # thresholds (<300ms = instant, <800ms = fast, <1500ms = slow-ok).
+    SLO("pro_rars",             "/pro/rars",                     "GET",  99.5, 800),
+    SLO("pro_causal",           "/pro/causal/explain",           "GET",  99.0, 1500),
+    SLO("pro_anomalies",        "/pro/anomalies/fusion",         "GET",  99.0, 1500),
+    SLO("pro_night_shift",      "/pro/night-shift/latest",       "GET",  99.5, 800),
+    SLO("track",                "/track",                        "POST", 99.9, 200),
+    SLO("webhooks",             "/webhooks/shopify",             "POST", 99.9, 400),
+    SLO("system_health",        "/system/health",                "GET",  99.9, 300),
+    # Added 2026-04-18 (C-2): core dashboard load + high-traffic Pro
+    # analytics endpoints. Each is rendered on /app every merchant
+    # session; a degradation is immediately visible.
+    SLO("dashboard_overview",   "/dashboard/overview",           "GET",  99.9, 500),
+    SLO("dashboard_overview_pro","/dashboard/overview/pro",      "GET",  99.5, 800),
+    SLO("merchant_session",     "/merchant/me",                  "GET",  99.9, 200),
+    SLO("brief_today",          "/brief/today",                  "GET",  99.5, 600),
+    SLO("pro_revenue_autopsy",  "/pro/revenue-autopsy",          "GET",  99.0, 1200),
+    SLO("pro_risk_forecast",    "/pro/risk-forecast",            "GET",  99.0, 1200),
+    SLO("pro_nudges_rank",      "/pro/nudges/rank",              "GET",  99.0, 500),
 ]
 
 
