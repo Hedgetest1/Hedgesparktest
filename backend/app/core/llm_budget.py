@@ -881,7 +881,7 @@ def get_effective_monthly_cap() -> float:
         from app.models.merchant import Merchant
         db = SessionLocal()
         try:
-            merchants = db.query(Merchant).filter(Merchant.is_active.is_(True)).count()
+            merchants = db.query(Merchant).filter(Merchant.install_status == "active").count()
         finally:
             db.close()
     except Exception as exc:
