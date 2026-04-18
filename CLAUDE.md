@@ -197,7 +197,11 @@ with any of them → the principle wins. Originates from
    no O(n²) over merchants.
 9. **LLM usage explicit + capped + measured.** Every new LLM call MUST be
    flagged in advance with: estimated cost at 10k merchants, deterministic
-   alternative considered, fallback when budget exhausted. €5/month hard cap.
+   alternative considered, fallback when budget exhausted. Budget is
+   **scaled**: dev-phase €10/month floor (`LLM_MONTHLY_BUDGET_EUR`),
+   per-merchant scaling (`_LLM_EUR_PER_MERCHANT`), €500 hard ceiling
+   (`_LLM_MAX_MONTHLY_EUR`). **Source of truth: `app/core/llm_budget.py`
+   constants** — this doctrine points to the code, not vice versa.
 10. **Scale only what's needed.** Profile first, scale second. Premature
     scaling = wasted complexity.
 11. **Maximum automation, maximum safety.** Every automatic action has a
@@ -375,14 +379,19 @@ quarantine. Scope is locked to safety/efficiency/cost/executability
 
 ### 8.1 LLM budget & router
 
-- **Hard cap:** €5/month across ALL modules. Enforced in
-  `app/core/llm_budget.py`. Operator view: `GET /ops/llm-budget`.
+- **Cap (dev phase):** €10/month global floor, scales per-merchant
+  (`_LLM_EUR_PER_MERCHANT`) up to €500 hard ceiling. Enforced in
+  `app/core/llm_budget.py` (source of truth — constants
+  `MONTHLY_EUR_CAP`, `_LLM_EUR_PER_MERCHANT`, `_LLM_MAX_MONTHLY_EUR`;
+  env overrides `LLM_MONTHLY_BUDGET_EUR` / `LLM_MAX_MONTHLY_EUR`).
+  Operator view: `GET /ops/llm-budget`.
 - **Providers:** Anthropic Claude (primary), OpenAI (fallback), Opus for
   Monthly Evolution Audit only.
 - **Per-module daily limits** + 429 exponential backoff on every provider.
 - **Principle:** deterministic first, LLM only when indispensable. Flag
   every new LLM call BEFORE building with cost estimate at 10k merchants.
-  The €5 is a ceiling not a target — we operate well below by default.
+  The global cap is a ceiling not a target — we operate well below by
+  default (current spend ~€0.10/mo on 2 merchants).
 - **Runtime PII guard** (`app/core/llm_pii_guard.py`): deterministic regex
   scanner wired into every LLM call site. Blocks emails, Shopify tokens,
   API keys, JWTs, bearer tokens, IBANs, CC shapes, phones, password

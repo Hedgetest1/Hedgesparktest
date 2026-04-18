@@ -296,7 +296,7 @@ async def compose_nudge_variants(
             fallback_used=True, rejection_reason="OPENAI_API_KEY not configured"
         )
 
-    # ── Budget guard — respect monthly €5 cap + provider backoff ──────
+    # ── Budget guard — respect scaled monthly cap (see llm_budget.py) + provider backoff ──────
     from app.core.llm_budget import check_budget, record_blocked, is_provider_backed_off
     allowed, reason = check_budget("nudge_composer")
     if not allowed:

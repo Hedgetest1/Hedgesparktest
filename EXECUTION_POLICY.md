@@ -348,7 +348,7 @@ These apply to ALL tiers and ALL agents:
 1. **Tenant isolation:** Every database query involving merchant data MUST be scoped by `shop_domain`. No cross-tenant data access, ever.
 2. **Secrets:** Never log, commit, or include in diffs: API keys, tokens, passwords, `.env` values, encryption keys.
 3. **Audit trail:** All agent actions that modify state must be logged to `audit_log`. Append-only — never update or delete audit records.
-4. **LLM budget:** All LLM calls must go through `llm_budget.py`. Respect monthly cap (€5) and per-module daily limits. When budget exhausted, degrade gracefully — no retries, no bypass.
+4. **LLM budget:** All LLM calls must go through `llm_budget.py`. Respect the live monthly cap (dev floor €10, scales per-merchant, €500 ceiling — source of truth is `app/core/llm_budget.py` constants) and per-module daily limits. When budget exhausted, degrade gracefully — no retries, no bypass.
 5. **Blocklist:** Skip `legacy.myshopify.com` in all automated processing.
 6. **Idempotency:** Automated repair actions (webhook repair, cache clear) must be idempotent. Running twice must not cause harm.
 7. **No speculative changes:** Agents fix what is broken or implement what is requested. No unsolicited refactoring, no "while I'm here" improvements.

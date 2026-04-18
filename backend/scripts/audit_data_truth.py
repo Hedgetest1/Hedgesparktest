@@ -51,7 +51,7 @@ _FILE_ALLOWLIST: set[str] = {
 _LINE_ALLOWLIST: dict[str, str] = {
     # _SYMBOLS mapper — legacy local copy of the currency helper, safe.
     "app/services/revenue_triggers.py:271": "_SYMBOLS mapper dict is the currency source, not a hardcoded symbol",
-    # LLM internal budget is €5/mo by policy; "€" is correct unit for LLM spend.
+    # LLM internal budget is €-denominated by policy (dev floor €10, scales per-merchant; see llm_budget.py).
     "app/services/scaling_intelligence.py:368": "LLM budget is €-denominated by policy (CLAUDE.md §8.1)",
     "app/services/scaling_intelligence.py:369": "LLM budget is €-denominated by policy (CLAUDE.md §8.1)",
     # Shopify webhook payload already includes currency — this is the default

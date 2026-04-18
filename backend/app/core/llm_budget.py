@@ -5,7 +5,9 @@ Every LLM call must go through check_budget() before making a request
 and record_usage() after a successful response.
 
 Budget enforcement:
-    1. Monthly EUR hard cap (MONTHLY_EUR_CAP = 5.0)
+    1. Monthly EUR scaled cap: floor MONTHLY_EUR_CAP (dev €10, env-configurable
+       via LLM_MONTHLY_BUDGET_EUR), per-merchant scaling (_LLM_EUR_PER_MERCHANT),
+       ceiling _LLM_MAX_MONTHLY_EUR (€500). Source of truth for CLAUDE.md §8.1.
     2. Per-module daily call limits
     3. Global daily call limit
     4. Per-module cooldown between calls
@@ -47,7 +49,11 @@ import os as _os
 log = logging.getLogger("llm_budget")
 
 # ---------------------------------------------------------------------------
-# Monthly EUR hard caps — env-configurable for operator control
+# Monthly EUR hard caps — env-configurable for operator control.
+#
+# SOURCE OF TRUTH for CLAUDE.md §8.1 and principle #9. If you change any
+# of these constants, update CLAUDE.md + EXECUTION_POLICY.md in the SAME
+# commit. The doctrine points here; the number lives here only.
 # ---------------------------------------------------------------------------
 MONTHLY_EUR_CAP = float(_os.getenv("LLM_MONTHLY_BUDGET_EUR", "10.0"))
 
