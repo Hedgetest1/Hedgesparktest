@@ -2010,6 +2010,34 @@ def _run_dashboard_asset_probe():
         dashboard_asset_probe_task.mark_done()
 
 
+def _run_dashboard_auto_remediation():
+    """Deterministic auto-remediation for any unresolved
+    `dashboard_asset_drift` alert. Runs `pm2 restart wishspark-dashboard
+    --update-env`, re-probes assets, resolves origin alert on success
+    or escalates on failure. Hourly rate-limited (max 3/hour).
+
+    Kept separate from `_run_on_alert_responder` because the remedy is
+    a shell command, not an LLM call — no budget gate, default ON."""
+    from app.services.dashboard_auto_remediation import attempt
+    db = SessionLocal()
+    try:
+        report = attempt(db)
+        if report.get("action") in ("remediated", "escalated"):
+            log(
+                f"dashboard_auto_remediation: action={report['action']} "
+                f"alert_id={report.get('alert_id')} "
+                f"restart_ok={report.get('restart_ok')}"
+            )
+    except Exception as exc:
+        log(f"dashboard_auto_remediation error (non-fatal): {exc}")
+        try:
+            db.rollback()
+        except Exception:
+            pass  # SILENT-EXCEPT-OK: rollback best-effort after primary error already logged
+    finally:
+        db.close()
+
+
 def run_cycle():
     started_at = datetime.now(timezone.utc).replace(tzinfo=None)
     standby = is_self_heal_in_standby()
@@ -2018,8 +2046,12 @@ def run_cycle():
 
     # Phase 0-pre-1: Dashboard asset probe — 5 min cadence, catches the
     # "stale Next.js in-memory manifest" class of bugs that slip past
-    # HTTP-200-on-/ monitors.
+    # HTTP-200-on-/ monitors. Paired with auto-remediation below.
     _run_dashboard_asset_probe()
+
+    # Phase 0-pre-1b: Deterministic auto-remediation for any unresolved
+    # dashboard_asset_drift alert. Shell-only (pm2 restart), no LLM.
+    _run_dashboard_auto_remediation()
 
     # Phase 0-pre0: Worker watchdog (α5) — resurrect stale workers FIRST
     _run_worker_watchdog()

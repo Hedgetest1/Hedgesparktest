@@ -45,6 +45,7 @@ Listed here in execution order with the actual gate.
 | Sub-task (fn) | Gate | Frequency reality |
 |---|---|---|
 | `_run_dashboard_asset_probe` | in-process 5min `should_run()` + Redis SETNX alert dedup (1/hour) | Phase 0-pre-1 — catches stale Next.js in-memory manifest bugs by fetching `/`, `/app`, `/pricing` and HEAD-probing every `_next/static` chunk; alerts `dashboard_asset_drift` on any non-200 |
+| `_run_dashboard_auto_remediation` | hourly rate-limit (max 3/hour via Redis) + back-to-back cooldown 120s + kill-switch env `DASHBOARD_AUTO_REMEDIATION_ENABLED=1` (default ON) | Phase 0-pre-1b — deterministic `pm2 restart wishspark-dashboard --update-env` for any unresolved `dashboard_asset_drift` alert; re-probes and resolves origin alert on success or escalates `dashboard_asset_drift_auto_remediation_failed` on failure. Shell-only, no LLM. |
 | `_run_worker_watchdog` | no gate (Phase 0-pre0, runs FIRST in cycle) | every 15min cycle — resurrects stale PM2 workers |
 | `_run_orchestrator` | no gate | every 15min cycle |
 | `_run_onboarding` | no gate | every 15min cycle |

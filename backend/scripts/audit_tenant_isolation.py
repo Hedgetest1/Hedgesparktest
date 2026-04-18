@@ -114,6 +114,10 @@ ALLOWLIST: set[str] = {
     "services/share_engine.py",
     # Global stale-alert auto-resolver — resolves network-wide by severity
     "services/alerting.py",
+    # Global dashboard is not a tenant surface — `dashboard_asset_drift`
+    # alerts are shop_domain=NULL (infrastructure-wide). Auto-remediation
+    # is inherently cross-tenant — a pm2 restart affects every merchant.
+    "services/dashboard_auto_remediation.py",
     # Phase Ω⁷ — Competitor Playbook is cross-tenant by design (peer stats)
     "api/playbook.py",
 }

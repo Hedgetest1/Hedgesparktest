@@ -99,8 +99,14 @@ _PIPELINE_INTERNAL_ALERT_TYPES: tuple[str, ...] = (
     # a full `./dashboard/scripts/deploy.sh`, NOT a code patch. The alert
     # detail payload already embeds the remedy string, so the operator
     # channel has everything it needs — an LLM-authored patch here would
-    # be guessing at a non-code problem.
+    # be guessing at a non-code problem. `dashboard_auto_remediation`
+    # handles it deterministically via `pm2 restart` (see
+    # `app/services/dashboard_auto_remediation.py`); the two follow-up
+    # alert types below are its own success/failure receipts and must
+    # also bypass the LLM-patch path.
     "dashboard_asset_drift",
+    "dashboard_asset_drift_auto_remediated",
+    "dashboard_asset_drift_auto_remediation_failed",
 )
 
 
