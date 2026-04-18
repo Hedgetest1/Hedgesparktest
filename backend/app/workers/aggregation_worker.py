@@ -444,6 +444,23 @@ def _run_cycle_inner() -> None:
             log(f"rum_monitor error (non-fatal): {exc}")
 
         # ------------------------------------------------------------------ #
+        # Prediction accuracy maturation (MA-1). Walk matured prediction_log #
+        # rows (horizon_date <= today, actual_value NULL), compute observed  #
+        # revenue from shop_orders, UPDATE the row. Bounded by limit so cold #
+        # starts don't stall the cycle. Idempotent — rows with actual_value  #
+        # already set are never reprocessed.                                 #
+        # ------------------------------------------------------------------ #
+        try:
+            from app.services.prediction_log import run_mature_predictions
+            pred_result = run_mature_predictions(db, limit=200)
+            if pred_result.get("matured", 0) > 0 or pred_result.get("skipped", 0) > 0:
+                db.commit()
+                log(f"prediction_log: matured={pred_result.get('matured')} skipped={pred_result.get('skipped')}")
+        except Exception as exc:
+            db.rollback()
+            log(f"prediction_log error (non-fatal): {exc}")
+
+        # ------------------------------------------------------------------ #
         # LLM guardrail benchmark — once-per-week Sunday 04:00-06:00 UTC.     #
         # Runs the structural test_llm_propose_bench.py suite via subprocess #
         # pytest (fake LLM stubs — zero API cost, ~4s). Alerts on regression.#

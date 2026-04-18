@@ -227,6 +227,42 @@ def get_revenue_forecast(
     for point in history_points:
         point["orders"] = order_counts.get(point["day"], 0)
 
+    # Prediction accuracy foundation (MA-1). Write-and-forget: every
+    # call to this function persists the 7d + 30d point-forecasts to
+    # prediction_log with a deterministic dedup key (shop, metric,
+    # horizon_date). A nightly mature-pass later fills in actual_value
+    # and the /pro/prediction-accuracy endpoint aggregates MAPE. Never
+    # raises — forecast accuracy logging must not break the forecast.
+    try:
+        from datetime import timedelta as _td
+        from app.services.prediction_log import log_prediction as _log_prediction
+        today = _now().date()
+        if confidence is not None:  # only log forecasts we'd actually show
+            _log_prediction(
+                db,
+                shop_domain=shop_domain,
+                metric="forecast_7d_revenue",
+                predicted_value=forecast_7d.get("revenue", 0.0),
+                predicted_low=forecast_7d.get("revenue_low"),
+                predicted_high=forecast_7d.get("revenue_high"),
+                horizon_date=today + _td(days=7),
+                currency=currency,
+                confidence=confidence,
+            )
+            _log_prediction(
+                db,
+                shop_domain=shop_domain,
+                metric="forecast_30d_revenue",
+                predicted_value=forecast_30d.get("revenue", 0.0),
+                predicted_low=forecast_30d.get("revenue_low"),
+                predicted_high=forecast_30d.get("revenue_high"),
+                horizon_date=today + _td(days=30),
+                currency=currency,
+                confidence=confidence,
+            )
+    except Exception as _exc:
+        log.warning("revenue_forecast: prediction_log write failed: %s", _exc)
+
     return {
         "generated_at": _now().isoformat() + "Z",
         "currency": currency,

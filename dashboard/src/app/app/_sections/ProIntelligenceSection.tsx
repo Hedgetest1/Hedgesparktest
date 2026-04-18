@@ -12,6 +12,7 @@ import { SectionHeading } from "../_components/SectionHeading";
 import { GatewayProducts } from "../../components/GatewayProducts";
 import { PnlReport } from "../../components/PnlReport";
 import { PredictedLtv } from "../../components/PredictedLtv";
+import { PredictionAccuracyCard } from "../../components/PredictionAccuracyCard";
 import { SectionErrorBoundary } from "../../components/SectionErrorBoundary";
 import { formatDisplayMoney, type DisplayCurrency } from "../../lib/currency";
 import { prettyText, formatMoneyCompact } from "../_lib/formatters";
@@ -22,6 +23,7 @@ import { prettyText, formatMoneyCompact } from "../_lib/formatters";
 // unknown and narrow inside each branch with optional chaining.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface ProIntelligenceSectionProps {
+  apiBase: string;
   displayCurrency: DisplayCurrency;
   forecastData: any;
   attrSummary: any;
@@ -35,7 +37,7 @@ export interface ProIntelligenceSectionProps {
 
 export function ProIntelligenceSection(p: ProIntelligenceSectionProps) {
   const {
-    displayCurrency, forecastData, attrSummary, ltvData, pnlData,
+    apiBase, displayCurrency, forecastData, attrSummary, ltvData, pnlData,
     gatewayProductsData, predictedLtvData, priceIntel, marketIntel,
   } = p;
 
@@ -394,6 +396,15 @@ export function ProIntelligenceSection(p: ProIntelligenceSectionProps) {
           )}
         </div>
 
+      </div>
+
+      {/* Prediction accuracy — MA-1 moat. Sits right after the forecast
+          because that's what it's measuring against. Self-gates via
+          useCardFetch; shows "locked" until 8 matured predictions. */}
+      <div className="mt-6">
+        <SectionErrorBoundary name="Prediction Accuracy">
+          <PredictionAccuracyCard apiBase={apiBase} />
+        </SectionErrorBoundary>
       </div>
 
       {/* Profit Intelligence */}

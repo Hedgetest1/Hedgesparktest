@@ -3042,6 +3042,7 @@ function PageInner() {
               {isProUser && (
                 <SectionErrorBoundary name="Pro Intelligence">
                   <ProIntelligenceSection
+                    apiBase={API_BASE}
                     displayCurrency={displayCurrency}
                     forecastData={forecastData}
                     attrSummary={attrSummary}

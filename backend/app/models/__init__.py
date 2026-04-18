@@ -42,6 +42,7 @@ from app.models.ops_alert import OpsAlert
 from app.models.opportunity_signal import OpportunitySignal
 from app.models.outbound_webhook import OutboundWebhookDelivery, OutboundWebhookSubscription
 from app.models.patch_fingerprint import PatchFingerprint
+from app.models.prediction_log import PredictionLog
 from app.models.price_intelligence import PriceIntelligence
 from app.models.price_watch import PriceWatch
 from app.models.product import Product

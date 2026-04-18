@@ -77,6 +77,7 @@ ALLOWLIST: set[str] = {
     "services/project_brain.py",
     "services/adaptive_governance.py",
     "services/bugfix_pipeline.py",        # Self-improvement — cross-shop signal mining
+    "services/prediction_log.py",         # MA-1 maturation — scans every shop's unfilled predictions per cycle
     "services/orchestrator_context.py",   # Cross-shop orchestrator state
     "services/autonomous_loop.py",        # Counts DISTINCT shop_domain
     "services/data_retention.py",         # Global retention sweeps

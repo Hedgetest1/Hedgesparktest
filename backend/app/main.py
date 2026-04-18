@@ -151,6 +151,7 @@ from app.api.onboarding import router as onboarding_router
 from app.api.ops import router as ops_router
 from app.api.frontend_errors import router as frontend_errors_router
 from app.api.rum import router as rum_router
+from app.api.prediction_accuracy import router as prediction_accuracy_router
 from app.api.benchmarks import router as benchmarks_router
 from app.api.benchmarks_vertical import router as benchmarks_vertical_router
 from app.api.knowledge_graph import router as knowledge_graph_router
@@ -586,6 +587,7 @@ app.include_router(legal_pages_router)
 app.include_router(consent_banner_router)
 app.include_router(frontend_errors_router)
 app.include_router(rum_router)
+app.include_router(prediction_accuracy_router)
 app.include_router(benchmarks_router)
 app.include_router(benchmarks_vertical_router)
 app.include_router(knowledge_graph_router)
