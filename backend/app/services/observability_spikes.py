@@ -775,6 +775,90 @@ def detect_sentry_fingerprint_storm(db: Session) -> int:
     return fired
 
 
+# ---------------------------------------------------------------------------
+# SLO breach detector — active alerting on error-budget burn
+# ---------------------------------------------------------------------------
+# The SLO catalogue + slo_report() have existed for weeks but nothing
+# was firing ops_alerts when a route ACTIVELY breached its availability
+# or burned through error budget. ops had to query /slo manually to
+# notice. Staged-rollout used slo_report to gate flag promotion but
+# there was no push-style alert.
+#
+# This detector closes the gap: iterate the catalogue, compare live
+# health to targets, emit `slo_breach` (critical) or `slo_burn_warning`
+# (warning) with per-SLO cooldowns so a burning budget doesn't spam
+# every 5-min cycle.
+#
+# Classifications (mirrors slo_report's own health field):
+#   - breach            → availability below target → critical
+#   - critical_burn     → burn_rate > 10            → critical
+#   - latency_breach    → p95 > target × 1.5        → critical
+#   - warning_burn      → burn_rate > 2             → warning
+#   - latency_warning   → p95 > target              → warning
+#   - healthy / insufficient_data → skip
+# ---------------------------------------------------------------------------
+_SLO_CRITICAL_HEALTHS = {"breach", "critical_burn", "latency_breach"}
+_SLO_WARNING_HEALTHS = {"warning_burn", "latency_warning"}
+_SLO_COOLDOWN_SECONDS = 3600
+
+
+def detect_slo_breaches(db: Session) -> int:
+    """Walk the SLO catalogue; emit an alert for any SLO that is not
+    `healthy` or `insufficient_data`. Severity follows slo_report's
+    health classification.
+
+    Returns the number of alerts emitted this cycle (dedup by per-SLO
+    per-hour cooldown)."""
+    try:
+        from app.core.slo import slo_report
+        report = slo_report()
+    except Exception as exc:
+        log.warning("slo breach scan failed: %s", exc)
+        return 0
+
+    now_hour = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
+    fired = 0
+    for slo in report:
+        name = slo.get("name") or "unknown"
+        health = slo.get("health") or "healthy"
+        if health in _SLO_CRITICAL_HEALTHS:
+            severity = "critical"
+            alert_type = "slo_breach"
+        elif health in _SLO_WARNING_HEALTHS:
+            severity = "warning"
+            alert_type = "slo_burn_warning"
+        else:
+            continue
+
+        cooldown_key = f"hs:spike:slo:{alert_type}:{name}:{now_hour}"
+        if not _cooldown_ok(cooldown_key, _SLO_COOLDOWN_SECONDS):
+            continue
+
+        route = slo.get("route") or ""
+        method = slo.get("method") or "GET"
+        summary_bits = [
+            f"SLO {name} [{method} {route}] {health}",
+            f"availability={slo.get('availability_pct')}%/"
+            f"target={slo.get('availability_target_pct')}%",
+            f"p95={slo.get('p95_ms')}ms/target={slo.get('p95_target_ms')}ms",
+            f"burn={slo.get('burn_rate')}",
+        ]
+        try:
+            from app.services.alerting import write_alert
+            write_alert(
+                db,
+                severity=severity,
+                source=f"slo:{name}"[:64],
+                alert_type=alert_type,
+                summary=" · ".join(summary_bits),
+                detail=dict(slo),
+            )
+            fired += 1
+        except Exception as exc:
+            log.warning("slo alert write failed name=%s: %s", name, exc)
+    return fired
+
+
 def detect_sentry_triage_stuck(db: Session) -> int:
     """Alert when the sentry_triage consumer queue has backed up —
     i.e. many `ready` incidents unlinked for more than 6h. Catches
@@ -860,6 +944,7 @@ def run_all_spike_detectors(db: Session) -> dict[str, int]:
         ("sentry_regression",            detect_sentry_regressions),
         ("sentry_fingerprint_storm",     detect_sentry_fingerprint_storm),
         ("sentry_triage_stuck",          detect_sentry_triage_stuck),
+        ("slo_breach",                   detect_slo_breaches),
     ):
         try:
             results[name] = fn(db)
