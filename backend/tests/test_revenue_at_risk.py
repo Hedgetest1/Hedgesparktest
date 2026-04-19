@@ -127,3 +127,66 @@ def test_rars_headline_includes_prevention_when_positive(db):
     report = get_revenue_at_risk(db, "rars-headline-shop.myshopify.com")
     assert "headline" in report
     assert len(report["headline"]) > 10
+
+
+# ---------------------------------------------------------------------------
+# Phase 1.2 — plan-based fidelity reduction (Starter/Lite unlock)
+# ---------------------------------------------------------------------------
+
+
+def test_rars_pro_plan_returns_full_component_breakdown(db):
+    """plan='pro' returns the full 5-dim components breakdown."""
+    report = get_revenue_at_risk(db, "rars-pro-plan-shop.myshopify.com", plan="pro")
+    assert report["components"]
+    sources = {c["source"] for c in report["components"]}
+    assert sources == {
+        "abandoned_high_intent",
+        "refund_decline",
+        "nudge_gap",
+        "below_benchmark",
+        "goal_gap",
+    }
+
+
+def test_rars_lite_plan_redacts_component_breakdown(db):
+    """plan != 'pro' returns empty components array (upgrade CTA territory)."""
+    shop = "rars-lite-plan-shop.myshopify.com"
+    lite_report = get_revenue_at_risk(db, shop, plan="starter")
+    assert lite_report["components"] == []
+
+
+def test_rars_lite_plan_keeps_hero_number_and_headline(db):
+    """Lite tier still sees the hero total + prevented + headline."""
+    shop = "rars-lite-hero-shop.myshopify.com"
+    lite_report = get_revenue_at_risk(db, shop, plan="starter")
+    assert "total_at_risk_eur" in lite_report
+    assert isinstance(lite_report["total_at_risk_eur"], (int, float))
+    assert "prevented_eur_this_month" in lite_report
+    assert "net_roi_eur" in lite_report
+    assert "headline" in lite_report
+    assert len(lite_report["headline"]) > 10
+    assert "currency" in lite_report
+
+
+def test_rars_plan_fidelity_filter_does_not_affect_total(db):
+    """Total at risk is identical across plan tiers (cache-safe)."""
+    # Fresh shop domain so both calls share the cache correctly
+    shop = "rars-plan-invariant-shop.myshopify.com"
+    pro_report = get_revenue_at_risk(db, shop, plan="pro")
+    lite_report = get_revenue_at_risk(db, shop, plan="starter")
+    assert pro_report["total_at_risk_eur"] == lite_report["total_at_risk_eur"]
+    assert pro_report["prevented_eur_this_month"] == lite_report["prevented_eur_this_month"]
+    assert pro_report["headline"] == lite_report["headline"]
+
+
+def test_rars_plan_filter_does_not_mutate_cached_dict(db):
+    """Plan-filter must shallow-copy so subsequent Pro reads aren't corrupted."""
+    shop = "rars-cache-mutation-probe.myshopify.com"
+    # Prime cache via Pro (full components) then read as Lite, then Pro again
+    pro_first = get_revenue_at_risk(db, shop, plan="pro")
+    first_component_count = len(pro_first["components"])
+    _lite = get_revenue_at_risk(db, shop, plan="starter")
+    pro_second = get_revenue_at_risk(db, shop, plan="pro")
+    assert len(pro_second["components"]) == first_component_count, (
+        "Lite read mutated shared cached dict — Pro components lost"
+    )

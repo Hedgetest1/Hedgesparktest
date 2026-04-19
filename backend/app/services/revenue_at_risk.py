@@ -418,21 +418,31 @@ def _compute_prevented(db: Session, shop: str) -> tuple[float, dict]:
 # ---------------------------------------------------------------------------
 
 
-def get_revenue_at_risk(db: Session, shop_domain: str) -> dict:
+def get_revenue_at_risk(db: Session, shop_domain: str, plan: str = "pro") -> dict:
     """
-    Compute and return the full RARS report for the merchant.
-    Cached 5 minutes per shop.
+    Compute and return the RARS report for the merchant.
+    Cached 5 minutes per shop (cache is tier-agnostic; fidelity is
+    reduced at return time for non-"pro" plans).
+
+    plan = "pro"       → full 5-dimension component breakdown
+    plan != "pro"      → headline total + prevented + net_roi only,
+                         components array is empty (Lite tier sees
+                         the hero number but must upgrade for drill-down)
     """
     cache_key = f"{_CACHE_KEY_PREFIX}:{hashlib.md5(shop_domain.encode()).hexdigest()[:16]}"
+    cache_hit: dict | None = None
     try:
         from app.core.redis_client import _client
         rc = _client()
         if rc is not None:
             cached = rc.get(cache_key)
             if cached:
-                return json.loads(cached)
+                cache_hit = json.loads(cached)
     except Exception as exc:
         log.warning("revenue_at_risk: redis cache read failed: %s", exc)
+
+    if cache_hit is not None:
+        return _apply_plan_filter(cache_hit, plan)
 
     components = []
     try:
@@ -511,4 +521,20 @@ def get_revenue_at_risk(db: Session, shop_domain: str) -> dict:
     except Exception as exc:
         log.warning("revenue_at_risk: rars snapshot record failed: %s", exc)
 
-    return result
+    return _apply_plan_filter(result, plan)
+
+
+def _apply_plan_filter(result: dict, plan: str) -> dict:
+    """Reduce RARS response fidelity for non-Pro tiers.
+
+    Pro merchants get the full 5-dim breakdown. Starter/Lite merchants
+    get the hero number + prevented + headline but not the drill-down
+    components — the breakdown lives behind the upgrade CTA.
+
+    Shallow-copies so we don't mutate a shared cached dict.
+    """
+    if plan == "pro":
+        return result
+    filtered = dict(result)
+    filtered["components"] = []
+    return filtered

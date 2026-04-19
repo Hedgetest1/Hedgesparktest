@@ -72,7 +72,7 @@ export function RevenueAtRiskHero({
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    if (!shop || !apiBase || !isProUser) {
+    if (!shop || !apiBase) {
       setLoading(false);
       return;
     }
@@ -80,6 +80,8 @@ export function RevenueAtRiskHero({
     setLoading(true);
     setError(false);
 
+    // Both Lite and Pro fetch the same endpoint. Backend filters
+    // components array to [] for non-Pro — we reflect that in the UI.
     apiClient
       .GET("/pro/revenue-at-risk")
       .then(({ data: json, error: err }) => {
@@ -90,33 +92,7 @@ export function RevenueAtRiskHero({
       .finally(() => { if (active) setLoading(false); });
 
     return () => { active = false; };
-  }, [apiBase, shop, isProUser]);
-
-  if (!isProUser) {
-    // Lite teaser — no data fetched, encourage upgrade
-    return (
-      <div className="rounded-2xl border border-white/[0.07] bg-gradient-to-br from-[#7c3aed]/[0.08] to-[#d4893a]/[0.06] p-6">
-        <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[#d4893a]">
-          Revenue at Risk
-        </div>
-        <h2 className="text-[20px] font-bold text-white">
-          See exactly how much money is slipping through your store, live.
-        </h2>
-        <p className="mt-2 text-[13px] text-slate-400 leading-relaxed">
-          Abandoned carts, declining products, underperforming nudges, gaps vs. similar shops —
-          one number, updated in real time. Pro only.
-        </p>
-        {onUpgrade && (
-          <button
-            onClick={onUpgrade}
-            className="mt-4 inline-flex items-center gap-2 rounded-lg bg-[#d4893a] px-4 py-2 text-[13px] font-bold text-white transition-colors hover:bg-[#e8a04e]"
-          >
-            Unlock with Pro →
-          </button>
-        )}
-      </div>
-    );
-  }
+  }, [apiBase, shop]);
 
   if (loading) {
     return (
@@ -218,8 +194,10 @@ export function RevenueAtRiskHero({
         </div>
       )}
 
-      {/* Breakdown grid */}
-      {hasRisk && (
+      {/* Breakdown grid — Pro tier only. For Lite: the upgrade nudge
+          replaces the 5-dim drill-down. Backend enforces this by
+          returning components=[] for non-Pro plans. */}
+      {hasRisk && isProUser && sortedComponents.length > 0 && (
         <div className={`mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5 ${expanded ? "" : "lg:grid-cols-5"}`}>
           {sortedComponents.map((c) => {
             const meta = SOURCE_LABELS[c.source] || { label: c.source, icon: "•" };
@@ -250,6 +228,28 @@ export function RevenueAtRiskHero({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Lite merchants see the hero number above + this upgrade bridge
+          where the 5-dim drill-down would be. Copy stays tight per §5:
+          one line, one value proposition, one CTA. */}
+      {hasRisk && !isProUser && (
+        <div className="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-[#d4893a]/20 bg-[#d4893a]/[0.05] px-4 py-3">
+          <span className="text-[13px] leading-snug text-slate-300">
+            Pro unlocks the 5-dimension breakdown: abandoned carts,
+            refund trend, nudge gap, peer benchmark, goal gap — each
+            with its action plan.
+          </span>
+          {onUpgrade && (
+            <button
+              type="button"
+              onClick={onUpgrade}
+              className="ml-auto flex-shrink-0 rounded-lg bg-[#d4893a] px-4 py-1.5 text-[12px] font-bold uppercase tracking-[0.1em] text-white transition-colors hover:bg-[#e8a04e]"
+            >
+              See breakdown on Pro
+            </button>
+          )}
         </div>
       )}
     </div>
