@@ -91,6 +91,37 @@ def test_export_does_not_leak_other_shops(client, db):
         assert a["shop_domain"] == shop_a
 
 
+def test_export_includes_signals_table(client, db):
+    """Regression test for 2026-04-19 audit finding: the merchant Art. 15
+    export silently dropped the `signals` table because it imported
+    `app.models.signal` (which never existed) instead of the real
+    `app.models.opportunity_signal.OpportunitySignal`. The error was
+    wrapped in try/except so no startup crash, but every merchant's
+    GDPR export was quietly incomplete.
+
+    Lock the contract: if `opportunity_signals` exists in the schema,
+    the `signals` table MUST appear in the export payload AND in
+    record_counts. A missing `signals` key is a GDPR compliance bug."""
+    shop = _make_merchant(db)
+    db.flush()
+
+    resp = _with_session_override(shop, lambda: client.get("/merchant/export"))
+    assert resp.status_code == 200
+    body = resp.json()
+
+    # The export must always list `signals` — even if empty, the
+    # table entry must be present so the merchant sees the shape.
+    assert "signals" in body, (
+        "signals key missing from export — regression of 2026-04-19 "
+        "Signal-import bug in merchant_export.py"
+    )
+    assert "record_counts" in body
+    assert "signals" in body["record_counts"], (
+        "signals absent from record_counts — export payload incomplete"
+    )
+    assert isinstance(body["signals"], list)
+
+
 def test_export_writes_audit_log(client, db):
     shop = _make_merchant(db)
     db.flush()

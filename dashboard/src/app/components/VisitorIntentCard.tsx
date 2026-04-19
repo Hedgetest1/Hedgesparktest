@@ -20,15 +20,15 @@
  */
 
 import { CardSkeleton, CardError, CardEmpty, useCardFetch } from "./_CardStates";
+import type { components } from "../lib/api-types";
 
-type VisitorIntentCounts = {
-  total_visitors: number;
-  hot_visitors: number;
-  warm_visitors: number;
-  cold_visitors: number;
-  hot_threshold: number;
-  warm_threshold: number;
-};
+// Type pulled from the generated OpenAPI client rather than declared
+// locally — keeps the frontend shape locked to the backend response
+// model. If the backend changes VisitorIntentCounts, codegen regen +
+// TypeScript catches the drift. The hardcoded-URL + local-type path
+// this component had before was exactly the class of gap the audit
+// 2026-04-19 flagged.
+type VisitorIntentCounts = components["schemas"]["VisitorIntentCounts"];
 
 export function VisitorIntentCard({
   apiBase,

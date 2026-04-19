@@ -148,10 +148,17 @@ def export_merchant_data(
     except Exception as exc:
         log.warning("merchant_export: export_merchant_data failed: %s", exc)
     try:
-        from app.models.signal import Signal
+        # Historical name drift: the table is `opportunity_signals` and
+        # the model is `OpportunitySignal` in `app.models.opportunity_signal`.
+        # Earlier versions of this file imported `from app.models.signal
+        # import Signal` — a module that never existed. The try/except
+        # silently swallowed the ImportError on every startup and every
+        # GDPR Art. 15 export dropped the signals table from the payload.
+        # Detected by 2026-04-19 brutal audit. Fixed with the correct path.
+        from app.models.opportunity_signal import OpportunitySignal
         table_queries.append((
             "signals",
-            db.query(Signal).filter(Signal.shop_domain == shop),
+            db.query(OpportunitySignal).filter(OpportunitySignal.shop_domain == shop),
         ))
     except Exception as exc:
         log.warning("merchant_export: export_merchant_data failed: %s", exc)

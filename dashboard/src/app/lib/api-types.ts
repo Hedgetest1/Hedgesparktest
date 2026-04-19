@@ -742,6 +742,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/visitor-intent-classification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Visitor Intent Classification */
+        get: operations["visitor_intent_classification_analytics_visitor_intent_classification_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/analytics/alerts": {
         parameters: {
             query?: never;
@@ -4348,6 +4365,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/pro/prediction-accuracy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Prediction Accuracy
+         * @description Return honest MAPE + last 8 predictions, or insufficient_history
+         *     with unlock copy. Pro-tier only (require_pro_session enforces both
+         *     auth + plan).
+         */
+        get: operations["get_prediction_accuracy_pro_prediction_accuracy_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pro/benchmarks": {
         parameters: {
             query?: never;
@@ -4703,6 +4742,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/public/transparency": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Public Transparency
+         * @description Public, unauthenticated transparency snapshot. Cached 60s.
+         */
+        get: operations["get_public_transparency_public_transparency_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pro/groups": {
         parameters: {
             query?: never;
@@ -4852,6 +4911,27 @@ export interface paths {
         put?: never;
         /** Post Preview */
         post: operations["post_preview_public_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/tracker-error": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Tracker Error
+         * @description Accept a tracker runtime error report. Idempotent/dedup-ed via
+         *     error_hash; always 200 to prevent tracker retry storms.
+         */
+        post: operations["post_tracker_error_public_tracker_error_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5308,6 +5388,11 @@ export interface paths {
          *     This is the hero metric of the HedgeSpark dashboard. Every other
          *     feature (benchmarks, refund loss, goals, segments) feeds into or
          *     drills down from this number.
+         *
+         *     Plan-aware response:
+         *     - Pro merchants: full 5-dim `components` breakdown
+         *     - Starter/Lite merchants: total + prevented + net_roi + headline,
+         *       `components` returned as empty list (upgrade prompt lives in UI)
          */
         get: operations["get_rars_pro_revenue_at_risk_get"];
         put?: never;
@@ -5554,6 +5639,9 @@ export interface paths {
          * @description Session-level abandoned intent analysis: products with high
          *     interest but low conversion, exit products, buyer vs non-buyer
          *     session patterns.
+         *
+         *     Plan-aware: Pro gets full list + session_insights, Starter sees
+         *     top 3 products with an upgrade bridge in the UI for the full list.
          */
         get: operations["get_abandoned_intent_pro_abandoned_intent_get"];
         put?: never;
@@ -5742,6 +5830,11 @@ export interface components {
             products?: {
                 [key: string]: unknown;
             }[];
+            /**
+             * Total Products Count
+             * @default 0
+             */
+            total_products_count: number;
             /** Session Insights */
             session_insights?: {
                 [key: string]: unknown;
@@ -8395,6 +8488,19 @@ export interface components {
             /** Revoked Count */
             revoked_count: number;
         };
+        /** PerMetricAccuracy */
+        PerMetricAccuracy: {
+            /** Sample Size */
+            sample_size: number;
+            /** Mape Pct */
+            mape_pct: number;
+            /** Median Error Pct */
+            median_error_pct: number;
+            /** Currency */
+            currency: string;
+            /** Last Predictions */
+            last_predictions: components["schemas"]["PredictionEntry"][];
+        };
         /** PlaybookResponse */
         PlaybookResponse: {
             /** Signal Type */
@@ -8577,6 +8683,39 @@ export interface components {
             customers: components["schemas"]["PredictedLtvCustomer"][];
             /** Count */
             count: number;
+        };
+        /** PredictionAccuracyResponse */
+        PredictionAccuracyResponse: {
+            /** Status */
+            status: string;
+            /**
+             * Metrics
+             * @default {}
+             */
+            metrics: {
+                [key: string]: components["schemas"]["PerMetricAccuracy"];
+            };
+            /** Predictions Seen */
+            predictions_seen?: number | null;
+            /** Unlock At */
+            unlock_at?: number | null;
+            /** Message */
+            message?: string | null;
+        };
+        /** PredictionEntry */
+        PredictionEntry: {
+            /** Prediction Date */
+            prediction_date: string | null;
+            /** Horizon Date */
+            horizon_date: string | null;
+            /** Predicted */
+            predicted: number;
+            /** Actual */
+            actual: number;
+            /** Error Pct */
+            error_pct: number;
+            /** Currency */
+            currency: string;
         };
         /** PreviewIn */
         PreviewIn: {
@@ -10149,6 +10288,35 @@ export interface components {
             /** Consent Region */
             consent_region?: string | null;
         };
+        /** TrackerErrorIn */
+        TrackerErrorIn: {
+            /** Shop */
+            shop: string;
+            /** Source */
+            source: string;
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            /**
+             * Stack
+             * @default
+             */
+            stack: string;
+            /**
+             * Url
+             * @default
+             */
+            url: string;
+            /** Tracker Version */
+            tracker_version?: number | null;
+            /**
+             * User Agent
+             * @default
+             */
+            user_agent: string;
+        };
         /** TransitionRequest */
         TransitionRequest: {
             /** Status */
@@ -10383,6 +10551,39 @@ export interface components {
             sample_size: number;
             /** Classified At */
             classified_at: string;
+        };
+        /** VisitorIntentCounts */
+        VisitorIntentCounts: {
+            /**
+             * Total Visitors
+             * @default 0
+             */
+            total_visitors: number;
+            /**
+             * Hot Visitors
+             * @default 0
+             */
+            hot_visitors: number;
+            /**
+             * Warm Visitors
+             * @default 0
+             */
+            warm_visitors: number;
+            /**
+             * Cold Visitors
+             * @default 0
+             */
+            cold_visitors: number;
+            /**
+             * Hot Threshold
+             * @default 50
+             */
+            hot_threshold: number;
+            /**
+             * Warm Threshold
+             * @default 20
+             */
+            warm_threshold: number;
         };
         /** VisitorJourney */
         VisitorJourney: {
@@ -11447,6 +11648,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    visitor_intent_classification_analytics_visitor_intent_classification_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisitorIntentCounts"];
                 };
             };
         };
@@ -15695,6 +15916,26 @@ export interface operations {
             };
         };
     };
+    get_prediction_accuracy_pro_prediction_accuracy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PredictionAccuracyResponse"];
+                };
+            };
+        };
+    };
     get_benchmarks_pro_benchmarks_get: {
         parameters: {
             query?: never;
@@ -16236,6 +16477,26 @@ export interface operations {
             };
         };
     };
+    get_public_transparency_public_transparency_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     list_groups_endpoint_pro_groups_get: {
         parameters: {
             query?: never;
@@ -16564,6 +16825,39 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["PreviewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_tracker_error_public_tracker_error_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrackerErrorIn"];
             };
         };
         responses: {

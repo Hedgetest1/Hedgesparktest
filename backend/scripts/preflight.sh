@@ -267,6 +267,23 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2o-ter. OpenAPI types freshness audit. Catches the drift class where
+# the backend adds/changes an endpoint but dashboard/src/app/lib/
+# api-types.ts isn't regenerated. The component then ships with a
+# hardcoded URL + local type, silently bypassing the typed apiClient.
+# Detected on /analytics/visitor-intent-classification 2026-04-19.
+# Skips gracefully when backend is unreachable (local dev without
+# a backend process).
+# ---------------------------------------------------------------------------
+step "OpenAPI types freshness (audit_openapi_types_fresh.py)"
+if "$PY" "$BACKEND/scripts/audit_openapi_types_fresh.py" > /tmp/preflight_openapi_types.log 2>&1; then
+    ok "api-types.ts matches live /openapi.json"
+else
+    bad "api-types.ts is stale — see /tmp/preflight_openapi_types.log"
+    tail -20 /tmp/preflight_openapi_types.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2o-bis. Dashboard env-var drift audit. Enforces the single canonical
 # name NEXT_PUBLIC_API_BASE_URL across dashboard/src. Catches the bug
 # class introduced on 2026-04-17/18/19 where four recently-added files
