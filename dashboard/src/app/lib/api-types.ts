@@ -9397,13 +9397,24 @@ export interface components {
             /** Avg Impact Pct */
             avg_impact_pct: number;
             /** Impacts */
-            impacts?: {
-                [key: string]: unknown;
-            }[];
+            impacts?: components["schemas"]["RecommendationImpactRow"][];
             /** Methodology */
             methodology: string;
             /** Detail */
             detail: string;
+        };
+        /** RecommendationImpactRow */
+        RecommendationImpactRow: {
+            /** Action Type */
+            action_type: string;
+            /** Action Date */
+            action_date: string;
+            /** Pre Revenue */
+            pre_revenue: number;
+            /** Post Revenue */
+            post_revenue: number;
+            /** Impact Pct */
+            impact_pct: number;
         };
         /** RectifyRequest */
         RectifyRequest: {

@@ -9,8 +9,6 @@ Pro-gated.
 """
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -35,11 +33,19 @@ class CausalLiftResponse(BaseModel):
     currency: str = "USD"
 
 
+class RecommendationImpactRow(BaseModel):
+    action_type: str
+    action_date: str
+    pre_revenue: float
+    post_revenue: float
+    impact_pct: float
+
+
 class RecommendationImpactResponse(BaseModel):
     shop_domain: str
     actions_measured: int
     avg_impact_pct: float
-    impacts: list[dict[str, Any]] = Field(default_factory=list)
+    impacts: list[RecommendationImpactRow] = Field(default_factory=list)
     methodology: str
     detail: str
 
