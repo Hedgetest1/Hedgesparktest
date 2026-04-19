@@ -1607,8 +1607,8 @@ function FAQ() {
       a: "No. One-click Shopify install. No code. No theme editor. Tracking starts on the next visitor.",
     },
     {
-      q: "Can I downgrade from Pro to Lite?",
-      a: "Yes. You can switch plans at any time from your dashboard — no support ticket, no phone call. Downgrading keeps all your detection signals intact; you just lose the Pro-only intelligence layer until you upgrade again.",
+      q: "Can I switch plans?",
+      a: "Yes. You can move between Starter, Pro, and Scale at any time from your dashboard — no support ticket, no phone call. Your detection signals and history stay intact across plan changes.",
     },
   ];
 
