@@ -532,6 +532,25 @@ function PageInner() {
   const [tier, setTier] = useState<"lite" | "pro">("lite");
   const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
 
+  // Preview mode — `?as=starter` (or `?as=lite`) downgrades tier for
+  // per-plan verification. Downgrade-only by design: we never allow
+  // `?as=pro` because that would fake Pro UI + trigger 403 on every
+  // Pro endpoint call for non-Pro users (the very bug the `|| true`
+  // hack used to mask). Anyone can preview the Starter experience —
+  // it's strictly a subset of their real view, so zero risk.
+  const [isPreviewing, setIsPreviewing] = useState(false);
+
+  // Centralized tier setter that honors the preview override. Every
+  // auth/billing code path goes through this instead of raw setTier,
+  // so the preview stays sticky across session refresh, billing
+  // callback, and OnboardingHub readiness updates.
+  const applyTier = useCallback((real: "lite" | "pro") => {
+    const asParam = new URLSearchParams(window.location.search).get("as");
+    const preview = asParam === "starter" || asParam === "lite";
+    setTier(preview ? "lite" : real);
+    setIsPreviewing(preview);
+  }, []);
+
   // Billing callback toast (shown after Shopify billing redirect returns)
   const [billingToast, setBillingToast] = useState<{
     type: "activated" | "declined" | "pending" | "error";
@@ -686,7 +705,7 @@ function PageInner() {
               localStorage.setItem("hs_last_shop", shopDomain);
             } catch {}
             const isPro = json.plan === "pro" && json.billing_active === true;
-            setTier(isPro ? "pro" : "lite");
+            applyTier(isPro ? "pro" : "lite");
             if (json.pro_trial_days != null) setProTrialDays(json.pro_trial_days);
             setBillingConfirmedAt(json.billing_confirmed_at ?? null);
 
@@ -732,7 +751,7 @@ function PageInner() {
             const planJson = planRes.data;
             if (planJson != null) {
               const isPro = planJson.plan === "pro" && planJson.billing_active === true;
-              setTier(isPro ? "pro" : "lite");
+              applyTier(isPro ? "pro" : "lite");
               if (planJson.pro_trial_days != null) setProTrialDays(planJson.pro_trial_days);
               setBillingConfirmedAt(planJson.billing_confirmed_at ?? null);
             }
@@ -807,10 +826,10 @@ function PageInner() {
     }) => {
       setSetupReadiness(readiness);
       if (readiness === "pro_active" && checks.billing_active && checks.billing_plan === "pro") {
-        setTier("pro");
+        applyTier("pro");
       }
     },
-    []
+    [applyTier]
   );
 
   // ---------------------------------------------------------------------------
@@ -2075,6 +2094,27 @@ function PageInner() {
   // ---------------------------------------------------------------------------
   return (
     <div className="flex h-screen overflow-hidden bg-[#07070f] text-white">
+      {isPreviewing && (
+        <div
+          className="fixed inset-x-0 top-0 z-[9999] flex items-center justify-center gap-3 bg-[#e8a04e] px-4 py-2 text-[13px] font-bold text-[#0b1220] shadow-[0_4px_20px_-4px_rgba(232,160,78,0.5)]"
+          role="status"
+          aria-live="polite"
+        >
+          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#0b1220]" />
+          Previewing as Starter — you are seeing the Lite experience
+          <button
+            type="button"
+            onClick={() => {
+              const url = new URL(window.location.href);
+              url.searchParams.delete("as");
+              window.location.href = url.toString();
+            }}
+            className="ml-2 rounded-md border border-[#0b1220]/40 bg-[#0b1220]/10 px-3 py-0.5 text-[12px] font-bold uppercase tracking-[0.1em] transition-colors hover:bg-[#0b1220]/20"
+          >
+            Exit preview
+          </button>
+        </div>
+      )}
       <ProductTour isProUser={isProUser} />
       <Sidebar
         collapsed={sidebarCollapsed}
