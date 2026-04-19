@@ -514,59 +514,36 @@ function TierBadge({ tier }: { tier: "all" | "pro" | "scale" }) {
 }
 
 function Features() {
-  // Full-stack grid absorbed from the former ProStack section. Tier tag
-  // per card comes from the pricing matrix memo (§2 feature split).
-  const stackCategories: Array<{
-    title: string;
-    color: string;
-    features: Array<{ name: string; desc: string; tier: "all" | "pro" | "scale" }>;
-  }> = [
+  // Compact 4-pillar summary of the 16 intelligence capabilities plus
+  // the 3 operations tools. Replaces the former 19-card grid — founder
+  // feedback: "sfilza di cassettoni di dubbia grandezza" + "ripetendo
+  // capabilities" with the H2 above. Detail lives in the comparison
+  // table inside Pricing; this section just lists what's in the stack.
+  const pillars: Array<{ title: string; color: string; count: string; items: string }> = [
     {
       title: "Revenue Intelligence",
       color: "#d4893a",
-      features: [
-        { name: "Revenue at Risk Score", desc: "Real-time dollar amount at risk across 5 dimensions: abandoned intent, refund decline, nudge gaps, peer underperformance, goal gaps.", tier: "all" },
-        { name: "Revenue Autopsy", desc: "Per-product diagnosis. See exactly where each product loses sales — and why.", tier: "pro" },
-        { name: "Abandoned Intent", desc: "High-interest visitors who left without buying. Scored by scroll depth, dwell time, return visits.", tier: "pro" },
-        { name: "Refund Loss Tracking", desc: "Products with rising return rates. Catches quality or expectation mismatches early.", tier: "pro" },
-      ],
+      count: "4 signals",
+      items: "Revenue at Risk Score · Revenue Autopsy · Abandoned Intent · Refund Loss Tracking",
     },
     {
       title: "Behavioral Intelligence",
       color: "#a855f7",
-      features: [
-        { name: "Visitor Intent Scoring", desc: "Every visitor classified as hot, warm, or cold based on real behavioral signals — not rules, real data.", tier: "all" },
-        { name: "Scroll Heatmaps", desc: "See exactly where visitors drop off on each product page. Per-product, per-device.", tier: "pro" },
-        { name: "Price Sensitivity", desc: "Detects which products have price friction — visitors engage but bounce at the price point.", tier: "pro" },
-        { name: "Session Timeline", desc: "Full behavioral replay per visitor: scroll, dwell, clicks, cart events, page flow.", tier: "pro" },
-      ],
+      count: "4 signals",
+      items: "Visitor Intent Scoring · Scroll Heatmaps · Price Sensitivity · Session Timeline",
     },
     {
       title: "Measurement & Proof",
       color: "#34d399",
-      features: [
-        { name: "Causal Lift", desc: "Real A/B holdout measurement. Not correlation — actual causation with statistical confidence.", tier: "pro" },
-        { name: "Peer Benchmarks", desc: "Anonymous comparison against stores in your revenue band. See where you lag and where you lead.", tier: "pro" },
-        { name: "Revenue Genome", desc: "DNA of your revenue — which sources, segments, and products actually drive profit.", tier: "pro" },
-        { name: "Shareable Proof Reports", desc: "Public links proving ROI. Share with your team, investors, or clients.", tier: "pro" },
-      ],
+      count: "4 signals",
+      items: "Causal Lift · Peer Benchmarks · Revenue Genome · Shareable Proof Reports",
     },
     {
       title: "Growth Intelligence",
       color: "#7c3aed",
-      features: [
-        { name: "Cohort & LTV Analysis", desc: "Customer lifetime value by acquisition date, source, device, and behavior. Weekly and monthly cohorts.", tier: "pro" },
-        { name: "P&L Intelligence", desc: "Profitability per product and channel. Sync costs from Shopify or set them manually.", tier: "pro" },
-        { name: "Goals & ROI Tracking", desc: "Set revenue targets, track proven ROI. See exactly what HedgeSpark won back for you.", tier: "pro" },
-        { name: "Risk Forecast", desc: "Predicted churn and revenue decline. Flags products and segments heading for trouble.", tier: "pro" },
-      ],
+      count: "4 signals",
+      items: "Cohort & LTV Analysis · P&L Intelligence · Goals + ROI Tracking · Risk Forecast",
     },
-  ];
-
-  const opsRow: Array<{ name: string; desc: string; color: string; tier: "all" | "pro" | "scale" }> = [
-    { name: "Team Collaboration", desc: "Invite your team. Comment on signals. @mention on actions.", color: "#d4893a", tier: "pro" },
-    { name: "Webhook Integrations", desc: "Push signals to Slack, Klaviyo, or any endpoint. Test with one click.", color: "#a855f7", tier: "pro" },
-    { name: "Automated Nudges", desc: "Social proof, urgency, return-visitor messages. Deploy and measure automatically.", color: "#34d399", tier: "pro" },
   ];
 
   return (
@@ -797,67 +774,51 @@ function Features() {
           </div>
         </R>
 
-        {/* ── Full-stack intelligence grid (absorbed from former ProStack) ── */}
-        <R d={0.1}>
-          <div className="mt-32 text-center">
-            <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#d4893a]">The full stack</span>
-            <h3 className="mt-5 text-[1.75rem] font-extrabold leading-[1.1] text-white sm:text-[2.25rem]">
-              16 more capabilities under the hood.
-            </h3>
-            <p className="mx-auto mt-5 max-w-[44rem] text-[16px] leading-[1.65] text-slate-400">
-              Every number in your dashboard is computed from real visitor behavior and real orders.
-              If a capability needs more data to be reliable, the UI says so instead of guessing.
-            </p>
-          </div>
-        </R>
-
-        <div className="mt-14 space-y-14">
-          {stackCategories.map((cat, ci) => (
-            <R key={cat.title} d={ci * 0.06}>
-              <div>
-                <div className="mb-6 flex items-center gap-3">
-                  <div className="h-1 w-8 rounded-full" style={{ background: cat.color }} />
-                  <h4 className="text-[16px] font-bold" style={{ color: cat.color }}>{cat.title}</h4>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  {cat.features.map((f) => (
-                    <div
-                      key={f.name}
-                      className="group relative flex flex-col rounded-2xl border border-white/[0.06] bg-[#0e0e1a] p-5 transition-all duration-300 hover:border-white/[0.12] hover:shadow-[0_8px_40px_-8px_rgba(0,0,0,0.4)]"
-                    >
-                      <div className="absolute inset-x-0 top-0 h-px rounded-t-2xl" style={{ background: `linear-gradient(90deg, transparent, ${alpha(cat.color, 0.3)}, transparent)` }} />
-                      <div className="mb-3">
-                        <TierBadge tier={f.tier} />
-                      </div>
-                      <h5 className="text-[15px] font-bold text-white">{f.name}</h5>
-                      <p className="mt-2 flex-1 text-[13px] leading-[1.6] text-slate-400">{f.desc}</p>
-                    </div>
-                  ))}
+        {/* ── Compact 4-pillar summary of the 16 deeper capabilities ── */}
+        <div className="mt-28 grid gap-4 md:grid-cols-2">
+          {pillars.map((p, i) => (
+            <R key={p.title} d={i * 0.05}>
+              <div className="group flex h-full gap-5 rounded-2xl border border-white/[0.06] bg-[#0e0e1a] p-6 transition-all duration-300 hover:border-white/[0.12]">
+                <div className="mt-1 h-8 w-1 flex-shrink-0 rounded-full" style={{ background: p.color }} />
+                <div className="flex-1">
+                  <div className="flex items-baseline gap-3 flex-wrap">
+                    <h3 className="text-[17px] font-bold text-white">{p.title}</h3>
+                    <span className="text-[12px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      {p.count}
+                    </span>
+                  </div>
+                  <p className="mt-3 text-[13.5px] leading-[1.65] text-slate-400">{p.items}</p>
                 </div>
               </div>
             </R>
           ))}
         </div>
 
-        {/* Operations row */}
+        {/* Operations strip — 3 tools, one line */}
         <R d={0.25}>
-          <div className="mt-12 grid gap-4 sm:grid-cols-3">
-            {opsRow.map((f) => (
-              <div
-                key={f.name}
-                className="flex items-start gap-4 rounded-2xl border border-white/[0.06] bg-[#0e0e1a] p-5 transition-all duration-300 hover:border-white/[0.1]"
-              >
-                <div className="mt-1 h-2 w-2 flex-shrink-0 rounded-full" style={{ background: f.color }} />
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h5 className="text-[14px] font-bold text-white">{f.name}</h5>
-                    <TierBadge tier={f.tier} />
-                  </div>
-                  <p className="mt-1 text-[13px] leading-[1.55] text-slate-400">{f.desc}</p>
-                </div>
+          <div className="mt-4 flex items-start gap-5 rounded-2xl border border-white/[0.04] bg-white/[0.015] p-6">
+            <div className="mt-1 h-8 w-1 flex-shrink-0 rounded-full bg-slate-500/60" />
+            <div className="flex-1">
+              <div className="flex items-baseline gap-3 flex-wrap">
+                <h3 className="text-[16px] font-bold text-slate-200">Operations</h3>
+                <span className="text-[12px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  + 3 tools
+                </span>
               </div>
-            ))}
+              <p className="mt-3 text-[13.5px] leading-[1.65] text-slate-400">
+                Team Collaboration · Webhook Integrations · Automated Nudges
+              </p>
+            </div>
           </div>
+        </R>
+
+        <R d={0.35}>
+          <p className="mt-8 text-center text-[13px] text-slate-500">
+            Starter gets the foundation signals. Pro unlocks everything above. See{" "}
+            <a href="#pricing" className="font-semibold text-slate-300 underline decoration-slate-600 underline-offset-4 transition-colors hover:text-white hover:decoration-slate-400">
+              which plan includes what
+            </a>.
+          </p>
         </R>
       </div>
     </section>
@@ -1165,22 +1126,31 @@ function useTrustReceipts() {
 function Trust() {
   const d = useTrustReceipts();
 
+  // Each receipt card carries its own accent so the 3 cards read as
+  // distinct signal classes rather than a monolithic amber trio.
+  // Mapping per CLAUDE.md §4 palette semantics:
+  //   emerald → good/growth (self-healing outcomes)
+  //   amber   → warm/warning/counterfactual (holdout-measured proof)
+  //   violet  → intelligence/peer/learning (structural audits)
   const cards = d
     ? [
         {
           label: "Autonomous fixes · 30 days",
           value: d.self_healing.autonomous_fixes_30d,
           hint: "Incidents the self-healing pipeline caught before a merchant noticed.",
+          accent: "#34d399",
         },
         {
           label: "Actions measured · 30 days",
           value: d.holdout_proof.actions_measured_30d,
           hint: `${d.holdout_proof.actions_success_30d} improved a merchant metric. ${d.holdout_proof.actions_no_effect_30d} didn't. We publish both.`,
+          accent: "#e8a04e",
         },
         {
           label: "Structural audits per commit",
           value: d.preflight.audit_count,
           hint: "Every commit — including mine — must pass all of them, or the deploy blocks.",
+          accent: "#a78bfa",
         },
       ]
     : null;
@@ -1192,12 +1162,64 @@ function Trust() {
     { label: "Zero PII in LLM", icon: "🔒", desc: "Runtime guard blocks personal data from prompts", color: "#a78bfa" },
   ];
 
-  const moats = [
-    { k: "Revenue-at-Risk Score", v: "See losses before they compound", icon: "🎯" },
-    { k: "Holdout-proven savings", v: "Every amount saved is statistically defended", icon: "📊" },
-    { k: "Delegated Autonomy", v: "Pre-approve bounds, system acts within them", icon: "🛡️" },
-    { k: "Closed-loop learning", v: "Self-heals, self-improves, self-measures", icon: "🔁" },
-    { k: "60-second first insight", v: "Real numbers before your coffee is done", icon: "⚡" },
+  // 5 defendable moats — SVG icons (not emojis) per founder feedback,
+  // each card carries its own accent for semantic differentiation:
+  //   rose    → alert/risk (RARS)
+  //   emerald → proven/growth (holdout)
+  //   blue    → secure/bounds (autonomy)
+  //   violet  → intelligence/learning (closed-loop)
+  //   amber   → warm/speed (insight)
+  const moats: Array<{ k: string; v: string; color: string; icon: React.ReactElement }> = [
+    {
+      k: "Revenue-at-Risk Score",
+      v: "See losses before they compound",
+      color: "#f87171",
+      icon: (
+        <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+        </svg>
+      ),
+    },
+    {
+      k: "Holdout-proven savings",
+      v: "Every amount saved is statistically defended",
+      color: "#34d399",
+      icon: (
+        <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+        </svg>
+      ),
+    },
+    {
+      k: "Delegated Autonomy",
+      v: "Pre-approve bounds, system acts within them",
+      color: "#60a5fa",
+      icon: (
+        <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+        </svg>
+      ),
+    },
+    {
+      k: "Closed-loop learning",
+      v: "Self-heals, self-improves, self-measures",
+      color: "#a78bfa",
+      icon: (
+        <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+        </svg>
+      ),
+    },
+    {
+      k: "60-second first insight",
+      v: "Real numbers before your coffee is done",
+      color: "#e8a04e",
+      icon: (
+        <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      ),
+    },
   ];
 
   return (
@@ -1210,7 +1232,7 @@ function Trust() {
           <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#e8a04e]">
             Trust, with receipts
           </span>
-          <h2 className="mt-5 text-[2.25rem] font-extrabold leading-[1.1] text-[#e8a04e] sm:text-[3rem]">
+          <h2 className="mt-5 text-[2.25rem] font-extrabold leading-[1.1] text-white sm:text-[3rem]">
             The numbers are real.
             <br />
             So are the receipts.
@@ -1226,8 +1248,17 @@ function Trust() {
           {cards
             ? cards.map((c, i) => (
                 <R key={c.label} d={i * 0.08} className="h-full">
-                  <div className="flex h-full flex-col rounded-3xl border border-[#e8a04e]/25 bg-gradient-to-br from-[#e8a04e]/[0.05] via-transparent to-[#7c3aed]/[0.04] p-7 transition-all duration-300 hover:border-[#e8a04e]/40">
-                    <div className="text-[12px] font-bold uppercase tracking-[0.16em] text-[#e8a04e]">
+                  <div
+                    className="flex h-full flex-col rounded-3xl border p-7 transition-all duration-300"
+                    style={{
+                      borderColor: alpha(c.accent, 0.25),
+                      background: `linear-gradient(160deg, ${alpha(c.accent, 0.05)} 0%, transparent 75%)`,
+                    }}
+                  >
+                    <div
+                      className="text-[12px] font-bold uppercase tracking-[0.16em]"
+                      style={{ color: c.accent }}
+                    >
                       {c.label}
                     </div>
                     <div className="mt-5 text-[52px] font-extrabold leading-none tracking-tight tabular-nums text-white sm:text-[60px]">
@@ -1268,29 +1299,39 @@ function Trust() {
           ))}
         </div>
 
-        {/* 5 defendable moats */}
-        <R d={0.08}>
-          <div className="mt-14 rounded-3xl border border-white/[0.06] bg-gradient-to-br from-[#0b1220] to-[#111c2e] p-8 sm:p-10">
+        {/* 5 defendable moats — no outer container per founder feedback;
+            cards flow directly in section. SVG icons + per-card accent. */}
+        <div className="mt-16">
+          <R>
             <div className="mb-8 text-center">
-              <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-slate-500 mb-2">
-                5 things no competitor can copy
-              </div>
-              <div className="text-[20px] font-bold text-white">The defendable moat</div>
+              <span className="text-[12px] font-bold uppercase tracking-[0.18em] text-slate-500">
+                The defendable moat · 5 things no competitor can copy
+              </span>
             </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
-              {moats.map((m) => (
+          </R>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            {moats.map((m, i) => (
+              <R key={m.k} d={i * 0.05} className="h-full">
                 <div
-                  key={m.k}
-                  className="rounded-xl border border-white/[0.08] bg-black/30 p-5 transition-all duration-300 hover:border-[#e8a04e]/40"
+                  className="flex h-full flex-col rounded-2xl border border-white/[0.06] bg-[#0e0e1a] p-5 transition-all duration-300"
+                  style={{ borderColor: alpha(m.color, 0.18) }}
                 >
-                  <div className="text-[26px] mb-3">{m.icon}</div>
+                  <div
+                    className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl"
+                    style={{
+                      color: m.color,
+                      background: alpha(m.color, 0.1),
+                    }}
+                  >
+                    {m.icon}
+                  </div>
                   <div className="text-[14px] font-bold text-white mb-1.5">{m.k}</div>
-                  <div className="text-[12px] leading-relaxed text-slate-400">{m.v}</div>
+                  <div className="flex-1 text-[12.5px] leading-[1.55] text-slate-400">{m.v}</div>
                 </div>
-              ))}
-            </div>
+              </R>
+            ))}
           </div>
-        </R>
+        </div>
 
         {/* CTA to full receipts page */}
         <R d={0.15}>
@@ -1318,7 +1359,13 @@ function Trust() {
 
 function Pricing() {
   const check = (color: string) => (
-    <svg className={`mt-0.5 h-5 w-5 flex-shrink-0 ${color}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+    <svg
+      className="mt-0.5 h-5 w-5 flex-shrink-0"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth={2.5}
+      style={{ stroke: color }}
+    >
       <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
     </svg>
   );
@@ -1372,7 +1419,7 @@ function Pricing() {
         "Hot Products + Live Radar",
         "Daily intelligence brief",
       ],
-      accent: "#94a3b8",
+      accent: "#c4b5fd",
       recommended: false,
     },
     {
@@ -1426,30 +1473,39 @@ function Pricing() {
           </p>
         </R>
 
-        {/* 3 tier cards */}
+        {/* 3 tier cards — tier-specific accents per founder brief:
+             Starter = lilac/cream  ·  Pro = Spark wordmark gradient  ·  Scale = blue */}
         <div className="mt-16 grid gap-6 lg:grid-cols-3">
           {tiers.map((t, i) => {
             const isPro = t.key === "pro";
             return (
               <R key={t.key} d={i * 0.06} className="h-full">
                 <div
-                  className={`relative flex h-full flex-col overflow-hidden rounded-3xl border p-8 transition-all duration-300 sm:p-10 ${
-                    isPro
-                      ? "border-[#e8a04e]/30 bg-gradient-to-b from-[#e8a04e]/[0.05] to-transparent hover:border-[#e8a04e]/45"
-                      : "border-white/[0.06] bg-[#0e0e1a] hover:border-white/[0.12]"
-                  }`}
+                  className="relative flex h-full flex-col overflow-hidden rounded-3xl border p-8 transition-all duration-300 sm:p-10"
+                  style={{
+                    borderColor: isPro ? "rgba(232,160,78,0.30)" : alpha(t.accent, 0.22),
+                    background: isPro
+                      ? "linear-gradient(180deg, rgba(232,160,78,0.05) 0%, transparent 100%)"
+                      : `linear-gradient(180deg, ${alpha(t.accent, 0.035)} 0%, #0e0e1a 60%)`,
+                  }}
                 >
                   {t.recommended && (
                     <div className="absolute -top-px left-8 rounded-b-xl bg-[#e8a04e] px-5 py-2 text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b1220] shadow-[0_4px_20px_-4px_rgba(232,160,78,0.5)]">
                       Recommended
                     </div>
                   )}
-                  <div
-                    className="text-[14px] font-bold uppercase tracking-[0.18em]"
-                    style={{ color: t.accent }}
-                  >
-                    {t.label}
-                  </div>
+                  {isPro ? (
+                    <div className="hs-brand-gradient text-[15px] font-extrabold uppercase tracking-[0.18em]">
+                      {t.label}
+                    </div>
+                  ) : (
+                    <div
+                      className="text-[14px] font-bold uppercase tracking-[0.18em]"
+                      style={{ color: t.accent }}
+                    >
+                      {t.label}
+                    </div>
+                  )}
                   <div className="mt-6">
                     <span className="text-[26px] font-extrabold tracking-tight text-white sm:text-[30px]">
                       {t.tagline}
@@ -1460,7 +1516,10 @@ function Pricing() {
                   </p>
                   {/* Price placeholder — honest until billing ships at GA */}
                   <div className="mt-6 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
-                    <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                    <div
+                      className="text-[11px] font-bold uppercase tracking-[0.14em]"
+                      style={{ color: isPro ? "#e8a04e" : t.accent }}
+                    >
                       Early access
                     </div>
                     <div className="mt-1 text-[14px] text-slate-300">
@@ -1477,7 +1536,7 @@ function Pricing() {
                             isInherited ? "text-slate-500" : "text-slate-200"
                           }`}
                         >
-                          {check(isPro ? "text-[#e8a04e]" : "text-emerald-400/70")}
+                          {check(isPro ? "#e8a04e" : t.accent)}
                           {f}
                         </li>
                       );
@@ -1488,7 +1547,15 @@ function Pricing() {
                     className={
                       isPro
                         ? "hs-cta-gradient mt-10 block rounded-2xl py-4 text-center text-[16px] font-bold text-white transition-all duration-300 hover:shadow-[0_4px_40px_rgba(232,160,78,0.3)]"
-                        : "mt-10 block rounded-2xl border border-white/[0.08] bg-white/[0.03] py-4 text-center text-[16px] font-bold text-slate-200 transition-all duration-300 hover:border-white/[0.14] hover:bg-white/[0.06] hover:text-white"
+                        : "mt-10 block rounded-2xl border py-4 text-center text-[16px] font-bold text-slate-200 transition-all duration-300 hover:bg-white/[0.04] hover:text-white"
+                    }
+                    style={
+                      isPro
+                        ? undefined
+                        : {
+                            borderColor: alpha(t.accent, 0.3),
+                            background: alpha(t.accent, 0.05),
+                          }
                     }
                   >
                     Install on Shopify
@@ -1616,7 +1683,7 @@ function FAQ() {
     <section id="faq" className="relative scroll-mt-20 py-20 sm:py-24">
       <div className="mx-auto max-w-[48rem] px-6 lg:px-10">
         <R className="text-center">
-          <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#d4893a]">Questions</span>
+          <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#d4893a]">FAQ</span>
           <h2 className="mt-5 text-[2.25rem] font-extrabold text-white sm:text-[3rem]">
             Common questions
           </h2>
