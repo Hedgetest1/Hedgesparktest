@@ -6,6 +6,7 @@ import { Sidebar } from "../components/Sidebar";
 import { TopBar, type TrialInfo } from "../components/TopBar";
 import { UpgradeModal } from "../components/UpgradeModal";
 import { MascotLoader } from "../components/MascotLoader";
+import { CardEmpty } from "../components/_CardStates";
 import { SignalCard, type OpportunitySignal } from "../components/SignalCard";
 import { BriefHero, type DailyBrief } from "../components/BriefHero";
 import { RevenueWindowPro, RevenueWindowLite } from "../components/RevenueWindowBanner";
@@ -2657,12 +2658,17 @@ function PageInner() {
                 />
               </SectionErrorBoundary>
 
-              {/* ═══ HOT PRODUCTS — 3 cards per row ═══ */}
-              {topProducts.length > 0 && (
-                <SectionErrorBoundary name="Hot Products">
-                <section>
-                  <SectionHeading eyebrow="Hot Products" title="Where buyers are active" />
+              {/* ═══ HOT PRODUCTS — 3 cards per row ═══
+                  Phase 1.3: always render the section header + CardEmpty
+                  during cold start so Lite/Starter merchants see the
+                  dashboard slot (not a silent gap). TrafficSourceBox
+                  companion stays visible with its own empty-state
+                  handling. */}
+              <SectionErrorBoundary name="Hot Products">
+              <section>
+                <SectionHeading eyebrow="Hot Products" title="Where buyers are active" />
 
+                {topProducts.length > 0 ? (
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {topProducts.slice(0, 3).map((product, i) => (
                       <div
@@ -2697,18 +2703,31 @@ function PageInner() {
                       </div>
                     ))}
                   </div>
+                ) : (
+                  <CardEmpty
+                    title={coldStartPhase <= 1 ? "Warming up" : "No hot products yet this week"}
+                    body={
+                      coldStartPhase <= 1
+                        ? "Your first visitors will populate this list. Each product here shows views, unique visitors, and the intent score HedgeSpark assigns to them."
+                        : "No products have crossed the intent threshold in the last 7 days. This will update automatically as traffic patterns change."
+                    }
+                    eta={coldStartPhase <= 1 ? "Populates within ~5 minutes of your first visitor" : undefined}
+                    accent="amber"
+                  />
+                )}
 
-                  {/* Traffic source companion */}
-                  <div className="mt-3">
-                    <TrafficSourceBox
-                      sourceQuality={sourceQuality}
-                      isProUser={isProUser}
-                      onUpgradeClick={() => setUpgradeModalOpen(true)}
-                    />
-                  </div>
-                </section>
-                </SectionErrorBoundary>
-              )}
+                {/* Traffic source companion — renders for both
+                    populated + empty states so the "where traffic
+                    comes from" narrative never disappears. */}
+                <div className="mt-3">
+                  <TrafficSourceBox
+                    sourceQuality={sourceQuality}
+                    isProUser={isProUser}
+                    onUpgradeClick={() => setUpgradeModalOpen(true)}
+                  />
+                </div>
+              </section>
+              </SectionErrorBoundary>
 
               {/* 4 — Product Performance (extracted to _sections/ProductPerformanceSection.tsx) */}
               {mergedProducts.length > 0 && (
