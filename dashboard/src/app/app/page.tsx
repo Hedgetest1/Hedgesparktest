@@ -7,6 +7,7 @@ import { TopBar, type TrialInfo } from "../components/TopBar";
 import { UpgradeModal } from "../components/UpgradeModal";
 import { MascotLoader } from "../components/MascotLoader";
 import { CardEmpty, CardSkeleton } from "../components/_CardStates";
+import { PreviewBanner } from "../components/PreviewBanner";
 import { SignalCard, type OpportunitySignal } from "../components/SignalCard";
 import { BriefHero, type DailyBrief } from "../components/BriefHero";
 import { RevenueWindowPro, RevenueWindowLite } from "../components/RevenueWindowBanner";
@@ -2097,27 +2098,7 @@ function PageInner() {
   // ---------------------------------------------------------------------------
   return (
     <div className="flex h-screen overflow-hidden bg-[#07070f] text-white">
-      {isPreviewing && (
-        <div
-          className="fixed inset-x-0 top-0 z-[9999] flex items-center justify-center gap-3 bg-[#e8a04e] px-4 py-2 text-[13px] font-bold text-[#0b1220] shadow-[0_4px_20px_-4px_rgba(232,160,78,0.5)]"
-          role="status"
-          aria-live="polite"
-        >
-          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#0b1220]" />
-          Previewing as Starter — you are seeing the Lite experience
-          <button
-            type="button"
-            onClick={() => {
-              const url = new URL(window.location.href);
-              url.searchParams.delete("as");
-              window.location.href = url.toString();
-            }}
-            className="ml-2 rounded-md border border-[#0b1220]/40 bg-[#0b1220]/10 px-3 py-0.5 text-[12px] font-bold uppercase tracking-[0.1em] transition-colors hover:bg-[#0b1220]/20"
-          >
-            Exit preview
-          </button>
-        </div>
-      )}
+      <PreviewBanner isPreviewing={isPreviewing} />
       <ProductTour isProUser={isProUser} />
       <Sidebar
         collapsed={sidebarCollapsed}
