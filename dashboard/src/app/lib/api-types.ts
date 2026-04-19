@@ -6525,6 +6525,102 @@ export interface components {
             } | null;
         };
         /**
+         * ChurnForecastResponse
+         * @description Strongly-typed shape for the churn-forecast endpoint.
+         *
+         *     The service's happy and insufficient-data paths do not include all
+         *     fields uniformly; fields with defaults here absorb that variance so
+         *     the frontend can read any attribute without optional-chaining every
+         *     access.
+         */
+        ChurnForecastResponse: {
+            /** Shop Domain */
+            shop_domain: string;
+            /**
+             * Method
+             * @default holt_double_exp
+             */
+            method: string;
+            /**
+             * Metric
+             * @default daily_newly_silent_customers
+             */
+            metric: string;
+            /** Horizon Days */
+            horizon_days: number;
+            /** Window Days */
+            window_days: number;
+            /** Dates */
+            dates?: string[];
+            /** Observed Values */
+            observed_values?: number[];
+            /** Fitted Values */
+            fitted_values?: number[];
+            /** Forecast Values */
+            forecast_values?: number[];
+            /**
+             * Forecast Point
+             * @default 0
+             */
+            forecast_point: number;
+            /**
+             * Forecast Lower 80
+             * @default 0
+             */
+            forecast_lower_80: number;
+            /**
+             * Forecast Upper 80
+             * @default 0
+             */
+            forecast_upper_80: number;
+            /**
+             * Forecast Lower 95
+             * @default 0
+             */
+            forecast_lower_95: number;
+            /**
+             * Forecast Upper 95
+             * @default 0
+             */
+            forecast_upper_95: number;
+            /**
+             * Residual Std
+             * @default 0
+             */
+            residual_std: number;
+            /**
+             * R Squared
+             * @default 0
+             */
+            r_squared: number;
+            /**
+             * Direction
+             * @default stable
+             */
+            direction: string;
+            /**
+             * Confidence
+             * @default insufficient
+             */
+            confidence: string;
+            /**
+             * Headline
+             * @default
+             */
+            headline: string;
+            /**
+             * Total Projected Churn
+             * @default 0
+             */
+            total_projected_churn: number;
+            /** Generated At */
+            generated_at?: string | null;
+            /** Status */
+            status?: string | null;
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
          * ClickInsightRow
          * @description One URL in the click ranking.
          */
@@ -15107,7 +15203,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ChurnForecastResponse"];
                 };
             };
             /** @description Validation Error */
