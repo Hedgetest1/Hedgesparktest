@@ -309,6 +309,25 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2o-septies. Session hook centralization audit. Enforces that only
+# `lib/useSession.ts` (and the legacy `/app/page.tsx` pre-Phase-2
+# migration target) call /merchant/me or /merchant/plan directly.
+# Every other component must read session state via `useSession()`.
+# Born 2026-04-19 after the FloorLayout session-loss incident — the
+# minimal useSession Phase 1.8.1 shipped without the fallback chain
+# that /app/page.tsx has, and intermittent "Reconnect my store"
+# prompts appeared. Centralizing the hook + forcing consumers through
+# it eliminates the duplicate-implementation drift class.
+# ---------------------------------------------------------------------------
+step "Session hook centralization (audit_session_hook_centralization.py)"
+if "$PY" "$BACKEND/scripts/audit_session_hook_centralization.py" > /tmp/preflight_session_hook.log 2>&1; then
+    ok "session identity fetching centralized in useSession.ts"
+else
+    bad "unauthorized session-fetch call(s) — see /tmp/preflight_session_hook.log"
+    tail -20 /tmp/preflight_session_hook.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2o-ter. OpenAPI types freshness audit. Catches the drift class where
 # the backend adds/changes an endpoint but dashboard/src/app/lib/
 # api-types.ts isn't regenerated. The component then ships with a
