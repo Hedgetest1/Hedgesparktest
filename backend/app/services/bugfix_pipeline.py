@@ -107,6 +107,14 @@ _PIPELINE_INTERNAL_ALERT_TYPES: tuple[str, ...] = (
     "dashboard_asset_drift",
     "dashboard_asset_drift_auto_remediated",
     "dashboard_asset_drift_auto_remediation_failed",
+    # perf_network_layer_drift is a correlation receipt — RUM + public
+    # Lighthouse regressed on the same route within 10 min. Remedy is
+    # ops investigation at the CDN/TLS/DNS layer (not a code patch),
+    # and the source alerts (rum_regression + lighthouse_regression_public)
+    # already flow through Rule 7 for their own app-code triage. Letting
+    # this diagnostic also create an LLM candidate would duplicate work
+    # on a non-code problem.
+    "perf_network_layer_drift",
 )
 
 

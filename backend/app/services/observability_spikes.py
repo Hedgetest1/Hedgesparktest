@@ -859,6 +859,139 @@ def detect_slo_breaches(db: Session) -> int:
     return fired
 
 
+# ---------------------------------------------------------------------------
+# Correlated-alert detector — RUM × Lighthouse-public
+# ---------------------------------------------------------------------------
+# When `rum_regression` (real user telemetry) AND
+# `lighthouse_regression_public` (synthetic public-origin nightly)
+# both fire for the SAME route within a 10-minute window, the drift is
+# almost certainly NOT in our app-code — two independent observers do
+# not simultaneously regress on an app-layer bug because Lighthouse
+# runs nightly on a clean environment, and RUM aggregates hundreds of
+# real sessions. Simultaneous regression on both points to the network
+# layer: Cloudflare cache miss, Traefik cert renewal hiccup, DNS
+# routing change, upstream provider latency.
+#
+# This detector emits `perf_network_layer_drift` with both source
+# payloads linked, so ops triage can start at the CDN/edge layer
+# instead of combing through app diffs.
+#
+# NOT self-healable via LLM patch — the remedy is "investigate CDN/
+# TLS config". Registered in `_PIPELINE_INTERNAL_ALERT_TYPES` so
+# Rule 7/8 skip it.
+# ---------------------------------------------------------------------------
+_PERF_CORRELATION_WINDOW_MIN = 10
+_PERF_CORRELATION_COOLDOWN_KEY = (
+    "hs:spike:perf_network_layer_drift:{route}:{hour}"
+)
+_PERF_CORRELATION_COOLDOWN_TTL = 3600  # 1 per route per hour
+
+
+def detect_perf_network_layer_drift(db: Session) -> int:
+    """Scan the last 10 minutes of ops_alerts for rum_regression ×
+    lighthouse_regression_public pairs on the same route. Emit one
+    `perf_network_layer_drift` diagnostic alert per correlated route."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    window_start = now - timedelta(minutes=_PERF_CORRELATION_WINDOW_MIN)
+    hour = now.strftime("%Y-%m-%dT%H")
+
+    try:
+        rows = db.execute(
+            sql_text(
+                """
+                SELECT alert_type, source, detail, created_at
+                FROM ops_alerts
+                WHERE alert_type IN (
+                    'rum_regression',
+                    'lighthouse_regression_public'
+                )
+                  AND created_at >= :window_start
+                  AND resolved_at IS NULL
+                """
+            ),
+            {"window_start": window_start},
+        ).fetchall()
+    except Exception as exc:
+        log.warning("perf-correlation scan failed: %s", exc)
+        return 0
+
+    # Group hits by route. `detail` JSON carries `route` for both alert
+    # classes (see rum_monitor._emit_regression_alert and
+    # lighthouse_monitor._emit_regression_alert).
+    import json as _json
+    from collections import defaultdict
+    per_route: dict[str, dict[str, list[dict]]] = defaultdict(
+        lambda: {"rum": [], "lh": []}
+    )
+    for alert_type, source, detail, created_at in rows:
+        try:
+            if isinstance(detail, str):
+                detail = _json.loads(detail)
+        except Exception:
+            detail = None
+        route = (detail or {}).get("route") if isinstance(detail, dict) else None
+        if not route:
+            continue
+        bucket = per_route[route]
+        if alert_type == "rum_regression":
+            bucket["rum"].append({
+                "source": source,
+                "detail": detail,
+                "created_at": created_at,
+            })
+        elif alert_type == "lighthouse_regression_public":
+            bucket["lh"].append({
+                "source": source,
+                "detail": detail,
+                "created_at": created_at,
+            })
+
+    fired = 0
+    for route, bucket in per_route.items():
+        if not bucket["rum"] or not bucket["lh"]:
+            continue
+        cooldown_key = _PERF_CORRELATION_COOLDOWN_KEY.format(
+            route=route, hour=hour,
+        )
+        if not _cooldown_ok(cooldown_key, _PERF_CORRELATION_COOLDOWN_TTL):
+            continue
+        try:
+            from app.services.alerting import write_alert
+            write_alert(
+                db,
+                severity="warning",
+                source=f"perf_correlation:{route}"[:64],
+                alert_type="perf_network_layer_drift",
+                summary=(
+                    f"RUM + public Lighthouse regressed on {route} within "
+                    f"{_PERF_CORRELATION_WINDOW_MIN}min → likely CDN/TLS "
+                    f"or upstream network drift, not app-code. Start "
+                    f"triage at edge layer."
+                ),
+                detail={
+                    "route": route,
+                    "rum_samples": bucket["rum"][:3],
+                    "lighthouse_samples": bucket["lh"][:3],
+                    "rum_count": len(bucket["rum"]),
+                    "lighthouse_count": len(bucket["lh"]),
+                    "window_minutes": _PERF_CORRELATION_WINDOW_MIN,
+                    "suggested_triage": [
+                        "Check Cloudflare cache status + TLS handshake times",
+                        "Check Traefik cert + upstream latency",
+                        "Check DNS propagation for public origin",
+                        "Compare to local Lighthouse — if local healthy, edge is the culprit",
+                    ],
+                },
+            )
+            fired += 1
+        except Exception as exc:
+            log.warning(
+                "perf-correlation alert write failed route=%s: %s",
+                route, exc,
+            )
+    return fired
+
+
 def detect_sentry_triage_stuck(db: Session) -> int:
     """Alert when the sentry_triage consumer queue has backed up —
     i.e. many `ready` incidents unlinked for more than 6h. Catches
@@ -945,6 +1078,7 @@ def run_all_spike_detectors(db: Session) -> dict[str, int]:
         ("sentry_fingerprint_storm",     detect_sentry_fingerprint_storm),
         ("sentry_triage_stuck",          detect_sentry_triage_stuck),
         ("slo_breach",                   detect_slo_breaches),
+        ("perf_network_layer_drift",     detect_perf_network_layer_drift),
     ):
         try:
             results[name] = fn(db)

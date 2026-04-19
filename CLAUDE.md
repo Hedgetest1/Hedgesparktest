@@ -688,6 +688,7 @@ must satisfy:
 | `hs:spike:sentry_regression:{fp}:{hour}` | Sentry regression cooldown | 1h |
 | `hs:spike:p95_drift:{route}:{day}` | p95 drift cooldown | 24h |
 | `hs:spike:dashboard_asset_drift:hour` | dashboard asset drift cooldown (stale Next.js manifest) | 1h |
+| `hs:spike:perf_network_layer_drift:{route}:{hour}` | RUM×Lighthouse-public correlation cooldown (edge-layer drift) | 1h |
 
 **Note (2026-04-18):** This table is the CURATED list. The backend
 currently uses ~150 Redis prefixes total; the rest are tracked
