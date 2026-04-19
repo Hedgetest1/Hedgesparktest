@@ -71,3 +71,43 @@ def test_slo_report_classifies_insufficient_data():
     for entry in report:
         assert entry["health"] == "insufficient_data"
         assert entry["observations"] == 0
+
+
+def test_record_timing_identical_duration_same_ms_does_not_coalesce():
+    """Regression: 20 observations with identical duration fired in a
+    tight loop must produce 20 distinct ZSET members, not 1.
+
+    Prior implementation used `{now_ms}:{duration_ms}` as the member
+    key, collapsing observations within the same millisecond into one
+    entry. Under production load (10k+ merchants) or a hot-loop test,
+    this trips the `obs < 10 → insufficient_data` gate in slo_report
+    and suppresses legitimate breach alerts.
+
+    Fix uses nanosecond precision on the member side (score stays ms
+    for cheap zremrangebyscore windowing).
+    """
+    fake = FakeRedis()
+    with patch("app.core.slo._redis", return_value=fake):
+        for _ in range(20):
+            slo.record_timing("/hot", "POST", 200, 500.0)
+    # Both windows should have 20 distinct members.
+    for window in ("5m", "60m"):
+        key = f"hs:slo:tm:{window}:POST:/hot"
+        members = fake.store.get(key, {})
+        assert len(members) == 20, (
+            f"window={window} coalesced {20 - len(members)} observations; "
+            f"members={list(members.keys())[:3]}..."
+        )
+
+
+def test_route_stats_parses_ns_prefixed_members():
+    """route_stats must correctly extract duration from the
+    nanosecond-prefixed member format `{ns}:{duration}`."""
+    fake = FakeRedis()
+    with patch("app.core.slo._redis", return_value=fake):
+        for _ in range(15):
+            slo.record_timing("/parse-check", "GET", 200, 300.0)
+        stats = slo.route_stats("/parse-check", "GET", "5m")
+    assert stats["observations"] == 15
+    assert stats["p95_ms"] == 300.0
+    assert stats["p50_ms"] == 300.0

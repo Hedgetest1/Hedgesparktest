@@ -52,13 +52,21 @@ def _redis():
 
 
 def record_timing(route: str, method: str, status: int, duration_ms: float) -> None:
-    """Log one request observation. Never raises."""
+    """Log one request observation. Never raises.
+
+    Member key uses nanosecond precision so observations in the same
+    millisecond do not coalesce into one ZSET entry. Score stays in
+    milliseconds to keep `zremrangebyscore` windowing cheap. Without
+    the nanosecond spread a hot route (10k+ merchants) or a tight
+    test loop would collapse 20+ observations into 1 entry and trip
+    the `obs < 10 → insufficient_data` guard in slo_report."""
     rc = _redis()
     if rc is None:
         record_silent_return("slo.record")
         return
     try:
-        now_ms = int(time.time() * 1000)
+        now_ns = time.time_ns()
+        now_ms = now_ns // 1_000_000
         ok = 200 <= status < 500  # 4xx counts as ok for availability purposes
         for window_name, window_seconds in _WINDOWS.items():
             cutoff_ms = now_ms - (window_seconds * 1000)
@@ -67,7 +75,7 @@ def record_timing(route: str, method: str, status: int, duration_ms: float) -> N
             key_err = f"hs:slo:err:{window_name}:{method}:{route}"
             # Use pipe to avoid N round-trips
             pipe = rc.pipeline()
-            pipe.zadd(key_tm, {f"{now_ms}:{duration_ms:.2f}": now_ms})
+            pipe.zadd(key_tm, {f"{now_ns}:{duration_ms:.2f}": now_ms})
             pipe.zremrangebyscore(key_tm, 0, cutoff_ms)
             pipe.expire(key_tm, _TTL_SECONDS)
             pipe.incr(key_ok if ok else key_err)
