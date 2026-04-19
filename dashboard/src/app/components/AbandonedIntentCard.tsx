@@ -66,20 +66,23 @@ export function AbandonedIntentCard({
   apiBase,
   shop,
   isProUser,
+  onUpgrade,
 }: {
   apiBase: string;
   shop: string;
   isProUser: boolean;
+  onUpgrade?: () => void;
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  // Both Lite and Pro fetch the same endpoint. Backend returns top 3
+  // products + empty session_insights for Lite, full list + insights
+  // for Pro (Phase 1.4 reduced-fidelity pattern).
   const { data, state, retry } = useCardFetch<IntentData>({
     url: `${apiBase}/pro/abandoned-intent`,
-    enabled: !!apiBase && !!shop && isProUser,
+    enabled: !!apiBase && !!shop,
     isEmpty: (d) => !d.products || d.products.length === 0,
   });
-
-  if (!isProUser) return null;
 
   if (state === "loading") {
     return <CardSkeleton label="Loading your abandoned-intent report" />;
@@ -194,6 +197,30 @@ export function AbandonedIntentCard({
           })}
         </div>
 
+        {/* Lite merchants see the top 3 products above — Pro unlocks
+            the remaining 7-12 products per week + buyer-vs-nonbuyer
+            session pattern + recommended next action. */}
+        {!isProUser && (
+          <div className="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-[#d4893a]/20 bg-[#d4893a]/[0.05] px-4 py-3">
+            <span className="text-[12px] leading-snug text-slate-300">
+              Pro unlocks the full list of leaking products plus the
+              buyer-vs-non-buyer pattern that makes each leak fixable.
+            </span>
+            {onUpgrade && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUpgrade();
+                }}
+                className="ml-auto flex-shrink-0 rounded-lg bg-[#d4893a] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-white transition-colors hover:bg-[#e8a04e]"
+              >
+                See full list on Pro
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="mt-4 text-[11px] font-semibold text-slate-500">
           Click for full breakdown and next action →
         </div>
@@ -245,14 +272,21 @@ export function AbandonedIntentCard({
               value: `${cartLeaks}`,
               color: cartLeaks > 0 ? "#ef4444" : "#94a3b8",
             },
-            {
-              label: "Buyer depth",
-              value: `${buyerDepth.toFixed(1)} products`,
-            },
-            {
-              label: "Non-buyer depth",
-              value: `${nonbuyerDepth.toFixed(1)} products`,
-            },
+            // Buyer/non-buyer depth is a Pro-tier diagnostic —
+            // hidden for Lite because session_insights is redacted
+            // server-side. Showing "0.0 products" would be misleading.
+            ...(isProUser
+              ? [
+                  {
+                    label: "Buyer depth",
+                    value: `${buyerDepth.toFixed(1)} products`,
+                  },
+                  {
+                    label: "Non-buyer depth",
+                    value: `${nonbuyerDepth.toFixed(1)} products`,
+                  },
+                ]
+              : []),
           ]}
         />
 

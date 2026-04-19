@@ -37,22 +37,34 @@ def _humanize_url(url: str) -> str:
     return slug.replace("-", " ").replace("_", " ").title() or url
 
 
-def compute_abandoned_intent(db: Session, shop_domain: str) -> dict:
+def compute_abandoned_intent(db: Session, shop_domain: str, plan: str = "pro") -> dict:
     """
     Compute abandoned intent analysis for the shop.
 
     Returns product-level abandon metrics + session path insights.
+
+    Plan-aware response:
+      plan = "pro"  → full product list (top 15) + session_insights
+      plan != "pro" → top 3 products only, session_insights redacted
+                      to {} (upgrade bridge in the Starter UI shows
+                      what Pro unlocks). Hero count and headline stay
+                      identical across tiers so the Lite merchant
+                      still understands the scale of the leak.
     """
     cache_key = f"{_CACHE_PREFIX}:{hashlib.md5(shop_domain.encode()).hexdigest()[:16]}"
+    cache_hit: dict | None = None
     try:
         from app.core.redis_client import _client
         rc = _client()
         if rc is not None:
             cached = rc.get(cache_key)
             if cached:
-                return json.loads(cached)
+                cache_hit = json.loads(cached)
     except Exception as exc:
         log.warning("abandoned_intent: redis cache read failed: %s", exc)
+
+    if cache_hit is not None:
+        return _apply_plan_filter(cache_hit, plan)
 
     now = _now()
     cutoff = now - timedelta(days=7)
@@ -74,7 +86,7 @@ def compute_abandoned_intent(db: Session, shop_domain: str) -> dict:
         currency = "USD"
 
     if not rows:
-        return {
+        empty = {
             "shop_domain": shop_domain,
             "products": [],
             "session_insights": {},
@@ -82,6 +94,7 @@ def compute_abandoned_intent(db: Session, shop_domain: str) -> dict:
             "currency": currency,
             "generated_at": now.isoformat(),
         }
+        return _apply_plan_filter(empty, plan)
 
     # --- Build visitor sessions ---
     visitor_events: dict[str, list] = defaultdict(list)
@@ -255,7 +268,30 @@ def compute_abandoned_intent(db: Session, shop_domain: str) -> dict:
     except Exception as exc:
         log.warning("abandoned_intent: redis cache write failed: %s", exc)
 
-    return result
+    return _apply_plan_filter(result, plan)
+
+
+# Tier cap for Starter/Lite — surfaces the most painful 3 leaks but
+# leaves the tail as Pro moat. If founder decides to loosen/tighten,
+# this is the single constant to tune.
+_LITE_PRODUCT_CAP = 3
+
+
+def _apply_plan_filter(result: dict, plan: str) -> dict:
+    """Reduce Abandoned Intent response fidelity for non-Pro tiers.
+
+    Pro: full product list (up to _MAX_PRODUCTS) + session_insights.
+    Starter/Lite: top 3 products only + session_insights redacted to
+    {} — the upgrade bridge in the UI lists what Pro unlocks.
+
+    Shallow-copies so we don't mutate a shared cached dict.
+    """
+    if plan == "pro":
+        return result
+    filtered = dict(result)
+    filtered["products"] = list(result.get("products", []))[:_LITE_PRODUCT_CAP]
+    filtered["session_insights"] = {}
+    return filtered
 
 
 _MAX_PRODUCTS = 15

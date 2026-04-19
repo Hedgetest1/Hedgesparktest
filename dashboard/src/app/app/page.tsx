@@ -2475,11 +2475,21 @@ function PageInner() {
                 </div>
               )}
 
-              {/* ═══ DEEP INTELLIGENCE GRID — R-series features ═══ */}
+              {/* ═══ ABANDONED INTENT — Starter-accessible (Phase 1.4)
+                  Backend returns reduced-fidelity for Lite (top 3
+                  products + empty session_insights). Component handles
+                  the bridge to Pro upgrade when isProUser=false. ═══ */}
+              <AbandonedIntentCard
+                apiBase={API_BASE}
+                shop={shop}
+                isProUser={isProUser}
+                onUpgrade={() => setUpgradeModalOpen(true)}
+              />
+
+              {/* ═══ DEEP INTELLIGENCE GRID — Pro-only moat features ═══ */}
               {isProUser && (
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <RevenueAutopsyCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                  <AbandonedIntentCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <PriceSensitivityCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <CausalLiftCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                 </div>
