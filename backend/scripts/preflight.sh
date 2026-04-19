@@ -267,6 +267,48 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2o-quater. Dashboard dead-code audit. Flags React components + hooks
+# exported but never imported anywhere — accumulated cruft from phased
+# refactors. Phase 1.9.4 (2026-04-19 brutal audit close-out).
+# ---------------------------------------------------------------------------
+step "Dashboard dead-code audit (audit_dashboard_dead_code.py)"
+if "$PY" "$BACKEND/scripts/audit_dashboard_dead_code.py" > /tmp/preflight_dead_code.log 2>&1; then
+    ok "no orphan component/hook exports"
+else
+    bad "orphan dashboard exports detected — see /tmp/preflight_dead_code.log"
+    tail -20 /tmp/preflight_dead_code.log || true
+fi
+
+# ---------------------------------------------------------------------------
+# 2o-quinquies. Tier-cost literal audit. Catches hardcoded subscription
+# / tier-cost numeric constants in arithmetic expressions. The 2026-04-19
+# mega audit found `net_roi = prevented - 99.0` in multiple files
+# independently; this audit forces every such cost to import from the
+# `app.core.tier_pricing` doctrine module.
+# ---------------------------------------------------------------------------
+step "Tier-cost literal audit (audit_tier_cost_literals.py)"
+if "$PY" "$BACKEND/scripts/audit_tier_cost_literals.py" > /tmp/preflight_tier_cost.log 2>&1; then
+    ok "no hardcoded tier-cost literals in arithmetic"
+else
+    bad "hardcoded tier-cost literal(s) — see /tmp/preflight_tier_cost.log"
+    tail -20 /tmp/preflight_tier_cost.log || true
+fi
+
+# ---------------------------------------------------------------------------
+# 2o-sexties. Landing Starter bullets vs shipped dashboard. Asserts
+# every feature bullet on the landing Starter card maps to a shipped
+# component in the dashboard. Prevents "landing promises X but
+# dashboard doesn't deliver X" drift.
+# ---------------------------------------------------------------------------
+step "Landing Starter shipped-state audit (audit_landing_starter_shipped.py)"
+if "$PY" "$BACKEND/scripts/audit_landing_starter_shipped.py" > /tmp/preflight_landing_shipped.log 2>&1; then
+    ok "every Starter bullet maps to a shipped dashboard component"
+else
+    bad "landing Starter bullet not wired — see /tmp/preflight_landing_shipped.log"
+    tail -20 /tmp/preflight_landing_shipped.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2o-ter. OpenAPI types freshness audit. Catches the drift class where
 # the backend adds/changes an endpoint but dashboard/src/app/lib/
 # api-types.ts isn't regenerated. The component then ships with a

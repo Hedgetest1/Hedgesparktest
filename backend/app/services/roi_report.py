@@ -32,10 +32,14 @@ from sqlalchemy.orm import Session
 
 log = logging.getLogger("roi_report")
 
-# Pro tier cost for SMB band — €49-99. We default to €99 (top of band)
-# because that's the conservative-for-us calculation — a merchant at €49
-# gets an even bigger "net ROI" number when we show them the report.
-_PRO_TIER_COST_EUR = 99.0
+# Pro tier cost for SMB band — imported from the shared doctrine
+# module `app.core.tier_pricing` so every net_roi / subscription
+# calculation in the codebase tracks the same number. A pricing
+# change happens in one place and all consumers update. Audited by
+# `audit_tier_cost_literals.py` preflight — any inline literal
+# under a cost/roi/subscription variable is blocked at commit.
+from app.core.tier_pricing import TIER_SUBSCRIPTION_EUR as _TIER_SUBSCRIPTION_EUR
+_PRO_TIER_COST_EUR = _TIER_SUBSCRIPTION_EUR["pro"]
 
 _REPORT_IDEMPOTENCY_TTL_SECONDS = 35 * 24 * 3600  # 35 days
 _REPORT_IDEMPOTENCY_PREFIX = "hs:roi_report_sent:v1"

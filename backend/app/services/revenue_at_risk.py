@@ -472,31 +472,16 @@ def get_revenue_at_risk(db: Session, shop_domain: str, plan: str = "pro") -> dic
 
     # Net ROI = prevented − subscription. Subscription must match the
     # merchant's ACTUAL tier cost, not an assumed €99 every time. A
-    # Lite/Starter merchant pays €0 for the reduced-fidelity RARS
-    # surface; a Pro merchant pays €99. Subtracting €99 from a Lite
-    # merchant produces a false "Net ROI −€99" strip in the UI —
-    # exactly the lie `feedback_no_accettabile_per_beta.md` forbids.
+    # Lite/Starter merchant pays €0; a Pro merchant pays €99.
+    # Subtracting €99 from a Lite merchant produces a false
+    # "Net ROI −€99" strip — the lie `feedback_no_accettabile_per_beta.md`
+    # forbids.
     #
-    # The plan-based subtraction happens here in the service so the
-    # cached value is already honest at read time. `_apply_plan_filter`
-    # downstream just trims `components` for Lite; prevented/net_roi
-    # stay Lite-correct because we compute the right number below.
-    #
-    # If pricing changes, update _TIER_SUBSCRIPTION_EUR in one place
-    # and the service picks it up.
-    _TIER_SUBSCRIPTION_EUR: dict[str, float] = {
-        "starter": 0.0,   # Starter is effectively free during closed beta
-        "lite":    0.0,   # alias
-        "pro":     99.0,
-        "scale":   249.0,
-    }
-
-    # Plan is derived later at the API layer (router pulls merchant.plan
-    # + billing_active). For the cache-shared service path, we write the
-    # report with the Pro-cost subtraction as the "reference" number and
-    # the _apply_plan_filter step adjusts net_roi to the Lite-correct 0
-    # subtraction. We keep the reference computation here for the Pro
-    # path; the filter rewrites it for non-Pro.
+    # Pricing is doctrine — imported from `app.core.tier_pricing` so
+    # every net_roi calculation in the backend tracks the same number.
+    # `_apply_plan_filter` downstream rewrites net_roi to the Lite-correct
+    # zero-subtraction; the Pro reference number below serves the cache.
+    from app.core.tier_pricing import TIER_SUBSCRIPTION_EUR as _TIER_SUBSCRIPTION_EUR
     _PRO_TIER_COST_EUR = _TIER_SUBSCRIPTION_EUR["pro"]
     net_roi = prevented - _PRO_TIER_COST_EUR
 
