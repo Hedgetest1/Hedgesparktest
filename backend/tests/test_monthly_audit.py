@@ -404,23 +404,82 @@ def test_monthly_report_format(mock_send):
 # Gap 5 — dashboard-drift preventer self-audit context
 # ---------------------------------------------------------------------------
 
+def _clean_scope_report():
+    """Scope report representing a build where every asset class is
+    covered by the probe regex. Used to isolate the quiet-state test
+    from the actual on-disk build + running dashboard."""
+    return {
+        "manifest_paths": 5,
+        "html_paths": 10,
+        "routes_reached": 3,
+        "uncovered_classes": [],
+        "covered_classes": [
+            "static/chunks/*.css",
+            "static/chunks/*.js",
+            "static/media/*.woff2",
+        ],
+        "unavailable": False,
+        "reason": None,
+    }
+
+
 def test_drift_preventer_context_quiet_state(db):
-    """No alerts in 30d → context says 'preventer is quiet' and asks
-    whether new Next.js features need probe coverage."""
-    out = _build_drift_preventer_state(db)
+    """No alerts in 30d + scope scan shows full coverage → context
+    says 'preventer is quiet' and the self-audit question is rendered."""
+    from unittest.mock import patch
+    with patch(
+        "app.services.dashboard_drift_scope.compute_scope_report",
+        return_value=_clean_scope_report(),
+    ):
+        out = _build_drift_preventer_state(db)
     assert "Dashboard-drift preventer (30d):" in out
     assert "Detections: 0" in out
     assert "SELF-AUDIT QUESTION" in out
-    # Self-audit should name the specific drift modes the Opus auditor
-    # is meant to check against.
-    assert "service worker" in out.lower()
-    assert "middleware" in out.lower()
+    # Live scope scan lines should appear instead of the old hardcoded
+    # drift-mode menu.
+    assert "Scope scan:" in out
+    assert "All asset classes referenced by the live build are covered" in out
+    # Quiet-state tail fires only when escalations=0 AND uncovered=[]
     assert "preventer is quiet" in out
+
+
+def test_drift_preventer_context_flags_uncovered_classes(db):
+    """Scope scan surfaces an uncovered asset class → Opus context
+    shows the uncovered label and suppresses the quiet-state tail so
+    the audit doesn't drop the signal."""
+    from unittest.mock import patch
+    scope = {
+        "manifest_paths": 6,
+        "html_paths": 12,
+        "routes_reached": 3,
+        "uncovered_classes": [
+            {
+                "class": "static/{BUILD_ID}/*.js",
+                "count": 3,
+                "example": "/_next/static/abc123/_buildManifest.js",
+            }
+        ],
+        "covered_classes": ["static/chunks/*.js"],
+        "unavailable": False,
+        "reason": None,
+    }
+    with patch(
+        "app.services.dashboard_drift_scope.compute_scope_report",
+        return_value=scope,
+    ):
+        out = _build_drift_preventer_state(db)
+    assert "UNCOVERED asset classes" in out
+    assert "static/{BUILD_ID}/*.js" in out
+    assert "_buildManifest.js" in out
+    # Quiet-state tail must NOT appear when uncovered classes exist,
+    # otherwise Opus would get a contradictory signal.
+    assert "preventer is quiet" not in out
 
 
 def test_drift_preventer_context_with_escalation(db):
     """Recent escalation samples surface in the Opus context so the
     audit can spot a drift mode the probe does not cover."""
+    from unittest.mock import patch
     from app.services.alerting import write_alert
     write_alert(
         db,
@@ -437,9 +496,39 @@ def test_drift_preventer_context_with_escalation(db):
     )
     db.commit()
 
-    out = _build_drift_preventer_state(db)
+    with patch(
+        "app.services.dashboard_drift_scope.compute_scope_report",
+        return_value=_clean_scope_report(),
+    ):
+        out = _build_drift_preventer_state(db)
     assert "Escalations (pm2 restart did not clear): 1" in out
     assert "Last escalation sample: " in out
     assert "middleware-chunk-X.js" in out
     # Quiet-state tail should NOT appear when escalations exist
     assert "preventer is quiet" not in out
+
+
+def test_drift_preventer_context_scope_scan_unavailable(db):
+    """When the scope scan helper raises — unreachable dashboard AND
+    missing manifest — the audit context surfaces the unavailability
+    instead of silently dropping the signal."""
+    from unittest.mock import patch
+    unavailable = {
+        "manifest_paths": 0,
+        "html_paths": 0,
+        "routes_reached": 0,
+        "uncovered_classes": [],
+        "covered_classes": [],
+        "unavailable": True,
+        "reason": "no build manifest on disk and no dashboard route reachable",
+    }
+    with patch(
+        "app.services.dashboard_drift_scope.compute_scope_report",
+        return_value=unavailable,
+    ):
+        out = _build_drift_preventer_state(db)
+    assert "Scope scan unavailable" in out
+    # Quiet-state tail still fires when no uncovered + no escalations,
+    # because "unavailable" leaves the list empty — intentional, so a
+    # transient unreachable dashboard doesn't spam Opus with bets.
+    assert "preventer is quiet" in out

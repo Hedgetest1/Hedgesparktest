@@ -530,24 +530,45 @@ def _build_drift_preventer_state(db: Session) -> str:
             f"  Escalations (pm2 restart did not clear): {escalations}",
             "  Probe routes: /, /app, /pricing (HEAD-probes every "
             "/_next/static/{chunks,media}/* asset referenced)",
+        ]
+
+        # Live scope scan — replaces the prior hardcoded self-audit
+        # question with a real computation of which asset classes the
+        # current build emits vs which the probe regex matches.
+        try:
+            from app.services.dashboard_drift_scope import (
+                compute_scope_report,
+                format_scope_report,
+            )
+            scope_report = compute_scope_report()
+            lines.extend(format_scope_report(scope_report))
+        except Exception as exc:  # noqa: BLE001
+            lines.append(
+                f"  Scope scan unavailable: {type(exc).__name__}"
+            )
+            scope_report = {"uncovered_classes": []}
+
+        lines.extend([
             "",
             "SELF-AUDIT QUESTION (only raise a bet if answer is YES):",
-            "  Are there asset patterns or Next.js features not covered "
-            "by the probe (e.g., service worker chunks, middleware "
-            "bundles, edge runtime chunks, route-level CSS loaded "
-            "outside the three probed routes, fetched ES modules not "
-            "matching /_next/static/...)?",
             "  Escalation pattern that would justify a scope-extension "
             "bet: >0 escalations with failure samples pointing at "
-            "asset paths the probe regex does not match.",
-        ]
+            "asset paths the probe regex does not match, OR the scope "
+            "scan above flags uncovered asset classes actually "
+            "referenced by served HTML.",
+        ])
         if sample:
             lines.append(f"  Last escalation sample: {sample}")
-        if escalations == 0 and detections <= 1:
+        uncovered = scope_report.get("uncovered_classes") or []
+        if (
+            escalations == 0
+            and detections <= 1
+            and not uncovered
+        ):
             lines.append(
-                "  Current state: preventer is quiet. No bet needed — "
-                "leave it alone unless a new Next.js feature has been "
-                "introduced that bypasses the current probe."
+                "  Current state: preventer is quiet AND no uncovered "
+                "asset classes detected in the current build. No bet "
+                "needed — leave it alone."
             )
         return "\n".join(lines)
     except Exception as exc:
