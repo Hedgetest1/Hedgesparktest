@@ -493,7 +493,82 @@ function Problem() {
    FEATURES — what HedgeSpark actually does
    ══════════════════════════════════════════════════════════════════════════════ */
 
+/* Tier badge — tells visitors at-a-glance which plan includes a feature.
+ * Three values per pricing matrix memo §2: "all" (Starter+Pro+Scale),
+ * "pro" (Pro+Scale), "scale" (Scale only). Kept small and consistent so
+ * repeating badges don't create visual noise across 20+ feature cards. */
+function TierBadge({ tier }: { tier: "all" | "pro" | "scale" }) {
+  const styles = {
+    all: { label: "All plans", color: "#e8a04e", bg: "#e8a04e" },
+    pro: { label: "Pro+", color: "#a855f7", bg: "#a855f7" },
+    scale: { label: "Scale only", color: "#3b82f6", bg: "#3b82f6" },
+  }[tier];
+  return (
+    <span
+      className="inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em]"
+      style={{ color: styles.color, background: alpha(styles.bg, 0.1), border: `1px solid ${alpha(styles.bg, 0.25)}` }}
+    >
+      {styles.label}
+    </span>
+  );
+}
+
 function Features() {
+  // Full-stack grid absorbed from the former ProStack section. Tier tag
+  // per card comes from the pricing matrix memo (§2 feature split).
+  const stackCategories: Array<{
+    title: string;
+    color: string;
+    features: Array<{ name: string; desc: string; tier: "all" | "pro" | "scale" }>;
+  }> = [
+    {
+      title: "Revenue Intelligence",
+      color: "#d4893a",
+      features: [
+        { name: "Revenue at Risk Score", desc: "Real-time dollar amount at risk across 5 dimensions: abandoned intent, refund decline, nudge gaps, peer underperformance, goal gaps.", tier: "all" },
+        { name: "Revenue Autopsy", desc: "Per-product diagnosis. See exactly where each product loses sales — and why.", tier: "pro" },
+        { name: "Abandoned Intent", desc: "High-interest visitors who left without buying. Scored by scroll depth, dwell time, return visits.", tier: "pro" },
+        { name: "Refund Loss Tracking", desc: "Products with rising return rates. Catches quality or expectation mismatches early.", tier: "pro" },
+      ],
+    },
+    {
+      title: "Behavioral Intelligence",
+      color: "#a855f7",
+      features: [
+        { name: "Visitor Intent Scoring", desc: "Every visitor classified as hot, warm, or cold based on real behavioral signals — not rules, real data.", tier: "all" },
+        { name: "Scroll Heatmaps", desc: "See exactly where visitors drop off on each product page. Per-product, per-device.", tier: "pro" },
+        { name: "Price Sensitivity", desc: "Detects which products have price friction — visitors engage but bounce at the price point.", tier: "pro" },
+        { name: "Session Timeline", desc: "Full behavioral replay per visitor: scroll, dwell, clicks, cart events, page flow.", tier: "pro" },
+      ],
+    },
+    {
+      title: "Measurement & Proof",
+      color: "#34d399",
+      features: [
+        { name: "Causal Lift", desc: "Real A/B holdout measurement. Not correlation — actual causation with statistical confidence.", tier: "pro" },
+        { name: "Peer Benchmarks", desc: "Anonymous comparison against stores in your revenue band. See where you lag and where you lead.", tier: "pro" },
+        { name: "Revenue Genome", desc: "DNA of your revenue — which sources, segments, and products actually drive profit.", tier: "pro" },
+        { name: "Shareable Proof Reports", desc: "Public links proving ROI. Share with your team, investors, or clients.", tier: "pro" },
+      ],
+    },
+    {
+      title: "Growth Intelligence",
+      color: "#7c3aed",
+      features: [
+        { name: "Cohort & LTV Analysis", desc: "Customer lifetime value by acquisition date, source, device, and behavior. Weekly and monthly cohorts.", tier: "pro" },
+        { name: "P&L Intelligence", desc: "Profitability per product and channel. Sync costs from Shopify or set them manually.", tier: "pro" },
+        { name: "Goals & ROI Tracking", desc: "Set revenue targets, track proven ROI. See exactly what HedgeSpark won back for you.", tier: "pro" },
+        { name: "Risk Forecast", desc: "Predicted churn and revenue decline. Flags products and segments heading for trouble.", tier: "pro" },
+      ],
+    },
+  ];
+
+  const opsRow: Array<{ name: string; desc: string; color: string; tier: "all" | "pro" | "scale" }> = [
+    { name: "Team Collaboration", desc: "Invite your team. Comment on signals. @mention on actions.", color: "#d4893a", tier: "pro" },
+    { name: "Webhook Integrations", desc: "Push signals to Slack, Klaviyo, or any endpoint. Test with one click.", color: "#a855f7", tier: "pro" },
+    { name: "Automated Nudges", desc: "Social proof, urgency, return-visitor messages. Deploy and measure automatically.", color: "#34d399", tier: "pro" },
+  ];
+
   return (
     <section id="features" className="relative scroll-mt-20 py-28 sm:py-36">
       {/* Subtle amber background tint */}
@@ -503,7 +578,9 @@ function Features() {
         <R className="text-center">
           <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#d4893a]">What HedgeSpark does</span>
           <h2 className="mt-5 text-[2.25rem] font-extrabold leading-[1.1] text-white sm:text-[3rem] lg:text-[3.5rem]">
-            Three things no other tool does.
+            Three killer features.
+            <br />
+            <span className="text-slate-300">Plus 16 deeper capabilities.</span>
           </h2>
           <p className="mx-auto mt-6 max-w-[38rem] text-[18px] leading-[1.7] text-slate-400">
             Most tools tell you what happened yesterday. HedgeSpark tells you what&apos;s broken right now, fixes it, and proves it worked.
@@ -514,9 +591,12 @@ function Features() {
         <R d={0.08}>
           <div className="mt-20 grid items-center gap-10 lg:grid-cols-2 lg:gap-16">
             <div>
-              <div className="inline-flex items-center gap-3 rounded-full border border-[#d4893a]/20 bg-[#d4893a]/[0.08] px-5 py-2">
-                <span className="text-[22px] font-extrabold text-[#d4893a]">1</span>
-                <span className="text-[15px] font-bold text-[#d4893a]">Find the problem</span>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="inline-flex items-center gap-3 rounded-full border border-[#d4893a]/20 bg-[#d4893a]/[0.08] px-5 py-2">
+                  <span className="text-[22px] font-extrabold text-[#d4893a]">1</span>
+                  <span className="text-[15px] font-bold text-[#d4893a]">Find the problem</span>
+                </div>
+                <TierBadge tier="all" />
               </div>
               <h3 className="mt-6 text-[1.75rem] font-bold leading-[1.2] text-white sm:text-[2rem]">
                 See which products get attention but don&apos;t sell
@@ -610,9 +690,12 @@ function Features() {
             </div>
 
             <div className="order-1 lg:order-2">
-              <div className="inline-flex items-center gap-3 rounded-full border border-[#a855f7]/20 bg-[#a855f7]/[0.08] px-5 py-2">
-                <span className="text-[22px] font-extrabold text-[#a855f7]">2</span>
-                <span className="text-[15px] font-bold text-[#a855f7]">Fix it automatically</span>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="inline-flex items-center gap-3 rounded-full border border-[#a855f7]/20 bg-[#a855f7]/[0.08] px-5 py-2">
+                  <span className="text-[22px] font-extrabold text-[#a855f7]">2</span>
+                  <span className="text-[15px] font-bold text-[#a855f7]">Fix it automatically</span>
+                </div>
+                <TierBadge tier="pro" />
               </div>
               <h3 className="mt-6 text-[1.75rem] font-bold leading-[1.2] text-white sm:text-[2rem]">
                 Smart nudges deploy on their own
@@ -642,9 +725,12 @@ function Features() {
         <R d={0.08}>
           <div className="mt-28 grid items-center gap-10 lg:grid-cols-2 lg:gap-16">
             <div>
-              <div className="inline-flex items-center gap-3 rounded-full border border-emerald-400/20 bg-emerald-500/[0.08] px-5 py-2">
-                <span className="text-[22px] font-extrabold text-emerald-400">3</span>
-                <span className="text-[15px] font-bold text-emerald-400">Prove it worked</span>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="inline-flex items-center gap-3 rounded-full border border-emerald-400/20 bg-emerald-500/[0.08] px-5 py-2">
+                  <span className="text-[22px] font-extrabold text-emerald-400">3</span>
+                  <span className="text-[15px] font-bold text-emerald-400">Prove it worked</span>
+                </div>
+                <TierBadge tier="pro" />
               </div>
               <h3 className="mt-6 text-[1.75rem] font-bold leading-[1.2] text-white sm:text-[2rem]">
                 Real numbers. Not guesses.
@@ -710,166 +796,41 @@ function Features() {
             </div>
           </div>
         </R>
-      </div>
-    </section>
-  );
-}
 
-/* ══════════════════════════════════════════════════════════════════════════════
-   PRO INTELLIGENCE STACK — showcase ~80% of dashboard capabilities
-   ══════════════════════════════════════════════════════════════════════════════ */
-
-function ProStack() {
-  const categories = [
-    {
-      title: "Revenue Intelligence",
-      color: "#d4893a",
-      features: [
-        {
-          name: "Revenue at Risk Score",
-          desc: "Real-time dollar amount at risk across 5 dimensions: abandoned intent, refund decline, nudge gaps, peer underperformance, goal gaps.",
-          tag: "Live calculation",
-        },
-        {
-          name: "Revenue Autopsy",
-          desc: "Per-product diagnosis. See exactly where each product loses sales — and why.",
-          tag: "Per product",
-        },
-        {
-          name: "Abandoned Intent",
-          desc: "High-interest visitors who left without buying. Scored by scroll depth, dwell time, return visits.",
-          tag: "Behavioral",
-        },
-        {
-          name: "Refund Loss Tracking",
-          desc: "Products with rising return rates. Catches quality or expectation mismatches early.",
-          tag: "Trend analysis",
-        },
-      ],
-    },
-    {
-      title: "Behavioral Intelligence",
-      color: "#a855f7",
-      features: [
-        {
-          name: "Visitor Intent Scoring",
-          desc: "Every visitor classified as hot, warm, or cold based on real behavioral signals — not rules, real data.",
-          tag: "Per visitor",
-        },
-        {
-          name: "Scroll Heatmaps",
-          desc: "See exactly where visitors drop off on each product page. Per-product, per-device.",
-          tag: "Per product",
-        },
-        {
-          name: "Price Sensitivity",
-          desc: "Detects which products have price friction — visitors engage but bounce at the price point.",
-          tag: "Elasticity",
-        },
-        {
-          name: "Session Timeline",
-          desc: "Full behavioral replay per visitor: scroll, dwell, clicks, cart events, page flow.",
-          tag: "Per session",
-        },
-      ],
-    },
-    {
-      title: "Measurement & Proof",
-      color: "#34d399",
-      features: [
-        {
-          name: "Causal Lift",
-          desc: "Real A/B holdout measurement. Not correlation — actual causation with statistical confidence.",
-          tag: "Holdout proof",
-        },
-        {
-          name: "Peer Benchmarks",
-          desc: "Anonymous comparison against stores in your revenue band. See where you lag and where you lead.",
-          tag: "Anonymized",
-        },
-        {
-          name: "Revenue Genome",
-          desc: "DNA of your revenue — which sources, segments, and products actually drive profit.",
-          tag: "Composition",
-        },
-        {
-          name: "Shareable Proof Reports",
-          desc: "Public links proving ROI. Share with your team, investors, or clients.",
-          tag: "Public links",
-        },
-      ],
-    },
-    {
-      title: "Growth Intelligence",
-      color: "#7c3aed",
-      features: [
-        {
-          name: "Cohort & LTV Analysis",
-          desc: "Customer lifetime value by acquisition date, source, device, and behavior. Weekly and monthly cohorts.",
-          tag: "Multi-dimensional",
-        },
-        {
-          name: "P&L Intelligence",
-          desc: "Profitability per product and channel. Sync costs from Shopify or set them manually.",
-          tag: "Real costs",
-        },
-        {
-          name: "Goals & ROI Tracking",
-          desc: "Set revenue targets, track proven ROI. See exactly what HedgeSpark won back for you.",
-          tag: "Measurable",
-        },
-        {
-          name: "Risk Forecast",
-          desc: "Predicted churn and revenue decline. Flags products and segments heading for trouble.",
-          tag: "Predictive",
-        },
-      ],
-    },
-  ];
-
-  return (
-    <section id="intelligence" className="relative scroll-mt-20 py-28 sm:py-36">
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[#d4893a]/[0.015] to-transparent" />
-
-      <div className="relative mx-auto max-w-[76rem] px-6 lg:px-10">
-        <R className="text-center">
-          <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#d4893a]">Full intelligence stack</span>
-          <h2 className="mt-5 text-[2.25rem] font-extrabold leading-[1.1] text-white sm:text-[3rem] lg:text-[3.5rem]">
-            16 capabilities. Every one wired to real data.
-          </h2>
-          <p className="mx-auto mt-6 max-w-[44rem] text-[18px] leading-[1.7] text-slate-400">
-            Every number in your dashboard is computed from real visitor behavior and real orders in your store.
-            If a capability needs more data to be reliable, the UI says so instead of guessing.
-            No demo data. No estimates. No placeholders.
-          </p>
+        {/* ── Full-stack intelligence grid (absorbed from former ProStack) ── */}
+        <R d={0.1}>
+          <div className="mt-32 text-center">
+            <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#d4893a]">The full stack</span>
+            <h3 className="mt-5 text-[1.75rem] font-extrabold leading-[1.1] text-white sm:text-[2.25rem]">
+              16 more capabilities under the hood.
+            </h3>
+            <p className="mx-auto mt-5 max-w-[44rem] text-[16px] leading-[1.65] text-slate-400">
+              Every number in your dashboard is computed from real visitor behavior and real orders.
+              If a capability needs more data to be reliable, the UI says so instead of guessing.
+            </p>
+          </div>
         </R>
 
-        <div className="mt-20 space-y-16">
-          {categories.map((cat, ci) => (
+        <div className="mt-14 space-y-14">
+          {stackCategories.map((cat, ci) => (
             <R key={cat.title} d={ci * 0.06}>
               <div>
-                <div className="mb-8 flex items-center gap-3">
+                <div className="mb-6 flex items-center gap-3">
                   <div className="h-1 w-8 rounded-full" style={{ background: cat.color }} />
-                  <h3 className="text-[18px] font-bold" style={{ color: cat.color }}>{cat.title}</h3>
+                  <h4 className="text-[16px] font-bold" style={{ color: cat.color }}>{cat.title}</h4>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                   {cat.features.map((f) => (
                     <div
                       key={f.name}
-                      className="group relative flex flex-col rounded-2xl border border-white/[0.06] bg-[#0e0e1a] p-6 transition-all duration-300 hover:border-white/[0.12] hover:shadow-[0_8px_40px_-8px_rgba(0,0,0,0.4)]"
+                      className="group relative flex flex-col rounded-2xl border border-white/[0.06] bg-[#0e0e1a] p-5 transition-all duration-300 hover:border-white/[0.12] hover:shadow-[0_8px_40px_-8px_rgba(0,0,0,0.4)]"
                     >
                       <div className="absolute inset-x-0 top-0 h-px rounded-t-2xl" style={{ background: `linear-gradient(90deg, transparent, ${alpha(cat.color, 0.3)}, transparent)` }} />
-                      <span
-                        className="mb-3 inline-flex w-fit rounded-md px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.1em]"
-                        style={{
-                          background: alpha(cat.color, 0.1),
-                          color: cat.color,
-                        }}
-                      >
-                        {f.tag}
-                      </span>
-                      <h4 className="text-[16px] font-bold text-white">{f.name}</h4>
-                      <p className="mt-2 flex-1 text-[14px] leading-[1.65] text-slate-400">{f.desc}</p>
+                      <div className="mb-3">
+                        <TierBadge tier={f.tier} />
+                      </div>
+                      <h5 className="text-[15px] font-bold text-white">{f.name}</h5>
+                      <p className="mt-2 flex-1 text-[13px] leading-[1.6] text-slate-400">{f.desc}</p>
                     </div>
                   ))}
                 </div>
@@ -879,21 +840,20 @@ function ProStack() {
         </div>
 
         {/* Operations row */}
-        <R d={0.3}>
-          <div className="mt-16 grid gap-4 sm:grid-cols-3">
-            {[
-              { name: "Team Collaboration", desc: "Invite your team. Comment on signals. @mention on actions.", color: "#d4893a" },
-              { name: "Webhook Integrations", desc: "Push signals to Slack, Klaviyo, or any endpoint. Test with one click.", color: "#a855f7" },
-              { name: "Automated Nudges", desc: "Social proof, urgency, return-visitor messages. Deploy and measure automatically.", color: "#34d399" },
-            ].map((f) => (
+        <R d={0.25}>
+          <div className="mt-12 grid gap-4 sm:grid-cols-3">
+            {opsRow.map((f) => (
               <div
                 key={f.name}
-                className="flex items-start gap-4 rounded-2xl border border-white/[0.06] bg-[#0e0e1a] p-6 transition-all duration-300 hover:border-white/[0.1]"
+                className="flex items-start gap-4 rounded-2xl border border-white/[0.06] bg-[#0e0e1a] p-5 transition-all duration-300 hover:border-white/[0.1]"
               >
-                <div className="mt-0.5 h-2 w-2 flex-shrink-0 rounded-full" style={{ background: f.color }} />
-                <div>
-                  <h4 className="text-[15px] font-bold text-white">{f.name}</h4>
-                  <p className="mt-1 text-[14px] leading-[1.6] text-slate-400">{f.desc}</p>
+                <div className="mt-1 h-2 w-2 flex-shrink-0 rounded-full" style={{ background: f.color }} />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h5 className="text-[14px] font-bold text-white">{f.name}</h5>
+                    <TierBadge tier={f.tier} />
+                  </div>
+                  <p className="mt-1 text-[13px] leading-[1.55] text-slate-400">{f.desc}</p>
                 </div>
               </div>
             ))}
@@ -1561,7 +1521,6 @@ export default function LandingPage() {
       <Hero />
       <Problem />
       <Features />
-      <ProStack />
       <HowItWorks />
       <RealExample />
       <Trust />
