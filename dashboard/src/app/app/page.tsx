@@ -2125,6 +2125,7 @@ function PageInner() {
         activeSection={activeSection}
         onNavigate={handleNavigate}
         tier={tier}
+        currentFloor="pulse"
       />
 
       <div className="flex flex-1 flex-col overflow-hidden">
