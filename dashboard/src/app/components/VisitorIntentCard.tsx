@@ -1,0 +1,205 @@
+"use client";
+
+/**
+ * VisitorIntentCard — Phase 1.6 — Starter-accessible.
+ *
+ * Three numbers a merchant reads at a glance: how many visitors
+ * right now are Hot (engaged + clicked), Warm (engaged but no click),
+ * Cold (pass-through). Data from `/analytics/visitor-intent-
+ * classification` which computes per-visitor conversion_score across
+ * the shop and partitions by HOT/WARM thresholds.
+ *
+ * This is one of the Starter 6 features — the per-tier per-visitor
+ * drill-down (full ranked list) stays a Pro moat via /visitor-scores.
+ * Lite merchants see the three counts; Pro gets the drill-down CTA.
+ *
+ * Design: three colored pills. No hover interactions (click only per
+ * CLAUDE.md §4). Amber/rose for hot, violet for warm, slate for cold
+ * — matches palette intent where "rose → alert/high-signal", "violet
+ * → intelligence/active", "slate → neutral/metadata".
+ */
+
+import { CardSkeleton, CardError, CardEmpty, useCardFetch } from "./_CardStates";
+
+type VisitorIntentCounts = {
+  total_visitors: number;
+  hot_visitors: number;
+  warm_visitors: number;
+  cold_visitors: number;
+  hot_threshold: number;
+  warm_threshold: number;
+};
+
+export function VisitorIntentCard({
+  apiBase,
+  shop,
+  isProUser,
+  onUpgrade,
+}: {
+  apiBase: string;
+  shop: string;
+  isProUser: boolean;
+  onUpgrade?: () => void;
+}) {
+  const { data, state, retry } = useCardFetch<VisitorIntentCounts>({
+    url: `${apiBase}/analytics/visitor-intent-classification`,
+    enabled: !!apiBase && !!shop,
+    isEmpty: (d) => !d || d.total_visitors === 0,
+    component: "VisitorIntentCard",
+  });
+
+  if (state === "loading") {
+    return <CardSkeleton label="Loading visitor intent" />;
+  }
+
+  if (state === "error") {
+    return (
+      <CardError
+        label="Visitor intent unavailable"
+        message="We couldn't load visitor intent right now. Your tracker is still capturing events — this card will recover on the next cycle."
+        onRetry={retry}
+      />
+    );
+  }
+
+  if (state === "empty" || !data || data.total_visitors === 0) {
+    return (
+      <CardEmpty
+        accent="violet"
+        title="No visitors scored yet"
+        body="Once visitors engage with your store (scroll, dwell, click), we'll classify each one Hot, Warm, or Cold and show you the right-now composition of intent."
+        eta="Populates with the first visitor"
+      />
+    );
+  }
+
+  const total = data.total_visitors;
+  const hot = data.hot_visitors;
+  const warm = data.warm_visitors;
+  const cold = data.cold_visitors;
+
+  return (
+    <section>
+      <div className="mb-4">
+        <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#e8a04e]">
+          Visitor intent
+        </div>
+        <h3 className="mt-1 text-[16px] font-bold text-white">
+          Who&apos;s in your store right now
+        </h3>
+        <p className="mt-1 text-[12px] leading-relaxed text-slate-500">
+          Every visitor classified by scroll, dwell, and click behavior.
+          {" "}
+          <span className="text-slate-400">
+            {total.toLocaleString()} visitors tracked.
+          </span>
+        </p>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <IntentPill
+          label="Hot"
+          count={hot}
+          total={total}
+          description="Engaged and clicked — ready to convert"
+          color="#f87171"
+          bg="rgba(248,113,113,0.08)"
+          border="rgba(248,113,113,0.25)"
+        />
+        <IntentPill
+          label="Warm"
+          count={warm}
+          total={total}
+          description="Engaged but haven't clicked yet"
+          color="#a78bfa"
+          bg="rgba(167,139,250,0.08)"
+          border="rgba(167,139,250,0.25)"
+        />
+        <IntentPill
+          label="Cold"
+          count={cold}
+          total={total}
+          description="Pass-through, minimal engagement"
+          color="#94a3b8"
+          bg="rgba(148,163,184,0.06)"
+          border="rgba(148,163,184,0.18)"
+        />
+      </div>
+
+      {/* Methodology footer — lives on the card so merchants never
+          have to guess where the thresholds come from. */}
+      <p className="mt-4 text-[11px] leading-relaxed text-slate-500">
+        Hot = conversion score above {data.hot_threshold}. Warm =
+        above {data.warm_threshold}. Cold = at or below {data.warm_threshold}.
+        Score combines dwell time, scroll depth, and click count per visitor.
+      </p>
+
+      {/* Pro drill-down bridge. /visitor-scores returns the top 20
+          ranked visitors with per-visitor detail — Pro-only today. */}
+      {!isProUser && hot + warm > 0 && (
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-[#d4893a]/20 bg-[#d4893a]/[0.05] px-4 py-3">
+          <span className="text-[12px] leading-snug text-slate-300">
+            Pro unlocks the ranked list of your top {Math.min(hot + warm, 20)} hot and warm visitors
+            with per-visitor behavior detail and recommended next action.
+          </span>
+          {onUpgrade && (
+            <button
+              type="button"
+              onClick={onUpgrade}
+              className="ml-auto flex-shrink-0 rounded-lg bg-[#d4893a] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-white transition-colors hover:bg-[#e8a04e]"
+            >
+              See ranked visitors on Pro
+            </button>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function IntentPill({
+  label,
+  count,
+  total,
+  description,
+  color,
+  bg,
+  border,
+}: {
+  label: string;
+  count: number;
+  total: number;
+  description: string;
+  color: string;
+  bg: string;
+  border: string;
+}) {
+  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+  return (
+    <div
+      className="flex flex-col rounded-2xl border p-5"
+      style={{ background: bg, borderColor: border }}
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        <div
+          className="text-[11px] font-bold uppercase tracking-[0.18em]"
+          style={{ color }}
+        >
+          {label}
+        </div>
+        <div className="text-[11px] font-semibold tabular-nums text-slate-400">
+          {pct}%
+        </div>
+      </div>
+      <div
+        className="mt-2 text-[36px] font-extrabold leading-none tabular-nums"
+        style={{ color }}
+      >
+        {count.toLocaleString()}
+      </div>
+      <p className="mt-3 text-[12px] leading-snug text-slate-400">
+        {description}
+      </p>
+    </div>
+  );
+}

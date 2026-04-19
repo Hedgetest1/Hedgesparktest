@@ -74,6 +74,7 @@ import { CompareProductsCard } from "../components/CompareProductsCard";
 import { RevenueAutopsyCard } from "../components/RevenueAutopsyCard";
 import { AbandonedIntentCard } from "../components/AbandonedIntentCard";
 import { LiveOpportunitiesCard } from "../components/LiveOpportunitiesCard";
+import { VisitorIntentCard } from "../components/VisitorIntentCard";
 import { PriceSensitivityCard } from "../components/PriceSensitivityCard";
 import { CausalLiftCard } from "../components/CausalLiftCard";
 import { RevenueGenomeCard } from "../components/RevenueGenomeCard";
@@ -2495,6 +2496,21 @@ function PageInner() {
                   Lite merchants read recommended_action and act manually. ═══ */}
               <SectionErrorBoundary name="Live Opportunities">
                 <LiveOpportunitiesCard apiBase={API_BASE} shop={shop} />
+              </SectionErrorBoundary>
+
+              {/* ═══ VISITOR INTENT — Starter-accessible (Phase 1.6)
+                  Three counts: Hot / Warm / Cold visitors classified
+                  by conversion_score thresholds. Backend computes the
+                  classification server-side with tenant isolation.
+                  Lite sees the 3 counts; Pro unlocks the ranked per-
+                  visitor drill-down via /visitor-scores. ═══ */}
+              <SectionErrorBoundary name="Visitor Intent">
+                <VisitorIntentCard
+                  apiBase={API_BASE}
+                  shop={shop}
+                  isProUser={isProUser}
+                  onUpgrade={() => setUpgradeModalOpen(true)}
+                />
               </SectionErrorBoundary>
 
               {/* ═══ DEEP INTELLIGENCE GRID — Pro-only moat features ═══ */}
