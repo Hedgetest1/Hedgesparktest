@@ -1230,12 +1230,11 @@ function GetStarted() {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   TRUST RECEIPTS — live numbers before pricing
-   Three signals from /public/transparency: self-healing, holdout-measured
-   outcomes, and preflight guards. Every value is pulled live — no hardcoded
-   fallback, because a fake number would be the worst possible "receipt".
-   On fetch failure the cards render as skeletons and the section still
-   leads the visitor to /transparency for the full set.
+   TRUST — live receipts + compliance posture + defendable moat
+   Unified section absorbing the former TrustWall. Flow: live numbers →
+   compliance badges → 5 moats → CTA to /transparency. Every value in the
+   "receipts" grid is pulled live from /public/transparency; a fake number
+   would be the worst possible receipt, so skeleton on fetch failure.
    ══════════════════════════════════════════════════════════════════════════════ */
 
 type TrustReceiptsData = {
@@ -1268,7 +1267,7 @@ function useTrustReceipts() {
   return data;
 }
 
-function TrustReceipts() {
+function Trust() {
   const d = useTrustReceipts();
 
   const cards = d
@@ -1291,14 +1290,30 @@ function TrustReceipts() {
       ]
     : null;
 
+  const badges = [
+    { label: "GDPR Compliant", icon: "🇪🇺", desc: "Data residency · audit log hash chain · breach runbook", color: "#60a5fa" },
+    { label: "SOC2 In Progress", icon: "🛡️", desc: "Type II motion started · 11/11 compliance score", color: "#10b981" },
+    { label: "Holdout-Measured", icon: "🔬", desc: "Every claim tested against a control group · p<0.05", color: "#e8a04e" },
+    { label: "Zero PII in LLM", icon: "🔒", desc: "Runtime guard blocks personal data from prompts", color: "#a78bfa" },
+  ];
+
+  const moats = [
+    { k: "Revenue-at-Risk Score", v: "See losses before they compound", icon: "🎯" },
+    { k: "Holdout-proven savings", v: "Every amount saved is statistically defended", icon: "📊" },
+    { k: "Delegated Autonomy", v: "Pre-approve bounds, system acts within them", icon: "🛡️" },
+    { k: "Closed-loop learning", v: "Self-heals, self-improves, self-measures", icon: "🔁" },
+    { k: "60-second first insight", v: "Real numbers before your coffee is done", icon: "⚡" },
+  ];
+
   return (
-    <section className="relative border-t border-white/[0.04] py-20 sm:py-24">
+    <section className="relative border-t border-white/[0.04] bg-[#05050b] py-20 sm:py-24">
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[#e8a04e]/[0.015] to-transparent" />
 
       <div className="relative mx-auto max-w-[72rem] px-6 lg:px-10">
+        {/* Section header — "The numbers are real. So are the receipts." */}
         <R className="text-center">
           <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#e8a04e]">
-            Receipts
+            Trust, with receipts
           </span>
           <h2 className="mt-5 text-[2.25rem] font-extrabold leading-[1.1] text-[#e8a04e] sm:text-[3rem]">
             The numbers are real.
@@ -1311,6 +1326,7 @@ function TrustReceipts() {
           </p>
         </R>
 
+        {/* Live receipts — 3 big-number cards */}
         <div className="mt-16 grid gap-6 sm:grid-cols-3">
           {cards
             ? cards.map((c, i) => (
@@ -1336,7 +1352,53 @@ function TrustReceipts() {
               ))}
         </div>
 
-        <R d={0.3}>
+        {/* Compliance badges — 4 cards below receipts */}
+        <div className="mt-14 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {badges.map((b, i) => (
+            <R key={b.label} d={i * 0.06}>
+              <div
+                className="h-full rounded-2xl border p-5"
+                style={{
+                  background: "linear-gradient(135deg, rgba(11,18,32,0.9) 0%, rgba(20,26,48,0.5) 100%)",
+                  borderColor: `${b.color}33`,
+                }}
+              >
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="text-[22px]">{b.icon}</span>
+                  <span className="text-[14px] font-bold" style={{ color: b.color }}>{b.label}</span>
+                </div>
+                <div className="text-[12px] leading-relaxed text-slate-400">{b.desc}</div>
+              </div>
+            </R>
+          ))}
+        </div>
+
+        {/* 5 defendable moats */}
+        <R d={0.08}>
+          <div className="mt-14 rounded-3xl border border-white/[0.06] bg-gradient-to-br from-[#0b1220] to-[#111c2e] p-8 sm:p-10">
+            <div className="mb-8 text-center">
+              <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-slate-500 mb-2">
+                5 things no competitor can copy
+              </div>
+              <div className="text-[20px] font-bold text-white">The defendable moat</div>
+            </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
+              {moats.map((m) => (
+                <div
+                  key={m.k}
+                  className="rounded-xl border border-white/[0.08] bg-black/30 p-5 transition-all duration-300 hover:border-[#e8a04e]/40"
+                >
+                  <div className="text-[26px] mb-3">{m.icon}</div>
+                  <div className="text-[14px] font-bold text-white mb-1.5">{m.k}</div>
+                  <div className="text-[12px] leading-relaxed text-slate-400">{m.v}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </R>
+
+        {/* CTA to full receipts page */}
+        <R d={0.15}>
           <div className="mt-12 text-center">
             <a
               href="/transparency"
@@ -1552,143 +1614,6 @@ function Footer() {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   TRUST WALL — α8 — compliance badges, holdout-proof claim, aggregate savings
-   ══════════════════════════════════════════════════════════════════════════════ */
-
-function TrustWall() {
-  const badges = [
-    { label: "GDPR Compliant", icon: "🇪🇺", desc: "Data residency · audit log hash chain · breach runbook", color: "#60a5fa" },
-    { label: "SOC2 In Progress", icon: "🛡️", desc: "Type II motion started · 11/11 compliance score", color: "#10b981" },
-    { label: "Holdout-Measured", icon: "🔬", desc: "Every claim tested against a control group · p<0.05", color: "#e8a04e" },
-    { label: "Zero PII in LLM", icon: "🔒", desc: "Runtime guard blocks personal data from prompts", color: "#a78bfa" },
-  ];
-
-  const differentiators = [
-    {
-      k: "Revenue-at-Risk Score",
-      v: "See losses before they compound",
-      icon: "🎯",
-    },
-    {
-      k: "Holdout-proven savings",
-      v: "Every amount saved is statistically defended",
-      icon: "📊",
-    },
-    {
-      k: "Delegated Autonomy",
-      v: "Pre-approve bounds, system acts within them",
-      icon: "🛡️",
-    },
-    {
-      k: "Closed-loop learning",
-      v: "Self-heals, self-improves, self-measures",
-      icon: "🔁",
-    },
-    {
-      k: "60-second first insight",
-      v: "Real numbers before your coffee is done",
-      icon: "⚡",
-    },
-  ];
-
-  return (
-    <section className="relative border-t border-white/[0.04] bg-[#05050b] py-24">
-      <div className="mx-auto max-w-[72rem] px-6 lg:px-10">
-        <R>
-          <div className="text-center mb-16">
-            <div className="inline-block rounded-full border border-[#e8a04e]/30 bg-[#e8a04e]/5 px-4 py-1.5 text-[11px] font-bold uppercase tracking-[0.15em] text-[#e8a04e]">
-              Built on trust, proven on data
-            </div>
-            <h2 className="mt-6 text-[clamp(32px,5vw,48px)] font-extrabold leading-[1.05] tracking-tight">
-              The only SMB intelligence<br />
-              <span className="bg-gradient-to-r from-[#e8a04e] via-[#f59e0b] to-[#fcd34d] bg-clip-text text-transparent">
-                you can actually defend
-              </span>
-            </h2>
-            <p className="mx-auto mt-5 max-w-[640px] text-[17px] leading-relaxed text-slate-400">
-              Every amount we save you is measured against a real control group. Every autonomous action
-              runs inside bounds you set. Every claim is audit-logged. HedgeSpark is engineered
-              to survive scrutiny, not to survive a demo.
-            </p>
-          </div>
-        </R>
-
-        {/* Compliance badges */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-16">
-          {badges.map((b, i) => (
-            <R key={b.label} d={i * 0.08}>
-              <div
-                className="rounded-2xl border p-5"
-                style={{
-                  background: "linear-gradient(135deg, rgba(11,18,32,0.9) 0%, rgba(20,26,48,0.5) 100%)",
-                  borderColor: `${b.color}33`,
-                }}
-              >
-                <div className="flex items-center gap-3 mb-2">
-                  <span className="text-[24px]">{b.icon}</span>
-                  <span className="text-[15px] font-bold" style={{ color: b.color }}>{b.label}</span>
-                </div>
-                <div className="text-[12px] leading-relaxed text-slate-400">{b.desc}</div>
-              </div>
-            </R>
-          ))}
-        </div>
-
-        {/* 5 differentiators */}
-        <R>
-          <div className="rounded-3xl border border-white/[0.06] bg-gradient-to-br from-[#0b1220] to-[#111c2e] p-10">
-            <div className="mb-8 text-center">
-              <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-slate-500 mb-3">
-                5 things no competitor can copy
-              </div>
-              <div className="text-[22px] font-bold text-white">The defendable moat</div>
-            </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
-              {differentiators.map((d, i) => (
-                <div
-                  key={d.k}
-                  className="rounded-xl border border-white/[0.08] bg-black/30 p-5 transition-all duration-300 hover:border-[#e8a04e]/40"
-                  style={{ animationDelay: `${i * 0.1}s` }}
-                >
-                  <div className="text-[28px] mb-3">{d.icon}</div>
-                  <div className="text-[14px] font-bold text-white mb-1.5">{d.k}</div>
-                  <div className="text-[12px] leading-relaxed text-slate-400">{d.v}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </R>
-
-        {/* Stat line — aggregate proof */}
-        <R d={0.15}>
-          <div className="mt-16 flex flex-wrap items-center justify-center gap-x-12 gap-y-6 text-center">
-            <div>
-              <div className="text-[36px] font-extrabold text-emerald-400">p&lt;0.05</div>
-              <div className="text-[12px] uppercase tracking-wide text-slate-500 mt-1">Every claim</div>
-            </div>
-            <div className="hidden sm:block text-white/10 text-[28px]">·</div>
-            <div>
-              <div className="text-[36px] font-extrabold text-[#e8a04e]">20%</div>
-              <div className="text-[12px] uppercase tracking-wide text-slate-500 mt-1">Holdout by default</div>
-            </div>
-            <div className="hidden sm:block text-white/10 text-[28px]">·</div>
-            <div>
-              <div className="text-[36px] font-extrabold text-purple-400">0 PII</div>
-              <div className="text-[12px] uppercase tracking-wide text-slate-500 mt-1">Leaves your store</div>
-            </div>
-            <div className="hidden sm:block text-white/10 text-[28px]">·</div>
-            <div>
-              <div className="text-[36px] font-extrabold text-sky-400">24/7</div>
-              <div className="text-[12px] uppercase tracking-wide text-slate-500 mt-1">Autonomous</div>
-            </div>
-          </div>
-        </R>
-      </div>
-    </section>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════════════════════
    PAGE
    ══════════════════════════════════════════════════════════════════════════════ */
 
@@ -1705,10 +1630,9 @@ export default function LandingPage() {
       <HowItWorks />
       <RealExample />
       <GetStarted />
-      <TrustReceipts />
+      <Trust />
       <Pricing />
       <FAQ />
-      <TrustWall />
       <Footer />
     </div>
   );
