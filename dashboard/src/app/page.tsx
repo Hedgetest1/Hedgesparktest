@@ -70,30 +70,6 @@ const alpha = (hex: string, a: number) => {
   return `rgba(${r}, ${g}, ${b}, ${a})`;
 };
 
-/* ── Live signal count ── */
-function useSignalCount() {
-  const [count, setCount] = useState<number | null>(null);
-  useEffect(() => {
-    const API = process.env.NEXT_PUBLIC_API_BASE_URL || "";
-    fetch(`${API}/ops/signal-count-week`, { signal: AbortSignal.timeout(4000) })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d?.count) setCount(d.count); })
-      .catch((err: unknown) => {
-        // Landing-page decorative badge — graceful degradation for the visitor,
-        // but we still report to the self-healing pipeline so a broken
-        // /ops/signal-count-week endpoint doesn't rot silently.
-        const e = err as { name?: string; message?: string } | null;
-        reportFrontendError({
-          component: "useSignalCount",
-          error_type: e?.name ?? "FetchError",
-          message: e?.message ?? "Failed to fetch /ops/signal-count-week",
-          severity: "info",
-        });
-      });
-  }, []);
-  return count;
-}
-
 /* ── Live network ROI counter (Phase Ω⁵) ── */
 type RoiCounterDoc = {
   state: "live" | "warming";
@@ -443,43 +419,6 @@ function Hero() {
 
         {/* Phase Ω⁵ — live network ROI counter */}
         <RoiCounterBanner />
-      </div>
-    </section>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════════════════════
-   NUMBERS STRIP — social proof
-   ══════════════════════════════════════════════════════════════════════════════ */
-
-function Numbers() {
-  const signalCount = useSignalCount();
-
-  // Honesty rule: only surface numbers we can verify at render time.
-  // If the live signal count is null (API down or warming up), we do NOT
-  // fall back to a fabricated "2,400+". We fall back to a claim that is
-  // true by construction.
-  const stats = [
-    signalCount
-      ? { value: signalCount.toLocaleString(), label: "Signals detected this week", color: "text-[#d4893a]" }
-      : { value: "Every visit", label: "Tracked from day one", color: "text-[#d4893a]" },
-    { value: "5 min", label: "To first insight after install", color: "text-[#a855f7]" },
-    { value: "<5kb", label: "Zero impact on store speed", color: "text-emerald-400" },
-  ];
-
-  return (
-    <section className="relative border-y border-white/[0.04]">
-      <div className="mx-auto grid max-w-[72rem] divide-y divide-white/[0.04] px-6 sm:grid-cols-3 sm:divide-x sm:divide-y-0 lg:px-10">
-        {stats.map((s, i) => (
-          <R key={i} d={i * 0.06}>
-            <div className="flex flex-col items-center py-12 text-center sm:py-14">
-              <span className={`text-[3rem] font-extrabold tracking-tight ${s.color} sm:text-[3.5rem]`}>
-                {s.value}
-              </span>
-              <span className="mt-2 text-[16px] text-slate-400">{s.label}</span>
-            </div>
-          </R>
-        ))}
       </div>
     </section>
   );
@@ -1207,113 +1146,6 @@ function RealExample() {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   IT LEARNS
-   ══════════════════════════════════════════════════════════════════════════════ */
-
-function Learns() {
-  // Maturity progression: red (raw) → orange → yellow → green (mature)
-  const weeks = [
-    { week: "Week 1", insight: "68 views, 0 carts on your Silk Pillowcase", desc: "Basic problems found across your catalog.", color: "#f87171" },
-    { week: "Week 2", insight: "Return visitors stall on items over $40", desc: "Price sensitivity patterns start to appear.", color: "#fb923c" },
-    { week: "Week 4", insight: "Instagram visitors convert 3x on lifestyle photos", desc: "Learns which traffic sources bring buyers vs. browsers.", color: "#facc15" },
-    { week: "Week 8", insight: "Instagram visitors who scroll past the fold hesitate at $45+ — 73% respond to social proof", desc: "Deep, compound intelligence unique to your store.", color: "#34d399" },
-  ];
-
-  return (
-    <section className="relative py-20 sm:py-24">
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[#c4b5fd]/[0.015] to-transparent" />
-
-      <div className="relative mx-auto max-w-[72rem] px-6 lg:px-10">
-        <div className="grid items-center gap-14 lg:grid-cols-2">
-          <R>
-            <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#c4b5fd]">It gets smarter</span>
-            <h2 className="mt-5 text-[2.25rem] font-extrabold leading-[1.1] text-white sm:text-[3rem]">
-              Week 1, it spots the obvious.
-              <br />
-              <span className="text-emerald-400">Week 8, it knows your store better than you do.</span>
-            </h2>
-            <p className="mt-6 text-[17px] leading-[1.7] text-slate-400">
-              Most Shopify tools run the same generic rules for every store. HedgeSpark builds a model specific to <em>your</em> visitors, <em>your</em> products, <em>your</em> price points.
-            </p>
-            <p className="mt-5 text-[17px] font-semibold leading-[1.7] text-slate-300">
-              Every week, the insights get sharper — because the system has more of your data to learn from.
-            </p>
-          </R>
-
-          <R d={0.1}>
-            <div className="rounded-3xl border border-white/[0.06] bg-[#0e0e1a] p-6 sm:p-8">
-              <div className="flex items-center gap-3 mb-8">
-                <Image src="/branding/hedgespark/spark.png" alt="" width={28} height={28} className="hs-float" />
-                <span className="text-[14px] font-bold text-slate-500">Intelligence timeline</span>
-              </div>
-
-              <div className="space-y-0">
-                {weeks.map((w, i) => {
-                  const isLast = i === weeks.length - 1;
-                  const next = weeks[i + 1];
-                  return (
-                    <div key={w.week} className="relative flex gap-5">
-                      <div className="flex flex-col items-center">
-                        <div
-                          className="h-4 w-4 rounded-full border-2"
-                          style={{
-                            borderColor: w.color,
-                            backgroundColor: alpha(w.color, isLast ? 0.4 : 0.15),
-                            boxShadow: isLast ? `0 0 12px ${alpha(w.color, 0.5)}` : undefined,
-                          }}
-                        />
-                        {!isLast && (
-                          <div
-                            className="w-px flex-1"
-                            style={{
-                              background: `linear-gradient(to bottom, ${alpha(w.color, 0.35)}, ${alpha(next!.color, 0.35)})`,
-                            }}
-                          />
-                        )}
-                      </div>
-                      <div className={`pb-8 ${isLast ? "pb-0" : ""}`}>
-                        <div
-                          className="text-[13px] font-bold uppercase tracking-[0.12em]"
-                          style={{ color: isLast ? w.color : alpha(w.color, 0.7) }}
-                        >
-                          {w.week}
-                        </div>
-                        <p className={`mt-2 text-[15px] font-semibold leading-[1.5] ${
-                          isLast ? "text-white" : "text-slate-300"
-                        }`}>
-                          {w.insight}
-                        </p>
-                        <p className="mt-1 text-[14px] leading-[1.6] text-slate-500">{w.desc}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </R>
-        </div>
-
-        <R d={0.14}>
-          <div className="mt-14 rounded-2xl border border-[#d4893a]/15 bg-[#d4893a]/[0.04] p-6 text-center sm:p-8">
-            <p className="text-[18px] leading-[1.7] text-slate-300">
-              Every week you wait is a week the system can&apos;t learn from.
-              <br className="hidden sm:block" />
-              <strong className="text-white">Merchants who start today are 8 weeks ahead of merchants who start in 8 weeks.</strong>
-            </p>
-            <a
-              href={INSTALL_URL}
-              className="mt-5 inline-block text-[16px] font-bold text-[#d4893a] transition-colors hover:text-[#e8a04e]"
-            >
-              Start learning now &rarr;
-            </a>
-          </div>
-        </R>
-      </div>
-    </section>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════════════════════
    GET STARTED — 3 steps
    ══════════════════════════════════════════════════════════════════════════════ */
 
@@ -1692,45 +1524,6 @@ function FAQ() {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   FINAL CTA
-   ══════════════════════════════════════════════════════════════════════════════ */
-
-function FinalCTA() {
-  return (
-    <section className="relative overflow-hidden py-32 sm:py-40">
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute left-1/2 top-1/2 h-[600px] w-[900px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#d4893a]/[0.06] blur-[180px]" />
-        <div className="absolute left-[60%] top-[60%] h-[400px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#7c3aed]/[0.04] blur-[140px]" />
-      </div>
-      <R>
-        <div className="relative mx-auto max-w-3xl px-6 text-center lg:px-10">
-          <h2 className="text-[2.25rem] font-extrabold leading-[1.1] text-white sm:text-[3rem] lg:text-[3.75rem]">
-            While you read this,
-            <br />
-            someone left your store.
-          </h2>
-          <p className="mt-6 text-[20px] leading-[1.5] text-slate-400 sm:text-[1.5rem]">
-            A competitor using HedgeSpark
-            <br className="hidden sm:block" />
-            would already know <span className="text-white font-semibold">why</span>.
-          </p>
-          <div className="mt-10">
-            <a
-              href={INSTALL_URL}
-              className="hs-cta-gradient group relative inline-block rounded-2xl px-14 py-5 text-[18px] font-bold text-white transition-all duration-300 hover:shadow-[0_4px_60px_rgba(212,137,58,0.4)]"
-            >
-              <span className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-b from-white/[0.08] to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-              <span className="relative">Install on Shopify</span>
-            </a>
-          </div>
-          <p className="mt-6 text-[15px] text-slate-500">Installs in 30 seconds. Tracking starts on the next visitor.</p>
-        </div>
-      </R>
-    </section>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════════════════════
    FOOTER
    ══════════════════════════════════════════════════════════════════════════════ */
 
@@ -1906,18 +1699,15 @@ export default function LandingPage() {
     <div className="min-h-screen bg-[#07070f] text-white antialiased">
       <Nav />
       <Hero />
-      <Numbers />
       <Problem />
       <Features />
       <ProStack />
       <HowItWorks />
       <RealExample />
-      <Learns />
       <GetStarted />
       <TrustReceipts />
       <Pricing />
       <FAQ />
-      <FinalCTA />
       <TrustWall />
       <Footer />
     </div>
