@@ -1,8 +1,18 @@
+import hashlib
+import json
+import logging
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
 
 from app.core.database import engine
 from app.core.deps import require_merchant_session
+
+_log = logging.getLogger(__name__)
+_CACHE_PREFIX = "hs:liveopps:v1"
+_CACHE_TTL_S = 60  # 60s is tight enough to feel live, loose enough
+                   # to absorb tab-refresh bursts at 10k-merchant scale
+
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -11,6 +21,20 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 def live_opportunities(
     shop: str = Depends(require_merchant_session),
 ):
+    # Redis cache — endpoint is a 3-CTE aggregate over `events`,
+    # expensive per call. At 10k merchants each polling every
+    # ~30-60s, uncached DB pressure becomes the bottleneck. Per
+    # CLAUDE.md §13 every Redis key has a TTL.
+    cache_key = f"{_CACHE_PREFIX}:{hashlib.md5(shop.encode()).hexdigest()[:16]}"
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            cached = rc.get(cache_key)
+            if cached:
+                return json.loads(cached)
+    except Exception as exc:
+        _log.warning("live_opportunities cache read failed: %s", exc)
     query = text("""
         WITH page_views AS (
             SELECT
@@ -98,4 +122,14 @@ def live_opportunities(
     with engine.begin() as conn:
         rows = conn.execute(query, {"shop_domain": shop}).mappings().all()
 
-    return {"opportunities": [dict(r) for r in rows]}
+    result = {"opportunities": [dict(r) for r in rows]}
+
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            rc.setex(cache_key, _CACHE_TTL_S, json.dumps(result, default=str))
+    except Exception as exc:
+        _log.warning("live_opportunities cache write failed: %s", exc)
+
+    return result

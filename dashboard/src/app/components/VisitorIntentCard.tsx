@@ -134,13 +134,22 @@ export function VisitorIntentCard({
         Score combines dwell time, scroll depth, and click count per visitor.
       </p>
 
-      {/* Pro drill-down bridge. /visitor-scores returns the top 20
-          ranked visitors with per-visitor detail — Pro-only today. */}
-      {!isProUser && hot + warm > 0 && (
+      {/* Pro drill-down bridge — always visible for Lite, not only
+          when hot+warm > 0. A merchant with cold-only traffic still
+          deserves to know what Pro unlocks; hiding the upsell for
+          them would be the only place in the dashboard where the
+          path to Pro disappears based on data state. Copy adapts:
+          if there are hot/warm visitors, pitch the ranked list; if
+          all cold, pitch the per-visitor diagnosis. */}
+      {!isProUser && (
         <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-[#d4893a]/20 bg-[#d4893a]/[0.05] px-4 py-3">
           <span className="text-[12px] leading-snug text-slate-300">
-            Pro unlocks the ranked list of your top {Math.min(hot + warm, 20)} hot and warm visitors
-            with per-visitor behavior detail and recommended next action.
+            {hot + warm > 0
+              ? `Pro unlocks the ranked list of your top ${Math.min(
+                  hot + warm,
+                  20,
+                )} hot and warm visitors with per-visitor behavior detail and recommended next action.`
+              : "Pro unlocks per-visitor behavior detail — even cold traffic becomes actionable once you see which pages they saw, how long they lingered, and what nudged them to leave."}
           </span>
           {onUpgrade && (
             <button
@@ -148,7 +157,7 @@ export function VisitorIntentCard({
               onClick={onUpgrade}
               className="ml-auto flex-shrink-0 rounded-lg bg-[#d4893a] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-white transition-colors hover:bg-[#e8a04e]"
             >
-              See ranked visitors on Pro
+              {hot + warm > 0 ? "See ranked visitors on Pro" : "See Pro"}
             </button>
           )}
         </div>

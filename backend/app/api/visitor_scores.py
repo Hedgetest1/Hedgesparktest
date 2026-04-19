@@ -1,3 +1,7 @@
+import hashlib
+import json
+import logging
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import text
@@ -5,6 +9,61 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import require_merchant_session
+
+_log = logging.getLogger(__name__)
+
+# Redis caches on the two analytics endpoints below. Both are
+# per-shop pure aggregates that recompute from `events` on every
+# query — cheap at 2 merchants, quadratic at 10k. 60s TTL is tight
+# enough that the dashboard feels live and loose enough to absorb
+# N concurrent tab-refreshes per shop.
+_VI_CACHE_PREFIX = "hs:vint:v1"
+_VI_CACHE_TTL_S = 60
+
+
+def _cache_get(prefix: str, shop: str) -> dict | None:
+    try:
+        from app.core.redis_client import _client
+        from app.core.silent_fallback import record_silent_return
+        rc = _client()
+        if rc is None:
+            # Redis unavailable — fall through to SQL recompute.
+            # Observed so ops sees if Redis degrades.
+            record_silent_return("visitor_scores.redis_client_none")
+            return None
+        key = f"{prefix}:{hashlib.md5(shop.encode()).hexdigest()[:16]}"
+        raw = rc.get(key)
+        return json.loads(raw) if raw else None
+    except Exception as exc:
+        # Silent fallback: Redis unavailable → recompute from SQL. Log
+        # the incident so ops catches if Redis degrades without the
+        # endpoint user-facing-breaking. Observability required by
+        # audit_silent_returns.py preflight.
+        _log.warning("visitor_scores cache read failed: %s", exc)
+        from app.core.silent_fallback import record_silent_return
+        record_silent_return("visitor_scores.cache_read")
+        return None
+
+
+def _cache_set(prefix: str, shop: str, data: dict, ttl: int) -> None:
+    try:
+        from app.core.redis_client import _client
+        from app.core.silent_fallback import record_silent_return
+        rc = _client()
+        if rc is None:
+            # Redis unavailable — skip cache write, response still
+            # OK. Observed so ops sees Redis degradation patterns.
+            record_silent_return("visitor_scores.redis_client_none")
+            return
+        key = f"{prefix}:{hashlib.md5(shop.encode()).hexdigest()[:16]}"
+        rc.setex(key, ttl, json.dumps(data, default=str))
+    except Exception as exc:
+        # Silent fallback: Redis write failures don't degrade the
+        # response (caller already has the computed result), but we
+        # surface the failure for ops observability per preflight rule.
+        _log.warning("visitor_scores cache write failed: %s", exc)
+        from app.core.silent_fallback import record_silent_return
+        record_silent_return("visitor_scores.cache_write")
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -80,6 +139,9 @@ def visitor_intent_classification(
     shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ):
+    cached = _cache_get(_VI_CACHE_PREFIX, shop)
+    if cached is not None:
+        return VisitorIntentCounts(**cached)
     """Aggregate every visitor in the shop into hot/warm/cold tiers.
 
     This is the data source for the Starter-tier Visitor Intent card:
@@ -136,11 +198,13 @@ def visitor_intent_classification(
     ).mappings().one_or_none()
 
     if row is None:
-        return VisitorIntentCounts()
-
-    return VisitorIntentCounts(
-        total_visitors=int(row["total_visitors"] or 0),
-        hot_visitors=int(row["hot_visitors"] or 0),
-        warm_visitors=int(row["warm_visitors"] or 0),
-        cold_visitors=int(row["cold_visitors"] or 0),
-    )
+        result = VisitorIntentCounts()
+    else:
+        result = VisitorIntentCounts(
+            total_visitors=int(row["total_visitors"] or 0),
+            hot_visitors=int(row["hot_visitors"] or 0),
+            warm_visitors=int(row["warm_visitors"] or 0),
+            cold_visitors=int(row["cold_visitors"] or 0),
+        )
+    _cache_set(_VI_CACHE_PREFIX, shop, result.model_dump(), _VI_CACHE_TTL_S)
+    return result

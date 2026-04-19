@@ -27,6 +27,18 @@ _CACHE_TTL = 3 * 3600
 _CACHE_PREFIX = "hs:intent:v1"
 _SESSION_GAP_MS = 30 * 60 * 1000  # 30 min gap = new session
 
+# Maximum products returned per merchant per call (Pro sees up to this).
+# Kept at the top of the module so it's a real compile-time constant
+# rather than a forward-reference resolved at runtime — the previous
+# position at line 311 worked but was a static-analysis smell caught
+# by the 2026-04-19 mega audit.
+_MAX_PRODUCTS = 15
+
+# Tier cap for Starter/Lite — surfaces the most painful 3 leaks but
+# leaves the tail as Pro moat. If founder decides to loosen/tighten,
+# this is the single constant to tune.
+_LITE_PRODUCT_CAP = 3
+
 
 def _now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
@@ -216,6 +228,14 @@ def compute_abandoned_intent(db: Session, shop_domain: str, plan: str = "pro") -
 
     # Sort by opportunity: high views + high abandon = highest opportunity
     products.sort(key=lambda p: p["views_7d"] * (p["abandon_rate_pct"] / 100), reverse=True)
+
+    # Capture the TRUE leak count BEFORE we truncate. This is the
+    # honest "X products leaking intent this week" figure that the UI
+    # shows in the drawer — and that the Lite "showing top 3 of N"
+    # framing depends on. Previously this field was captured AFTER the
+    # `[:_MAX_PRODUCTS]` slice, silently capping its own honesty at 15.
+    # Audit 2026-04-19 caught this.
+    true_leak_count = len(products)
     products = products[:_MAX_PRODUCTS]
 
     # --- Session insights ---
@@ -255,7 +275,11 @@ def compute_abandoned_intent(db: Session, shop_domain: str, plan: str = "pro") -
     result = {
         "shop_domain": shop_domain,
         "products": products,
-        "total_products_count": len(products),
+        # true_leak_count is the pre-slice count (before _MAX_PRODUCTS
+        # and before the Lite top-3 filter). Used by the drawer's
+        # "Products leaking intent: N" stat to stay honest about scale
+        # even when the list is truncated.
+        "total_products_count": true_leak_count,
         "session_insights": session_insights,
         "headline": headline,
         "currency": currency,
@@ -273,12 +297,6 @@ def compute_abandoned_intent(db: Session, shop_domain: str, plan: str = "pro") -
     return _apply_plan_filter(result, plan)
 
 
-# Tier cap for Starter/Lite — surfaces the most painful 3 leaks but
-# leaves the tail as Pro moat. If founder decides to loosen/tighten,
-# this is the single constant to tune.
-_LITE_PRODUCT_CAP = 3
-
-
 def _apply_plan_filter(result: dict, plan: str) -> dict:
     """Reduce Abandoned Intent response fidelity for non-Pro tiers.
 
@@ -294,6 +312,3 @@ def _apply_plan_filter(result: dict, plan: str) -> dict:
     filtered["products"] = list(result.get("products", []))[:_LITE_PRODUCT_CAP]
     filtered["session_insights"] = {}
     return filtered
-
-
-_MAX_PRODUCTS = 15

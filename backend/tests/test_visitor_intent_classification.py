@@ -9,8 +9,32 @@ import time
 
 from sqlalchemy import text
 
-from app.api.visitor_scores import HOT_THRESHOLD, WARM_THRESHOLD
+from app.api.visitor_scores import HOT_THRESHOLD, WARM_THRESHOLD, _VI_CACHE_PREFIX
 from tests.conftest import SHOP_A, SHOP_B
+
+
+def _reset_shop_state(db, *shops: str) -> None:
+    """Delete events for the given shop(s) AND evict the Redis cache
+    entry for each. Phase 1.9.3 added a Redis cache in front of
+    /analytics/visitor-intent-classification. Redis lives outside the
+    SAVEPOINT the test suite uses, so without explicit eviction a
+    stale cached aggregate would leak across tests. Every test that
+    seeds events calls this as the very first step."""
+    import hashlib
+    for shop in shops:
+        db.execute(
+            text("DELETE FROM events WHERE shop_domain = :shop"),
+            {"shop": shop},
+        )
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            for shop in shops:
+                key = f"{_VI_CACHE_PREFIX}:{hashlib.md5(shop.encode()).hexdigest()[:16]}"
+                rc.delete(key)
+    except Exception:
+        pass  # redis missing in test env is fine; SQL still hits
 
 
 def _insert_visitor_event(
@@ -61,10 +85,7 @@ def test_classification_empty_shop_returns_zeros(client, merchant_a, auth_a, db)
     tiers — not a 500, not null. Uses the standard auth helpers."""
     # Ensure events table is clean for this shop (tests share the
     # prod DB under SAVEPOINT per feedback_test_hermeticity_prod_db.md)
-    db.execute(
-        text("DELETE FROM events WHERE shop_domain = :shop"),
-        {"shop": SHOP_A},
-    )
+    _reset_shop_state(db, SHOP_A)
     r = client.get(
         "/analytics/visitor-intent-classification",
         cookies=auth_a,
@@ -85,10 +106,7 @@ def test_classification_boundary_exactly_hot_threshold(
     """Score == HOT_THRESHOLD is classified as WARM (inclusive of the
     warm upper bound, exclusive of hot lower bound). The SQL uses
     `> hot_threshold` for hot → boundary is warm. Lock this contract."""
-    db.execute(
-        text("DELETE FROM events WHERE shop_domain = :shop"),
-        {"shop": SHOP_A},
-    )
+    _reset_shop_state(db, SHOP_A)
     # Score: 0*0.6 + 100*0.3 + 2*10 = 50.0 exactly
     # `> 50` is false, `> 20 AND <= 50` is true → warm
     _insert_visitor_event(
@@ -119,10 +137,7 @@ def test_classification_clear_hot_visitor(
     client, merchant_a, auth_a, db
 ):
     """A visitor with deep engagement + clicks is classified HOT."""
-    db.execute(
-        text("DELETE FROM events WHERE shop_domain = :shop"),
-        {"shop": SHOP_A},
-    )
+    _reset_shop_state(db, SHOP_A)
     # Score: 60*0.6 + 80*0.3 + 3*10 = 36 + 24 + 30 = 90 (> 50)
     _insert_visitor_event(
         db, shop=SHOP_A, visitor_id="v-hot-1",
@@ -147,10 +162,7 @@ def test_classification_clear_cold_visitor(
     client, merchant_a, auth_a, db
 ):
     """A visitor who barely engaged is classified COLD."""
-    db.execute(
-        text("DELETE FROM events WHERE shop_domain = :shop"),
-        {"shop": SHOP_A},
-    )
+    _reset_shop_state(db, SHOP_A)
     # Score: 10*0.6 + 20*0.3 + 0 = 6 + 6 = 12 (<= 20)
     _insert_visitor_event(
         db, shop=SHOP_A, visitor_id="v-cold-1",
@@ -172,10 +184,7 @@ def test_classification_counts_sum_to_total(
     """Every visitor lands in EXACTLY ONE tier — hot + warm + cold must
     equal total. No double-counting, no visitor vanishes. Brutal
     invariant: validates the SQL partition logic."""
-    db.execute(
-        text("DELETE FROM events WHERE shop_domain = :shop"),
-        {"shop": SHOP_A},
-    )
+    _reset_shop_state(db, SHOP_A)
     # Seed one visitor per tier
     _insert_visitor_event(
         db, shop=SHOP_A, visitor_id="vsum-hot",
@@ -219,10 +228,7 @@ def test_classification_tenant_isolation(
     """Shop B's visitors must not appear in Shop A's counts. Brutal
     tenant-isolation test — a leaky classifier would let one merchant
     see another's traffic."""
-    db.execute(
-        text("DELETE FROM events WHERE shop_domain IN (:a, :b)"),
-        {"a": SHOP_A, "b": SHOP_B},
-    )
+    _reset_shop_state(db, SHOP_A, SHOP_B)
     # Plant a hot visitor on Shop A only
     _insert_visitor_event(
         db, shop=SHOP_A, visitor_id="tenant-a-hot",

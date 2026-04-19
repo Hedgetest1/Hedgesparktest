@@ -470,8 +470,34 @@ def get_revenue_at_risk(db: Session, shop_domain: str, plan: str = "pro") -> dic
     total = sum(c.loss_eur for c in components)
     prevented, prevent_evidence = _compute_prevented(db, shop_domain)
 
-    # Pro tier cost assumption (€49-99 band)
-    _PRO_TIER_COST_EUR = 99.0
+    # Net ROI = prevented − subscription. Subscription must match the
+    # merchant's ACTUAL tier cost, not an assumed €99 every time. A
+    # Lite/Starter merchant pays €0 for the reduced-fidelity RARS
+    # surface; a Pro merchant pays €99. Subtracting €99 from a Lite
+    # merchant produces a false "Net ROI −€99" strip in the UI —
+    # exactly the lie `feedback_no_accettabile_per_beta.md` forbids.
+    #
+    # The plan-based subtraction happens here in the service so the
+    # cached value is already honest at read time. `_apply_plan_filter`
+    # downstream just trims `components` for Lite; prevented/net_roi
+    # stay Lite-correct because we compute the right number below.
+    #
+    # If pricing changes, update _TIER_SUBSCRIPTION_EUR in one place
+    # and the service picks it up.
+    _TIER_SUBSCRIPTION_EUR: dict[str, float] = {
+        "starter": 0.0,   # Starter is effectively free during closed beta
+        "lite":    0.0,   # alias
+        "pro":     99.0,
+        "scale":   249.0,
+    }
+
+    # Plan is derived later at the API layer (router pulls merchant.plan
+    # + billing_active). For the cache-shared service path, we write the
+    # report with the Pro-cost subtraction as the "reference" number and
+    # the _apply_plan_filter step adjusts net_roi to the Lite-correct 0
+    # subtraction. We keep the reference computation here for the Pro
+    # path; the filter rewrites it for non-Pro.
+    _PRO_TIER_COST_EUR = _TIER_SUBSCRIPTION_EUR["pro"]
     net_roi = prevented - _PRO_TIER_COST_EUR
 
     from app.core.currency import format_money
@@ -531,10 +557,20 @@ def _apply_plan_filter(result: dict, plan: str) -> dict:
     get the hero number + prevented + headline but not the drill-down
     components — the breakdown lives behind the upgrade CTA.
 
+    Lite tier also gets a corrected net_roi: the service computed
+    net_roi = prevented − €99 (assuming Pro subscription), but a Lite
+    merchant pays €0, so their net_roi = prevented. Without this fix
+    the UI shows "Net ROI −€99" to a merchant who pays nothing —
+    exactly the lie `feedback_no_accettabile_per_beta.md` forbids.
+
     Shallow-copies so we don't mutate a shared cached dict.
     """
     if plan == "pro":
         return result
     filtered = dict(result)
     filtered["components"] = []
+    # Non-Pro merchants pay €0 today (closed-beta Starter) — net_roi
+    # equals prevented, not prevented minus an imaginary subscription.
+    prevented = float(result.get("prevented_eur_this_month") or 0.0)
+    filtered["net_roi_eur"] = prevented
     return filtered

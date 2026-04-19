@@ -173,8 +173,13 @@ export function RevenueAtRiskHero({
         {data.headline || "All quiet across tracked signals."}
       </p>
 
-      {/* Prevented + ROI counter-punch */}
-      {(prevented > 0 || netRoi !== 0) && (
+      {/* Prevented + ROI counter-punch — only when prevented > 0.
+          Earlier versions rendered this strip whenever netRoi !== 0,
+          which ALWAYS evaluated true (netRoi = prevented − 99 for Pro,
+          = prevented for Lite) and shipped a misleading "Already
+          prevented €0" row on fresh shops. Rule: render the strip only
+          when there's real prevented value to show. */}
+      {prevented > 0 && (
         <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-emerald-400/15 bg-emerald-500/[0.04] px-4 py-3">
           <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300">
             Already prevented
@@ -182,15 +187,17 @@ export function RevenueAtRiskHero({
           <div className="text-[20px] font-extrabold tabular-nums text-emerald-400">
             {fmtMoney(prevented, data?.currency)}
           </div>
-          <div className="ml-auto text-[11px] text-slate-400">
-            Net ROI vs. subscription:
-            <span
-              className={`ml-1 font-bold tabular-nums ${netRoi >= 0 ? "text-emerald-400" : "text-rose-400"}`}
-            >
-              {netRoi >= 0 ? "+" : ""}
-              {fmtMoney(netRoi, data?.currency)}
-            </span>
-          </div>
+          {isProUser && (
+            <div className="ml-auto text-[11px] text-slate-400">
+              Net ROI vs. subscription:
+              <span
+                className={`ml-1 font-bold tabular-nums ${netRoi >= 0 ? "text-emerald-400" : "text-rose-400"}`}
+              >
+                {netRoi >= 0 ? "+" : ""}
+                {fmtMoney(netRoi, data?.currency)}
+              </span>
+            </div>
+          )}
         </div>
       )}
 
@@ -231,15 +238,18 @@ export function RevenueAtRiskHero({
         </div>
       )}
 
-      {/* Lite merchants see the hero number above + this upgrade bridge
-          where the 5-dim drill-down would be. Copy stays tight per §5:
-          one line, one value proposition, one CTA. */}
-      {hasRisk && !isProUser && (
+      {/* Lite upgrade bridge — rendered for every Lite merchant, not
+          only when hasRisk. A healthy shop (no losses detected) should
+          STILL know what Pro unlocks; otherwise the only path to Pro
+          disappears from the hero when things look good. Copy adapts:
+          if there's risk the merchant sees the drill-down pitch; if
+          healthy they see the preventive-deep-analytics pitch. */}
+      {!isProUser && (
         <div className="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-[#d4893a]/20 bg-[#d4893a]/[0.05] px-4 py-3">
           <span className="text-[13px] leading-snug text-slate-300">
-            Pro unlocks the 5-dimension breakdown: abandoned carts,
-            refund trend, nudge gap, peer benchmark, goal gap — each
-            with its action plan.
+            {hasRisk
+              ? "Pro unlocks the 5-dimension breakdown: abandoned carts, refund trend, nudge gap, peer benchmark, goal gap — each with its action plan."
+              : "Pro adds the diagnostic layer: causal lift holdouts, peer benchmarks, and the 5-dim drill-down that surfaces risk before it compounds."}
           </span>
           {onUpgrade && (
             <button
@@ -247,7 +257,7 @@ export function RevenueAtRiskHero({
               onClick={onUpgrade}
               className="ml-auto flex-shrink-0 rounded-lg bg-[#d4893a] px-4 py-1.5 text-[12px] font-bold uppercase tracking-[0.1em] text-white transition-colors hover:bg-[#e8a04e]"
             >
-              See breakdown on Pro
+              {hasRisk ? "See breakdown on Pro" : "See Pro"}
             </button>
           )}
         </div>

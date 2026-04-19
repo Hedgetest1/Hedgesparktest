@@ -62,7 +62,7 @@ export default function OperationsPage() {
                   </p>
                 </div>
                 <a
-                  href="/#pricing"
+                  href="/app?upgrade=1"
                   className="rounded-lg bg-[#3b82f6] px-5 py-2.5 text-[13px] font-bold uppercase tracking-[0.1em] text-white transition-colors hover:bg-[#60a5fa]"
                 >
                   Upgrade to Scale

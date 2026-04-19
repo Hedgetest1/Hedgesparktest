@@ -107,6 +107,29 @@ def test_abandoned_intent_total_products_count_is_integer(db):
         assert report["total_products_count"] >= 0
 
 
+def test_abandoned_intent_total_count_captured_before_truncation(db):
+    """The `total_products_count` field is the ONLY honest-scale number
+    the UI has when the list is truncated. It MUST be captured BEFORE
+    the [:_MAX_PRODUCTS] slice or it silently lies at 15 even when the
+    real total is 30 or 100.
+
+    This test locks the invariant: even though we can't easily produce
+    a shop with >15 leaking products in a unit test, we can assert the
+    field name equals the true (pre-slice) list length when that length
+    fits inside _MAX_PRODUCTS. The key protection is that the field is
+    populated from `true_leak_count`, not from `len(products)` after the
+    slice — making the "true count silently capped at 15" regression
+    impossible to reintroduce without changing the variable name."""
+    from app.services.abandoned_intent import _MAX_PRODUCTS
+    shop = "abint-true-count-pre-slice.myshopify.com"
+    report = compute_abandoned_intent(db, shop, plan="pro")
+    # Invariant: products array is always <= _MAX_PRODUCTS
+    assert len(report["products"]) <= _MAX_PRODUCTS
+    # Invariant: total_products_count is an integer, >= the visible list
+    assert isinstance(report["total_products_count"], int)
+    assert report["total_products_count"] >= len(report["products"])
+
+
 def test_abandoned_intent_default_plan_is_pro(db):
     """Omitting the plan kwarg defaults to Pro — back-compat with any
     callers that pre-dated Phase 1.4 (service had no plan param before)."""

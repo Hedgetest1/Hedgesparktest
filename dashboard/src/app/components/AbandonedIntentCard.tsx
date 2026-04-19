@@ -403,13 +403,23 @@ export function AbandonedIntentCard({
         <DrawerHowCalculated
           formula="For each product we take the 7-day view count, the 7-day cart count, and the 7-day purchase count. Abandon rate is 1 minus the fraction of viewers who end up buying. Products are only listed when they have enough views to be statistically real, so one-off clicks don't pollute the list."
           inputs={[
-            { label: "Products analyzed", value: `${data.products.length}` },
+            // Total leak count is captured backend-side BEFORE the
+            // Lite top-3 truncation, so it stays honest for both
+            // tiers. `data.products.length` would lie at 3 for a
+            // Lite merchant with 20 actual leaks.
+            { label: "Products leaking intent", value: `${totalLeakCount}` },
+            // Browse/cart drops are computed over the VISIBLE list
+            // (top-3 on Lite, top-15 on Pro). Label reflects that.
             {
-              label: "Browse → cart drops",
+              label: isTruncated
+                ? `Browse → cart drops (top ${data.products.length})`
+                : "Browse → cart drops",
               value: `${browseLeaks} product${browseLeaks === 1 ? "" : "s"}`,
             },
             {
-              label: "Cart → purchase drops",
+              label: isTruncated
+                ? `Cart → purchase drops (top ${data.products.length})`
+                : "Cart → purchase drops",
               value: `${cartLeaks} product${cartLeaks === 1 ? "" : "s"}`,
             },
           ]}

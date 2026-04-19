@@ -190,3 +190,34 @@ def test_rars_plan_filter_does_not_mutate_cached_dict(db):
     assert len(pro_second["components"]) == first_component_count, (
         "Lite read mutated shared cached dict — Pro components lost"
     )
+
+
+def test_rars_lite_net_roi_is_prevented_not_minus_99(db):
+    """Lite merchants pay €0 today — their net_roi must equal prevented,
+    NOT prevented minus an assumed €99 Pro subscription. Audit 2026-04-19
+    caught this: Lite dashboards were showing 'Net ROI −€99' as the
+    headline counter-punch, which reads as 'product is failing' to a
+    merchant who pays nothing. Rule: never invent costs for a tier that
+    doesn't pay them (feedback_no_accettabile_per_beta.md)."""
+    shop = "rars-lite-net-roi-probe.myshopify.com"
+    lite = get_revenue_at_risk(db, shop, plan="starter")
+    pro = get_revenue_at_risk(db, shop, plan="pro")
+    # Both read from the same underlying compute — prevented is identical
+    assert lite["prevented_eur_this_month"] == pro["prevented_eur_this_month"]
+    # Pro merchant: net_roi = prevented − 99 (Pro subscription cost)
+    assert abs(pro["net_roi_eur"] - (pro["prevented_eur_this_month"] - 99.0)) < 0.01
+    # Lite merchant: net_roi = prevented (no subscription subtracted)
+    assert abs(lite["net_roi_eur"] - lite["prevented_eur_this_month"]) < 0.01
+
+
+def test_rars_lite_with_zero_prevented_has_zero_net_roi(db):
+    """Specifically: when prevented=0 (the common case on a fresh shop),
+    Lite merchant sees net_roi=0, NOT net_roi=-99. The "Already prevented
+    €0 · Net ROI −€99" strip was the visible bug that triggered this
+    fix — locking it behind a regression test."""
+    shop = "rars-lite-zero-prevented.myshopify.com"
+    lite = get_revenue_at_risk(db, shop, plan="starter")
+    # Fresh shop has no prevented holdout data → prevented == 0
+    assert lite["prevented_eur_this_month"] == 0
+    # Therefore net_roi must also be 0, not −99
+    assert lite["net_roi_eur"] == 0
