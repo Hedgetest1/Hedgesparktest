@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { DemoPreviewCard } from "./components/DemoPreviewCard";
 import { reportFrontendError } from "./lib/error-reporter";
 
@@ -1309,7 +1309,11 @@ function Trust() {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   PRICING
+   PRICING — 3 tier cards + comparison table
+   Prices intentionally withheld during closed beta — per founder: we'll know
+   the real numbers only when beta ends. Tier composition comes from the
+   pricing matrix memo §2; comparison table shows a 15-row representative
+   sample of the full 32-feature split.
    ══════════════════════════════════════════════════════════════════════════════ */
 
 function Pricing() {
@@ -1319,110 +1323,262 @@ function Pricing() {
     </svg>
   );
 
+  // Comparison table — 15 representative features grouped by category.
+  // ✓ = included at that tier; — = not included. Full 32-feature split
+  // lives in the pricing matrix memo (project_brutal_feature_pricing_matrix).
+  const compare: Array<{ group: string; rows: Array<{ name: string; starter: boolean; pro: boolean; scale: boolean }> }> = [
+    {
+      group: "Foundation",
+      rows: [
+        { name: "First-party pixel tracker", starter: true, pro: true, scale: true },
+        { name: "Visitor intent scoring (hot / warm / cold)", starter: true, pro: true, scale: true },
+        { name: "Revenue-at-Risk Score (5-dimension)", starter: true, pro: true, scale: true },
+        { name: "Daily intelligence brief", starter: true, pro: true, scale: true },
+      ],
+    },
+    {
+      group: "Intelligence (Pro adds)",
+      rows: [
+        { name: "Multi-touch attribution (5-model)", starter: false, pro: true, scale: true },
+        { name: "LTV + cohort retention analysis", starter: false, pro: true, scale: true },
+        { name: "P&L intelligence per product", starter: false, pro: true, scale: true },
+        { name: "Causal lift (real A/B holdout)", starter: false, pro: true, scale: true },
+        { name: "Peer benchmarks (anonymous)", starter: false, pro: true, scale: true },
+        { name: "Session replay + scroll heatmaps", starter: false, pro: true, scale: true },
+        { name: "AI nudge composer + holdout proof", starter: false, pro: true, scale: true },
+        { name: "Night Shift Agent + Competitor Playbook", starter: false, pro: true, scale: true },
+      ],
+    },
+    {
+      group: "Scale (infrastructure adds)",
+      rows: [
+        { name: "Unified ads connector (Meta / Google / TikTok)", starter: false, pro: false, scale: true },
+        { name: "Multi-store groups + agency white-label", starter: false, pro: false, scale: true },
+        { name: "API access", starter: false, pro: false, scale: true },
+      ],
+    },
+  ];
+
+  const tiers = [
+    {
+      key: "starter",
+      label: "Starter",
+      tagline: "Foundation signals",
+      desc: "See the leak. Every product, every 5 minutes.",
+      features: [
+        "First-party pixel tracker",
+        "Visitor intent scoring (hot / warm / cold)",
+        "Revenue-at-Risk Score",
+        "Hot Products + Live Radar",
+        "Daily intelligence brief",
+      ],
+      accent: "#94a3b8",
+      recommended: false,
+    },
+    {
+      key: "pro",
+      label: "Pro",
+      tagline: "Find · Fix · Prove",
+      desc: "Everything in Starter, plus the fix-and-prove loop. Holdout proof on every action.",
+      features: [
+        "Everything in Starter",
+        "Attribution · LTV · P&L · forecast",
+        "Causal lift + peer benchmarks",
+        "Session replay + scroll heatmaps",
+        "AI nudge composer + holdout proof",
+        "Night Shift Agent + Competitor Playbook",
+        "Ask HS chatbot on your store data",
+      ],
+      accent: "#e8a04e",
+      recommended: true,
+    },
+    {
+      key: "scale",
+      label: "Scale",
+      tagline: "Agency + infrastructure",
+      desc: "For agencies, multi-store operators, and teams that need API + unified ads.",
+      features: [
+        "Everything in Pro",
+        "Unified ads connector (Meta / Google / TikTok)",
+        "Multi-store groups",
+        "Agency white-label",
+        "API access",
+      ],
+      accent: "#3b82f6",
+      recommended: false,
+    },
+  ];
+
   return (
     <section id="pricing" className="relative scroll-mt-20 py-20 sm:py-24">
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[#e8a04e]/[0.015] to-transparent" />
 
-      <div className="relative mx-auto max-w-[60rem] px-6 lg:px-10">
+      <div className="relative mx-auto max-w-[76rem] px-6 lg:px-10">
         <R className="text-center">
           <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#e8a04e]">Plans</span>
           <h2 className="mt-5 text-[2.25rem] font-extrabold leading-[1.1] text-[#e8a04e] sm:text-[3rem]">
-            Two plans. One product that actually works.
+            Three plans. One product.
           </h2>
-          <p className="mx-auto mt-5 max-w-xl text-[16px] leading-relaxed text-slate-400">
-            Lite tracks what&apos;s happening on your store. Pro tells you exactly what to fix and
-            proves every result against a real control group.
+          <p className="mx-auto mt-5 max-w-2xl text-[16px] leading-relaxed text-slate-400">
+            Starter gets you the foundation. Pro adds the intelligence and proof layer.
+            Scale adds agency, multi-store, and API. Pricing is locked at GA —
+            early-access stores get the launch rate carried forward.
           </p>
         </R>
 
-        <div className="mt-16 grid gap-6 sm:grid-cols-2">
-          {/* Lite */}
-          <R d={0.04}>
-            <div className="flex h-full flex-col rounded-3xl border border-white/[0.06] bg-[#0e0e1a] p-8 transition-all duration-300 hover:border-white/[0.1] sm:p-10">
-              <div className="text-[14px] font-bold uppercase tracking-[0.18em] text-slate-400">Lite</div>
-              <div className="mt-6">
-                <span className="text-[28px] font-extrabold tracking-tight text-white sm:text-[32px]">
-                  Operational clarity
-                </span>
-              </div>
-              <p className="mt-5 text-[17px] leading-relaxed text-slate-400">
-                See what&apos;s wrong with every product. In real time.
-              </p>
-              <ul className="mt-8 flex-1 space-y-4">
-                {[
-                  "Visitor intent scoring (hot / warm / cold)",
-                  "8 detection signals per product",
-                  "Scroll depth + dwell time tracking",
-                  "Daily intelligence brief",
-                  "Revenue-at-risk estimates",
-                  "Traffic source quality",
-                ].map((f) => (
-                  <li key={f} className="flex items-start gap-3 text-[16px] text-slate-300">
-                    {check("text-emerald-400/70")}
-                    {f}
-                  </li>
-                ))}
-              </ul>
-              <a
-                href={INSTALL_URL}
-                className="mt-10 block rounded-2xl border border-white/[0.08] bg-white/[0.03] py-4 text-center text-[16px] font-bold text-slate-200 transition-all duration-300 hover:border-white/[0.14] hover:bg-white/[0.06] hover:text-white"
-              >
-                Install on Shopify
-              </a>
-            </div>
-          </R>
-
-          {/* Pro */}
-          <R d={0.1}>
-            <div className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-[#e8a04e]/25 bg-gradient-to-b from-[#e8a04e]/[0.05] to-transparent p-8 transition-all duration-300 hover:border-[#e8a04e]/40 sm:p-10">
-              <div className="absolute -top-px left-8 rounded-b-xl bg-[#e8a04e] px-5 py-2 text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b1220] shadow-[0_4px_20px_-4px_rgba(232,160,78,0.5)]">
-                Recommended
-              </div>
-              <div className="text-[14px] font-bold uppercase tracking-[0.18em] text-[#e8a04e]">Pro</div>
-              <div className="mt-6">
-                <span className="text-[28px] font-extrabold tracking-tight text-white sm:text-[32px]">
-                  Structural intelligence
-                </span>
-              </div>
-              <p className="mt-5 text-[17px] leading-relaxed text-slate-400">
-                Find the problem. Fix it. Prove it worked. Watch it learn.
-              </p>
-              <p className="mt-2 text-[14px] text-slate-500">
-                Closed beta — final pricing announced before general launch.
-              </p>
-              <ul className="mt-8 flex-1 space-y-4">
-                {[
-                  "Everything in Lite",
-                  "Revenue at Risk Score (5-dimension breakdown)",
-                  "Revenue Autopsy per product",
-                  "Abandoned intent detection",
-                  "Automated nudge deployment + holdout proof",
-                  "Causal lift measurement (real A/B, not guesses)",
-                  "Cohort & LTV analysis",
-                  "P&L intelligence per product",
-                  "Scroll heatmaps per product",
-                  "Price sensitivity detection",
-                  "Peer benchmarks (anonymous)",
-                  "Revenue Genome — source/segment composition",
-                  "Goals, ROI tracking, risk forecast",
-                  "Team collaboration + webhook integrations",
-                  "Weekly email digest",
-                ].map((f) => (
-                  <li key={f} className={`flex items-start gap-3 text-[16px] ${f === "Everything in Lite" ? "text-slate-500" : "text-slate-200"}`}>
-                    {check("text-[#e8a04e]")}
-                    {f}
-                  </li>
-                ))}
-              </ul>
-              <a
-                href={INSTALL_URL}
-                className="hs-cta-gradient mt-10 block rounded-2xl py-4 text-center text-[16px] font-bold text-white transition-all duration-300 hover:shadow-[0_4px_40px_rgba(232,160,78,0.3)]"
-              >
-                Install on Shopify
-              </a>
-            </div>
-          </R>
+        {/* 3 tier cards */}
+        <div className="mt-16 grid gap-6 lg:grid-cols-3">
+          {tiers.map((t, i) => {
+            const isPro = t.key === "pro";
+            return (
+              <R key={t.key} d={i * 0.06} className="h-full">
+                <div
+                  className={`relative flex h-full flex-col overflow-hidden rounded-3xl border p-8 transition-all duration-300 sm:p-10 ${
+                    isPro
+                      ? "border-[#e8a04e]/30 bg-gradient-to-b from-[#e8a04e]/[0.05] to-transparent hover:border-[#e8a04e]/45"
+                      : "border-white/[0.06] bg-[#0e0e1a] hover:border-white/[0.12]"
+                  }`}
+                >
+                  {t.recommended && (
+                    <div className="absolute -top-px left-8 rounded-b-xl bg-[#e8a04e] px-5 py-2 text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b1220] shadow-[0_4px_20px_-4px_rgba(232,160,78,0.5)]">
+                      Recommended
+                    </div>
+                  )}
+                  <div
+                    className="text-[14px] font-bold uppercase tracking-[0.18em]"
+                    style={{ color: t.accent }}
+                  >
+                    {t.label}
+                  </div>
+                  <div className="mt-6">
+                    <span className="text-[26px] font-extrabold tracking-tight text-white sm:text-[30px]">
+                      {t.tagline}
+                    </span>
+                  </div>
+                  <p className="mt-4 text-[16px] leading-relaxed text-slate-400">
+                    {t.desc}
+                  </p>
+                  {/* Price placeholder — honest until billing ships at GA */}
+                  <div className="mt-6 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+                    <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                      Early access
+                    </div>
+                    <div className="mt-1 text-[14px] text-slate-300">
+                      Final pricing announced at GA. Install now to lock the launch rate.
+                    </div>
+                  </div>
+                  <ul className="mt-8 flex-1 space-y-3.5">
+                    {t.features.map((f) => {
+                      const isInherited = f.startsWith("Everything in");
+                      return (
+                        <li
+                          key={f}
+                          className={`flex items-start gap-3 text-[15px] ${
+                            isInherited ? "text-slate-500" : "text-slate-200"
+                          }`}
+                        >
+                          {check(isPro ? "text-[#e8a04e]" : "text-emerald-400/70")}
+                          {f}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <a
+                    href={INSTALL_URL}
+                    className={
+                      isPro
+                        ? "hs-cta-gradient mt-10 block rounded-2xl py-4 text-center text-[16px] font-bold text-white transition-all duration-300 hover:shadow-[0_4px_40px_rgba(232,160,78,0.3)]"
+                        : "mt-10 block rounded-2xl border border-white/[0.08] bg-white/[0.03] py-4 text-center text-[16px] font-bold text-slate-200 transition-all duration-300 hover:border-white/[0.14] hover:bg-white/[0.06] hover:text-white"
+                    }
+                  >
+                    Install on Shopify
+                  </a>
+                </div>
+              </R>
+            );
+          })}
         </div>
+
+        {/* Comparison table */}
+        <R d={0.2}>
+          <div className="mt-20">
+            <div className="mb-8 text-center">
+              <span className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#e8a04e]">
+                Compare plans
+              </span>
+              <h3 className="mt-3 text-[1.5rem] font-extrabold text-white sm:text-[1.75rem]">
+                What&apos;s in each plan.
+              </h3>
+            </div>
+            <div className="overflow-x-auto rounded-3xl border border-white/[0.06] bg-[#0a0a14]">
+              <table className="w-full min-w-[640px] border-collapse">
+                <thead>
+                  <tr className="border-b border-white/[0.06]">
+                    <th className="p-5 text-left text-[12px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                      Capability
+                    </th>
+                    <th className="p-5 text-center text-[13px] font-bold uppercase tracking-[0.12em] text-slate-300">
+                      Starter
+                    </th>
+                    <th className="p-5 text-center text-[13px] font-bold uppercase tracking-[0.12em] text-[#e8a04e]">
+                      Pro
+                    </th>
+                    <th className="p-5 text-center text-[13px] font-bold uppercase tracking-[0.12em] text-sky-300">
+                      Scale
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {compare.map((section) => (
+                    <Fragment key={section.group}>
+                      <tr className="bg-white/[0.02]">
+                        <td
+                          colSpan={4}
+                          className="px-5 py-3 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400"
+                        >
+                          {section.group}
+                        </td>
+                      </tr>
+                      {section.rows.map((r) => (
+                        <tr
+                          key={r.name}
+                          className="border-t border-white/[0.04] transition-colors hover:bg-white/[0.02]"
+                        >
+                          <td className="p-4 text-[14px] text-slate-300">{r.name}</td>
+                          <td className="p-4 text-center">
+                            {r.starter ? (
+                              <span className="text-[17px] text-emerald-400/80">✓</span>
+                            ) : (
+                              <span className="text-[14px] text-slate-600">—</span>
+                            )}
+                          </td>
+                          <td className="p-4 text-center">
+                            {r.pro ? (
+                              <span className="text-[17px] text-[#e8a04e]">✓</span>
+                            ) : (
+                              <span className="text-[14px] text-slate-600">—</span>
+                            )}
+                          </td>
+                          <td className="p-4 text-center">
+                            {r.scale ? (
+                              <span className="text-[17px] text-sky-400">✓</span>
+                            ) : (
+                              <span className="text-[14px] text-slate-600">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-5 text-center text-[13px] text-slate-500">
+              A shortlist of the 32 capabilities across all tiers. Every number in the dashboard is
+              computed from real data in your store.
+            </p>
+          </div>
+        </R>
       </div>
     </section>
   );
