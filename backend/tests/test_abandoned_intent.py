@@ -83,6 +83,30 @@ def test_abandoned_intent_plan_filter_does_not_mutate_cached_dict(db):
     )
 
 
+def test_abandoned_intent_total_products_count_preserved_for_lite(db):
+    """Lite truncates `products` to 3 but `total_products_count` stays
+    at the real count — this is what makes the Lite UI honest
+    ('showing top 3 of N' instead of lying about scale)."""
+    shop = "abint-total-count-probe.myshopify.com"
+    pro = compute_abandoned_intent(db, shop, plan="pro")
+    lite = compute_abandoned_intent(db, shop, plan="starter")
+    # Both tiers report the same true total
+    assert pro["total_products_count"] == lite["total_products_count"]
+    # Products list can differ in length but total_products_count must not
+    assert lite["total_products_count"] == len(pro["products"])
+    # Lite's products list is capped at 3
+    assert len(lite["products"]) <= 3
+
+
+def test_abandoned_intent_total_products_count_is_integer(db):
+    """Shape contract: total_products_count is always an int, never null."""
+    for plan in ("pro", "starter", "lite"):
+        report = compute_abandoned_intent(db, f"abint-count-shape-{plan}.myshopify.com", plan=plan)
+        assert "total_products_count" in report
+        assert isinstance(report["total_products_count"], int)
+        assert report["total_products_count"] >= 0
+
+
 def test_abandoned_intent_default_plan_is_pro(db):
     """Omitting the plan kwarg defaults to Pro — back-compat with any
     callers that pre-dated Phase 1.4 (service had no plan param before)."""

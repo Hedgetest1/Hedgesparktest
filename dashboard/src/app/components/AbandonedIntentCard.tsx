@@ -46,6 +46,10 @@ type SessionInsights = {
 
 type IntentData = {
   products: IntentProduct[];
+  // True count of leaking products — unaffected by Lite's top-3 cap.
+  // Used to render honest "showing N of M" copy when products list
+  // is truncated for Lite tier.
+  total_products_count: number;
   session_insights: SessionInsights;
   headline: string;
 };
@@ -112,6 +116,12 @@ export function AbandonedIntentCard({
   const si = data.session_insights;
   const topProducts = data.products.slice(0, 5);
   const worst = topProducts[0];
+  // True scale of the leak. Backend sends `total_products_count` even
+  // when the `products` array is truncated by the Lite tier filter.
+  // Fall back to products.length for defensive parity if the backend
+  // payload is older than Phase 1.4-bis.
+  const totalLeakCount = data.total_products_count ?? data.products.length;
+  const isTruncated = totalLeakCount > data.products.length;
   const browseLeaks = data.products.filter((p) => p.leak_point === "browse_to_cart").length;
   const cartLeaks = data.products.filter((p) => p.leak_point === "cart_to_purchase").length;
   const buyerDepth = si?.buyer_avg_products_viewed ?? 0;
@@ -197,14 +207,18 @@ export function AbandonedIntentCard({
           })}
         </div>
 
-        {/* Lite merchants see the top 3 products above — Pro unlocks
-            the remaining 7-12 products per week + buyer-vs-nonbuyer
-            session pattern + recommended next action. */}
+        {/* Lite merchants see top-3 above. The bridge copy is honest
+            about scale: if there are more than 3 leaks, say exactly
+            how many are hidden. If there are ≤3 (Lite sees everything
+            already), pitch Pro on the session-pattern layer instead. */}
         {!isProUser && (
           <div className="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-[#d4893a]/20 bg-[#d4893a]/[0.05] px-4 py-3">
             <span className="text-[12px] leading-snug text-slate-300">
-              Pro unlocks the full list of leaking products plus the
-              buyer-vs-non-buyer pattern that makes each leak fixable.
+              {isTruncated
+                ? `Pro unlocks the remaining ${
+                    totalLeakCount - data.products.length
+                  } leaking products plus the buyer-vs-non-buyer pattern that makes each leak fixable.`
+                : "Pro unlocks the buyer-vs-non-buyer session pattern that makes each leak fixable, plus the recommended next action per product."}
             </span>
             {onUpgrade && (
               <button
@@ -215,7 +229,7 @@ export function AbandonedIntentCard({
                 }}
                 className="ml-auto flex-shrink-0 rounded-lg bg-[#d4893a] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-white transition-colors hover:bg-[#e8a04e]"
               >
-                See full list on Pro
+                {isTruncated ? "See full list on Pro" : "See patterns on Pro"}
               </button>
             )}
           </div>
@@ -258,17 +272,26 @@ export function AbandonedIntentCard({
         <DrawerKeyValueList
           items={[
             {
+              // True count from backend — NOT the truncated list length.
+              // Lite merchants see the real scale of their leak ("20
+              // products leaking intent") even when their products list
+              // is capped at 3 for tier fidelity.
               label: "Products leaking intent",
-              value: `${data.products.length}`,
-              color: data.products.length > 0 ? "#f59e0b" : "#94a3b8",
+              value: `${totalLeakCount}`,
+              color: totalLeakCount > 0 ? "#f59e0b" : "#94a3b8",
             },
+            // Browse/cart stage counts are computed over the visible
+            // products list only. For Pro this is the full 15; for Lite
+            // this is the top 3. We label it accordingly so we don't
+            // claim "N cart-stage leaks total" when we're only looking
+            // at the truncated window.
             {
-              label: "Browse-stage leaks",
+              label: isTruncated ? "Browse-stage leaks (top 3)" : "Browse-stage leaks",
               value: `${browseLeaks}`,
               color: browseLeaks > 0 ? "#f59e0b" : "#94a3b8",
             },
             {
-              label: "Cart-stage leaks",
+              label: isTruncated ? "Cart-stage leaks (top 3)" : "Cart-stage leaks",
               value: `${cartLeaks}`,
               color: cartLeaks > 0 ? "#ef4444" : "#94a3b8",
             },
@@ -290,7 +313,13 @@ export function AbandonedIntentCard({
           ]}
         />
 
-        <DrawerSectionHeading>Top 5 leaks, in order</DrawerSectionHeading>
+        <DrawerSectionHeading>
+          {isTruncated
+            ? `Top ${topProducts.length} of ${totalLeakCount} leaks (upgrade to Pro for the full list)`
+            : topProducts.length === 1
+            ? "The leak"
+            : `Top ${topProducts.length} leaks, in order`}
+        </DrawerSectionHeading>
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
           {topProducts.map((p, i) => {
             const leakColor = LEAK_COLORS[p.leak_point] || "#94a3b8";

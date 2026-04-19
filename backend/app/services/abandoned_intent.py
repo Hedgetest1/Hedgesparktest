@@ -89,6 +89,7 @@ def compute_abandoned_intent(db: Session, shop_domain: str, plan: str = "pro") -
         empty = {
             "shop_domain": shop_domain,
             "products": [],
+            "total_products_count": 0,
             "session_insights": {},
             "headline": "Insufficient data for intent analysis.",
             "currency": currency,
@@ -254,6 +255,7 @@ def compute_abandoned_intent(db: Session, shop_domain: str, plan: str = "pro") -
     result = {
         "shop_domain": shop_domain,
         "products": products,
+        "total_products_count": len(products),
         "session_insights": session_insights,
         "headline": headline,
         "currency": currency,

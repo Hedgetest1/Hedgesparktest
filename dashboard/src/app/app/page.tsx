@@ -6,7 +6,7 @@ import { Sidebar } from "../components/Sidebar";
 import { TopBar, type TrialInfo } from "../components/TopBar";
 import { UpgradeModal } from "../components/UpgradeModal";
 import { MascotLoader } from "../components/MascotLoader";
-import { CardEmpty } from "../components/_CardStates";
+import { CardEmpty, CardSkeleton } from "../components/_CardStates";
 import { SignalCard, type OpportunitySignal } from "../components/SignalCard";
 import { BriefHero, type DailyBrief } from "../components/BriefHero";
 import { RevenueWindowPro, RevenueWindowLite } from "../components/RevenueWindowBanner";
@@ -2673,12 +2673,19 @@ function PageInner() {
                   during cold start so Lite/Starter merchants see the
                   dashboard slot (not a silent gap). TrafficSourceBox
                   companion stays visible with its own empty-state
-                  handling. */}
+                  handling.
+                  Phase 1.4-bis: gate the empty-state on `!loading` so
+                  SSR/initial-render doesn't flash the "Warming up" copy
+                  to Pro merchants with real data during the fetch
+                  window. During load → CardSkeleton. After load → real
+                  state (grid or CardEmpty). */}
               <SectionErrorBoundary name="Hot Products">
               <section>
                 <SectionHeading eyebrow="Hot Products" title="Where buyers are active" />
 
-                {topProducts.length > 0 ? (
+                {loading ? (
+                  <CardSkeleton label="Loading hot products" />
+                ) : topProducts.length > 0 ? (
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {topProducts.slice(0, 3).map((product, i) => (
                       <div

@@ -29,6 +29,11 @@ router = APIRouter(tags=["abandoned_intent"])
 class AbandonedIntentResponse(BaseModel):
     shop_domain: str
     products: list[dict[str, Any]] = Field(default_factory=list)
+    # True count of leaking products in the real data. Unlike
+    # len(products), this is NOT truncated by the plan filter — so
+    # Lite UIs can honestly say "showing 3 of N" instead of lying
+    # about the scale of the leak.
+    total_products_count: int = 0
     session_insights: dict[str, Any] = Field(default_factory=dict)
     headline: str
     # Shop's native currency — loss/price fields in products are native.
