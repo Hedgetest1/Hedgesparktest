@@ -53,6 +53,7 @@ ALLOWLIST: set[str] = {
     "services/ops_triage.py",             # Ops-scope triage
     "services/on_alert_responder.py",     # Operator-scope alert triage — cross-shop by design
     "api/public_status.py",               # Public status endpoint (no shop)
+    "api/public_transparency.py",         # Public trust-signal page — aggregate counts only, no merchant scope
     "api/public_roi_counter.py",          # Already iterates merchants explicitly
     "services/monthly_evolution_audit.py",
     # Worker-scope: scans all tenants before per-tenant dispatch

@@ -160,6 +160,7 @@ from app.api.ads import router as ads_router
 from app.api.anomaly_fusion import router as anomaly_fusion_router
 from app.api.causal_explainer import router as causal_explainer_router
 from app.api.public_status import router as public_status_router
+from app.api.public_transparency import router as public_transparency_router
 from app.api.merchant_groups import router as merchant_groups_router
 from app.api.agency import router as agency_router
 from app.api.storefront_preview import router as storefront_preview_router
@@ -596,6 +597,7 @@ app.include_router(ads_router)
 app.include_router(anomaly_fusion_router)
 app.include_router(causal_explainer_router)
 app.include_router(public_status_router)
+app.include_router(public_transparency_router)
 app.include_router(merchant_groups_router)
 app.include_router(agency_router)
 app.include_router(storefront_preview_router)
