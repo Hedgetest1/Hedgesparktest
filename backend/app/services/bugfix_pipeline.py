@@ -115,6 +115,11 @@ _PIPELINE_INTERNAL_ALERT_TYPES: tuple[str, ...] = (
     # this diagnostic also create an LLM candidate would duplicate work
     # on a non-code problem.
     "perf_network_layer_drift",
+    # llm_realmodel_drift is a behavioral-drift observation against the
+    # primary LLM provider. Remedy is either a prompt adjustment or a
+    # provider-config change (both human decisions); there is no code
+    # patch an LLM could author that would "fix" model drift.
+    "llm_realmodel_drift",
 )
 
 

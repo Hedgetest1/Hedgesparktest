@@ -475,6 +475,22 @@ def _run_cycle_inner() -> None:
             db.rollback()
             log(f"llm_benchmark_monitor error (non-fatal): {exc}")
 
+        # ------------------------------------------------------------------ #
+        # B2 real-model LLM drift corpus — Sunday 06:00-07:00 UTC, weekly.    #
+        # Runs a fixed prompt corpus against the primary provider to detect  #
+        # behavioral drift (JSON-validity, refusal-rate, severity-vocab).    #
+        # ~6 API calls/week, €0.30-0.60/mo. Founder-approved 2026-04-19.    #
+        # ------------------------------------------------------------------ #
+        try:
+            from app.services.llm_realmodel_drift import run_weekly_check as _rm_drift_check
+            drift_result = _rm_drift_check(db)
+            if drift_result.get("ran"):
+                db.commit()
+                log(f"llm_realmodel_drift: {drift_result}")
+        except Exception as exc:
+            db.rollback()
+            log(f"llm_realmodel_drift error (non-fatal): {exc}")
+
         state = _load_state(db)
         last_watermark = state.last_watermark or 0
         log(f"last_watermark={last_watermark}")
