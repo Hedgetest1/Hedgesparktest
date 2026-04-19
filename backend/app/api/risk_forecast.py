@@ -7,14 +7,18 @@ history we accumulate each time RARS is computed.
 """
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.core.deps import require_pro_session
 
 router = APIRouter(tags=["risk_forecast"])
+
+
+class RiskHistoryPoint(BaseModel):
+    """One observation in the rolling RARS history."""
+    ts: str
+    total_at_risk_eur: float
 
 
 class RiskForecastResponse(BaseModel):
@@ -35,7 +39,7 @@ class RiskForecastResponse(BaseModel):
     points_used: int | None = None
     slope_per_day: float | None = None
     headline: str | None = None
-    history: list[dict[str, Any]] = Field(default_factory=list)
+    history: list[RiskHistoryPoint] = Field(default_factory=list)
     detail: str | None = None
 
 

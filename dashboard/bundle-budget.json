@@ -1,15 +1,22 @@
 {
-  "_comment": "Tier 6.4 bundle size budget — headroom sized ~10% over 2026-04-15 baseline. Update intentionally; regression = commit refused.",
+  "_comment": "Tier 6.4 bundle size budget — headroom sized ~5-10% over the accepted baseline. Update intentionally; regression = commit refused.",
   "_baseline_2026_04_15": {
     "largest_chunk_bytes": 669796,
     "root_main_total_bytes": 455826,
     "chunks_total_bytes": 1463312,
     "chunks_count": 20
   },
+  "_baseline_2026_04_19_phase_1_8_3": {
+    "_note": "Phase 1.8.3.1-3 added three Intelligence-floor cards (RecommendationImpact, ChurnForecast, RiskForecast) with inline SVG chart primitives. Total chunks grew +143 KB over the 2026-04-15 baseline; budget raised from 1600000 to 1700000 to keep ~5% headroom without blocking the next Phase 1.8.3 cards.",
+    "largest_chunk_bytes": 655095,
+    "root_main_total_bytes": 455826,
+    "chunks_total_bytes": 1606972,
+    "chunks_count": 31
+  },
   "budgets": {
     "largest_chunk_bytes": 720000,
     "root_main_total_bytes": 520000,
-    "chunks_total_bytes": 1600000,
+    "chunks_total_bytes": 1700000,
     "chunks_count_max": 40
   }
 }

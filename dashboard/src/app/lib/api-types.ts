@@ -9710,11 +9710,19 @@ export interface components {
             /** Headline */
             headline?: string | null;
             /** History */
-            history?: {
-                [key: string]: unknown;
-            }[];
+            history?: components["schemas"]["RiskHistoryPoint"][];
             /** Detail */
             detail?: string | null;
+        };
+        /**
+         * RiskHistoryPoint
+         * @description One observation in the rolling RARS history.
+         */
+        RiskHistoryPoint: {
+            /** Ts */
+            ts: string;
+            /** Total At Risk Eur */
+            total_at_risk_eur: number;
         };
         /** RuleCreate */
         RuleCreate: {

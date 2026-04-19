@@ -16,6 +16,7 @@
 import { FloorLayout } from "../../components/FloorLayout";
 import { RecommendationImpactCard } from "../../components/RecommendationImpactCard";
 import { ChurnForecastCard } from "../../components/ChurnForecastCard";
+import { RiskForecastCard } from "../../components/RiskForecastCard";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
 
@@ -45,6 +46,7 @@ const FEATURES: { name: string; desc: string }[] = [
 const MIGRATED_CARDS = new Set<string>([
   "Recommendation Impact",
   "Churn Forecast",
+  "Risk Forecast",
 ]);
 
 export default function IntelligencePage() {
@@ -103,6 +105,11 @@ export default function IntelligencePage() {
                   isProUser={isProUser}
                 />
                 <ChurnForecastCard
+                  apiBase={API_BASE}
+                  shop={shop}
+                  isProUser={isProUser}
+                />
+                <RiskForecastCard
                   apiBase={API_BASE}
                   shop={shop}
                   isProUser={isProUser}
