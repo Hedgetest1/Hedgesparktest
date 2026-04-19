@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { formatMoneyCompact } from "../app/_lib/formatters";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://api.hedgesparkhq.com";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.hedgesparkhq.com";
 const STORAGE_KEY = "hs_agency_email";
 
 type ClientRow = {

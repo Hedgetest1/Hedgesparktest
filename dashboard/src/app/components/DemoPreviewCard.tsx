@@ -15,7 +15,7 @@
 import { useState } from "react";
 import { t } from "../lib/i18n";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://api.hedgesparkhq.com";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.hedgesparkhq.com";
 
 type RoiEstimate = {
   avg_price_eur: number;

@@ -267,6 +267,21 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2o-bis. Dashboard env-var drift audit. Enforces the single canonical
+# name NEXT_PUBLIC_API_BASE_URL across dashboard/src. Catches the bug
+# class introduced on 2026-04-17/18/19 where four recently-added files
+# used NEXT_PUBLIC_API_BASE (no `_URL`) with a hardcoded default that
+# happens to equal the prod URL — silent drift in every non-prod env.
+# ---------------------------------------------------------------------------
+step "Dashboard API-base env-var audit (audit_dashboard_api_base_env.py)"
+if "$PY" "$BACKEND/scripts/audit_dashboard_api_base_env.py" > /tmp/preflight_api_base_env.log 2>&1; then
+    ok "dashboard uses NEXT_PUBLIC_API_BASE_URL everywhere"
+else
+    bad "dashboard env-var drift — see /tmp/preflight_api_base_env.log"
+    tail -20 /tmp/preflight_api_base_env.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2p. Scheduled-jobs map sync. Verifies every `def _run_*` helper in
 # agent_worker.py is documented in docs/reality_scheduled_jobs.md and
 # vice-versa. Born 2026-04-18 after the B1 incident — the reality map

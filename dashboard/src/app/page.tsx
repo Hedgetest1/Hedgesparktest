@@ -1398,6 +1398,128 @@ function GetStarted() {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
+   TRUST RECEIPTS — live numbers before pricing
+   Three signals from /public/transparency: self-healing, holdout-measured
+   outcomes, and preflight guards. Every value is pulled live — no hardcoded
+   fallback, because a fake number would be the worst possible "receipt".
+   On fetch failure the cards render as skeletons and the section still
+   leads the visitor to /transparency for the full set.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+type TrustReceiptsData = {
+  self_healing: { autonomous_fixes_30d: number; last_fix_at: string | null };
+  holdout_proof: {
+    actions_measured_30d: number;
+    actions_success_30d: number;
+    actions_no_effect_30d: number;
+  };
+  preflight: { audit_count: number };
+};
+
+function useTrustReceipts() {
+  const [data, setData] = useState<TrustReceiptsData | null>(null);
+  useEffect(() => {
+    const API = process.env.NEXT_PUBLIC_API_BASE_URL || "";
+    fetch(`${API}/public/transparency`, { signal: AbortSignal.timeout(6000) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: TrustReceiptsData | null) => { if (d) setData(d); })
+      .catch((err: unknown) => {
+        const e = err as { name?: string; message?: string } | null;
+        reportFrontendError({
+          component: "useTrustReceipts",
+          error_type: e?.name ?? "FetchError",
+          message: e?.message ?? "Failed to fetch /public/transparency",
+          severity: "info",
+        });
+      });
+  }, []);
+  return data;
+}
+
+function TrustReceipts() {
+  const d = useTrustReceipts();
+
+  const cards = d
+    ? [
+        {
+          label: "Autonomous fixes · 30 days",
+          value: d.self_healing.autonomous_fixes_30d,
+          hint: "Incidents the self-healing pipeline caught before a merchant noticed.",
+        },
+        {
+          label: "Actions measured · 30 days",
+          value: d.holdout_proof.actions_measured_30d,
+          hint: `${d.holdout_proof.actions_success_30d} improved a merchant metric. ${d.holdout_proof.actions_no_effect_30d} didn't. We publish both.`,
+        },
+        {
+          label: "Structural audits per commit",
+          value: d.preflight.audit_count,
+          hint: "Every commit — including mine — must pass all of them, or the deploy blocks.",
+        },
+      ]
+    : null;
+
+  return (
+    <section className="relative border-t border-white/[0.04] py-20 sm:py-24">
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[#e8a04e]/[0.015] to-transparent" />
+
+      <div className="relative mx-auto max-w-[72rem] px-6 lg:px-10">
+        <R className="text-center">
+          <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#e8a04e]">
+            Receipts
+          </span>
+          <h2 className="mt-5 text-[2.25rem] font-extrabold leading-[1.1] text-[#e8a04e] sm:text-[3rem]">
+            The numbers are real.
+            <br />
+            So are the receipts.
+          </h2>
+          <p className="mx-auto mt-5 max-w-xl text-[16px] leading-relaxed text-slate-400">
+            Three live numbers from the last 30 days. Every one reproducible from an
+            append-only audit log inside the product.
+          </p>
+        </R>
+
+        <div className="mt-16 grid gap-6 sm:grid-cols-3">
+          {cards
+            ? cards.map((c, i) => (
+                <R key={c.label} d={i * 0.08} className="h-full">
+                  <div className="flex h-full flex-col rounded-3xl border border-[#e8a04e]/25 bg-gradient-to-br from-[#e8a04e]/[0.05] via-transparent to-[#7c3aed]/[0.04] p-7 transition-all duration-300 hover:border-[#e8a04e]/40">
+                    <div className="text-[12px] font-bold uppercase tracking-[0.16em] text-[#e8a04e]">
+                      {c.label}
+                    </div>
+                    <div className="mt-5 text-[52px] font-extrabold leading-none tracking-tight tabular-nums text-white sm:text-[60px]">
+                      {c.value.toLocaleString()}
+                    </div>
+                    <p className="mt-5 flex-1 text-[14px] leading-[1.6] text-slate-400">
+                      {c.hint}
+                    </p>
+                  </div>
+                </R>
+              ))
+            : [0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="h-[260px] animate-pulse rounded-3xl border border-white/[0.06] bg-white/[0.02]"
+                />
+              ))}
+        </div>
+
+        <R d={0.3}>
+          <div className="mt-12 text-center">
+            <a
+              href="/transparency"
+              className="inline-flex items-center gap-2 rounded-full border border-[#e8a04e]/30 bg-[#e8a04e]/5 px-6 py-3 text-[15px] font-bold text-[#e8a04e] transition-all duration-300 hover:border-[#e8a04e]/50 hover:bg-[#e8a04e]/10"
+            >
+              See every receipt <span aria-hidden>→</span>
+            </a>
+          </div>
+        </R>
+      </div>
+    </section>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
    PRICING
    ══════════════════════════════════════════════════════════════════════════════ */
 
@@ -1792,6 +1914,7 @@ export default function LandingPage() {
       <RealExample />
       <Learns />
       <GetStarted />
+      <TrustReceipts />
       <Pricing />
       <FAQ />
       <FinalCTA />
