@@ -17,6 +17,7 @@ import { FloorLayout } from "../../components/FloorLayout";
 import { RecommendationImpactCard } from "../../components/RecommendationImpactCard";
 import { ChurnForecastCard } from "../../components/ChurnForecastCard";
 import { RiskForecastCard } from "../../components/RiskForecastCard";
+import { CohortSummaryCard } from "../../components/CohortSummaryCard";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
 
@@ -25,6 +26,7 @@ const FEATURES: { name: string; desc: string }[] = [
   { name: "Causal Lift", desc: "Real A/B holdout measurement. Causation with statistical confidence, not correlation." },
   { name: "Recommendation Impact", desc: "Every action you deployed, measured pre/post against its own revenue history." },
   { name: "Churn Forecast", desc: "Forward-looking projection of customers about to go silent, with confidence band." },
+  { name: "Cohort Summary", desc: "Week-1 and week-4 retention averaged across every recent acquisition cohort." },
   { name: "Cohort & LTV", desc: "Customer lifetime value by acquisition date, source, device, and behavior." },
   { name: "P&L Intelligence", desc: "Profitability per product and channel. Sync costs from Shopify or set them manually." },
   { name: "Peer Benchmarks", desc: "Anonymous comparison against shops in your revenue band." },
@@ -47,6 +49,7 @@ const MIGRATED_CARDS = new Set<string>([
   "Recommendation Impact",
   "Churn Forecast",
   "Risk Forecast",
+  "Cohort Summary",
 ]);
 
 export default function IntelligencePage() {
@@ -110,6 +113,11 @@ export default function IntelligencePage() {
                   isProUser={isProUser}
                 />
                 <RiskForecastCard
+                  apiBase={API_BASE}
+                  shop={shop}
+                  isProUser={isProUser}
+                />
+                <CohortSummaryCard
                   apiBase={API_BASE}
                   shop={shop}
                   isProUser={isProUser}
