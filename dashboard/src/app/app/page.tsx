@@ -1367,12 +1367,12 @@ function PageInner() {
   const revenueWindows       = data?.revenue_windows ?? null;
 
   // ---------------------------------------------------------------------------
-  // Feature gating — derived from plan tier, replace with billing check later
+  // Feature gating — derived from plan tier (from /merchant/plan response,
+  // lines 688 / 734 above). tier="pro" iff plan === "pro" AND billing_active.
+  // Any other state (plan="starter", billing_active=false, or fetch failure)
+  // → tier="lite" → non-Pro UI branches.
   // ---------------------------------------------------------------------------
-  // ⚠️ DEV OVERRIDE — founder is reviewing all dashboard sections during build.
-  // Remove the `|| true` before production / before re-enabling Lite/Pro gating.
-  // Ref: founder request 2026-04-10 "sblocca tutto, devo vedere tutto".
-  const isProUser = tier === "pro" || true;
+  const isProUser = tier === "pro";
 
   // ---------------------------------------------------------------------------
   // Signal dedup + split: early (low confidence) vs strong (high confidence)
