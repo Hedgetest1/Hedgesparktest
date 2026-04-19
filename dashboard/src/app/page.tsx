@@ -964,10 +964,13 @@ function HowItWorks() {
         <R className="text-center">
           <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#a855f7]">How it works</span>
           <h2 className="mt-5 text-[2.25rem] font-extrabold leading-[1.1] text-white sm:text-[3rem] lg:text-[3.5rem]">
-            Four steps. Fully automatic.
+            Install in 30 seconds.
+            <br />
+            <span style={{ color: "#e8a04e" }}>Then four steps run on their own.</span>
           </h2>
-          <p className="mx-auto mt-6 max-w-[36rem] text-[18px] leading-[1.7] text-slate-400">
-            Most tools stop at step one. HedgeSpark runs the full loop — and it gets better every time.
+          <p className="mx-auto mt-6 max-w-[38rem] text-[18px] leading-[1.7] text-slate-400">
+            One click on Shopify. No code, no theme edits. After that, HedgeSpark runs the full loop —
+            and each cycle makes the next one sharper.
           </p>
         </R>
 
@@ -998,6 +1001,22 @@ function HowItWorks() {
             </R>
           ))}
         </div>
+
+        {/* Install CTA — absorbs former GetStarted section */}
+        <R d={0.3}>
+          <div className="mt-14 text-center">
+            <a
+              href={INSTALL_URL}
+              className="hs-cta-gradient group relative inline-block rounded-2xl px-12 py-4 text-[17px] font-bold text-white transition-all duration-300 hover:shadow-[0_4px_60px_rgba(212,137,58,0.4)]"
+            >
+              <span className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-b from-white/[0.08] to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+              <span className="relative">Install on Shopify</span>
+            </a>
+            <p className="mt-4 text-[14px] text-slate-500">
+              Tracking starts on the next visitor. First insights in about five minutes.
+            </p>
+          </div>
+        </R>
       </div>
     </section>
   );
@@ -1140,90 +1159,6 @@ function RealExample() {
             </div>
           </div>
         </R>
-      </div>
-    </section>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════════════════════
-   GET STARTED — 3 steps
-   ══════════════════════════════════════════════════════════════════════════════ */
-
-function GetStarted() {
-  // Brand gradient progression: purple → magenta → orange.
-  // Slightly desaturated from the pure brand stops to feel premium, not neon.
-  const steps = [
-    { n: "1", t: "Install from Shopify", d: "One click. No code. No theme edits. Tracking starts on the next visitor.", time: "30 seconds", color: "#8b5cf6" },
-    { n: "2", t: "Signals start firing", d: "Products get scored by how well they convert. Problems surface automatically.", time: "~5 minutes", color: "#d946ef" },
-    { n: "3", t: "Fix. Prove. Repeat.", d: "Every signal carries a fix. Every outcome makes the model sharper.", time: "Ongoing", color: "#fb923c" },
-  ];
-
-  return (
-    <section className="relative py-20 sm:py-24">
-      {/* Subtle brand wash */}
-      <div
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(ellipse 60% 50% at 50% 40%, rgba(217, 70, 239, 0.018) 0%, transparent 70%)",
-        }}
-      />
-
-      <div className="relative mx-auto max-w-[72rem] px-6 lg:px-10">
-        <R className="text-center">
-          <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-[#d4893a]">Get started</span>
-          <h2 className="mt-5 text-[2.25rem] font-extrabold leading-[1.1] text-white sm:text-[3rem]">
-            30 seconds to install.
-            <br />
-            <span style={{ color: "#e8a04e" }}>5 minutes to your first insight.</span>
-          </h2>
-        </R>
-
-        <div className="mt-16 grid items-stretch gap-8 sm:grid-cols-3">
-          {steps.map((s, i) => {
-            const next = steps[i + 1];
-            return (
-              <R key={s.n} d={i * 0.08} className="h-full">
-                <div className="relative flex h-full flex-col items-center text-center">
-                  {/* Connector line — full row, fades in/out at the badge.
-                      Last step fades to transparent (no next color). */}
-                  <div
-                    className="absolute right-0 top-[2.5rem] hidden h-px w-full sm:block"
-                    style={{
-                      background: next
-                        ? `linear-gradient(to right, ${alpha(s.color, 0)}, ${alpha(s.color, 0.3)}, ${alpha(next.color, 0.3)}, ${alpha(next.color, 0)})`
-                        : `linear-gradient(to right, ${alpha(s.color, 0)}, ${alpha(s.color, 0.3)}, ${alpha(s.color, 0)})`,
-                    }}
-                  />
-                  {/* Number badge */}
-                  <div
-                    className="relative z-10 flex h-20 w-20 items-center justify-center rounded-3xl border-2 text-[28px] font-extrabold transition-transform duration-300 hover:scale-105"
-                    style={{
-                      borderColor: alpha(s.color, 0.28),
-                      background: `linear-gradient(135deg, ${alpha(s.color, 0.12)}, ${alpha(next?.color ?? s.color, 0.025)})`,
-                      color: s.color,
-                      boxShadow: `0 0 24px -6px ${alpha(s.color, 0.2)}`,
-                    }}
-                  >
-                    {s.n}
-                  </div>
-                  <h3 className="mt-7 text-[19px] font-bold text-white">{s.t}</h3>
-                  <p className="mt-3 flex-1 text-[16px] leading-[1.65] text-slate-400">{s.d}</p>
-                  <span
-                    className="mt-5 rounded-full border px-4 py-1.5 text-[13px] font-bold"
-                    style={{
-                      borderColor: alpha(s.color, 0.22),
-                      backgroundColor: alpha(s.color, 0.06),
-                      color: s.color,
-                    }}
-                  >
-                    {s.time}
-                  </span>
-                </div>
-              </R>
-            );
-          })}
-        </div>
       </div>
     </section>
   );
@@ -1629,7 +1564,6 @@ export default function LandingPage() {
       <ProStack />
       <HowItWorks />
       <RealExample />
-      <GetStarted />
       <Trust />
       <Pricing />
       <FAQ />
