@@ -17,8 +17,16 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+_FIXED_DATE_STR = "2026-04-18"
+
+
 def _fixed_rome_9am():
-    """Return a Rome-9am datetime. We only care that `.hour >= 8`."""
+    """Return a Rome-9am datetime. We only care that `.hour >= 8`.
+    Paired with _FIXED_DATE_STR so the MockDB `last_date` and the
+    function-internal `today = _today_rome()` agree regardless of
+    what actual wall-clock day the test runs on (otherwise MockDB
+    would embed today's real date while `_today_rome()` sees the
+    mocked 2026-04-18, making the 'already sent' branch miss)."""
     from datetime import datetime
     from zoneinfo import ZoneInfo
     return datetime(2026, 4, 18, 9, 0, 0, tzinfo=ZoneInfo("Europe/Rome"))
@@ -120,9 +128,8 @@ def test_already_sent_today_does_not_write_audit_log(audit_writes):
     """When last_digest_date is already today, no audit row is written
     (we already recorded the decision on the first cycle of the day)."""
     from app.workers import agent_worker
-    from app.workers.agent_worker import _today_rome
 
-    db = _MockDB(last_date=_today_rome())
+    db = _MockDB(last_date=_FIXED_DATE_STR)
     with patch.object(agent_worker, "SessionLocal", return_value=db), \
          patch("app.services.telegram_agent.is_configured", return_value=True), \
          patch("app.workers.agent_worker.datetime") as mock_dt:
