@@ -1417,6 +1417,8 @@ function Pricing() {
         "Visitor intent scoring (hot / warm / cold)",
         "Revenue-at-Risk Score",
         "Hot Products + Live Radar",
+        "Abandoned intent — where visitors slip away",
+        "Live opportunities — pages leaking right now",
         "Daily intelligence brief",
       ],
       accent: "#c4b5fd",
