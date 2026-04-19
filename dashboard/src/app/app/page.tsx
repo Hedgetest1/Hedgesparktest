@@ -73,6 +73,7 @@ import { CompareProductsCard } from "../components/CompareProductsCard";
 // R-series killer features (2026-04-12)
 import { RevenueAutopsyCard } from "../components/RevenueAutopsyCard";
 import { AbandonedIntentCard } from "../components/AbandonedIntentCard";
+import { LiveOpportunitiesCard } from "../components/LiveOpportunitiesCard";
 import { PriceSensitivityCard } from "../components/PriceSensitivityCard";
 import { CausalLiftCard } from "../components/CausalLiftCard";
 import { RevenueGenomeCard } from "../components/RevenueGenomeCard";
@@ -2485,6 +2486,16 @@ function PageInner() {
                 isProUser={isProUser}
                 onUpgrade={() => setUpgradeModalOpen(true)}
               />
+
+              {/* ═══ LIVE OPPORTUNITIES — Starter-accessible (Phase 1.5)
+                  Backend `/analytics/live-opportunities` is Lite-accessible
+                  by design (no plan gating). Same data to Pro and Lite —
+                  the moat isn't the data, it's the AI nudge composer
+                  that auto-deploys the recommended action (Pro moat).
+                  Lite merchants read recommended_action and act manually. ═══ */}
+              <SectionErrorBoundary name="Live Opportunities">
+                <LiveOpportunitiesCard apiBase={API_BASE} shop={shop} />
+              </SectionErrorBoundary>
 
               {/* ═══ DEEP INTELLIGENCE GRID — Pro-only moat features ═══ */}
               {isProUser && (
