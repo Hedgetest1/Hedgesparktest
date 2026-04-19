@@ -1,37 +1,44 @@
-"""on_alert_responder.py — FRAMEWORK ONLY (2026-04-18).
+"""on_alert_responder.py — LIVE (2026-04-19).
 
 Closes the last capability gap in the autonomous-CTO rubric: when a
-critical ops_alert lands, Claude should triage it immediately rather
-than waiting for the 08:00 Rome daily brief.
+critical ops_alert lands, Claude triages it immediately rather than
+waiting for the 08:00 Rome daily brief.
 
-**Current state: FRAMEWORK ONLY. No LLM call is made.** The poll loop
-reads alerts, builds a context packet, and logs "would trigger LLM
-with N chars of context". The actual LLM call is deferred until the
-founder explicitly approves the money-spend scope
-(~€1-3/mo estimated at current alert volume).
+**Current state: LIVE.** Framework-mode fallback kept for unit tests
+and for operating with `ON_ALERT_RESPONDER_ENABLED=0`.
 
-When enabled, behavior will be:
-    1. Poll unresolved critical ops_alerts from the last N hours with
-       no triage row yet.
+Flow when enabled:
+    1. Poll unresolved critical ops_alerts from the last 24h with no
+       triage row yet (5-alert cap per cycle, idempotent via
+       anti-join on audit_log action_type='alert_triage').
     2. For each, build a context packet (alert + recent related alerts
        + recent commits + recent worker_log).
-    3. Call llm_router with a grounded triage prompt (PII guard +
-       budget gate already enforced by llm_router).
-    4. Write triage row to audit_log (action_type='alert_triage').
-    5. Optionally ping founder via Telegram if triage classifies as
-       P0 (requires human eyes NOW).
+    3. Call `on_alert_triage_llm.triage` — budget gate + PII guard +
+       anthropic-primary openai-fallback + 429 backoff all handled
+       in the LLM service.
+    4. Write triage row to audit_log with action_type='alert_triage'
+       and status in {'triaged', 'triage_failed', 'framework_mode'}.
+    5. If verdict.requires_human_now → ping founder via Telegram with
+       the triage summary (P0 policy).
 
-Scope restrictions (NEVER relax without founder + §10 TIER_1 review):
+Scope restrictions (§10 TIER_1 — propose only; NEVER relax without
+founder review):
     - TRIAGE ONLY. No bugfix proposals — those go through the
       existing bugfix_pipeline (governed TIER_1 auto-apply).
     - Read-only on system state. No writes except audit_log row.
     - Never modifies alert.resolved — triage is analysis, not closure.
 
-Kill switch: env ON_ALERT_RESPONDER_ENABLED=0 (default). Flip to 1
-ONLY after founder signs off on:
-    - LLM budget (per-alert spend + monthly cap)
-    - Notification policy (when to Telegram-ping on top of triage)
-    - Retention policy (how long triage rows keep in audit_log)
+Kill switch: env `ON_ALERT_RESPONDER_ENABLED=0` (default). Budget
+approved 2026-04-19 after founder sign-off; the env var is now the
+only gate. Flipping it to 1 enables live LLM calls under the
+`on_alert_responder` module in llm_budget (30 calls/day cap).
+
+Budget math (current dev phase):
+    - ~3k input + ~500 output tokens per call
+    - Claude Sonnet 4: ~€0.016 / call
+    - Observed volume: 5-10 critical alerts/day
+    - Expected monthly spend: €2.50-5, worst case (30/day cap hit)
+      €14/mo. Below the €10/mo dev floor in practice.
 """
 from __future__ import annotations
 
@@ -149,20 +156,21 @@ def run(db: Session) -> dict:
             "enabled": bool,
             "alerts_found": int,
             "contexts_built": int,
-            "llm_calls_made": int,   # always 0 in framework mode
+            "llm_calls_made": int,
+            "triaged": int,
+            "triage_failed": int,
+            "p0_pings": int,
             "mode": "framework" | "live",
         }
-
-    Framework mode (default): builds context packets, logs summary,
-    does NOT call the LLM or write anything.
-    Live mode (ON_ALERT_RESPONDER_ENABLED=1): TODO — requires founder
-    sign-off on money-spend scope. See module docstring.
     """
     report: dict = {
         "enabled": is_enabled(),
         "alerts_found": 0,
         "contexts_built": 0,
         "llm_calls_made": 0,
+        "triaged": 0,
+        "triage_failed": 0,
+        "p0_pings": 0,
         "mode": "live" if is_enabled() else "framework",
     }
 
@@ -179,19 +187,126 @@ def run(db: Session) -> dict:
         try:
             pkt = build_context_packet(db, a)
             report["contexts_built"] += 1
-            # FRAMEWORK MODE: log and stop. No LLM call yet.
-            log.info(
-                "on_alert_responder: would trigger LLM for alert id=%s "
-                "type=%s ctx_bytes=~%d (framework mode — no LLM call)",
-                a["id"],
-                a["alert_type"],
-                sum(len(str(v)) for v in pkt.values()),
-            )
         except Exception as exc:
             log.warning(
                 "on_alert_responder: context build failed for alert id=%s: %s",
-                a.get("id"),
-                exc,
+                a.get("id"), exc,
             )
+            continue
+
+        try:
+            from app.services.on_alert_triage_llm import triage
+            verdict = triage(pkt)
+        except Exception as exc:
+            log.warning(
+                "on_alert_responder: triage raised for alert id=%s: %s",
+                a.get("id"), exc,
+            )
+            verdict = None
+
+        if verdict is None:
+            # Budget-blocked / PII-blocked / no-provider / parse-failed —
+            # write a receipt so the same alert isn't retriaged next cycle
+            # (idempotency anti-join on audit_log). The caller can see
+            # the failure count in the report.
+            _write_triage_receipt(
+                db, a, status="triage_failed",
+                verdict=None, reason="llm_unavailable_or_parse_failed",
+            )
+            report["triage_failed"] += 1
+            continue
+
+        report["llm_calls_made"] += 1
+        _write_triage_receipt(
+            db, a, status="triaged", verdict=verdict, reason=None,
+        )
+        report["triaged"] += 1
+
+        if verdict.requires_human_now:
+            pinged = _ping_founder_p0(a, verdict)
+            if pinged:
+                report["p0_pings"] += 1
 
     return report
+
+
+def _write_triage_receipt(
+    db: Session, alert: dict, *,
+    status: str, verdict, reason: str | None,
+) -> None:
+    """Append an audit_log row for this (alert, triage) pair. The
+    `target_id = str(alert.id)` lets `_find_untrimmed_criticals`
+    anti-join skip already-triaged alerts on the next cycle."""
+    try:
+        from app.services.audit import write_audit_log
+        metadata: dict = {
+            "alert_type": alert.get("alert_type"),
+            "alert_summary": (alert.get("summary") or "")[:400],
+        }
+        if verdict is not None:
+            metadata.update({
+                "severity": verdict.severity,
+                "probable_cause": verdict.probable_cause,
+                "suggested_owner": verdict.suggested_owner,
+                "triage_steps": verdict.triage_steps,
+                "related_commits": verdict.related_commits,
+                "requires_human_now": verdict.requires_human_now,
+                "model_used": verdict.model_used,
+            })
+        if reason:
+            metadata["failure_reason"] = reason
+        write_audit_log(
+            db,
+            actor_type="worker",
+            actor_name="on_alert_responder",
+            action_type="alert_triage",
+            target_type="ops_alert",
+            target_id=str(alert.get("id")),
+            status=status,
+            metadata=metadata,
+        )
+        db.commit()
+    except Exception as exc:
+        log.warning(
+            "on_alert_responder: audit write failed for alert id=%s: %s",
+            alert.get("id"), exc,
+        )
+
+
+def _ping_founder_p0(alert: dict, verdict) -> bool:
+    """Forward a P0 triage verdict to the operator Telegram channel.
+    Returns True on successful dispatch. Never raises — Telegram
+    outages must not break the triage loop."""
+    try:
+        from app.services.telegram_agent import (
+            is_configured,
+            send_message,
+        )
+    except Exception as exc:
+        log.warning(
+            "on_alert_responder: telegram_agent import failed: %s", exc,
+        )
+        return False
+    if not is_configured():
+        return False
+
+    steps = "\n".join(f"• {s}" for s in (verdict.triage_steps or [])[:5])
+    body = (
+        f"🚨 P0 triage: {alert.get('alert_type')}\n"
+        f"Alert id: {alert.get('id')} · "
+        f"severity={alert.get('severity')}\n"
+        f"Summary: {(alert.get('summary') or '')[:300]}\n"
+        f"Probable cause: {verdict.probable_cause}\n"
+        f"Suggested owner: {verdict.suggested_owner}\n"
+        f"Triage steps:\n{steps}"
+    )
+    try:
+        result = send_message(body)
+        # send_message returns False / message_id(int) / True. Treat
+        # any non-False value as success.
+        return bool(result)
+    except Exception as exc:
+        log.warning(
+            "on_alert_responder: telegram send failed: %s", exc,
+        )
+        return False

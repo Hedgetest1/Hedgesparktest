@@ -190,6 +190,33 @@ BUDGET_LIMITS: dict[str, dict] = {
         "max_tokens_per_request": 1024,
         "cooldown_seconds": 60,
     },
+    # B1 (2026-04-19) — on-alert responder LLM triage. Critical class
+    # because a real production incident firing at 03:00 must be
+    # triaged before the 08:00 Rome brief. Low cooldown because that's
+    # the whole point of the module; cycle cap of 5 mirrors the
+    # `_find_untrimmed_criticals` limit so a burst of 10 alerts in one
+    # cycle stays within budget. Daily cap generous for dev phase; at
+    # 30 calls × ~3k input + ~500 output tokens (~€0.016 each on
+    # Claude Sonnet 4) that's a €14/mo worst case — below the €10/mo
+    # floor in practice because real alerts are sparse (5-10/day).
+    "on_alert_responder": {
+        "max_calls_per_day": 30,
+        "max_calls_per_cycle": 5,
+        "max_tokens_per_request": 1024,
+        "cooldown_seconds": 60,
+    },
+    # B2 (2026-04-19) — real-model LLM drift corpus. Runs once per
+    # week on a small fixed prompt corpus to detect behavioral drift
+    # in Claude/OpenAI output shape (refusal rate, JSON validity,
+    # deterministic-command format). Single execution burst: ~20
+    # calls in a few minutes, bounded daily to keep the monthly cost
+    # under €1.
+    "llm_realmodel_drift": {
+        "max_calls_per_day": 25,
+        "max_calls_per_cycle": 25,
+        "max_tokens_per_request": 512,
+        "cooldown_seconds": 0,
+    },
     "default": {
         "max_calls_per_day": 20,
         "max_calls_per_cycle": 2,
@@ -241,6 +268,13 @@ _MODULE_TIER: dict[str, str] = {
     "evolution_audit": "important",
     "monthly_opus_audit": "important",
     "nudge_composer": "optional",
+    # On-alert responder is critical: a paged-at-night incident
+    # should not be suppressed because budget pressure downgraded the
+    # module tier. Orchestrator tier is reserved for it.
+    "on_alert_responder": "critical",
+    # Drift corpus is optional: it's meta-quality tracking, not a
+    # runtime guardrail. Budget pressure rightly skips it.
+    "llm_realmodel_drift": "optional",
     "default": "optional",
 }
 
