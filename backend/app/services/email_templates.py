@@ -18,6 +18,7 @@ from __future__ import annotations
 _DASHBOARD_URL = "https://app.hedgesparkhq.com/"
 _SUPPORT_EMAIL = "dev@hedgesparkhq.com"
 _LOGO_URL = "https://app.hedgesparkhq.com/logo-beta-v2.png"
+_SPARK_MASCOT_URL = "https://app.hedgesparkhq.com/branding/hedgespark/spark.png"
 
 
 def _brand_wordmark(font_size: int = 18, letter_spacing: str = "0.3px") -> str:
@@ -47,14 +48,32 @@ def _brand_wordmark(font_size: int = 18, letter_spacing: str = "0.3px") -> str:
 # ---------------------------------------------------------------------------
 
 def _wrap_html(title: str, body_html: str, *, show_logo: bool = False) -> str:
-    """Responsive email wrapper — dark theme, 600px max-width, brand palette."""
+    """Responsive email wrapper — dark theme, 600px max-width, brand palette.
+
+    Header: Spark mascot (40px "riccetto") + HedgeSpark wordmark in a
+    horizontal row. The mascot matches the dashboard BriefHero icon,
+    anchoring the email to the same visual identity. Falls back
+    gracefully in mail clients that block remote images (alt text +
+    centered wordmark gradient).
+
+    Font: Geist Sans loaded via Google Fonts @import inside <style>.
+    Apple Mail, Gmail Web, iOS Mail honor @import; Outlook/Yahoo
+    fall back to the system-font stack. Dashboard uses the same Geist
+    family so the email matches the UI it links to.
+    """
 
     logo_block = ""
     if show_logo:
+        # Prominent header: mascot + wordmark side-by-side, aligned baseline.
         logo_block = (
             '<tr><td align="center" style="padding:0 0 32px 0;">'
-            f'<img src="{_LOGO_URL}" alt="HedgeSpark" '
-            'width="240" style="display:block;max-width:240px;height:auto;" />'
+            '<table cellpadding="0" cellspacing="0" border="0" role="presentation"><tr>'
+            '<td valign="middle" style="padding:0 12px 0 0;">'
+            f'<img src="{_SPARK_MASCOT_URL}" alt="" width="44" height="44" '
+            'style="display:block;width:44px;height:44px;border-radius:50%;" />'
+            '</td>'
+            f'<td valign="middle">{_brand_wordmark(font_size=24, letter_spacing="0.4px")}</td>'
+            '</tr></table>'
             '</td></tr>'
         )
 
@@ -65,14 +84,33 @@ def _wrap_html(title: str, body_html: str, *, show_logo: bool = False) -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{title}</title>
+<style>
+/* Geist — dashboard's brand font. @import works in Apple Mail, Gmail
+   Web, iOS Mail. Outlook / Yahoo ignore it and fall back to the
+   system-font stack below. */
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap');
+body, table, td, p, h1, h2, h3, div, span, a {{
+  font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}}
+</style>
 </head>
-<body style="margin:0;padding:0;background:#07070f;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<body style="margin:0;padding:0;background:#07070f;font-family:'Geist',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#07070f;">
 <tr><td align="center" style="padding:40px 16px 32px 16px;">
 <table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;">
 
-<!-- Logo / Header -->
-{logo_block or f'<tr><td style="padding:0 0 24px 0;">{_brand_wordmark(font_size=18)}</td></tr>'}
+<!-- Header: mascot + wordmark (show_logo=True) OR wordmark-only fallback -->
+{logo_block or (
+    '<tr><td style="padding:0 0 24px 0;">'
+    '<table cellpadding="0" cellspacing="0" border="0" role="presentation"><tr>'
+    '<td valign="middle" style="padding:0 10px 0 0;">'
+    f'<img src="{_SPARK_MASCOT_URL}" alt="" width="32" height="32" '
+    'style="display:block;width:32px;height:32px;border-radius:50%;" />'
+    '</td>'
+    f'<td valign="middle">{_brand_wordmark(font_size=18)}</td>'
+    '</tr></table>'
+    '</td></tr>'
+)}
 
 <!-- Body -->
 <tr><td style="background:#0e0e1a;border:1px solid rgba(167,139,250,0.08);border-radius:16px;padding:36px 32px;">

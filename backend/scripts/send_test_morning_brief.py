@@ -28,15 +28,14 @@ def main():
         print(f"Sending to {to}")
         print(f"Subject: {subject}")
         print(f"HTML bytes: {len(html)}")
-        # Fallback to Resend's onboarding sender because hedgesparkhq.com
-        # is not DNS-verified on Resend yet — every production email
-        # send is currently failing silently with "domain not verified".
-        # onboarding@resend.dev works without verification but can ONLY
-        # deliver to the Resend account owner's email (that's enough
-        # for this eyeball test).
+        # Resend API confirms hedgesparkhq.com status=failed (used to
+        # work through April 12, then verification broke — DKIM/SPF
+        # detached DNS-side). Until founder re-verifies via
+        # resend.com/domains, only onboarding@resend.dev can deliver
+        # to the Resend account owner's email (tedialarana@gmail.com).
         resend_id = send_email(
             to=to,
-            subject=f"[TEST] {subject}",
+            subject=f"[TEST v3] {subject}",
             html=html,
             text=plain,
             from_address="HedgeSpark <onboarding@resend.dev>",
