@@ -48,6 +48,34 @@ type VerticalBenchmarkData = {
   fallback_baselines?: { cvr_baseline_pct?: number; aov_baseline_eur?: number };
 };
 
+type VerticalSelf = {
+  shop_domain: string;
+  vertical: string;
+  confidence: number;
+  runner_up: string | null;
+  runner_up_confidence: number;
+  sample_size: number;
+  classified_at: string;
+};
+
+const VERTICAL_DISPLAY: Record<string, string> = {
+  beauty: "Beauty",
+  wellness: "Wellness",
+  fashion: "Fashion",
+  home: "Home & Living",
+  food: "Food & Beverage",
+  pet: "Pet",
+  electronics: "Electronics",
+  kids: "Kids & Baby",
+  outdoor: "Outdoor",
+  jewelry: "Jewelry",
+  general: "General Retail",
+};
+
+function displayVertical(v: string): string {
+  return VERTICAL_DISPLAY[v] || v.charAt(0).toUpperCase() + v.slice(1);
+}
+
 const METRIC_LABELS: Record<string, string> = {
   monthly_revenue: "Monthly revenue",
   aov: "Average order value",
@@ -96,6 +124,7 @@ export function VerticalBenchmarksCard({
   isProUser: boolean;
 }) {
   const [data, setData] = useState<VerticalBenchmarkData | null>(null);
+  const [classification, setClassification] = useState<VerticalSelf | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastLive, setLastLive] = useState<string | null>(null);
 
@@ -117,7 +146,14 @@ export function VerticalBenchmarksCard({
       }
     };
 
+    const fetchClassification = async () => {
+      const { data: j, error: err } = await apiClient.GET("/pro/vertical");
+      if (err || !j || !active) return;
+      setClassification(j as unknown as VerticalSelf);
+    };
+
     refetch().finally(() => { if (active) setLoading(false); });
+    fetchClassification();
 
     // Phase Ω⁵ live stream
     let es: EventSource | null = null;
@@ -167,6 +203,20 @@ export function VerticalBenchmarksCard({
         <h3 className="text-[15px] font-bold text-white">
           {data?.vertical_display || "Your vertical"} — peer pool warming up
         </h3>
+        {classification && classification.confidence > 0 && (
+          <div
+            className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-violet-400/20 bg-violet-500/[0.06] px-2 py-0.5 text-[10px] text-violet-200/90"
+            title={`Classified from ${classification.sample_size.toLocaleString("en")} signals.`}
+            role="status"
+          >
+            <span aria-hidden="true">◈</span>
+            <span>
+              classified as{" "}
+              <b className="font-bold text-violet-100">{displayVertical(classification.vertical)}</b>
+              {" "}with <span className="tabular-nums">{Math.round(classification.confidence * 100)}%</span> confidence
+            </span>
+          </div>
+        )}
         <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
           {data?.note || "We need a minimum of 8 stores in your specific vertical and revenue band to compare you fairly. Below that, no fake numbers."}
         </p>
@@ -213,6 +263,30 @@ export function VerticalBenchmarksCard({
               </span>
             )}
           </p>
+          {classification && classification.confidence > 0 && (
+            <div
+              className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border border-violet-400/20 bg-violet-500/[0.06] px-2 py-0.5 text-[10px] text-violet-200/90"
+              title={
+                classification.runner_up && classification.runner_up_confidence > 0
+                  ? `Classified from ${classification.sample_size.toLocaleString("en")} signals. Runner-up: ${displayVertical(classification.runner_up)} (${Math.round(classification.runner_up_confidence * 100)}% confidence).`
+                  : `Classified from ${classification.sample_size.toLocaleString("en")} signals.`
+              }
+              role="status"
+            >
+              <span aria-hidden="true">◈</span>
+              <span>
+                classified as{" "}
+                <b className="font-bold text-violet-100">{displayVertical(classification.vertical)}</b>
+                {" "}with <span className="tabular-nums">{Math.round(classification.confidence * 100)}%</span> confidence
+                {classification.runner_up && classification.runner_up_confidence > 0 && (
+                  <span className="text-violet-300/60">
+                    {" "}· runner-up {displayVertical(classification.runner_up)}{" "}
+                    <span className="tabular-nums">{Math.round(classification.runner_up_confidence * 100)}%</span>
+                  </span>
+                )}
+              </span>
+            </div>
+          )}
         </div>
         {totalRecovery > 0 && (
           <div className="flex-shrink-0 rounded-lg border border-amber-400/20 bg-amber-500/[0.06] px-3 py-2 text-right">
