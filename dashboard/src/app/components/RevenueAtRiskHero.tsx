@@ -127,16 +127,11 @@ export function RevenueAtRiskHero({
   );
 
   return (
-    <div className="relative overflow-hidden rounded-3xl border border-white/[0.06] bg-gradient-to-br from-[#0e0a1a] via-[#0a0a14] to-[#0b0c18] p-7 sm:p-9">
-      {/* Premium-zone signature — matches the landing's hero zones
-          and the other Lite heroes (LiteTourPrimer, Today·3 Moves,
-          SystemStatusBar). Brand gradient top stripe + ambient glow. */}
-      <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-[#7c3aed] via-[#c026d3] to-[#e8a04e]" />
-      <div className="pointer-events-none absolute -right-32 -top-32 h-[380px] w-[380px] rounded-full bg-[#e8a04e]/[0.05] blur-[160px]" />
-      <div className="pointer-events-none absolute -left-24 -bottom-32 h-[320px] w-[320px] rounded-full bg-[#c026d3]/[0.03] blur-[140px]" />
-
-      {/* Header row — unified section heading: ONE big amber H2. */}
-      <div className="relative mb-5 flex items-start justify-between gap-4">
+    <div className="rounded-2xl border border-white/[0.08] bg-gradient-to-br from-[#0b0b14] via-[#101017] to-[#0b0b14] p-6">
+      {/* Header row — unified section heading (2026-04-20
+          founder-corrected): ONE big amber H2, no separate
+          amber eyebrow line. */}
+      <div className="mb-4 flex items-start justify-between gap-4">
         <div>
           <h2 className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-[#e8a04e] sm:text-[2rem]">
             Revenue at risk — how much money is slipping through your store right now

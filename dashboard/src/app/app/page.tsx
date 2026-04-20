@@ -2353,7 +2353,7 @@ function PageInner() {
               </div>
             </div>
           ) : (
-            <div className="space-y-10 px-6 py-8 pb-[70vh]">
+            <div className="space-y-6 px-6 py-6 pb-[70vh]">
 
               {/* ═══ PRO FLOOR HEADER — 5 migrated Intelligence cards ═══
                   Only renders when this page is served at /app/pro. These
@@ -3115,8 +3115,8 @@ function PageInner() {
                   window. During load → CardSkeleton. After load → real
                   state (grid or CardEmpty). */}
               <SectionErrorBoundary name="Hot Products">
-              <section className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 sm:p-8">
-                <SectionHeading eyebrow="Hot Products — where buyers are active" title="" />
+              <section>
+                <SectionHeading eyebrow="Hot Products" title="Where buyers are active" />
 
                 {loading ? (
                   <CardSkeleton label="Loading hot products" />
@@ -3331,10 +3331,10 @@ function PageInner() {
 
               {/* 10 — Live Radar + World Map */}
               <SectionErrorBoundary name="Live Radar">
-              <section id="section-live" className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 sm:p-8">
+              <section id="section-live">
                 <SectionHeading
-                  eyebrow="Live Radar — right now in your store"
-                  title=""
+                  eyebrow="Live Radar"
+                  title="Right now in your store"
                 />
                 <LiveRadarMap
                   visitors={liveVisitors}
