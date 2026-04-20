@@ -3071,7 +3071,7 @@ function PageInner() {
                   <div className="pointer-events-none absolute -right-20 -top-20 h-[300px] w-[300px] rounded-full bg-[#d4893a]/[0.06] blur-[120px]" />
                   <div className="relative">
                     <h2 className="text-[1.75rem] font-extrabold text-white sm:text-[2rem]">
-                      Unlock <span className="hs-brand-gradient">Pro Intelligence</span>
+                      Unlock <span className="hs-brand-gradient">Deep analytics</span>
                     </h2>
                     <p className="mt-2 max-w-lg text-[16px] leading-relaxed text-slate-400">
                       Everything above stays free. Pro adds the tools that turn findings into revenue.
@@ -3102,7 +3102,7 @@ function PageInner() {
                 </div>
               )}
 
-              {/* Pro Intelligence narrative hero — sets up the story the merchant
+              {/* Deep analytics narrative hero — sets up the story the merchant
                   is about to read across the sections below. Designed to pass
                   the "stupid test": zero jargon, plain English, answers
                   "what am I looking at?" in one glance. */}
@@ -3117,7 +3117,7 @@ function PageInner() {
                     <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1">
                       <span className="h-1.5 w-1.5 rounded-full bg-[#e8a04e] shadow-[0_0_8px_rgba(232,160,78,0.6)]" />
                       <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-300">
-                        Pro Intelligence
+                        Deep analytics
                       </span>
                     </div>
 
@@ -3274,7 +3274,7 @@ function PageInner() {
 
               {/* Pro — Revenue Forecast + Attribution + LTV Intelligence */}
               {isProUser && (
-                <SectionErrorBoundary name="Pro Intelligence">
+                <SectionErrorBoundary name="Deep analytics">
                   <ProIntelligenceSection
                     apiBase={API_BASE}
                     displayCurrency={displayCurrency}
