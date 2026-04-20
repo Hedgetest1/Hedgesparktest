@@ -2543,34 +2543,122 @@ function PageInner() {
                 signalCount={strongSignals.length > 0 ? strongSignals.length : (data ? 0 : null)}
               />
 
+              {/* ═══ TODAY — 3 THINGS TO DO ═══
+                  Lite-floor killer strip per founder directive 2026-04-20.
+                  Transforms /app/lite from diagnostic ("what's happening?")
+                  to prescriptive ("what should I do?"). Pulls from the
+                  existing sparkActions decision engine — the 3 highest-
+                  priority actions the merchant can execute manually today.
+                  Always renders on Lite; empty-state says "All clear —
+                  Spark is watching" so the strip never disappears. */}
+              {isLiteFloor && (
+                <section aria-labelledby="today-actions-heading" className="mb-6">
+                  <div className="mb-3 flex items-center gap-2">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#e8a04e] shadow-[0_0_8px_rgba(232,160,78,0.6)]" />
+                    <h2
+                      id="today-actions-heading"
+                      className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#e8a04e]"
+                    >
+                      Today · 3 things to do
+                    </h2>
+                  </div>
+                  {sparkActions.length === 0 ? (
+                    <div className="rounded-2xl border border-emerald-400/15 bg-gradient-to-br from-emerald-500/[0.04] to-transparent p-6 text-center">
+                      <div className="mb-2 text-[24px]">✨</div>
+                      <div className="text-[15px] font-bold text-emerald-200">
+                        All clear — Spark is watching
+                      </div>
+                      <div className="mx-auto mt-1 max-w-md text-[12.5px] leading-relaxed text-slate-400">
+                        No urgent actions right now. New recommendations
+                        appear as visitors flow in and signals mature.
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid gap-3 md:grid-cols-3">
+                      {sparkActions.slice(0, 3).map((action) => {
+                        const priorityTheme =
+                          action.priority === "CRITICAL"
+                            ? { color: "#f43f5e", label: "Critical" }
+                            : action.priority === "HIGH"
+                              ? { color: "#e8a04e", label: "High" }
+                              : { color: "#94a3b8", label: "Medium" };
+                        return (
+                          <div
+                            key={action.id}
+                            className="group flex flex-col rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4 transition-colors hover:border-white/[0.12]"
+                          >
+                            <div className="mb-2 flex items-center gap-2">
+                              <span
+                                className="rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em]"
+                                style={{
+                                  color: priorityTheme.color,
+                                  background: priorityTheme.color + "1A",
+                                  border: `1px solid ${priorityTheme.color}33`,
+                                }}
+                              >
+                                {priorityTheme.label}
+                              </span>
+                              {action.impactValue > 0 && (
+                                <span className="text-[10px] font-semibold text-emerald-400 tabular-nums">
+                                  {action.impact}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[13.5px] font-bold leading-snug text-white">
+                              {action.title}
+                            </div>
+                            <div className="mt-1 text-[11.5px] leading-relaxed text-slate-400">
+                              {action.action}
+                            </div>
+                            {action.targetSection && (
+                              <button
+                                type="button"
+                                onClick={() => handleNavigate(action.targetSection)}
+                                className="mt-3 self-start rounded-lg border border-[#e8a04e]/25 bg-[#e8a04e]/[0.06] px-3 py-1.5 text-[11.5px] font-bold text-[#e8a04e] transition-colors hover:bg-[#e8a04e]/[0.12]"
+                              >
+                                Show me →
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              )}
+
               {/* ═══ INTELLIGENCE HERO — decision-first: what matters most right now ═══ */}
-              <IntelligenceHero
-                connected={!!shop}
-                isProUser={isProUser}
-                onUpgrade={() => setUpgradeModalOpen(true)}
-              />
+              {!isLiteFloor && (
+                <IntelligenceHero
+                  connected={!!shop}
+                  isProUser={isProUser}
+                  onUpgrade={() => setUpgradeModalOpen(true)}
+                />
+              )}
 
               {/* ═══ REVENUE HERO ═══ */}
-              <RevenueHero
-                revenue={heroRevenue?.revenue ?? 0}
-                orders={heroRevenue?.orders ?? 0}
-                currency={heroRevenue?.currency ?? "USD"}
-                signalCount={strongSignals.length}
-                topSignalMessage={
-                  strongSignals.length > 0
-                    ? (strongSignals[0]?.human_label || strongSignals[0]?.explanation || undefined)
-                    : earlySignals.length > 0
-                    ? "We're starting to see activity in your store"
-                    : undefined
-                }
-                isProUser={isProUser}
-                onViewSignals={() => handleNavigate("signals")}
-                onUpgrade={() => setUpgradeModalOpen(true)}
-                coldStartPhase={coldStartPhase}
-                displayCurrency={displayCurrency}
-                apiBase={API_BASE}
-                shop={shop}
-              />
+              {!isLiteFloor && (
+                <RevenueHero
+                  revenue={heroRevenue?.revenue ?? 0}
+                  orders={heroRevenue?.orders ?? 0}
+                  currency={heroRevenue?.currency ?? "USD"}
+                  signalCount={strongSignals.length}
+                  topSignalMessage={
+                    strongSignals.length > 0
+                      ? (strongSignals[0]?.human_label || strongSignals[0]?.explanation || undefined)
+                      : earlySignals.length > 0
+                      ? "We're starting to see activity in your store"
+                      : undefined
+                  }
+                  isProUser={isProUser}
+                  onViewSignals={() => handleNavigate("signals")}
+                  onUpgrade={() => setUpgradeModalOpen(true)}
+                  coldStartPhase={coldStartPhase}
+                  displayCurrency={displayCurrency}
+                  apiBase={API_BASE}
+                  shop={shop}
+                />
+              )}
 
               {/* ═══ INSTANT INTELLIGENCE — 60s aha moment (α3) ═══ */}
               {isProUser && !isLiteFloor && <InstantIntelligenceCard apiBase={API_BASE} />}
