@@ -28,6 +28,7 @@ import { apiClient } from "@/app/lib/api-client";
 import { CardSkeleton, CardEmpty } from "./_CardStates";
 import { type DailyBrief } from "./BriefHero";
 import { formatMoneyCompact } from "../app/_lib/formatters";
+import { buildShopifyAdminProductUrl, buildStorefrontUrl } from "../lib/shopify";
 
 type HeroNumber = {
   value: string;
@@ -48,6 +49,7 @@ type RarsPayload = {
 type AbandonedPayload = {
   products?: Array<{
     product_name?: string;
+    product_url?: string;
     leak_point?: string;
     intent_score?: number;
     views_7d?: number;
@@ -347,6 +349,7 @@ export function LiteCassettoniGrid({
           displayCurrency,
           loading,
           coldStartPhase,
+          shop,
         };
         const subtitle = panelConfig.getSubtitle(ctx);
         const heroStat = panelConfig.getHeroStat(ctx);
@@ -560,53 +563,132 @@ export function LiteCassettoniGrid({
                 </div>
               </div>
 
-              {/* Primary action — elevated. */}
-              {primaryAction && (
-                <div className="rounded-xl border border-white/[0.08] bg-[#0e0e1a]/80 p-5">
-                  <div
-                    className="text-[10px] font-bold uppercase tracking-[0.2em]"
-                    style={{ color: accent.hero }}
+              {/* Primary action — elevated. Renders as <a> when href
+                  is present, giving the merchant a one-click jump to
+                  the relevant Shopify admin or storefront page. */}
+              {primaryAction && (() => {
+                const innerContent = (
+                  <>
+                    <div
+                      className="text-[10px] font-bold uppercase tracking-[0.2em]"
+                      style={{ color: accent.hero }}
+                    >
+                      {primaryAction.headline}
+                    </div>
+                    <div className="mt-2 text-[16px] font-bold leading-snug text-white">
+                      {primaryAction.label}
+                    </div>
+                    <p className="mt-2.5 max-w-3xl text-[13.5px] leading-relaxed text-slate-300">
+                      {primaryAction.description}
+                    </p>
+                    {primaryAction.href && (
+                      <div
+                        className="mt-3 inline-flex items-center gap-1.5 text-[12px] font-bold uppercase tracking-wider"
+                        style={{ color: accent.hero }}
+                      >
+                        {primaryAction.hrefLabel ?? "Open in Shopify admin"}
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                          className="h-3.5 w-3.5"
+                          aria-hidden="true"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                        </svg>
+                      </div>
+                    )}
+                  </>
+                );
+                return primaryAction.href ? (
+                  <a
+                    href={primaryAction.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block rounded-xl border border-white/[0.08] bg-[#0e0e1a]/80 p-5 transition-colors hover:border-white/[0.16] hover:bg-[#0e0e1a]"
                   >
-                    {primaryAction.headline}
+                    {innerContent}
+                  </a>
+                ) : (
+                  <div className="rounded-xl border border-white/[0.08] bg-[#0e0e1a]/80 p-5">
+                    {innerContent}
                   </div>
-                  <div className="mt-2 text-[16px] font-bold leading-snug text-white">
-                    {primaryAction.label}
-                  </div>
-                  <p className="mt-2.5 max-w-3xl text-[13.5px] leading-relaxed text-slate-300">
-                    {primaryAction.description}
-                  </p>
-                </div>
-              )}
+                );
+              })()}
 
-              {/* Supporting actions — secondary, numbered. */}
+              {/* Supporting actions — secondary, numbered. Anchor when
+                  href is set, div otherwise. */}
               {supportingActions.length > 0 && (
                 <ul className="mt-3 space-y-2">
-                  {supportingActions.map((s, i) => (
-                    <li
-                      key={i}
-                      className="flex items-start gap-3 rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 px-4 py-3"
-                    >
-                      <span
-                        className="mt-1.5 inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold tabular-nums"
-                        style={{
-                          color: accent.hero,
-                          background: accent.bg,
-                          border: `1px solid ${accent.border}`,
-                        }}
-                        aria-hidden="true"
-                      >
-                        {i + 1}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[13.5px] font-semibold text-slate-200">
-                          {s.label}
+                  {supportingActions.map((s, i) => {
+                    const supportInner = (
+                      <>
+                        <span
+                          className="mt-1.5 inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold tabular-nums"
+                          style={{
+                            color: accent.hero,
+                            background: accent.bg,
+                            border: `1px solid ${accent.border}`,
+                          }}
+                          aria-hidden="true"
+                        >
+                          {i + 1}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[13.5px] font-semibold text-slate-200">
+                              {s.label}
+                            </span>
+                            {s.href && (
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke={accent.hero}
+                                strokeWidth={2}
+                                className="h-3 w-3 flex-shrink-0"
+                                aria-hidden="true"
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                              </svg>
+                            )}
+                          </div>
+                          <p className="mt-1 text-[12.5px] leading-relaxed text-slate-400">
+                            {s.description}
+                          </p>
+                          {s.href && (
+                            <div
+                              className="mt-1.5 text-[11px] font-bold uppercase tracking-wider"
+                              style={{ color: accent.hero }}
+                            >
+                              {s.hrefLabel ?? "Open in Shopify admin"}
+                            </div>
+                          )}
                         </div>
-                        <p className="mt-1 text-[12.5px] leading-relaxed text-slate-400">
-                          {s.description}
-                        </p>
-                      </div>
-                    </li>
-                  ))}
+                      </>
+                    );
+                    return s.href ? (
+                      <li key={i}>
+                        <a
+                          href={s.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-start gap-3 rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 px-4 py-3 transition-colors hover:border-white/[0.12] hover:bg-[#0e0e1a]"
+                        >
+                          {supportInner}
+                        </a>
+                      </li>
+                    ) : (
+                      <li
+                        key={i}
+                        className="flex items-start gap-3 rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 px-4 py-3"
+                      >
+                        {supportInner}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>
@@ -633,6 +715,7 @@ type PanelCtx = {
   displayCurrency: "USD" | "EUR";
   loading: boolean;
   coldStartPhase: number;
+  shop: string;
 };
 
 type DonutSegment = { label: string; value: number; color: string };
@@ -654,11 +737,21 @@ type PrimaryAction = {
   headline: string;
   label: string;
   description: string;
+  /** Optional deep link — if present, the card renders as an anchor
+   *  that opens the URL in a new tab. Used to jump the merchant
+   *  directly to the relevant Shopify admin page or storefront URL
+   *  instead of leaving them to hunt for it manually. */
+  href?: string;
+  /** Short label shown on the CTA button when href is set. Defaults
+   *  to "Open in Shopify admin" when undefined. */
+  hrefLabel?: string;
 };
 
 type SupportingAction = {
   label: string;
   description: string;
+  href?: string;
+  hrefLabel?: string;
 };
 
 type PanelConfig = {
@@ -1263,10 +1356,12 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
         : top?.leak_point === "cart_to_purchase" || top?.leak_point === "cart_no_checkout"
         ? "Cart-stage leaks are almost always shipping cost, unexpected fees, or checkout friction. Those are the three things to audit first."
         : "Review the product page end-to-end and compare it to a product that's converting well for you right now.";
+      const adminUrl = buildShopifyAdminProductUrl(ctx.shop, top?.product_url);
       return {
         headline: "Fix first",
         label: `Start with ${name}`,
         description: `Visitors ${leak}. ${hint}`,
+        href: adminUrl ?? undefined,
       };
     },
     getSupportingActions: (ctx) => {
@@ -1274,9 +1369,11 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
       const list = ctx.abandonedData?.products ?? [];
       if (list.length >= 2 && list[1]?.product_name) {
         const second = list[1];
+        const adminUrl = buildShopifyAdminProductUrl(ctx.shop, second.product_url);
         out.push({
           label: `Then: ${second.product_name}`,
           description: `Visitors ${humanizeLeak(second.leak_point)}. Apply the same class of fix if the leak pattern matches — it usually does.`,
+          href: adminUrl ?? undefined,
         });
       }
       if (list.length > 0) {
@@ -1411,10 +1508,13 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
       }
       const top = opps[0];
       const urlHint = top.url ? ` on ${top.url}` : "";
+      const storefrontUrl = buildStorefrontUrl(ctx.shop, top.url);
       return {
         headline: "Ship this first",
         label: top.recommended_action ?? `Audit${urlHint}`,
         description: `This fix is on the page with the highest priority score right now. High-intent page fixes typically recover 10–30% of lost revenue within a day when shipped fast.`,
+        href: storefrontUrl ?? undefined,
+        hrefLabel: "Open the page",
       };
     },
     getSupportingActions: (ctx) => {
@@ -1425,9 +1525,12 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
       if (opps.length >= 2 && opps[1]?.recommended_action) {
         const second = opps[1];
         const urlHint2 = second.url ? ` on ${second.url}` : "";
+        const storefrontUrl = buildStorefrontUrl(ctx.shop, second.url);
         out.push({
           label: `Then${urlHint2}`,
           description: `${second.recommended_action}. Priority ${second.priority_score ?? 0} — work it after the primary ships.`,
+          href: storefrontUrl ?? undefined,
+          hrefLabel: "Open the page",
         });
       }
       out.push({
@@ -1739,43 +1842,67 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
             Top 3 products
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {ctx.topProducts.slice(0, 3).map((product, i) => (
-              <div
-                key={`${product.product_id || "prod"}-${i}`}
-                className="flex flex-col rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5"
-              >
-                <div className="mb-3 flex items-center justify-between gap-2">
-                  <span className="truncate text-[15px] font-semibold text-white">
-                    {product.product_name || product.product_id || "—"}
-                  </span>
-                  {product.intent_level && (
-                    <span className="flex-shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-slate-300 ring-1 ring-white/10">
-                      {product.intent_level}
+            {ctx.topProducts.slice(0, 3).map((product, i) => {
+              const adminUrl = buildShopifyAdminProductUrl(ctx.shop, product.product_id);
+              return (
+                <div
+                  key={`${product.product_id || "prod"}-${i}`}
+                  className="flex flex-col rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5"
+                >
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <span className="truncate text-[15px] font-semibold text-white">
+                      {product.product_name || product.product_id || "—"}
                     </span>
+                    {product.intent_level && (
+                      <span className="flex-shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-slate-300 ring-1 ring-white/10">
+                        {product.intent_level}
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 border-t border-white/[0.05] pt-3">
+                    <div>
+                      <div className="text-[11px] font-medium uppercase text-slate-500">Views</div>
+                      <div className="mt-1 text-[18px] font-bold tabular-nums text-white">
+                        {(product.total_views ?? 0).toLocaleString()}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-medium uppercase text-slate-500">Visitors</div>
+                      <div className="mt-1 text-[18px] font-bold tabular-nums text-white">
+                        {(product.unique_visitors ?? 0).toLocaleString()}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-medium uppercase text-slate-500">Intent</div>
+                      <div className="mt-1 text-[18px] font-bold tabular-nums text-white">
+                        {Math.round(product.avg_intent_score ?? 0)}
+                      </div>
+                    </div>
+                  </div>
+                  {adminUrl && (
+                    <a
+                      href={adminUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-4 inline-flex items-center justify-center gap-1.5 rounded-lg border border-emerald-400/25 bg-emerald-500/[0.06] px-3 py-2 text-[11.5px] font-bold uppercase tracking-wider text-emerald-300 transition-colors hover:border-emerald-400/50 hover:bg-emerald-500/[0.12] hover:text-emerald-200"
+                    >
+                      Open in Shopify admin
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                        className="h-3 w-3"
+                        aria-hidden="true"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                      </svg>
+                    </a>
                   )}
                 </div>
-                <div className="mt-auto grid grid-cols-3 gap-2 border-t border-white/[0.05] pt-3">
-                  <div>
-                    <div className="text-[11px] font-medium uppercase text-slate-500">Views</div>
-                    <div className="mt-1 text-[18px] font-bold tabular-nums text-white">
-                      {(product.total_views ?? 0).toLocaleString()}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[11px] font-medium uppercase text-slate-500">Visitors</div>
-                    <div className="mt-1 text-[18px] font-bold tabular-nums text-white">
-                      {(product.unique_visitors ?? 0).toLocaleString()}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[11px] font-medium uppercase text-slate-500">Intent</div>
-                    <div className="mt-1 text-[18px] font-bold tabular-nums text-white">
-                      {Math.round(product.avg_intent_score ?? 0)}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       );
@@ -1793,10 +1920,12 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
       const name = top?.product_name ?? top?.product_id ?? "your top product";
       const views = top?.total_views ?? 0;
       const visitors = top?.unique_visitors ?? 0;
+      const adminUrl = buildShopifyAdminProductUrl(ctx.shop, top?.product_id);
       return {
         headline: "Double down",
         label: `Invest in ${name}`,
         description: `${views.toLocaleString()} view${views !== 1 ? "s" : ""} from ${visitors.toLocaleString()} visitor${visitors !== 1 ? "s" : ""} this week. Add a bundle, refine the description, or push more ad traffic to this product — it's already converting the hardest-earned part of your funnel.`,
+        href: adminUrl ?? undefined,
       };
     },
     getSupportingActions: (ctx) => {
