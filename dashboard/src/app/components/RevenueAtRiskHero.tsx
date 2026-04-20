@@ -60,16 +60,11 @@ export function RevenueAtRiskHero({
   shop,
   isProUser,
   onUpgrade,
-  hideHeading,
 }: {
   apiBase: string;
   shop: string;
   isProUser: boolean;
   onUpgrade?: () => void;
-  /** Suppress the card's internal heading — used when rendered
-   *  inside LiteCassettoniGrid's structured expanded panel which
-   *  provides its own title/subtitle/warm-copy header. */
-  hideHeading?: boolean;
 }) {
   const [data, setData] = useState<RARSData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -133,26 +128,22 @@ export function RevenueAtRiskHero({
 
   return (
     <div className="rounded-2xl border border-white/[0.08] bg-gradient-to-br from-[#0b0b14] via-[#101017] to-[#0b0b14] p-6">
-      {/* Header row — unified section heading. Suppressed when
-          rendered inside LiteCassettoniGrid (hideHeading=true). */}
-      {!hideHeading && (
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-[#e8a04e] sm:text-[2rem]">
-              Revenue at risk — how much money is slipping through your store right now
-            </h2>
-          </div>
-          {hasRisk && (
-            <button
-              type="button"
-              onClick={() => setExpanded((v) => !v)}
-              className="flex-shrink-0 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-1 text-[11px] font-semibold text-slate-300 transition-colors hover:border-white/[0.2] hover:text-white"
-            >
-              {expanded ? "Hide details" : "Show breakdown"}
-            </button>
-          )}
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-[#e8a04e] sm:text-[2rem]">
+            Revenue at risk — how much money is slipping through your store right now
+          </h2>
         </div>
-      )}
+        {hasRisk && (
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="flex-shrink-0 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-1 text-[11px] font-semibold text-slate-300 transition-colors hover:border-white/[0.2] hover:text-white"
+          >
+            {expanded ? "Hide details" : "Show breakdown"}
+          </button>
+        )}
+      </div>
 
       {/* The hero number */}
       <div className="flex items-end gap-4">

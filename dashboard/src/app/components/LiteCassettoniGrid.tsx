@@ -141,14 +141,11 @@ export function LiteCassettoniGrid({
 }: {
   apiBase: string;
   shop: string;
-  isProUser: boolean;
   displayCurrency: "USD" | "EUR";
   topProducts: TopProduct[];
   effectiveBrief: DailyBrief | null;
   briefLoading: boolean;
-  tier: "lite" | "pro";
   coldStartPhase: number;
-  setUpgradeModalOpen: (v: boolean) => void;
   loading: boolean;
 }) {
   const [expandedId, setExpandedId] = useState<CassettoneId | null>(null);

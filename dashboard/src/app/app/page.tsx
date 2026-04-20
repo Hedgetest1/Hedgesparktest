@@ -2784,14 +2784,11 @@ function PageInner() {
                 <LiteCassettoniGrid
                   apiBase={API_BASE}
                   shop={shop}
-                  isProUser={isProUser}
                   displayCurrency={displayCurrency}
                   topProducts={topProducts}
                   effectiveBrief={effectiveBrief}
                   briefLoading={briefLoading}
-                  tier={tier}
                   coldStartPhase={coldStartPhase}
-                  setUpgradeModalOpen={setUpgradeModalOpen}
                   loading={loading}
                 />
               )}
