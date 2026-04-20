@@ -725,6 +725,36 @@ function PageInner() {
       window.location.href = `${API_BASE}/auth/session?shop=${encodeURIComponent(target)}`;
     };
 
+    // THREE sources of "which shop is this browser" — try all, use
+    // whichever survives. Any one alive → auto-recovery without
+    // prompting the merchant. Order by reliability:
+    //   1. URL ?shop= param (freshest, set by OAuth/launch redirect)
+    //   2. Parent-domain hint cookie hs_shop (survives JWT expiry,
+    //      survives subdomain-scoped localStorage clears, survives
+    //      browser extensions that sandbox per-subdomain storage)
+    //   3. localStorage hs_last_shop (set during every successful
+    //      /merchant/me — the oldest fallback)
+    // Reading hint cookie from document.cookie is best-effort; we
+    // never trust its VALUE for auth, only as a signal for which
+    // shop to re-bootstrap. The JWT handshake at /auth/session does
+    // the real authentication.
+    const readHintCookie = (): string => {
+      if (typeof document === "undefined") return "";
+      const pairs = document.cookie.split(";");
+      for (const pair of pairs) {
+        const idx = pair.indexOf("=");
+        if (idx === -1) continue;
+        const k = pair.slice(0, idx).trim();
+        if (k === "hs_shop") {
+          try {
+            return decodeURIComponent(pair.slice(idx + 1).trim());
+          } catch {
+            return "";
+          }
+        }
+      }
+      return "";
+    };
     const rememberedShop = (() => {
       try {
         return localStorage.getItem("hs_last_shop") || "";
@@ -732,6 +762,7 @@ function PageInner() {
         return "";
       }
     })();
+    const hintShop = readHintCookie();
     const urlShop = params.get("shop") || "";
     const justInstalled = params.get("installed") === "1";
 
@@ -802,7 +833,7 @@ function PageInner() {
         return;
       }
 
-      const bootstrapTarget = urlShop || rememberedShop;
+      const bootstrapTarget = urlShop || hintShop || rememberedShop;
       if (bootstrapTarget) {
         bootstrapWithShop(bootstrapTarget);
         // Don't call setSessionResolved — page is unloading.
@@ -2197,6 +2228,64 @@ function PageInner() {
                 <div className="mt-3 text-[11px] text-amber-200/50">
                   Not installed yet? Install HedgeSpark from the Shopify App Store first.
                 </div>
+                {/* Diagnostic — only rendered when this banner is live.
+                    Reveals exactly which of the three identity sources
+                    was empty so the "why did this banner appear?"
+                    question can be answered at a glance, not via
+                    DevTools. */}
+                <details className="mt-4 text-left text-[10px] font-mono text-amber-200/40">
+                  <summary className="cursor-pointer select-none hover:text-amber-200/70">
+                    Diagnostic (click to expand)
+                  </summary>
+                  <div className="mt-2 space-y-0.5 rounded border border-amber-400/10 bg-black/30 p-2">
+                    <div>
+                      localStorage.hs_last_shop:{" "}
+                      <span className="text-amber-200/70">
+                        {(() => {
+                          try {
+                            return localStorage.getItem("hs_last_shop") || "(empty)";
+                          } catch {
+                            return "(blocked)";
+                          }
+                        })()}
+                      </span>
+                    </div>
+                    <div>
+                      cookie hs_shop hint:{" "}
+                      <span className="text-amber-200/70">
+                        {(() => {
+                          if (typeof document === "undefined") return "(n/a)";
+                          const m = document.cookie.match(/(?:^|;\s*)hs_shop=([^;]+)/);
+                          return m ? decodeURIComponent(m[1]) : "(empty)";
+                        })()}
+                      </span>
+                    </div>
+                    <div>
+                      URL ?shop=:{" "}
+                      <span className="text-amber-200/70">
+                        {typeof window !== "undefined"
+                          ? new URLSearchParams(window.location.search).get("shop") || "(empty)"
+                          : "(n/a)"}
+                      </span>
+                    </div>
+                    <div>
+                      navigator.cookieEnabled:{" "}
+                      <span className="text-amber-200/70">
+                        {typeof navigator !== "undefined" && navigator.cookieEnabled ? "yes" : "NO"}
+                      </span>
+                    </div>
+                    <div>
+                      API_BASE:{" "}
+                      <span className="text-amber-200/70">{API_BASE || "(empty)"}</span>
+                    </div>
+                    <div className="mt-1 text-amber-200/50">
+                      If all three identity sources are empty your
+                      browser has no memory of this store. Type the
+                      domain above to reconnect — HedgeSpark will
+                      remember it on future visits.
+                    </div>
+                  </div>
+                </details>
               </div>
             </MascotLoader>
           ) : loading ? (

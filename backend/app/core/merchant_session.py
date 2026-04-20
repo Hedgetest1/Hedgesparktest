@@ -43,6 +43,16 @@ log = logging.getLogger(__name__)
 
 SESSION_COOKIE_NAME = "hs_session"
 
+# Non-secret hint cookie that tells the dashboard WHICH shop the browser
+# last authenticated as — even when the httpOnly JWT cookie has expired
+# or been cleared. Domain-scoped to the parent (.hedgesparkhq.com) so
+# both api.hedgesparkhq.com and app.hedgesparkhq.com can read/write it.
+# NEVER used for authentication (that's hs_session's job) — only as a
+# recovery hint to re-trigger /auth/session without prompting.
+SHOP_HINT_COOKIE_NAME = "hs_shop"
+_SHOP_HINT_TTL_SECONDS = 30 * 86_400  # 30 days, longer than the JWT TTL
+_COOKIE_PARENT_DOMAIN = os.getenv("COOKIE_PARENT_DOMAIN", "").strip()
+
 _EXPLICIT_SECRET = os.getenv("MERCHANT_SESSION_SECRET", "").strip()
 _FALLBACK_SECRET = os.getenv("SHOPIFY_API_SECRET", "").strip()
 _ALLOW_INSECURE_DEV = os.getenv("ALLOW_INSECURE_DEV", "").lower() == "true"
@@ -127,6 +137,13 @@ def set_session_cookie(response, shop_domain: str, session_version: int = 0):
     """
     Create a session token and set it as an httpOnly cookie on the response.
 
+    Also sets a non-httpOnly `hs_shop` hint cookie on the parent domain
+    (.hedgesparkhq.com, configured via COOKIE_PARENT_DOMAIN) so both api
+    and app subdomains can read it. This hint is a RECOVERY signal only
+    — never trusted for auth — that survives JWT expiry and lets the
+    dashboard auto-re-trigger /auth/session without prompting the
+    merchant to retype their shop domain.
+
     Returns the response object (for chaining).
     Sets max_age to match token TTL so browser and server expiry are aligned.
     """
@@ -141,6 +158,21 @@ def set_session_cookie(response, shop_domain: str, session_version: int = 0):
             max_age=_TTL_SECONDS,
             path="/",
         )
+    # Recovery hint — cross-subdomain, readable by JS. Written even when
+    # the JWT set above failed, because the hint has no security value;
+    # it just answers "which shop was this browser using last?".
+    hint_kwargs = {
+        "key": SHOP_HINT_COOKIE_NAME,
+        "value": shop_domain,
+        "httponly": False,
+        "secure": True,
+        "samesite": "lax",
+        "max_age": _SHOP_HINT_TTL_SECONDS,
+        "path": "/",
+    }
+    if _COOKIE_PARENT_DOMAIN:
+        hint_kwargs["domain"] = _COOKIE_PARENT_DOMAIN
+    response.set_cookie(**hint_kwargs)
     return response
 
 
@@ -153,4 +185,8 @@ def clear_session_cookie(response):
         samesite="none",
         path="/",
     )
+    # Intentionally NOT clearing the hs_shop hint — a merchant who
+    # uninstalls and reinstalls benefits from the hint still being
+    # present so the reinstall flow can pre-fill / auto-recover. The
+    # hint has no security value so retaining it is safe.
     return response

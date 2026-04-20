@@ -52,10 +52,25 @@ function readPreviewParam(): boolean {
 function readRememberedShop(): string | null {
   if (typeof window === "undefined") return null;
   try {
-    return window.localStorage.getItem("hs_last_shop");
+    const local = window.localStorage.getItem("hs_last_shop");
+    if (local) return local;
   } catch {
-    return null;
+    // localStorage blocked — fall through to cookie hint
   }
+  // Parent-domain hint cookie — survives localStorage clears that are
+  // subdomain-scoped (common with some tracking-protection extensions)
+  // and survives JWT session expiry. Used as a recovery signal only,
+  // never trusted for authentication.
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(/(?:^|;\s*)hs_shop=([^;]+)/);
+  if (match) {
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 export function useSession(): SessionState {
