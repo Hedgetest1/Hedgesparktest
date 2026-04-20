@@ -3053,19 +3053,6 @@ function PageInner() {
                   then ASK about it, then OPT IN to push it to Slack. */}
               {isLiteFloor && <AnalyticsAssistant />}
 
-              {/* Slack integration — Strada 3.5 (2026-04-20). Last
-                  Lite-floor surface before the radar + status bar,
-                  positioned AFTER the cassettoni so the merchant
-                  reads the value of the product first, then gets the
-                  option to pipe it to Slack. Intentionally NOT given
-                  heavy visual weight — the value sits above; this is
-                  the "opt-in when you've seen what's coming" affordance. */}
-              {isLiteFloor && (
-                <div className="mb-8">
-                  <SlackSettings />
-                </div>
-              )}
-
               {/* ═══ REVENUE AT RISK HERO — Pro-floor only (Lite now
                   surfaces this inside the cassettoni grid above). ═══ */}
               {!isLiteFloor && (
@@ -3628,6 +3615,21 @@ function PageInner() {
                 />
               </section>
               </SectionErrorBoundary>
+
+              {/* Slack integration — moved here (2026-04-20 revision)
+                  per founder directive "spostato dopo il radar".
+                  Positioned BELOW the radar (which is the last value-
+                  bearing visual on the floor) and ABOVE the System
+                  Status Bar. Rationale: once the merchant has seen
+                  RARS hero → benchmarks → P&L → retention → channel
+                  attribution → cassettoni drill-downs → radar, they've
+                  consumed the full "right-now intelligence" narrative;
+                  NOW the opt-in to pipe a summary to Slack makes sense. */}
+              {isLiteFloor && (
+                <div className="mb-8">
+                  <SlackSettings />
+                </div>
+              )}
 
               {/* ═══ SYSTEM STATUS BAR — intelligence progress + aliveness ═══
                   Moved here (bottom of the floor) per founder directive
