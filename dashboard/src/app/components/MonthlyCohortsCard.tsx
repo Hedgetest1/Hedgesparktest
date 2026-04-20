@@ -50,6 +50,50 @@ function repeatRateLabel(rate: number): string {
   return "—";
 }
 
+function CumulativeSparkline({
+  points,
+  color,
+  width = 110,
+  height = 32,
+}: {
+  points: number[];
+  color: string;
+  width?: number;
+  height?: number;
+}) {
+  if (points.length < 2) return null;
+  const max = Math.max(...points, 0.0001);
+  const min = Math.min(...points, 0);
+  const range = Math.max(max - min, 0.0001);
+  const stepX = width / (points.length - 1);
+  const coords = points.map((v, i) => {
+    const x = i * stepX;
+    const y = height - ((v - min) / range) * (height - 4) - 2;
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  });
+  const path = `M ${coords.join(" L ")}`;
+  const area = `${path} L ${width.toFixed(2)},${height} L 0,${height} Z`;
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      role="img"
+      aria-label={`Cumulative revenue curve, ${points.length} points`}
+      className="flex-shrink-0"
+    >
+      <path d={area} fill={color} opacity="0.14" />
+      <path d={path} fill="none" stroke={color} strokeWidth={1.6} />
+      <circle
+        cx={(points.length - 1) * stepX}
+        cy={height - ((points[points.length - 1] - min) / range) * (height - 4) - 2}
+        r={2.2}
+        fill={color}
+      />
+    </svg>
+  );
+}
+
 function formatMonthLabel(s: string): string {
   // "2025-04" → "Apr 2025"
   try {
@@ -249,6 +293,7 @@ export function MonthlyCohortsCard({
       <ul className="space-y-2">
         {cohorts.map((c) => {
           const color = repeatRateColor(c.repeat_rate);
+          const points = c.cumulative_revenue ?? [];
           return (
             <li
               key={c.cohort_month}
@@ -262,6 +307,16 @@ export function MonthlyCohortsCard({
                   {c.size} customer{c.size !== 1 ? "s" : ""} acquired · {formatMoneyCompact(c.revenue_total, displayCurrency)} total
                 </div>
               </div>
+              {/* Cumulative-revenue sparkline — Strada 4 dominance.
+                  Peel's killer visual: the shape tells you whether a
+                  cohort keeps producing revenue month after month or
+                  plateaus after the first purchase. Now on Lite. */}
+              {points.length >= 2 && (
+                <CumulativeSparkline
+                  points={points.map((p) => p.revenue)}
+                  color={color}
+                />
+              )}
               <div className="flex flex-shrink-0 items-baseline gap-5 text-right">
                 <div>
                   <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">ARPC</div>

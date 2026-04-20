@@ -134,20 +134,57 @@ export function ChannelAttributionCard({
             </div>
             <div className="rounded-2xl border border-violet-400/[0.18] bg-violet-500/[0.05] p-5">
               <div className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-violet-300">
-                First = last touch
+                Assisted conversions
               </div>
               <div className="mt-2 text-[2.25rem] font-extrabold leading-none tabular-nums text-violet-300">
-                {(matchRate * 100).toFixed(0)}%
+                {Math.round((1 - matchRate) * ordersAttributed).toLocaleString()}
               </div>
               <div className="mt-1.5 text-[12.5px] text-slate-400">
                 {matchRate >= 0.7
-                  ? "Simple funnels — same channel acquires & closes."
+                  ? `${Math.round((1 - matchRate) * 100)}% of orders — mostly single-channel funnels.`
                   : matchRate >= 0.4
-                  ? "Mixed funnels — some multi-touch journeys."
-                  : "Multi-touch heavy — different channels acquire vs close."}
+                  ? `${Math.round((1 - matchRate) * 100)}% of orders — meaningful multi-touch paths.`
+                  : `${Math.round((1 - matchRate) * 100)}% of orders — heavy multi-touch; first-touch channel earns credit it doesn't close.`}
               </div>
             </div>
           </div>
+
+          {/* Channel split narrative — which channel acquires vs closes.
+              Compares first-touch vs last-touch revenue shares so the
+              merchant sees at-a-glance whether the same channel carries
+              both ends. Strada 4 dominance: makes the Triple Whale
+              "assisted" insight unambiguous on our card. */}
+          {firstTouch.length > 0 && lastTouch.length > 0 && (
+            <div className="mb-6 rounded-2xl border border-white/[0.05] bg-[#0b0b14]/60 p-5">
+              <div className="mb-3 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+                Attribution flow · who acquires vs who closes
+              </div>
+              <p className="text-[13px] leading-relaxed text-slate-300">
+                Your #1 acquirer is{" "}
+                <span className="font-semibold text-emerald-300">
+                  {firstTouch[0].label || firstTouch[0].source}
+                </span>
+                {firstTouch[0].source !== lastTouch[0].source ? (
+                  <>
+                    {" "}but your #1 closer is{" "}
+                    <span className="font-semibold text-amber-300">
+                      {lastTouch[0].label || lastTouch[0].source}
+                    </span>
+                    . The discovery channel and the conversion channel are
+                    different — that&apos;s classic assisted behaviour.
+                    Cutting the acquirer would starve the closer; cutting
+                    the closer would orphan the discovery spend.
+                  </>
+                ) : (
+                  <>
+                    {" "}and it&apos;s also the #1 closer. Simple single-
+                    channel funnel — most of your revenue travels through
+                    a single touch.
+                  </>
+                )}
+              </p>
+            </div>
+          )}
 
           {/* Top sources — side-by-side first-touch vs last-touch */}
           <div className="mb-6 grid gap-4 md:grid-cols-2">
