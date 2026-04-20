@@ -375,11 +375,31 @@ export function LiteCassettoniGrid({
               {panelConfig.warmCopy}
             </p>
 
-            {/* ── Analysis (the deep card, heading suppressed) ── */}
-            <div className="mt-6 border-t border-white/[0.05] pt-6">
-              <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">
-                Analysis
+            {/* ── Analysis block — violet-accented, contained ── */}
+            <div className="mt-8 rounded-2xl border border-violet-400/15 bg-violet-500/[0.025] p-5 sm:p-6">
+              <div className="mb-3 flex items-center gap-2.5">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#c4b5fd"
+                  strokeWidth={1.8}
+                  className="h-4 w-4 flex-shrink-0"
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75c0 .621-.504 1.125-1.125 1.125h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+                </svg>
+                <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-violet-300">
+                  The data · what you&apos;re looking at
+                </div>
               </div>
+              {/* Analysis intro — per-feature Spark voice that frames
+                  what follows. Static per feature (doesn't pretend to
+                  be data-specific) but tied to the feature's semantic. */}
+              <p className="mb-5 max-w-3xl text-[14px] leading-relaxed text-slate-300">
+                {panelConfig.analysisIntro}
+              </p>
+              {/* The deep card renders here, heading suppressed. */}
               <ExpandedContent
                 id={expandedId}
                 apiBase={apiBase}
@@ -396,23 +416,52 @@ export function LiteCassettoniGrid({
               />
             </div>
 
-            {/* ── What to do next (merchant-specific, not static) ── */}
-            <div className="mt-6 border-t border-white/[0.05] pt-6">
-              <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.18em] text-[#e8a04e]">
-                What to do next
+            {/* ── What-to-do block — amber-accented, contained,
+                visibly distinct from Analysis above. ── */}
+            <div
+              className="mt-6 rounded-2xl p-5 sm:p-6"
+              style={{
+                background: `linear-gradient(135deg, ${accent.bg} 0%, transparent 80%)`,
+                border: `1px solid ${accent.border}`,
+              }}
+            >
+              <div className="mb-4 flex items-center gap-2.5">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={accent.hero}
+                  strokeWidth={1.8}
+                  className="h-4 w-4 flex-shrink-0"
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                <div
+                  className="text-[11px] font-bold uppercase tracking-[0.18em]"
+                  style={{ color: accent.hero }}
+                >
+                  Your next moves
+                </div>
               </div>
-              <ul className="space-y-2">
+              <ul className="space-y-2.5">
                 {whatToDo.map((item, i) => (
                   <li
                     key={i}
-                    className="flex items-start gap-3 rounded-xl border border-white/[0.04] bg-white/[0.015] px-4 py-3"
+                    className="flex items-start gap-3 rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 px-4 py-3"
                   >
                     <span
-                      className="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full"
-                      style={{ background: accent.eyebrow }}
+                      className="mt-1.5 inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold tabular-nums"
+                      style={{
+                        color: accent.hero,
+                        background: accent.bg,
+                        border: `1px solid ${accent.border}`,
+                      }}
                       aria-hidden="true"
-                    />
-                    <span className="text-[13px] leading-relaxed text-slate-300">{item}</span>
+                    >
+                      {i + 1}
+                    </span>
+                    <span className="text-[13.5px] leading-relaxed text-slate-200">{item}</span>
                   </li>
                 ))}
               </ul>
@@ -450,6 +499,10 @@ type PanelConfig = {
   title: string;
   getSubtitle: (ctx: PanelCtx) => string | null;
   warmCopy: string;
+  /** Short sentence that precedes the deep-card analysis. Explains,
+   *  in Spark voice, what the merchant is about to see. Static per
+   *  feature — the deep card itself carries the live data. */
+  analysisIntro: string;
   getWhatToDo: (ctx: PanelCtx) => string[];
 };
 
@@ -486,6 +539,8 @@ function humanizeRarsSource(source: string): string {
 
 const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
   "revenue-at-risk": {
+    analysisIntro:
+      "Here's where the money is bleeding, ranked by size. The biggest slice is what to fix first.",
     title: "Revenue at risk",
     getSubtitle: (ctx) => {
       if (ctx.heroLoading) return "Calculating…";
@@ -535,6 +590,8 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
   },
 
   "daily-brief": {
+    analysisIntro:
+      "Here's what I flagged in the last 24 hours, ordered by economic impact. Top story leads.",
     title: "Daily brief",
     getSubtitle: (ctx) => {
       if (!ctx.briefData) return null;
@@ -578,6 +635,8 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
   },
 
   "abandoned-intent": {
+    analysisIntro:
+      "Look at the depth gap below — real buyers go deeper into your store than non-buyers. The products where the gap is widest are the ones leaking warm visitors.",
     title: "Abandoned intent",
     getSubtitle: (ctx) => {
       if (ctx.heroLoading) return "Calculating…";
@@ -620,6 +679,8 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
   },
 
   "live-opportunities": {
+    analysisIntro:
+      "Each row below is one page + one reason it's leaking + one concrete fix. Sorted by recoverable revenue, not by guesswork.",
     title: "Live opportunities",
     getSubtitle: (ctx) => {
       if (ctx.heroLoading) return "Calculating…";
@@ -660,6 +721,8 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
   },
 
   "visitor-intent": {
+    analysisIntro:
+      "Here's the live composition of your traffic by intent level. The proportions tell you whether to acquire more or convert better — two very different fixes.",
     title: "Visitor intent",
     getSubtitle: (ctx) => {
       if (ctx.heroLoading) return "Calculating…";
@@ -707,6 +770,8 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
   },
 
   "hot-products": {
+    analysisIntro:
+      "These are the three pulling most attention this week, ranked by views + intent. Consider them double-down candidates.",
     title: "Hot products",
     getSubtitle: (ctx) => {
       if (ctx.topProducts.length === 0) return "No hot products yet — your first visitors will populate the list.";
