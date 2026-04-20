@@ -109,6 +109,7 @@ import { MonthlyCohortsCard } from "../components/MonthlyCohortsCard";
 import { GatewayProductsCard } from "../components/GatewayProductsCard";
 import { ExportButton } from "../components/ExportButton";
 import { SlackSettings } from "../components/SlackSettings";
+import { AnalyticsAssistant } from "../components/AnalyticsAssistant";
 // Pro-floor — 5 migrated Intelligence cards (previously on /app/intelligence)
 import { RecommendationImpactCard } from "../components/RecommendationImpactCard";
 import { ChurnForecastCard } from "../components/ChurnForecastCard";
@@ -3043,6 +3044,14 @@ function PageInner() {
                   onExpandedChange={setLiteExpandedId}
                 />
               )}
+
+              {/* AI Analytics Assistant — Strada 4 dominance move.
+                  Moby equivalent: merchant asks in plain English,
+                  Spark pulls real numbers from services and answers
+                  with grounded prose. Positioned between cassettoni
+                  grid and Slack so merchants first SEE the data,
+                  then ASK about it, then OPT IN to push it to Slack. */}
+              {isLiteFloor && <AnalyticsAssistant />}
 
               {/* Slack integration — Strada 3.5 (2026-04-20). Last
                   Lite-floor surface before the radar + status bar,

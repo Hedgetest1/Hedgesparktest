@@ -3576,6 +3576,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/chat/analytics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask
+         * @description Answer an analytics question using real data from the shop's
+         *     services (RARS, Brief, Benchmarks, Cohorts, Attribution, P&L).
+         *     LLM composes prose around deterministic numbers; no invented
+         *     metrics. Degrades gracefully to a data-only summary if LLM is
+         *     unavailable (budget, backoff, or PII guard).
+         */
+        post: operations["ask_chat_analytics_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pro/costs/defaults": {
         parameters: {
             query?: never;
@@ -6389,6 +6413,25 @@ export interface components {
             logo_url?: string | null;
             /** Custom Subdomain */
             custom_subdomain?: string | null;
+        };
+        /** AnalyticsAskRequest */
+        AnalyticsAskRequest: {
+            /** Question */
+            question: string;
+        };
+        /** AnalyticsAskResponse */
+        AnalyticsAskResponse: {
+            /** Answer */
+            answer: string;
+            /** Data Sources */
+            data_sources?: string[];
+            /** Suggested Followups */
+            suggested_followups?: string[];
+            /**
+             * Degraded
+             * @default false
+             */
+            degraded: boolean;
         };
         /** AnnotationPayload */
         AnnotationPayload: {
@@ -15300,6 +15343,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SlackStatusResponse"];
+                };
+            };
+        };
+    };
+    ask_chat_analytics_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnalyticsAskRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalyticsAskResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
