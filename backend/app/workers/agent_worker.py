@@ -1091,6 +1091,39 @@ def _run_merchant_digest():
     finally:
         db.close()
 
+
+def _run_lite_morning_digest():
+    """Send daily morning brief email to Lite merchants (08:00–09:59 Europe/Rome).
+
+    Closes Gap A of the €39-ready sprint: turns the Lite brief from
+    pure-pull (merchant must log in) into push (email lands in inbox).
+    Per-merchant dedup via Redis keeps it to one send per calendar day
+    even when the 15-min agent worker cycle fires multiple times within
+    the send window.
+    """
+    from app.services.lite_morning_digest import (
+        _is_morning_rome,
+        run_lite_morning_digest_cycle,
+    )
+
+    if not _is_morning_rome():
+        return
+
+    db = SessionLocal()
+    try:
+        summary = run_lite_morning_digest_cycle(db)
+        db.commit()
+        if summary["sent"] > 0 or summary["failed"] > 0:
+            log(
+                f"lite_morning_digest: sent={summary['sent']} "
+                f"failed={summary['failed']} skipped={summary['skipped']}"
+            )
+    except Exception as exc:
+        log(f"lite_morning_digest error (non-fatal): {exc}")
+        db.rollback()
+    finally:
+        db.close()
+
     # B4 — TIER_2 weekly batch review (same Monday gate as merchant digest).
     # Single Telegram message with the operator's pending TIER_2 candidates.
     # Redis dedup key prevents double-sends if the worker cycles twice on
@@ -2156,6 +2189,11 @@ def run_cycle():
 
     # Phase 7d: Weekly merchant email digest (Monday, Europe/Rome)
     _run_merchant_digest()
+
+    # Phase 7d-lite: Daily Lite morning brief email (08:00-09:59 Europe/
+    # Rome) — pushes the brief so Lite merchants don't have to log in
+    # to see it. Closes Gap A of the €39-ready sprint.
+    _run_lite_morning_digest()
 
     # Phase 7d-bis: Pipeline self-upgrade scan (D5) — weekly pip-audit
     # sweep that surfaces CVEs as TIER_2 dep_upgrade candidates. Gated

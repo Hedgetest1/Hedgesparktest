@@ -70,6 +70,7 @@ Listed here in execution order with the actual gate.
 | `_run_data_retention` | `worker_state` dedup daily | once per day |
 | `_run_pipeline_self_upgrade` | **Monday 04:00-05:00 UTC only** + `worker_state.last_self_upgrade_week` | weekly, kill switch `SELF_UPGRADE_PAUSED=1` |
 | `_run_merchant_digest` | **Monday only, Europe/Rome** — sends weekly merchant emails | weekly |
+| `_run_lite_morning_digest` | **08:00–09:59 Europe/Rome** + Redis dedup `hs:lite_digest:{shop}:{YYYY-MM-DD}` (35h TTL) | **daily morning push for Lite merchants** — email_type `lite_morning_digest`, Gap A of €39-ready sprint (2026-04-20) |
 | `_run_lifecycle_emails` | dedup per-email-kind | per cadence |
 | `_run_followup_emails` | dedup per-email | per cadence |
 | `_run_inbound_actions` | no gate | every cycle |

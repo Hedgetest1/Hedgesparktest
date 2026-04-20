@@ -114,7 +114,8 @@ _DOWNGRADE_TO_DIGEST = {"first_insight", "connection_issue", "reengagement"}
 
 # Email types that justify a standalone send outside the weekly digest
 _STANDALONE_WORTHY = {
-    "weekly_digest",           # The primary value channel
+    "weekly_digest",           # The primary value channel (Pro)
+    "lite_morning_digest",     # Daily brief push channel (Lite) — Gap A
     "welcome",                 # First impression — always standalone
     "setup_incomplete",        # Onboarding blocker — time-sensitive
     "trigger_high_intent_leak",     # Real revenue at risk
