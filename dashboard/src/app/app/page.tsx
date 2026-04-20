@@ -100,8 +100,8 @@ import { RevenueForecastCard } from "../components/RevenueForecastCard";
 import { CustomerChurnCard } from "../components/CustomerChurnCard";
 // δ5 — nudge DNA patterns
 import { NudgeDnaCard } from "../components/NudgeDnaCard";
-// Lite-floor — first-visit tour primer
-import { LiteTourPrimer } from "../components/LiteTourPrimer";
+// Lite-floor — cassettoni grid with click-to-expand (v3 spec)
+import { LiteCassettoniGrid } from "../components/LiteCassettoniGrid";
 // Pro-floor — 5 migrated Intelligence cards (previously on /app/intelligence)
 import { RecommendationImpactCard } from "../components/RecommendationImpactCard";
 import { ChurnForecastCard } from "../components/ChurnForecastCard";
@@ -2553,16 +2553,10 @@ function PageInner() {
                   priority actions the merchant can execute manually today.
                   Always renders on Lite; empty-state says "All clear —
                   Spark is watching" so the strip never disappears. */}
-              {/* ═══ LITE TOUR — "What am I looking at?" primer ═══
-                  Founder-flagged 2026-04-20: warm tone works, but a
-                  first-time merchant stares at the dashboard and gets
-                  "a couple of nice tables, zero comprehension". This
-                  guide panel gives a 30-second map of the 7 Lite
-                  sections with plain-language "what / why" per row.
-                  Dismissed persistently via localStorage so repeat
-                  visitors don't see it. Never auto-hide on scroll —
-                  that's user-hostile. */}
-              {isLiteFloor && shop && <LiteTourPrimer />}
+              {/* Tour primer removed per founder directive 2026-04-20:
+                  "togli il tour primer, non serve". The cassettoni
+                  grid below teaches the dashboard by showing the
+                  titles + numbers; click to reveal the full story. */}
 
               {isLiteFloor && (
                 <section
@@ -2781,13 +2775,37 @@ function PageInner() {
               {/* ═══ DAILY NARRATIVE — storytelling block (α7) ═══ */}
               {!isLiteFloor && <DailyNarrativeBlock apiBase={API_BASE} isProUser={isProUser} />}
 
-              {/* ═══ REVENUE AT RISK HERO — the new #1 headline ═══ */}
-              <RevenueAtRiskHero
-                apiBase={API_BASE}
-                shop={shop}
-                isProUser={isProUser}
-                onUpgrade={() => setUpgradeModalOpen(true)}
-              />
+              {/* ═══ LITE CASSETTONI GRID ═══
+                  On /app/lite: the 6-feature grid that replaces all the
+                  individual deep cards. Click a cassettone to expand
+                  the full deep card below. Radar + Spark Status remain
+                  OUTSIDE this component, at the bottom of the floor. */}
+              {isLiteFloor && (
+                <LiteCassettoniGrid
+                  apiBase={API_BASE}
+                  shop={shop}
+                  isProUser={isProUser}
+                  displayCurrency={displayCurrency}
+                  topProducts={topProducts}
+                  effectiveBrief={effectiveBrief}
+                  briefLoading={briefLoading}
+                  tier={tier}
+                  coldStartPhase={coldStartPhase}
+                  setUpgradeModalOpen={setUpgradeModalOpen}
+                  loading={loading}
+                />
+              )}
+
+              {/* ═══ REVENUE AT RISK HERO — Pro-floor only (Lite now
+                  surfaces this inside the cassettoni grid above). ═══ */}
+              {!isLiteFloor && (
+                <RevenueAtRiskHero
+                  apiBase={API_BASE}
+                  shop={shop}
+                  isProUser={isProUser}
+                  onUpgrade={() => setUpgradeModalOpen(true)}
+                />
+              )}
 
               {/* ═══ TRUST CONTROL CENTER — delegated autonomy (α1) ═══ */}
               {!isLiteFloor && (
@@ -2881,41 +2899,34 @@ function PageInner() {
                 </div>
               )}
 
-              {/* ═══ ABANDONED INTENT — Lite-accessible (Phase 1.4)
-                  Backend returns reduced-fidelity for Lite (top 3
-                  products + empty session_insights). Component handles
-                  the bridge to Pro upgrade when isProUser=false. ═══ */}
-              <AbandonedIntentCard
-                apiBase={API_BASE}
-                shop={shop}
-                isProUser={isProUser}
-                onUpgrade={() => setUpgradeModalOpen(true)}
-              />
-
-              {/* ═══ LIVE OPPORTUNITIES — Lite-accessible (Phase 1.5)
-                  Backend `/analytics/live-opportunities` is Lite-accessible
-                  by design (no plan gating). Same data to Pro and Lite —
-                  the moat isn't the data, it's the AI nudge composer
-                  that auto-deploys the recommended action (Pro moat).
-                  Lite merchants read recommended_action and act manually. ═══ */}
-              <SectionErrorBoundary name="Live Opportunities">
-                <LiveOpportunitiesCard apiBase={API_BASE} shop={shop} />
-              </SectionErrorBoundary>
-
-              {/* ═══ VISITOR INTENT — Lite-accessible (Phase 1.6)
-                  Three counts: Hot / Warm / Cold visitors classified
-                  by conversion_score thresholds. Backend computes the
-                  classification server-side with tenant isolation.
-                  Lite sees the 3 counts; Pro unlocks the ranked per-
-                  visitor drill-down via /visitor-scores. ═══ */}
-              <SectionErrorBoundary name="Visitor Intent">
-                <VisitorIntentCard
+              {/* ═══ Lite-accessible deep cards — Pro-floor only now.
+                  On /app/lite these render inside the cassettoni grid
+                  above (click to expand). ═══ */}
+              {!isLiteFloor && (
+                <AbandonedIntentCard
                   apiBase={API_BASE}
                   shop={shop}
                   isProUser={isProUser}
                   onUpgrade={() => setUpgradeModalOpen(true)}
                 />
-              </SectionErrorBoundary>
+              )}
+
+              {!isLiteFloor && (
+                <SectionErrorBoundary name="Live Opportunities">
+                  <LiveOpportunitiesCard apiBase={API_BASE} shop={shop} />
+                </SectionErrorBoundary>
+              )}
+
+              {!isLiteFloor && (
+                <SectionErrorBoundary name="Visitor Intent">
+                  <VisitorIntentCard
+                    apiBase={API_BASE}
+                    shop={shop}
+                    isProUser={isProUser}
+                    onUpgrade={() => setUpgradeModalOpen(true)}
+                  />
+                </SectionErrorBoundary>
+              )}
 
               {/* ═══ DEEP INTELLIGENCE GRID — Pro-only moat features ═══ */}
               {isProUser && !isLiteFloor && (
@@ -2953,39 +2964,41 @@ function PageInner() {
               {/* ═══ RECENT ACTIONS — localStorage memory ═══ */}
               <RecentActions actions={recentActions} />
 
-              {/* 1 — Daily Brief */}
-              <SectionErrorBoundary name="Daily Brief">
-              <section id="section-brief">
-                <BriefHero
-                  brief={effectiveBrief}
-                  loading={briefLoading}
-                  tier={tier}
-                  onUpgradeClick={() => setUpgradeModalOpen(true)}
-                  emptyHint={
-                    coldStartPhase === 0
-                      ? "Complete setup to start tracking."
-                      : coldStartPhase === 1
-                      ? "Tracker live. First findings within minutes."
-                      : coldStartPhase === 2
-                      ? "Visitors arriving. Analyzing behavior to find your first revenue opportunity."
-                      : undefined
-                  }
-                  sparkInsight={(() => {
-                    const top = strongSignals[0];
-                    if (!top) return earlySignals.length > 0 ? "Early visitor activity detected. Patterns forming." : undefined;
-                    // Build a specific data line from the signal
-                    const parts: string[] = [];
-                    if (top.human_label) parts.push(top.human_label);
-                    else if (top.explanation) parts.push(top.explanation);
-                    return parts.join("") || undefined;
-                  })()}
-                  sparkDetail={(() => {
-                    if (strongSignals.length <= 1) return undefined;
-                    return `${strongSignals.length} findings across your store.`;
-                  })()}
-                />
-              </section>
-              </SectionErrorBoundary>
+              {/* 1 — Daily Brief — Pro-floor only now (on /app/lite it
+                  lives inside the cassettoni grid above). */}
+              {!isLiteFloor && (
+                <SectionErrorBoundary name="Daily Brief">
+                <section id="section-brief">
+                  <BriefHero
+                    brief={effectiveBrief}
+                    loading={briefLoading}
+                    tier={tier}
+                    onUpgradeClick={() => setUpgradeModalOpen(true)}
+                    emptyHint={
+                      coldStartPhase === 0
+                        ? "Complete setup to start tracking."
+                        : coldStartPhase === 1
+                        ? "Tracker live. First findings within minutes."
+                        : coldStartPhase === 2
+                        ? "Visitors arriving. Analyzing behavior to find your first revenue opportunity."
+                        : undefined
+                    }
+                    sparkInsight={(() => {
+                      const top = strongSignals[0];
+                      if (!top) return earlySignals.length > 0 ? "Early visitor activity detected. Patterns forming." : undefined;
+                      const parts: string[] = [];
+                      if (top.human_label) parts.push(top.human_label);
+                      else if (top.explanation) parts.push(top.explanation);
+                      return parts.join("") || undefined;
+                    })()}
+                    sparkDetail={(() => {
+                      if (strongSignals.length <= 1) return undefined;
+                      return `${strongSignals.length} findings across your store.`;
+                    })()}
+                  />
+                </section>
+                </SectionErrorBoundary>
+              )}
 
               {!isLiteFloor && (
                 <>
@@ -3114,9 +3127,10 @@ function PageInner() {
                   to Pro merchants with real data during the fetch
                   window. During load → CardSkeleton. After load → real
                   state (grid or CardEmpty). */}
-              <SectionErrorBoundary name="Hot Products">
-              <section>
-                <SectionHeading eyebrow="Hot Products" title="Where buyers are active" />
+              {!isLiteFloor && (
+                <SectionErrorBoundary name="Hot Products">
+                <section>
+                  <SectionHeading eyebrow="Hot Products" title="Where buyers are active" />
 
                 {loading ? (
                   <CardSkeleton label="Loading hot products" />
@@ -3178,8 +3192,9 @@ function PageInner() {
                     onUpgradeClick={() => setUpgradeModalOpen(true)}
                   />
                 </div>
-              </section>
-              </SectionErrorBoundary>
+                </section>
+                </SectionErrorBoundary>
+              )}
 
               {!isLiteFloor && (
                 <>
