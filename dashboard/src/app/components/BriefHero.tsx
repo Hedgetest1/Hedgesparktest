@@ -196,22 +196,21 @@ export function BriefHero({ brief, loading, tier, onUpgradeClick, emptyHint, spa
 
       {/* ── Spark insight block ── */}
       <div className="px-7 pt-7 pb-5">
-        {/* Header row: mascot + date + signal count */}
-        <div className="mb-5 flex items-center gap-3">
-          <Image
-            src="/branding/hedgespark/spark.png"
-            alt=""
-            width={28}
-            height={28}
-            className="flex-shrink-0"
-          />
-          <div className="flex flex-1 flex-wrap items-center gap-2.5">
-            <span className="text-[13px] font-bold uppercase tracking-[0.15em] hs-brand-gradient">Daily Brief</span>
+        {/* Header row: unified section heading (ONE big amber H2).
+            Removed the small bouncing Spark mascot (was 28px hs-float,
+            distracted from the title) and the hs-brand-gradient label
+            (which violated §4: gradient reserved for wordmark only).
+            Date + signal count move under the title as slate meta. */}
+        <div className="mb-5">
+          <h2 className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-[#e8a04e] sm:text-[2rem]">
+            Daily brief — today&apos;s headline
+          </h2>
+          <div className="mt-2 flex flex-wrap items-center gap-2.5 text-[13px]">
             {brief.brief_date && (
-              <span className="text-[13px] text-slate-500">{brief.brief_date}</span>
+              <span className="text-slate-500">{brief.brief_date}</span>
             )}
             {signalCount > 0 && (
-              <span className="rounded-lg bg-white/[0.04] px-2.5 py-1 text-[13px] font-semibold tabular-nums text-slate-400 ring-1 ring-white/[0.06]">
+              <span className="rounded-lg bg-white/[0.04] px-2.5 py-1 font-semibold tabular-nums text-slate-400 ring-1 ring-white/[0.06]">
                 {signalCount} finding{signalCount !== 1 ? "s" : ""}
               </span>
             )}

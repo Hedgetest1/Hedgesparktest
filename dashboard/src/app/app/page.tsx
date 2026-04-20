@@ -2579,52 +2579,40 @@ function PageInner() {
                   <div className="pointer-events-none absolute -left-24 -bottom-32 h-[320px] w-[320px] rounded-full bg-[#e8a04e]/[0.04] blur-[140px]" />
 
                   <div className="relative">
-                    {/* Unified hero heading: small amber eyebrow + large
-                        white title + slate subtitle. Same spec as
-                        LiteTourPrimer / SystemStatusBar / SectionHeading
-                        hero variant, no bespoke inventions. */}
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <span className="relative flex h-2 w-2" aria-hidden="true">
-                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#e8a04e]/50" />
-                          <span className="relative inline-flex h-2 w-2 rounded-full bg-[#e8a04e] shadow-[0_0_12px_rgba(232,160,78,0.7)]" />
+                    {/* Unified heading: ONE big amber H2 (time-aware).
+                        Live-dot indicator stays as a small meta in the
+                        top-right — slate, not amber. No separate amber
+                        eyebrow above the title. */}
+                    <div className="mb-2 flex flex-wrap items-start justify-between gap-3">
+                      <h1
+                        id="today-actions-heading"
+                        className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-[#e8a04e] sm:text-[2rem]"
+                      >
+                        {(() => {
+                          const h = new Date().getHours();
+                          const when =
+                            h < 12 ? "this morning"
+                              : h < 17 ? "this afternoon"
+                                : h < 21 ? "this evening"
+                                  : "right now";
+                          if (sparkActions.length === 0) {
+                            return "Nothing urgent — I'm watching.";
+                          }
+                          if (sparkActions.length === 1) {
+                            return `I found 1 thing worth your time ${when}.`;
+                          }
+                          return `I found ${Math.min(3, sparkActions.length)} things worth your time ${when}.`;
+                        })()}
+                      </h1>
+                      <span className="mt-1 inline-flex flex-shrink-0 items-center gap-1.5 text-[11px] font-semibold text-slate-500">
+                        <span className="relative flex h-1.5 w-1.5" aria-hidden="true">
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/50" />
+                          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
                         </span>
-                        <h2
-                          id="today-actions-heading"
-                          className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#e8a04e]"
-                        >
-                          {(() => {
-                            const h = new Date().getHours();
-                            if (h < 12) return "Good morning · your 3 moves";
-                            if (h < 17) return "Good afternoon · your 3 moves";
-                            if (h < 21) return "Good evening · your 3 moves";
-                            return "Tonight · your 3 moves";
-                          })()}
-                        </h2>
-                      </div>
-                      <span className="text-[11px] font-semibold text-slate-500">
                         Ranked by impact · live
                       </span>
                     </div>
-
-                    <h1 className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-white sm:text-[2rem]">
-                      {(() => {
-                        const h = new Date().getHours();
-                        const when =
-                          h < 12 ? "this morning"
-                            : h < 17 ? "this afternoon"
-                              : h < 21 ? "this evening"
-                                : "right now";
-                        if (sparkActions.length === 0) {
-                          return "Nothing urgent — I'm watching.";
-                        }
-                        if (sparkActions.length === 1) {
-                          return `I found 1 thing worth your time ${when}.`;
-                        }
-                        return `I found ${Math.min(3, sparkActions.length)} things worth your time ${when}.`;
-                      })()}
-                    </h1>
-                    <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-slate-400">
+                    <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-slate-400">
                       {sparkActions.length === 0
                         ? "No urgent actions right now. Your store is running fine. New recommendations appear the moment a signal crosses threshold — no need to refresh."
                         : "Each card below is one signal + one action. Tackle them in order, skip what you can't do today — I'll re-rank tomorrow from your real data."}

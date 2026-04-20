@@ -1,67 +1,58 @@
 /**
- * SectionHeading — unified section heading for the entire dashboard.
+ * SectionHeading — unified section heading.
  *
- * Design system (founder directive 2026-04-20, "lavora meglio come
- * visual design"):
+ * Design system (founder-corrected 2026-04-20 after a botched pass
+ * that shrank titles and added redundant small-amber eyebrows):
  *
- *   eyebrow  → 10px bold uppercase tracking-[0.18em] amber `#e8a04e`
- *   title    → 22px extrabold leading-tight WHITE (NOT amber — amber
- *              is reserved for the eyebrow accent only; repeating
- *              amber on both eyebrow and title is what made the old
- *              headers feel visually mush)
- *   subtitle → 13px leading-relaxed slate-400 — NEVER amber
+ *   Rule 1: ONE amber element per section.
+ *           The big 1.75rem → 2rem amber H2 IS the section eyebrow
+ *           AND the section title, in a single line. Don't add a
+ *           smaller amber tag above it — that's what "amber ripetuti
+ *           tra titoletto e sub titoletto" referred to.
  *
- * For hero moments (first-of-page, system-status bar), use
- * `variant="hero"` which bumps the title to 1.75rem → 2rem but keeps
- * the eyebrow + subtitle treatment identical. Two sizes, one system.
+ *   Rule 2: Subtitles are slate-400, NEVER amber.
+ *           Amber only appears on the main title.
  *
- * What NOT to do:
- *   - Don't color the title amber.
- *   - Don't color the subtitle amber.
- *   - Don't invent new eyebrow sizes per section.
- *   - Don't wrap the eyebrow in a pill/chip — the color already
- *     carries the "eyebrow" signal.
+ *   Rule 3: Gradient (hs-brand-gradient) is reserved for the
+ *           HedgeSpark wordmark. NEVER on section titles (§4 CLAUDE.md).
  *
- * Prior API contract (pre 2026-04-20): `eyebrow` rendered as the BIG
- * amber heading and `title` rendered as a smaller slate subtitle.
- * That API was backwards — "eyebrow" should BE the eyebrow, not the
- * title. The rewrite inverts the rendering to match the names:
- * eyebrow = eyebrow, title = title. Every existing call-site stays
- * compatible because the prop NAMES didn't change — only what gets
- * rendered where.
+ * API:
+ *   - `eyebrow` prop renders as the BIG amber H2 (naming is
+ *     historical; the prop IS the title).
+ *   - `title` prop renders as the slate-400 subtitle under the H2.
+ *   - `description` prop renders as the slate-500 secondary line.
+ *
+ * Prop names kept for backwards compat with every call-site.
  */
 
 export function SectionHeading({
   eyebrow,
   title,
   description,
-  variant = "section",
 }: {
   eyebrow: string;
   title: string;
   description?: string;
-  variant?: "section" | "hero";
   /**
    * @deprecated The "PRO" badge next to section titles was visual
    * noise: Pro users already know they're Pro, and Lite users see
    * the ProGate overlay which already labels the section as Pro.
-   * The prop is still accepted at callsites (no-op) to avoid churn.
+   * The prop is still accepted at callsites (no-op).
    */
   pro?: boolean;
 }) {
-  const titleClass =
-    variant === "hero"
-      ? "text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-white sm:text-[2rem]"
-      : "text-[22px] font-extrabold leading-[1.15] tracking-tight text-white sm:text-[24px]";
-
   return (
-    <div className="mb-5">
-      <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#e8a04e]">
+    <div className="mb-6">
+      <h2 className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-[#e8a04e] sm:text-[2rem]">
         {eyebrow}
-      </div>
-      <h2 className={titleClass}>{title}</h2>
+      </h2>
+      {title && (
+        <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-slate-400">
+          {title}
+        </p>
+      )}
       {description && (
-        <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-slate-400">
+        <p className="mt-1 text-[13px] leading-relaxed text-slate-500">
           {description}
         </p>
       )}

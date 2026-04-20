@@ -128,16 +128,13 @@ export function RevenueAtRiskHero({
 
   return (
     <div className="rounded-2xl border border-white/[0.08] bg-gradient-to-br from-[#0b0b14] via-[#101017] to-[#0b0b14] p-6">
-      {/* Header row — unified hero spec (2026-04-20 design system):
-          small amber eyebrow + large white title. Matches
-          SectionHeading/LiteTourPrimer/SystemStatusBar. */}
+      {/* Header row — unified section heading (2026-04-20
+          founder-corrected): ONE big amber H2, no separate
+          amber eyebrow line. */}
       <div className="mb-4 flex items-start justify-between gap-4">
         <div>
-          <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#e8a04e]">
-            Revenue at risk · this month
-          </div>
-          <h2 className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-white sm:text-[2rem]">
-            How much money is slipping through your store right now
+          <h2 className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-[#e8a04e] sm:text-[2rem]">
+            Revenue at risk — how much money is slipping through your store right now
           </h2>
         </div>
         {hasRisk && (

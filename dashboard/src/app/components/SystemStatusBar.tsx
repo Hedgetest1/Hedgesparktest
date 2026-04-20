@@ -108,14 +108,8 @@ export function SystemStatusBar({
         </div>
 
         <div className="min-w-0 flex-1">
-          {/* Eyebrow + title: unified hero spec per the 2026-04-20
-              visual-design system. Small amber eyebrow, large white
-              title, no pill wrapper (the color alone signals the
-              eyebrow role). */}
-          <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#e8a04e]">
-            Spark status
-          </div>
-          <h2 className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-white sm:text-[2rem]">
+          {/* Unified heading: ONE big amber H2, no separate eyebrow. */}
+          <h2 className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-[#e8a04e] sm:text-[2rem]">
             {message}
           </h2>
 

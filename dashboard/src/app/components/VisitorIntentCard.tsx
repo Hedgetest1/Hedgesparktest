@@ -80,15 +80,12 @@ export function VisitorIntentCard({
 
   return (
     <section>
-      {/* Unified section heading spec (2026-04-20). */}
-      <div className="mb-5">
-        <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#e8a04e]">
-          Visitor intent
-        </div>
-        <h3 className="text-[22px] font-extrabold leading-[1.15] tracking-tight text-white sm:text-[24px]">
-          Who&apos;s in your store right now
+      {/* Unified section heading: ONE big amber H2 + slate subtitle. */}
+      <div className="mb-6">
+        <h3 className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-[#e8a04e] sm:text-[2rem]">
+          Visitor intent — who&apos;s in your store right now
         </h3>
-        <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-slate-400">
+        <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-slate-400">
           Every visitor classified by scroll, dwell, and click behavior.
           {" "}
           <span className="text-slate-300">
