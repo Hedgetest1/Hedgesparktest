@@ -261,18 +261,40 @@ export function LiteCassettoniGrid({
               onClick={() => handleClick(c.id)}
               aria-expanded={isActive}
               aria-controls={`cassettone-panel-${c.id}`}
-              className="group relative flex h-full flex-col overflow-hidden rounded-3xl border bg-[#0e0e1a] p-7 text-left shadow-[0_20px_80px_-20px_rgba(0,0,0,0.5)] transition-all duration-200 hover:shadow-[0_28px_96px_-20px_rgba(0,0,0,0.55)] sm:p-8"
-              style={{
-                borderColor: isActive ? accent.border : "rgba(255,255,255,0.06)",
-                background: isActive
-                  ? `linear-gradient(135deg, ${accent.bg} 0%, #0e0e1a 60%)`
-                  : "#0e0e1a",
-              }}
+              className={`group relative flex h-full flex-col overflow-hidden rounded-3xl border bg-[#0e0e1a] p-7 text-left shadow-[0_20px_80px_-20px_rgba(0,0,0,0.5)] transition-all duration-200 hover:shadow-[0_28px_96px_-20px_rgba(0,0,0,0.55)] sm:p-8 ${
+                isActive ? "" : "border-white/[0.06] hover:border-white/[0.16]"
+              }`}
+              style={
+                isActive
+                  ? {
+                      borderColor: accent.border,
+                      background: `linear-gradient(135deg, ${accent.bg} 0%, #0e0e1a 60%)`,
+                    }
+                  : undefined
+              }
             >
-              {/* Left accent bar */}
+              {/* Hover illumination overlay — accent-tinted gradient
+                  that fades in on hover to give the cassettone a
+                  clear "this is clickable" affordance. Skipped when
+                  the card is already active (gradient is already on
+                  via inline style). pointer-events-none keeps the
+                  click target on the button itself. */}
+              {!isActive && (
+                <span
+                  className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
+                  style={{
+                    background: `linear-gradient(135deg, ${accent.bg} 0%, transparent 65%)`,
+                  }}
+                  aria-hidden="true"
+                />
+              )}
+
+              {/* Left accent bar — full opacity on active OR hover. */}
               <span
-                className="absolute left-0 top-6 h-16 w-[3px] rounded-r-full transition-all"
-                style={{ background: accent.eyebrow, opacity: isActive ? 1 : 0.6 }}
+                className={`absolute left-0 top-6 h-16 w-[3px] rounded-r-full transition-opacity duration-200 ${
+                  isActive ? "opacity-100" : "opacity-60 group-hover:opacity-100"
+                }`}
+                style={{ background: accent.eyebrow }}
                 aria-hidden="true"
               />
 
