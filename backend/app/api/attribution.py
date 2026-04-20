@@ -14,6 +14,13 @@ GET /attribution/products?shop=&days=
 GET /attribution/summary/pro?shop=&days=
     Pro — attribution overview: attributed vs unattributed orders,
     top sources, top campaigns, first-touch vs last-touch breakdown.
+
+GET /attribution/summary?shop=&days=
+    Lite (Strada 3.2, 2026-04-20) — same summary shape, opens the
+    UTM/channel attribution picture to the €39 tier. Data is UTM-
+    based (not ad-platform integration) so there's no "ad spend"
+    component — but attribution to source, revenue per source, and
+    top campaigns are all there.
 """
 from __future__ import annotations
 
@@ -169,4 +176,22 @@ def get_attribution_summary_pro(
 
     Every number is evidence-based. No modeled/probabilistic attribution.
     """
+    return get_attribution_summary(db, shop, days=days)
+
+
+@router.get(
+    "/summary",
+    response_model=AttributionSummaryResponse,
+    response_model_exclude_none=False,
+)
+def get_attribution_summary_lite(
+    days: int = 30,
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+):
+    """Lite-accessible attribution summary (Strada 3.2, 2026-04-20).
+    Same shape + service as /attribution/summary/pro; auth differs.
+    Attribution math is UTM-based (deterministic, not modeled) — same
+    evidence across tiers, opening it to Lite completes the channel-
+    attribution picture at the €39 band."""
     return get_attribution_summary(db, shop, days=days)

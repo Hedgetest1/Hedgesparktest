@@ -104,6 +104,7 @@ import { NudgeDnaCard } from "../components/NudgeDnaCard";
 import { LiteCassettoniGrid, type CassettoneId } from "../components/LiteCassettoniGrid";
 import { LiteRarsHero } from "../components/LiteRarsHero";
 import { PnlReport } from "../components/PnlReport";
+import { ChannelAttributionCard } from "../components/ChannelAttributionCard";
 // Pro-floor — 5 migrated Intelligence cards (previously on /app/intelligence)
 import { RecommendationImpactCard } from "../components/RecommendationImpactCard";
 import { ChurnForecastCard } from "../components/ChurnForecastCard";
@@ -2895,6 +2896,51 @@ function PageInner() {
                       </p>
                     </div>
                     <PnlReport data={pnlData} displayCurrency={displayCurrency} />
+                  </div>
+                </section>
+              )}
+
+              {/* Channel attribution — UTM-deterministic attribution.
+                  Strada 3.2 (2026-04-20). Not ad-platform integration
+                  (no Meta/Google Ads API) — methodology footer on the
+                  card is explicit about this. But first/last-touch by
+                  revenue, match rate, and top campaigns are all shown
+                  with real data.  Blue accent keeps the 4-section
+                  chromatic story: amber (money-at-risk) → violet
+                  (peer) → amber (P&L) → emerald (retention) → blue
+                  (attribution) → cassettoni grid. */}
+              {isLiteFloor && (
+                <section
+                  aria-labelledby="lite-attribution-heading"
+                  className="relative mb-8 overflow-hidden rounded-3xl border border-blue-400/[0.15] bg-gradient-to-br from-[#0a121a] via-[#0a0a14] to-[#0b0c18] p-7 sm:p-9"
+                >
+                  <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent opacity-50" />
+                  <div className="pointer-events-none absolute -right-32 -top-32 h-[340px] w-[340px] rounded-full bg-[#60a5fa]/[0.05] blur-[150px]" />
+                  <div className="relative">
+                    <div className="mb-5">
+                      <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-blue-300">
+                        Channel attribution
+                      </div>
+                      <h2
+                        id="lite-attribution-heading"
+                        className="mt-2 text-[1.5rem] font-extrabold leading-[1.08] tracking-tight text-white sm:text-[1.75rem]"
+                      >
+                        Where your converting traffic comes from
+                      </h2>
+                      <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
+                        UTM-deterministic attribution — every converting
+                        visitor&apos;s first-touch and last-touch source
+                        tracked at purchase time. Not modeled, not
+                        probabilistic. Includes a first-vs-last match rate
+                        so you know if your acquirer and your closer are
+                        the same channel or different.
+                      </p>
+                    </div>
+                    <ChannelAttributionCard
+                      apiBase={API_BASE}
+                      shop={shop}
+                      displayCurrency={displayCurrency}
+                    />
                   </div>
                 </section>
               )}

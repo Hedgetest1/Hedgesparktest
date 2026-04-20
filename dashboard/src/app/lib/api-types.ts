@@ -2413,6 +2413,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/attribution/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Attribution Summary Lite
+         * @description Lite-accessible attribution summary (Strada 3.2, 2026-04-20).
+         *     Same shape + service as /attribution/summary/pro; auth differs.
+         *     Attribution math is UTM-based (deterministic, not modeled) — same
+         *     evidence across tiers, opening it to Lite completes the channel-
+         *     attribution picture at the €39 band.
+         */
+        get: operations["get_attribution_summary_lite_attribution_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pro/lift": {
         parameters: {
             query?: never;
@@ -13847,6 +13871,37 @@ export interface operations {
         };
     };
     get_attribution_summary_pro_attribution_summary_pro_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttributionSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_attribution_summary_lite_attribution_summary_get: {
         parameters: {
             query?: {
                 days?: number;
