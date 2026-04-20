@@ -186,30 +186,21 @@ _SOURCE_HUMAN = {
 
 
 def _build_email(shop_domain: str, brief: dict, db: Session) -> Tuple[str, str, str]:
-    """Morning brief email — MIRRORS the _render_night_shift_digest
-    structure in email_templates.py 1:1. Night shift is HedgeSpark's
-    established daily email pattern (Pro-only "morning after"
-    report); we reuse its visual grammar for the Lite morning brief
-    so a merchant who sees both recognises one consistent system.
+    """Morning brief email — MIRRORS digest_formatter.format_digest
+    (the "Your Weekly Intelligence" email) 1:1. Same subject shape,
+    same shell with PNG logo, same rars_hero_html amber-gradient
+    card, same amber "Revenue at Risk" opportunity box with bordered
+    rows, same violet peer-benchmarks box, same amber-to-violet CTA.
 
-    Layout (copied from _render_night_shift_digest):
-      1. _heading(headline) — the narrative title
-      2. _p(narrative, color="#cbd5e1") — context
-      3. Side-by-side KPI cards: Revenue-at-Risk / Prevented
-      4. _section_title("Top action flagged", accent="warm") + _p
-      5. _section_title("Where it's leaking", accent="cool") +
-         journal-style colored-border rows for each component
-      6. _separator()
-      7. closing _p + _button("Open dashboard", ...)
-      8. _wrap_html(subject, body)  # NO show_logo=True
+    Founder directive 2026-04-20: "prendi esempio dalla mail con
+    oggetto your weekly intelligence... sopra non ci va spark in sè,
+    ma il logo". Executed.
     """
-    from app.services.email_templates import (
-        _wrap_html, _button, _p, _heading, _section_title, _separator,
-    )
+    from app.services.email_templates import _wrap_html
 
-    shop_name = (
-        shop_domain.replace(".myshopify.com", "").replace("-", " ").title()
-    )
+    shop = shop_domain.replace(".myshopify.com", "")
+    shop_name = shop.replace("-", " ").title()
+    period = datetime.now(timezone.utc).strftime("%A · %B %d, %Y")
 
     # Data
     rich = _gather_rich_context(db, shop_domain)
@@ -224,181 +215,215 @@ def _build_email(shop_domain: str, brief: dict, db: Session) -> Tuple[str, str, 
     rars_total = float(rars.get("total") or 0)
     rars_prevented = float(rars.get("prevented") or 0)
     rars_comps = rars.get("components") or []
+    bench = rich.get("benchmarks") or {}
+    ret = rich.get("retention") or {}
 
-    # ------- Headline + narrative (mirror night_shift style) ---------
-    if rars_total > 0 and top_product:
-        headline = f"{_fmt_money(rars_total, currency)} at risk · lead story on {top_product}"
-    elif rars_total > 0:
-        headline = f"{_fmt_money(rars_total, currency)} at risk this month"
-    elif top_product:
-        headline = f"{shop_name}: today's lead is {top_product}"
-    elif signals_count > 0:
-        plural = "s" if signals_count != 1 else ""
-        headline = f"{signals_count} finding{plural} in your overnight brief"
-    else:
-        headline = "Clean slate this morning"
-
-    narrative = brief_headline if brief_headline else (
-        f"Your morning brief for {shop_name}. Every number below comes from a real query, "
-        "ranked by economic impact."
-    )
-
-    # ------- Empty / clean-slate short path --------------------------
-    if rars_total == 0 and signals_count == 0:
-        body_parts = [
-            _heading("Clean slate this morning"),
-            _p(
-                f"No material risk this morning on {shop_name}. Your funnel is clean, "
-                "no abandoned-intent products crossed threshold, no leaking pages, no "
-                "urgent findings in the overnight review.",
-                color="#cbd5e1",
-            ),
-            _p(
-                "Spark is still watching. The moment any signal crosses threshold "
-                "(abandoned intent, leaking pages, hot-product surge, peer-gap widening), "
-                "it'll land in your dashboard and in tomorrow's brief.",
-                color="#94a3b8",
-            ),
-            _separator(),
-            _p(
-                "Use a quiet morning to work what's already converting — Hot Products and "
-                "peer-gap opportunities on the dashboard.",
-                color="#64748b",
-            ),
-            _button("Open dashboard", _DASHBOARD_URL),
-        ]
-        subject = f"{shop_name}: clean slate this morning"
-        html_out = _wrap_html(subject, "".join(body_parts))
-        plain_out = (
-            f"Clean slate this morning on {shop_name}.\n\n"
-            "No material risk, no abandoned-intent products crossed threshold,\n"
-            "no leaking pages, no urgent findings.\n\n"
-            f"Open dashboard: {_DASHBOARD_URL}\n\n"
-            "— HedgeSpark"
-        )
-        return subject, html_out, plain_out
-
-    # ------- Body (mirror _render_night_shift_digest structure) ------
-    body_parts = [
-        _heading(headline),
-        _p(narrative, color="#cbd5e1") if narrative else "",
-    ]
-
-    # KPI cards — side-by-side table, EXACT copy of night_shift pattern.
-    # Left: Revenue at risk (amber). Right: Prevented (emerald).
-    kpi_cards = []
+    # -------------------------------------------------------------
+    # RARS HERO — byte-for-byte copy of digest_formatter rars_hero_html
+    # (amber→violet gradient card, 42px hero, prevented line below)
+    # -------------------------------------------------------------
+    rars_hero_html = ""
     if rars_total > 0:
-        kpi_cards.append(
-            f'<td style="padding:0 6px 0 0;vertical-align:top;width:50%;">'
-            f'<div style="padding:14px 16px;border-radius:12px;border:1px solid rgba(232,160,78,0.22);'
-            f'background:rgba(232,160,78,0.06);">'
-            f'<div style="font-size:10px;font-weight:700;letter-spacing:0.16em;'
-            f'text-transform:uppercase;color:#94a3b8;">Revenue at risk</div>'
-            f'<div style="margin-top:4px;font-size:22px;font-weight:800;color:#e8a04e;">'
-            f'{_fmt_money(rars_total, currency)}/mo</div></div></td>'
-        )
-    if rars_prevented > 0:
-        kpi_cards.append(
-            f'<td style="padding:0 0 0 6px;vertical-align:top;width:50%;">'
-            f'<div style="padding:14px 16px;border-radius:12px;border:1px solid rgba(52,211,153,0.22);'
-            f'background:rgba(52,211,153,0.06);">'
-            f'<div style="font-size:10px;font-weight:700;letter-spacing:0.16em;'
-            f'text-transform:uppercase;color:#94a3b8;">Prevented this month</div>'
-            f'<div style="margin-top:4px;font-size:22px;font-weight:800;color:#34d399;">'
-            f'{_fmt_money(rars_prevented, currency)}</div></div></td>'
-        )
-    if kpi_cards:
-        body_parts.append(
-            '<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
-            'width="100%" style="margin:10px 0 4px 0;"><tr>'
-            + "".join(kpi_cards)
-            + '</tr></table>'
-        )
-
-    # Top action (mirrors night_shift "Top action flagged" section)
-    if top_product and top_action:
-        body_parts.append(_section_title("Top action flagged", accent="warm"))
-        body_parts.append(
-            _p(
-                f"<strong style='color:#f1f5f9;'>{top_product}</strong> — {top_action}",
-                color="#e2e8f0",
+        prevented_block = ""
+        if rars_prevented > 0:
+            prevented_block = (
+                f'<p style="margin:6px 0 0;font-size:13px;color:#10b981;font-weight:600">'
+                f"HedgeSpark already prevented {currency} {rars_prevented:,.0f} this month"
+                f"</p>"
             )
-        )
+        rars_hero_html = f"""
+        <div style="margin:24px 0;padding:24px;background:linear-gradient(135deg,rgba(212,137,58,0.08) 0%,rgba(168,85,247,0.08) 100%);border:1px solid rgba(212,137,58,0.25);border-radius:12px;text-align:center">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.16em;color:#d4893a;margin-bottom:8px">Revenue at Risk</div>
+            <div style="font-size:42px;font-weight:800;color:#f1f5f9;line-height:1.1">{currency} {rars_total:,.0f}<span style="font-size:14px;font-weight:600;color:#94a3b8">/month</span></div>
+            {prevented_block}
+        </div>
+        """
 
-    # "Where it's leaking" — EXACT journal-row pattern from night_shift
+    # -------------------------------------------------------------
+    # LEAD STORY — recommendation-style emerald box (copied from
+    # digest_formatter rec_html pattern)
+    # -------------------------------------------------------------
+    lead_html = ""
+    if top_product:
+        lead_html = f"""
+        <div style="margin:20px 0;padding:16px 18px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.15);border-radius:8px;font-size:14px;line-height:1.6">
+            <strong style="color:#10b981;font-size:14px">Today's lead story — {top_product}</strong>
+            {f'<p style="margin:6px 0 0;color:#c8d1dc">{top_action}</p>' if top_action else ''}
+            {f'<p style="margin:6px 0 0;color:#94a3b8;font-size:13px">{brief_headline}</p>' if brief_headline and brief_headline != top_product else ''}
+        </div>
+        """
+
+    # -------------------------------------------------------------
+    # RISK COMPONENTS — byte-for-byte copy of digest_formatter risk_html
+    # (amber opportunity box with bordered rows per product)
+    # -------------------------------------------------------------
+    risk_html = ""
     if rars_comps:
-        body_parts.append(_section_title("Where it's leaking", accent="cool"))
-        verdict_color = {
-            "abandoned_high_intent": "#f87171",
-            "refund_decline":        "#e8a04e",
-            "nudge_gap":             "#a78bfa",
-            "below_benchmark":       "#60a5fa",
-            "goal_gap":              "#e8a04e",
-        }
+        count = len(rars_comps)
+        top_loss = rars_comps[0].get("loss_eur", 0)
+        impact_line = ""
+        if top_loss > 0:
+            impact_line = (
+                f'<p style="margin:4px 0 10px;font-size:13px;color:#10b981;font-weight:600">'
+                f'Fixing the top leak could recover ~{currency} {top_loss:,.2f}/month</p>'
+            )
+        opp_rows = ""
         for c in rars_comps:
             source = c.get("source", "unknown")
             label = _SOURCE_HUMAN.get(source, source)
-            amount = _fmt_money(c.get("loss_eur", 0), currency)
-            v_color = verdict_color.get(source, "#94a3b8")
-            body_parts.append(
-                f'<div style="margin:6px 0;padding:8px 12px;border-left:2px solid {v_color};'
-                f'background:rgba(255,255,255,0.02);">'
-                f'<div style="font-size:10px;font-weight:700;letter-spacing:0.12em;'
-                f'text-transform:uppercase;color:{v_color};">'
-                f'{label} · {amount}/mo</div>'
-                f'<div style="margin-top:3px;font-size:13px;color:#cbd5e1;">'
-                f'{c.get("narrative") or "Component contributing to total at-risk this month."}'
-                f'</div>'
-                f'</div>'
-            )
+            loss = c.get("loss_eur", 0)
+            narrative_text = c.get("narrative") or f"Component contributing to this month's at-risk total."
+            opp_rows += f"""
+            <div style="padding:10px 0;border-bottom:1px solid #fde68a">
+                <strong style="color:#f59e0b">{label}</strong>
+                <span style="float:right;color:#b45309;font-weight:700">{currency} {loss:,.0f}/mo</span>
+                <p style="margin:4px 0 2px;color:#c8d1dc;font-size:13px">{narrative_text}</p>
+            </div>"""
+        risk_html = f"""
+        <div style="margin:20px 0;padding:16px 18px;background:rgba(245,158,11,0.08);border:1px solid #fde68a;border-radius:8px;font-size:14px">
+            <div style="margin-bottom:4px">
+                <span style="font-size:13px;color:#f59e0b;font-weight:600">Where it's leaking · top {count}</span>
+                <span style="float:right;font-size:18px;font-weight:700;color:#b45309">{currency} {rars_total:,.0f}</span>
+            </div>
+            <p style="margin:0 0 4px;font-size:12px;color:#f59e0b">{count} source{'s' if count != 1 else ''} dragging this month's total</p>
+            {impact_line}
+            {opp_rows}
+        </div>
+        """
 
-    # Closing (mirror night_shift's closing)
-    body_parts.append(_separator())
-    body_parts.append(
-        _p(
-            "No competitor tells you in real-time how much money is slipping through your "
-            "store right now. This is the receipt.",
-            color="#64748b",
+    # -------------------------------------------------------------
+    # PEER BENCHMARKS — byte-for-byte from digest_formatter benchmarks_html
+    # -------------------------------------------------------------
+    benchmarks_html = ""
+    if bench and bench.get("total_recovery", 0) > 0:
+        recovery_block = (
+            f'<p style="margin:6px 0 0;font-size:13px;color:#10b981;font-weight:600">'
+            f"{currency} {bench['total_recovery']:,.0f}/month recoverable if you reach top 25%"
+            f"</p>"
         )
-    )
-    body_parts.append(_button("Open dashboard", _DASHBOARD_URL))
-    body_parts.append(
-        _p(
-            "You can pause this email anytime from Settings → Notifications.",
-            color="#64748b",
-        )
-    )
+        benchmarks_html = f"""
+        <div style="margin:16px 0;padding:16px 18px;background:rgba(167,139,250,0.06);border:1px solid rgba(167,139,250,0.18);border-radius:8px">
+            <strong style="color:#c4b5fd;font-size:14px">You vs. Similar Shops</strong>
+            <p style="margin:4px 0 0;font-size:12px;color:#94a3b8">Benchmarked against {bench.get("peer_count", 0)} shops in {bench.get("band", "your band")}</p>
+            {recovery_block}
+        </div>
+        """
 
-    subject = f"{shop_name}: morning brief — {headline[:72]}"
-    body_html = "".join(body_parts)
-    html_out = _wrap_html(subject, body_html)
+    # -------------------------------------------------------------
+    # RETENTION — mirror digest_formatter goals_html rows with tier bars
+    # -------------------------------------------------------------
+    retention_html = ""
+    if ret and any(ret.get(k, 0) for k in ("w1", "w4", "w12")):
+        def _row(label: str, rate: float) -> str:
+            if rate >= 0.30:
+                badge_color = "#16a34a"
+                badge_text = "strong"
+            elif rate >= 0.15:
+                badge_color = "#f59e0b"
+                badge_text = "typical"
+            else:
+                badge_color = "#dc2626"
+                badge_text = "weak"
+            bar_pct = min(100, int(rate * 100 * 3))  # scale so 30%+ fills the bar
+            return f"""
+            <div style="margin:10px 0">
+              <div style="display:flex;justify-content:space-between;font-size:13px;color:#e2e8f0">
+                <span>{label}</span>
+                <span style="color:{badge_color};font-weight:700">{(rate*100):.0f}% · {badge_text}</span>
+              </div>
+              <div style="margin-top:4px;height:6px;background:rgba(255,255,255,0.06);border-radius:3px">
+                <div style="width:{bar_pct}%;height:100%;background:{badge_color};border-radius:3px"></div>
+              </div>
+            </div>
+            """
+        retention_html = f"""
+        <div style="margin:16px 0;padding:16px 18px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:8px">
+            <strong style="color:#e2e8f0;font-size:14px">Retention · week 1 / 4 / 12</strong>
+            {_row("Week 1 repurchase", float(ret.get("w1", 0)))}
+            {_row("Week 4 repurchase", float(ret.get("w4", 0)))}
+            {_row("Week 12 repurchase", float(ret.get("w12", 0)))}
+        </div>
+        """
 
-    # Plain-text — mirrors night_shift plain structure.
-    plain_lines = [headline, ""]
-    if narrative:
-        plain_lines.append(narrative)
-        plain_lines.append("")
+    # -------------------------------------------------------------
+    # CTA — byte-for-byte from digest_formatter cta_html (amber→violet)
+    # -------------------------------------------------------------
+    cta_html = f"""
+    <div style="text-align:center;margin:28px 0 8px">
+        <a href="{_DASHBOARD_URL}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#d4893a 0%,#a855f7 100%);background-color:#c47a3e;color:#ffffff;text-decoration:none;border-radius:10px;font-size:15px;font-weight:600;letter-spacing:0.3px">
+            Open your dashboard
+        </a>
+    </div>
+    """
+
+    # -------------------------------------------------------------
+    # BODY — mirror digest_formatter body_inner structure
+    # -------------------------------------------------------------
+    # Summary card is only rendered when there's data; if nothing,
+    # we render the clean-slate message instead
+    if rars_total == 0 and signals_count == 0 and not rars_comps:
+        body_inner = f"""
+<h2 style="margin:0 0 4px;font-size:20px;font-weight:700;color:#f1f5f9;letter-spacing:-0.2px">Your Morning Intelligence</h2>
+<p style="font-size:13px;color:#64748b;margin:0 0 24px">{shop_name} &middot; {period}</p>
+
+<div style="margin:24px 0;padding:24px;background:linear-gradient(135deg,rgba(16,185,129,0.08) 0%,rgba(168,85,247,0.08) 100%);border:1px solid rgba(16,185,129,0.22);border-radius:12px;text-align:center">
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.16em;color:#10b981;margin-bottom:8px">Clean slate</div>
+  <div style="font-size:26px;font-weight:800;color:#f1f5f9;line-height:1.2">Your funnel is healthy this morning.</div>
+  <p style="margin:10px 0 0;font-size:13px;color:#94a3b8;line-height:1.55">No material risk, no urgent findings. Spark is watching — anything that crosses threshold lands here tomorrow.</p>
+</div>
+
+{cta_html}
+"""
+    else:
+        body_inner = f"""
+<h2 style="margin:0 0 4px;font-size:20px;font-weight:700;color:#f1f5f9;letter-spacing:-0.2px">Your Morning Intelligence</h2>
+<p style="font-size:13px;color:#64748b;margin:0 0 24px">{shop_name} &middot; {period}</p>
+
+{rars_hero_html}
+{lead_html}
+{risk_html}
+{benchmarks_html}
+{retention_html}
+{cta_html}
+"""
+
+    subject = f"Your Morning Intelligence — {shop_name}"
+    html_out = _wrap_html(subject, body_inner, show_logo=True)
+
+    # -------- Plain-text (mirror digest_formatter plain structure) -----
+    lines = [f"Your Morning Intelligence — {shop_name}", period, ""]
     if rars_total > 0:
-        plain_lines.append(f"Revenue at risk: {_fmt_money(rars_total, currency)}/mo")
-    if rars_prevented > 0:
-        plain_lines.append(f"Prevented this month: {_fmt_money(rars_prevented, currency)}")
-    if top_product and top_action:
-        plain_lines.append("")
-        plain_lines.append("Top action flagged:")
-        plain_lines.append(f"  {top_product} — {top_action}")
+        lines += ["REVENUE AT RISK", f"  {currency} {rars_total:,.0f}/month"]
+        if rars_prevented > 0:
+            lines.append(f"  HedgeSpark already prevented {currency} {rars_prevented:,.0f} this month")
+    if top_product:
+        lines += ["", f"Today's lead story — {top_product}"]
+        if top_action:
+            lines.append(f"  → {top_action}")
     if rars_comps:
-        plain_lines.append("")
-        plain_lines.append("Where it's leaking:")
+        lines += ["", "WHERE IT'S LEAKING"]
         for c in rars_comps:
             label = _SOURCE_HUMAN.get(c.get("source", ""), c.get("source", "unknown"))
-            amount = _fmt_money(c.get("loss_eur", 0), currency)
-            plain_lines.append(f"  • {label.upper()} · {amount}/mo")
-    plain_lines.append("")
-    plain_lines.append(f"Open dashboard: {_DASHBOARD_URL}")
-    plain_lines.append("")
-    plain_lines.append("Pause this email: Settings → Notifications")
-    plain_lines.append("— HedgeSpark")
-    plain_out = "\n".join(plain_lines)
+            lines.append(f"  · {label}: {currency} {c.get('loss_eur', 0):,.0f}/mo")
+    if bench and bench.get("total_recovery", 0) > 0:
+        lines += [
+            "",
+            f"YOU VS PEERS — {bench.get('peer_count', 0)} shops in {bench.get('band', 'your band')}",
+            f"  {currency} {bench['total_recovery']:,.0f}/month recoverable to top 25%",
+        ]
+    if ret and any(ret.get(k, 0) for k in ("w1", "w4", "w12")):
+        lines += [
+            "",
+            f"RETENTION: w1 {(ret.get('w1', 0)*100):.0f}% · "
+            f"w4 {(ret.get('w4', 0)*100):.0f}% · "
+            f"w12 {(ret.get('w12', 0)*100):.0f}%",
+        ]
+    if rars_total == 0 and signals_count == 0 and not rars_comps:
+        lines = [f"Your Morning Intelligence — {shop_name}", period, "",
+                 "Clean slate — your funnel is healthy. Spark is watching."]
+    lines.append("")
+    lines.append(f"Dashboard: {_DASHBOARD_URL}")
+    plain_out = "\n".join(lines)
 
     return subject, html_out, plain_out
 
