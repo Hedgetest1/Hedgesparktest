@@ -495,6 +495,194 @@ def _compute_real_cogs(
     return (real_cogs, covered_revenue, matched_products)
 
 
+def get_product_margin_drag(
+    db: Session,
+    shop_domain: str,
+    window_days: int = 30,
+    limit: int = 5,
+) -> dict:
+    """Top-N products dragging total margin down.
+
+    Strada 4 dominance (2026-04-20) — the per-product margin-drag
+    surface Lifetimely / BeProfit don't ship at the base tier. For
+    each product in the window:
+      - revenue = SUM(price × quantity)
+      - cogs    = SUM(cogs_per_unit × quantity) when product_costs row
+                  exists; else revenue × _DEFAULT_COGS_PCT (40%) as a
+                  fallback, flagged `cogs_source="default_40pct"`
+      - margin_eur = revenue − cogs
+      - margin_pct = margin_eur / revenue
+
+    Ranked by LOWEST margin_pct first (worst dragger), filtered to
+    products with meaningful revenue (≥ 1% of total window revenue OR
+    ≥ €100 — whichever is smaller). Products below that floor are
+    cost-noise, not margin drag.
+
+    Privacy: per-product data already visible to the merchant via
+    Shopify admin; no new PII exposure. Same shop_domain scoping as
+    the rest of pnl_engine.
+
+    Returns:
+        {
+            window_days, currency, generated_at,
+            total_revenue,
+            total_margin_drag_eur,   # sum of (below-avg-margin × revenue) for products shown
+            products: [
+                {product, title, revenue, cogs, cogs_source,
+                 margin_eur, margin_pct, units_sold},
+                ...
+            ],
+            methodology
+        }
+    """
+    from app.services.revenue_metrics import get_shop_currency
+    currency = get_shop_currency(db, shop_domain) or "USD"
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    try:
+        rows = db.execute(
+            text("""
+                WITH line_items_expanded AS (
+                    SELECT
+                        COALESCE(item->>'product_id', item->>'product_url') AS product_key,
+                        COALESCE(
+                            NULLIF(item->>'title', ''),
+                            NULLIF(item->>'product_url', '')
+                        ) AS title,
+                        (item->>'price')::numeric  AS unit_price,
+                        (item->>'quantity')::int   AS quantity
+                    FROM shop_orders so,
+                         jsonb_array_elements(so.line_items) AS item
+                    WHERE so.shop_domain = :shop
+                      AND so.created_at >= NOW() - make_interval(days => :days)
+                      AND item->>'price'    IS NOT NULL
+                      AND item->>'quantity' IS NOT NULL
+                      AND COALESCE(item->>'product_id', item->>'product_url') IS NOT NULL
+                ),
+                product_rollup AS (
+                    SELECT
+                        product_key,
+                        MAX(title) AS title,
+                        SUM(unit_price * quantity) AS revenue,
+                        SUM(quantity)              AS units_sold
+                    FROM line_items_expanded
+                    GROUP BY product_key
+                )
+                SELECT
+                    pr.product_key,
+                    pr.title,
+                    pr.revenue::float,
+                    pr.units_sold::int,
+                    pc.cogs_per_unit,
+                    pc.source
+                FROM product_rollup pr
+                LEFT JOIN product_costs pc
+                  ON pc.shop_domain = :shop
+                 AND pc.product_key = pr.product_key
+            """),
+            {"shop": shop_domain, "days": window_days},
+        ).fetchall()
+    except Exception as exc:
+        log.warning("pnl_engine: margin-drag query failed for %s: %s", shop_domain, exc)
+        return {
+            "window_days":   window_days,
+            "currency":      currency,
+            "generated_at":  now.isoformat() + "Z",
+            "total_revenue": 0.0,
+            "total_margin_drag_eur": 0.0,
+            "products":      [],
+            "methodology":   f"Query failed: {type(exc).__name__}",
+            "error":         str(exc)[:200],
+        }
+
+    if not rows:
+        return {
+            "window_days":   window_days,
+            "currency":      currency,
+            "generated_at":  now.isoformat() + "Z",
+            "total_revenue": 0.0,
+            "total_margin_drag_eur": 0.0,
+            "products":      [],
+            "methodology":   "No orders in the window yet.",
+        }
+
+    total_revenue = sum(float(r[2] or 0) for r in rows)
+    if total_revenue <= 0:
+        return {
+            "window_days":   window_days,
+            "currency":      currency,
+            "generated_at":  now.isoformat() + "Z",
+            "total_revenue": 0.0,
+            "total_margin_drag_eur": 0.0,
+            "products":      [],
+            "methodology":   "No orders with revenue in the window.",
+        }
+
+    # Floor: at least €100 OR at least 1% of total revenue — whichever
+    # is smaller — so tiny products don't drown the ranking.
+    threshold = max(1.0, min(100.0, total_revenue * 0.01))
+
+    computed: list[dict] = []
+    for product_key, title, revenue, units_sold, cogs_per_unit, provenance in rows:
+        rev = float(revenue or 0)
+        if rev < threshold:
+            continue
+        units = int(units_sold or 0)
+        if cogs_per_unit is not None and units > 0:
+            cogs_total = float(cogs_per_unit) * units
+            cogs_src = (provenance or "manual_entry")
+        else:
+            cogs_total = rev * _DEFAULT_COGS_PCT
+            cogs_src = "default_40pct"
+        margin_eur = rev - cogs_total
+        margin_pct = (margin_eur / rev * 100.0) if rev > 0 else 0.0
+        computed.append({
+            "product": product_key or "",
+            "title":   title or product_key or "—",
+            "revenue": round(rev, 2),
+            "cogs":    round(cogs_total, 2),
+            "cogs_source": cogs_src,
+            "margin_eur": round(margin_eur, 2),
+            "margin_pct": round(margin_pct, 1),
+            "units_sold": units,
+        })
+
+    # Rank: worst margin% first. Then cap at limit.
+    computed.sort(key=lambda p: p["margin_pct"])
+    worst = computed[:limit]
+
+    # total_margin_drag_eur = sum of (avg_margin - product_margin) × rev
+    # i.e., how much MORE profit you'd be making if each worst product
+    # matched the shop average. This is the actionable number.
+    if computed:
+        avg_margin_pct = sum(p["margin_pct"] * p["revenue"] for p in computed) / sum(p["revenue"] for p in computed)
+    else:
+        avg_margin_pct = 0.0
+    drag = 0.0
+    for p in worst:
+        delta_pct = max(0.0, avg_margin_pct - p["margin_pct"])
+        drag += p["revenue"] * (delta_pct / 100.0)
+    drag = round(drag, 2)
+
+    return {
+        "window_days":   window_days,
+        "currency":      currency,
+        "generated_at":  now.isoformat() + "Z",
+        "total_revenue": round(total_revenue, 2),
+        "avg_margin_pct": round(avg_margin_pct, 1),
+        "total_margin_drag_eur": drag,
+        "products":      worst,
+        "methodology":   (
+            f"Margin per product in the last {window_days}d. COGS uses "
+            "exact product_costs.cogs_per_unit when available, "
+            f"{int(_DEFAULT_COGS_PCT*100)}% of revenue as a fallback "
+            "(flagged with `cogs_source=default_40pct`). Drag = how "
+            "much more margin the top-N would produce if they matched "
+            "your shop average."
+        ),
+    }
+
+
 def _empty_report(window_days: int, currency: str = "USD") -> dict:
     """Return a structurally valid empty response when the shop has no orders."""
     return {

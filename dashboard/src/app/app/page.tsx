@@ -104,6 +104,7 @@ import { NudgeDnaCard } from "../components/NudgeDnaCard";
 import { LiteCassettoniGrid, type CassettoneId } from "../components/LiteCassettoniGrid";
 import { LiteRarsHero } from "../components/LiteRarsHero";
 import { PnlReport } from "../components/PnlReport";
+import { MarginDragCard } from "../components/MarginDragCard";
 import { ChannelAttributionCard } from "../components/ChannelAttributionCard";
 import { MonthlyCohortsCard } from "../components/MonthlyCohortsCard";
 import { GatewayProductsCard } from "../components/GatewayProductsCard";
@@ -2910,6 +2911,19 @@ function PageInner() {
                       </p>
                     </div>
                     <PnlReport data={pnlData} displayCurrency={displayCurrency} />
+
+                    {/* Margin drag — Strada 4 dominance on P&L.
+                        Which specific products erode total margin,
+                        and how much you'd recover by matching them
+                        to the shop average. The actionable lever
+                        competitor P&L tools don't surface. */}
+                    <div className="mt-5">
+                      <MarginDragCard
+                        apiBase={API_BASE}
+                        shop={shop}
+                        displayCurrency={displayCurrency}
+                      />
+                    </div>
                   </div>
                 </section>
               )}

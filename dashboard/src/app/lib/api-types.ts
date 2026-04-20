@@ -3468,6 +3468,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/pnl/margin-drag": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Pnl Margin Drag Lite
+         * @description Top-N products dragging total margin down. Strada 4 dominance
+         *     — per-product margin view every competitor at our tier lacks.
+         *     Ranked by lowest margin%, filtered to products with material
+         *     revenue (noise-floored). Drag = how much more monthly margin
+         *     these products would produce if they matched the shop average.
+         *     Not sensitive to tier; opened to Lite per dominate-everywhere
+         *     directive 2026-04-20.
+         */
+        get: operations["get_pnl_margin_drag_lite_analytics_pnl_margin_drag_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/analytics/pnl": {
         parameters: {
             query?: never;
@@ -8274,6 +8300,49 @@ export interface components {
             total_revenue_30d: number;
             /** Total Cogs 30D */
             total_cogs_30d: number;
+        };
+        /** MarginDragProduct */
+        MarginDragProduct: {
+            /** Product */
+            product: string;
+            /** Title */
+            title: string;
+            /** Revenue */
+            revenue: number;
+            /** Cogs */
+            cogs: number;
+            /** Cogs Source */
+            cogs_source: string;
+            /** Margin Eur */
+            margin_eur: number;
+            /** Margin Pct */
+            margin_pct: number;
+            /** Units Sold */
+            units_sold: number;
+        };
+        /** MarginDragResponse */
+        MarginDragResponse: {
+            /** Window Days */
+            window_days: number;
+            /** Currency */
+            currency: string;
+            /** Generated At */
+            generated_at: string;
+            /** Total Revenue */
+            total_revenue: number;
+            /** Avg Margin Pct */
+            avg_margin_pct?: number | null;
+            /** Total Margin Drag Eur */
+            total_margin_drag_eur: number;
+            /**
+             * Products
+             * @default []
+             */
+            products: components["schemas"]["MarginDragProduct"][];
+            /** Methodology */
+            methodology: string;
+            /** Error */
+            error?: string | null;
         };
         /** MarginSnapshot */
         MarginSnapshot: {
@@ -15220,6 +15289,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PnlReportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_pnl_margin_drag_lite_analytics_pnl_margin_drag_get: {
+        parameters: {
+            query?: {
+                window_days?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarginDragResponse"];
                 };
             };
             /** @description Validation Error */

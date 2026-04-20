@@ -136,6 +136,51 @@ def get_pnl_endpoint(
     return get_pnl_report(db, shop, window_days=window_days)
 
 
+class MarginDragProduct(BaseModel):
+    product: str
+    title: str
+    revenue: float
+    cogs: float
+    cogs_source: str
+    margin_eur: float
+    margin_pct: float
+    units_sold: int
+
+
+class MarginDragResponse(BaseModel):
+    window_days: int
+    currency: str
+    generated_at: str
+    total_revenue: float
+    avg_margin_pct: float | None = None
+    total_margin_drag_eur: float
+    products: list[MarginDragProduct] = []
+    methodology: str
+    error: str | None = None
+
+
+@lite_router.get(
+    "/margin-drag",
+    response_model=MarginDragResponse,
+    response_model_exclude_none=False,
+)
+def get_pnl_margin_drag_lite(
+    window_days: int = Query(default=30, ge=1, le=90),
+    limit: int = Query(default=5, ge=1, le=20),
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+):
+    """Top-N products dragging total margin down. Strada 4 dominance
+    — per-product margin view every competitor at our tier lacks.
+    Ranked by lowest margin%, filtered to products with material
+    revenue (noise-floored). Drag = how much more monthly margin
+    these products would produce if they matched the shop average.
+    Not sensitive to tier; opened to Lite per dominate-everywhere
+    directive 2026-04-20."""
+    from app.services.pnl_engine import get_product_margin_drag
+    return get_product_margin_drag(db, shop, window_days=window_days, limit=limit)
+
+
 @lite_router.get(
     "",
     response_model=PnlReportResponse,
