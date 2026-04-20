@@ -34,8 +34,15 @@
     "chunks_total_bytes": 1739156,
     "chunks_count": 34
   },
+  "_baseline_2026_04_20_strada_3_completista": {
+    "_note": "Strada 3 completista sprint — three new Lite surfaces: VerticalBenchmarksCard (3.1, reused, tier-unlock), ChannelAttributionCard (3.2, new ~440 LOC), MonthlyCohortsCard (3.3, new ~270 LOC). Plus 3.3 adds MonthlyCohortsResponse typings to api-types.ts. Largest chunk grew 744→767 KB (+23 KB) — two new standalone components do most of the weight. chunks_total 1720→1762 KB (+42). Budget raised 760000 -> 820000 for ~7% headroom through Strada 3.4 (CSV export) + 3.5 (Slack).",
+    "largest_chunk_bytes": 766604,
+    "root_main_total_bytes": 455826,
+    "chunks_total_bytes": 1761906,
+    "chunks_count": 34
+  },
   "budgets": {
-    "largest_chunk_bytes": 760000,
+    "largest_chunk_bytes": 820000,
     "root_main_total_bytes": 520000,
     "chunks_total_bytes": 1800000,
     "chunks_count_max": 40

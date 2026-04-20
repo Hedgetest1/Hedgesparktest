@@ -2878,6 +2878,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/cohorts/monthly": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Monthly Cohorts Lite
+         * @description Lite-accessible monthly cohort analysis (Strada 3.3, 2026-04-20).
+         *     Same service + response shape as /pro/cohorts/monthly. Each monthly
+         *     acquisition cohort with cumulative revenue, orders/customer,
+         *     revenue/customer, repeat rate. The per-customer LTV drill-down
+         *     stays Pro (depth-moat).
+         */
+        get: operations["get_monthly_cohorts_lite_analytics_cohorts_monthly_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/install": {
         parameters: {
             query?: never;
@@ -14387,6 +14411,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CohortSummaryResponse"];
+                };
+            };
+        };
+    };
+    get_monthly_cohorts_lite_analytics_cohorts_monthly_get: {
+        parameters: {
+            query?: {
+                months?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MonthlyCohortsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

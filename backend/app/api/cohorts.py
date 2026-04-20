@@ -249,6 +249,24 @@ def get_cohort_summary_lite(
     return get_cohort_summary(db, shop)
 
 
+@lite_router.get(
+    "/monthly",
+    response_model=MonthlyCohortsResponse,
+    response_model_exclude_none=False,
+)
+def get_monthly_cohorts_lite(
+    months: int = 6,
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+):
+    """Lite-accessible monthly cohort analysis (Strada 3.3, 2026-04-20).
+    Same service + response shape as /pro/cohorts/monthly. Each monthly
+    acquisition cohort with cumulative revenue, orders/customer,
+    revenue/customer, repeat rate. The per-customer LTV drill-down
+    stays Pro (depth-moat)."""
+    return get_monthly_cohorts(db, shop, months=months)
+
+
 
 
 @router.get(

@@ -105,6 +105,7 @@ import { LiteCassettoniGrid, type CassettoneId } from "../components/LiteCassett
 import { LiteRarsHero } from "../components/LiteRarsHero";
 import { PnlReport } from "../components/PnlReport";
 import { ChannelAttributionCard } from "../components/ChannelAttributionCard";
+import { MonthlyCohortsCard } from "../components/MonthlyCohortsCard";
 // Pro-floor — 5 migrated Intelligence cards (previously on /app/intelligence)
 import { RecommendationImpactCard } from "../components/RecommendationImpactCard";
 import { ChurnForecastCard } from "../components/ChurnForecastCard";
@@ -2978,6 +2979,21 @@ function PageInner() {
                       </p>
                     </div>
                     <CohortSummaryCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+
+                    {/* Monthly cohort economics — Strada 3.3.
+                        Complements the weekly retention summary above
+                        with acquisition-month lens: which month
+                        produced your best customers by ARPC +
+                        repeat-rate? The "replicate this month" spot-
+                        light is the single most actionable insight on
+                        a Lite floor. */}
+                    <div className="mt-5">
+                      <MonthlyCohortsCard
+                        apiBase={API_BASE}
+                        shop={shop}
+                        displayCurrency={displayCurrency}
+                      />
+                    </div>
                   </div>
                 </section>
               )}
