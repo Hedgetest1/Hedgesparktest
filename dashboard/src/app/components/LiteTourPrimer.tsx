@@ -142,19 +142,20 @@ export function LiteTourPrimer() {
     >
       <div className="pointer-events-none absolute -right-20 -top-20 h-[280px] w-[280px] rounded-full bg-[#e8a04e]/[0.06] blur-[120px]" />
       <div className="relative">
-        {/* Header + dismiss */}
-        <div className="mb-5 flex items-start justify-between gap-4">
+        {/* Header + dismiss — uses the unified hero heading spec:
+            small amber eyebrow + large white title + slate subtitle. */}
+        <div className="mb-6 flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-[#e8a04e]">
+            <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#e8a04e]">
               New here?
             </div>
             <h2
               id="lite-tour-heading"
-              className="text-[1.25rem] font-extrabold leading-tight text-white sm:text-[1.5rem]"
+              className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-white sm:text-[2rem]"
             >
               Your Lite dashboard, in 30 seconds.
             </h2>
-            <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-slate-400">
+            <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-slate-400">
               Each block below is a section you&apos;ll see as you scroll.
               Read once, dismiss — I&apos;ll never show this again.
             </p>

@@ -143,13 +143,16 @@ export function AbandonedIntentCard({
         }}
         className="group cursor-pointer rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6 transition-shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e8a04e] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1220] hover:border-white/[0.12]"
       >
-        <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-[#e8a04e]">
+        {/* Unified heading spec (2026-04-20): small amber eyebrow +
+            large WHITE title. The previous amber-on-amber made eyebrow
+            and title blur visually. */}
+        <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#e8a04e]">
           Abandoned intent
         </div>
-        <h3 className="text-[28px] font-extrabold leading-tight tracking-tight text-[#e8a04e]">
+        <h3 className="text-[22px] font-extrabold leading-[1.15] tracking-tight text-white sm:text-[24px]">
           Where intent dies
         </h3>
-        <p className="mt-2 text-[14px] leading-relaxed text-slate-400">{data.headline}</p>
+        <p className="mt-2 text-[13px] leading-relaxed text-slate-400">{data.headline}</p>
 
         {/* Buyer vs non-buyer comparison — kept on the card because it's the
             single most powerful diagnostic at a glance: how much do real

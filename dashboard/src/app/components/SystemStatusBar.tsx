@@ -108,13 +108,14 @@ export function SystemStatusBar({
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1">
-            <span className="h-1.5 w-1.5 rounded-full bg-[#e8a04e] shadow-[0_0_8px_rgba(232,160,78,0.6)]" />
-            <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-300">
-              Spark status
-            </span>
+          {/* Eyebrow + title: unified hero spec per the 2026-04-20
+              visual-design system. Small amber eyebrow, large white
+              title, no pill wrapper (the color alone signals the
+              eyebrow role). */}
+          <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#e8a04e]">
+            Spark status
           </div>
-          <h2 className="text-[1.5rem] font-extrabold leading-tight text-white sm:text-[1.75rem]">
+          <h2 className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-white sm:text-[2rem]">
             {message}
           </h2>
 

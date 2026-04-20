@@ -80,17 +80,18 @@ export function VisitorIntentCard({
 
   return (
     <section>
-      <div className="mb-4">
-        <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#e8a04e]">
+      {/* Unified section heading spec (2026-04-20). */}
+      <div className="mb-5">
+        <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#e8a04e]">
           Visitor intent
         </div>
-        <h3 className="mt-1 text-[16px] font-bold text-white">
+        <h3 className="text-[22px] font-extrabold leading-[1.15] tracking-tight text-white sm:text-[24px]">
           Who&apos;s in your store right now
         </h3>
-        <p className="mt-1 text-[12px] leading-relaxed text-slate-500">
+        <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-slate-400">
           Every visitor classified by scroll, dwell, and click behavior.
           {" "}
-          <span className="text-slate-400">
+          <span className="text-slate-300">
             {total.toLocaleString()} visitors tracked.
           </span>
         </p>
