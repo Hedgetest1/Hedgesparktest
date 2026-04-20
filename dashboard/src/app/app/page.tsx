@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 
 import { Sidebar } from "../components/Sidebar";
 import { TopBar, type TrialInfo } from "../components/TopBar";
@@ -99,6 +100,12 @@ import { RevenueForecastCard } from "../components/RevenueForecastCard";
 import { CustomerChurnCard } from "../components/CustomerChurnCard";
 // δ5 — nudge DNA patterns
 import { NudgeDnaCard } from "../components/NudgeDnaCard";
+// Pro-floor — 5 migrated Intelligence cards (previously on /app/intelligence)
+import { RecommendationImpactCard } from "../components/RecommendationImpactCard";
+import { ChurnForecastCard } from "../components/ChurnForecastCard";
+import { RiskForecastCard } from "../components/RiskForecastCard";
+import { CohortSummaryCard } from "../components/CohortSummaryCard";
+import { NudgeActionQueueCard } from "../components/NudgeActionQueueCard";
 import {
   type DisplayCurrency,
   readSavedDisplayCurrency,
@@ -489,6 +496,27 @@ class DashboardErrorBoundary extends React.Component<
 // Main page
 // ---------------------------------------------------------------------------
 function PageInner() {
+  // ── Tier-based floor partition (founder directive 2026-04-20) ──
+  // When the dashboard is served at /app/lite it must show ONLY the
+  // 7 Lite features + Live Radar — nothing else, regardless of the
+  // merchant's actual plan. All other sections (Pro-only, Scale-
+  // only, narrative / legacy blocks) render only when this page is
+  // served at non-Lite routes (/app/pro, /app/scale, or during
+  // development at /app). Rendered content is gated, data-fetching
+  // is left untouched — the state hoists are still shared across
+  // routes, so the non-Lite views keep their components wired to
+  // the same backend endpoints without duplication.
+  const pathname = usePathname();
+  const isLiteFloor =
+    pathname === "/app/lite" || pathname === "/app" || pathname === null;
+  const isProFloor =
+    pathname === "/app/pro" || pathname === "/app/intelligence";
+  // The 5 migrated Intelligence cards (live on the Pro floor, originally
+  // rendered by /app/intelligence/page.tsx) get mirrored at the top of
+  // the Pro-floor render here so /app/pro has a single source of truth.
+  // The re-export shim at /app/pro/page.tsx now points to THIS page so
+  // Pro merchants see both the 5 cards AND the rich Pro sections below.
+
   // Layout state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeSection, setActiveSection] = useState("brief");
@@ -2325,6 +2353,31 @@ function PageInner() {
           ) : (
             <div className="space-y-6 px-6 py-6 pb-[70vh]">
 
+              {/* ═══ PRO FLOOR HEADER — 5 migrated Intelligence cards ═══
+                  Only renders when this page is served at /app/pro. These
+                  five cards were previously the entirety of the Intelligence
+                  floor at /app/intelligence; they now live at the top of the
+                  Pro floor so the rich Pro sections below (AudienceSegments,
+                  NudgePerformance, LiftReport, ProIntelligenceSection, etc.)
+                  sit under the same shell. */}
+              {isProFloor && isProUser && shop && (
+                <>
+                  <div className="mb-6">
+                    <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#e8a04e]">
+                      Floor · Pro
+                    </div>
+                    <h1 className="mt-3 text-[2rem] font-extrabold leading-[1.1] text-white sm:text-[2.5rem]">
+                      Deep analytics. Every number defended.
+                    </h1>
+                  </div>
+                  <RecommendationImpactCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  <ChurnForecastCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  <RiskForecastCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  <CohortSummaryCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  <NudgeActionQueueCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                </>
+              )}
+
               {/* DashboardHero removed — logo + shop + active status already in sidebar + topbar */}
 
               {/* Session expired banner — shown when any fetch returns 401/403 */}
@@ -2502,15 +2555,17 @@ function PageInner() {
               />
 
               {/* ═══ INSTANT INTELLIGENCE — 60s aha moment (α3) ═══ */}
-              {isProUser && <InstantIntelligenceCard apiBase={API_BASE} />}
+              {isProUser && !isLiteFloor && <InstantIntelligenceCard apiBase={API_BASE} />}
 
               {/* ═══ ROI HERO BANNER — the retention weapon (α2) ═══ */}
-              <div data-tour="roi-hero">
-                <ROIHeroBanner apiBase={API_BASE} isProUser={isProUser} />
-              </div>
+              {!isLiteFloor && (
+                <div data-tour="roi-hero">
+                  <ROIHeroBanner apiBase={API_BASE} isProUser={isProUser} />
+                </div>
+              )}
 
               {/* ═══ DAILY NARRATIVE — storytelling block (α7) ═══ */}
-              <DailyNarrativeBlock apiBase={API_BASE} isProUser={isProUser} />
+              {!isLiteFloor && <DailyNarrativeBlock apiBase={API_BASE} isProUser={isProUser} />}
 
               {/* ═══ REVENUE AT RISK HERO — the new #1 headline ═══ */}
               <RevenueAtRiskHero
@@ -2521,12 +2576,14 @@ function PageInner() {
               />
 
               {/* ═══ TRUST CONTROL CENTER — delegated autonomy (α1) ═══ */}
-              <div data-tour="trust-center">
-                <TrustControlCenter apiBase={API_BASE} isProUser={isProUser} />
-              </div>
+              {!isLiteFloor && (
+                <div data-tour="trust-center">
+                  <TrustControlCenter apiBase={API_BASE} isProUser={isProUser} />
+                </div>
+              )}
 
               {/* ═══ UNIT ECONOMICS + PROFIT HEADROOM + FORECAST (β1+β3+α6) ═══ */}
-              {isProUser && (
+              {isProUser && !isLiteFloor && (
                 <div
                   style={{
                     display: "grid",
@@ -2544,36 +2601,38 @@ function PageInner() {
               )}
 
               {/* ═══ CUSTOMER CHURN TABLE (δ4) ═══ */}
-              <CustomerChurnCard apiBase={API_BASE} isProUser={isProUser} />
+              {!isLiteFloor && <CustomerChurnCard apiBase={API_BASE} isProUser={isProUser} />}
 
               {/* ═══ NUDGE DNA — what words actually sell (δ5) ═══ */}
-              <NudgeDnaCard apiBase={API_BASE} isProUser={isProUser} />
+              {!isLiteFloor && <NudgeDnaCard apiBase={API_BASE} isProUser={isProUser} />}
 
               {/* ═══ WHAT BRINGS THE SALE — multi-touch attribution (β2) ═══ */}
-              <div data-tour="mta">
-                <MtaCompareCard apiBase={API_BASE} isProUser={isProUser} />
-              </div>
+              {!isLiteFloor && (
+                <div data-tour="mta">
+                  <MtaCompareCard apiBase={API_BASE} isProUser={isProUser} />
+                </div>
+              )}
 
               {/* ═══ AUTOMATION RULES — low-code (ζ2) ═══ */}
-              <RuleBuilderCard apiBase={API_BASE} isProUser={isProUser} />
+              {!isLiteFloor && <RuleBuilderCard apiBase={API_BASE} isProUser={isProUser} />}
 
               {/* ═══ REVENUE GENOME — the DNA of your revenue ═══ */}
-              {isProUser && (
+              {isProUser && !isLiteFloor && (
                 <RevenueGenomeCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
               )}
 
               {/* ═══ PHASE Ω⁵ — NIGHT SHIFT AGENT (morning reveal) ═══ */}
-              {isProUser && (
+              {isProUser && !isLiteFloor && (
                 <NightShiftCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
               )}
 
               {/* ═══ NIGHT SHIFT TIMELINE — proof-of-work for the autonomous loop ═══ */}
-              {isProUser && (
+              {isProUser && !isLiteFloor && (
                 <NightShiftTimeline apiBase={API_BASE} shop={shop} isProUser={isProUser} />
               )}
 
               {/* ═══ PHASE Ω — THE WHY ENGINE + ANOMALY RADAR (causal layer) ═══ */}
-              {isProUser && (
+              {isProUser && !isLiteFloor && (
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <CausalWhyCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <AnomalyFusionCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
@@ -2581,10 +2640,10 @@ function PageInner() {
               )}
 
               {/* ═══ PHASE Ω⁷ — THE UNREACHABLE THREE ═══ */}
-              {isProUser && (
+              {isProUser && !isLiteFloor && (
                 <AnomalyReplayCard apiBase={API_BASE} isProUser={isProUser} />
               )}
-              {isProUser && (
+              {isProUser && !isLiteFloor && (
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <CounterfactualExplorerCard apiBase={API_BASE} isProUser={isProUser} />
                   <CompetitorPlaybookCard apiBase={API_BASE} isProUser={isProUser} />
@@ -2592,12 +2651,12 @@ function PageInner() {
               )}
 
               {/* ═══ PHASE Ω — ASK HEDGE SPARK (knowledge graph NL query) ═══ */}
-              {isProUser && (
+              {isProUser && !isLiteFloor && (
                 <AskHedgeSparkCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
               )}
 
               {/* ═══ KILLER FEATURE GRID — drill-downs from the RARS hero ═══ */}
-              {isProUser && (
+              {isProUser && !isLiteFloor && (
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <VerticalBenchmarksCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <PeerBenchmarksCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
@@ -2645,7 +2704,7 @@ function PageInner() {
               </SectionErrorBoundary>
 
               {/* ═══ DEEP INTELLIGENCE GRID — Pro-only moat features ═══ */}
-              {isProUser && (
+              {isProUser && !isLiteFloor && (
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <RevenueAutopsyCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <PriceSensitivityCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
@@ -2654,7 +2713,7 @@ function PageInner() {
               )}
 
               {/* ═══ SECONDARY WIDGETS — smaller but useful ═══ */}
-              {isProUser && (
+              {isProUser && !isLiteFloor && (
                 <>
                   <TimelineNotes apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <CompareProductsCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
@@ -2714,6 +2773,8 @@ function PageInner() {
               </section>
               </SectionErrorBoundary>
 
+              {!isLiteFloor && (
+                <>
               {/* ── Level 2 separator ── */}
               <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
 
@@ -2825,6 +2886,8 @@ function PageInner() {
                   isColdStart={isColdStart}
                 />
               </SectionErrorBoundary>
+                </>
+              )}
 
               {/* ═══ HOT PRODUCTS — 3 cards per row ═══
                   Phase 1.3: always render the section header + CardEmpty
@@ -2904,6 +2967,8 @@ function PageInner() {
               </section>
               </SectionErrorBoundary>
 
+              {!isLiteFloor && (
+                <>
               {/* 4 — Product Performance (extracted to _sections/ProductPerformanceSection.tsx) */}
               {mergedProducts.length > 0 && (
                 <SectionErrorBoundary name="Product Performance">
@@ -3047,6 +3112,8 @@ function PageInner() {
                   shortUrl={shortUrl}
                 />
               </SectionErrorBoundary>
+                </>
+              )}
 
               {/* 10 — Live Radar + World Map */}
               <SectionErrorBoundary name="Live Radar">
@@ -3065,7 +3132,7 @@ function PageInner() {
 
 
               {/* ═══ PRO ZONE SEPARATOR ═══ */}
-              {!isProUser && (
+              {!isProUser && !isLiteFloor && (
                 <div className="relative overflow-hidden rounded-3xl border border-[#d4893a]/15 bg-gradient-to-br from-[#d4893a]/[0.04] via-transparent to-[#7c3aed]/[0.03] p-8 sm:p-10">
                   <div className="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-[#7c3aed] via-[#c026d3] to-[#f97316]" />
                   <div className="pointer-events-none absolute -right-20 -top-20 h-[300px] w-[300px] rounded-full bg-[#d4893a]/[0.06] blur-[120px]" />
@@ -3106,7 +3173,7 @@ function PageInner() {
                   is about to read across the sections below. Designed to pass
                   the "stupid test": zero jargon, plain English, answers
                   "what am I looking at?" in one glance. */}
-              {isProUser && (
+              {isProUser && !isLiteFloor && (
                 <div className="relative overflow-hidden rounded-3xl border border-white/[0.06] bg-gradient-to-br from-white/[0.025] via-transparent to-white/[0.02] px-6 py-7 sm:px-10 sm:py-9">
                   {/* Ambient brand gradient stripe on top */}
                   <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-[#7c3aed] via-[#c026d3] to-[#f97316]" />
@@ -3196,7 +3263,7 @@ function PageInner() {
               )}
 
               {/* Pro — Audience Segments */}
-              {isProUser && (
+              {isProUser && !isLiteFloor && (
                 <SectionErrorBoundary name="Audience Segments">
                 <section id="section-audience">
                   <SectionHeading
@@ -3215,7 +3282,7 @@ function PageInner() {
               )}
 
               {/* Pro — Nudge Performance */}
-              {isProUser && (
+              {isProUser && !isLiteFloor && (
                 <SectionErrorBoundary name="Nudge Performance">
                 <section id="section-nudges">
                   <SectionHeading
@@ -3234,7 +3301,7 @@ function PageInner() {
               )}
 
               {/* Pro — Holdout Lift Report */}
-              {isProUser && (
+              {isProUser && !isLiteFloor && (
                 <SectionErrorBoundary name="Holdout Lift">
                 <section id="section-lift">
                   <SectionHeading
@@ -3248,7 +3315,7 @@ function PageInner() {
               )}
 
               {/* Pro — Scroll Intelligence + Cohort Retention side by side */}
-              {isProUser && (
+              {isProUser && !isLiteFloor && (
                 <SectionErrorBoundary name="Scroll & Cohorts">
                 <section id="section-scroll-cohorts">
                   <div className="grid gap-4 xl:grid-cols-2">
@@ -3273,7 +3340,7 @@ function PageInner() {
               )}
 
               {/* Pro — Revenue Forecast + Attribution + LTV Intelligence */}
-              {isProUser && (
+              {isProUser && !isLiteFloor && (
                 <SectionErrorBoundary name="Deep analytics">
                   <ProIntelligenceSection
                     apiBase={API_BASE}
@@ -3291,7 +3358,7 @@ function PageInner() {
               )}
 
               {/* Pro — Behavioral DNA (extracted to _sections/BehavioralIntelligenceSection.tsx) */}
-              {isProUser && behavioralData && (
+              {isProUser && !isLiteFloor && behavioralData && (
                 <SectionErrorBoundary name="Behavioral DNA">
                   <BehavioralIntelligenceSection
                     data={behavioralData}
@@ -3301,49 +3368,51 @@ function PageInner() {
               )}
 
               {/* 11 — Settings / Integrations (all tiers) — extracted to _sections/SettingsSection.tsx */}
-              <SectionErrorBoundary name="Settings & Integrations">
-                <SettingsSection
-                  apiBase={API_BASE}
-                  shop={shop}
-                  tier={tier}
-                  isProUser={isProUser}
-                  displayCurrency={displayCurrency}
-                  setDisplayCurrency={setDisplayCurrency}
-                  costDefaults={costDefaults}
-                  costFormCogsPct={costFormCogsPct}
-                  setCostFormCogsPct={setCostFormCogsPct}
-                  costFormShipping={costFormShipping}
-                  setCostFormShipping={setCostFormShipping}
-                  costFormAdSpend={costFormAdSpend}
-                  setCostFormAdSpend={setCostFormAdSpend}
-                  costFormPayPct={costFormPayPct}
-                  setCostFormPayPct={setCostFormPayPct}
-                  costFormPayFlat={costFormPayFlat}
-                  setCostFormPayFlat={setCostFormPayFlat}
-                  costSaving={costSaving}
-                  costSavedMsg={costSavedMsg}
-                  costSyncing={costSyncing}
-                  costSyncMsg={costSyncMsg}
-                  pnlData={pnlData}
-                  handleCostDefaultsSave={handleCostDefaultsSave}
-                  handleShopifyCogsSync={handleShopifyCogsSync}
-                  klaviyoStatus={klaviyoStatus}
-                  klaviyoIsConnected={klaviyoIsConnected}
-                  klaviyoKeyInput={klaviyoKeyInput}
-                  setKlaviyoKeyInput={setKlaviyoKeyInput}
-                  klaviyoConnecting={klaviyoConnecting}
-                  klaviyoShowReplace={klaviyoShowReplace}
-                  setKlaviyoShowReplace={setKlaviyoShowReplace}
-                  klaviyoMessage={klaviyoMessage}
-                  setKlaviyoMessage={setKlaviyoMessage}
-                  handleKlaviyoConnect={handleKlaviyoConnect}
-                  handleKlaviyoDisconnect={handleKlaviyoDisconnect}
-                  privacyOptedOut={privacyOptedOut}
-                  privacyLoading={privacyLoading}
-                  handlePrivacyToggle={handlePrivacyToggle}
-                  setUpgradeModalOpen={setUpgradeModalOpen}
-                />
-              </SectionErrorBoundary>
+              {!isLiteFloor && (
+                <SectionErrorBoundary name="Settings & Integrations">
+                  <SettingsSection
+                    apiBase={API_BASE}
+                    shop={shop}
+                    tier={tier}
+                    isProUser={isProUser}
+                    displayCurrency={displayCurrency}
+                    setDisplayCurrency={setDisplayCurrency}
+                    costDefaults={costDefaults}
+                    costFormCogsPct={costFormCogsPct}
+                    setCostFormCogsPct={setCostFormCogsPct}
+                    costFormShipping={costFormShipping}
+                    setCostFormShipping={setCostFormShipping}
+                    costFormAdSpend={costFormAdSpend}
+                    setCostFormAdSpend={setCostFormAdSpend}
+                    costFormPayPct={costFormPayPct}
+                    setCostFormPayPct={setCostFormPayPct}
+                    costFormPayFlat={costFormPayFlat}
+                    setCostFormPayFlat={setCostFormPayFlat}
+                    costSaving={costSaving}
+                    costSavedMsg={costSavedMsg}
+                    costSyncing={costSyncing}
+                    costSyncMsg={costSyncMsg}
+                    pnlData={pnlData}
+                    handleCostDefaultsSave={handleCostDefaultsSave}
+                    handleShopifyCogsSync={handleShopifyCogsSync}
+                    klaviyoStatus={klaviyoStatus}
+                    klaviyoIsConnected={klaviyoIsConnected}
+                    klaviyoKeyInput={klaviyoKeyInput}
+                    setKlaviyoKeyInput={setKlaviyoKeyInput}
+                    klaviyoConnecting={klaviyoConnecting}
+                    klaviyoShowReplace={klaviyoShowReplace}
+                    setKlaviyoShowReplace={setKlaviyoShowReplace}
+                    klaviyoMessage={klaviyoMessage}
+                    setKlaviyoMessage={setKlaviyoMessage}
+                    handleKlaviyoConnect={handleKlaviyoConnect}
+                    handleKlaviyoDisconnect={handleKlaviyoDisconnect}
+                    privacyOptedOut={privacyOptedOut}
+                    privacyLoading={privacyLoading}
+                    handlePrivacyToggle={handlePrivacyToggle}
+                    setUpgradeModalOpen={setUpgradeModalOpen}
+                  />
+                </SectionErrorBoundary>
+              )}
 
             </div>
           )}
