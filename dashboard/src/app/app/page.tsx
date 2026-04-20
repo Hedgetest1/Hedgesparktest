@@ -2494,17 +2494,38 @@ function PageInner() {
                 </div>
               )}
 
-              {/* System health warning — shown when backend is degraded */}
+              {/* System health warning — shown when backend is degraded.
+                  Softened visual per founder directive 2026-04-20: the
+                  old amber "⚠" banner felt alarming; this one stays
+                  honest (shows the issues) but reads as a status note,
+                  not an emergency. */}
               {systemHealthIssues.length > 0 && (
-                <div className="mb-3 rounded-xl border border-amber-400/20 bg-amber-500/[0.06] px-4 py-3">
-                  <div className="flex items-start gap-2">
-                    <span className="mt-px text-amber-400">⚠</span>
-                    <div>
-                      <div className="text-[12px] font-medium text-amber-300">System health: degraded</div>
-                      <div className="mt-0.5 text-[11px] text-amber-200/60">
-                        {systemHealthIssues.slice(0, 3).join(" · ")}
-                        {" — "}some data may be stale.
-                      </div>
+                <div className="mb-3 flex items-start gap-3 rounded-2xl border border-amber-400/15 bg-gradient-to-br from-amber-500/[0.04] to-transparent px-5 py-3.5">
+                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-amber-500/10 text-amber-300">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={1.8}
+                      className="h-4 w-4"
+                      aria-hidden="true"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m0-10.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.75c0 5.592 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.75h-.152c-3.196 0-6.1-1.248-8.25-3.286zm0 13.036h.008v.008H12v-.008z" />
+                    </svg>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[13px] font-bold text-amber-200">
+                        Some signals are catching up
+                      </span>
+                      <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-amber-300">
+                        Degraded
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-[11.5px] leading-relaxed text-amber-200/70">
+                      {systemHealthIssues.slice(0, 3).join(" · ")}. Your data
+                      is safe — we&apos;re refreshing it in the background.
                     </div>
                   </div>
                 </div>
@@ -2521,9 +2542,6 @@ function PageInner() {
                 totalVisitors={data ? (data.summary?.total_visitors ?? 0) : null}
                 signalCount={strongSignals.length > 0 ? strongSignals.length : (data ? 0 : null)}
               />
-
-              {/* ═══ SYSTEM STATUS BAR — intelligence progress + aliveness ═══ */}
-              <SystemStatusBar apiBase={API_BASE} shop={shop} />
 
               {/* ═══ INTELLIGENCE HERO — decision-first: what matters most right now ═══ */}
               <IntelligenceHero
@@ -3129,6 +3147,15 @@ function PageInner() {
                 />
               </section>
               </SectionErrorBoundary>
+
+              {/* ═══ SYSTEM STATUS BAR — intelligence progress + aliveness ═══
+                  Moved here (bottom of the floor) per founder directive
+                  2026-04-20: the "Running autonomously" heartbeat belongs
+                  at the FOOT of the scroll as a proof-of-work signature,
+                  not at the top competing with the Revenue-at-Risk hero.
+                  Renders on both Lite and Pro floors — the merchant always
+                  knows Spark is alive and working. */}
+              <SystemStatusBar apiBase={API_BASE} shop={shop} />
 
 
               {/* ═══ PRO ZONE SEPARATOR ═══ */}

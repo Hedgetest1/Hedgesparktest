@@ -339,8 +339,8 @@ export function SupportChat({ connected = true, onboardingHint }: { connected?: 
         <Image
           src="/branding/hedgespark/spark.png"
           alt=""
-          width={connected ? 18 : 22}
-          height={connected ? 18 : 22}
+          width={connected ? 32 : 36}
+          height={connected ? 32 : 36}
           className="flex-shrink-0"
         />
         {buttonLabel}
@@ -356,8 +356,8 @@ export function SupportChat({ connected = true, onboardingHint }: { connected?: 
         <Image
           src="/branding/hedgespark/spark.png"
           alt=""
-          width={24}
-          height={24}
+          width={36}
+          height={36}
           className="flex-shrink-0"
         />
         <div className="flex-1">
