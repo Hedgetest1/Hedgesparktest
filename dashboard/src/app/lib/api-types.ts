@@ -3391,6 +3391,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/pnl": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Pnl Lite Endpoint
+         * @description Lite-accessible P&L (Strada 2.3). Identical shape + service as
+         *     the Pro /pro/pnl endpoint; only auth differs. Data shown at either
+         *     tier — the positioning locked it to Pro historically, but P&L is
+         *     table-stakes at the €39 band. Opens 2026-04-20 per founder
+         *     directive "strada 2 — completista".
+         */
+        get: operations["get_pnl_lite_endpoint_analytics_pnl_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pro/costs/defaults": {
         parameters: {
             query?: never;
@@ -14794,6 +14818,37 @@ export interface operations {
         };
     };
     get_pnl_endpoint_pro_pnl_get: {
+        parameters: {
+            query?: {
+                window_days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PnlReportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_pnl_lite_endpoint_analytics_pnl_get: {
         parameters: {
             query?: {
                 window_days?: number;

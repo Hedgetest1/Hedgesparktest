@@ -103,6 +103,7 @@ import { NudgeDnaCard } from "../components/NudgeDnaCard";
 // Lite-floor — cassettoni grid with click-to-expand (v3 spec)
 import { LiteCassettoniGrid, type CassettoneId } from "../components/LiteCassettoniGrid";
 import { LiteRarsHero } from "../components/LiteRarsHero";
+import { PnlReport } from "../components/PnlReport";
 // Pro-floor — 5 migrated Intelligence cards (previously on /app/intelligence)
 import { RecommendationImpactCard } from "../components/RecommendationImpactCard";
 import { ChurnForecastCard } from "../components/ChurnForecastCard";
@@ -1379,7 +1380,7 @@ function PageInner() {
           params: { query: { limit: 10 } },
           headers: typedHeaders,
         }),
-        apiClient.GET("/pro/pnl", {
+        apiClient.GET("/analytics/pnl", {
           params: { query: { window_days: 30 } },
           headers: typedHeaders,
         }),
@@ -1735,7 +1736,7 @@ function PageInner() {
         setCostSavedMsg({ type: "ok", text: "Saved — Profit Intelligence updating..." });
         // Re-fetch P&L to reflect new precision and numbers.
         try {
-          const pnlRes = await apiClient.GET("/pro/pnl", {
+          const pnlRes = await apiClient.GET("/analytics/pnl", {
             params: { query: { window_days: 30 } },
             headers: getHeaders(apiHeaders),
           });
@@ -1773,7 +1774,7 @@ function PageInner() {
         });
         // Refresh P&L so the precision badge and waterfall update.
         try {
-          const pnlRes = await apiClient.GET("/pro/pnl", {
+          const pnlRes = await apiClient.GET("/analytics/pnl", {
             params: { query: { window_days: 30 } },
             headers: getHeaders(apiHeaders),
           });
@@ -2842,6 +2843,47 @@ function PageInner() {
                       </p>
                     </div>
                     <PeerBenchmarksCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  </div>
+                </section>
+              )}
+
+              {/* Profit intelligence — P&L waterfall on Lite.
+                  Strada 2.3 per founder directive 2026-04-20. Reuses
+                  the existing PnlReport component (the Pro
+                  ProIntelligenceSection already renders it). Backend
+                  opened to Lite via /analytics/pnl sibling endpoint.
+                  Every cost component carries an "estimated" badge
+                  when default assumptions are in play — the precision
+                  upgrades when the merchant inputs real COGS
+                  (Settings, Pro tier for bulk entry; Lite can still
+                  view the waterfall with estimates). */}
+              {isLiteFloor && (
+                <section
+                  aria-labelledby="lite-pnl-heading"
+                  className="relative mb-8 overflow-hidden rounded-3xl border border-amber-400/[0.15] bg-gradient-to-br from-[#1a0d0a] via-[#0a0a14] to-[#0b0c18] p-7 sm:p-9"
+                >
+                  <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#e8a04e] to-transparent opacity-50" />
+                  <div className="pointer-events-none absolute -right-32 -top-32 h-[340px] w-[340px] rounded-full bg-[#e8a04e]/[0.05] blur-[150px]" />
+                  <div className="relative">
+                    <div className="mb-5">
+                      <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#e8a04e]">
+                        Profit intelligence
+                      </div>
+                      <h2
+                        id="lite-pnl-heading"
+                        className="mt-2 text-[1.5rem] font-extrabold leading-[1.08] tracking-tight text-white sm:text-[1.75rem]"
+                      >
+                        What you actually keep after costs
+                      </h2>
+                      <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
+                        Revenue minus COGS, payment fees, and shipping — the
+                        real money your store keeps. Starts with industry-
+                        standard estimates flagged with &quot;estimated&quot; badges;
+                        refines to exact when real COGS are imported from
+                        Shopify or entered manually.
+                      </p>
+                    </div>
+                    <PnlReport data={pnlData} displayCurrency={displayCurrency} />
                   </div>
                 </section>
               )}

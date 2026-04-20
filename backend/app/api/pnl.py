@@ -20,12 +20,18 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_pro_session
+from app.core.deps import require_merchant_session, require_pro_session
 from app.services.pnl_engine import get_pnl_report
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/pro/pnl", tags=["pnl"])
+
+# Lite-accessible P&L sibling router (Strada 2.3, 2026-04-20). Same
+# shape + same service; only auth differs. Every major competitor at
+# our tier (BeProfit $25+, Lifetimely $35+) ships P&L — it's table-
+# stakes for €39, and the backend has always been able to compute it.
+lite_router = APIRouter(prefix="/analytics/pnl", tags=["pnl"])
 
 
 
@@ -127,4 +133,22 @@ def get_pnl_endpoint(
 
     Pro-only: require_pro_session enforces plan + session cookie.
     """
+    return get_pnl_report(db, shop, window_days=window_days)
+
+
+@lite_router.get(
+    "",
+    response_model=PnlReportResponse,
+    response_model_exclude_none=False,
+)
+def get_pnl_lite_endpoint(
+    window_days: int = Query(default=30, ge=1, le=90),
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+):
+    """Lite-accessible P&L (Strada 2.3). Identical shape + service as
+    the Pro /pro/pnl endpoint; only auth differs. Data shown at either
+    tier — the positioning locked it to Pro historically, but P&L is
+    table-stakes at the €39 band. Opens 2026-04-20 per founder
+    directive "strada 2 — completista"."""
     return get_pnl_report(db, shop, window_days=window_days)
