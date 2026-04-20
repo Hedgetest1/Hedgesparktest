@@ -160,7 +160,7 @@ export function InstantIntelligenceCard({ apiBase }: { apiBase: string }) {
         <div style={{ fontSize: "22px" }}>⚡</div>
         <div style={{ flex: 1 }}>
           <div style={{ color: "#e8a04e", fontSize: "13px", fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-            Instant Intelligence
+            Instant snapshot
           </div>
           <div style={{ color: "#cbd5e1", fontSize: "12px" }}>
             {isComputing

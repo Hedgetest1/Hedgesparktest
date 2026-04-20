@@ -3292,7 +3292,7 @@ function PageInner() {
 
               {/* Pro — Behavioral DNA (extracted to _sections/BehavioralIntelligenceSection.tsx) */}
               {isProUser && behavioralData && (
-                <SectionErrorBoundary name="Behavioral Intelligence">
+                <SectionErrorBoundary name="Behavioral DNA">
                   <BehavioralIntelligenceSection
                     data={behavioralData}
                     displayCurrency={displayCurrency}

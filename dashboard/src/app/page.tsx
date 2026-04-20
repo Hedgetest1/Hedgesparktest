@@ -527,7 +527,7 @@ function Features() {
       items: "Revenue at Risk Score · Revenue Autopsy · Abandoned Intent · Refund Loss Tracking",
     },
     {
-      title: "Behavioral Intelligence",
+      title: "Behavioral DNA",
       color: "#a855f7",
       count: "4 signals",
       items: "Visitor Intent Scoring · Scroll Heatmaps · Price Sensitivity · Session Timeline",
