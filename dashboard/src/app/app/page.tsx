@@ -2552,78 +2552,166 @@ function PageInner() {
                   Always renders on Lite; empty-state says "All clear —
                   Spark is watching" so the strip never disappears. */}
               {isLiteFloor && (
-                <section aria-labelledby="today-actions-heading" className="mb-6">
-                  <div className="mb-3 flex items-center gap-2">
-                    <span className="h-1.5 w-1.5 rounded-full bg-[#e8a04e] shadow-[0_0_8px_rgba(232,160,78,0.6)]" />
-                    <h2
-                      id="today-actions-heading"
-                      className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#e8a04e]"
-                    >
-                      Today · 3 things to do
-                    </h2>
-                  </div>
-                  {sparkActions.length === 0 ? (
-                    <div className="rounded-2xl border border-emerald-400/15 bg-gradient-to-br from-emerald-500/[0.04] to-transparent p-6 text-center">
-                      <div className="mb-2 text-[24px]">✨</div>
-                      <div className="text-[15px] font-bold text-emerald-200">
-                        All clear — Spark is watching
+                <section
+                  aria-labelledby="today-actions-heading"
+                  className="relative mb-8 overflow-hidden rounded-3xl border border-white/[0.06] bg-gradient-to-br from-[#0e0a1a] via-[#0a0a14] to-[#0b0c18] p-7 sm:p-9"
+                >
+                  {/* Brand gradient stripe top — the visual signature we
+                      reserve for premium zones. Anchors "this is worth
+                      your attention" before reading a single word. */}
+                  <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-[#7c3aed] via-[#c026d3] to-[#e8a04e]" />
+                  {/* Ambient corner glow — violet + amber wash, soft
+                      enough to feel like depth, not decoration. */}
+                  <div className="pointer-events-none absolute -right-32 -top-32 h-[380px] w-[380px] rounded-full bg-[#c026d3]/[0.05] blur-[160px]" />
+                  <div className="pointer-events-none absolute -left-24 -bottom-32 h-[320px] w-[320px] rounded-full bg-[#e8a04e]/[0.04] blur-[140px]" />
+
+                  <div className="relative">
+                    {/* Eyebrow + greeting row */}
+                    <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <span className="relative flex h-2 w-2">
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#e8a04e]/50" />
+                          <span className="relative inline-flex h-2 w-2 rounded-full bg-[#e8a04e] shadow-[0_0_12px_rgba(232,160,78,0.7)]" />
+                        </span>
+                        <h2
+                          id="today-actions-heading"
+                          className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#e8a04e]"
+                        >
+                          Today · your 3 moves
+                        </h2>
                       </div>
-                      <div className="mx-auto mt-1 max-w-md text-[12.5px] leading-relaxed text-slate-400">
-                        No urgent actions right now. New recommendations
-                        appear as visitors flow in and signals mature.
-                      </div>
+                      <span className="text-[11px] font-semibold text-slate-500">
+                        Ranked by impact · live
+                      </span>
                     </div>
-                  ) : (
-                    <div className="grid gap-3 md:grid-cols-3">
-                      {sparkActions.slice(0, 3).map((action) => {
-                        const priorityTheme =
-                          action.priority === "CRITICAL"
-                            ? { color: "#f43f5e", label: "Critical" }
-                            : action.priority === "HIGH"
-                              ? { color: "#e8a04e", label: "High" }
-                              : { color: "#94a3b8", label: "Medium" };
-                        return (
-                          <div
-                            key={action.id}
-                            className="group flex flex-col rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4 transition-colors hover:border-white/[0.12]"
+
+                    {/* Big headline — conversational Spark voice */}
+                    <h1 className="text-[1.75rem] font-extrabold leading-[1.05] tracking-tight text-white sm:text-[2.25rem]">
+                      {sparkActions.length === 0
+                        ? "Nothing urgent — I'm watching."
+                        : sparkActions.length === 1
+                          ? "I found 1 thing worth your time this morning."
+                          : `I found ${Math.min(3, sparkActions.length)} things worth your time this morning.`}
+                    </h1>
+                    <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
+                      {sparkActions.length === 0
+                        ? "No urgent actions right now. New recommendations appear as visitors flow in and signals mature. You'll know the moment one shows up."
+                        : "Each card below is one signal + one action. Tackle them in order, skip what you can't do today — Spark re-ranks tomorrow from your real data."}
+                    </p>
+
+                    {/* Action cards — or empty-state */}
+                    {sparkActions.length === 0 ? (
+                      <div className="mt-7 flex items-center gap-4 rounded-2xl border border-emerald-400/15 bg-emerald-500/[0.04] p-5">
+                        <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-500/10">
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth={1.8}
+                            className="h-6 w-6 text-emerald-300"
+                            aria-hidden="true"
                           >
-                            <div className="mb-2 flex items-center gap-2">
-                              <span
-                                className="rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em]"
-                                style={{
-                                  color: priorityTheme.color,
-                                  background: priorityTheme.color + "1A",
-                                  border: `1px solid ${priorityTheme.color}33`,
-                                }}
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" />
+                          </svg>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[13px] font-bold text-emerald-200">
+                            All systems clear
+                          </div>
+                          <div className="mt-0.5 text-[12px] leading-relaxed text-slate-400">
+                            Traffic is steady, no leaks above threshold, no
+                            products losing pace. Come back after lunch — or
+                            when your next visitor arrives.
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-7 grid gap-4 md:grid-cols-3">
+                        {sparkActions.slice(0, 3).map((action, i) => {
+                          const priorityTheme =
+                            action.priority === "CRITICAL"
+                              ? { color: "#f43f5e", label: "Now", bg: "rgba(244,63,94,0.08)" }
+                              : action.priority === "HIGH"
+                                ? { color: "#e8a04e", label: "Soon", bg: "rgba(232,160,78,0.08)" }
+                                : { color: "#94a3b8", label: "When you can", bg: "rgba(148,163,184,0.05)" };
+                          // Remap product-performance → section-hot (Lite-
+                          // visible). Any other hidden targetSection falls
+                          // back to section-hot since that's where the
+                          // merchant sees the products the action refers to.
+                          const liteVisibleSections = new Set([
+                            "brief",
+                            "hot",
+                            "live",
+                            "opportunities",
+                            "visitors",
+                            "abandonment",
+                          ]);
+                          const liteTarget = liteVisibleSections.has(action.targetSection)
+                            ? action.targetSection
+                            : "hot";
+                          return (
+                            <div
+                              key={action.id}
+                              className="group relative flex flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-gradient-to-br from-white/[0.03] to-white/[0.01] p-5 transition-all hover:border-white/[0.16] hover:shadow-[0_8px_32px_rgba(232,160,78,0.06)]"
+                            >
+                              {/* Rank mark — dramatic tabular numeral in
+                                  the corner, a visual signature. */}
+                              <div
+                                className="pointer-events-none absolute -right-2 -top-4 text-[84px] font-extrabold leading-none tabular-nums text-white/[0.03] sm:text-[96px]"
+                                aria-hidden="true"
                               >
-                                {priorityTheme.label}
-                              </span>
-                              {action.impactValue > 0 && (
-                                <span className="text-[10px] font-semibold text-emerald-400 tabular-nums">
-                                  {action.impact}
+                                {i + 1}
+                              </div>
+
+                              {/* Priority + impact chip row */}
+                              <div className="relative mb-3 flex items-center gap-2">
+                                <span
+                                  className="rounded-full px-2.5 py-1 text-[9.5px] font-bold uppercase tracking-[0.1em]"
+                                  style={{
+                                    color: priorityTheme.color,
+                                    background: priorityTheme.bg,
+                                    border: `1px solid ${priorityTheme.color}33`,
+                                  }}
+                                >
+                                  {priorityTheme.label}
                                 </span>
-                              )}
-                            </div>
-                            <div className="text-[13.5px] font-bold leading-snug text-white">
-                              {action.title}
-                            </div>
-                            <div className="mt-1 text-[11.5px] leading-relaxed text-slate-400">
-                              {action.action}
-                            </div>
-                            {action.targetSection && (
+                                {action.impactValue > 0 && (
+                                  <span className="text-[10.5px] font-bold text-emerald-300 tabular-nums">
+                                    {action.impact}
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Title — the "what" */}
+                              <div className="relative text-[15px] font-extrabold leading-snug text-white">
+                                {action.title}
+                              </div>
+
+                              {/* Action body — the "how", plain language */}
+                              <div className="relative mt-2 text-[12px] leading-relaxed text-slate-400">
+                                {action.action}
+                              </div>
+
+                              {/* CTA — only show if we have a Lite-visible
+                                  target. Uses brand gradient underline on
+                                  hover for a touch of originality. */}
                               <button
                                 type="button"
-                                onClick={() => handleNavigate(action.targetSection)}
-                                className="mt-3 self-start rounded-lg border border-[#e8a04e]/25 bg-[#e8a04e]/[0.06] px-3 py-1.5 text-[11.5px] font-bold text-[#e8a04e] transition-colors hover:bg-[#e8a04e]/[0.12]"
+                                onClick={() => handleNavigate(liteTarget)}
+                                className="relative mt-4 inline-flex items-center gap-1 self-start rounded-lg border border-[#e8a04e]/25 bg-[#e8a04e]/[0.06] px-3 py-1.5 text-[11.5px] font-bold text-[#e8a04e] transition-colors hover:bg-[#e8a04e]/[0.14]"
                               >
-                                Show me →
+                                Show me
+                                <span className="inline-block transition-transform group-hover:translate-x-0.5">
+                                  →
+                                </span>
                               </button>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </section>
               )}
 
