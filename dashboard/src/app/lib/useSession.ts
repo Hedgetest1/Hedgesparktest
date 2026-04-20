@@ -22,6 +22,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiClient } from "./api-client";
+import type { paths } from "./api-types";
+
+type MerchantMePayload =
+  paths["/merchant/me"]["get"]["responses"]["200"]["content"]["application/json"];
 
 const API_BASE =
   (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_BASE_URL) ||
@@ -65,33 +69,50 @@ export function useSession(): SessionState {
 
   useEffect(() => {
     let cancelled = false;
-    async function load() {
-      // Step 1: try the authenticated session endpoint (cookie-based).
-      // If this succeeds, we have a fully-identified merchant and we're
-      // done.
+
+    // Single attempt at /merchant/me. Returns the shop payload on
+    // success, null on any failure (401, 500, network error, timeout).
+    const tryMe = async (): Promise<MerchantMePayload | null> => {
       try {
         const { data } = await apiClient.GET("/merchant/me");
-        if (cancelled) return;
-        if (data && data.shop_domain) {
-          setShop(data.shop_domain);
-          try {
-            window.localStorage.setItem("hs_last_shop", data.shop_domain);
-          } catch {
-            // localStorage blocked (private browsing) — session
-            // cookie is still valid so we can still show the
-            // dashboard. Don't treat this as fatal.
-          }
-          const isPro = data.plan === "pro" && data.billing_active === true;
-          const preview = readPreviewParam();
-          setIsPreviewing(preview);
-          setTier(preview ? "lite" : isPro ? "pro" : "lite");
-          setResolved(true);
-          return;
-        }
+        return (data as MerchantMePayload | undefined) ?? null;
       } catch {
-        // Fall through to the recovery path below.
+        return null;
+      }
+    };
+
+    async function load() {
+      // Step 1: try the authenticated session endpoint (cookie-based).
+      // Retry up to 2 times with increasing delays (1.5s, 3s) to absorb
+      // the PM2-mid-restart window (~2-5s typical for wishspark-backend).
+      // Without these retries, every backend deploy kicks returning
+      // merchants to "Reconnect my store" even though their cookie is
+      // still valid.
+      const retryDelaysMs = [1500, 3000];
+      let data = await tryMe();
+      for (const delayMs of retryDelaysMs) {
+        if (data != null) break;
+        await new Promise((r) => setTimeout(r, delayMs));
+        data = await tryMe();
       }
       if (cancelled) return;
+
+      if (data && data.shop_domain) {
+        setShop(data.shop_domain);
+        try {
+          window.localStorage.setItem("hs_last_shop", data.shop_domain);
+        } catch {
+          // localStorage blocked (private browsing) — session
+          // cookie is still valid so we can still show the
+          // dashboard. Don't treat this as fatal.
+        }
+        const isPro = data.plan === "pro" && data.billing_active === true;
+        const preview = readPreviewParam();
+        setIsPreviewing(preview);
+        setTier(preview ? "lite" : isPro ? "pro" : "lite");
+        setResolved(true);
+        return;
+      }
 
       // Step 2: no valid session cookie. Try the same recovery path
       // /app/page.tsx uses — remembered shop from localStorage →

@@ -696,83 +696,121 @@ function PageInner() {
       return;
     }
 
-    apiClient
-      .GET("/merchant/me", { headers: getHeaders(apiHeaders) })
-      .then(async (res) => {
-        const json = res.data;
-        if (json != null) {
-          const shopDomain = json.shop_domain;
-          if (shopDomain) {
-            setShop(shopDomain);
-            // Remember shop for future re-auth if cookie expires
-            try {
-              localStorage.setItem("hs_last_shop", shopDomain);
-            } catch {}
-            const isPro = json.plan === "pro" && json.billing_active === true;
+    // Retry /merchant/me once with a short delay before falling back.
+    // This handles the transient case where the backend is mid-restart
+    // (PM2 reload, build, deploy) and the first request lands in the
+    // ~2-5s window where Traefik returns 502 / the fetch rejects with
+    // a network error. Without retry, every deploy cycle kicks returning
+    // merchants to "No store connected" for no real reason — the cookie
+    // is still valid, only the backend was briefly unreachable.
+    type MePayload = {
+      shop_domain?: string | null;
+      plan?: string | null;
+      billing_active?: boolean | null;
+      pro_trial_days?: number | null;
+      billing_confirmed_at?: string | null;
+    } | null | undefined;
+    const tryMe = async (): Promise<MePayload> => {
+      try {
+        const res = await apiClient.GET("/merchant/me", { headers: getHeaders(apiHeaders) });
+        return res.data as MePayload;
+      } catch {
+        return null;
+      }
+    };
+
+    const bootstrapWithShop = (target: string) => {
+      // Full navigation — backend sets cookie and redirects us back.
+      // No state set here; the page is unloading.
+      window.location.href = `${API_BASE}/auth/session?shop=${encodeURIComponent(target)}`;
+    };
+
+    const rememberedShop = (() => {
+      try {
+        return localStorage.getItem("hs_last_shop") || "";
+      } catch {
+        return "";
+      }
+    })();
+    const urlShop = params.get("shop") || "";
+    const justInstalled = params.get("installed") === "1";
+
+    (async () => {
+      // Retry /merchant/me up to 3 times total (1 initial + 2 retries)
+      // with increasing delays (1.5s, 3s). The cumulative 4.5s window
+      // covers the typical PM2 restart duration (wishspark-backend
+      // reloads in ~2-5s during a deploy). Without these retries, any
+      // returning merchant who opens the dashboard during a deploy
+      // blip sees "No store connected" even though their cookie is
+      // valid — the backend was just briefly unreachable.
+      const retryDelaysMs = [1500, 3000];
+      let json = await tryMe();
+      for (const delayMs of retryDelaysMs) {
+        if (json != null) break;
+        await new Promise((r) => setTimeout(r, delayMs));
+        json = await tryMe();
+      }
+
+      if (json && json.shop_domain) {
+        const shopDomain = json.shop_domain;
+        setShop(shopDomain);
+        try {
+          localStorage.setItem("hs_last_shop", shopDomain);
+        } catch {}
+        const isPro = json.plan === "pro" && json.billing_active === true;
+        applyTier(isPro ? "pro" : "lite");
+        if (json.pro_trial_days != null) setProTrialDays(json.pro_trial_days);
+        setBillingConfirmedAt(json.billing_confirmed_at ?? null);
+
+        if (params.get("shop")) {
+          params.delete("shop");
+          params.delete("installed");
+          params.delete("webhook");
+          params.delete("tracker");
+          const cleaned = params.toString();
+          window.history.replaceState({}, "", `/app${cleaned ? `?${cleaned}` : ""}`);
+        }
+        setSessionResolved(true);
+        return;
+      }
+
+      // No valid session after retry — attempt recovery in strict order:
+      //   1. If a ?shop= query is present and the URL signals a fresh
+      //      install, trust it as a display hint (the cookie was just
+      //      set server-side; the /merchant/me call may race the
+      //      browser cookie store).
+      //   2. Otherwise, if we remember a shop from localStorage or the
+      //      URL carries a shop param, bootstrap via /auth/session —
+      //      this navigates away and returns with a fresh cookie.
+      //   3. If none of the above, render the "reconnect" UI.
+
+      if (urlShop && justInstalled) {
+        setShop(urlShop);
+        try {
+          const planRes = await apiClient.GET("/merchant/plan", {
+            headers: getHeaders(apiHeaders),
+          });
+          const planJson = planRes.data;
+          if (planJson != null) {
+            const isPro = planJson.plan === "pro" && planJson.billing_active === true;
             applyTier(isPro ? "pro" : "lite");
-            if (json.pro_trial_days != null) setProTrialDays(json.pro_trial_days);
-            setBillingConfirmedAt(json.billing_confirmed_at ?? null);
-
-            // Clean ?shop= from URL if present — session is the source of truth
-            if (params.get("shop")) {
-              params.delete("shop");
-              params.delete("installed");
-              params.delete("webhook");
-              params.delete("tracker");
-              const cleaned = params.toString();
-              window.history.replaceState({}, "", `/app${cleaned ? `?${cleaned}` : ""}`);
-            }
-            return;
+            if (planJson.pro_trial_days != null) setProTrialDays(planJson.pro_trial_days);
+            setBillingConfirmedAt(planJson.billing_confirmed_at ?? null);
           }
-        }
+        } catch { /* tier stays lite */ }
+        setSessionResolved(true);
+        return;
+      }
 
-        // 3. No valid session — check for ?shop= param OR remembered shop
-        const urlShop = params.get("shop") || "";
-        const rememberedShop = (() => {
-          try {
-            return localStorage.getItem("hs_last_shop") || "";
-          } catch {
-            return "";
-          }
-        })();
-        const justInstalled = params.get("installed") === "1";
+      const bootstrapTarget = urlShop || rememberedShop;
+      if (bootstrapTarget) {
+        bootstrapWithShop(bootstrapTarget);
+        // Don't call setSessionResolved — page is unloading.
+        return;
+      }
 
-        // Auto-redirect to bootstrap if we remember the shop from before
-        // (returning merchant, session cookie expired). Skip if URL already
-        // has shop param — that path is handled below.
-        if (!urlShop && rememberedShop && API_BASE) {
-          window.location.href = `${API_BASE}/auth/session?shop=${encodeURIComponent(rememberedShop)}`;
-          return;
-        }
-
-        if (urlShop && justInstalled) {
-          // Just came from OAuth callback — shop param is trusted, proceed
-          setShop(urlShop);
-          try {
-            const planRes = await apiClient.GET("/merchant/plan", {
-              headers: getHeaders(apiHeaders),
-            });
-            const planJson = planRes.data;
-            if (planJson != null) {
-              const isPro = planJson.plan === "pro" && planJson.billing_active === true;
-              applyTier(isPro ? "pro" : "lite");
-              if (planJson.pro_trial_days != null) setProTrialDays(planJson.pro_trial_days);
-              setBillingConfirmedAt(planJson.billing_confirmed_at ?? null);
-            }
-          } catch { /* tier stays lite */ }
-        } else if (urlShop) {
-          // Has shop param but no session — redirect to bootstrap endpoint
-          // This creates a session cookie and redirects back here
-          window.location.href = `${API_BASE}/auth/session?shop=${encodeURIComponent(urlShop)}`;
-          return;  // stop processing — page will reload after redirect
-        }
-      })
-      .catch(() => {
-        // Network error — try URL fallback
-        const urlShop = params.get("shop") || "";
-        if (urlShop) setShop(urlShop);
-      })
-      .finally(() => setSessionResolved(true));
+      setSessionResolved(true);
+    })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

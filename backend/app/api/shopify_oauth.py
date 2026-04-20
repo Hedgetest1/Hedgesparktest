@@ -569,7 +569,14 @@ def bootstrap_session(
 
     sv = merchant.session_version or 0
 
-    dest = f"{_DASHBOARD_URL}/?shop={shop}" if _DASHBOARD_URL else "/"
+    # Redirect DIRECTLY to the dashboard (/app), not the landing root
+    # (/). Prior to 2026-04-20 we redirected to "/?shop=..." which hit
+    # the marketing landing, then a client-side useEffect forwarded to
+    # /app — an unnecessary extra hop that cost ~50-200ms, showed a
+    # flash of the landing page, and broke the recovery loop when the
+    # landing JS failed to run (e.g. SSR hiccup, content-blocker).
+    # The dashboard route is the merchant's destination; go there.
+    dest = f"{_DASHBOARD_URL}/app?shop={shop}" if _DASHBOARD_URL else "/app"
     resp = RedirectResponse(url=dest, status_code=302)
     set_session_cookie(resp, shop, sv)
 
