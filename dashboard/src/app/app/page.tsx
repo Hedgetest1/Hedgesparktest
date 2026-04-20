@@ -2843,6 +2843,17 @@ function PageInner() {
                       </p>
                     </div>
                     <PeerBenchmarksCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+
+                    {/* Vertical-aware benchmarks — Strada 3.1. Shows
+                        peer comparison narrowed to the merchant's
+                        classified vertical (e.g. "€15k beauty brand
+                        vs other €15k beauty brands"). Closes the
+                        Varos-vertical moat gap. Reuses the existing
+                        VerticalBenchmarksCard — only the Pro-gate was
+                        dropped and the endpoint opened. */}
+                    <div className="mt-5">
+                      <VerticalBenchmarksCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                    </div>
                   </div>
                 </section>
               )}

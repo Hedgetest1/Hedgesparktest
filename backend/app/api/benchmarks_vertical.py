@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_pro_session
+from app.core.deps import require_merchant_session, require_pro_session
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +54,22 @@ def get_vertical_benchmarks(
     db: Session = Depends(get_db),
 ):
     """Vertical-aware benchmark report (Phase Ω moat)."""
+    from app.services.benchmarks_vertical import get_vertical_benchmark_report
+    return get_vertical_benchmark_report(db, shop)
+
+
+@router.get(
+    "/analytics/benchmarks/vertical",
+    response_model=VerticalBenchmarkResponse,
+)
+def get_vertical_benchmarks_lite(
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+):
+    """Lite-accessible vertical benchmarks (Strada 3.1, 2026-04-20).
+    Same shape + service as the Pro sibling; auth differs. Vertical-
+    aware peer comparison was historically Pro-gated but closes the
+    Varos-vertical gap at the €39 tier per founder directive."""
     from app.services.benchmarks_vertical import get_vertical_benchmark_report
     return get_vertical_benchmark_report(db, shop)
 

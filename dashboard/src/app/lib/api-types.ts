@@ -4565,6 +4565,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/benchmarks/vertical": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Vertical Benchmarks Lite
+         * @description Lite-accessible vertical benchmarks (Strada 3.1, 2026-04-20).
+         *     Same shape + service as the Pro sibling; auth differs. Vertical-
+         *     aware peer comparison was historically Pro-gated but closes the
+         *     Varos-vertical gap at the €39 tier per founder directive.
+         */
+        get: operations["get_vertical_benchmarks_lite_analytics_benchmarks_vertical_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pro/vertical": {
         parameters: {
             query?: never;
@@ -16418,6 +16441,26 @@ export interface operations {
         };
     };
     get_vertical_benchmarks_pro_benchmarks_vertical_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerticalBenchmarkResponse"];
+                };
+            };
+        };
+    };
+    get_vertical_benchmarks_lite_analytics_benchmarks_vertical_get: {
         parameters: {
             query?: never;
             header?: never;

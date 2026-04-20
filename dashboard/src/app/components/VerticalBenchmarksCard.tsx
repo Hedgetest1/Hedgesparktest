@@ -7,7 +7,7 @@
  * not just revenue band. A €15k beauty brand benchmarked against
  * other €15k *beauty* brands.
  *
- * Source: GET /pro/benchmarks/vertical
+ * Source: GET /analytics/benchmarks/vertical (Lite + Pro accessible).
  */
 
 import { useEffect, useState } from "react";
@@ -129,13 +129,13 @@ export function VerticalBenchmarksCard({
   const [lastLive, setLastLive] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!apiBase || !shop || !isProUser) { setLoading(false); return; }
+    if (!apiBase || !shop) { setLoading(false); return; }
     let active = true;
     setLoading(true);
 
     const refetch = async () => {
       try {
-        const { data: j, error: err } = await apiClient.GET("/pro/benchmarks/vertical");
+        const { data: j, error: err } = await apiClient.GET("/analytics/benchmarks/vertical");
         if (err || !j) throw new Error("fetch failed");
         if (active) {
           setData(j as unknown as VerticalBenchmarkData);
@@ -179,9 +179,12 @@ export function VerticalBenchmarksCard({
       try { es?.close(); } catch {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiBase, shop, isProUser]);
+  }, [apiBase, shop]);
 
-  if (!isProUser) return null;
+  // `isProUser` kept in signature for call-site back-compat — no
+  // longer gates rendering per Strada 3.1 (vertical benchmarks are
+  // now a Lite feature).
+  void isProUser;
 
   if (loading) {
     return (
