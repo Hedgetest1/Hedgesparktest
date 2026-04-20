@@ -25,6 +25,30 @@ type Answer = {
   graph_stats?: { nodes: number; edges: number; node_types: Record<string, number> };
 };
 
+type KGStats = {
+  shop_domain: string;
+  nodes: number;
+  edges: number;
+  node_types: Record<string, number>;
+  edge_types: Record<string, number>;
+  built_at: string | null;
+};
+
+function formatBuildAge(builtAt: string | null): string {
+  if (!builtAt) return "just now";
+  const then = Date.parse(builtAt);
+  if (Number.isNaN(then)) return "recently";
+  const ageMs = Date.now() - then;
+  if (ageMs < 0) return "just now";
+  const mins = Math.floor(ageMs / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 const SUGGESTIONS = [
   "Why did revenue drop today?",
   "Show me top customers",
@@ -48,7 +72,21 @@ export function AskHedgeSparkCard({
   const [error, setError] = useState<string | null>(null);
   const [voiceSupported, setVoiceSupported] = useState(false);
   const [listening, setListening] = useState(false);
+  const [kgStats, setKgStats] = useState<KGStats | null>(null);
   const recognitionRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!isProUser) return;
+    let cancelled = false;
+    (async () => {
+      const { data: j, error: err } = await apiClient.GET("/pro/kg/stats");
+      if (cancelled || err || !j) return;
+      setKgStats(j as unknown as KGStats);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isProUser]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -127,6 +165,22 @@ export function AskHedgeSparkCard({
         <p className="mt-1 text-[11px] text-slate-500">
           {t("ask.sub")}
         </p>
+        {kgStats && kgStats.nodes > 0 && (
+          <div
+            className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-[#d4893a]/20 bg-[#d4893a]/[0.06] px-2.5 py-1 text-[10px] font-medium text-[#d4893a]/90"
+            title="HedgeSpark builds a live knowledge graph from your store events and uses it to answer your questions with real data."
+            role="status"
+          >
+            <span aria-hidden="true">●</span>
+            <span>
+              answering from{" "}
+              <b className="font-bold text-[#d4893a]">{kgStats.nodes.toLocaleString("en")}</b>{" "}
+              entities ·{" "}
+              <b className="font-bold text-[#d4893a]">{kgStats.edges.toLocaleString("en")}</b>{" "}
+              relationships · refreshed {formatBuildAge(kgStats.built_at)}
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="flex gap-2">
