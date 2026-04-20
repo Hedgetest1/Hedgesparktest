@@ -254,10 +254,10 @@ function ProductCostsSurface({ isProUser }: { isProUser: boolean }) {
       <div className="mb-8">
         <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-500">
           <Link
-            href="/app/intelligence"
+            href="/app/pro"
             className="text-slate-400 hover:text-[#e8a04e]"
           >
-            ← Intelligence
+            ← Pro
           </Link>
           <span>/</span>
           <span className="uppercase tracking-[0.16em] text-slate-600">

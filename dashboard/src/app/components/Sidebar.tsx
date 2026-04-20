@@ -48,7 +48,7 @@ const FLOORS: FloorDef[] = [
   {
     id: "pulse",
     label: "Lite",
-    href: "/app",
+    href: "/app/lite",
     requires: "lite",
     desc: "Right-now signals across your store",
     icon: (
@@ -60,7 +60,7 @@ const FLOORS: FloorDef[] = [
   {
     id: "intelligence",
     label: "Pro",
-    href: "/app/intelligence",
+    href: "/app/pro",
     requires: "pro",
     desc: "Deep analytics: cohort, P&L, causal lift, Ask HS",
     icon: (
@@ -72,7 +72,7 @@ const FLOORS: FloorDef[] = [
   {
     id: "operations",
     label: "Scale",
-    href: "/app/operations",
+    href: "/app/scale",
     requires: "scale",
     desc: "Agency, multi-store, API, Shopify Admin actions",
     icon: (

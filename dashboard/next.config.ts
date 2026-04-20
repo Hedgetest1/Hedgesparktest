@@ -69,6 +69,18 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  // Tier-named floor URLs (founder directive 2026-04-20).
+  // Canonical paths: /app/lite, /app/pro, /app/scale.
+  // Legacy paths redirected 308 (permanent) to preserve bookmarks.
+  // `/app` itself redirects to /app/lite so the URL bar always shows
+  // the tier the merchant is looking at.
+  async redirects() {
+    return [
+      { source: "/app", destination: "/app/lite", permanent: true },
+      { source: "/app/intelligence", destination: "/app/pro", permanent: true },
+      { source: "/app/operations", destination: "/app/scale", permanent: true },
+    ];
+  },
 };
 
 export default nextConfig;
