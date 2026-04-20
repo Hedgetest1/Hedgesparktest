@@ -100,6 +100,8 @@ import { RevenueForecastCard } from "../components/RevenueForecastCard";
 import { CustomerChurnCard } from "../components/CustomerChurnCard";
 // δ5 — nudge DNA patterns
 import { NudgeDnaCard } from "../components/NudgeDnaCard";
+// Lite-floor — first-visit tour primer
+import { LiteTourPrimer } from "../components/LiteTourPrimer";
 // Pro-floor — 5 migrated Intelligence cards (previously on /app/intelligence)
 import { RecommendationImpactCard } from "../components/RecommendationImpactCard";
 import { ChurnForecastCard } from "../components/ChurnForecastCard";
@@ -2551,6 +2553,17 @@ function PageInner() {
                   priority actions the merchant can execute manually today.
                   Always renders on Lite; empty-state says "All clear —
                   Spark is watching" so the strip never disappears. */}
+              {/* ═══ LITE TOUR — "What am I looking at?" primer ═══
+                  Founder-flagged 2026-04-20: warm tone works, but a
+                  first-time merchant stares at the dashboard and gets
+                  "a couple of nice tables, zero comprehension". This
+                  guide panel gives a 30-second map of the 7 Lite
+                  sections with plain-language "what / why" per row.
+                  Dismissed persistently via localStorage so repeat
+                  visitors don't see it. Never auto-hide on scroll —
+                  that's user-hostile. */}
+              {isLiteFloor && shop && <LiteTourPrimer />}
+
               {isLiteFloor && (
                 <section
                   aria-labelledby="today-actions-heading"
