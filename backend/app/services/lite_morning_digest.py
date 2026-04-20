@@ -186,25 +186,34 @@ _SOURCE_HUMAN = {
 
 
 def _build_email(shop_domain: str, brief: dict, db: Session) -> Tuple[str, str, str]:
-    """Spectacular-quality morning brief email.
+    """Morning brief email — rebuilt to match the established HedgeSpark
+    email visual language (digest_formatter / email_templates
+    primitives). Uses _wrap_html with logo, _section_title alternated
+    warm/cool, typography scale shared with weekly_digest + welcome.
 
-    Layout (competitor-shame bar):
-      1. Big hero card: total Revenue-at-Risk this month + prevented
-         chip, loss-framed, amber gradient.
-      2. Today's lead story: top product + suggested action.
-      3. Inline SVG bar chart: top 3 RARS leak sources ranked by €.
-      4. Peer position card: your band + peer count + recovery-to-p75.
-      5. Retention snapshot: week 1/4/12 in color-tiered tiles.
-      6. CTA to dashboard.
+    Sections (when data exists):
+      - Subject card: Revenue-at-Risk hero in an amber signal box
+      - Lead story callout (emerald left-rule "Suggested action")
+      - Risk components table (amber rgba box like weekly_digest)
+      - Peer benchmarks (violet signal box)
+      - Retention tiles (emerald signal box when >0, else skipped)
+      - Working (emerald) when clean-slate
+      - CTA button (amber→violet gradient — canonical)
+      - Trust footer
 
-    Every number sourced from a real service — no placeholders. Each
-    section guarded by a None-check so any service outage degrades
-    gracefully rather than nuking the whole email."""
+    Every section guarded — missing services don't break the email.
+    Zero custom HTML outside the shared primitives.
+    """
+    from app.services.email_templates import (
+        _wrap_html, _button, _p, _heading, _section_title, _separator,
+    )
+
     shop_name = (
         shop_domain.replace(".myshopify.com", "").replace("-", " ").title()
     )
+    today_str = datetime.now(timezone.utc).strftime("%A · %B %d")
 
-    # Pull rich context alongside the brief so this isn't a teaser.
+    # Data
     rich = _gather_rich_context(db, shop_domain)
     currency = rich.get("currency") or "USD"
 
@@ -214,298 +223,240 @@ def _build_email(shop_domain: str, brief: dict, db: Session) -> Tuple[str, str, 
     top_action = (brief.get("top_action") or "").strip()
 
     rars = rich.get("rars") or {}
-    rars_total = rars.get("total") or 0
-    rars_prevented = rars.get("prevented") or 0
+    rars_total = float(rars.get("total") or 0)
+    rars_prevented = float(rars.get("prevented") or 0)
     rars_comps = rars.get("components") or []
+    bench = rich.get("benchmarks") or {}
+    ret = rich.get("retention") or {}
 
-    # Subject — lead with the most urgent number.
+    # ---- Subject ---------------------------------------------------
     if rars_total >= 100:
-        subject = f"{_fmt_money(rars_total, currency)} at risk this month — {shop_name} brief"
-    elif signals_count == 0:
-        subject = f"Clean slate today · {shop_name} brief"
+        subject = f"{_fmt_money(rars_total, currency)} at risk this month — {shop_name}"
+    elif signals_count == 0 and rars_total == 0:
+        subject = f"Clean slate this morning · {shop_name}"
     elif top_product:
-        subject = f"{shop_name} today: {top_product}"
+        subject = f"{top_product} — today's lead on {shop_name}"
     else:
         plural = "s" if signals_count != 1 else ""
-        subject = f"{signals_count} finding{plural} today · {shop_name} brief"
+        subject = f"{signals_count} finding{plural} today · {shop_name}"
 
-    # --- HTML body (single <table> tree, email-safe) -----------------
-    # We compose raw table HTML — don't use the helper _wrap_html which
-    # nests but doesn't leave us room for the amber hero card. The
-    # outer wrapper (body + 600px column + brand wordmark) we inline
-    # here for full control.
-    from app.services.email_templates import _brand_wordmark
+    # ---- BODY ------------------------------------------------------
+    body = ""
 
-    parts: list[str] = []
-
-    # Greeting
-    parts.append(
-        '<div style="margin:0 0 24px 0;">'
-        f'<div style="font-size:13px;color:#64748b;letter-spacing:0.3px;">{datetime.now(timezone.utc).strftime("%A, %B %d")} · {shop_name}</div>'
-        '<div style="margin-top:6px;font-size:22px;font-weight:800;color:#f1f5f9;letter-spacing:-0.3px;">'
-        f'Good morning, {shop_name}.'
-        '</div>'
-        '</div>'
+    # 1) Greeting row — matches welcome/digest header pattern
+    body += (
+        f'<p style="font-size:13px;color:#64748b;margin:0 0 4px;letter-spacing:0.3px;">{today_str}</p>'
+        + _heading(f"Good morning, {shop_name}")
     )
 
-    # --- HERO: Revenue at Risk -----------------------------------
+    # 2) Clean-slate short path — whole email stays tight
+    if not rars_total and signals_count == 0:
+        body += _p(
+            "No significant findings overnight. Your funnel is clean and "
+            "Spark is watching — the moment any signal crosses threshold "
+            "(abandoned intent, leaking pages, hot-product surges), you'll "
+            "see it in your dashboard and in tomorrow's brief."
+        )
+        # "What's Working" signal box — canonical emerald
+        body += (
+            '<div style="margin:20px 0;padding:16px 18px;background:rgba(16,185,129,0.06);'
+            'border:1px solid rgba(16,185,129,0.15);border-radius:8px;font-size:14px;line-height:1.6;">'
+            '<strong style="color:#10b981;font-size:14px;">Funnel is healthy</strong>'
+            '<p style="margin:6px 0 0;color:#c8d1dc;">Zero revenue-at-risk components crossed their thresholds. Zero urgent findings. '
+            'Use the quiet window to work what\'s already converting — Hot Products and peer-gap opportunities on the dashboard.</p>'
+            '</div>'
+        )
+        body += (
+            '<div style="text-align:center;margin:28px 0 8px;">'
+            + _button("See your dashboard", _DASHBOARD_URL)
+            + '</div>'
+        )
+        plain = (
+            f"Good morning, {shop_name}.\n\n"
+            "Clean slate today — your funnel is healthy. Spark is watching.\n"
+            "Zero revenue-at-risk components crossed threshold overnight.\n\n"
+            f"Open your dashboard: {_DASHBOARD_URL}\n"
+        )
+        return subject, _wrap_html(subject, body, show_logo=True), plain
+
+    # 3) Intro line framing the brief
+    if signals_count > 0:
+        plural = "s" if signals_count != 1 else ""
+        body += _p(
+            f"I reviewed the last 24 hours on {shop_name} and ranked "
+            f"<strong style='color:#f1f5f9;'>{signals_count} finding{plural}</strong> "
+            f"by economic impact. Here's what matters today."
+        )
+    else:
+        body += _p(
+            f"Here's what the data on {shop_name} is telling you this morning. "
+            f"Every number below comes from a real query — no modeled estimates."
+        )
+
+    # 4) RARS HERO — matches weekly_digest's rars_hero_html pattern
     if rars_total > 0:
-        prev_chip = ""
+        prevented_block = ""
         if rars_prevented > 0:
-            prev_chip = (
-                '<div style="display:inline-block;margin-top:14px;padding:6px 12px;'
-                'border-radius:8px;background:rgba(52,211,153,0.12);border:1px solid rgba(52,211,153,0.35);'
-                'font-size:12px;color:#34d399;font-weight:700;">'
-                f'✓ {_fmt_money(rars_prevented, currency)} prevented so far this month'
-                '</div>'
+            prevented_block = (
+                '<p style="margin:10px 0 0;font-size:13px;color:#10b981;font-weight:600;">'
+                f'HedgeSpark already prevented {_fmt_money(rars_prevented, currency)} this month.'
+                '</p>'
             )
-        parts.append(
-            '<div style="margin:0 0 28px 0;padding:28px;border-radius:16px;'
-            'background:linear-gradient(135deg,#1a1405 0%,#0e0e1a 100%);'
-            'border:1px solid rgba(251,191,36,0.22);">'
-            '<div style="font-size:10px;font-weight:800;letter-spacing:2.5px;text-transform:uppercase;color:#fbbf24;">'
-            'Money at risk · this month'
+        body += (
+            '<div style="margin:22px 0 16px;padding:22px 24px;'
+            'background:linear-gradient(135deg,rgba(212,137,58,0.08) 0%,rgba(167,139,250,0.04) 100%);'
+            'border:1px solid rgba(212,137,58,0.22);border-radius:12px;">'
+            '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.16em;color:#d4893a;margin-bottom:8px;">'
+            'Revenue at Risk · this month'
             '</div>'
-            f'<div style="margin-top:14px;font-size:44px;font-weight:800;color:#fbbf24;letter-spacing:-1px;line-height:1;font-variant-numeric:tabular-nums;">'
+            f'<div style="font-size:42px;font-weight:800;color:#f1f5f9;line-height:1.1;letter-spacing:-0.5px;">'
             f'{_fmt_money(rars_total, currency)}'
+            '<span style="font-size:14px;font-weight:600;color:#94a3b8;"> / month</span>'
             '</div>'
-            '<div style="margin-top:10px;font-size:13px;line-height:1.5;color:#94a3b8;">'
-            'This is how much money is slipping through your store right now. No other Shopify tool shows you this number. '
-            + ("" if not rars_comps else f"Top leak: <span style=\"color:#fbbf24;font-weight:700;\">{_SOURCE_HUMAN.get(rars_comps[0]['source'], rars_comps[0]['source'])}</span>.")
-            + '</div>'
-            f'{prev_chip}'
+            f'{prevented_block}'
             '</div>'
         )
 
-        # RARS component bars
-        if rars_comps:
-            max_loss = max(c["loss_eur"] for c in rars_comps)
-            bar_color_map = {
-                "abandoned_high_intent": "#f87171",
-                "refund_decline": "#fbbf24",
-                "nudge_gap": "#a78bfa",
-                "below_benchmark": "#60a5fa",
-                "goal_gap": "#e8a04e",
-            }
-            rows = ""
-            for c in rars_comps:
-                label = _SOURCE_HUMAN.get(c["source"], c["source"])
-                color = bar_color_map.get(c["source"], "#fbbf24")
-                rows += _bar_svg(
-                    label=label,
-                    value=c["loss_eur"],
-                    max_value=max_loss,
-                    color=color,
-                    money_fmt=_fmt_money(c["loss_eur"], currency),
-                )
-            parts.append(
-                '<div style="margin:0 0 28px 0;padding:20px 22px;border-radius:14px;'
-                'background:#0b0b14;border:1px solid rgba(255,255,255,0.06);">'
-                '<div style="font-size:11px;font-weight:800;letter-spacing:1.8px;text-transform:uppercase;color:#94a3b8;margin-bottom:12px;">'
-                'Where it\'s leaking · top 3 sources'
-                '</div>'
-                '<table width="100%" cellpadding="0" cellspacing="0" border="0">'
-                f'{rows}'
-                '</table>'
-                '</div>'
-            )
-
-    # --- LEAD STORY ------------------------------------------------
-    if signals_count > 0 and top_product:
-        lead_action_block = ""
+    # 5) Lead story — violet box with emerald "Suggested action"
+    if top_product:
+        action_block = ""
         if top_action:
-            lead_action_block = (
-                '<div style="margin-top:12px;padding:12px 14px;border-radius:10px;'
-                'background:rgba(52,211,153,0.06);border-left:3px solid #34d399;">'
-                '<div style="font-size:10.5px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#34d399;margin-bottom:6px;">'
-                'Suggested action'
-                '</div>'
-                f'<div style="font-size:14px;line-height:1.55;color:#e2e8f0;">{top_action}</div>'
+            action_block = (
+                '<div style="margin:12px 0 0;padding:12px 14px;background:rgba(16,185,129,0.06);'
+                'border-left:3px solid #10b981;border-radius:4px;">'
+                '<strong style="color:#10b981;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;">Suggested action</strong>'
+                f'<p style="margin:6px 0 0;color:#c8d1dc;font-size:13px;line-height:1.55;">{top_action}</p>'
                 '</div>'
             )
-        parts.append(
-            '<div style="margin:0 0 28px 0;padding:22px 24px;border-radius:14px;'
-            'background:linear-gradient(135deg,#140a1a 0%,#0e0e1a 100%);'
-            'border:1px solid rgba(167,139,250,0.2);">'
-            '<div style="font-size:10.5px;font-weight:800;letter-spacing:1.8px;text-transform:uppercase;color:#a78bfa;">'
-            'Today\'s lead story'
-            '</div>'
-            f'<div style="margin-top:12px;font-size:18px;font-weight:800;color:#f1f5f9;line-height:1.3;">{top_product}</div>'
-            + (f'<div style="margin-top:6px;font-size:13px;color:#94a3b8;line-height:1.5;">{headline}</div>' if headline and headline != top_product else "")
-            + f'{lead_action_block}'
+        body += (
+            '<div style="margin:16px 0;padding:16px 18px;background:rgba(167,139,250,0.06);'
+            'border:1px solid rgba(167,139,250,0.18);border-radius:8px;">'
+            '<strong style="color:#c4b5fd;font-size:13px;letter-spacing:0.08em;text-transform:uppercase;">Today\'s lead story</strong>'
+            f'<p style="margin:8px 0 0;color:#f1f5f9;font-size:17px;font-weight:700;line-height:1.35;">{top_product}</p>'
+            + (f'<p style="margin:6px 0 0;color:#94a3b8;font-size:13px;line-height:1.55;">{headline}</p>' if headline and headline != top_product else "")
+            + f'{action_block}'
             + '</div>'
         )
 
-    # --- PEER BENCHMARKS ------------------------------------------
-    bench = rich.get("benchmarks")
+    # 6) Components — amber "Revenue at Risk" rows (weekly_digest style)
+    if rars_comps:
+        color_map = {
+            "abandoned_high_intent": "#f87171",
+            "refund_decline":        "#fbbf24",
+            "nudge_gap":             "#a78bfa",
+            "below_benchmark":       "#60a5fa",
+            "goal_gap":              "#e8a04e",
+        }
+        rows = ""
+        for c in rars_comps:
+            color = color_map.get(c["source"], "#d4893a")
+            label = _SOURCE_HUMAN.get(c["source"], c["source"])
+            rows += (
+                '<div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.06);">'
+                f'<strong style="color:{color};font-size:14px;">{label}</strong>'
+                f'<span style="float:right;color:#f1f5f9;font-weight:700;font-variant-numeric:tabular-nums;">{_fmt_money(c["loss_eur"], currency)} / mo</span>'
+                '</div>'
+            )
+        body += (
+            _section_title("Where it's leaking · top 3 sources", accent="warm")
+            + '<div style="margin:10px 0 16px;padding:4px 18px;background:rgba(245,158,11,0.05);'
+            'border:1px solid rgba(245,158,11,0.18);border-radius:8px;">'
+            + rows
+            + '</div>'
+        )
+
+    # 7) Peer benchmarks — violet signal box (weekly_digest style)
     if bench and bench.get("total_recovery", 0) > 0:
-        bcur = currency
-        recovery = bench["total_recovery"]
-        parts.append(
-            '<div style="margin:0 0 28px 0;padding:20px 22px;border-radius:14px;'
-            'background:#0b0b14;border:1px solid rgba(167,139,250,0.15);">'
-            '<div style="font-size:11px;font-weight:800;letter-spacing:1.8px;text-transform:uppercase;color:#a78bfa;margin-bottom:10px;">'
-            f'You vs peers · band {bench.get("band")} · {bench.get("peer_count")} shops'
-            '</div>'
-            f'<div style="font-size:15px;line-height:1.5;color:#e2e8f0;">'
+        body += (
+            _section_title("You vs peers", accent="cool")
+            + '<div style="margin:10px 0 16px;padding:16px 18px;background:rgba(167,139,250,0.06);'
+            'border:1px solid rgba(167,139,250,0.18);border-radius:8px;">'
+            f'<p style="margin:0;color:#c4b5fd;font-size:13px;">'
+            f'Band <strong style="color:#f1f5f9;">{bench.get("band")}</strong> · '
+            f'{bench.get("peer_count")} shops</p>'
+            f'<p style="margin:8px 0 0;font-size:14px;line-height:1.55;color:#c8d1dc;">'
             f'Moving every under-performing metric to the 75th-percentile peer would recover '
-            f'<strong style="color:#a78bfa;">{_fmt_money(recovery, bcur)}</strong> per month.'
-            '</div>'
+            f'<strong style="color:#10b981;">{_fmt_money(bench["total_recovery"], currency)}</strong> '
+            f'per month.</p>'
             '</div>'
         )
 
-    # --- RETENTION SNAPSHOT ---------------------------------------
-    ret = rich.get("retention")
-    if ret and (ret.get("w1") or ret.get("w4") or ret.get("w12")):
+    # 8) Retention tiles — emerald section (canonical)
+    if ret and any(ret.get(k, 0) for k in ("w1", "w4", "w12")):
         def _tile(label: str, rate: float) -> str:
-            if rate >= 0.3:
-                color = "#34d399"
+            if rate >= 0.30:
+                col, tone = "#10b981", "Strong"
             elif rate >= 0.15:
-                color = "#e8a04e"
+                col, tone = "#f59e0b", "Typical"
             else:
-                color = "#f87171"
+                col, tone = "#f87171", "Weak"
             return (
-                '<td width="33%" style="padding:0 6px;">'
-                '<div style="padding:14px;border-radius:10px;background:#0b0b14;'
-                'border:1px solid rgba(255,255,255,0.05);text-align:center;">'
-                f'<div style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#64748b;">{label}</div>'
-                f'<div style="margin-top:8px;font-size:22px;font-weight:800;color:{color};line-height:1;font-variant-numeric:tabular-nums;">'
+                '<td width="33%" align="center" style="padding:0 6px;">'
+                '<div style="padding:14px 10px;background:rgba(255,255,255,0.03);'
+                'border:1px solid rgba(255,255,255,0.06);border-radius:8px;">'
+                f'<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#94a3b8;">{label}</div>'
+                f'<div style="margin-top:8px;font-size:22px;font-weight:800;color:{col};line-height:1;font-variant-numeric:tabular-nums;">'
                 f'{(rate*100):.0f}%'
                 '</div>'
+                f'<div style="margin-top:4px;font-size:10px;color:{col};opacity:0.75;">{tone}</div>'
                 '</div>'
                 '</td>'
             )
-        parts.append(
-            '<div style="margin:0 0 28px 0;padding:20px 22px;border-radius:14px;'
-            'background:#0b0b14;border:1px solid rgba(52,211,153,0.15);">'
-            '<div style="font-size:11px;font-weight:800;letter-spacing:1.8px;text-transform:uppercase;color:#34d399;margin-bottom:12px;">'
-            'Retention · week 1 / 4 / 12'
-            '</div>'
-            '<table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>'
-            + _tile("Week 1", ret.get("w1", 0))
-            + _tile("Week 4", ret.get("w4", 0))
-            + _tile("Week 12", ret.get("w12", 0))
+
+        body += (
+            _section_title("Retention · week 1 / 4 / 12", accent="cool")
+            + '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:10px 0 16px;"><tr>'
+            + _tile("Week 1", float(ret.get("w1", 0)))
+            + _tile("Week 4", float(ret.get("w4", 0)))
+            + _tile("Week 12", float(ret.get("w12", 0)))
             + '</tr></table>'
-            + '</div>'
         )
 
-    # --- CTA ------------------------------------------------------
-    parts.append(
-        '<div style="margin:32px 0 0 0;text-align:center;">'
-        f'<a href="{_DASHBOARD_URL}" style="display:inline-block;'
-        'background:linear-gradient(135deg,#7c3aed 0%,#c026d3 50%,#e8a04e 100%);'
-        'color:#ffffff;font-size:15px;font-weight:700;padding:14px 40px;'
-        'border-radius:10px;text-decoration:none;letter-spacing:0.3px;">'
-        'Open your dashboard'
-        '</a>'
-        '<div style="margin-top:14px;font-size:11px;color:#475569;">'
+    # 9) CTA — canonical amber-to-violet button
+    body += (
+        _separator()
+        + '<div style="text-align:center;margin:8px 0 8px;">'
+        + _button("Open your dashboard", _DASHBOARD_URL)
+        + '</div>'
+        + '<p style="margin:16px 0 0;font-size:11px;color:#475569;text-align:center;letter-spacing:0.3px;">'
         'Every number above traces to a real query. No modeled estimates, no invented data.'
-        '</div>'
-        '</div>'
+        '</p>'
     )
 
-    # Empty-state path: rars_total==0 AND signals_count==0
-    if not rars_total and signals_count == 0:
-        parts = [
-            '<div style="margin:0 0 24px 0;">'
-            f'<div style="font-size:13px;color:#64748b;">{datetime.now(timezone.utc).strftime("%A, %B %d")} · {shop_name}</div>'
-            '<div style="margin-top:6px;font-size:22px;font-weight:800;color:#f1f5f9;">'
-            f'Good morning, {shop_name}.'
-            '</div>'
-            '</div>',
-            '<div style="margin:0 0 28px 0;padding:28px;border-radius:16px;'
-            'background:linear-gradient(135deg,#0a1612 0%,#0e0e1a 100%);'
-            'border:1px solid rgba(52,211,153,0.22);">'
-            '<div style="font-size:10px;font-weight:800;letter-spacing:2.5px;text-transform:uppercase;color:#34d399;">'
-            'Clean slate'
-            '</div>'
-            '<div style="margin-top:14px;font-size:28px;font-weight:800;color:#34d399;line-height:1.15;">'
-            'Your funnel is clean this morning.'
-            '</div>'
-            '<div style="margin-top:12px;font-size:14px;line-height:1.55;color:#94a3b8;">'
-            'No material risk, no urgent findings. Spark is watching — the moment anything '
-            'crosses threshold (abandoned intent, leaking pages, hot-product surges), '
-            'it\'ll land in your dashboard and in tomorrow\'s brief.'
-            '</div>'
-            '</div>',
-            '<div style="margin:32px 0 0 0;text-align:center;">'
-            f'<a href="{_DASHBOARD_URL}" style="display:inline-block;'
-            'background:linear-gradient(135deg,#7c3aed,#c026d3,#e8a04e);'
-            'color:#ffffff;font-size:15px;font-weight:700;padding:14px 40px;'
-            'border-radius:10px;text-decoration:none;">'
-            'See your dashboard'
-            '</a>'
-            '</div>',
-        ]
+    # Wrap with canonical template shell (includes HedgeSpark logo)
+    html = _wrap_html(subject, body, show_logo=True)
 
-    body_html = "".join(parts)
-
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Your morning brief</title>
-</head>
-<body style="margin:0;padding:0;background:#07070f;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#07070f;">
-<tr><td align="center" style="padding:40px 16px;">
-<table width="640" cellpadding="0" cellspacing="0" border="0" style="max-width:640px;width:100%;">
-
-<tr><td style="padding:0 0 28px 0;">{_brand_wordmark(font_size=20)}</td></tr>
-
-<tr><td style="background:#0e0e1a;border:1px solid rgba(167,139,250,0.08);border-radius:18px;padding:32px 28px;">
-{body_html}
-</td></tr>
-
-<tr><td style="padding:24px 0 0 0;text-align:center;">
-<p style="margin:0;font-size:11px;color:#475569;letter-spacing:0.3px;">
-HedgeSpark · AI Commerce Intelligence for Shopify
-</p>
-<p style="margin:8px 0 0 0;font-size:11px;color:#334155;">
-Not what you need? <a href="{_DASHBOARD_URL}" style="color:#a78bfa;text-decoration:none;">Turn off the morning brief</a>
-</p>
-</td></tr>
-
-</table>
-</td></tr>
-</table>
-</body>
-</html>"""
-
-    # --- Plain-text (fallback + deliverability) ---
-    lines: list[str] = [f"Good morning, {shop_name}.", ""]
+    # Plain-text version — same narrative beats
+    lines: list[str] = [f"Good morning, {shop_name}. · {today_str}", ""]
     if rars_total > 0:
-        lines.append(f"MONEY AT RISK THIS MONTH: {_fmt_money(rars_total, currency)}")
+        lines.append(f"REVENUE AT RISK THIS MONTH: {_fmt_money(rars_total, currency)} / month")
         if rars_prevented > 0:
-            lines.append(f"  ✓ {_fmt_money(rars_prevented, currency)} already prevented")
-        if rars_comps:
-            lines.append("")
-            lines.append("Top leak sources:")
-            for c in rars_comps:
-                lines.append(f"  - {_SOURCE_HUMAN.get(c['source'], c['source'])}: {_fmt_money(c['loss_eur'], currency)}")
-    elif signals_count == 0:
-        lines.append("Clean slate today — your funnel is healthy. Spark is watching.")
+            lines.append(f"  ✓ HedgeSpark already prevented {_fmt_money(rars_prevented, currency)}")
     if top_product:
         lines.append("")
-        lines.append(f"Lead story: {top_product}")
+        lines.append(f"LEAD STORY: {top_product}")
         if top_action:
-            lines.append(f"  → {top_action}")
-    if bench and bench.get("total_recovery"):
+            lines.append(f"  Suggested action: {top_action}")
+    if rars_comps:
+        lines.append("")
+        lines.append("WHERE IT'S LEAKING — top 3:")
+        for c in rars_comps:
+            lines.append(f"  · {_SOURCE_HUMAN.get(c['source'], c['source'])}: {_fmt_money(c['loss_eur'], currency)}/mo")
+    if bench and bench.get("total_recovery", 0) > 0:
         lines.append("")
         lines.append(
-            f"Peer position: {_fmt_money(bench['total_recovery'], currency)}/mo recoverable "
-            f"by matching p75 peers in your band."
+            f"YOU VS PEERS (band {bench.get('band')}, {bench.get('peer_count')} shops): "
+            f"{_fmt_money(bench['total_recovery'], currency)}/mo recoverable to p75."
         )
-    if ret and (ret.get("w1") or ret.get("w4") or ret.get("w12")):
+    if ret and any(ret.get(k, 0) for k in ("w1", "w4", "w12")):
         lines.append("")
         lines.append(
-            f"Retention: w1 {(ret.get('w1', 0)*100):.0f}% · "
+            f"RETENTION: w1 {(ret.get('w1', 0)*100):.0f}% · "
             f"w4 {(ret.get('w4', 0)*100):.0f}% · "
             f"w12 {(ret.get('w12', 0)*100):.0f}%"
         )
     lines.append("")
-    lines.append(f"Open your dashboard: {_DASHBOARD_URL}")
+    lines.append(f"Dashboard: {_DASHBOARD_URL}")
     plain_text = "\n".join(lines)
 
     return subject, html, plain_text
