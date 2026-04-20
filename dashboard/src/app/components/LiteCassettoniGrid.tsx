@@ -399,6 +399,34 @@ export function LiteCassettoniGrid({
               <p className="mb-5 max-w-3xl text-[14px] leading-relaxed text-slate-300">
                 {panelConfig.analysisIntro}
               </p>
+              {/* Donut chart — real-data distribution of the feature.
+                  Renders only when getDonutSegments() returns a non-
+                  null, non-empty array. On narrow viewports stacks
+                  above the deep card; on wide viewports floats left
+                  with the deep card content wrapping to the right. */}
+              {(() => {
+                const segments = panelConfig.getDonutSegments(ctx);
+                if (!segments || segments.length === 0) return null;
+                const hero = panelConfig.getDonutHero(ctx);
+                return (
+                  <div className="mb-6 flex flex-col items-center gap-6 rounded-xl border border-white/[0.04] bg-[#0b0b14]/60 p-5 sm:flex-row sm:items-start sm:justify-start">
+                    <div className="flex-shrink-0">
+                      <Donut segments={segments} hero={hero} />
+                    </div>
+                    <div className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-slate-400">
+                      <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
+                        How to read it
+                      </div>
+                      <p>
+                        Each slice is one {panelConfig.title.toLowerCase()}{" "}
+                        component sized by its share of the whole. The biggest
+                        slice is the merchant&apos;s biggest opportunity
+                        right now — its color tells you what kind.
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
               {/* The deep card renders here, heading suppressed. */}
               <ExpandedContent
                 id={expandedId}
@@ -495,6 +523,8 @@ type PanelCtx = {
   displayCurrency: "USD" | "EUR";
 };
 
+type DonutSegment = { label: string; value: number; color: string };
+
 type PanelConfig = {
   title: string;
   getSubtitle: (ctx: PanelCtx) => string | null;
@@ -503,8 +533,116 @@ type PanelConfig = {
    *  in Spark voice, what the merchant is about to see. Static per
    *  feature — the deep card itself carries the live data. */
   analysisIntro: string;
+  /** Segments for the donut chart visualising the feature's shape.
+   *  Real-data only — returns null when the payload is empty or
+   *  still loading (donut is skipped in that case; no fabricated
+   *  segments). */
+  getDonutSegments: (ctx: PanelCtx) => DonutSegment[] | null;
+  /** Hero label shown in the donut center — feature-specific. */
+  getDonutHero: (ctx: PanelCtx) => { value: string; label: string };
   getWhatToDo: (ctx: PanelCtx) => string[];
 };
+
+// ----------------------------------------------------------------------
+// Donut — inline SVG, no library. Accepts 2–6 colored segments,
+// renders a center label, legend below. 180×180 default — fits
+// side-by-side with the deep card on wide viewports, stacks on narrow.
+// ----------------------------------------------------------------------
+
+function Donut({
+  segments,
+  hero,
+  size = 180,
+}: {
+  segments: DonutSegment[];
+  hero: { value: string; label: string };
+  size?: number;
+}) {
+  const strokeWidth = 18;
+  const radius = (size - strokeWidth) / 2;
+  const center = size / 2;
+  const circumference = 2 * Math.PI * radius;
+  const total = segments.reduce((s, seg) => s + Math.max(0, seg.value), 0);
+  const hasData = total > 0 && segments.length > 0;
+
+  let cumulative = 0;
+
+  return (
+    <div className="flex flex-col items-center gap-3">
+      <div className="relative" style={{ width: size, height: size }}>
+        <svg
+          width={size}
+          height={size}
+          viewBox={`0 0 ${size} ${size}`}
+          role="img"
+          aria-label={`Distribution donut chart: ${segments.map((s) => `${s.label} ${s.value}`).join(", ")}`}
+        >
+          {/* Background ring (faint slate) */}
+          <circle
+            cx={center}
+            cy={center}
+            r={radius}
+            fill="none"
+            stroke="rgba(148, 163, 184, 0.08)"
+            strokeWidth={strokeWidth}
+          />
+          {hasData &&
+            segments.map((seg, i) => {
+              const v = Math.max(0, seg.value);
+              if (v <= 0) return null;
+              const dashLength = (v / total) * circumference;
+              const offset = -(cumulative / total) * circumference;
+              cumulative += v;
+              return (
+                <circle
+                  key={`${seg.label}-${i}`}
+                  cx={center}
+                  cy={center}
+                  r={radius}
+                  fill="none"
+                  stroke={seg.color}
+                  strokeWidth={strokeWidth}
+                  strokeDasharray={`${dashLength} ${circumference - dashLength + 0.001}`}
+                  strokeDashoffset={offset}
+                  transform={`rotate(-90 ${center} ${center})`}
+                  strokeLinecap="butt"
+                />
+              );
+            })}
+        </svg>
+        {/* Center hero label — positioned absolutely over the donut. */}
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+          <div className="text-[22px] font-extrabold leading-none text-white tabular-nums">
+            {hero.value}
+          </div>
+          {hero.label && (
+            <div className="mt-1.5 max-w-[60%] text-center text-[9.5px] font-medium uppercase tracking-[0.12em] leading-tight text-slate-500">
+              {hero.label}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Legend — under the donut. Each row: swatch + label + value. */}
+      <ul className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 max-w-xs">
+        {segments.map((seg, i) => (
+          <li
+            key={`leg-${seg.label}-${i}`}
+            className="flex items-center gap-1.5 text-[11px]"
+          >
+            <span
+              className="h-2 w-2 flex-shrink-0 rounded-full"
+              style={{ background: seg.color }}
+              aria-hidden="true"
+            />
+            <span className="font-medium text-slate-300">{seg.label}</span>
+            <span className="tabular-nums text-slate-500">{seg.value}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 // Humanize leak_point slugs from the abandoned-intent payload. We
 // keep this narrow: only the values the backend actually emits. If a
@@ -542,6 +680,29 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
     analysisIntro:
       "Here's where the money is bleeding, ranked by size. The biggest slice is what to fix first.",
     title: "Revenue at risk",
+    getDonutSegments: (ctx) => {
+      const comps = (ctx.rarsData?.components ?? []).filter((c) => c.loss_eur > 0);
+      if (comps.length === 0) return null;
+      // Color mapping for the 5 RARS sources — matches palette intent.
+      const colorMap: Record<string, string> = {
+        abandoned_high_intent: "#f87171",
+        refund_decline: "#fbbf24",
+        nudge_gap: "#a78bfa",
+        below_benchmark: "#60a5fa",
+        goal_gap: "#e8a04e",
+      };
+      return comps
+        .sort((a, b) => b.loss_eur - a.loss_eur)
+        .map((c) => ({
+          label: humanizeRarsSource(c.source),
+          value: Math.round(c.loss_eur),
+          color: colorMap[c.source] ?? "#94a3b8",
+        }));
+    },
+    getDonutHero: (ctx) => ({
+      value: ctx.heroValue,
+      label: "at risk",
+    }),
     getSubtitle: (ctx) => {
       if (ctx.heroLoading) return "Calculating…";
       if (ctx.heroValue === "—") {
@@ -593,6 +754,35 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
     analysisIntro:
       "Here's what I flagged in the last 24 hours, ordered by economic impact. Top story leads.",
     title: "Daily brief",
+    getDonutSegments: (ctx) => {
+      const snap = ctx.briefData?.metrics_snapshot;
+      if (!snap || snap.length === 0) return null;
+      // Group by signal_type, count occurrences → one segment per
+      // type. Colors semantic per signal class.
+      const colorMap: Record<string, string> = {
+        TRAFFIC_SPIKE: "#f87171",
+        HIGH_TRAFFIC_NO_CART: "#fbbf24",
+        LOW_CONVERSION_ATTENTION: "#60a5fa",
+        HIGH_INTENT_NO_BUY: "#e8a04e",
+        SCROLL_NO_CLICK: "#a78bfa",
+      };
+      const counts: Record<string, number> = {};
+      for (const s of snap) {
+        const key = s.signal_type || "OTHER";
+        counts[key] = (counts[key] ?? 0) + 1;
+      }
+      return Object.entries(counts)
+        .sort((a, b) => b[1] - a[1])
+        .map(([key, count]) => ({
+          label: key.replace(/_/g, " ").toLowerCase(),
+          value: count,
+          color: colorMap[key] ?? "#94a3b8",
+        }));
+    },
+    getDonutHero: (ctx) => ({
+      value: ctx.heroValue,
+      label: "findings today",
+    }),
     getSubtitle: (ctx) => {
       if (!ctx.briefData) return null;
       const count = ctx.briefData.signals_count ?? 0;
@@ -638,6 +828,34 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
     analysisIntro:
       "Look at the depth gap below — real buyers go deeper into your store than non-buyers. The products where the gap is widest are the ones leaking warm visitors.",
     title: "Abandoned intent",
+    getDonutSegments: (ctx) => {
+      const products = ctx.abandonedData?.products;
+      if (!products || products.length === 0) return null;
+      // Group by leak_point → one segment per type of leak.
+      const colorMap: Record<string, string> = {
+        scroll_no_click: "#a78bfa",
+        view_no_cart: "#60a5fa",
+        cart_no_checkout: "#fbbf24",
+        high_intent_no_buy: "#f87171",
+        bounce: "#94a3b8",
+      };
+      const counts: Record<string, number> = {};
+      for (const p of products) {
+        const key = p.leak_point || "unknown";
+        counts[key] = (counts[key] ?? 0) + 1;
+      }
+      return Object.entries(counts)
+        .sort((a, b) => b[1] - a[1])
+        .map(([key, count]) => ({
+          label: humanizeLeak(key),
+          value: count,
+          color: colorMap[key] ?? "#94a3b8",
+        }));
+    },
+    getDonutHero: (ctx) => ({
+      value: ctx.heroValue,
+      label: "products leaking",
+    }),
     getSubtitle: (ctx) => {
       if (ctx.heroLoading) return "Calculating…";
       const list = ctx.abandonedData?.products ?? [];
@@ -682,6 +900,36 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
     analysisIntro:
       "Each row below is one page + one reason it's leaking + one concrete fix. Sorted by recoverable revenue, not by guesswork.",
     title: "Live opportunities",
+    getDonutSegments: (ctx) => {
+      const opps = (ctx.liveOppsData?.opportunities ?? []).filter(
+        (o) => o.signal_type !== "LOW_SIGNAL",
+      );
+      if (opps.length === 0) return null;
+      const colorMap: Record<string, string> = {
+        HIGH_INTENT_PAGE: "#fbbf24",
+        ENGAGED_PAGE: "#a78bfa",
+        LOW_SIGNAL: "#64748b",
+      };
+      const counts: Record<string, number> = {};
+      for (const o of opps) {
+        const key = o.signal_type || "UNKNOWN";
+        counts[key] = (counts[key] ?? 0) + 1;
+      }
+      return Object.entries(counts)
+        .sort((a, b) => b[1] - a[1])
+        .map(([key, count]) => ({
+          label:
+            key === "HIGH_INTENT_PAGE" ? "High intent" :
+            key === "ENGAGED_PAGE" ? "Engaged" :
+            key.replace(/_/g, " ").toLowerCase(),
+          value: count,
+          color: colorMap[key] ?? "#94a3b8",
+        }));
+    },
+    getDonutHero: (ctx) => ({
+      value: ctx.heroValue,
+      label: "pages leaking",
+    }),
     getSubtitle: (ctx) => {
       if (ctx.heroLoading) return "Calculating…";
       const opps = (ctx.liveOppsData?.opportunities ?? []).filter(
@@ -724,6 +972,21 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
     analysisIntro:
       "Here's the live composition of your traffic by intent level. The proportions tell you whether to acquire more or convert better — two very different fixes.",
     title: "Visitor intent",
+    getDonutSegments: (ctx) => {
+      const hot = ctx.visitorIntentData?.hot_visitors ?? 0;
+      const warm = ctx.visitorIntentData?.warm_visitors ?? 0;
+      const cold = ctx.visitorIntentData?.cold_visitors ?? 0;
+      if (hot + warm + cold === 0) return null;
+      return [
+        { label: "Hot", value: hot, color: "#f87171" },
+        { label: "Warm", value: warm, color: "#a78bfa" },
+        { label: "Cold", value: cold, color: "#94a3b8" },
+      ];
+    },
+    getDonutHero: (ctx) => ({
+      value: `${ctx.visitorIntentData?.total_visitors?.toLocaleString() ?? "—"}`,
+      label: "visitors tracked",
+    }),
     getSubtitle: (ctx) => {
       if (ctx.heroLoading) return "Calculating…";
       const hot = ctx.visitorIntentData?.hot_visitors ?? 0;
@@ -773,6 +1036,32 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
     analysisIntro:
       "These are the three pulling most attention this week, ranked by views + intent. Consider them double-down candidates.",
     title: "Hot products",
+    getDonutSegments: (ctx) => {
+      const top3 = ctx.topProducts.slice(0, 3);
+      if (top3.length === 0) return null;
+      // Colors: primary product emerald, runners-up amber + violet —
+      // ranked-color signal. The name is truncated to fit the legend.
+      const palette = ["#34d399", "#e8a04e", "#a78bfa"];
+      return top3.map((p, i) => {
+        const name = p.product_name ?? p.product_id ?? `#${i + 1}`;
+        const trimmed = name.length > 22 ? name.slice(0, 20) + "…" : name;
+        return {
+          label: trimmed,
+          value: p.total_views ?? 0,
+          color: palette[i] ?? "#94a3b8",
+        };
+      });
+    },
+    getDonutHero: (ctx) => {
+      const totalViews = ctx.topProducts.slice(0, 3).reduce(
+        (s, p) => s + (p.total_views ?? 0),
+        0,
+      );
+      return {
+        value: totalViews > 0 ? totalViews.toLocaleString() : "—",
+        label: "total views",
+      };
+    },
     getSubtitle: (ctx) => {
       if (ctx.topProducts.length === 0) return "No hot products yet — your first visitors will populate the list.";
       const top = ctx.topProducts[0];

@@ -13,10 +13,17 @@
     "chunks_total_bytes": 1606972,
     "chunks_count": 31
   },
+  "_baseline_2026_04_20_lite_cassettoni": {
+    "_note": "LiteCassettoniGrid (2x3 cassettoni + expandable panel + inline Donut SVG + 6 getDonutSegments + 6 getWhatToDo data-driven + 5 data-hook refactors). Adds ~96 KB total over the Phase 1.8.3 baseline. Budget raised 1700000 -> 1800000 for ~5% headroom through upcoming Lite polish + reopening Pro-floor work.",
+    "largest_chunk_bytes": 707548,
+    "root_main_total_bytes": 455826,
+    "chunks_total_bytes": 1702865,
+    "chunks_count": 34
+  },
   "budgets": {
     "largest_chunk_bytes": 720000,
     "root_main_total_bytes": 520000,
-    "chunks_total_bytes": 1700000,
+    "chunks_total_bytes": 1800000,
     "chunks_count_max": 40
   }
 }
