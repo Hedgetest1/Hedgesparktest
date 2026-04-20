@@ -14,7 +14,7 @@
  * Click a pattern → drawer with sample size and plain-language explanation.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient } from "@/app/lib/api-client";
 import {
   DetailDrawer,
@@ -22,6 +22,14 @@ import {
   DrawerKeyValueList,
   DrawerSectionHeading,
 } from "./DetailDrawer";
+
+const REFRESH_COOLDOWN_SECONDS = 60;
+
+type RefreshState =
+  | { kind: "idle" }
+  | { kind: "running" }
+  | { kind: "success"; at: number }
+  | { kind: "error"; message: string };
 
 type Feature = {
   feature: string;
@@ -121,6 +129,9 @@ export function NudgeDnaCard({ apiBase, isProUser }: { apiBase: string; isProUse
   const [data, setData] = useState<DnaData | null>(null);
   const [loading, setLoading] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [refreshState, setRefreshState] = useState<RefreshState>({ kind: "idle" });
+  const [cooldownRemaining, setCooldownRemaining] = useState(0);
+  const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -132,6 +143,33 @@ export function NudgeDnaCard({ apiBase, isProUser }: { apiBase: string; isProUse
     }
   }, []);
 
+  const refresh = useCallback(async () => {
+    if (refreshState.kind === "running" || cooldownRemaining > 0) return;
+    setRefreshState({ kind: "running" });
+    const { data: j, error: err } = await apiClient.POST("/pro/nudge-dna/refresh", {});
+    if (err || !j) {
+      setRefreshState({
+        kind: "error",
+        message: err ? String((err as { detail?: string }).detail ?? "Refresh failed") : "Refresh failed",
+      });
+      return;
+    }
+    setData(j as unknown as DnaData);
+    setRefreshState({ kind: "success", at: Date.now() });
+    setCooldownRemaining(REFRESH_COOLDOWN_SECONDS);
+    if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
+    cooldownTimerRef.current = setInterval(() => {
+      setCooldownRemaining((n) => {
+        if (n <= 1) {
+          if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
+          setRefreshState({ kind: "idle" });
+          return 0;
+        }
+        return n - 1;
+      });
+    }, 1000);
+  }, [refreshState.kind, cooldownRemaining]);
+
   useEffect(() => {
     if (!isProUser) {
       setLoading(false);
@@ -139,6 +177,12 @@ export function NudgeDnaCard({ apiBase, isProUser }: { apiBase: string; isProUse
     }
     load();
   }, [isProUser, load]);
+
+  useEffect(() => {
+    return () => {
+      if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
+    };
+  }, []);
 
   if (!isProUser || loading || !data) return null;
   if (data.status === "insufficient_data" || data.total_impressions === 0) return null;
@@ -184,7 +228,99 @@ export function NudgeDnaCard({ apiBase, isProUser }: { apiBase: string; isProUse
               Patterns from {data.total_impressions.toLocaleString("en")} real nudge impressions · click for details
             </div>
           </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              refresh();
+            }}
+            disabled={refreshState.kind === "running" || cooldownRemaining > 0}
+            title={
+              cooldownRemaining > 0
+                ? `Wait ${cooldownRemaining}s before refreshing again`
+                : "Recompute patterns from the latest nudge events (bypasses the 4h cache)"
+            }
+            style={{
+              appearance: "none",
+              cursor:
+                refreshState.kind === "running" || cooldownRemaining > 0
+                  ? "not-allowed"
+                  : "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "6px 12px",
+              borderRadius: "999px",
+              background:
+                refreshState.kind === "error"
+                  ? "rgba(244,63,94,0.1)"
+                  : refreshState.kind === "success"
+                  ? "rgba(16,185,129,0.1)"
+                  : "rgba(196,181,253,0.08)",
+              border:
+                refreshState.kind === "error"
+                  ? "1px solid rgba(244,63,94,0.35)"
+                  : refreshState.kind === "success"
+                  ? "1px solid rgba(16,185,129,0.35)"
+                  : "1px solid rgba(196,181,253,0.25)",
+              color:
+                refreshState.kind === "error"
+                  ? "#fca5a5"
+                  : refreshState.kind === "success"
+                  ? "#86efac"
+                  : "#c4b5fd",
+              fontSize: "11px",
+              fontWeight: 700,
+              letterSpacing: "0.02em",
+              opacity:
+                refreshState.kind === "running" || cooldownRemaining > 0 ? 0.6 : 1,
+              transition: "background 0.15s, border 0.15s, color 0.15s",
+            }}
+          >
+            <span
+              style={{
+                display: "inline-block",
+                fontSize: "12px",
+                animation:
+                  refreshState.kind === "running"
+                    ? "hs-spin 0.9s linear infinite"
+                    : undefined,
+              }}
+            >
+              ↻
+            </span>
+            <span>
+              {refreshState.kind === "running"
+                ? "Refreshing…"
+                : refreshState.kind === "error"
+                ? "Retry"
+                : refreshState.kind === "success" && cooldownRemaining > 0
+                ? `Refreshed (${cooldownRemaining}s)`
+                : "Refresh"}
+            </span>
+          </button>
         </div>
+        {refreshState.kind === "error" && (
+          <div
+            style={{
+              marginTop: "8px",
+              padding: "8px 12px",
+              background: "rgba(244,63,94,0.08)",
+              border: "1px solid rgba(244,63,94,0.25)",
+              borderRadius: "8px",
+              color: "#fca5a5",
+              fontSize: "11px",
+            }}
+          >
+            Couldn&apos;t refresh: {refreshState.message}. Try again in a moment.
+          </div>
+        )}
+        <style jsx>{`
+          @keyframes hs-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+        `}</style>
 
         {/* Top 4 winning patterns */}
         <div

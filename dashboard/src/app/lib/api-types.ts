@@ -3864,7 +3864,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Refresh Nudge Dna */
+        /**
+         * Refresh Nudge Dna
+         * @description Force recompute — bypasses the 4h Redis cache and returns fresh patterns.
+         */
         post: operations["refresh_nudge_dna_pro_nudge_dna_refresh_post"];
         delete?: never;
         options?: never;
@@ -8239,6 +8242,59 @@ export interface components {
              * @description Optional merchant context hint for the copy (e.g. 'this is a premium product targeting gift buyers'). Passed to the AI composer as context.
              */
             notes?: string | null;
+        };
+        /** NudgeDnaFeature */
+        NudgeDnaFeature: {
+            /** Feature */
+            feature: string;
+            /** With True Rate */
+            with_true_rate: number;
+            /** With False Rate */
+            with_false_rate: number;
+            /** Lift Pct */
+            lift_pct: number;
+            /** Sample With */
+            sample_with: number;
+            /** Sample Without */
+            sample_without: number;
+            /** Significance */
+            significance: string;
+        };
+        /** NudgeDnaResponse */
+        NudgeDnaResponse: {
+            /** Shop Domain */
+            shop_domain: string;
+            /** Window Days */
+            window_days: number;
+            /** Total Impressions */
+            total_impressions: number;
+            /** Total Conversions */
+            total_conversions: number;
+            /** Overall Conversion Rate */
+            overall_conversion_rate: number;
+            /** Features */
+            features?: components["schemas"]["NudgeDnaFeature"][];
+            /** Top Variants */
+            top_variants?: components["schemas"]["NudgeDnaVariant"][];
+            /** Lessons For Composer */
+            lessons_for_composer?: string[];
+            /** Generated At */
+            generated_at?: string | null;
+            /** Status */
+            status?: string | null;
+        };
+        /** NudgeDnaVariant */
+        NudgeDnaVariant: {
+            /** Variant Key */
+            variant_key: string;
+            /** Copy Text */
+            copy_text: string;
+            /** Conversion Rate */
+            conversion_rate: number;
+            /** Impressions */
+            impressions: number;
+            /** Conversions */
+            conversions: number;
         };
         /**
          * NudgeHoldoutExperimentBlock
@@ -15501,7 +15557,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["NudgeDnaResponse"];
                 };
             };
             /** @description Validation Error */
@@ -15532,7 +15588,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["NudgeDnaResponse"];
                 };
             };
             /** @description Validation Error */
