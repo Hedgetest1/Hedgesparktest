@@ -539,28 +539,43 @@ def detect_sole_merchant(db: Session = Depends(get_db)):
     """
     Return the shop domain for auto-bootstrap, if it is unambiguous.
 
-    Resolution order:
-      1. If AUTO_DETECT_DEFAULT_SHOP env var is set AND that shop is
-         active → return it. (Explicit operator-configured default.
-         Used in founder/dev environments where multiple test shops
-         exist but one is canonical.)
-      2. Else if exactly one active Pro merchant exists → return it.
-         (Single-tenant deployment — no ambiguity to disambiguate.)
-      3. Else → 404. Multi-tenant production falls here and the
-         frontend silently falls through to the manual reconnect form.
+    **FAIL-SAFE BY DEFAULT.** This endpoint is DISABLED unless the env
+    var `AUTO_DETECT_ENABLED=1` is explicitly set. This is deliberate
+    production-safety: a forgotten `AUTO_DETECT_DEFAULT_SHOP` config in
+    a multi-tenant deployment would leak the founder/operator shop to
+    every visitor as their auto-bootstrap target. The enable-flag gate
+    means forgetting to remove the dev default in production is
+    structurally harmless — the endpoint just 404s. See
+    `project_before_production_auto_detect_removal.md` for the full
+    pre-prod checklist.
 
-    Purpose: auto-detection fallback for dashboards hitting /app with zero
-    identity signals (no cookie, no localStorage hint, no URL ?shop= param).
+    Resolution order (only when AUTO_DETECT_ENABLED=1):
+      1. If AUTO_DETECT_DEFAULT_SHOP env var is set AND that shop is
+         active → return it. Explicit operator-configured default.
+      2. Else if exactly one active Pro merchant exists → return it.
+         Single-tenant deployment — no ambiguity to disambiguate.
+      3. Else → 404. Frontend silently falls through to manual form.
+
+    Purpose: auto-detection fallback for dashboards hitting /app with
+    zero identity signals (no cookie, no localStorage hint, no URL
+    ?shop= param).
 
     Security:
-    - Only exposes shops that are already public from the outside (active
-      Shopify app install + Pro subscription — domain visible on their
-      storefront, to Shopify, and to every page on the site).
-    - Returns 404 (not 400) for the "ambiguous" and "empty" cases so the
-      frontend can silently fall through without error boundaries.
-    - No authentication required — output is either "here is the obvious
-      shop" or "nothing to tell you". Cannot be used to enumerate merchants.
+    - Fail-safe: disabled by default. Operator must explicitly enable.
+    - Only exposes shops that are already public from the outside
+      (active Shopify app install — domain visible on their storefront,
+      to Shopify, to every page on the site).
+    - 404 (not 400) for ambiguous/empty/disabled cases so frontend can
+      silently fall through without error boundaries.
+    - No authentication required — output is either "here is the
+      obvious shop" or "nothing to tell you". Cannot enumerate merchants.
     """
+    if os.getenv("AUTO_DETECT_ENABLED", "").strip() not in ("1", "true", "yes"):
+        raise HTTPException(
+            status_code=404,
+            detail="Auto-detect disabled.",
+        )
+
     default_shop = os.getenv("AUTO_DETECT_DEFAULT_SHOP", "").strip().lower()
     if default_shop:
         configured = (

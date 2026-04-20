@@ -121,3 +121,43 @@ def test_auth_session_redirects_unknown_shop_to_install():
     )
     # Must NOT set a session cookie for an unknown shop.
     assert SESSION_COOKIE_NAME not in r.cookies
+
+
+def test_auth_detect_is_fail_safe_disabled_by_default(monkeypatch):
+    """
+    `GET /auth/detect` MUST return 404 when `AUTO_DETECT_ENABLED` is unset
+    OR set to anything other than "1"/"true"/"yes". This is the
+    production-safety guarantee from
+    `project_before_production_auto_detect_removal.md`: forgetting to
+    remove the dev default-shop config in prod must be structurally
+    harmless.
+
+    Regression-blocker: if someone refactors the endpoint to "default
+    on" or drops the env gate, this test fails BEFORE the change
+    lands on main.
+    """
+    client = TestClient(app)
+
+    # 1. Env completely unset → must 404, even if a default shop is
+    # configured AND a merchant exists.
+    monkeypatch.delenv("AUTO_DETECT_ENABLED", raising=False)
+    r = client.get("/auth/detect")
+    assert r.status_code == 404, (
+        f"endpoint MUST 404 when AUTO_DETECT_ENABLED is unset; got {r.status_code}. "
+        "This is the production-safety gate — see "
+        "project_before_production_auto_detect_removal.md"
+    )
+
+    # 2. Env explicitly disabled → must 404.
+    monkeypatch.setenv("AUTO_DETECT_ENABLED", "0")
+    r = client.get("/auth/detect")
+    assert r.status_code == 404
+
+    monkeypatch.setenv("AUTO_DETECT_ENABLED", "false")
+    r = client.get("/auth/detect")
+    assert r.status_code == 404
+
+    # 3. Garbage value → must 404 (fail closed).
+    monkeypatch.setenv("AUTO_DETECT_ENABLED", "maybe")
+    r = client.get("/auth/detect")
+    assert r.status_code == 404
