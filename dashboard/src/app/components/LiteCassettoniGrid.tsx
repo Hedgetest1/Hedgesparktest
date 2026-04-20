@@ -3,7 +3,7 @@
 /**
  * LiteCassettoniGrid — /app/lite main surface.
  *
- * Founder-designed per `/opt/wishspark/docs/LITE_VISUAL_SPEC.md`:
+ * Founder-designed per `docs/LITE_VISUAL_SPEC.md`:
  * a 2×3 grid of "cassettoni" (cards) — one per Lite feature — each
  * showing a title + one big hero number sourced from real backend
  * data. Clicking a cassettone opens an expanded panel directly below

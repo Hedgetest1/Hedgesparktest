@@ -100,6 +100,18 @@ class Merchant(Base):
     klaviyo_last_sync_error    = Column(String(255),  nullable=True)
 
     # ---------------------------------------------------------------------------
+    # Slack integration (Strada 3.5, 2026-04-20)
+    # slack_webhook_encrypted:  AES-256-GCM encrypted Slack incoming webhook URL.
+    #                           Encrypted because the URL itself is the secret —
+    #                           anyone holding it can post to the merchant's channel.
+    # slack_status:             'connected' | 'error' | 'not_connected'
+    # slack_last_error:         Sanitized error from last failed post.
+    # ---------------------------------------------------------------------------
+    slack_webhook_encrypted    = Column(String,       nullable=True)
+    slack_status               = Column(String(32),   nullable=False, default="not_connected", server_default="not_connected")
+    slack_last_error           = Column(String(255),  nullable=True)
+
+    # ---------------------------------------------------------------------------
     # Automated onboarding state machine
     #
     # onboarding_status:

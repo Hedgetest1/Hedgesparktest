@@ -279,6 +279,18 @@ def run_lite_morning_digest_cycle(db: Session) -> dict:
                     brief.get("signals_count", 0),
                 )
 
+                # Strada 3.5 — forward the brief to Slack too if the
+                # merchant has connected a webhook. Best-effort; a
+                # Slack failure doesn't affect the email send.
+                try:
+                    from app.services.slack_dispatcher import post_daily_brief
+                    post_daily_brief(db, m.shop_domain, brief)
+                except Exception as exc:
+                    log.warning(
+                        "lite_morning_digest: Slack forward failed for %s: %s",
+                        m.shop_domain, exc,
+                    )
+
             except Exception as exc:
                 summary["failed"] += 1
                 log.warning(

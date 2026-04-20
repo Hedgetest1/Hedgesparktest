@@ -3463,6 +3463,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/merchant/slack/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Slack Status
+         * @description Return the merchant's Slack integration state (never the URL
+         *     itself).
+         */
+        get: operations["get_slack_status_merchant_slack_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/merchant/slack/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Connect Slack
+         * @description Save the webhook URL + send a confirmation message. If the
+         *     confirmation post fails, the webhook is still saved but status is
+         *     set to 'error' with the sanitized reason in last_error.
+         */
+        post: operations["connect_slack_merchant_slack_connect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/merchant/slack/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Slack
+         * @description Re-send a test message on an already-saved webhook. Useful to
+         *     verify a channel is still receiving after a slack config change.
+         */
+        post: operations["test_slack_merchant_slack_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/merchant/slack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Disconnect Slack
+         * @description Remove the Slack webhook. Idempotent.
+         */
+        delete: operations["disconnect_slack_merchant_slack_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pro/costs/defaults": {
         parameters: {
             query?: never;
@@ -10424,6 +10508,29 @@ export interface components {
              */
             duration_ms: number;
         };
+        /** SlackConnectRequest */
+        SlackConnectRequest: {
+            /** Webhook Url */
+            webhook_url: string;
+        };
+        /** SlackConnectResponse */
+        SlackConnectResponse: {
+            /** Ok */
+            ok: boolean;
+            /** Status */
+            status: string;
+            /** Error */
+            error?: string | null;
+        };
+        /** SlackStatusResponse */
+        SlackStatusResponse: {
+            /** Connected */
+            connected: boolean;
+            /** Status */
+            status: string;
+            /** Last Error */
+            last_error?: string | null;
+        };
         /** SourceSplit */
         SourceSplit: {
             /**
@@ -15008,6 +15115,99 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_slack_status_merchant_slack_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackStatusResponse"];
+                };
+            };
+        };
+    };
+    connect_slack_merchant_slack_connect_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SlackConnectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackConnectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_slack_merchant_slack_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackConnectResponse"];
+                };
+            };
+        };
+    };
+    disconnect_slack_merchant_slack_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackStatusResponse"];
                 };
             };
         };

@@ -107,6 +107,7 @@ import { PnlReport } from "../components/PnlReport";
 import { ChannelAttributionCard } from "../components/ChannelAttributionCard";
 import { MonthlyCohortsCard } from "../components/MonthlyCohortsCard";
 import { ExportButton } from "../components/ExportButton";
+import { SlackSettings } from "../components/SlackSettings";
 // Pro-floor — 5 migrated Intelligence cards (previously on /app/intelligence)
 import { RecommendationImpactCard } from "../components/RecommendationImpactCard";
 import { ChurnForecastCard } from "../components/ChurnForecastCard";
@@ -3027,6 +3028,19 @@ function PageInner() {
                   expandedId={liteExpandedId}
                   onExpandedChange={setLiteExpandedId}
                 />
+              )}
+
+              {/* Slack integration — Strada 3.5 (2026-04-20). Last
+                  Lite-floor surface before the radar + status bar,
+                  positioned AFTER the cassettoni so the merchant
+                  reads the value of the product first, then gets the
+                  option to pipe it to Slack. Intentionally NOT given
+                  heavy visual weight — the value sits above; this is
+                  the "opt-in when you've seen what's coming" affordance. */}
+              {isLiteFloor && (
+                <div className="mb-8">
+                  <SlackSettings />
+                </div>
               )}
 
               {/* ═══ REVENUE AT RISK HERO — Pro-floor only (Lite now
