@@ -60,8 +60,14 @@ else
 fi
 
 step "Restarting PM2 process (wishspark-dashboard)"
-pm2 restart wishspark-dashboard --update-env | tail -1
-okay "restart submitted"
+# PM2 occasionally emits a non-zero exit with "Process <id> not found"
+# when a previous restart is still mid-flip (observed 2026-04-20
+# during Phase 1.8.3.6 auto-deploy: PM2 printed the error AND then
+# successfully restarted the process). The wait loop + live asset
+# audit below are the real gates for deploy health, so tolerate the
+# PM2 exit code here instead of aborting on a false alarm.
+pm2 restart wishspark-dashboard --update-env 2>&1 | tail -3 || true
+okay "restart submitted (health verified by wait loop + live audit)"
 
 step "Waiting for dashboard to accept connections"
 deadline=$(( $(date +%s) + 30 ))
