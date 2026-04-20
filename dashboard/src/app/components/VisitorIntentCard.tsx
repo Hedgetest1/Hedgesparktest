@@ -79,7 +79,7 @@ export function VisitorIntentCard({
   const cold = data.cold_visitors;
 
   return (
-    <section>
+    <section className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 sm:p-8">
       {/* Unified section heading: ONE big amber H2 + slate subtitle. */}
       <div className="mb-6">
         <h3 className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-[#e8a04e] sm:text-[2rem]">
