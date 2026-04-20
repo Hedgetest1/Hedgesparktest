@@ -8425,6 +8425,75 @@ export interface components {
             /** Calibration State */
             calibration_state?: string | null;
         };
+        /** NudgeRankAgentAction */
+        NudgeRankAgentAction: {
+            /** Method */
+            method?: string | null;
+            /** Endpoint */
+            endpoint?: string | null;
+            /** Payload */
+            payload?: {
+                [key: string]: unknown;
+            } | null;
+            /** Available */
+            available: boolean;
+            /** Description */
+            description: string;
+        };
+        /** NudgeRankEntry */
+        NudgeRankEntry: {
+            /** Nudge Id */
+            nudge_id: number;
+            /** Rank */
+            rank?: number | null;
+            /** Product Url */
+            product_url: string;
+            /** Action Type */
+            action_type: string;
+            /** Status */
+            status: string;
+            /** Is Ab Experiment */
+            is_ab_experiment: boolean;
+            /** Holdout Pct */
+            holdout_pct: number;
+            /** Is Holdout Active */
+            is_holdout_active: boolean;
+            /** Created At */
+            created_at?: string | null;
+            /** Attribution Window Hours */
+            attribution_window_hours: number;
+            /** Exposed Count */
+            exposed_count: number;
+            /** Holdout Count */
+            holdout_count: number;
+            /** Dismissed Count */
+            dismissed_count: number;
+            /** Clicked Count */
+            clicked_count: number;
+            /** Sufficient Sample */
+            sufficient_sample: boolean;
+            /** Post Exposure Cvr */
+            post_exposure_cvr: number;
+            /** Holdout Cvr */
+            holdout_cvr?: number | null;
+            /** Cvr Lift Pct */
+            cvr_lift_pct?: number | null;
+            /** P Value */
+            p_value?: number | null;
+            /** Revenue Lift */
+            revenue_lift?: {
+                [key: string]: unknown;
+            };
+            /** Ranking Signal */
+            ranking_signal: number;
+            /** Ranking Basis */
+            ranking_basis: string;
+            /** Recommendation */
+            recommendation: string;
+            /** Recommendation Reason */
+            recommendation_reason: string;
+            agent_action: components["schemas"]["NudgeRankAgentAction"];
+        };
         /** NudgeRankResponse */
         NudgeRankResponse: {
             /** Shop Domain */
@@ -8436,13 +8505,15 @@ export interface components {
             /** Total */
             total: number;
             /** Nudges */
-            nudges?: {
-                [key: string]: unknown;
-            }[];
-            /** Meta */
-            meta: {
-                [key: string]: unknown;
-            };
+            nudges?: components["schemas"]["NudgeRankEntry"][];
+            meta: components["schemas"]["NudgeRankResponseMeta"];
+        };
+        /** NudgeRankResponseMeta */
+        NudgeRankResponseMeta: {
+            /** Ranking Basis Options */
+            ranking_basis_options: string[];
+            /** Recommendation Labels */
+            recommendation_labels: string[];
         };
         /**
          * NudgeRevenueLiftBlock

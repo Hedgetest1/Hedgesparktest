@@ -100,7 +100,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
@@ -768,13 +768,67 @@ async def compose_pro_nudge(
 # Pro: GET /pro/nudges/rank — autonomous revenue prioritization feed
 # ---------------------------------------------------------------------------
 
+class NudgeRankAgentAction(BaseModel):
+    method: str | None = None
+    endpoint: str | None = None
+    payload: dict[str, Any] | None = None
+    available: bool
+    description: str
+
+
+class NudgeRankEntry(BaseModel):
+    # Identity
+    nudge_id: int
+    rank: int | None = None
+    product_url: str
+    action_type: str
+    status: str
+    is_ab_experiment: bool
+    holdout_pct: int
+    is_holdout_active: bool
+    created_at: str | None = None
+
+    # Attribution config
+    attribution_window_hours: int
+
+    # Exposure counts
+    exposed_count: int
+    holdout_count: int
+    dismissed_count: int
+    clicked_count: int
+    sufficient_sample: bool
+
+    # CVR metrics
+    post_exposure_cvr: float
+    holdout_cvr: float | None = None
+    cvr_lift_pct: float | None = None
+    p_value: float | None = None
+
+    # Revenue lift block (rich, kept permissive — UI reads 2-3 fields)
+    revenue_lift: dict[str, Any] = Field(default_factory=dict)
+
+    # Ranking
+    ranking_signal: float
+    ranking_basis: str
+
+    # Decision engine output
+    recommendation: str
+    recommendation_reason: str
+    agent_action: NudgeRankAgentAction
+
+
+class NudgeRankResponseMeta(BaseModel):
+    ranking_basis_options: list[str]
+    recommendation_labels: list[str]
+
+
 class NudgeRankResponse(BaseModel):
     shop_domain: str
     status_filter: str
     attribution_window_hours: int
     total: int
-    nudges: list[dict] = Field(default_factory=list)
-    meta: dict
+    nudges: list[NudgeRankEntry] = Field(default_factory=list)
+    meta: NudgeRankResponseMeta
 
 
 @router.get("/pro/nudges/rank", response_model=NudgeRankResponse)

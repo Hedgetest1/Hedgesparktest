@@ -18,6 +18,7 @@ import { RecommendationImpactCard } from "../../components/RecommendationImpactC
 import { ChurnForecastCard } from "../../components/ChurnForecastCard";
 import { RiskForecastCard } from "../../components/RiskForecastCard";
 import { CohortSummaryCard } from "../../components/CohortSummaryCard";
+import { NudgeActionQueueCard } from "../../components/NudgeActionQueueCard";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
 
@@ -118,6 +119,11 @@ export default function IntelligencePage() {
                   isProUser={isProUser}
                 />
                 <CohortSummaryCard
+                  apiBase={API_BASE}
+                  shop={shop}
+                  isProUser={isProUser}
+                />
+                <NudgeActionQueueCard
                   apiBase={API_BASE}
                   shop={shop}
                   isProUser={isProUser}
