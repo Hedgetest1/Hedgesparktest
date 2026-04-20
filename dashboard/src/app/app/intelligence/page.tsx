@@ -8,7 +8,7 @@
  * Phase 1.8.3 starts migrating live Pro components here, one card at a
  * time per `feedback_commit_per_card.md`. Cards listed in `MIGRATED_CARDS`
  * render live for Pro users; everything else still renders as a locked-
- * preview tile in the grid below. Starter users see the full locked-
+ * preview tile in the grid below. Lite users see the full locked-
  * preview grid regardless of migration status — the upgrade story stays
  * intact until every card is live.
  */
@@ -86,7 +86,7 @@ export default function IntelligencePage() {
                       {FEATURES.length} more capabilities on Pro
                     </h2>
                     <p className="mt-1 text-[13.5px] leading-relaxed text-slate-400">
-                      Your Starter tier gives you the full Pulse floor.
+                      Your Lite tier gives you the full Lite floor.
                       Pro adds everything listed below — deep analytics
                       that Triple Whale and Peel charge $99-279/mo for.
                     </p>

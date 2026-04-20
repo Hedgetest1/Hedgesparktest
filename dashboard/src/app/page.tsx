@@ -494,7 +494,7 @@ function Problem() {
    ══════════════════════════════════════════════════════════════════════════════ */
 
 /* Tier badge — tells visitors at-a-glance which plan includes a feature.
- * Three values per pricing matrix memo §2: "all" (Starter+Pro+Scale),
+ * Three values per pricing matrix memo §2: "all" (Lite+Pro+Scale),
  * "pro" (Pro+Scale), "scale" (Scale only). Kept small and consistent so
  * repeating badges don't create visual noise across 20+ feature cards. */
 function TierBadge({ tier }: { tier: "all" | "pro" | "scale" }) {
@@ -814,7 +814,7 @@ function Features() {
 
         <R d={0.35}>
           <p className="mt-8 text-center text-[13px] text-slate-500">
-            Starter gets the foundation signals. Pro unlocks everything above. See{" "}
+            Lite gets the foundation signals. Pro unlocks everything above. See{" "}
             <a href="#pricing" className="font-semibold text-slate-300 underline decoration-slate-600 underline-offset-4 transition-colors hover:text-white hover:decoration-slate-400">
               which plan includes what
             </a>.
@@ -1408,8 +1408,8 @@ function Pricing() {
 
   const tiers = [
     {
-      key: "starter",
-      label: "Starter",
+      key: "lite",
+      label: "Lite",
       tagline: "Foundation signals",
       desc: "See the leak. Every product, every 5 minutes.",
       features: [
@@ -1428,9 +1428,9 @@ function Pricing() {
       key: "pro",
       label: "Pro",
       tagline: "Find · Fix · Prove",
-      desc: "Everything in Starter, plus the fix-and-prove loop. Holdout proof on every action.",
+      desc: "Everything in Lite, plus the fix-and-prove loop. Holdout proof on every action.",
       features: [
-        "Everything in Starter",
+        "Everything in Lite",
         "Attribution · LTV · P&L · forecast",
         "Causal lift + peer benchmarks",
         "Session replay + scroll heatmaps",
@@ -1469,14 +1469,14 @@ function Pricing() {
             Three plans. One product.
           </h2>
           <p className="mx-auto mt-5 max-w-2xl text-[16px] leading-relaxed text-slate-400">
-            Starter gets you the foundation. Pro adds the intelligence and proof layer.
+            Lite gets you the foundation. Pro adds the intelligence and proof layer.
             Scale adds agency, multi-store, and API. Pricing is locked at GA —
             early-access stores get the launch rate carried forward.
           </p>
         </R>
 
         {/* 3 tier cards — tier-specific accents per founder brief:
-             Starter = lilac/cream  ·  Pro = Spark wordmark gradient  ·  Scale = blue */}
+             Lite = lilac/cream  ·  Pro = Spark wordmark gradient  ·  Scale = blue */}
         <div className="mt-16 grid gap-6 lg:grid-cols-3">
           {tiers.map((t, i) => {
             const isPro = t.key === "pro";
@@ -1587,7 +1587,7 @@ function Pricing() {
                       Capability
                     </th>
                     <th className="p-5 text-center text-[13px] font-bold uppercase tracking-[0.12em] text-slate-300">
-                      Starter
+                      Lite
                     </th>
                     <th className="p-5 text-center text-[13px] font-bold uppercase tracking-[0.12em] text-[#e8a04e]">
                       Pro
@@ -1677,7 +1677,7 @@ function FAQ() {
     },
     {
       q: "Can I switch plans?",
-      a: "Yes. You can move between Starter, Pro, and Scale at any time from your dashboard — no support ticket, no phone call. Your detection signals and history stay intact across plan changes.",
+      a: "Yes. You can move between Lite, Pro, and Scale at any time from your dashboard — no support ticket, no phone call. Your detection signals and history stay intact across plan changes.",
     },
   ];
 

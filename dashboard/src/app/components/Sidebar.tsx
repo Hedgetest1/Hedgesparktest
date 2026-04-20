@@ -11,19 +11,25 @@ export type NavItem = {
   pro?: boolean;
 };
 
-/* ── Three Floors ─────────────────────────────────────────────────────
- * HedgeSpark dashboard is organized as three focused experiences
- * ("floors") rather than one long scroll page:
+/* ── Three Floors = Three Tiers ───────────────────────────────────────
+ * HedgeSpark dashboard is organized as three tier-named experiences:
  *
- *   🫀 Pulse        — right-now signals (all Starter merchants)
- *   🔮 Intelligence — deeper analytics (Pro + Scale)
- *   ⚙️  Operations   — agency / multi-store / API (Scale only)
+ *   Lite   — right-now signals (all merchants, entry-tier)
+ *   Pro    — deeper analytics (Pro + Scale merchants)
+ *   Scale  — agency, multi-store, API (Scale only)
  *
  * Each floor is a separate route so scrolling stays scoped. Floors
- * below the merchant's tier are visible but rendered as
+ * above the merchant's tier are visible but rendered as
  * preview-with-lock so the merchant sees the full product surface
  * and what they'd unlock by upgrading. Never hide a feature — gate
  * the drill-down per memo `feedback_no_silent_feature_removal.md`.
+ *
+ * Naming canonical as of 2026-04-20 (founder directive): the floor
+ * labels MATCH the tier names the merchant sees on the landing and
+ * in billing. Internal tier codes stay `lite`/`pro`/`scale` because
+ * they're a database + JWT payload contract — changing them is a
+ * TIER_2 billing-sprint job, tracked in
+ * `project_tier_rename_dashboard_backlog.md`.
  * ──────────────────────────────────────────────────────────────────── */
 export type Floor = "pulse" | "intelligence" | "operations";
 
@@ -41,7 +47,7 @@ type FloorDef = {
 const FLOORS: FloorDef[] = [
   {
     id: "pulse",
-    label: "Pulse",
+    label: "Lite",
     href: "/app",
     requires: "lite",
     desc: "Right-now signals across your store",
@@ -53,7 +59,7 @@ const FLOORS: FloorDef[] = [
   },
   {
     id: "intelligence",
-    label: "Intelligence",
+    label: "Pro",
     href: "/app/intelligence",
     requires: "pro",
     desc: "Deep analytics: cohort, P&L, causal lift, Ask HS",
@@ -65,7 +71,7 @@ const FLOORS: FloorDef[] = [
   },
   {
     id: "operations",
-    label: "Operations",
+    label: "Scale",
     href: "/app/operations",
     requires: "scale",
     desc: "Agency, multi-store, API, Shopify Admin actions",

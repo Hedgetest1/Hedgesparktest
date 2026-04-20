@@ -1,30 +1,35 @@
 #!/usr/bin/env python3
-"""audit_landing_starter_shipped.py — block landing-Starter promises
+"""audit_landing_starter_shipped.py — block landing-Lite promises
 that don't map to a shipped dashboard component.
 
-Problem class: the landing page's Starter card lists features the
-merchant is supposed to access at the Lite tier. If we add a bullet
+(Filename retained for git history; canonical tier name is now
+`Lite` per founder directive 2026-04-20. The landing's `key: "lite"`
+tier is the one this audit walks.)
+
+Problem class: the landing page's Lite card lists features the
+merchant is supposed to access at the entry tier. If we add a bullet
 to the landing but never wire the corresponding dashboard surface,
 the landing lies. Phase 1.7 caught this manually; this audit catches
 it at commit time.
 
 Approach:
-- Parse `dashboard/src/app/page.tsx` for the Starter tier's `features`
-  array — each string is a landing promise.
+- Parse `dashboard/src/app/page.tsx` for the Lite tier's `features`
+  array (the tier object with `key: "lite"`) — each string is a
+  landing promise.
 - For each bullet, verify it matches AT LEAST ONE of:
     a) a known shipped dashboard component (by keyword)
     b) a landing-baseline capability (tracker + basic analytics)
 - Bullets with no match are flagged as landing lies.
 
 Coverage claim (honest):
-- Catches new Starter bullets that aren't wired to a dashboard
+- Catches new Lite bullets that aren't wired to a dashboard
   component — the exact class of drift Phase 1.7 caught manually.
 - Does NOT verify the component is ACCESSIBLE to a Lite merchant
   (that requires running the tier-gate logic, not static analysis).
   Sibling `audit_dashboard_fetches.py` covers fetch gate patterns.
 
 Mappings live in BULLET_TO_COMPONENT_KEYWORDS below. Update this
-dict whenever a new Starter bullet ships alongside its component.
+dict whenever a new Lite bullet ships alongside its component.
 
 Exit codes:
     0  clean
@@ -58,19 +63,21 @@ BULLET_TO_COMPONENT_KEYWORDS: dict[str, list[str]] = {
     # Landing baseline capabilities that are backend-rendered (not a
     # discrete component) — we still want them listed so they don't
     # look like orphans, but the match target is a known backend path.
-    "everything in starter": ["Everything in Starter"],
+    "everything in lite": ["Everything in Lite"],
     "everything in pro": ["Everything in Pro"],
 }
 
 
 def extract_starter_features(landing_text: str) -> list[str]:
-    """Return the list of Starter tier bullets from landing page.tsx.
+    """Return the list of Lite tier bullets from landing page.tsx.
 
     The source declares `features: [...]` inside a tier object whose
-    `key: "starter"`. We scan from `key: "starter"` forward to the
-    next `]` that closes the features array."""
+    `key: "lite"`. We scan from `key: "lite"` forward to the next `]`
+    that closes the features array. (Function name retained for
+    backward compat; the tier was renamed from "Starter" to "Lite"
+    on 2026-04-20 per founder directive.)"""
     starter_match = re.search(
-        r'key:\s*"starter".*?features:\s*\[(.*?)\]',
+        r'key:\s*"lite".*?features:\s*\[(.*?)\]',
         landing_text,
         re.DOTALL,
     )
@@ -136,7 +143,7 @@ def main(argv: list[str]) -> int:
     bullets = extract_starter_features(landing_text)
     if not bullets:
         print(
-            "audit_landing_starter_shipped: no Starter features "
+            "audit_landing_starter_shipped: no Lite features "
             "array found in landing page.tsx",
             file=sys.stderr,
         )
@@ -153,7 +160,7 @@ def main(argv: list[str]) -> int:
     if not unmapped:
         print(
             f"audit_landing_starter_shipped: clean — all "
-            f"{len(bullets)} Starter bullets map to a shipped "
+            f"{len(bullets)} Lite bullets map to a shipped "
             "dashboard component."
         )
         return 0

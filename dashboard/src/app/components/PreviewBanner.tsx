@@ -23,7 +23,7 @@ export function PreviewBanner({ isPreviewing }: { isPreviewing: boolean }) {
       aria-live="polite"
     >
       <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#0b1220]" />
-      Previewing as Starter — you are seeing the Lite experience
+      Previewing as Lite — you are seeing the entry-tier experience
       <button
         type="button"
         onClick={() => {

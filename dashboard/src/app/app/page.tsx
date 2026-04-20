@@ -540,7 +540,7 @@ function PageInner() {
   // per-plan verification. Downgrade-only by design: we never allow
   // `?as=pro` because that would fake Pro UI + trigger 403 on every
   // Pro endpoint call for non-Pro users (the very bug the `|| true`
-  // hack used to mask). Anyone can preview the Starter experience —
+  // hack used to mask). Anyone can preview the Lite experience —
   // it's strictly a subset of their real view, so zero risk.
   const [isPreviewing, setIsPreviewing] = useState(false);
 
@@ -2608,7 +2608,7 @@ function PageInner() {
                 </div>
               )}
 
-              {/* ═══ ABANDONED INTENT — Starter-accessible (Phase 1.4)
+              {/* ═══ ABANDONED INTENT — Lite-accessible (Phase 1.4)
                   Backend returns reduced-fidelity for Lite (top 3
                   products + empty session_insights). Component handles
                   the bridge to Pro upgrade when isProUser=false. ═══ */}
@@ -2619,7 +2619,7 @@ function PageInner() {
                 onUpgrade={() => setUpgradeModalOpen(true)}
               />
 
-              {/* ═══ LIVE OPPORTUNITIES — Starter-accessible (Phase 1.5)
+              {/* ═══ LIVE OPPORTUNITIES — Lite-accessible (Phase 1.5)
                   Backend `/analytics/live-opportunities` is Lite-accessible
                   by design (no plan gating). Same data to Pro and Lite —
                   the moat isn't the data, it's the AI nudge composer
@@ -2629,7 +2629,7 @@ function PageInner() {
                 <LiveOpportunitiesCard apiBase={API_BASE} shop={shop} />
               </SectionErrorBoundary>
 
-              {/* ═══ VISITOR INTENT — Starter-accessible (Phase 1.6)
+              {/* ═══ VISITOR INTENT — Lite-accessible (Phase 1.6)
                   Three counts: Hot / Warm / Cold visitors classified
                   by conversion_score thresholds. Backend computes the
                   classification server-side with tenant isolation.
@@ -2828,7 +2828,7 @@ function PageInner() {
 
               {/* ═══ HOT PRODUCTS — 3 cards per row ═══
                   Phase 1.3: always render the section header + CardEmpty
-                  during cold start so Lite/Starter merchants see the
+                  during cold start so Lite/Lite merchants see the
                   dashboard slot (not a silent gap). TrafficSourceBox
                   companion stays visible with its own empty-state
                   handling.

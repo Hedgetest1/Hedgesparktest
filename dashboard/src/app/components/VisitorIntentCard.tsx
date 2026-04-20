@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * VisitorIntentCard — Phase 1.6 — Starter-accessible.
+ * VisitorIntentCard — Phase 1.6 — Lite-accessible.
  *
  * Three numbers a merchant reads at a glance: how many visitors
  * right now are Hot (engaged + clicked), Warm (engaged but no click),
@@ -9,7 +9,7 @@
  * classification` which computes per-visitor conversion_score across
  * the shop and partitions by HOT/WARM thresholds.
  *
- * This is one of the Starter 6 features — the per-tier per-visitor
+ * This is one of the Lite 6 features — the per-tier per-visitor
  * drill-down (full ranked list) stays a Pro moat via /visitor-scores.
  * Lite merchants see the three counts; Pro gets the drill-down CTA.
  *

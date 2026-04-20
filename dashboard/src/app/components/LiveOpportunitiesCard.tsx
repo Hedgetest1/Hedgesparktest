@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * LiveOpportunitiesCard — Phase 1.5 — Starter-accessible.
+ * LiveOpportunitiesCard — Phase 1.5 — Lite-accessible.
  *
  * Lists the store's pages that are leaking visitor intent RIGHT NOW:
  * pages with engaged traffic (scroll + dwell + clicks) but no or
@@ -15,7 +15,7 @@
  * vs Lite merchant who reads the recommendation and acts manually.
  *
  * Design intent: this is one of the six "right now" features that
- * make HedgeSpark Starter tell a story Lifetimely/BeProfit cannot
+ * make HedgeSpark Lite tell a story Lifetimely/BeProfit cannot
  * tell at all — they only show yesterday's data, never this-instant
  * friction.
  */
