@@ -64,16 +64,10 @@ def _wrap_html(title: str, body_html: str, *, show_logo: bool = False) -> str:
 
     logo_block = ""
     if show_logo:
-        # Prominent header: mascot + wordmark side-by-side, aligned baseline.
         logo_block = (
             '<tr><td align="center" style="padding:0 0 32px 0;">'
-            '<table cellpadding="0" cellspacing="0" border="0" role="presentation"><tr>'
-            '<td valign="middle" style="padding:0 12px 0 0;">'
-            f'<img src="{_SPARK_MASCOT_URL}" alt="" width="44" height="44" '
-            'style="display:block;width:44px;height:44px;border-radius:50%;" />'
-            '</td>'
-            f'<td valign="middle">{_brand_wordmark(font_size=24, letter_spacing="0.4px")}</td>'
-            '</tr></table>'
+            f'<img src="{_LOGO_URL}" alt="HedgeSpark" '
+            'width="240" style="display:block;max-width:240px;height:auto;" />'
             '</td></tr>'
         )
 
@@ -99,18 +93,11 @@ body, table, td, p, h1, h2, h3, div, span, a {{
 <tr><td align="center" style="padding:40px 16px 32px 16px;">
 <table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;">
 
-<!-- Header: mascot + wordmark (show_logo=True) OR wordmark-only fallback -->
-{logo_block or (
-    '<tr><td style="padding:0 0 24px 0;">'
-    '<table cellpadding="0" cellspacing="0" border="0" role="presentation"><tr>'
-    '<td valign="middle" style="padding:0 10px 0 0;">'
-    f'<img src="{_SPARK_MASCOT_URL}" alt="" width="32" height="32" '
-    'style="display:block;width:32px;height:32px;border-radius:50%;" />'
-    '</td>'
-    f'<td valign="middle">{_brand_wordmark(font_size=18)}</td>'
-    '</tr></table>'
-    '</td></tr>'
-)}
+<!-- Logo / Header — show_logo=True uses the beta PNG wordmark,
+     show_logo=False falls back to the gradient wordmark text. Kept
+     simple — the mascot experiment was rolled back per founder
+     review 2026-04-20. -->
+{logo_block or f'<tr><td style="padding:0 0 24px 0;">{_brand_wordmark(font_size=18)}</td></tr>'}
 
 <!-- Body -->
 <tr><td style="background:#0e0e1a;border:1px solid rgba(167,139,250,0.08);border-radius:16px;padding:36px 32px;">
