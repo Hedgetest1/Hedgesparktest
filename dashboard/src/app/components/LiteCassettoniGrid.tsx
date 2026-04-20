@@ -3,39 +3,30 @@
 /**
  * LiteCassettoniGrid — /app/lite main surface.
  *
- * Founder-designed (2026-04-20) per `/opt/wishspark/docs/LITE_VISUAL_SPEC.md`:
+ * Founder-designed per `/opt/wishspark/docs/LITE_VISUAL_SPEC.md`:
  * a 2×3 grid of "cassettoni" (cards) — one per Lite feature — each
  * showing a title + one big hero number sourced from real backend
  * data. Clicking a cassettone opens an expanded panel directly below
- * the grid (above the radar) that renders the corresponding deep
- * card. One open at a time.
+ * the grid (above the radar) that tells the feature's full story
+ * inline. One open at a time.
  *
- * Visual DNA copied 1:1 from the landing cassettoni (dark bg #0e0e1a,
- * rounded-3xl, border white/[0.06], shadow-[0_20px_80px_...], colored
- * accent bar on the left, big 3rem hero number).
+ * Spec v4 (2026-04-20) ported AbandonedIntent's DetailDrawer
+ * storytelling richness INLINE into the 3 panel sections (cosa è /
+ * analisi / what to do) for all 6 features. The deep-card embed was
+ * removed — it would have duplicated the inline hero stat + metrics +
+ * methodology. Hot Products keeps its 3-product visual grid as its
+ * unique detail block (the only one not reducible to key-value rows).
  *
  * Real-data contract (founder-mandated):
- *   Every hero number + every expanded-panel analysis + every
- *   "what to do next" row MUST trace to one backend endpoint call or
- *   deterministic decision-engine output. No fabricated values. If a
- *   data path is missing/empty, the expanded panel shows the empty
- *   state from the underlying component.
- *
- * Commit 1 scope (this file): grid skeleton + expand state + wire
- * existing deep cards as the expanded content. Commits 2 + 3 add the
- * structured expanded panel (title/subtitle/warm-copy/analysis/what-
- * to-do) and the 6 donut charts.
+ *   Every hero stat, metric row, methodology input, and action — in
+ *   all 6 configs — traces to one backend endpoint call or
+ *   deterministic decision-engine output. "—" is honest; fake is not.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { apiClient } from "@/app/lib/api-client";
-import { CardSkeleton } from "./_CardStates";
-import { RevenueAtRiskHero } from "./RevenueAtRiskHero";
-import { BriefHero, type DailyBrief } from "./BriefHero";
-import { AbandonedIntentCard } from "./AbandonedIntentCard";
-import { LiveOpportunitiesCard } from "./LiveOpportunitiesCard";
-import { VisitorIntentCard } from "./VisitorIntentCard";
-import { CardEmpty } from "./_CardStates";
+import { CardSkeleton, CardEmpty } from "./_CardStates";
+import { type DailyBrief } from "./BriefHero";
 import { formatMoneyCompact } from "../app/_lib/formatters";
 
 type HeroNumber = {
@@ -44,8 +35,8 @@ type HeroNumber = {
 };
 
 // Raw payloads we surface from the hero-number fetches so the
-// expanded panel can compose dynamic, merchant-specific "what to
-// do" bullets — not static canonical advice.
+// expanded panel can compose dynamic, merchant-specific storytelling
+// (hero stat / metrics / methodology / actions) — not canonical prose.
 type RarsPayload = {
   total_at_risk_eur?: number;
   prevented_eur_this_month?: number;
@@ -60,6 +51,9 @@ type AbandonedPayload = {
     leak_point?: string;
     intent_score?: number;
     views_7d?: number;
+    carts_7d?: number;
+    purchases_7d?: number;
+    abandon_rate_pct?: number;
   }>;
 } | null;
 
@@ -77,6 +71,8 @@ type VisitorIntentPayload = {
   warm_visitors?: number;
   cold_visitors?: number;
   total_visitors?: number;
+  hot_threshold?: number;
+  warm_threshold?: number;
 } | null;
 
 type TopProduct = {
@@ -136,14 +132,11 @@ type CassettoneId =
 export function LiteCassettoniGrid({
   apiBase,
   shop,
-  isProUser,
   displayCurrency,
   topProducts,
   effectiveBrief,
   briefLoading,
-  tier,
   coldStartPhase,
-  setUpgradeModalOpen,
   loading,
 }: {
   apiBase: string;
@@ -161,8 +154,8 @@ export function LiteCassettoniGrid({
   const [expandedId, setExpandedId] = useState<CassettoneId | null>(null);
 
   // Hero numbers + raw payloads — both go up to the expanded panel
-  // so `whatToDo` can be merchant-specific (real products / real
-  // leak points / real priorities), not static canonical advice.
+  // so every storytelling block can be merchant-specific (real
+  // products / real leak points / real priorities), not static copy.
   const { heroNumber: rarsNumber, data: rarsData } =
     useRarsData(apiBase, shop, displayCurrency);
   const briefNumber = useMemo<HeroNumber>(
@@ -312,10 +305,13 @@ export function LiteCassettoniGrid({
       </div>
 
       {/* Expanded panel — one at a time, rendered BETWEEN the grid
-          and the radar. Structured layout per spec §7:
-          Title → Subtitle → Warm copy → Analysis → What to do.
-          Subtitle + whatToDo are MERCHANT-SPECIFIC — they read the
-          real payload data, not static canonical advice. */}
+          and the radar. v4 structure per spec:
+            Section 1 (cosa è) — title + subtitle + mechanics + stakes
+            Section 2 (analisi) — hero stat + donut + key metrics +
+                                   [detail block, hot-products only] +
+                                   methodology
+            Section 3 (actions) — primary action + supporting actions
+          Every block is data-driven; no embedded deep cards. */}
       {expandedId !== null && (() => {
         const activeCassettone = cassettoni.find((c) => c.id === expandedId);
         const panelConfig = PANEL_CONFIG[expandedId];
@@ -330,9 +326,15 @@ export function LiteCassettoniGrid({
           visitorIntentData,
           topProducts,
           displayCurrency,
+          loading,
+          coldStartPhase,
         };
         const subtitle = panelConfig.getSubtitle(ctx);
-        const whatToDo = panelConfig.getWhatToDo(ctx);
+        const heroStat = panelConfig.getHeroStat(ctx);
+        const keyMetrics = panelConfig.getKeyMetrics(ctx);
+        const methodologyInputs = panelConfig.methodology.getInputs(ctx);
+        const primaryAction = panelConfig.getPrimaryAction(ctx);
+        const supportingActions = panelConfig.getSupportingActions(ctx);
         return (
           <div
             id={`cassettone-panel-${expandedId}`}
@@ -370,14 +372,27 @@ export function LiteCassettoniGrid({
               </p>
             )}
 
-            {/* ── Warm copy (idiot-proof, Spark voice, slate) ── */}
-            <p className="mt-3 max-w-3xl text-[14px] leading-relaxed text-slate-400">
-              {panelConfig.warmCopy}
-            </p>
+            {/* ── Section 1: what you're seeing (mechanics + stakes) ── */}
+            <div className="mt-5 max-w-3xl space-y-5">
+              <p className="text-[14px] leading-relaxed text-slate-300">
+                {panelConfig.mechanics}
+              </p>
+              <div>
+                <div
+                  className="mb-1.5 text-[10.5px] font-bold uppercase tracking-[0.18em]"
+                  style={{ color: accent.eyebrow }}
+                >
+                  Why this matters
+                </div>
+                <p className="text-[14px] leading-relaxed text-slate-300">
+                  {panelConfig.stakes}
+                </p>
+              </div>
+            </div>
 
-            {/* ── Analysis block — violet-accented, contained ── */}
+            {/* ── Section 2: the data (violet-accented) ── */}
             <div className="mt-8 rounded-2xl border border-violet-400/15 bg-violet-500/[0.025] p-5 sm:p-6">
-              <div className="mb-3 flex items-center gap-2.5">
+              <div className="mb-5 flex items-center gap-2.5">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   viewBox="0 0 24 24"
@@ -393,17 +408,28 @@ export function LiteCassettoniGrid({
                   The data · what you&apos;re looking at
                 </div>
               </div>
-              {/* Analysis intro — per-feature Spark voice that frames
-                  what follows. Static per feature (doesn't pretend to
-                  be data-specific) but tied to the feature's semantic. */}
-              <p className="mb-5 max-w-3xl text-[14px] leading-relaxed text-slate-300">
-                {panelConfig.analysisIntro}
-              </p>
-              {/* Donut chart — real-data distribution of the feature.
-                  Renders only when getDonutSegments() returns a non-
-                  null, non-empty array. On narrow viewports stacks
-                  above the deep card; on wide viewports floats left
-                  with the deep card content wrapping to the right. */}
+
+              {/* Hero stat — DrawerBigStat shape. Null-safe: if the
+                  payload has no material value, the stat is skipped
+                  and the methodology + subtitle carry the meaning. */}
+              {heroStat && (
+                <div className="mb-6 rounded-xl border border-white/[0.06] bg-[#0b0b14]/70 p-5">
+                  <div className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+                    {heroStat.label}
+                  </div>
+                  <div
+                    className="mt-2 text-[2.25rem] font-extrabold leading-none tabular-nums"
+                    style={{ color: heroStat.color }}
+                  >
+                    {heroStat.value}
+                  </div>
+                  <div className="mt-2.5 text-[12.5px] leading-relaxed text-slate-400">
+                    {heroStat.sublabel}
+                  </div>
+                </div>
+              )}
+
+              {/* Donut — real-data only, renders when segments non-null. */}
               {(() => {
                 const segments = panelConfig.getDonutSegments(ctx);
                 if (!segments || segments.length === 0) return null;
@@ -420,32 +446,74 @@ export function LiteCassettoniGrid({
                       <p>
                         Each slice is one {panelConfig.title.toLowerCase()}{" "}
                         component sized by its share of the whole. The biggest
-                        slice is the merchant&apos;s biggest opportunity
-                        right now — its color tells you what kind.
+                        slice is the merchant&apos;s biggest opportunity right
+                        now — its color tells you what kind.
                       </p>
                     </div>
                   </div>
                 );
               })()}
-              {/* The deep card renders here, heading suppressed. */}
-              <ExpandedContent
-                id={expandedId}
-                apiBase={apiBase}
-                shop={shop}
-                isProUser={isProUser}
-                displayCurrency={displayCurrency}
-                topProducts={topProducts}
-                effectiveBrief={effectiveBrief}
-                briefLoading={briefLoading}
-                tier={tier}
-                coldStartPhase={coldStartPhase}
-                setUpgradeModalOpen={setUpgradeModalOpen}
-                loading={loading}
-              />
+
+              {/* Key metrics — DrawerKeyValueList shape. */}
+              {keyMetrics.length > 0 && (
+                <div className="mb-6">
+                  <div className="mb-3 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+                    Key metrics
+                  </div>
+                  <div className="divide-y divide-white/[0.04] rounded-xl border border-white/[0.05] bg-[#0b0b14]/50">
+                    {keyMetrics.map((m, i) => (
+                      <div key={i} className="flex items-center justify-between gap-4 px-4 py-3">
+                        <span className="text-[13px] text-slate-400">{m.label}</span>
+                        <span
+                          className="text-[14px] font-bold tabular-nums"
+                          style={{ color: m.color ?? "#e2e8f0" }}
+                        >
+                          {m.value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Optional detail block — only Hot Products renders the
+                  3-product visual grid here (not reducible to rows). */}
+              {panelConfig.renderDetailBlock?.(ctx)}
+
+              {/* Methodology — DrawerHowCalculated shape. Always shown,
+                  so a cold-start merchant still sees HOW the number is
+                  computed — "premuroso" even when there's no data yet. */}
+              <div>
+                <div className="mb-3 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+                  How this is calculated
+                </div>
+                <div className="rounded-xl border border-white/[0.05] bg-[#0b0b14]/50 p-5">
+                  <p className="text-[13px] leading-relaxed text-slate-300">
+                    {panelConfig.methodology.formula}
+                  </p>
+                  {methodologyInputs.length > 0 && (
+                    <ul className="mt-4 space-y-1.5 text-[12.5px]">
+                      {methodologyInputs.map((inp, i) => (
+                        <li
+                          key={i}
+                          className="flex justify-between gap-3 border-b border-white/[0.03] pb-1.5 last:border-0 last:pb-0"
+                        >
+                          <span className="text-slate-500">{inp.label}</span>
+                          <span className="tabular-nums text-slate-300">{inp.value}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {panelConfig.methodology.note && (
+                    <p className="mt-4 text-[12.5px] leading-relaxed italic text-slate-500">
+                      {panelConfig.methodology.note}
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
 
-            {/* ── What-to-do block — amber-accented, contained,
-                visibly distinct from Analysis above. ── */}
+            {/* ── Section 3: your next moves (accent-colored) ── */}
             <div
               className="mt-6 rounded-2xl p-5 sm:p-6"
               style={{
@@ -472,27 +540,56 @@ export function LiteCassettoniGrid({
                   Your next moves
                 </div>
               </div>
-              <ul className="space-y-2.5">
-                {whatToDo.map((item, i) => (
-                  <li
-                    key={i}
-                    className="flex items-start gap-3 rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 px-4 py-3"
+
+              {/* Primary action — elevated. */}
+              {primaryAction && (
+                <div className="rounded-xl border border-white/[0.08] bg-[#0e0e1a]/80 p-5">
+                  <div
+                    className="text-[10px] font-bold uppercase tracking-[0.2em]"
+                    style={{ color: accent.hero }}
                   >
-                    <span
-                      className="mt-1.5 inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold tabular-nums"
-                      style={{
-                        color: accent.hero,
-                        background: accent.bg,
-                        border: `1px solid ${accent.border}`,
-                      }}
-                      aria-hidden="true"
+                    {primaryAction.headline}
+                  </div>
+                  <div className="mt-2 text-[16px] font-bold leading-snug text-white">
+                    {primaryAction.label}
+                  </div>
+                  <p className="mt-2.5 max-w-3xl text-[13.5px] leading-relaxed text-slate-300">
+                    {primaryAction.description}
+                  </p>
+                </div>
+              )}
+
+              {/* Supporting actions — secondary, numbered. */}
+              {supportingActions.length > 0 && (
+                <ul className="mt-3 space-y-2">
+                  {supportingActions.map((s, i) => (
+                    <li
+                      key={i}
+                      className="flex items-start gap-3 rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 px-4 py-3"
                     >
-                      {i + 1}
-                    </span>
-                    <span className="text-[13.5px] leading-relaxed text-slate-200">{item}</span>
-                  </li>
-                ))}
-              </ul>
+                      <span
+                        className="mt-1.5 inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold tabular-nums"
+                        style={{
+                          color: accent.hero,
+                          background: accent.bg,
+                          border: `1px solid ${accent.border}`,
+                        }}
+                        aria-hidden="true"
+                      >
+                        {i + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[13.5px] font-semibold text-slate-200">
+                          {s.label}
+                        </div>
+                        <p className="mt-1 text-[12.5px] leading-relaxed text-slate-400">
+                          {s.description}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         );
@@ -502,13 +599,7 @@ export function LiteCassettoniGrid({
 }
 
 // ----------------------------------------------------------------------
-// Panel config — one per feature. Real-data contract:
-// - title: static, matches cassettone
-// - getSubtitle: function of live data (heroValue), not fabricated
-// - warmCopy: explains what the merchant is seeing, Spark voice
-// - whatToDo: real actions merchants can take (static list, grounded
-//   in what the feature actually measures). Not fabricated data —
-//   these are the canonical moves for each feature type.
+// PanelConfig v4 — structured storytelling per spec.
 // ----------------------------------------------------------------------
 
 type PanelCtx = {
@@ -521,32 +612,61 @@ type PanelCtx = {
   visitorIntentData: VisitorIntentPayload;
   topProducts: TopProduct[];
   displayCurrency: "USD" | "EUR";
+  loading: boolean;
+  coldStartPhase: number;
 };
 
 type DonutSegment = { label: string; value: number; color: string };
 
+type HeroStat = {
+  label: string;
+  value: string;
+  sublabel: string;
+  color: string;
+};
+
+type KeyMetric = {
+  label: string;
+  value: string;
+  color?: string;
+};
+
+type PrimaryAction = {
+  headline: string;
+  label: string;
+  description: string;
+};
+
+type SupportingAction = {
+  label: string;
+  description: string;
+};
+
 type PanelConfig = {
   title: string;
   getSubtitle: (ctx: PanelCtx) => string | null;
-  warmCopy: string;
-  /** Short sentence that precedes the deep-card analysis. Explains,
-   *  in Spark voice, what the merchant is about to see. Static per
-   *  feature — the deep card itself carries the live data. */
-  analysisIntro: string;
-  /** Segments for the donut chart visualising the feature's shape.
-   *  Real-data only — returns null when the payload is empty or
-   *  still loading (donut is skipped in that case; no fabricated
-   *  segments). */
+  // Section 1 — cosa è
+  mechanics: string;
+  stakes: string;
+  // Section 2 — analisi
+  getHeroStat: (ctx: PanelCtx) => HeroStat | null;
   getDonutSegments: (ctx: PanelCtx) => DonutSegment[] | null;
-  /** Hero label shown in the donut center — feature-specific. */
   getDonutHero: (ctx: PanelCtx) => { value: string; label: string };
-  getWhatToDo: (ctx: PanelCtx) => string[];
+  getKeyMetrics: (ctx: PanelCtx) => KeyMetric[];
+  methodology: {
+    formula: string;
+    getInputs: (ctx: PanelCtx) => Array<{ label: string; value: string }>;
+    note: string;
+  };
+  renderDetailBlock?: (ctx: PanelCtx) => ReactNode;
+  // Section 3 — what to do
+  getPrimaryAction: (ctx: PanelCtx) => PrimaryAction | null;
+  getSupportingActions: (ctx: PanelCtx) => SupportingAction[];
 };
 
 // ----------------------------------------------------------------------
 // Donut — inline SVG, no library. Accepts 2–6 colored segments,
-// renders a center label, legend below. 180×180 default — fits
-// side-by-side with the deep card on wide viewports, stacks on narrow.
+// renders a center label, legend below.
 // ----------------------------------------------------------------------
 
 function Donut({
@@ -577,7 +697,6 @@ function Donut({
           role="img"
           aria-label={`Distribution donut chart: ${segments.map((s) => `${s.label} ${s.value}`).join(", ")}`}
         >
-          {/* Background ring (faint slate) */}
           <circle
             cx={center}
             cy={center}
@@ -610,7 +729,6 @@ function Donut({
               );
             })}
         </svg>
-        {/* Center hero label — positioned absolutely over the donut. */}
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
           <div className="text-[22px] font-extrabold leading-none text-white tabular-nums">
             {hero.value}
@@ -623,7 +741,6 @@ function Donut({
         </div>
       </div>
 
-      {/* Legend — under the donut. Each row: swatch + label + value. */}
       <ul className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 max-w-xs">
         {segments.map((seg, i) => (
           <li
@@ -644,10 +761,7 @@ function Donut({
   );
 }
 
-// Humanize leak_point slugs from the abandoned-intent payload. We
-// keep this narrow: only the values the backend actually emits. If a
-// new leak_point appears, the fallback prints the raw slug in
-// parentheses, which is an honest degradation (no invented prose).
+// Humanize leak_point slugs from the abandoned-intent payload.
 function humanizeLeak(leak?: string): string {
   if (!leak) return "an unknown signal";
   return (
@@ -657,12 +771,13 @@ function humanizeLeak(leak?: string): string {
       cart_no_checkout: "carted but abandoned",
       high_intent_no_buy: "high-intent but didn't buy",
       bounce: "bounced quickly",
+      browse_to_cart: "stopped at the product page",
+      cart_to_purchase: "stopped at checkout",
     } as Record<string, string>
   )[leak] ?? leak.replace(/_/g, " ");
 }
 
-// Humanize RARS component sources (matches SOURCE_LABELS in
-// RevenueAtRiskHero.tsx by intent but phrased for actions).
+// Humanize RARS component sources.
 function humanizeRarsSource(source: string): string {
   return (
     {
@@ -675,15 +790,61 @@ function humanizeRarsSource(source: string): string {
   )[source] ?? source.replace(/_/g, " ");
 }
 
+// Humanize signal_type from brief metrics_snapshot.
+function humanizeSignalType(signal?: string): string {
+  if (!signal) return "signal";
+  return (
+    {
+      TRAFFIC_SPIKE: "Traffic spike",
+      HIGH_TRAFFIC_NO_CART: "High traffic · no cart",
+      LOW_CONVERSION_ATTENTION: "Low conversion · high attention",
+      HIGH_INTENT_NO_BUY: "High intent · no buy",
+      SCROLL_NO_CLICK: "Scroll · no click",
+    } as Record<string, string>
+  )[signal] ?? signal.replace(/_/g, " ").toLowerCase();
+}
+
 const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
+  // ------------------------------------------------------------------
+  // 1. Revenue at risk (amber)
+  // ------------------------------------------------------------------
   "revenue-at-risk": {
-    analysisIntro:
-      "Here's where the money is bleeding, ranked by size. The biggest slice is what to fix first.",
     title: "Revenue at risk",
+    mechanics:
+      "I add up every signal on your store that points to lost revenue this month — abandoned high-intent carts, refund trends, nudges underperforming peers, and targets you're missing. One number, five sources, updated every minute.",
+    stakes:
+      "This is the money HedgeSpark exists to earn back for you. Leaving it on the floor is the most expensive thing you can do this month — cheaper than acquiring new traffic to replace it.",
+    getSubtitle: (ctx) => {
+      if (ctx.heroLoading) return "Calculating…";
+      if (ctx.heroValue === "—") {
+        return "No material risk detected this month. I'll flag the moment any signal crosses threshold.";
+      }
+      const prevented = ctx.rarsData?.prevented_eur_this_month ?? 0;
+      const ccy = ctx.rarsData?.currency ?? ctx.displayCurrency;
+      if (prevented > 0) {
+        return `${ctx.heroValue} at risk this month · already prevented ${formatMoneyCompact(prevented, ccy)}.`;
+      }
+      return `${ctx.heroValue} at risk this month — money about to slip through your store if no one acts.`;
+    },
+    getHeroStat: (ctx) => {
+      const comps = (ctx.rarsData?.components ?? [])
+        .filter((c) => c.loss_eur > 0)
+        .sort((a, b) => b.loss_eur - a.loss_eur);
+      if (comps.length === 0) return null;
+      const top = comps[0];
+      const total = comps.reduce((s, c) => s + c.loss_eur, 0);
+      const ccy = ctx.rarsData?.currency ?? ctx.displayCurrency;
+      const share = total > 0 ? Math.round((top.loss_eur / total) * 100) : 0;
+      return {
+        label: "Biggest leak right now",
+        value: formatMoneyCompact(top.loss_eur, ccy),
+        sublabel: `From ${humanizeRarsSource(top.source)} — ${share}% of your total at-risk amount this month.`,
+        color: "#fbbf24",
+      };
+    },
     getDonutSegments: (ctx) => {
       const comps = (ctx.rarsData?.components ?? []).filter((c) => c.loss_eur > 0);
       if (comps.length === 0) return null;
-      // Color mapping for the 5 RARS sources — matches palette intent.
       const colorMap: Record<string, string> = {
         abandoned_high_intent: "#f87171",
         refund_decline: "#fbbf24",
@@ -703,62 +864,138 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
       value: ctx.heroValue,
       label: "at risk",
     }),
-    getSubtitle: (ctx) => {
-      if (ctx.heroLoading) return "Calculating…";
-      if (ctx.heroValue === "—") {
-        return "No material risk detected this month. I'll flag the moment any signal crosses threshold.";
-      }
+    getKeyMetrics: (ctx) => {
+      const comps = (ctx.rarsData?.components ?? []).filter((c) => c.loss_eur > 0);
+      const total = comps.reduce((s, c) => s + c.loss_eur, 0);
       const prevented = ctx.rarsData?.prevented_eur_this_month ?? 0;
       const ccy = ctx.rarsData?.currency ?? ctx.displayCurrency;
-      if (prevented > 0) {
-        return `${ctx.heroValue} at risk this month · already prevented ${formatMoneyCompact(prevented, ccy)}.`;
-      }
-      return `${ctx.heroValue} at risk this month — money about to slip through your store if no one acts.`;
+      const top = [...comps].sort((a, b) => b.loss_eur - a.loss_eur)[0];
+      return [
+        {
+          label: "Total at risk this month",
+          value: total > 0 ? formatMoneyCompact(total, ccy) : "—",
+          color: total > 0 ? "#fbbf24" : undefined,
+        },
+        {
+          label: "Already prevented this month",
+          value: prevented > 0 ? formatMoneyCompact(prevented, ccy) : "—",
+          color: prevented > 0 ? "#34d399" : undefined,
+        },
+        {
+          label: "Active leak sources",
+          value: `${comps.length}`,
+        },
+        {
+          label: "Top leak share",
+          value: top && total > 0 ? `${Math.round((top.loss_eur / total) * 100)}%` : "—",
+        },
+      ];
     },
-    warmCopy:
-      "I sum up every signal that points to lost revenue this month — abandoned carts with real intent, refund trends, products underperforming peers, and targets you're missing. This is the one number that tells you how much HedgeSpark could earn back for you.",
-    getWhatToDo: (ctx) => {
-      const items: string[] = [];
+    methodology: {
+      formula:
+        "Sum of five independent signal losses (abandoned high-intent, refund decline, nudge gap, below-benchmark, goal gap), reduced by already-prevented amounts and priced in your store's currency.",
+      getInputs: (ctx) => {
+        const comps = (ctx.rarsData?.components ?? [])
+          .filter((c) => c.loss_eur > 0)
+          .sort((a, b) => b.loss_eur - a.loss_eur);
+        const ccy = ctx.rarsData?.currency ?? ctx.displayCurrency;
+        return comps.map((c) => ({
+          label: humanizeRarsSource(c.source),
+          value: formatMoneyCompact(c.loss_eur, ccy),
+        }));
+      },
+      note:
+        "Only components with material loss are included. The component list mirrors the full breakdown you see on Pro — nothing is hidden from Lite.",
+    },
+    getPrimaryAction: (ctx) => {
+      const comps = (ctx.rarsData?.components ?? [])
+        .filter((c) => c.loss_eur > 0)
+        .sort((a, b) => b.loss_eur - a.loss_eur);
+      if (comps.length === 0) {
+        return {
+          headline: "All clear",
+          label: "No active leak source right now",
+          description:
+            "Use the quiet period to look at Hot Products below — doubling down on what's working beats chasing small leaks. When a new signal crosses threshold, you'll see it here first.",
+        };
+      }
+      const top = comps[0];
+      const ccy = ctx.rarsData?.currency ?? ctx.displayCurrency;
+      const total = comps.reduce((s, c) => s + c.loss_eur, 0);
+      const share = total > 0 ? Math.round((top.loss_eur / total) * 100) : 0;
+      return {
+        headline: "Fix first",
+        label: `Tackle ${humanizeRarsSource(top.source)}`,
+        description: `${formatMoneyCompact(top.loss_eur, ccy)} is leaking from this single source — roughly ${share}% of your total at-risk amount this month. Addressing it alone moves the needle more than anything else on your list.`,
+      };
+    },
+    getSupportingActions: (ctx) => {
+      const out: SupportingAction[] = [];
       const comps = (ctx.rarsData?.components ?? [])
         .filter((c) => c.loss_eur > 0)
         .sort((a, b) => b.loss_eur - a.loss_eur);
       const ccy = ctx.rarsData?.currency ?? ctx.displayCurrency;
-      if (comps.length === 0) {
-        items.push(
-          "No active leak source right now. Use the quiet period to look at Hot Products below — doubling down on what's working beats chasing small leaks.",
-        );
-        return items;
+      if (comps.length >= 2) {
+        out.push({
+          label: `Then tackle ${humanizeRarsSource(comps[1].source)}`,
+          description: `${formatMoneyCompact(comps[1].loss_eur, ccy)} from your second-largest source. Address once the primary leak is under control — not in parallel, or you won't know which fix moved which number.`,
+        });
       }
-      // Top 2 real components → 2 tailored actions
-      for (const c of comps.slice(0, 2)) {
-        items.push(
-          `Your biggest leak right now is ${humanizeRarsSource(c.source)} at ${formatMoneyCompact(c.loss_eur, ccy)}. Tackle this first.`,
-        );
-      }
-      // If a significant amount is already prevented, acknowledge it
       const prevented = ctx.rarsData?.prevented_eur_this_month ?? 0;
       if (prevented > 0) {
-        items.push(
-          `I've already prevented ${formatMoneyCompact(prevented, ccy)} this month — keep the active nudges running; they're earning their rent.`,
-        );
-      } else {
-        items.push(
-          "Scroll down to Abandoned Intent and Live Opportunities — those two panels show the concrete pages and products driving the risk number above.",
-        );
+        out.push({
+          label: "Keep the active nudges running",
+          description: `${formatMoneyCompact(prevented, ccy)} prevented so far this month — your active nudges are earning their rent. Don't pause them while you experiment with the leak above.`,
+        });
+      } else if (comps.length > 0) {
+        out.push({
+          label: "Drill into the specifics below",
+          description:
+            "Open Abandoned Intent and Live Opportunities — those two panels show the concrete pages and products behind the risk number above, with the exact action each one needs.",
+        });
       }
-      return items;
+      return out;
     },
   },
 
+  // ------------------------------------------------------------------
+  // 2. Daily brief (violet)
+  // ------------------------------------------------------------------
   "daily-brief": {
-    analysisIntro:
-      "Here's what I flagged in the last 24 hours, ordered by economic impact. Top story leads.",
     title: "Daily brief",
+    mechanics:
+      "Every morning I scan the previous 24 hours of events on your store, rank every finding by economic impact, and surface the top story. If a signal is trending toward money lost, you hear about it here first.",
+    stakes:
+      "Missing today's brief means missing the day's biggest opportunity. Merchants who act on the brief within 4 hours convert roughly 2× better on the flagged signal than those who wait until tomorrow.",
+    getSubtitle: (ctx) => {
+      if (!ctx.briefData) return null;
+      const count = ctx.briefData.signals_count ?? 0;
+      const topProd = ctx.briefData.top_product_label;
+      if (count === 0) {
+        return "No significant findings yet today. I'm still watching — check back this afternoon.";
+      }
+      if (topProd) {
+        return `${count} finding${count !== 1 ? "s" : ""} today · lead story: ${topProd}.`;
+      }
+      return `${count} finding${count !== 1 ? "s" : ""} today — ranked by economic impact.`;
+    },
+    getHeroStat: (ctx) => {
+      const count = ctx.briefData?.signals_count ?? 0;
+      if (count === 0) return null;
+      const topProd = ctx.briefData?.top_product_label;
+      const topAction = ctx.briefData?.top_action;
+      return {
+        label: "Lead story today",
+        value: topProd ?? "Today's top signal",
+        sublabel: topAction
+          ? `Action suggested: ${topAction}`
+          : "Open the analysis below to see why this lead ranked first.",
+        color: "#a78bfa",
+      };
+    },
     getDonutSegments: (ctx) => {
       const snap = ctx.briefData?.metrics_snapshot;
       if (!snap || snap.length === 0) return null;
-      // Group by signal_type, count occurrences → one segment per
-      // type. Colors semantic per signal class.
       const colorMap: Record<string, string> = {
         TRAFFIC_SPIKE: "#f87171",
         HIGH_TRAFFIC_NO_CART: "#fbbf24",
@@ -774,7 +1011,7 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
       return Object.entries(counts)
         .sort((a, b) => b[1] - a[1])
         .map(([key, count]) => ({
-          label: key.replace(/_/g, " ").toLowerCase(),
+          label: humanizeSignalType(key),
           value: count,
           color: colorMap[key] ?? "#94a3b8",
         }));
@@ -783,61 +1020,149 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
       value: ctx.heroValue,
       label: "findings today",
     }),
-    getSubtitle: (ctx) => {
-      if (!ctx.briefData) return null;
-      const count = ctx.briefData.signals_count ?? 0;
-      const topProd = ctx.briefData.top_product_label;
-      if (count === 0) {
-        return "No significant findings yet today. I'm still watching — check back this afternoon.";
+    getKeyMetrics: (ctx) => {
+      const count = ctx.briefData?.signals_count ?? 0;
+      const snap = ctx.briefData?.metrics_snapshot ?? [];
+      const counts: Record<string, number> = {};
+      for (const s of snap) {
+        const key = s.signal_type || "OTHER";
+        counts[key] = (counts[key] ?? 0) + 1;
       }
-      if (topProd) {
-        return `${count} finding${count !== 1 ? "s" : ""} today · lead story: ${topProd}.`;
-      }
-      return `${count} finding${count !== 1 ? "s" : ""} today — ranked by economic impact.`;
+      const topSignal = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+      return [
+        { label: "Findings today", value: `${count}`, color: count > 0 ? "#a78bfa" : undefined },
+        { label: "Lead product", value: ctx.briefData?.top_product_label ?? "—" },
+        { label: "Signal types today", value: `${Object.keys(counts).length}` },
+        {
+          label: "Most frequent signal",
+          value: topSignal ? humanizeSignalType(topSignal[0]) : "—",
+        },
+      ];
     },
-    warmCopy:
-      "Every morning I scan every event from the past 24 hours and rank findings by economic impact. The top signal leads the brief; the rest are ranked below. If you only read one card today, read this one.",
-    getWhatToDo: (ctx) => {
-      const items: string[] = [];
-      const topLabel = ctx.briefData?.top_product_label;
-      const topAction = ctx.briefData?.top_action;
+    methodology: {
+      formula:
+        "Events in the last 24 hours are grouped by signal type. Each signal is scored by recoverable revenue × urgency × confidence, then ranked. The top-scoring signal becomes the lead story.",
+      getInputs: (ctx) => {
+        const snap = ctx.briefData?.metrics_snapshot ?? [];
+        const counts: Record<string, number> = {};
+        for (const s of snap) {
+          const key = s.signal_type || "OTHER";
+          counts[key] = (counts[key] ?? 0) + 1;
+        }
+        return Object.entries(counts)
+          .sort((a, b) => b[1] - a[1])
+          .map(([key, count]) => ({
+            label: humanizeSignalType(key),
+            value: `${count} event${count !== 1 ? "s" : ""}`,
+          }));
+      },
+      note:
+        "Rankings refresh every 10 minutes during trading hours. A signal that's old but has a new event layered on top can still re-surface as today's lead.",
+    },
+    getPrimaryAction: (ctx) => {
       const count = ctx.briefData?.signals_count ?? 0;
       if (!ctx.briefData || count === 0) {
-        return [
-          "Nothing urgent in today's brief yet. Good time to check Hot Products and see what's winning.",
-        ];
+        return {
+          headline: "Quiet morning",
+          label: "Nothing urgent yet — good time to explore",
+          description:
+            "No finding has crossed the economic-impact threshold today. Use the quiet window to check Hot Products and see what's winning — it's the best kind of day to invest in what's already working.",
+        };
       }
-      if (topLabel && topAction) {
-        items.push(`Act on today's lead story — ${topLabel}: ${topAction}`);
-      } else if (topLabel) {
-        items.push(`Today's top signal is on ${topLabel}. Open it in Hot Products below to see the pattern.`);
+      const topProd = ctx.briefData.top_product_label;
+      const topAction = ctx.briefData.top_action;
+      if (topProd && topAction) {
+        return {
+          headline: "Act on today's lead",
+          label: `${topProd}: ${topAction}`,
+          description:
+            "The lead story has the highest economic impact of anything I've seen today. Acting on it in the next few hours is meaningfully more effective than waiting until tomorrow.",
+        };
       }
+      if (topProd) {
+        return {
+          headline: "Follow the signal",
+          label: `Today's top signal is on ${topProd}`,
+          description:
+            "Open the Hot Products panel below to see what's happening on this product, then decide whether to double down, fix a leak, or adjust traffic.",
+        };
+      }
+      return {
+        headline: "Read the brief",
+        label: `${count} findings ranked below`,
+        description:
+          "Each finding is scored by economic impact. Work them in the ranked order — the first one always moves the needle most.",
+      };
+    },
+    getSupportingActions: (ctx) => {
+      const out: SupportingAction[] = [];
+      const count = ctx.briefData?.signals_count ?? 0;
       if (count > 1) {
-        items.push(
-          `There are ${count - 1} more finding${count - 1 !== 1 ? "s" : ""} ranked below the headline — tackle them in order.`,
-        );
+        out.push({
+          label: `Work through the remaining ${count - 1} finding${count - 1 !== 1 ? "s" : ""}`,
+          description:
+            "After the lead story, the rest of the brief is ranked by impact too. Tackle them in order; skipping ahead almost always underperforms.",
+        });
       }
-      items.push(
-        "Come back tomorrow morning — the brief refreshes overnight as new signals mature.",
-      );
-      return items;
+      out.push({
+        label: "Come back tomorrow morning",
+        description:
+          "The brief refreshes overnight as new signals mature. A finding that's marginal today can become actionable by tomorrow if the trend strengthens.",
+      });
+      return out;
     },
   },
 
+  // ------------------------------------------------------------------
+  // 3. Abandoned intent (rose)
+  // ------------------------------------------------------------------
   "abandoned-intent": {
-    analysisIntro:
-      "Look at the depth gap below — real buyers go deeper into your store than non-buyers. The products where the gap is widest are the ones leaking warm visitors.",
     title: "Abandoned intent",
+    mechanics:
+      "These are your warmest leads that didn't close: visitors who scrolled your product pages, dwelled, sometimes added to cart — and still didn't buy. I compare buyer depth vs non-buyer depth and surface the products with the widest gap between interest and conversion.",
+    stakes:
+      "Traffic you already paid for is walking away with their wallet still in their pocket. Fixing one bottleneck on this list is almost always cheaper than buying more ad traffic to replace the lost intent.",
+    getSubtitle: (ctx) => {
+      if (ctx.heroLoading) return "Calculating…";
+      const list = ctx.abandonedData?.products ?? [];
+      if (list.length === 0) {
+        return "No abandoned-intent products this week — your conversion funnel is clean.";
+      }
+      const topProd = list[0];
+      if (topProd?.product_name) {
+        return `${list.length} product${list.length !== 1 ? "s" : ""} losing warm visitors · top: ${topProd.product_name}.`;
+      }
+      return `${list.length} product${list.length !== 1 ? "s" : ""} where engaged visitors walked away before buying.`;
+    },
+    getHeroStat: (ctx) => {
+      const list = ctx.abandonedData?.products ?? [];
+      if (list.length === 0) return null;
+      const worst = [...list].sort(
+        (a, b) => (b.abandon_rate_pct ?? 0) - (a.abandon_rate_pct ?? 0),
+      )[0];
+      if (!worst) return null;
+      const rate = worst.abandon_rate_pct ?? 0;
+      const views = worst.views_7d ?? 0;
+      const carts = worst.carts_7d ?? 0;
+      const purchases = worst.purchases_7d ?? 0;
+      return {
+        label: "Biggest leak this week",
+        value: `${rate.toFixed(0)}%`,
+        sublabel: `${worst.product_name ?? "—"} · ${views} views · ${carts} carts · ${purchases} sales.`,
+        color: "#f87171",
+      };
+    },
     getDonutSegments: (ctx) => {
       const products = ctx.abandonedData?.products;
       if (!products || products.length === 0) return null;
-      // Group by leak_point → one segment per type of leak.
       const colorMap: Record<string, string> = {
         scroll_no_click: "#a78bfa",
         view_no_cart: "#60a5fa",
         cart_no_checkout: "#fbbf24",
         high_intent_no_buy: "#f87171",
         bounce: "#94a3b8",
+        browse_to_cart: "#fbbf24",
+        cart_to_purchase: "#ef4444",
       };
       const counts: Record<string, number> = {};
       for (const p of products) {
@@ -856,50 +1181,128 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
       value: ctx.heroValue,
       label: "products leaking",
     }),
-    getSubtitle: (ctx) => {
-      if (ctx.heroLoading) return "Calculating…";
+    getKeyMetrics: (ctx) => {
       const list = ctx.abandonedData?.products ?? [];
-      if (list.length === 0) {
-        return "No abandoned-intent products this week — your conversion funnel is clean.";
-      }
-      const topProd = list[0];
-      if (topProd?.product_name) {
-        return `${list.length} product${list.length !== 1 ? "s" : ""} losing warm visitors · top: ${topProd.product_name}.`;
-      }
-      return `${list.length} product${list.length !== 1 ? "s" : ""} where engaged visitors walked away before buying.`;
+      const browseStage = list.filter(
+        (p) => p.leak_point === "view_no_cart" || p.leak_point === "browse_to_cart",
+      ).length;
+      const cartStage = list.filter(
+        (p) => p.leak_point === "cart_no_checkout" || p.leak_point === "cart_to_purchase",
+      ).length;
+      const highIntent = list.filter((p) => p.leak_point === "high_intent_no_buy").length;
+      return [
+        {
+          label: "Products leaking intent",
+          value: `${list.length}`,
+          color: list.length > 0 ? "#f87171" : undefined,
+        },
+        {
+          label: "Browse-stage leaks",
+          value: `${browseStage}`,
+          color: browseStage > 0 ? "#fbbf24" : undefined,
+        },
+        {
+          label: "Cart-stage leaks",
+          value: `${cartStage}`,
+          color: cartStage > 0 ? "#ef4444" : undefined,
+        },
+        {
+          label: "High-intent no-buys",
+          value: `${highIntent}`,
+          color: highIntent > 0 ? "#f87171" : undefined,
+        },
+      ];
     },
-    warmCopy:
-      "These are your warmest leads: visitors who scrolled, dwelled, clicked — and still didn't buy. I compare how deep real buyers go into your products vs how deep non-buyers go; the gap tells you which products have a conversion problem, not a traffic problem.",
-    getWhatToDo: (ctx) => {
+    methodology: {
+      formula:
+        "For each product I compute 1 − (purchases_7d / views_7d), ignoring products with too few views to be statistically real. Each product is then tagged with the leak stage — browse, cart, or checkout — where the drop happened.",
+      getInputs: (ctx) => {
+        const list = ctx.abandonedData?.products ?? [];
+        return list.slice(0, 5).map((p) => ({
+          label: p.product_name ?? "—",
+          value: `${(p.abandon_rate_pct ?? 0).toFixed(0)}% abandon`,
+        }));
+      },
+      note:
+        "Browse-stage leaks usually mean the product page itself isn't convincing. Cart-stage leaks usually mean shipping, price, or checkout friction. The tag on each product tells you where to look.",
+    },
+    getPrimaryAction: (ctx) => {
       const list = ctx.abandonedData?.products ?? [];
       if (list.length === 0) {
-        return [
-          "Nothing to recover here right now. Channel the effort into Hot Products — pushing more traffic to what's already converting beats fixing quiet products.",
-        ];
+        return {
+          headline: "All clear",
+          label: "Nothing to recover here right now",
+          description:
+            "No product on your store is leaking warm intent this week. Channel the effort into Hot Products — pushing more traffic to what's already converting beats fixing quiet products.",
+        };
       }
-      const items: string[] = [];
       const top = list[0];
-      if (top?.product_name) {
-        items.push(
-          `Start with "${top.product_name}" — visitors ${humanizeLeak(top.leak_point)}. The product page copy or price is where to look first.`,
-        );
-      }
+      const name = top?.product_name ?? "your top leak";
+      const leak = humanizeLeak(top?.leak_point);
+      const hint = top?.leak_point === "browse_to_cart" || top?.leak_point === "view_no_cart"
+        ? "The product page itself isn't convincing. Check the photos, price, description, and stock availability first."
+        : top?.leak_point === "cart_to_purchase" || top?.leak_point === "cart_no_checkout"
+        ? "Cart-stage leaks are almost always shipping cost, unexpected fees, or checkout friction. Those are the three things to audit first."
+        : "Review the product page end-to-end and compare it to a product that's converting well for you right now.";
+      return {
+        headline: "Fix first",
+        label: `Start with ${name}`,
+        description: `Visitors ${leak}. ${hint}`,
+      };
+    },
+    getSupportingActions: (ctx) => {
+      const out: SupportingAction[] = [];
+      const list = ctx.abandonedData?.products ?? [];
       if (list.length >= 2 && list[1]?.product_name) {
-        items.push(
-          `Second priority: "${list[1].product_name}" (visitors ${humanizeLeak(list[1].leak_point)}). Fix the same class of issue if the leak pattern matches.`,
-        );
+        const second = list[1];
+        out.push({
+          label: `Then: ${second.product_name}`,
+          description: `Visitors ${humanizeLeak(second.leak_point)}. Apply the same class of fix if the leak pattern matches — it usually does.`,
+        });
       }
-      items.push(
-        "If you have these visitors' emails from past orders, a 10% off targeted to the abandoning segment typically recovers 15–25%.",
-      );
-      return items;
+      if (list.length > 0) {
+        out.push({
+          label: "Email the abandoning segment",
+          description:
+            "If you have these visitors' emails from past orders or newsletter signups, a 10% off targeted to the abandoning segment typically recovers 15–25% of the lost revenue within a week.",
+        });
+      }
+      return out;
     },
   },
 
+  // ------------------------------------------------------------------
+  // 4. Live opportunities (amber-opp)
+  // ------------------------------------------------------------------
   "live-opportunities": {
-    analysisIntro:
-      "Each row below is one page + one reason it's leaking + one concrete fix. Sorted by recoverable revenue, not by guesswork.",
     title: "Live opportunities",
+    mechanics:
+      "These are the pages on your store leaking intent as I speak. Visitors are reading them, scrolling, clicking around — and not converting. Each row is one page + one reason it's leaking + one concrete fix you can ship in minutes.",
+    stakes:
+      "This is the fastest money on your store. High-intent pages with the right fix typically recover 10–30% of their lost revenue within a day. Cold acquisition funnels take weeks to recover the same amount.",
+    getSubtitle: (ctx) => {
+      if (ctx.heroLoading) return "Calculating…";
+      const opps = (ctx.liveOppsData?.opportunities ?? []).filter(
+        (o) => o.signal_type !== "LOW_SIGNAL",
+      );
+      if (opps.length === 0) {
+        return "No leaking pages above threshold. Your high-engagement pages are converting cleanly.";
+      }
+      return `${opps.length} page${opps.length !== 1 ? "s" : ""} leaking intent right now — ranked by recoverable revenue.`;
+    },
+    getHeroStat: (ctx) => {
+      const opps = (ctx.liveOppsData?.opportunities ?? [])
+        .filter((o) => o.signal_type !== "LOW_SIGNAL")
+        .sort((a, b) => (b.priority_score ?? 0) - (a.priority_score ?? 0));
+      if (opps.length === 0) return null;
+      const top = opps[0];
+      return {
+        label: "Top opportunity right now",
+        value: `Priority ${top.priority_score ?? 0}`,
+        sublabel: `${top.url ?? "—"} — ${top.recommended_action ?? "Open the page and audit it."}`,
+        color: "#e8a04e",
+      };
+    },
     getDonutSegments: (ctx) => {
       const opps = (ctx.liveOppsData?.opportunities ?? []).filter(
         (o) => o.signal_type !== "LOW_SIGNAL",
@@ -908,7 +1311,6 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
       const colorMap: Record<string, string> = {
         HIGH_INTENT_PAGE: "#fbbf24",
         ENGAGED_PAGE: "#a78bfa",
-        LOW_SIGNAL: "#64748b",
       };
       const counts: Record<string, number> = {};
       for (const o of opps) {
@@ -930,48 +1332,134 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
       value: ctx.heroValue,
       label: "pages leaking",
     }),
-    getSubtitle: (ctx) => {
-      if (ctx.heroLoading) return "Calculating…";
+    getKeyMetrics: (ctx) => {
       const opps = (ctx.liveOppsData?.opportunities ?? []).filter(
         (o) => o.signal_type !== "LOW_SIGNAL",
       );
-      if (opps.length === 0) {
-        return "No leaking pages above threshold. Your high-engagement pages are converting cleanly.";
-      }
-      return `${opps.length} page${opps.length !== 1 ? "s" : ""} leaking intent right now — ranked by recoverable revenue.`;
+      const highIntent = opps.filter((o) => o.signal_type === "HIGH_INTENT_PAGE").length;
+      const engaged = opps.filter((o) => o.signal_type === "ENGAGED_PAGE").length;
+      const top = [...opps].sort(
+        (a, b) => (b.priority_score ?? 0) - (a.priority_score ?? 0),
+      )[0];
+      return [
+        {
+          label: "Pages leaking intent",
+          value: `${opps.length}`,
+          color: opps.length > 0 ? "#e8a04e" : undefined,
+        },
+        {
+          label: "High-intent pages",
+          value: `${highIntent}`,
+          color: highIntent > 0 ? "#fbbf24" : undefined,
+        },
+        {
+          label: "Engaged pages",
+          value: `${engaged}`,
+          color: engaged > 0 ? "#a78bfa" : undefined,
+        },
+        {
+          label: "Top priority score",
+          value: top ? `${top.priority_score ?? 0}` : "—",
+        },
+      ];
     },
-    warmCopy:
-      "These are the pages on your store leaking intent as I speak. Visitors are reading them, scrolling them, clicking around — but not buying. Each row surfaces one page, one reason it's leaking, and one recommended next action you can do in minutes.",
-    getWhatToDo: (ctx) => {
+    methodology: {
+      formula:
+        "Pages are scored by engagement (scroll depth + dwell time + click count) minus realized conversion. Top scorers are pages where visitors signal interest but walk away without buying.",
+      getInputs: (ctx) => {
+        const opps = (ctx.liveOppsData?.opportunities ?? [])
+          .filter((o) => o.signal_type !== "LOW_SIGNAL")
+          .slice(0, 5);
+        return opps.map((o) => ({
+          label: o.url ?? "—",
+          value: `Priority ${o.priority_score ?? 0}`,
+        }));
+      },
+      note:
+        "Rankings re-sort every 5 minutes as visitors flow through. A page that's #3 at 9am can become #1 by noon if a traffic surge hits it.",
+    },
+    getPrimaryAction: (ctx) => {
       const opps = (ctx.liveOppsData?.opportunities ?? [])
         .filter((o) => o.signal_type !== "LOW_SIGNAL")
         .sort((a, b) => (b.priority_score ?? 0) - (a.priority_score ?? 0));
       if (opps.length === 0) {
-        return [
-          "No leaking pages right now. Lean into Hot Products — they're the ones to invest in.",
-        ];
+        return {
+          headline: "All clear",
+          label: "No leaking pages right now",
+          description:
+            "Your high-engagement pages are converting cleanly. Lean into Hot Products below — those are the pages to invest in while the funnel is healthy.",
+        };
       }
-      const items: string[] = [];
       const top = opps[0];
-      if (top?.recommended_action) {
-        const urlHint = top.url ? ` on ${top.url}` : "";
-        items.push(`Top priority${urlHint}: ${top.recommended_action}`);
-      }
+      const urlHint = top.url ? ` on ${top.url}` : "";
+      return {
+        headline: "Ship this first",
+        label: top.recommended_action ?? `Audit${urlHint}`,
+        description: `This fix is on the page with the highest priority score right now. High-intent page fixes typically recover 10–30% of lost revenue within a day when shipped fast.`,
+      };
+    },
+    getSupportingActions: (ctx) => {
+      const out: SupportingAction[] = [];
+      const opps = (ctx.liveOppsData?.opportunities ?? [])
+        .filter((o) => o.signal_type !== "LOW_SIGNAL")
+        .sort((a, b) => (b.priority_score ?? 0) - (a.priority_score ?? 0));
       if (opps.length >= 2 && opps[1]?.recommended_action) {
-        const urlHint2 = opps[1].url ? ` on ${opps[1].url}` : "";
-        items.push(`Next${urlHint2}: ${opps[1].recommended_action}`);
+        const second = opps[1];
+        const urlHint2 = second.url ? ` on ${second.url}` : "";
+        out.push({
+          label: `Then${urlHint2}`,
+          description: `${second.recommended_action}. Priority ${second.priority_score ?? 0} — work it after the primary ships.`,
+        });
       }
-      items.push(
-        `Come back in a few hours — as visitors flow through, I'll re-rank these based on fresh priority scores.`,
-      );
-      return items;
+      out.push({
+        label: "Come back in a few hours",
+        description:
+          "As visitors flow through, I'll re-rank these based on fresh priority scores. A second pass in the afternoon typically surfaces 1–2 new opportunities.",
+      });
+      return out;
     },
   },
 
+  // ------------------------------------------------------------------
+  // 5. Visitor intent (rose)
+  // ------------------------------------------------------------------
   "visitor-intent": {
-    analysisIntro:
-      "Here's the live composition of your traffic by intent level. The proportions tell you whether to acquire more or convert better — two very different fixes.",
     title: "Visitor intent",
+    mechanics:
+      "I classify every live visitor into Hot (engaged and clicked), Warm (engaged but no click), and Cold (pass-through). A Hot visitor is roughly ten times more likely to buy than a Cold one — so the split tells you whether your traffic is the problem or your pages are.",
+    stakes:
+      "If your mix is mostly Cold, your traffic is wrong — fix the acquisition. If your mix is mostly Warm but low Hot, your product pages aren't earning the click — fix the conversion. Two very different costly mistakes, and mixing them up burns weeks.",
+    getSubtitle: (ctx) => {
+      if (ctx.heroLoading) return "Calculating…";
+      const hot = ctx.visitorIntentData?.hot_visitors ?? 0;
+      const warm = ctx.visitorIntentData?.warm_visitors ?? 0;
+      const cold = ctx.visitorIntentData?.cold_visitors ?? 0;
+      const total = ctx.visitorIntentData?.total_visitors ?? 0;
+      if (total === 0) {
+        return "No visitors scored yet. The classification kicks in with the first visitor.";
+      }
+      return `Hot ${hot} · Warm ${warm} · Cold ${cold} — out of ${total.toLocaleString()} visitors scored.`;
+    },
+    getHeroStat: (ctx) => {
+      const hot = ctx.visitorIntentData?.hot_visitors ?? 0;
+      const warm = ctx.visitorIntentData?.warm_visitors ?? 0;
+      const cold = ctx.visitorIntentData?.cold_visitors ?? 0;
+      const total = ctx.visitorIntentData?.total_visitors ?? 0;
+      if (total === 0) return null;
+      const segments = [
+        { label: "Cold", value: cold, color: "#94a3b8" },
+        { label: "Warm", value: warm, color: "#a78bfa" },
+        { label: "Hot", value: hot, color: "#f87171" },
+      ].sort((a, b) => b.value - a.value);
+      const dominant = segments[0];
+      const pct = total > 0 ? Math.round((dominant.value / total) * 100) : 0;
+      return {
+        label: "Dominant segment right now",
+        value: `${dominant.label} ${pct}%`,
+        sublabel: `${dominant.value.toLocaleString()} of ${total.toLocaleString()} visitors scored — the shape of your current traffic.`,
+        color: dominant.color,
+      };
+    },
     getDonutSegments: (ctx) => {
       const hot = ctx.visitorIntentData?.hot_visitors ?? 0;
       const warm = ctx.visitorIntentData?.warm_visitors ?? 0;
@@ -987,60 +1475,153 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
       value: `${ctx.visitorIntentData?.total_visitors?.toLocaleString() ?? "—"}`,
       label: "visitors tracked",
     }),
-    getSubtitle: (ctx) => {
-      if (ctx.heroLoading) return "Calculating…";
+    getKeyMetrics: (ctx) => {
       const hot = ctx.visitorIntentData?.hot_visitors ?? 0;
       const warm = ctx.visitorIntentData?.warm_visitors ?? 0;
       const cold = ctx.visitorIntentData?.cold_visitors ?? 0;
       const total = ctx.visitorIntentData?.total_visitors ?? 0;
-      if (total === 0) {
-        return "No visitors scored yet. The classification kicks in with the first visitor.";
-      }
-      return `Hot ${hot} · Warm ${warm} · Cold ${cold} — out of ${total.toLocaleString()} visitors scored.`;
+      return [
+        {
+          label: "Hot visitors",
+          value: `${hot.toLocaleString()}`,
+          color: hot > 0 ? "#f87171" : undefined,
+        },
+        {
+          label: "Warm visitors",
+          value: `${warm.toLocaleString()}`,
+          color: warm > 0 ? "#a78bfa" : undefined,
+        },
+        {
+          label: "Cold visitors",
+          value: `${cold.toLocaleString()}`,
+          color: cold > 0 ? "#94a3b8" : undefined,
+        },
+        { label: "Total scored", value: `${total.toLocaleString()}` },
+      ];
     },
-    warmCopy:
-      "I classify every visitor on your store into Hot (engaged and clicked), Warm (engaged but no click), and Cold (pass-through). Hot visitors are roughly ten times more likely to buy than Cold ones — so the split tells you whether to acquire more traffic or convert better.",
-    getWhatToDo: (ctx) => {
+    methodology: {
+      formula:
+        "conversion_score = weighted sum of dwell time, scroll depth, and click count per visitor. Above the Hot threshold = Hot. Between Warm and Hot thresholds = Warm. At or below Warm threshold = Cold.",
+      getInputs: (ctx) => {
+        const hotThreshold = ctx.visitorIntentData?.hot_threshold;
+        const warmThreshold = ctx.visitorIntentData?.warm_threshold;
+        const rows: Array<{ label: string; value: string }> = [];
+        if (hotThreshold !== undefined) {
+          rows.push({ label: "Hot threshold", value: `> ${hotThreshold}` });
+        }
+        if (warmThreshold !== undefined) {
+          rows.push({ label: "Warm threshold", value: `> ${warmThreshold}` });
+        }
+        rows.push({
+          label: "Total visitors scored",
+          value: `${(ctx.visitorIntentData?.total_visitors ?? 0).toLocaleString()}`,
+        });
+        return rows;
+      },
+      note:
+        "Thresholds are published on purpose — we want you to audit the classification. Hot visitors are roughly 10× more likely to convert than Cold ones based on historical data across all shops.",
+    },
+    getPrimaryAction: (ctx) => {
       const hot = ctx.visitorIntentData?.hot_visitors ?? 0;
       const warm = ctx.visitorIntentData?.warm_visitors ?? 0;
       const cold = ctx.visitorIntentData?.cold_visitors ?? 0;
       const total = ctx.visitorIntentData?.total_visitors ?? 0;
       if (total === 0) {
-        return [
-          "Tracker hasn't seen a visitor yet. Check that the HedgeSpark script is loaded on your storefront.",
-        ];
+        return {
+          headline: "Tracker warming up",
+          label: "No visitors scored yet",
+          description:
+            "Check that the HedgeSpark script is loaded on your storefront. As soon as the first visitor arrives, they'll be classified and this panel will populate.",
+        };
       }
-      const items: string[] = [];
-      // Dominant-state branch — the advice depends on the real split.
       if (cold > hot + warm) {
-        items.push(
-          `Cold visitors outnumber your engaged ones (${cold} vs ${hot + warm}). Your traffic quality is low — audit ad creative or landing pages.`,
-        );
-      } else if (warm > 0 && hot < Math.max(1, Math.round(warm / 3))) {
-        items.push(
-          `You have ${warm} warm visitor${warm !== 1 ? "s" : ""} but only ${hot} crossing into hot. Your product pages aren't earning the click — tighten the CTA and social proof.`,
-        );
-      } else if (hot > 0) {
-        items.push(
-          `${hot} hot visitor${hot !== 1 ? "s" : ""} right now. If you can message them within the hour (email, retarget pixel), recovery rates are meaningfully higher than later.`,
-        );
+        return {
+          headline: "Traffic problem",
+          label: `Cold outnumbers engaged (${cold} vs ${hot + warm})`,
+          description:
+            "Your traffic quality is low. The fix is upstream — audit ad creative, landing pages, and channel mix. Fixing product pages won't help if Cold visitors dominate.",
+        };
       }
-      items.push(
-        `Open ${hot > 0 ? "Abandoned Intent below" : "Live Opportunities below"} to see the specific pages where this visitor mix is converting poorly.`,
-      );
-      return items;
+      if (warm > 0 && hot < Math.max(1, Math.round(warm / 3))) {
+        return {
+          headline: "Conversion problem",
+          label: `${warm} Warm but only ${hot} Hot`,
+          description:
+            "Your visitors are engaging but not clicking. The fix is on-page — tighten CTAs, add social proof, reduce friction above the fold. This is a page problem, not a traffic problem.",
+        };
+      }
+      if (hot > 0) {
+        return {
+          headline: "Strike now",
+          label: `${hot} Hot visitor${hot !== 1 ? "s" : ""} on your store right now`,
+          description:
+            "Hot visitors are 10× more likely to convert than Cold ones. Messaging them within the hour — email, retarget pixel, push — recovers meaningfully more than waiting until tomorrow.",
+        };
+      }
+      return {
+        headline: "Healthy mix",
+        label: "Balanced intent distribution",
+        description:
+          "Your Hot/Warm/Cold split is healthy. Use the quiet period to invest in what's working — Hot Products is the right next panel to open.",
+      };
+    },
+    getSupportingActions: (ctx) => {
+      const hot = ctx.visitorIntentData?.hot_visitors ?? 0;
+      const out: SupportingAction[] = [];
+      if (hot > 0) {
+        out.push({
+          label: "Open Abandoned Intent",
+          description:
+            "Those Hot visitors leave traces on specific products. Abandoned Intent shows exactly which products they're looking at and where they drop off.",
+        });
+      } else {
+        out.push({
+          label: "Open Live Opportunities",
+          description:
+            "The pages with the biggest leaking intent right now are where to focus — especially if your mix shows a conversion problem rather than a traffic one.",
+        });
+      }
+      out.push({
+        label: "Re-check in an hour",
+        description:
+          "The mix shifts throughout the day as traffic sources change. A morning Cold-heavy mix can flip to Hot by afternoon if the right channel kicks in.",
+      });
+      return out;
     },
   },
 
+  // ------------------------------------------------------------------
+  // 6. Hot products (emerald)
+  // ------------------------------------------------------------------
   "hot-products": {
-    analysisIntro:
-      "These are the three pulling most attention this week, ranked by views + intent. Consider them double-down candidates.",
     title: "Hot products",
+    mechanics:
+      "These are the products pulling the most attention right now — ranked by views, unique visitors, and the intent score I assign each product based on visitor depth. If you want to double down on what's working, start here; if you want to know what to fix, look at Abandoned Intent instead.",
+    stakes:
+      "Quiet products die quiet deaths. A hot product today that you don't push harder becomes a cold product next week — attention cycles are shorter in ecommerce than merchants instinctively believe.",
+    getSubtitle: (ctx) => {
+      if (ctx.topProducts.length === 0) {
+        return "No hot products yet — your first visitors will populate the list.";
+      }
+      const top = ctx.topProducts[0];
+      return `Your #1 this week: ${top.product_name ?? top.product_id ?? "—"} · ${(top.total_views ?? 0).toLocaleString()} views.`;
+    },
+    getHeroStat: (ctx) => {
+      if (ctx.topProducts.length === 0) return null;
+      const top = ctx.topProducts[0];
+      const views = top.total_views ?? 0;
+      const visitors = top.unique_visitors ?? 0;
+      const intent = Math.round(top.avg_intent_score ?? 0);
+      return {
+        label: "Leading product this week",
+        value: top.product_name ?? top.product_id ?? "—",
+        sublabel: `${views.toLocaleString()} views · ${visitors.toLocaleString()} visitors · intent ${intent}.`,
+        color: "#34d399",
+      };
+    },
     getDonutSegments: (ctx) => {
       const top3 = ctx.topProducts.slice(0, 3);
       if (top3.length === 0) return null;
-      // Colors: primary product emerald, runners-up amber + violet —
-      // ranked-color signal. The name is truncated to fit the legend.
       const palette = ["#34d399", "#e8a04e", "#a78bfa"];
       return top3.map((p, i) => {
         const name = p.product_name ?? p.product_id ?? `#${i + 1}`;
@@ -1062,216 +1643,171 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
         label: "total views",
       };
     },
-    getSubtitle: (ctx) => {
-      if (ctx.topProducts.length === 0) return "No hot products yet — your first visitors will populate the list.";
+    getKeyMetrics: (ctx) => {
       const top = ctx.topProducts[0];
-      return `Your #1 this week: ${top.product_name ?? top.product_id ?? "—"} · ${(top.total_views ?? 0).toLocaleString()} views.`;
+      if (!top) return [];
+      const views = top.total_views ?? 0;
+      const visitors = top.unique_visitors ?? 0;
+      const ratio = visitors > 0 ? (views / visitors) : 0;
+      const intent = Math.round(top.avg_intent_score ?? 0);
+      return [
+        {
+          label: "#1 product views",
+          value: views.toLocaleString(),
+          color: views > 0 ? "#34d399" : undefined,
+        },
+        {
+          label: "#1 product visitors",
+          value: visitors.toLocaleString(),
+        },
+        {
+          label: "Views per visitor",
+          value: ratio > 0 ? ratio.toFixed(1) : "—",
+          color: ratio > 2 ? "#a78bfa" : undefined,
+        },
+        {
+          label: "Intent score",
+          value: `${intent}`,
+          color: intent >= 70 ? "#34d399" : intent < 40 && intent > 0 ? "#f87171" : undefined,
+        },
+      ];
     },
-    warmCopy:
-      "These are the products pulling the most attention right now — ranked by views, unique visitors, and the intent score I assign each one. If you want to know what's working, look here first; if you want to know what to fix, look at Abandoned Intent instead.",
-    getWhatToDo: (ctx) => {
-      if (ctx.topProducts.length === 0) {
-        return [
-          "No hot products yet. Once visitors engage, I'll rank them by attention and intent here.",
-        ];
+    methodology: {
+      formula:
+        "Products ranked by total_views × average intent_score over the last 7 days. Only products with enough qualifying visitors are surfaced; one-off traffic spikes don't pollute the ranking.",
+      getInputs: (ctx) => {
+        return ctx.topProducts.slice(0, 3).map((p, i) => ({
+          label: `#${i + 1}: ${p.product_name ?? p.product_id ?? "—"}`,
+          value: `${(p.total_views ?? 0).toLocaleString()} views`,
+        }));
+      },
+      note:
+        "Intent level (HOT/WARM/COLD) uses the same thresholds as Visitor Intent — so the signals are directly comparable between the two panels.",
+    },
+    renderDetailBlock: (ctx) => {
+      if (ctx.loading) {
+        return (
+          <div className="mb-6">
+            <div className="mb-3 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+              Top 3 products
+            </div>
+            <CardSkeleton label="Loading hot products" />
+          </div>
+        );
       }
-      const items: string[] = [];
+      if (ctx.topProducts.length === 0) {
+        return (
+          <div className="mb-6">
+            <div className="mb-3 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+              Top 3 products
+            </div>
+            <CardEmpty
+              accent="amber"
+              title={ctx.coldStartPhase <= 1 ? "Warming up" : "No hot products yet this week"}
+              body={
+                ctx.coldStartPhase <= 1
+                  ? "Your first visitors will populate this list."
+                  : "No products have crossed the intent threshold in the last 7 days."
+              }
+              eta={ctx.coldStartPhase <= 1 ? "Populates within ~5 minutes of your first visitor" : undefined}
+            />
+          </div>
+        );
+      }
+      return (
+        <div className="mb-6">
+          <div className="mb-3 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+            Top 3 products
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {ctx.topProducts.slice(0, 3).map((product, i) => (
+              <div
+                key={`${product.product_id || "prod"}-${i}`}
+                className="flex flex-col rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5"
+              >
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <span className="truncate text-[15px] font-semibold text-white">
+                    {product.product_name || product.product_id || "—"}
+                  </span>
+                  {product.intent_level && (
+                    <span className="flex-shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-slate-300 ring-1 ring-white/10">
+                      {product.intent_level}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-auto grid grid-cols-3 gap-2 border-t border-white/[0.05] pt-3">
+                  <div>
+                    <div className="text-[11px] font-medium uppercase text-slate-500">Views</div>
+                    <div className="mt-1 text-[18px] font-bold tabular-nums text-white">
+                      {(product.total_views ?? 0).toLocaleString()}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-medium uppercase text-slate-500">Visitors</div>
+                    <div className="mt-1 text-[18px] font-bold tabular-nums text-white">
+                      {(product.unique_visitors ?? 0).toLocaleString()}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-medium uppercase text-slate-500">Intent</div>
+                    <div className="mt-1 text-[18px] font-bold tabular-nums text-white">
+                      {Math.round(product.avg_intent_score ?? 0)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    },
+    getPrimaryAction: (ctx) => {
+      if (ctx.topProducts.length === 0) {
+        return {
+          headline: "Warming up",
+          label: "No hot products yet",
+          description:
+            "Once your first visitors engage with your store, I'll rank products by attention and intent here. Nothing to act on yet — but keep the tracker running.",
+        };
+      }
       const top = ctx.topProducts[0];
       const name = top?.product_name ?? top?.product_id ?? "your top product";
       const views = top?.total_views ?? 0;
       const visitors = top?.unique_visitors ?? 0;
-      const intent = Math.round(top?.avg_intent_score ?? 0);
-
-      items.push(
-        `Double down on "${name}" — ${views.toLocaleString()} view${views !== 1 ? "s" : ""} from ${visitors.toLocaleString()} visitor${visitors !== 1 ? "s" : ""}. Add a bundle, write a better description, or push more ad traffic to it.`,
-      );
+      return {
+        headline: "Double down",
+        label: `Invest in ${name}`,
+        description: `${views.toLocaleString()} view${views !== 1 ? "s" : ""} from ${visitors.toLocaleString()} visitor${visitors !== 1 ? "s" : ""} this week. Add a bundle, refine the description, or push more ad traffic to this product — it's already converting the hardest-earned part of your funnel.`,
+      };
+    },
+    getSupportingActions: (ctx) => {
+      const out: SupportingAction[] = [];
+      const top = ctx.topProducts[0];
+      if (!top) return out;
+      const views = top.total_views ?? 0;
+      const visitors = top.unique_visitors ?? 0;
+      const intent = Math.round(top.avg_intent_score ?? 0);
       if (views > 0 && visitors > 0 && views / Math.max(1, visitors) > 2) {
-        items.push(
-          `Same visitors are coming back to "${name}" (${views}/${visitors} = ~${(views / visitors).toFixed(1)} views per person). That's a re-engagement signal — consider email or retargeting.`,
-        );
+        out.push({
+          label: "Re-engage the returning visitors",
+          description: `${(views / Math.max(1, visitors)).toFixed(1)} views per visitor on this product — they're coming back, which is a strong re-engagement signal. An email or retargeting push typically converts a meaningful share of these visitors.`,
+        });
       }
       if (intent > 0 && intent < 40) {
-        items.push(
-          `Intent score on "${name}" is ${intent} — traffic quality is mediocre. The visitors are looking but not signaling purchase. Consider refining your ad targeting.`,
-        );
+        out.push({
+          label: "Refine the traffic quality",
+          description: `Intent score is ${intent} — the visitors are looking but not signaling purchase. Consider tightening ad targeting so you acquire closer-to-buy traffic on this product.`,
+        });
       } else if (intent >= 70) {
-        items.push(
-          `Intent on "${name}" is ${intent} — these visitors are warm. A price drop or limited-time offer right now could convert a chunk of them.`,
-        );
+        out.push({
+          label: "Push a time-boxed offer",
+          description: `Intent is ${intent} — these visitors are warm. A price drop or limited-time offer right now could convert a chunk of them within hours, not weeks.`,
+        });
       }
-      return items;
+      return out;
     },
   },
 };
-
-// ----------------------------------------------------------------------
-// Expanded content dispatcher
-// ----------------------------------------------------------------------
-
-function ExpandedContent({
-  id,
-  apiBase,
-  shop,
-  isProUser,
-  displayCurrency,
-  topProducts,
-  effectiveBrief,
-  briefLoading,
-  tier,
-  coldStartPhase,
-  setUpgradeModalOpen,
-  loading,
-}: {
-  id: CassettoneId;
-  apiBase: string;
-  shop: string;
-  isProUser: boolean;
-  displayCurrency: "USD" | "EUR";
-  topProducts: TopProduct[];
-  effectiveBrief: DailyBrief | null;
-  briefLoading: boolean;
-  tier: "lite" | "pro";
-  coldStartPhase: number;
-  setUpgradeModalOpen: (v: boolean) => void;
-  loading: boolean;
-}) {
-  switch (id) {
-    case "revenue-at-risk":
-      return (
-        <RevenueAtRiskHero
-          apiBase={apiBase}
-          shop={shop}
-          isProUser={isProUser}
-          onUpgrade={() => setUpgradeModalOpen(true)}
-          hideHeading
-        />
-      );
-    case "daily-brief":
-      return (
-        <BriefHero
-          brief={effectiveBrief}
-          loading={briefLoading}
-          tier={tier}
-          onUpgradeClick={() => setUpgradeModalOpen(true)}
-          hideHeading
-          emptyHint={
-            coldStartPhase === 0
-              ? "Complete setup to start tracking."
-              : coldStartPhase === 1
-              ? "Tracker live. First findings within minutes."
-              : coldStartPhase === 2
-              ? "Visitors arriving. Analyzing behavior to find your first revenue opportunity."
-              : undefined
-          }
-        />
-      );
-    case "abandoned-intent":
-      return (
-        <AbandonedIntentCard
-          apiBase={apiBase}
-          shop={shop}
-          isProUser={isProUser}
-          onUpgrade={() => setUpgradeModalOpen(true)}
-          hideHeading
-        />
-      );
-    case "live-opportunities":
-      return <LiveOpportunitiesCard apiBase={apiBase} shop={shop} hideHeading />;
-    case "visitor-intent":
-      return (
-        <VisitorIntentCard
-          apiBase={apiBase}
-          shop={shop}
-          isProUser={isProUser}
-          onUpgrade={() => setUpgradeModalOpen(true)}
-          hideHeading
-        />
-      );
-    case "hot-products":
-      return (
-        <HotProductsExpanded
-          topProducts={topProducts}
-          loading={loading}
-          coldStartPhase={coldStartPhase}
-        />
-      );
-    default:
-      return null;
-  }
-}
-
-// ----------------------------------------------------------------------
-// Hot Products inline (was previously inline in page.tsx)
-// ----------------------------------------------------------------------
-
-function HotProductsExpanded({
-  topProducts,
-  loading,
-  coldStartPhase,
-}: {
-  topProducts: TopProduct[];
-  loading: boolean;
-  coldStartPhase: number;
-}) {
-  return (
-    <section>
-      {loading ? (
-        <CardSkeleton label="Loading hot products" />
-      ) : topProducts.length > 0 ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {topProducts.slice(0, 3).map((product, i) => (
-            <div
-              key={`${product.product_id || "prod"}-${i}`}
-              className="flex flex-col rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5"
-            >
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <span className="truncate text-[15px] font-semibold text-white">
-                  {product.product_name || product.product_id || "—"}
-                </span>
-                {product.intent_level && (
-                  <span className="flex-shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-slate-300 ring-1 ring-white/10">
-                    {product.intent_level}
-                  </span>
-                )}
-              </div>
-              <div className="mt-auto grid grid-cols-3 gap-2 border-t border-white/[0.05] pt-3">
-                <div>
-                  <div className="text-[11px] font-medium uppercase text-slate-500">Views</div>
-                  <div className="mt-1 text-[18px] font-bold tabular-nums text-white">
-                    {(product.total_views ?? 0).toLocaleString()}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[11px] font-medium uppercase text-slate-500">Visitors</div>
-                  <div className="mt-1 text-[18px] font-bold tabular-nums text-white">
-                    {(product.unique_visitors ?? 0).toLocaleString()}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[11px] font-medium uppercase text-slate-500">Intent</div>
-                  <div className="mt-1 text-[18px] font-bold tabular-nums text-white">
-                    {Math.round(product.avg_intent_score ?? 0)}
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <CardEmpty
-          accent="amber"
-          title={coldStartPhase <= 1 ? "Warming up" : "No hot products yet this week"}
-          body={
-            coldStartPhase <= 1
-              ? "Your first visitors will populate this list."
-              : "No products have crossed the intent threshold in the last 7 days."
-          }
-          eta={coldStartPhase <= 1 ? "Populates within ~5 minutes of your first visitor" : undefined}
-        />
-      )}
-    </section>
-  );
-}
 
 // ----------------------------------------------------------------------
 // Hero-number fetches (one per cassettone). Each is defensive — on

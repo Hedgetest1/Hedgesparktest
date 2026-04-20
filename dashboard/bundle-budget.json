@@ -20,8 +20,15 @@
     "chunks_total_bytes": 1702865,
     "chunks_count": 34
   },
+  "_baseline_2026_04_20_lite_v4_drawer_richness": {
+    "_note": "Lite panel v4 — ports AbandonedIntent's DetailDrawer storytelling (mechanics+stakes / hero-stat + key-metrics + methodology / primary-action + supporting-actions) INLINE for all 6 features. Removes the <ExpandedContent> deep-card embed (was redundant). Net: LiteCassettoniGrid grew from ~40 KB to ~45 KB (6×5 new config fields, 2 new JSX sections, methodology block, primary/supporting action renderers); largest-chunk crossed 720 KB by ~5 KB. Bump largest_chunk_bytes 720000 -> 740000 for ~2% headroom. chunks_total and count unchanged direction.",
+    "largest_chunk_bytes": 725125,
+    "root_main_total_bytes": 455826,
+    "chunks_total_bytes": 1720442,
+    "chunks_count": 34
+  },
   "budgets": {
-    "largest_chunk_bytes": 720000,
+    "largest_chunk_bytes": 740000,
     "root_main_total_bytes": 520000,
     "chunks_total_bytes": 1800000,
     "chunks_count_max": 40
