@@ -18,6 +18,8 @@
 
 import { useEffect, useState } from "react";
 import { apiClient } from "@/app/lib/api-client";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
 import type { components } from "../lib/api-types";
 
 type StatusResponse = components["schemas"]["SlackStatusResponse"];
@@ -147,28 +149,56 @@ export function SlackSettings() {
 
       {!connected ? (
         <>
-          <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-            <input
-              type="text"
-              placeholder="https://hooks.slack.com/services/T.../B.../XXX"
-              value={webhookInput}
-              onChange={(e) => setWebhookInput(e.target.value)}
-              disabled={busy !== null}
-              className="flex-1 rounded-lg border border-white/[0.1] bg-white/[0.03] px-4 py-2.5 text-[13px] font-mono text-white placeholder:text-slate-600 focus:border-[#e8a04e]/50 focus:outline-none"
-              aria-label="Slack webhook URL"
-            />
-            <button
-              type="button"
-              onClick={handleConnect}
-              disabled={busy !== null || !webhookInput.trim()}
-              className="flex-shrink-0 rounded-lg bg-gradient-to-br from-[#4A154B] to-[#6d1f6f] px-5 py-2.5 text-[12.5px] font-bold text-white transition-all hover:from-[#6d1f6f] hover:to-[#4A154B] disabled:opacity-60"
+          {/* One-click OAuth — primary path. Merchant clicks, gets
+              bounced to Slack, picks a channel there, comes back
+              connected. Zero manual webhook creation. */}
+          <div className="mt-5">
+            <a
+              href={`${API_BASE}/merchant/slack/oauth/authorize`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2.5 rounded-lg bg-gradient-to-br from-[#4A154B] to-[#6d1f6f] px-5 py-2.5 text-[13px] font-bold text-white transition-all hover:from-[#6d1f6f] hover:to-[#4A154B]"
             >
-              {busy === "connect" ? "Connecting…" : "Connect Slack"}
-            </button>
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden="true">
+                <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/>
+              </svg>
+              Connect Slack
+            </a>
+            <p className="mt-3 text-[12px] leading-relaxed text-slate-400">
+              One click, then pick a channel in Slack — no manual webhook setup. Takes ~15 seconds.
+            </p>
           </div>
-          <p className="mt-3 text-[11.5px] leading-relaxed text-slate-500">
-            Create a webhook: <span className="text-slate-400">your Slack workspace → Apps → Incoming Webhooks → Add to Slack → choose a channel → copy the URL.</span>
-          </p>
+
+          {/* Collapsible manual fallback — only shown if the OAuth
+              path fails or isn't available. Keeps the primary flow
+              clean while preserving the paste option for edge cases. */}
+          <details className="mt-5 rounded-lg border border-white/[0.05] bg-white/[0.02] px-4 py-3 text-[12px]">
+            <summary className="cursor-pointer text-slate-400 transition-colors hover:text-slate-300">
+              Or connect manually with a webhook URL
+            </summary>
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+              <input
+                type="text"
+                placeholder="https://hooks.slack.com/services/T.../B.../XXX"
+                value={webhookInput}
+                onChange={(e) => setWebhookInput(e.target.value)}
+                disabled={busy !== null}
+                className="flex-1 rounded-lg border border-white/[0.1] bg-white/[0.03] px-4 py-2.5 text-[13px] font-mono text-white placeholder:text-slate-600 focus:border-[#e8a04e]/50 focus:outline-none"
+                aria-label="Slack webhook URL"
+              />
+              <button
+                type="button"
+                onClick={handleConnect}
+                disabled={busy !== null || !webhookInput.trim()}
+                className="flex-shrink-0 rounded-lg border border-white/[0.1] bg-white/[0.03] px-4 py-2.5 text-[12px] font-bold text-slate-200 transition-all hover:bg-white/[0.06] disabled:opacity-60"
+              >
+                {busy === "connect" ? "Saving…" : "Save webhook"}
+              </button>
+            </div>
+            <p className="mt-3 text-[11.5px] leading-relaxed text-slate-500">
+              Slack workspace → Apps → Incoming Webhooks → Add to Slack → choose a channel → copy the URL.
+            </p>
+          </details>
         </>
       ) : (
         <div className="mt-5 flex flex-wrap items-center gap-3">
