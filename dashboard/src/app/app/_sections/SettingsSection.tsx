@@ -318,6 +318,21 @@ export function SettingsSection(p: SettingsSectionProps) {
             </button>
           </div>
         </div>
+        {p.isProUser && (
+          <div className="mt-3 border-t border-white/[0.05] pt-3">
+            <a
+              href="/app/settings/costs"
+              className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[#e8a04e] hover:text-[#f0b36b]"
+            >
+              Configure per-product costs
+              <span aria-hidden="true">→</span>
+            </a>
+            <span className="ml-2 text-[11px] text-slate-500">
+              The defaults above cover your shop overall. Per-product costs
+              override them for that SKU only — strictly more accurate P&amp;L.
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Klaviyo card */}
