@@ -143,7 +143,7 @@ from app.api.lift import router as lift_router
 from app.api.proof_report import router as proof_report_router
 from app.api.public_proofs import router as public_proofs_router
 from app.api.heatmap import router as heatmap_router
-from app.api.cohorts import router as cohorts_router
+from app.api.cohorts import router as cohorts_router, lite_router as cohorts_lite_router
 from app.api.shopify_oauth import router as shopify_oauth_router
 from app.api.billing import router as billing_router
 from app.api.setup import router as setup_router
@@ -556,6 +556,7 @@ app.include_router(proof_report_router)
 app.include_router(public_proofs_router)
 app.include_router(heatmap_router)
 app.include_router(cohorts_router)
+app.include_router(cohorts_lite_router)
 app.include_router(shopify_oauth_router)
 app.include_router(billing_router)
 app.include_router(setup_router)

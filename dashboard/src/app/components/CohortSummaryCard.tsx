@@ -12,7 +12,7 @@
  * This card is the "how are we doing overall?" glance; the matrix is
  * for diagnosis.
  *
- * Data source: GET /pro/cohorts/summary
+ * Data source: GET /analytics/cohorts/summary (Lite + Pro accessible).
  */
 
 import { useState } from "react";
@@ -49,12 +49,16 @@ export function CohortSummaryCard({
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const { data, state, retry } = useCardFetch<CohortSummary>({
-    url: `${apiBase}/pro/cohorts/summary`,
-    enabled: !!apiBase && !!shop && isProUser,
+    url: `${apiBase}/analytics/cohorts/summary`,
+    enabled: !!apiBase && !!shop,
     isEmpty: (d) => (d.cohorts_measured ?? 0) === 0 || (d.total_customers ?? 0) === 0,
   });
 
-  if (!isProUser) return null;
+  // `isProUser` retained in signature for call-site back-compat but
+  // no longer gates rendering — per founder directive 2026-04-20,
+  // top-level retention is a Lite feature (strada 2 completista).
+  // The per-customer LTV drill-down + full cohort matrix remain Pro.
+  void isProUser;
 
   if (state === "loading") {
     return <CardSkeleton label="Measuring cohort retention" />;

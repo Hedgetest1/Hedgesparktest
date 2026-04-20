@@ -2831,6 +2831,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/cohorts/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Cohort Summary Lite
+         * @description Lite-accessible retention summary. Same shape + service as the
+         *     Pro-gated /pro/cohorts/summary endpoint; only the auth dependency
+         *     differs. Data is not sensitive across tiers — the split was a
+         *     positioning choice we relaxed per founder directive 2026-04-20.
+         */
+        get: operations["get_cohort_summary_lite_analytics_cohorts_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/install": {
         parameters: {
             query?: never;
@@ -14242,6 +14265,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_cohort_summary_lite_analytics_cohorts_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CohortSummaryResponse"];
                 };
             };
         };

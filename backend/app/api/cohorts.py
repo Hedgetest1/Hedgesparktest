@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_pro_session
+from app.core.deps import require_merchant_session, require_pro_session
 from app.services.cohort_engine import get_cohort_retention, get_cohort_summary
 from app.services.ltv_engine import (
     get_monthly_cohorts,
@@ -223,6 +223,30 @@ class BehavioralCohortsResponse(BaseModel):
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/pro/cohorts", tags=["cohorts"])
+
+# Lite-accessible sibling router for the subset of cohort endpoints
+# that are part of the €39 tier (Strada 2, 2026-04-20). Only the
+# top-level retention summary is exposed — the full matrix, monthly
+# cohorts, per-customer LTV, and behavioral cohorts remain Pro-gated
+# because their depth + volume is the Pro moat. Lite gets the "how
+# are we doing overall at retaining customers?" glance.
+lite_router = APIRouter(prefix="/analytics/cohorts", tags=["cohorts"])
+
+
+@lite_router.get(
+    "/summary",
+    response_model=CohortSummaryResponse,
+    response_model_exclude_none=False,
+)
+def get_cohort_summary_lite(
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+):
+    """Lite-accessible retention summary. Same shape + service as the
+    Pro-gated /pro/cohorts/summary endpoint; only the auth dependency
+    differs. Data is not sensitive across tiers — the split was a
+    positioning choice we relaxed per founder directive 2026-04-20."""
+    return get_cohort_summary(db, shop)
 
 
 

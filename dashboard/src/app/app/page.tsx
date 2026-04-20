@@ -2846,6 +2846,43 @@ function PageInner() {
                 </section>
               )}
 
+              {/* Customer retention — basic LTV / repeat-rate surface.
+                  Strada 2.2 per founder directive 2026-04-20. Reuses
+                  the existing CohortSummaryCard (with DetailDrawer
+                  richness) — no new component. Backend opened to Lite
+                  via /analytics/cohorts/summary sibling endpoint. The
+                  per-customer predicted-LTV drill-down and full cohort
+                  matrix remain Pro depth. */}
+              {isLiteFloor && (
+                <section
+                  aria-labelledby="lite-retention-heading"
+                  className="relative mb-8 overflow-hidden rounded-3xl border border-emerald-400/[0.15] bg-gradient-to-br from-[#0a1612] via-[#0a0a14] to-[#0b0c18] p-7 sm:p-9"
+                >
+                  <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#34d399] to-transparent opacity-50" />
+                  <div className="pointer-events-none absolute -right-32 -top-32 h-[340px] w-[340px] rounded-full bg-[#34d399]/[0.05] blur-[150px]" />
+                  <div className="relative">
+                    <div className="mb-5">
+                      <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-emerald-300">
+                        Customer retention
+                      </div>
+                      <h2
+                        id="lite-retention-heading"
+                        className="mt-2 text-[1.5rem] font-extrabold leading-[1.08] tracking-tight text-white sm:text-[1.75rem]"
+                      >
+                        How well your customers come back
+                      </h2>
+                      <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
+                        Week-1 and week-4 repeat-purchase rates across your
+                        weekly acquisition cohorts. Spotlights the single
+                        best-performing cohort so you know which acquisition
+                        week to replicate.
+                      </p>
+                    </div>
+                    <CohortSummaryCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  </div>
+                </section>
+              )}
+
               {isLiteFloor && (
                 <LiteCassettoniGrid
                   apiBase={API_BASE}
