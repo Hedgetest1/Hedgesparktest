@@ -2844,9 +2844,11 @@ function PageInner() {
                         >
                           How you rank against similar Shopify stores
                         </h2>
-                        <div className="flex flex-shrink-0 items-center gap-2">
+                        <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
                           <ExportButton surface="benchmarks" accentColor="#a78bfa" label="Peer CSV" />
+                          <ExportButton surface="benchmarks" accentColor="#a78bfa" label="Peer PDF" format="pdf" />
                           <ExportButton surface="benchmarks_vertical" accentColor="#a78bfa" label="Vertical CSV" />
+                          <ExportButton surface="benchmarks_vertical" accentColor="#a78bfa" label="Vertical PDF" format="pdf" />
                         </div>
                       </div>
                       <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
@@ -2900,7 +2902,10 @@ function PageInner() {
                         >
                           What you actually keep after costs
                         </h2>
-                        <ExportButton surface="pnl" accentColor="#e8a04e" />
+                        <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
+                          <ExportButton surface="pnl" accentColor="#e8a04e" />
+                          <ExportButton surface="pnl" accentColor="#e8a04e" format="pdf" />
+                        </div>
                       </div>
                       <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
                         Revenue minus COGS, payment fees, and shipping — the
@@ -2956,7 +2961,10 @@ function PageInner() {
                         >
                           Where your converting traffic comes from
                         </h2>
-                        <ExportButton surface="attribution" accentColor="#60a5fa" />
+                        <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
+                          <ExportButton surface="attribution" accentColor="#60a5fa" />
+                          <ExportButton surface="attribution" accentColor="#60a5fa" format="pdf" />
+                        </div>
                       </div>
                       <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
                         UTM-deterministic attribution — every converting
@@ -3002,7 +3010,10 @@ function PageInner() {
                         >
                           How well your customers come back
                         </h2>
-                        <ExportButton surface="cohorts_monthly" accentColor="#34d399" label="Cohorts CSV" />
+                        <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
+                          <ExportButton surface="cohorts_monthly" accentColor="#34d399" label="Cohorts CSV" />
+                          <ExportButton surface="cohorts_monthly" accentColor="#34d399" label="Cohorts PDF" format="pdf" />
+                        </div>
                       </div>
                       <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
                         Week-1 and week-4 repeat-purchase rates across your

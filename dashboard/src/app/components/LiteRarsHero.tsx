@@ -141,8 +141,9 @@ export function LiteRarsHero({
               The number no other Shopify tool shows you
             </h2>
           </div>
-          <div className="flex flex-shrink-0 flex-wrap items-start gap-3">
-            <ExportButton surface="rars" accentColor="#fbbf24" label="Export CSV" />
+          <div className="flex flex-shrink-0 flex-wrap items-start gap-2">
+            <ExportButton surface="rars" accentColor="#fbbf24" label="CSV" />
+            <ExportButton surface="rars" accentColor="#fbbf24" label="PDF" format="pdf" />
           </div>
         </div>
         <div className="mt-4 flex flex-wrap items-baseline gap-3">

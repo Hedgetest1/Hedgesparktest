@@ -24,14 +24,18 @@ type Surface =
   | "cohorts_monthly"
   | "attribution";
 
+type Format = "csv" | "pdf";
+
 export function ExportButton({
   surface,
-  label = "Export CSV",
+  label,
   accentColor = "#e8a04e",
+  format = "csv",
 }: {
   surface: Surface;
   label?: string;
   accentColor?: string;
+  format?: Format;
 }) {
   const [state, setState] = useState<"idle" | "loading" | "ok" | "error">("idle");
 
@@ -39,15 +43,13 @@ export function ExportButton({
     if (state === "loading") return;
     setState("loading");
     try {
-      const url = `${API_BASE}/analytics/export?surface=${encodeURIComponent(surface)}`;
+      const url = `${API_BASE}/analytics/export?surface=${encodeURIComponent(surface)}&format=${format}`;
       const res = await fetch(url, { credentials: "include" });
       if (!res.ok) throw new Error(`export failed: ${res.status}`);
       const blob = await res.blob();
-      // Read filename from Content-Disposition if present; fall back
-      // to a sensible default so the download is never nameless.
       const cd = res.headers.get("Content-Disposition") || "";
       const match = cd.match(/filename="?([^"]+)"?/);
-      const filename = match?.[1] || `${surface}.csv`;
+      const filename = match?.[1] || `${surface}.${format}`;
       const objectUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = objectUrl;
@@ -64,11 +66,12 @@ export function ExportButton({
     }
   };
 
+  const defaultLabel = format === "pdf" ? "Export PDF" : "Export CSV";
   const displayLabel =
     state === "loading" ? "Preparing…" :
     state === "ok" ? "Downloaded ✓" :
     state === "error" ? "Retry" :
-    label;
+    (label || defaultLabel);
 
   return (
     <button

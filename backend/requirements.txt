@@ -11,3 +11,4 @@ cryptography==46.0.6
 PyJWT==2.12.1
 sentry-sdk[fastapi]==2.56.0
 resend==2.26.0
+reportlab==4.4.10
