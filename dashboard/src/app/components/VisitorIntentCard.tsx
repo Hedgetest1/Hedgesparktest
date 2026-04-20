@@ -35,11 +35,13 @@ export function VisitorIntentCard({
   shop,
   isProUser,
   onUpgrade,
+  hideHeading,
 }: {
   apiBase: string;
   shop: string;
   isProUser: boolean;
   onUpgrade?: () => void;
+  hideHeading?: boolean;
 }) {
   const { data, state, retry } = useCardFetch<VisitorIntentCounts>({
     url: `${apiBase}/analytics/visitor-intent-classification`,
@@ -80,19 +82,20 @@ export function VisitorIntentCard({
 
   return (
     <section>
-      {/* Unified section heading: ONE big amber H2 + slate subtitle. */}
-      <div className="mb-6">
-        <h3 className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-[#e8a04e] sm:text-[2rem]">
-          Visitor intent — who&apos;s in your store right now
-        </h3>
-        <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-slate-400">
-          Every visitor classified by scroll, dwell, and click behavior.
-          {" "}
-          <span className="text-slate-300">
-            {total.toLocaleString()} visitors tracked.
-          </span>
-        </p>
-      </div>
+      {!hideHeading && (
+        <div className="mb-6">
+          <h3 className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-[#e8a04e] sm:text-[2rem]">
+            Visitor intent — who&apos;s in your store right now
+          </h3>
+          <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-slate-400">
+            Every visitor classified by scroll, dwell, and click behavior.
+            {" "}
+            <span className="text-slate-300">
+              {total.toLocaleString()} visitors tracked.
+            </span>
+          </p>
+        </div>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-3">
         <IntentPill

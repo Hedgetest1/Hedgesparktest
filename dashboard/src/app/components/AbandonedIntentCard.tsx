@@ -71,11 +71,13 @@ export function AbandonedIntentCard({
   shop,
   isProUser,
   onUpgrade,
+  hideHeading,
 }: {
   apiBase: string;
   shop: string;
   isProUser: boolean;
   onUpgrade?: () => void;
+  hideHeading?: boolean;
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -143,13 +145,16 @@ export function AbandonedIntentCard({
         }}
         className="group cursor-pointer rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6 transition-shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e8a04e] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1220] hover:border-white/[0.12]"
       >
-        {/* Unified heading spec (2026-04-20, founder-corrected pass):
-            one big amber H2 + slate subtitle. No separate amber
-            eyebrow — that was the "amber ripetuti" issue. */}
-        <h3 className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-[#e8a04e] sm:text-[2rem]">
-          Abandoned intent — where intent dies
-        </h3>
-        <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-slate-400">{data.headline}</p>
+        {/* Heading suppressed when rendered inside LiteCassettoniGrid
+            (panel supplies its own title/subtitle/warm-copy). */}
+        {!hideHeading && (
+          <>
+            <h3 className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-[#e8a04e] sm:text-[2rem]">
+              Abandoned intent — where intent dies
+            </h3>
+            <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-slate-400">{data.headline}</p>
+          </>
+        )}
 
         {/* Buyer vs non-buyer comparison — kept on the card because it's the
             single most powerful diagnostic at a glance: how much do real

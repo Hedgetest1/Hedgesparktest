@@ -39,6 +39,8 @@ type Props = {
   loading: boolean;
   tier: "lite" | "pro";
   onUpgradeClick: () => void;
+  /** Suppress internal heading (used inside LiteCassettoniGrid). */
+  hideHeading?: boolean;
   /** Spark-voiced empty state — overrides generic text. */
   emptyHint?: string;
   /** Spark one-liner insight (data-driven, contextual). */
@@ -153,7 +155,7 @@ function SnapshotRow({ item }: { item: BriefSnapshot }) {
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
-export function BriefHero({ brief, loading, tier, onUpgradeClick, emptyHint, sparkInsight, sparkDetail }: Props) {
+export function BriefHero({ brief, loading, tier, onUpgradeClick, emptyHint, sparkInsight, sparkDetail, hideHeading }: Props) {
   if (loading) return <BriefSkeleton />;
 
   const isEmpty =
@@ -196,15 +198,14 @@ export function BriefHero({ brief, loading, tier, onUpgradeClick, emptyHint, spa
 
       {/* ── Spark insight block ── */}
       <div className="px-7 pt-7 pb-5">
-        {/* Header row: unified section heading (ONE big amber H2).
-            Removed the small bouncing Spark mascot (was 28px hs-float,
-            distracted from the title) and the hs-brand-gradient label
-            (which violated §4: gradient reserved for wordmark only).
-            Date + signal count move under the title as slate meta. */}
+        {/* Header suppressed when rendered inside the cassettoni
+            panel (panel supplies its own title/subtitle). */}
         <div className="mb-5">
-          <h2 className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-[#e8a04e] sm:text-[2rem]">
-            Daily brief — today&apos;s headline
-          </h2>
+          {!hideHeading && (
+            <h2 className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-[#e8a04e] sm:text-[2rem]">
+              Daily brief — today&apos;s headline
+            </h2>
+          )}
           <div className="mt-2 flex flex-wrap items-center gap-2.5 text-[13px]">
             {brief.brief_date && (
               <span className="text-slate-500">{brief.brief_date}</span>

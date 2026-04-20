@@ -35,7 +35,6 @@ import { BriefHero, type DailyBrief } from "./BriefHero";
 import { AbandonedIntentCard } from "./AbandonedIntentCard";
 import { LiveOpportunitiesCard } from "./LiveOpportunitiesCard";
 import { VisitorIntentCard } from "./VisitorIntentCard";
-import { SectionHeading } from "../app/_components/SectionHeading";
 import { CardEmpty } from "./_CardStates";
 import { formatMoneyCompact } from "../app/_lib/formatters";
 
@@ -273,52 +272,196 @@ export function LiteCassettoniGrid({
         })}
       </div>
 
-      {/* Expanded panel — one at a time, rendered BETWEEN the grid and
-          the radar (radar lives outside this component, after the
-          grid in the page layout). */}
-      {expandedId !== null && (
-        <div
-          id={`cassettone-panel-${expandedId}`}
-          role="region"
-          aria-label="Expanded feature"
-          className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-[#0e0e1a] p-6 shadow-[0_20px_80px_-20px_rgba(0,0,0,0.6)] sm:p-8"
-        >
-          {/* Collapse button */}
-          <div className="mb-5 flex items-center justify-end">
-            <button
-              type="button"
-              onClick={() => setExpandedId(null)}
-              className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-[11.5px] font-bold text-slate-300 transition-colors hover:bg-white/[0.06] hover:text-white"
-            >
-              Collapse
-            </button>
-          </div>
+      {/* Expanded panel — one at a time, rendered BETWEEN the grid
+          and the radar. Structured layout per spec §7:
+          Title → Subtitle → Warm copy → Analysis → What to do. */}
+      {expandedId !== null && (() => {
+        const activeCassettone = cassettoni.find((c) => c.id === expandedId);
+        const panelConfig = PANEL_CONFIG[expandedId];
+        const accent = activeCassettone ? ACCENTS[activeCassettone.accent] : ACCENTS.amberOpp;
+        return (
+          <div
+            id={`cassettone-panel-${expandedId}`}
+            role="region"
+            aria-label="Expanded feature"
+            className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-[#0e0e1a] p-7 shadow-[0_20px_80px_-20px_rgba(0,0,0,0.6)] sm:p-9"
+          >
+            {/* Collapse button */}
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: accent.eyebrow }}>
+                {activeCassettone?.eyebrow}
+              </div>
+              <button
+                type="button"
+                onClick={() => setExpandedId(null)}
+                className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-[11.5px] font-bold text-slate-300 transition-colors hover:bg-white/[0.06] hover:text-white"
+                aria-label="Collapse"
+              >
+                Collapse
+              </button>
+            </div>
 
-          {/* Body — renders the existing deep card for this feature.
-              Commit 2 will wrap this with the structured
-              title/subtitle/warm-copy/analysis/what-to-do layout.
-              Commit 3 will add the donut chart. For now, the raw
-              existing component satisfies the real-data contract —
-              every number it renders is backend-sourced. */}
-          <ExpandedContent
-            id={expandedId}
-            apiBase={apiBase}
-            shop={shop}
-            isProUser={isProUser}
-            displayCurrency={displayCurrency}
-            topProducts={topProducts}
-            effectiveBrief={effectiveBrief}
-            briefLoading={briefLoading}
-            tier={tier}
-            coldStartPhase={coldStartPhase}
-            setUpgradeModalOpen={setUpgradeModalOpen}
-            loading={loading}
-          />
-        </div>
-      )}
+            {/* ── Title (big amber) ── */}
+            <h2
+              className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight sm:text-[2rem]"
+              style={{ color: accent.hero }}
+            >
+              {panelConfig.title}
+            </h2>
+
+            {/* ── Subtitle (metric in context, white small bold) ── */}
+            <p className="mt-2 text-[15px] font-semibold text-white">
+              {panelConfig.getSubtitle({
+                heroValue: activeCassettone?.number.value ?? "—",
+                meta: activeCassettone?.meta ?? "",
+              })}
+            </p>
+
+            {/* ── Warm copy (idiot-proof, Spark voice, slate) ── */}
+            <p className="mt-3 max-w-3xl text-[14px] leading-relaxed text-slate-400">
+              {panelConfig.warmCopy}
+            </p>
+
+            {/* ── Analysis (the deep card, heading suppressed) ── */}
+            <div className="mt-6 border-t border-white/[0.05] pt-6">
+              <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">
+                Analysis
+              </div>
+              <ExpandedContent
+                id={expandedId}
+                apiBase={apiBase}
+                shop={shop}
+                isProUser={isProUser}
+                displayCurrency={displayCurrency}
+                topProducts={topProducts}
+                effectiveBrief={effectiveBrief}
+                briefLoading={briefLoading}
+                tier={tier}
+                coldStartPhase={coldStartPhase}
+                setUpgradeModalOpen={setUpgradeModalOpen}
+                loading={loading}
+              />
+            </div>
+
+            {/* ── What to do next ── */}
+            <div className="mt-6 border-t border-white/[0.05] pt-6">
+              <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.18em] text-[#e8a04e]">
+                What to do next
+              </div>
+              <ul className="space-y-2">
+                {panelConfig.whatToDo.map((item, i) => (
+                  <li
+                    key={i}
+                    className="flex items-start gap-3 rounded-xl border border-white/[0.04] bg-white/[0.015] px-4 py-3"
+                  >
+                    <span
+                      className="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full"
+                      style={{ background: accent.eyebrow }}
+                      aria-hidden="true"
+                    />
+                    <span className="text-[13px] leading-relaxed text-slate-300">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        );
+      })()}
     </section>
   );
 }
+
+// ----------------------------------------------------------------------
+// Panel config — one per feature. Real-data contract:
+// - title: static, matches cassettone
+// - getSubtitle: function of live data (heroValue), not fabricated
+// - warmCopy: explains what the merchant is seeing, Spark voice
+// - whatToDo: real actions merchants can take (static list, grounded
+//   in what the feature actually measures). Not fabricated data —
+//   these are the canonical moves for each feature type.
+// ----------------------------------------------------------------------
+
+type PanelConfig = {
+  title: string;
+  getSubtitle: (ctx: { heroValue: string; meta: string }) => string;
+  warmCopy: string;
+  whatToDo: string[];
+};
+
+const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
+  "revenue-at-risk": {
+    title: "Revenue at risk",
+    getSubtitle: ({ heroValue, meta }) =>
+      `${heroValue} ${meta} — money about to slip through your store if no one acts.`,
+    warmCopy:
+      "I sum up every signal that points to lost revenue this month — abandoned carts with real intent, refund trends, products underperforming peers, and targets you're missing. This is the one number that tells you how much HedgeSpark could earn back for you.",
+    whatToDo: [
+      "Open Abandoned Intent below to see which products lost the most high-intent visitors.",
+      "Check Live Opportunities to find the specific pages where money is leaking today.",
+      "Review Visitor Intent — if hot visitors aren't converting, your product pages need attention.",
+    ],
+  },
+  "daily-brief": {
+    title: "Daily brief",
+    getSubtitle: ({ heroValue, meta }) =>
+      `${heroValue} ${meta} — today's top stories from your store, in one paragraph.`,
+    warmCopy:
+      "Every morning I scan every event from the past 24 hours and rank findings by economic impact. The top signal leads the brief; the rest are ranked below. If you only read one card today, read this one.",
+    whatToDo: [
+      "Act on the top finding first — it's ranked by real revenue impact, not vanity metrics.",
+      "Glance at the product snapshot to see which three SKUs drove today's story.",
+      "Come back tomorrow morning — the brief refreshes overnight with fresh data.",
+    ],
+  },
+  "abandoned-intent": {
+    title: "Abandoned intent",
+    getSubtitle: ({ heroValue, meta }) =>
+      `${heroValue} ${meta} — products where engaged visitors walked away before buying.`,
+    warmCopy:
+      "These are your warmest leads: visitors who scrolled, dwelled, clicked — and still didn't buy. I compare how deep real buyers go into your products vs how deep non-buyers go; the gap tells you which products have a conversion problem, not a traffic problem.",
+    whatToDo: [
+      "Review the top product: it has high intent but low conversion — fix the product page copy or price.",
+      "Check the buyer-vs-non-buyer depth: if non-buyers look at more products, you have a choice paralysis issue.",
+      "Email the abandoning visitors if you have their contact — a targeted 10% off often recovers 20%.",
+    ],
+  },
+  "live-opportunities": {
+    title: "Live opportunities",
+    getSubtitle: ({ heroValue, meta }) =>
+      `${heroValue} ${meta} — high-engagement pages under-converting right now.`,
+    warmCopy:
+      "These are the pages on your store leaking intent as I speak. Visitors are reading them, scrolling them, clicking around — but not buying. Each row surfaces one page, one reason it's leaking, and one recommended next action you can do in minutes.",
+    whatToDo: [
+      "Tackle the top-priority page first — it has the highest recoverable revenue.",
+      "Read each row's recommended_action: it's the specific fix pulled from your real traffic pattern.",
+      "Come back in a few hours — the list refreshes as behavior changes.",
+    ],
+  },
+  "visitor-intent": {
+    title: "Visitor intent",
+    getSubtitle: ({ heroValue }) =>
+      `${heroValue} hot visitors right now — the ones most likely to buy if you act fast.`,
+    warmCopy:
+      "I classify every visitor on your store into Hot (engaged and clicked), Warm (engaged but no click), and Cold (pass-through). Hot visitors are roughly ten times more likely to buy than Cold ones — so the split tells you whether to acquire more traffic or convert better.",
+    whatToDo: [
+      "If you have more Cold than Warm+Hot combined, your traffic quality is low — audit your ad creative.",
+      "If you have Warm visitors but few Hot, your product pages aren't earning the click — fix the CTA.",
+      "Upgrade to Pro to see the ranked list of each hot visitor with their behavior trail.",
+    ],
+  },
+  "hot-products": {
+    title: "Hot products",
+    getSubtitle: ({ heroValue }) =>
+      `${heroValue} products leading your store this week by attention and intent.`,
+    warmCopy:
+      "These are the products pulling the most attention right now — ranked by views, unique visitors, and the intent score I assign each one. If you want to know what's working, look here first; if you want to know what to fix, look at Abandoned Intent instead.",
+    whatToDo: [
+      "Double down on the #1 product: add a bundle, push more traffic to it, or raise prices if demand is strong.",
+      "Compare views vs visitors: high views / low visitors means the same visitors return repeatedly (re-engagement signal).",
+      "Check intent: a product with high views but low intent may be attracting wrong-fit traffic.",
+    ],
+  },
+};
 
 // ----------------------------------------------------------------------
 // Expanded content dispatcher
@@ -359,6 +502,7 @@ function ExpandedContent({
           shop={shop}
           isProUser={isProUser}
           onUpgrade={() => setUpgradeModalOpen(true)}
+          hideHeading
         />
       );
     case "daily-brief":
@@ -368,6 +512,7 @@ function ExpandedContent({
           loading={briefLoading}
           tier={tier}
           onUpgradeClick={() => setUpgradeModalOpen(true)}
+          hideHeading
           emptyHint={
             coldStartPhase === 0
               ? "Complete setup to start tracking."
@@ -386,10 +531,11 @@ function ExpandedContent({
           shop={shop}
           isProUser={isProUser}
           onUpgrade={() => setUpgradeModalOpen(true)}
+          hideHeading
         />
       );
     case "live-opportunities":
-      return <LiveOpportunitiesCard apiBase={apiBase} shop={shop} />;
+      return <LiveOpportunitiesCard apiBase={apiBase} shop={shop} hideHeading />;
     case "visitor-intent":
       return (
         <VisitorIntentCard
@@ -397,6 +543,7 @@ function ExpandedContent({
           shop={shop}
           isProUser={isProUser}
           onUpgrade={() => setUpgradeModalOpen(true)}
+          hideHeading
         />
       );
     case "hot-products":
@@ -427,10 +574,6 @@ function HotProductsExpanded({
 }) {
   return (
     <section>
-      <SectionHeading
-        eyebrow="Hot products — where buyers are active"
-        title=""
-      />
       {loading ? (
         <CardSkeleton label="Loading hot products" />
       ) : topProducts.length > 0 ? (

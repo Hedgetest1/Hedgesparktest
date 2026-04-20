@@ -91,9 +91,11 @@ function formatDwell(sec: number): string {
 export function LiveOpportunitiesCard({
   apiBase,
   shop,
+  hideHeading,
 }: {
   apiBase: string;
   shop: string;
+  hideHeading?: boolean;
 }) {
   const { data, state, retry } = useCardFetch<LiveOpportunitiesData>({
     url: `${apiBase}/analytics/live-opportunities`,
