@@ -2865,6 +2865,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/detect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Detect Sole Merchant
+         * @description Return the shop domain for auto-bootstrap, if it is unambiguous.
+         *
+         *     Resolution order:
+         *       1. If AUTO_DETECT_DEFAULT_SHOP env var is set AND that shop is
+         *          active → return it. (Explicit operator-configured default.
+         *          Used in founder/dev environments where multiple test shops
+         *          exist but one is canonical.)
+         *       2. Else if exactly one active Pro merchant exists → return it.
+         *          (Single-tenant deployment — no ambiguity to disambiguate.)
+         *       3. Else → 404. Multi-tenant production falls here and the
+         *          frontend silently falls through to the manual reconnect form.
+         *
+         *     Purpose: auto-detection fallback for dashboards hitting /app with zero
+         *     identity signals (no cookie, no localStorage hint, no URL ?shop= param).
+         *
+         *     Security:
+         *     - Only exposes shops that are already public from the outside (active
+         *       Shopify app install + Pro subscription — domain visible on their
+         *       storefront, to Shopify, and to every page on the site).
+         *     - Returns 404 (not 400) for the "ambiguous" and "empty" cases so the
+         *       frontend can silently fall through without error boundaries.
+         *     - No authentication required — output is either "here is the obvious
+         *       shop" or "nothing to tell you". Cannot be used to enumerate merchants.
+         */
+        get: operations["detect_sole_merchant_auth_detect_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/session": {
         parameters: {
             query?: never;
@@ -14232,6 +14274,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    detect_sole_merchant_auth_detect_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

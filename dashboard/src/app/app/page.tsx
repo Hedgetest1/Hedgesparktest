@@ -840,6 +840,28 @@ function PageInner() {
         return;
       }
 
+      // 4th identity source: single-tenant auto-detect. When the DB has
+      // exactly one active Pro merchant (founder dev env, early beta,
+      // single-merchant on-prem), /auth/detect returns it so the dash
+      // can self-bootstrap without the manual reconnect form. In
+      // multi-tenant production this endpoint returns 404 and we fall
+      // through to the form, which is the correct UX when the shop
+      // genuinely cannot be inferred.
+      try {
+        const detectRes = await fetch(`${API_BASE}/auth/detect`, {
+          credentials: "omit",
+        });
+        if (detectRes.ok) {
+          const detectJson = (await detectRes.json()) as { shop_domain?: string };
+          if (detectJson.shop_domain) {
+            bootstrapWithShop(detectJson.shop_domain);
+            return;
+          }
+        }
+      } catch {
+        // Network error — fall through to manual form
+      }
+
       setSessionResolved(true);
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps

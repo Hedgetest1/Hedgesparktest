@@ -534,6 +534,63 @@ async def callback(
 #   - Redirects to DASHBOARD_URL (not user-controlled)
 # ---------------------------------------------------------------------------
 
+@router.get("/detect")
+def detect_sole_merchant(db: Session = Depends(get_db)):
+    """
+    Return the shop domain for auto-bootstrap, if it is unambiguous.
+
+    Resolution order:
+      1. If AUTO_DETECT_DEFAULT_SHOP env var is set AND that shop is
+         active → return it. (Explicit operator-configured default.
+         Used in founder/dev environments where multiple test shops
+         exist but one is canonical.)
+      2. Else if exactly one active Pro merchant exists → return it.
+         (Single-tenant deployment — no ambiguity to disambiguate.)
+      3. Else → 404. Multi-tenant production falls here and the
+         frontend silently falls through to the manual reconnect form.
+
+    Purpose: auto-detection fallback for dashboards hitting /app with zero
+    identity signals (no cookie, no localStorage hint, no URL ?shop= param).
+
+    Security:
+    - Only exposes shops that are already public from the outside (active
+      Shopify app install + Pro subscription — domain visible on their
+      storefront, to Shopify, and to every page on the site).
+    - Returns 404 (not 400) for the "ambiguous" and "empty" cases so the
+      frontend can silently fall through without error boundaries.
+    - No authentication required — output is either "here is the obvious
+      shop" or "nothing to tell you". Cannot be used to enumerate merchants.
+    """
+    default_shop = os.getenv("AUTO_DETECT_DEFAULT_SHOP", "").strip().lower()
+    if default_shop:
+        configured = (
+            db.query(Merchant)
+            .filter(
+                Merchant.shop_domain == default_shop,
+                Merchant.install_status == "active",
+            )
+            .first()
+        )
+        if configured is not None:
+            return {"shop_domain": configured.shop_domain}
+
+    active_pro = (
+        db.query(Merchant)
+        .filter(
+            Merchant.install_status == "active",
+            Merchant.plan == "pro",
+        )
+        .limit(2)  # we only need to know if it's exactly 1
+        .all()
+    )
+    if len(active_pro) != 1:
+        raise HTTPException(
+            status_code=404,
+            detail="No unique active merchant to auto-detect.",
+        )
+    return {"shop_domain": active_pro[0].shop_domain}
+
+
 @router.get("/session")
 def bootstrap_session(
     shop: str = QueryParam(..., description="Merchant shop domain"),
