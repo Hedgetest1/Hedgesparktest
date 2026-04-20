@@ -7,8 +7,14 @@
  * for 4 metrics (revenue, AOV, orders/day, growth). Loss-framed: every
  * row has a "recover by moving to p75" € estimate.
  *
- * Data source: GET /pro/benchmarks. Privacy: minimum 10 peers per band,
+ * Data source: GET /analytics/benchmarks (Lite-accessible, same data
+ * as the old /pro/benchmarks). Privacy: minimum 10 peers per band,
  * below that an explicit insufficient-data note.
+ *
+ * Tier-agnostic since 2026-04-20: per founder directive "strada 2 —
+ * completista", peer benchmarks become part of the €39 Lite surface.
+ * The `isProUser` prop is retained for call-site back-compat but no
+ * longer gates rendering.
  */
 
 import { useEffect, useState } from "react";
@@ -84,11 +90,11 @@ export function PeerBenchmarksCard({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!apiBase || !shop || !isProUser) { setLoading(false); return; }
+    if (!apiBase || !shop) { setLoading(false); return; }
     let active = true;
     setLoading(true);
     apiClient
-      .GET("/pro/benchmarks")
+      .GET("/analytics/benchmarks")
       .then(({ data: j, error: err }) => {
         if (!active) return;
         if (err || !j) setData(null);
@@ -96,9 +102,12 @@ export function PeerBenchmarksCard({
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [apiBase, shop, isProUser]);
+  }, [apiBase, shop]);
 
-  if (!isProUser) return null;
+  // `isProUser` retained in signature for back-compat (many callers
+  // still pass it) but no longer affects rendering — benchmarks are
+  // a Lite-tier feature since 2026-04-20.
+  void isProUser;
 
   if (loading) {
     return (

@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_pro_session
+from app.core.deps import require_merchant_session, require_pro_session
 
 log = logging.getLogger(__name__)
 
@@ -81,6 +81,32 @@ def get_benchmarks(
 
     Privacy: minimum 10 peers per band. Below that threshold the response
     contains a `note` field and no metric comparisons.
+    """
+    from app.services.benchmarks import get_merchant_benchmark_report
+    return get_merchant_benchmark_report(db, shop)
+
+
+@router.get(
+    "/analytics/benchmarks",
+    response_model=BenchmarkResponse,
+    response_model_exclude_none=False,
+)
+def get_benchmarks_lite_accessible(
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+):
+    """
+    Lite-accessible benchmarks endpoint.
+
+    Returns the same BenchmarkResponse shape as /pro/benchmarks — no
+    data-sensitivity difference between tiers for this surface. The
+    Pro/Lite split was historically a positioning choice; per founder
+    directive 2026-04-20 ("strada 2 — completista"), peer benchmarks
+    become part of the €39 Lite value prop because every competitor at
+    the tier already shows some form of peer comparison.
+
+    Same privacy gate (N≥10 peers per band), same loss framing, same
+    6-hour Redis cache — the only difference is the session dependency.
     """
     from app.services.benchmarks import get_merchant_benchmark_report
     return get_merchant_benchmark_report(db, shop)

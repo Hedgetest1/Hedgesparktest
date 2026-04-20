@@ -2876,27 +2876,36 @@ export interface paths {
          * Detect Sole Merchant
          * @description Return the shop domain for auto-bootstrap, if it is unambiguous.
          *
-         *     Resolution order:
-         *       1. If AUTO_DETECT_DEFAULT_SHOP env var is set AND that shop is
-         *          active → return it. (Explicit operator-configured default.
-         *          Used in founder/dev environments where multiple test shops
-         *          exist but one is canonical.)
-         *       2. Else if exactly one active Pro merchant exists → return it.
-         *          (Single-tenant deployment — no ambiguity to disambiguate.)
-         *       3. Else → 404. Multi-tenant production falls here and the
-         *          frontend silently falls through to the manual reconnect form.
+         *     **FAIL-SAFE BY DEFAULT.** This endpoint is DISABLED unless the env
+         *     var `AUTO_DETECT_ENABLED=1` is explicitly set. This is deliberate
+         *     production-safety: a forgotten `AUTO_DETECT_DEFAULT_SHOP` config in
+         *     a multi-tenant deployment would leak the founder/operator shop to
+         *     every visitor as their auto-bootstrap target. The enable-flag gate
+         *     means forgetting to remove the dev default in production is
+         *     structurally harmless — the endpoint just 404s. See
+         *     `project_before_production_auto_detect_removal.md` for the full
+         *     pre-prod checklist.
          *
-         *     Purpose: auto-detection fallback for dashboards hitting /app with zero
-         *     identity signals (no cookie, no localStorage hint, no URL ?shop= param).
+         *     Resolution order (only when AUTO_DETECT_ENABLED=1):
+         *       1. If AUTO_DETECT_DEFAULT_SHOP env var is set AND that shop is
+         *          active → return it. Explicit operator-configured default.
+         *       2. Else if exactly one active Pro merchant exists → return it.
+         *          Single-tenant deployment — no ambiguity to disambiguate.
+         *       3. Else → 404. Frontend silently falls through to manual form.
+         *
+         *     Purpose: auto-detection fallback for dashboards hitting /app with
+         *     zero identity signals (no cookie, no localStorage hint, no URL
+         *     ?shop= param).
          *
          *     Security:
-         *     - Only exposes shops that are already public from the outside (active
-         *       Shopify app install + Pro subscription — domain visible on their
-         *       storefront, to Shopify, and to every page on the site).
-         *     - Returns 404 (not 400) for the "ambiguous" and "empty" cases so the
-         *       frontend can silently fall through without error boundaries.
-         *     - No authentication required — output is either "here is the obvious
-         *       shop" or "nothing to tell you". Cannot be used to enumerate merchants.
+         *     - Fail-safe: disabled by default. Operator must explicitly enable.
+         *     - Only exposes shops that are already public from the outside
+         *       (active Shopify app install — domain visible on their storefront,
+         *       to Shopify, to every page on the site).
+         *     - 404 (not 400) for ambiguous/empty/disabled cases so frontend can
+         *       silently fall through without error boundaries.
+         *     - No authentication required — output is either "here is the
+         *       obvious shop" or "nothing to tell you". Cannot enumerate merchants.
          */
         get: operations["detect_sole_merchant_auth_detect_get"];
         put?: never;
@@ -4451,6 +4460,36 @@ export interface paths {
          *     contains a `note` field and no metric comparisons.
          */
         get: operations["get_benchmarks_pro_benchmarks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analytics/benchmarks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Benchmarks Lite Accessible
+         * @description Lite-accessible benchmarks endpoint.
+         *
+         *     Returns the same BenchmarkResponse shape as /pro/benchmarks — no
+         *     data-sensitivity difference between tiers for this surface. The
+         *     Pro/Lite split was historically a positioning choice; per founder
+         *     directive 2026-04-20 ("strada 2 — completista"), peer benchmarks
+         *     become part of the €39 Lite value prop because every competitor at
+         *     the tier already shows some form of peer comparison.
+         *
+         *     Same privacy gate (N≥10 peers per band), same loss framing, same
+         *     6-hour Redis cache — the only difference is the session dependency.
+         */
+        get: operations["get_benchmarks_lite_accessible_analytics_benchmarks_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -16241,6 +16280,26 @@ export interface operations {
         };
     };
     get_benchmarks_pro_benchmarks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BenchmarkResponse"];
+                };
+            };
+        };
+    };
+    get_benchmarks_lite_accessible_analytics_benchmarks_get: {
         parameters: {
             query?: never;
             header?: never;

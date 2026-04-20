@@ -2809,6 +2809,43 @@ function PageInner() {
                 />
               )}
 
+              {/* Peer benchmarks — "you vs peers" surface between the
+                  RARS hero and the cassettoni. Closes the Varos-shaped
+                  gap per strada 2 / founder directive 2026-04-20.
+                  REUSES the existing PeerBenchmarksCard (the Pro floor
+                  already renders it); /analytics/benchmarks just opens
+                  the same backend to Lite. No duplicate component.
+                  Wrapped in a section header on Lite to give it the
+                  weight a strada-2 moat deserves. */}
+              {isLiteFloor && (
+                <section
+                  aria-labelledby="lite-benchmarks-heading"
+                  className="relative mb-8 overflow-hidden rounded-3xl border border-violet-400/[0.15] bg-gradient-to-br from-[#140d1a] via-[#0a0a14] to-[#0b0c18] p-7 sm:p-9"
+                >
+                  <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#a78bfa] to-transparent opacity-50" />
+                  <div className="pointer-events-none absolute -right-32 -top-32 h-[340px] w-[340px] rounded-full bg-[#a78bfa]/[0.05] blur-[150px]" />
+                  <div className="relative">
+                    <div className="mb-5">
+                      <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-violet-300">
+                        You vs peers
+                      </div>
+                      <h2
+                        id="lite-benchmarks-heading"
+                        className="mt-2 text-[1.5rem] font-extrabold leading-[1.08] tracking-tight text-white sm:text-[1.75rem]"
+                      >
+                        How you rank against similar Shopify stores
+                      </h2>
+                      <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
+                        Four metrics compared against anonymous peers in your
+                        revenue band. Minimum 10 peers for privacy — no fake
+                        numbers below threshold.
+                      </p>
+                    </div>
+                    <PeerBenchmarksCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  </div>
+                </section>
+              )}
+
               {isLiteFloor && (
                 <LiteCassettoniGrid
                   apiBase={API_BASE}
