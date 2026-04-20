@@ -3592,6 +3592,10 @@ export interface paths {
          *     LLM composes prose around deterministic numbers; no invented
          *     metrics. Degrades gracefully to a data-only summary if LLM is
          *     unavailable (budget, backoff, or PII guard).
+         *
+         *     Optional prior_question/prior_answer_excerpt/prior_followups let
+         *     the dashboard pass short-memory so consecutive turns in a session
+         *     don't echo each other.
          */
         post: operations["ask_chat_analytics_post"];
         delete?: never;
@@ -6418,6 +6422,12 @@ export interface components {
         AnalyticsAskRequest: {
             /** Question */
             question: string;
+            /** Prior Question */
+            prior_question?: string | null;
+            /** Prior Answer Excerpt */
+            prior_answer_excerpt?: string | null;
+            /** Prior Followups */
+            prior_followups?: string[];
         };
         /** AnalyticsAskResponse */
         AnalyticsAskResponse: {

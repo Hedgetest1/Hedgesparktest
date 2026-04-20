@@ -217,6 +217,20 @@ BUDGET_LIMITS: dict[str, dict] = {
         "max_tokens_per_request": 512,
         "cooldown_seconds": 0,
     },
+    # Strada 4 (2026-04-20) — merchant-facing AI analytics assistant.
+    # Lite/Pro accessible; merchant-triggered (user clicks "Ask").
+    # Cap: 60 calls/day global (soft ceiling across all merchants),
+    # 30s cooldown per merchant enforced upstream by React state.
+    # max_tokens matches the 600-token answer cap in the service.
+    # At ~€0.004 per call (Sonnet 4, ~1.5k input + 500 output), the
+    # daily ceiling caps monthly cost at ~€7 — below the €10 dev-phase
+    # floor.
+    "analytics_assistant": {
+        "max_calls_per_day": 60,
+        "max_calls_per_cycle": 60,
+        "max_tokens_per_request": 600,
+        "cooldown_seconds": 30,
+    },
     "default": {
         "max_calls_per_day": 20,
         "max_calls_per_cycle": 2,
@@ -275,6 +289,12 @@ _MODULE_TIER: dict[str, str] = {
     # Drift corpus is optional: it's meta-quality tracking, not a
     # runtime guardrail. Budget pressure rightly skips it.
     "llm_realmodel_drift": "optional",
+    # Analytics assistant is "important" but not critical: under
+    # severe budget pressure we downgrade to the deterministic
+    # fallback rather than blocking the call entirely. The service
+    # handles the downgrade gracefully via the `degraded=true` flag
+    # in the response.
+    "analytics_assistant": "important",
     "default": "optional",
 }
 

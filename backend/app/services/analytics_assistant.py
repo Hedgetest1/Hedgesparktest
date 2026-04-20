@@ -40,24 +40,39 @@ _TIMEOUT = 25.0
 _SYSTEM_PROMPT = """\
 You are Spark, HedgeSpark's analytics assistant for Shopify merchants.
 Your job is to answer the merchant's question by interpreting the
-numbers provided in the context. Rules:
+numbers in the context. Rules:
 
-1. NEVER invent a number. If the context doesn't contain data that
-   answers the question, say so explicitly ("I don't have visibility
-   on X yet") and suggest what data would need to arrive first.
-2. Be terse. 3–5 sentences max for the main answer. No preamble.
-3. Loss-framed when relevant — prefer "you're losing €X" over "your
-   conversion is Y%".
+1. NEVER invent a number. If the context lacks the data, say so
+   explicitly ("I don't have visibility on X yet") and name what
+   data would need to arrive first.
+2. Be terse. 3–5 sentences max for the main answer. No preamble, no
+   "Based on your data,..." wind-up. Start with the answer.
+3. Loss-framed when relevant — "you're leaving €X on the floor"
+   beats "your conversion is Y%".
 4. End with a blank line, then three short suggested-followup
    questions the merchant might ask next, each on its own line
-   prefixed with "Q:". Example:
+   prefixed with "Q:". Followups must be DIFFERENT from the
+   question just asked and DIFFERENT from any "previous followups"
+   listed in the context.
+5. Plain text only. No markdown (no bold, no headers, no bullets)
+   outside the Q: lines.
 
-   Q: Which product is most at risk?
-   Q: How do I compare to peers?
-   Q: What should I do in the next 24 hours?
-
-5. Never use markdown formatting (no bold, no headers, no bullets)
-   outside the Q: lines. Plain text only.
+Vocabulary legend — these signal names map to specific meanings:
+ - `refund_decline` = products whose sales trajectory is declining
+   (NOT "refund requests being declined"). Interpret as "products
+   losing traction."
+ - `abandoned_high_intent` = visitors who engaged deeply (scroll +
+   dwell + click) but abandoned before purchase.
+ - `nudge_gap` = nudges underperforming peer benchmarks. On Lite
+   this is Pro-only fix territory.
+ - `below_benchmark` = the merchant is below their revenue band's
+   peer median on one or more metrics.
+ - `goal_gap` = the merchant is trending below their own monthly
+   target.
+ - `gateway_rate` = fraction of a product's buyers for whom it was
+   their FIRST purchase. High gateway rate → acquisition workhorse.
+ - `first_vs_last_match_rate` = how often the same source both
+   acquired AND closed the sale. Low = multi-touch journeys.
 """
 
 
@@ -67,6 +82,15 @@ class AnalyticsAnswer:
     data_sources: list[str] = field(default_factory=list)
     suggested_followups: list[str] = field(default_factory=list)
     degraded: bool = False  # True when LLM unavailable and we fell back
+
+
+@dataclass
+class PriorExchange:
+    """Last Q/A pair — used so the LLM avoids repeating itself and
+    produces followups that don't echo the prior question."""
+    question: str = ""
+    answer_excerpt: str = ""  # first ~200 chars of the previous answer
+    previous_followups: list[str] = field(default_factory=list)
 
 
 def _gather_context(db: Session, shop: str) -> tuple[str, list[str]]:
@@ -262,7 +286,12 @@ def _call_anthropic(prompt: str) -> str:
             json={
                 "model": _MODEL,
                 "max_tokens": _MAX_TOKENS,
-                "temperature": 0.2,
+                # 0.4 chosen after observing 0.2 produced near-identical
+                # phrasing across consecutive questions. 0.4 preserves
+                # factual determinism (numbers don't drift) while giving
+                # enough variety that "your biggest leak is X" and the
+                # followup "how do I fix X" don't sound copy-pasted.
+                "temperature": 0.4,
                 "system": _SYSTEM_PROMPT,
                 "messages": [{"role": "user", "content": prompt}],
             },
@@ -290,10 +319,23 @@ def _call_anthropic(prompt: str) -> str:
         return ""
 
 
-def answer(db: Session, shop: str, question: str) -> AnalyticsAnswer:
+def answer(
+    db: Session,
+    shop: str,
+    question: str,
+    prior: PriorExchange | None = None,
+) -> AnalyticsAnswer:
     """Main entry point. Clamps the question length, gathers context,
     calls LLM, parses response. Falls back deterministically when the
-    LLM is unavailable so the endpoint never 500s."""
+    LLM is unavailable so the endpoint never 500s.
+
+    `prior` is an optional short-memory hint: the question + first
+    ~200 chars of the previous answer + previous followups. The LLM
+    receives this in the prompt so consecutive answers don't echo
+    each other and followups don't repeat. Not a full conversation
+    thread — just one-exchange memory, which is the right depth for
+    a dashboard assistant (merchant asks, reads, maybe asks one more
+    targeted question)."""
     q = (question or "").strip()[:_MAX_QUESTION_LEN]
     if not q:
         return AnalyticsAnswer(
@@ -307,7 +349,22 @@ def answer(db: Session, shop: str, question: str) -> AnalyticsAnswer:
         )
 
     context, sources = _gather_context(db, shop)
-    prompt = f"CONTEXT (merchant's current data):\n{context}\n\nQUESTION: {q}"
+
+    prior_block = ""
+    if prior and (prior.question or prior.answer_excerpt):
+        prior_block = "\nPRIOR EXCHANGE (avoid repeating this answer or followups):\n"
+        if prior.question:
+            prior_block += f"  previous_question: {prior.question[:200]}\n"
+        if prior.answer_excerpt:
+            prior_block += f"  previous_answer_start: {prior.answer_excerpt[:200]}\n"
+        if prior.previous_followups:
+            prior_block += f"  previous_followups: {' | '.join(prior.previous_followups[:3])}\n"
+
+    prompt = (
+        f"CONTEXT (merchant's current data):\n{context}"
+        f"{prior_block}"
+        f"\n\nQUESTION: {q}"
+    )
 
     raw = _call_anthropic(prompt)
     if not raw:

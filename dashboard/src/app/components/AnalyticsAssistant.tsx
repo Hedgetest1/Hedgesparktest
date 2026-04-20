@@ -47,7 +47,7 @@ export function AnalyticsAssistant() {
     setQuestion("");
     try {
       const { data, error } = await apiClient.POST("/chat/analytics", {
-        body: { question: trimmed },
+        body: { question: trimmed, prior_question: lastAsked, prior_answer_excerpt: response?.answer?.slice(0, 200) || null, prior_followups: response?.suggested_followups || [] },
       });
       if (error || !data) {
         setResponse({
