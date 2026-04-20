@@ -2577,7 +2577,15 @@ function PageInner() {
                           id="today-actions-heading"
                           className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#e8a04e]"
                         >
-                          Today · your 3 moves
+                          {(() => {
+                            // Time-of-day Spark greeting. Local time —
+                            // no server roundtrip, instant.
+                            const h = new Date().getHours();
+                            if (h < 12) return "Good morning · your 3 moves";
+                            if (h < 17) return "Good afternoon · your 3 moves";
+                            if (h < 21) return "Good evening · your 3 moves";
+                            return "Tonight · your 3 moves";
+                          })()}
                         </h2>
                       </div>
                       <span className="text-[11px] font-semibold text-slate-500">
@@ -2585,18 +2593,30 @@ function PageInner() {
                       </span>
                     </div>
 
-                    {/* Big headline — conversational Spark voice */}
+                    {/* Big headline — conversational Spark voice, time-
+                        aware so the merchant feels addressed, not
+                        broadcast-at. */}
                     <h1 className="text-[1.75rem] font-extrabold leading-[1.05] tracking-tight text-white sm:text-[2.25rem]">
-                      {sparkActions.length === 0
-                        ? "Nothing urgent — I'm watching."
-                        : sparkActions.length === 1
-                          ? "I found 1 thing worth your time this morning."
-                          : `I found ${Math.min(3, sparkActions.length)} things worth your time this morning.`}
+                      {(() => {
+                        const h = new Date().getHours();
+                        const when =
+                          h < 12 ? "this morning"
+                            : h < 17 ? "this afternoon"
+                              : h < 21 ? "this evening"
+                                : "right now";
+                        if (sparkActions.length === 0) {
+                          return "Nothing urgent — I'm watching.";
+                        }
+                        if (sparkActions.length === 1) {
+                          return `I found 1 thing worth your time ${when}.`;
+                        }
+                        return `I found ${Math.min(3, sparkActions.length)} things worth your time ${when}.`;
+                      })()}
                     </h1>
                     <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
                       {sparkActions.length === 0
-                        ? "No urgent actions right now. New recommendations appear as visitors flow in and signals mature. You'll know the moment one shows up."
-                        : "Each card below is one signal + one action. Tackle them in order, skip what you can't do today — Spark re-ranks tomorrow from your real data."}
+                        ? "No urgent actions right now. Your store is running fine. New recommendations appear the moment a signal crosses threshold — no need to refresh."
+                        : "Each card below is one signal + one action. Tackle them in order, skip what you can't do today — I'll re-rank tomorrow from your real data."}
                     </p>
 
                     {/* Action cards — or empty-state */}
@@ -2617,12 +2637,13 @@ function PageInner() {
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="text-[13px] font-bold text-emerald-200">
-                            All systems clear
+                            Nothing needs you right now
                           </div>
                           <div className="mt-0.5 text-[12px] leading-relaxed text-slate-400">
-                            Traffic is steady, no leaks above threshold, no
-                            products losing pace. Come back after lunch — or
-                            when your next visitor arrives.
+                            I haven&apos;t seen any signal above threshold
+                            yet. Either your store is quiet, or it&apos;s
+                            warming up. I&apos;ll flag the first thing that
+                            actually deserves your attention — no busy-work.
                           </div>
                         </div>
                       </div>
