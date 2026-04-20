@@ -27,8 +27,15 @@
     "chunks_total_bytes": 1720442,
     "chunks_count": 34
   },
+  "_baseline_2026_04_20_lite_rars_hero": {
+    "_note": "LiteRarsHero — permanent Revenue-at-Risk hero above the cassettoni grid + Gap A/B/C ecosystem (deep links + EmptyPreview + controlled expand state). RARS is HedgeSpark's one true differentiator (no competitor computes deterministic right-now loss in store currency); lifting it to permanent top-slot + 3 ranked components with direct drill-down is the positioning change the founder authorized 2026-04-20. New file ~400 LOC, cold-start preview mirrors cassettone EmptyPreview pattern for consistency. Net largest-chunk +19 KB (725→744); bump 740000 -> 760000 for ~2% headroom heading into competitive-polish iteration.",
+    "largest_chunk_bytes": 743839,
+    "root_main_total_bytes": 455826,
+    "chunks_total_bytes": 1739156,
+    "chunks_count": 34
+  },
   "budgets": {
-    "largest_chunk_bytes": 740000,
+    "largest_chunk_bytes": 760000,
     "root_main_total_bytes": 520000,
     "chunks_total_bytes": 1800000,
     "chunks_count_max": 40

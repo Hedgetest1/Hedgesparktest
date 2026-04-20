@@ -119,7 +119,7 @@ const ACCENTS: Record<string, { eyebrow: string; hero: string; bg: string; borde
   },
 };
 
-type CassettoneId =
+export type CassettoneId =
   | "revenue-at-risk"
   | "daily-brief"
   | "abandoned-intent"
@@ -140,6 +140,8 @@ export function LiteCassettoniGrid({
   briefLoading,
   coldStartPhase,
   loading,
+  expandedId: controlledExpandedId,
+  onExpandedChange,
 }: {
   apiBase: string;
   shop: string;
@@ -149,8 +151,25 @@ export function LiteCassettoniGrid({
   briefLoading: boolean;
   coldStartPhase: number;
   loading: boolean;
+  /** Controlled expanded state. When provided, the grid uses the
+   *  parent's state and calls onExpandedChange on every toggle. This
+   *  lets an external surface (e.g. LiteRarsHero's component row
+   *  links) open a specific cassettone from outside the grid. When
+   *  omitted, the grid falls back to internal state for backward
+   *  compatibility. */
+  expandedId?: CassettoneId | null;
+  onExpandedChange?: (id: CassettoneId | null) => void;
 }) {
-  const [expandedId, setExpandedId] = useState<CassettoneId | null>(null);
+  const [internalExpandedId, setInternalExpandedId] = useState<CassettoneId | null>(null);
+  const expandedId = controlledExpandedId !== undefined ? controlledExpandedId : internalExpandedId;
+  const setExpandedId = (next: CassettoneId | null | ((prev: CassettoneId | null) => CassettoneId | null)) => {
+    if (onExpandedChange) {
+      const resolved = typeof next === "function" ? next(expandedId) : next;
+      onExpandedChange(resolved);
+    } else {
+      setInternalExpandedId(next);
+    }
+  };
 
   // Hero numbers + raw payloads — both go up to the expanded panel
   // so every storytelling block can be merchant-specific (real

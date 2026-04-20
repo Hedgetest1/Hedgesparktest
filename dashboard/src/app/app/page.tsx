@@ -101,7 +101,8 @@ import { CustomerChurnCard } from "../components/CustomerChurnCard";
 // δ5 — nudge DNA patterns
 import { NudgeDnaCard } from "../components/NudgeDnaCard";
 // Lite-floor — cassettoni grid with click-to-expand (v3 spec)
-import { LiteCassettoniGrid } from "../components/LiteCassettoniGrid";
+import { LiteCassettoniGrid, type CassettoneId } from "../components/LiteCassettoniGrid";
+import { LiteRarsHero } from "../components/LiteRarsHero";
 // Pro-floor — 5 migrated Intelligence cards (previously on /app/intelligence)
 import { RecommendationImpactCard } from "../components/RecommendationImpactCard";
 import { ChurnForecastCard } from "../components/ChurnForecastCard";
@@ -522,6 +523,9 @@ function PageInner() {
   // Layout state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeSection, setActiveSection] = useState("brief");
+  // Lifted so the LiteRarsHero (above the grid) can open a specific
+  // cassettone when the merchant clicks a RARS component drill-down.
+  const [liteExpandedId, setLiteExpandedId] = useState<CassettoneId | null>(null);
   const mainRef = useRef<HTMLElement | null>(null);
   // Track whether user just clicked nav — suppresses observer updates briefly
   const isScrollingRef = useRef(false);
@@ -2780,6 +2784,31 @@ function PageInner() {
                   individual deep cards. Click a cassettone to expand
                   the full deep card below. Radar + Spark Status remain
                   OUTSIDE this component, at the bottom of the floor. */}
+              {/* RARS hero — permanent, above the grid. The single
+                  differentiator that no competitor replicates, lifted
+                  to top weight so it's unmistakable on day-1 that
+                  this is what HedgeSpark uniquely does. Clicking a
+                  component row opens the corresponding drill-down in
+                  the cassettone grid below via controlled state. */}
+              {isLiteFloor && (
+                <LiteRarsHero
+                  apiBase={API_BASE}
+                  shop={shop}
+                  displayCurrency={displayCurrency}
+                  onOpenCassettone={(id) => {
+                    setLiteExpandedId(id);
+                    // Scroll the grid into view so the newly-opened
+                    // cassettone panel lands in the merchant's viewport.
+                    // Small timeout so the state update + render land
+                    // before the scroll computes the target position.
+                    setTimeout(() => {
+                      const el = document.getElementById(`cassettone-panel-${id}`);
+                      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+                    }, 60);
+                  }}
+                />
+              )}
+
               {isLiteFloor && (
                 <LiteCassettoniGrid
                   apiBase={API_BASE}
@@ -2790,6 +2819,8 @@ function PageInner() {
                   briefLoading={briefLoading}
                   coldStartPhase={coldStartPhase}
                   loading={loading}
+                  expandedId={liteExpandedId}
+                  onExpandedChange={setLiteExpandedId}
                 />
               )}
 
