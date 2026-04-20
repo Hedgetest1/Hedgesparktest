@@ -23,6 +23,7 @@ import { useEffect, useState } from "react";
 import { apiClient } from "@/app/lib/api-client";
 import { formatMoneyCompact } from "../app/_lib/formatters";
 import type { CassettoneId } from "./LiteCassettoniGrid";
+import { ExportButton } from "./ExportButton";
 
 // Map each RARS component source to the cassettone that drills into it.
 // Most components go to the RARS cassettone (full methodology / key
@@ -140,6 +141,11 @@ export function LiteRarsHero({
               The number no other Shopify tool shows you
             </h2>
           </div>
+          <div className="flex flex-shrink-0 flex-wrap items-start gap-3">
+            <ExportButton surface="rars" accentColor="#fbbf24" label="Export CSV" />
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap items-baseline gap-3">
           {prevented > 0 && (
             <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/[0.06] px-3.5 py-2">
               <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-400">

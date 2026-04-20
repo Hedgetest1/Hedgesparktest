@@ -200,6 +200,7 @@ from app.api.team import router as team_router
 from app.api.health import router as health_router
 from app.api.orders import router as orders_router
 from app.api.pnl import router as pnl_router, lite_router as pnl_lite_router
+from app.api.lite_export import router as lite_export_router
 from app.api.cost_config import router as cost_config_router
 from app.api.trust_contracts import router as trust_contracts_router
 from app.api.roi_hero import router as roi_hero_router
@@ -565,6 +566,7 @@ app.include_router(health_router)
 app.include_router(orders_router)
 app.include_router(pnl_router)
 app.include_router(pnl_lite_router)
+app.include_router(lite_export_router)
 app.include_router(cost_config_router)
 app.include_router(trust_contracts_router)
 app.include_router(roi_hero_router)

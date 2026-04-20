@@ -106,6 +106,7 @@ import { LiteRarsHero } from "../components/LiteRarsHero";
 import { PnlReport } from "../components/PnlReport";
 import { ChannelAttributionCard } from "../components/ChannelAttributionCard";
 import { MonthlyCohortsCard } from "../components/MonthlyCohortsCard";
+import { ExportButton } from "../components/ExportButton";
 // Pro-floor — 5 migrated Intelligence cards (previously on /app/intelligence)
 import { RecommendationImpactCard } from "../components/RecommendationImpactCard";
 import { ChurnForecastCard } from "../components/ChurnForecastCard";
@@ -2832,12 +2833,18 @@ function PageInner() {
                       <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-violet-300">
                         You vs peers
                       </div>
-                      <h2
-                        id="lite-benchmarks-heading"
-                        className="mt-2 text-[1.5rem] font-extrabold leading-[1.08] tracking-tight text-white sm:text-[1.75rem]"
-                      >
-                        How you rank against similar Shopify stores
-                      </h2>
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <h2
+                          id="lite-benchmarks-heading"
+                          className="text-[1.5rem] font-extrabold leading-[1.08] tracking-tight text-white sm:text-[1.75rem]"
+                        >
+                          How you rank against similar Shopify stores
+                        </h2>
+                        <div className="flex flex-shrink-0 items-center gap-2">
+                          <ExportButton surface="benchmarks" accentColor="#a78bfa" label="Peer CSV" />
+                          <ExportButton surface="benchmarks_vertical" accentColor="#a78bfa" label="Vertical CSV" />
+                        </div>
+                      </div>
                       <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
                         Four metrics compared against anonymous peers in your
                         revenue band. Minimum 10 peers for privacy — no fake
@@ -2882,12 +2889,15 @@ function PageInner() {
                       <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#e8a04e]">
                         Profit intelligence
                       </div>
-                      <h2
-                        id="lite-pnl-heading"
-                        className="mt-2 text-[1.5rem] font-extrabold leading-[1.08] tracking-tight text-white sm:text-[1.75rem]"
-                      >
-                        What you actually keep after costs
-                      </h2>
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <h2
+                          id="lite-pnl-heading"
+                          className="text-[1.5rem] font-extrabold leading-[1.08] tracking-tight text-white sm:text-[1.75rem]"
+                        >
+                          What you actually keep after costs
+                        </h2>
+                        <ExportButton surface="pnl" accentColor="#e8a04e" />
+                      </div>
                       <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
                         Revenue minus COGS, payment fees, and shipping — the
                         real money your store keeps. Starts with industry-
@@ -2922,12 +2932,15 @@ function PageInner() {
                       <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-blue-300">
                         Channel attribution
                       </div>
-                      <h2
-                        id="lite-attribution-heading"
-                        className="mt-2 text-[1.5rem] font-extrabold leading-[1.08] tracking-tight text-white sm:text-[1.75rem]"
-                      >
-                        Where your converting traffic comes from
-                      </h2>
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <h2
+                          id="lite-attribution-heading"
+                          className="text-[1.5rem] font-extrabold leading-[1.08] tracking-tight text-white sm:text-[1.75rem]"
+                        >
+                          Where your converting traffic comes from
+                        </h2>
+                        <ExportButton surface="attribution" accentColor="#60a5fa" />
+                      </div>
                       <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
                         UTM-deterministic attribution — every converting
                         visitor&apos;s first-touch and last-touch source
@@ -2965,12 +2978,15 @@ function PageInner() {
                       <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-emerald-300">
                         Customer retention
                       </div>
-                      <h2
-                        id="lite-retention-heading"
-                        className="mt-2 text-[1.5rem] font-extrabold leading-[1.08] tracking-tight text-white sm:text-[1.75rem]"
-                      >
-                        How well your customers come back
-                      </h2>
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <h2
+                          id="lite-retention-heading"
+                          className="text-[1.5rem] font-extrabold leading-[1.08] tracking-tight text-white sm:text-[1.75rem]"
+                        >
+                          How well your customers come back
+                        </h2>
+                        <ExportButton surface="cohorts_monthly" accentColor="#34d399" label="Cohorts CSV" />
+                      </div>
                       <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
                         Week-1 and week-4 repeat-purchase rates across your
                         weekly acquisition cohorts. Spotlights the single
