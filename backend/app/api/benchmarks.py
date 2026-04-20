@@ -43,6 +43,17 @@ class BenchmarkMetric(BaseModel):
     narrative: str
 
 
+class ProductConcentration(BaseModel):
+    """Pareto-style concentration: how many products drive 80% of
+    revenue. High concentration → narrow catalog risk; low → healthy
+    diversification. Surfaced alongside the standard benchmark metrics
+    as a complementary moat signal."""
+    total_products: int
+    products_for_80pct_revenue: int
+    concentration_ratio: float
+    narrative: str
+
+
 class BenchmarkResponse(BaseModel):
     shop_domain: str
     band: str | None = None
@@ -56,6 +67,10 @@ class BenchmarkResponse(BaseModel):
     generated_at: str | None = None
     note: str | None = None
     error: str | None = None
+    # Strada 4 extension — get_extended_benchmark_report surfaces the
+    # merchant's product concentration (80/20) so the card can show
+    # "X products drive 80% of your revenue" alongside peer metrics.
+    product_concentration: ProductConcentration | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -82,8 +97,8 @@ def get_benchmarks(
     Privacy: minimum 10 peers per band. Below that threshold the response
     contains a `note` field and no metric comparisons.
     """
-    from app.services.benchmarks import get_merchant_benchmark_report
-    return get_merchant_benchmark_report(db, shop)
+    from app.services.benchmarks import get_extended_benchmark_report
+    return get_extended_benchmark_report(db, shop)
 
 
 @router.get(
@@ -107,6 +122,11 @@ def get_benchmarks_lite_accessible(
 
     Same privacy gate (N≥10 peers per band), same loss framing, same
     6-hour Redis cache — the only difference is the session dependency.
+
+    Strada 4 (dominate): upgraded to get_extended_benchmark_report
+    which returns the base 4 metrics PLUS CVR percentile and product
+    concentration (80/20 rule — how many products drive 80% of
+    revenue). This puts Lite above Varos on metric breadth.
     """
-    from app.services.benchmarks import get_merchant_benchmark_report
-    return get_merchant_benchmark_report(db, shop)
+    from app.services.benchmarks import get_extended_benchmark_report
+    return get_extended_benchmark_report(db, shop)

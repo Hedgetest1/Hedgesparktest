@@ -117,9 +117,17 @@ class WeeklyCohortsResponse(BaseModel):
 
 
 class CohortSummaryResponse(BaseModel):
-    """GET /pro/cohorts/summary — high-level retention stats."""
+    """GET /pro/cohorts/summary — high-level retention stats.
+
+    Strada 4 (dominate): in addition to the headline week-1 and
+    week-4 retention, we now return week-8, week-12, and week-26
+    averages so the card can plot the long-tail retention curve —
+    the dimension where Peel used to have depth we lacked."""
     avg_week_1_retention: float
     avg_week_4_retention: float
+    avg_week_8_retention: float = 0.0
+    avg_week_12_retention: float = 0.0
+    avg_week_26_retention: float = 0.0
     total_customers: int
     cohorts_measured: int
     best_cohort: str | None = None
@@ -265,6 +273,25 @@ def get_monthly_cohorts_lite(
     revenue/customer, repeat rate. The per-customer LTV drill-down
     stays Pro (depth-moat)."""
     return get_monthly_cohorts(db, shop, months=months)
+
+
+@lite_router.get("/ltv/products", response_model=GatewayProductsResponse)
+def get_product_ltv_lite(
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+):
+    """Gateway products — which first purchases produce the highest
+    lifetime customers. Strada 4 (dominate, 2026-04-20). Backend
+    service was already computing this for Pro consumption
+    (/pro/cohorts/ltv/products). Opening to Lite so merchants can see
+    `which product a customer's FIRST order is strongly predicts
+    their final LTV`.
+
+    Response shape — not a strict Pydantic model so we match the
+    internal service return verbatim; frontend is typed via the
+    existing paths type import."""
+    from app.services.ltv_engine import get_product_ltv_contribution
+    return get_product_ltv_contribution(db, shop, limit=20)
 
 
 

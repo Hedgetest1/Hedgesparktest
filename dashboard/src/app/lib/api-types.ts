@@ -2902,6 +2902,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/cohorts/ltv/products": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Product Ltv Lite
+         * @description Gateway products — which first purchases produce the highest
+         *     lifetime customers. Strada 4 (dominate, 2026-04-20). Backend
+         *     service was already computing this for Pro consumption
+         *     (/pro/cohorts/ltv/products). Opening to Lite so merchants can see
+         *     `which product a customer's FIRST order is strongly predicts
+         *     their final LTV`.
+         *
+         *     Response shape — not a strict Pydantic model so we match the
+         *     internal service return verbatim; frontend is typed via the
+         *     existing paths type import.
+         */
+        get: operations["get_product_ltv_lite_analytics_cohorts_ltv_products_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/install": {
         parameters: {
             query?: never;
@@ -4667,6 +4696,11 @@ export interface paths {
          *
          *     Same privacy gate (N≥10 peers per band), same loss framing, same
          *     6-hour Redis cache — the only difference is the session dependency.
+         *
+         *     Strada 4 (dominate): upgraded to get_extended_benchmark_report
+         *     which returns the base 4 metrics PLUS CVR percentile and product
+         *     concentration (80/20 rule — how many products drive 80% of
+         *     revenue). This puts Lite above Varos on metric breadth.
          */
         get: operations["get_benchmarks_lite_accessible_analytics_benchmarks_get"];
         put?: never;
@@ -6690,6 +6724,7 @@ export interface components {
             note?: string | null;
             /** Error */
             error?: string | null;
+            product_concentration?: components["schemas"]["ProductConcentration"] | null;
         };
         /** CacLtvResponse */
         CacLtvResponse: {
@@ -6991,12 +7026,32 @@ export interface components {
         /**
          * CohortSummaryResponse
          * @description GET /pro/cohorts/summary — high-level retention stats.
+         *
+         *     Strada 4 (dominate): in addition to the headline week-1 and
+         *     week-4 retention, we now return week-8, week-12, and week-26
+         *     averages so the card can plot the long-tail retention curve —
+         *     the dimension where Peel used to have depth we lacked.
          */
         CohortSummaryResponse: {
             /** Avg Week 1 Retention */
             avg_week_1_retention: number;
             /** Avg Week 4 Retention */
             avg_week_4_retention: number;
+            /**
+             * Avg Week 8 Retention
+             * @default 0
+             */
+            avg_week_8_retention: number;
+            /**
+             * Avg Week 12 Retention
+             * @default 0
+             */
+            avg_week_12_retention: number;
+            /**
+             * Avg Week 26 Retention
+             * @default 0
+             */
+            avg_week_26_retention: number;
             /** Total Customers */
             total_customers: number;
             /** Cohorts Measured */
@@ -9278,6 +9333,23 @@ export interface components {
         ProAlertsResponse: {
             /** Alerts */
             alerts: components["schemas"]["ProAlertRow"][];
+        };
+        /**
+         * ProductConcentration
+         * @description Pareto-style concentration: how many products drive 80% of
+         *     revenue. High concentration → narrow catalog risk; low → healthy
+         *     diversification. Surfaced alongside the standard benchmark metrics
+         *     as a complementary moat signal.
+         */
+        ProductConcentration: {
+            /** Total Products */
+            total_products: number;
+            /** Products For 80Pct Revenue */
+            products_for_80pct_revenue: number;
+            /** Concentration Ratio */
+            concentration_ratio: number;
+            /** Narrative */
+            narrative: string;
         };
         /**
          * ProductConversionRow
@@ -14549,6 +14621,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_product_ltv_lite_analytics_cohorts_ltv_products_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GatewayProductsResponse"];
                 };
             };
         };

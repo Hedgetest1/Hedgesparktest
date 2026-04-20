@@ -45,6 +45,13 @@ type BenchmarkData = {
   generated_at: string | null;
   note?: string | null;
   error?: string | null;
+  // Strada 4 (dominate): extended benchmark fields.
+  product_concentration?: {
+    total_products: number;
+    products_for_80pct_revenue: number;
+    concentration_ratio: number;
+    narrative: string;
+  } | null;
 };
 
 const METRIC_LABELS: Record<string, string> = {
@@ -52,6 +59,7 @@ const METRIC_LABELS: Record<string, string> = {
   aov: "Average order value",
   orders_per_day: "Orders per day",
   revenue_growth_30d_pct: "Revenue growth",
+  cvr: "Conversion rate",
 };
 
 import { formatMoneyCompact } from "@/app/app/_lib/formatters";
@@ -62,6 +70,7 @@ function fmtMoney(n: number, currency?: string): string {
 
 function fmtMetricValue(metric: string, v: number, currency?: string): string {
   if (metric === "revenue_growth_30d_pct") return v.toFixed(0) + "%";
+  if (metric === "cvr") return v.toFixed(2) + "%";
   if (metric === "orders_per_day") return v.toFixed(1);
   if (metric === "monthly_revenue" || metric === "aov") return fmtMoney(v, currency);
   return String(Math.round(v));
@@ -204,6 +213,32 @@ export function PeerBenchmarksCard({
           );
         })}
       </div>
+
+      {/* Product concentration — Strada 4 (dominate). Pareto 80/20
+          signal complementing the peer metrics above. No competitor
+          surfaces this on a peer-benchmarks card. */}
+      {data.product_concentration && (
+        <div className="mt-4 rounded-xl border border-amber-400/20 bg-amber-500/[0.04] px-4 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-amber-300">
+                Catalog concentration (Pareto 80/20)
+              </div>
+              <p className="mt-1 text-[12px] leading-relaxed text-slate-300">
+                {data.product_concentration.narrative}
+              </p>
+            </div>
+            <div className="flex-shrink-0 text-right">
+              <div className="text-[22px] font-extrabold tabular-nums text-amber-300">
+                {data.product_concentration.concentration_ratio.toFixed(0)}%
+              </div>
+              <div className="text-[9.5px] uppercase tracking-wider text-slate-500">
+                of catalog
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

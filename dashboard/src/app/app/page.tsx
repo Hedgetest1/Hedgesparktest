@@ -106,6 +106,7 @@ import { LiteRarsHero } from "../components/LiteRarsHero";
 import { PnlReport } from "../components/PnlReport";
 import { ChannelAttributionCard } from "../components/ChannelAttributionCard";
 import { MonthlyCohortsCard } from "../components/MonthlyCohortsCard";
+import { GatewayProductsCard } from "../components/GatewayProductsCard";
 import { ExportButton } from "../components/ExportButton";
 import { SlackSettings } from "../components/SlackSettings";
 // Pro-floor — 5 migrated Intelligence cards (previously on /app/intelligence)
@@ -3006,6 +3007,19 @@ function PageInner() {
                         a Lite floor. */}
                     <div className="mt-5">
                       <MonthlyCohortsCard
+                        apiBase={API_BASE}
+                        shop={shop}
+                        displayCurrency={displayCurrency}
+                      />
+                    </div>
+
+                    {/* Gateway products — Strada 4 dominance. Peel/
+                        Lifetimely's "LTV by product" depth, made
+                        simpler and focused on the single actionable
+                        insight: which product should you push to
+                        acquire the most valuable lifetime customers. */}
+                    <div className="mt-5">
+                      <GatewayProductsCard
                         apiBase={API_BASE}
                         shop={shop}
                         displayCurrency={displayCurrency}

@@ -225,23 +225,39 @@ def get_cohort_summary(
             "best_cohort":          str | None,
         }
     """
+    # Strada 4 (dominate): extend the summary to 26 weeks and surface
+    # week-8 / week-12 / week-26 averages in addition to the headline
+    # week-1 / week-4. Peel's specialty is deep retention — we now
+    # match their depth at the top-level view, keeping the per-cohort
+    # matrix as the shared drill-down.
     try:
-        full = get_cohort_retention(db, shop_domain, weeks=8)
+        full = get_cohort_retention(db, shop_domain, weeks=26)
+
+        def _avg_for_window(key: str) -> float:
+            rates = [c["retention"].get(key, 0) for c in full["cohorts"] if key in c["retention"]]
+            return round(sum(rates) / len(rates), 4) if rates else 0.0
+
         return {
-            "avg_week_1_retention": full["avg_week_1_retention"],
-            "avg_week_4_retention": full["avg_week_4_retention"],
-            "total_customers":      full["total_customers"],
-            "cohorts_measured":     len(full["cohorts"]),
-            "best_cohort":          full["best_cohort"],
+            "avg_week_1_retention":  full["avg_week_1_retention"],
+            "avg_week_4_retention":  full["avg_week_4_retention"],
+            "avg_week_8_retention":  _avg_for_window("week_8"),
+            "avg_week_12_retention": _avg_for_window("week_12"),
+            "avg_week_26_retention": _avg_for_window("week_26"),
+            "total_customers":       full["total_customers"],
+            "cohorts_measured":      len(full["cohorts"]),
+            "best_cohort":           full["best_cohort"],
         }
     except Exception as exc:
         log.error("cohort_engine: summary failed shop=%s: %s", shop_domain, exc)
         return {
-            "avg_week_1_retention": 0.0,
-            "avg_week_4_retention": 0.0,
-            "total_customers":      0,
-            "cohorts_measured":     0,
-            "best_cohort":          None,
+            "avg_week_1_retention":  0.0,
+            "avg_week_4_retention":  0.0,
+            "avg_week_8_retention":  0.0,
+            "avg_week_12_retention": 0.0,
+            "avg_week_26_retention": 0.0,
+            "total_customers":       0,
+            "cohorts_measured":      0,
+            "best_cohort":           None,
         }
 
 

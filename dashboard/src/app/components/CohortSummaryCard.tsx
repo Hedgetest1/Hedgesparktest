@@ -202,6 +202,52 @@ export function CohortSummaryCard({
           </div>
         </div>
 
+        {/* Long-tail retention curve — Strada 4 (dominate).
+            Week-1 and Week-4 are the headline (above); these are the
+            "do they stick around a quarter later" data points where
+            Peel's depth used to beat ours. Now we match + simpler. */}
+        <div className="mt-4 rounded-xl border border-white/[0.05] bg-[#0b0b14]/40 px-4 py-3">
+          <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+            Long-tail retention curve
+          </div>
+          <div className="grid grid-cols-5 gap-2 sm:gap-4">
+            {[
+              { label: "Week 1", rate: data.avg_week_1_retention ?? 0 },
+              { label: "Week 4", rate: data.avg_week_4_retention ?? 0 },
+              { label: "Week 8", rate: data.avg_week_8_retention ?? 0 },
+              { label: "Week 12", rate: data.avg_week_12_retention ?? 0 },
+              { label: "Week 26", rate: data.avg_week_26_retention ?? 0 },
+            ].map((pt) => {
+              const theme = retentionTheme(pt.rate);
+              return (
+                <div key={pt.label} className="text-center">
+                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                    {pt.label}
+                  </div>
+                  <div
+                    className="mt-1 text-[17px] font-extrabold tabular-nums leading-none"
+                    style={{ color: pt.rate > 0 ? theme.color : "#475569" }}
+                  >
+                    {pt.rate > 0 ? `${(pt.rate * 100).toFixed(1)}%` : "—"}
+                  </div>
+                  {/* Bar — visual anchor. Max height 20px; scales to %. */}
+                  <div
+                    className="mx-auto mt-2 w-2 rounded-full"
+                    style={{
+                      height: `${Math.max(2, Math.min(100, pt.rate * 100) * 0.2)}px`,
+                      background: pt.rate > 0 ? theme.color : "rgba(148,163,184,0.15)",
+                    }}
+                    aria-hidden="true"
+                  />
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-3 text-[11.5px] leading-relaxed text-slate-500">
+            The curve shape tells you the story: flat-and-high = compounding LTV; steep drop = one-and-done buyers.
+          </p>
+        </div>
+
         <div className="mt-3 text-[11px] font-semibold text-slate-500">
           Click for the per-cohort curves and what drives the spread →
         </div>
