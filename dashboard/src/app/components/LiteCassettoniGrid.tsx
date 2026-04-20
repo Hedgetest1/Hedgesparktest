@@ -431,10 +431,14 @@ export function LiteCassettoniGrid({
                 </div>
               </div>
 
-              {/* Hero stat — DrawerBigStat shape. Null-safe: if the
-                  payload has no material value, the stat is skipped
-                  and the methodology + subtitle carry the meaning. */}
-              {heroStat && (
+              {/* Hero stat — DrawerBigStat shape. When the payload
+                  has no material value (heroStat === null) we DON'T
+                  render "—" everywhere; we render a labeled preview
+                  of what the card will look like once data arrives,
+                  with a live "watching" indicator. That's the
+                  "premuroso ed affidabile" target — day-1 feels
+                  premium instead of a wall of empty cells. */}
+              {heroStat ? (
                 <div className="mb-6 rounded-xl border border-white/[0.06] bg-[#0b0b14]/70 p-5">
                   <div className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
                     {heroStat.label}
@@ -449,6 +453,8 @@ export function LiteCassettoniGrid({
                     {heroStat.sublabel}
                   </div>
                 </div>
+              ) : (
+                <EmptyPreview config={panelConfig.empty} accentHero={accent.hero} />
               )}
 
               {/* Donut — real-data only, renders when segments non-null. */}
@@ -476,8 +482,11 @@ export function LiteCassettoniGrid({
                 );
               })()}
 
-              {/* Key metrics — DrawerKeyValueList shape. */}
-              {keyMetrics.length > 0 && (
+              {/* Key metrics — DrawerKeyValueList shape. Suppressed
+                  when heroStat is null (empty state) — the preview
+                  block above already shows sample metrics and having
+                  another list of "—" below would dilute the signal. */}
+              {heroStat && keyMetrics.length > 0 && (
                 <div className="mb-6">
                   <div className="mb-3 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
                     Key metrics
@@ -771,10 +780,94 @@ type PanelConfig = {
     note: string;
   };
   renderDetailBlock?: (ctx: PanelCtx) => ReactNode;
+  /**
+   * Cold-start preview. When the merchant has no data yet (getHeroStat
+   * returns null), we replace the empty hero+metrics block with a
+   * faded "here's what this card will look like" sample so day-1 feels
+   * premium instead of a wall of "—". Every sample value is labeled
+   * as an example, never mistakable for real data.
+   */
+  empty: {
+    description: string;
+    sampleHeroStat: HeroStat;
+    sampleKeyMetrics: KeyMetric[];
+  };
   // Section 3 — what to do
   getPrimaryAction: (ctx: PanelCtx) => PrimaryAction | null;
   getSupportingActions: (ctx: PanelCtx) => SupportingAction[];
 };
+
+// ----------------------------------------------------------------------
+// EmptyPreview — day-1 cold-start affordance.
+//
+// When a feature has no real data (getHeroStat returns null), we render
+// THIS instead of an empty hero + "—" metrics list: a clearly-labeled
+// sample showing EXACTLY what the card will look like once data flows,
+// plus a live "watching your storefront" pulse that reassures the
+// merchant Spark is actively listening. This is the difference between
+// a dashboard that feels premium on day-1 and one that feels like it
+// hasn't loaded.
+// ----------------------------------------------------------------------
+
+function EmptyPreview({
+  config,
+  accentHero,
+}: {
+  config: PanelConfig["empty"];
+  accentHero: string;
+}) {
+  return (
+    <div className="mb-6 rounded-xl border border-dashed border-white/[0.12] bg-[#0b0b14]/40 p-5 sm:p-6">
+      <div className="mb-3 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+        <span
+          className="inline-block h-1.5 w-1.5 animate-pulse rounded-full"
+          style={{ background: accentHero }}
+          aria-hidden="true"
+        />
+        Preview — what this card will show
+      </div>
+      <p className="mb-5 text-[13px] leading-relaxed text-slate-400">
+        {config.description}
+      </p>
+      {/* Sample hero stat — half opacity so it's visually marked as
+          example data, never mistakable for real. */}
+      <div className="pointer-events-none mb-4 rounded-xl border border-white/[0.05] bg-[#0b0b14]/60 p-5 opacity-50">
+        <div className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+          {config.sampleHeroStat.label}
+        </div>
+        <div
+          className="mt-2 text-[2.25rem] font-extrabold leading-none tabular-nums"
+          style={{ color: config.sampleHeroStat.color }}
+        >
+          {config.sampleHeroStat.value}
+        </div>
+        <div className="mt-2.5 text-[12.5px] leading-relaxed text-slate-400">
+          {config.sampleHeroStat.sublabel}
+        </div>
+      </div>
+      <div className="pointer-events-none mb-5 divide-y divide-white/[0.04] rounded-xl border border-white/[0.05] bg-[#0b0b14]/40 opacity-50">
+        {config.sampleKeyMetrics.map((m, i) => (
+          <div key={i} className="flex items-center justify-between gap-4 px-4 py-3">
+            <span className="text-[13px] text-slate-400">{m.label}</span>
+            <span
+              className="text-[14px] font-bold tabular-nums"
+              style={{ color: m.color ?? "#e2e8f0" }}
+            >
+              {m.value}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-2 rounded-lg bg-emerald-500/[0.05] border border-emerald-400/15 px-3 py-2 text-[11.5px] font-semibold text-emerald-300">
+        <span
+          className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400"
+          aria-hidden="true"
+        />
+        Watching your storefront — real data will replace this preview within minutes.
+      </div>
+    </div>
+  );
+}
 
 // ----------------------------------------------------------------------
 // Donut — inline SVG, no library. Accepts 2–6 colored segments,
@@ -1019,6 +1112,22 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
       note:
         "Only components with material loss are included. The component list mirrors the full breakdown you see on Pro — nothing is hidden from Lite.",
     },
+    empty: {
+      description:
+        "The moment any of the five loss signals crosses threshold, the biggest leak + prioritized fixes land here. Until then, a clean slate means your store isn't bleeding money this month.",
+      sampleHeroStat: {
+        label: "Biggest leak right now",
+        value: "€420",
+        sublabel: "From abandoned high-intent carts — 42% of your total at-risk amount.",
+        color: "#fbbf24",
+      },
+      sampleKeyMetrics: [
+        { label: "Total at risk this month", value: "€1,020", color: "#fbbf24" },
+        { label: "Already prevented this month", value: "€280", color: "#34d399" },
+        { label: "Active leak sources", value: "3" },
+        { label: "Top leak share", value: "42%" },
+      ],
+    },
     getPrimaryAction: (ctx) => {
       const comps = (ctx.rarsData?.components ?? [])
         .filter((c) => c.loss_eur > 0)
@@ -1170,6 +1279,22 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
       },
       note:
         "Rankings refresh every 10 minutes during trading hours. A signal that's old but has a new event layered on top can still re-surface as today's lead.",
+    },
+    empty: {
+      description:
+        "Every morning I rank yesterday's events by economic impact. The top story leads the brief; the rest follow. Once traffic arrives overnight, the first brief lands here.",
+      sampleHeroStat: {
+        label: "Lead story today",
+        value: "Silk Pillowcase",
+        sublabel: "Action suggested: price-test a €5 drop to match the engaged-visitor willingness-to-pay band.",
+        color: "#a78bfa",
+      },
+      sampleKeyMetrics: [
+        { label: "Findings today", value: "4", color: "#a78bfa" },
+        { label: "Lead product", value: "Silk Pillowcase" },
+        { label: "Signal types today", value: "3" },
+        { label: "Most frequent signal", value: "High intent · no buy" },
+      ],
     },
     getPrimaryAction: (ctx) => {
       const count = ctx.briefData?.signals_count ?? 0;
@@ -1338,6 +1463,22 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
       note:
         "Browse-stage leaks usually mean the product page itself isn't convincing. Cart-stage leaks usually mean shipping, price, or checkout friction. The tag on each product tells you where to look.",
     },
+    empty: {
+      description:
+        "Once visitors start bouncing, the products with the widest buyer-vs-non-buyer depth gap will appear here — colored by where they dropped off. Each product becomes a one-click jump to its Shopify admin edit page.",
+      sampleHeroStat: {
+        label: "Biggest leak this week",
+        value: "64%",
+        sublabel: "Silk Pillowcase · 220 views · 14 carts · 5 sales.",
+        color: "#f87171",
+      },
+      sampleKeyMetrics: [
+        { label: "Products leaking intent", value: "7", color: "#f87171" },
+        { label: "Browse-stage leaks", value: "4", color: "#fbbf24" },
+        { label: "Cart-stage leaks", value: "2", color: "#ef4444" },
+        { label: "High-intent no-buys", value: "1", color: "#f87171" },
+      ],
+    },
     getPrimaryAction: (ctx) => {
       const list = ctx.abandonedData?.products ?? [];
       if (list.length === 0) {
@@ -1494,6 +1635,22 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
       note:
         "Rankings re-sort every 5 minutes as visitors flow through. A page that's #3 at 9am can become #1 by noon if a traffic surge hits it.",
     },
+    empty: {
+      description:
+        "As visitors flow through your store, pages that earn engagement but not conversion will rank here by recoverable revenue. One click from each row opens the page your visitors see.",
+      sampleHeroStat: {
+        label: "Top opportunity right now",
+        value: "Priority 82",
+        sublabel: "/products/silk-pillowcase — Add urgency copy above the fold.",
+        color: "#e8a04e",
+      },
+      sampleKeyMetrics: [
+        { label: "Pages leaking intent", value: "5", color: "#e8a04e" },
+        { label: "High-intent pages", value: "3", color: "#fbbf24" },
+        { label: "Engaged pages", value: "2", color: "#a78bfa" },
+        { label: "Top priority score", value: "82" },
+      ],
+    },
     getPrimaryAction: (ctx) => {
       const opps = (ctx.liveOppsData?.opportunities ?? [])
         .filter((o) => o.signal_type !== "LOW_SIGNAL")
@@ -1642,6 +1799,22 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
       },
       note:
         "Thresholds are published on purpose — we want you to audit the classification. Hot visitors are roughly 10× more likely to convert than Cold ones based on historical data across all shops.",
+    },
+    empty: {
+      description:
+        "Every live visitor will be classified Hot / Warm / Cold within seconds of landing on your store. The split tells you in one glance whether to fix acquisition or conversion — two very different costly mistakes.",
+      sampleHeroStat: {
+        label: "Dominant segment right now",
+        value: "Warm 54%",
+        sublabel: "48 of 89 visitors scored — your traffic is engaged but uncommitted.",
+        color: "#a78bfa",
+      },
+      sampleKeyMetrics: [
+        { label: "Hot visitors", value: "12", color: "#f87171" },
+        { label: "Warm visitors", value: "48", color: "#a78bfa" },
+        { label: "Cold visitors", value: "29", color: "#94a3b8" },
+        { label: "Total scored", value: "89" },
+      ],
     },
     getPrimaryAction: (ctx) => {
       const hot = ctx.visitorIntentData?.hot_visitors ?? 0;
@@ -1805,6 +1978,22 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
       },
       note:
         "Intent level (HOT/WARM/COLD) uses the same thresholds as Visitor Intent — so the signals are directly comparable between the two panels.",
+    },
+    empty: {
+      description:
+        "Products pulling the most attention this week will rank here by views × intent score. Each card becomes a one-click jump to its Shopify admin edit page so you can double down on the winners in minutes.",
+      sampleHeroStat: {
+        label: "Leading product this week",
+        value: "Silk Pillowcase",
+        sublabel: "340 views · 180 visitors · intent 72.",
+        color: "#34d399",
+      },
+      sampleKeyMetrics: [
+        { label: "#1 product views", value: "340", color: "#34d399" },
+        { label: "#1 product visitors", value: "180" },
+        { label: "Views per visitor", value: "1.9" },
+        { label: "Intent score", value: "72", color: "#34d399" },
+      ],
     },
     renderDetailBlock: (ctx) => {
       if (ctx.loading) {
