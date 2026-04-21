@@ -110,3 +110,103 @@ body {
 }
 
 .hs-scroll-smooth { scroll-behavior: smooth; }
+
+/* ════════════════════════════════════════════════════════════════
+   Lite theme — pastel "colonna" palette
+   ════════════════════════════════════════════════════════════════
+   Applied to <main> only (Sidebar + TopBar remain dark chrome).
+   Scope triggered when merchant is on /app/lite (isLiteFloor).
+   Reference: /opt/wishspark/screenshots/WhatsApp Image 2026-04-21
+   at 19.49.12.jpeg — pastel boutique column.
+
+   Palette:
+     canvas (wall)     #D9CCE3  soft lilac
+     card (column)     #F5E6CC  cream
+     accent (flowers)  #D4745A  peach — saturated enough for text-on-cream
+     accent soft       #F5A58B  peach pastel for decorations only
+     text primary      #2A2438  dark purple-slate (contrast ~12:1 on cream)
+     text secondary    #4A4560  medium purple-slate
+     text muted        #8B85A0  light muted
+     gradient accent   #9177B8 → #7A95C8  lilac-to-sky for emphasis text
+
+   Rules:
+     - Semantic colors (rose / emerald / yellow) preserved for trend
+       indicators (good / bad / stall). They're NOT overridden.
+     - Chrome (Sidebar / TopBar) is OUTSIDE .lite-theme — stays dark.
+     - Overrides target Tailwind's utility classes via descendant
+       selectors, scoped to .lite-theme. No component refactor needed.
+   */
+
+:root {
+  --lite-bg-canvas: #D9CCE3;
+  --lite-bg-card: #F5E6CC;
+  --lite-bg-card-soft: #F0DEB6;
+  --lite-accent-peach: #D4745A;
+  --lite-accent-peach-soft: #F5A58B;
+  --lite-ink-primary: #2A2438;
+  --lite-ink-secondary: #4A4560;
+  --lite-ink-muted: #8B85A0;
+  --lite-border: rgba(212, 116, 90, 0.28);
+}
+
+.lite-theme {
+  background-color: var(--lite-bg-canvas);
+  color: var(--lite-ink-primary);
+}
+
+/* Cards — any rounded shell under a Lite section becomes cream */
+.lite-theme section[id^="section-lite-"] {
+  background: var(--lite-bg-card) !important;
+  background-image: none !important;
+  border-color: var(--lite-border) !important;
+  color: var(--lite-ink-primary);
+}
+
+/* Section title color override — peach for all 5 Lite h2's.
+   RarsHero h2 keeps the #F5A58B inline style (soft peach
+   pastel is fine on cream because the 44px size clears AA large). */
+.lite-theme h2[id^="lite-"] {
+  color: var(--lite-accent-peach) !important;
+}
+
+/* Subtitle / sub-line — dark purple-slate */
+.lite-theme .text-slate-200,
+.lite-theme .text-slate-300,
+.lite-theme .text-white {
+  color: var(--lite-ink-secondary) !important;
+}
+.lite-theme .text-slate-400,
+.lite-theme .text-slate-500 {
+  color: var(--lite-ink-muted) !important;
+}
+
+/* Ornament stripes — lilac + sky-blue gradient, as the column's
+   vertical stripes. Use as utility on emphasis text (big numbers,
+   callout spans). */
+.lite-gradient-text {
+  background: linear-gradient(135deg, #9177B8 0%, #7A95C8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Numeric heroes that were text-white on dark should pick up the
+   lilac-sky gradient for Lite. Opt-in via class, not global. */
+.lite-theme .hs-num-hero {
+  background: linear-gradient(135deg, #9177B8 0%, #7A95C8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Inner cards inside sections (rank rows, pills) get a soft-cream
+   alt background so they stand out from the cream card base. */
+.lite-theme section[id^="section-lite-"] [class*="bg-white/[0.015]"],
+.lite-theme section[id^="section-lite-"] [class*="bg-white/[0.02]"] {
+  background-color: var(--lite-bg-card-soft) !important;
+  background-image: none !important;
+  border-color: var(--lite-border) !important;
+}
+
+/* Rose / emerald / amber accent pills (semantic trend indicators)
+   stay as designed — explicitly preserve by not overriding them. */

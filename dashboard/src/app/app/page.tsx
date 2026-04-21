@@ -1949,7 +1949,10 @@ function PageInner() {
       <div className="flex flex-1 flex-col overflow-hidden">
         <TopBar shop={shop} tier={tier} onTierToggle={handleTierToggle} trial={trialInfo} notifications={activeToasts} reputation={sparkReputation} />
 
-        <main ref={mainRef} className="flex-1 overflow-y-auto hs-scroll-smooth">
+        <main
+          ref={mainRef}
+          className={`flex-1 overflow-y-auto hs-scroll-smooth ${isLiteFloor ? "lite-theme" : ""}`}
+        >
           {!sessionResolved ? (
             <MascotLoader caption="Connecting to your store..." state="loading" />
           ) : !shop ? (
