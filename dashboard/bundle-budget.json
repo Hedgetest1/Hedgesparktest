@@ -48,10 +48,17 @@
     "chunks_total_bytes": 1812486,
     "chunks_count": 34
   },
+  "_baseline_2026_04_21_lite_v5_deeper_drawer": {
+    "_note": "Lite v5 Deeper drawer — LiteDeeperDrawer.tsx (~400 LOC) with 4-tab container (Peers/P&L/Attribution/Retention) that imports 9 existing Lite surfaces. These imports already existed in v4 primary-stream graph; v5 flag-on route moves them into the drawer. Turbopack places the drawer + its tab children in the /app shared chunk, pushing largest-chunk 767→825 KB (+58). Still feature-flag gated — zero prod impact until NEXT_PUBLIC_LITE_SPARK_DAILY flips. Budget raised 820000 -> 860000 for ~4% headroom.",
+    "largest_chunk_bytes": 824562,
+    "root_main_total_bytes": 455826,
+    "chunks_total_bytes": 1888835,
+    "chunks_count": 35
+  },
   "budgets": {
-    "largest_chunk_bytes": 820000,
+    "largest_chunk_bytes": 860000,
     "root_main_total_bytes": 520000,
-    "chunks_total_bytes": 1900000,
+    "chunks_total_bytes": 1950000,
     "chunks_count_max": 40
   }
 }

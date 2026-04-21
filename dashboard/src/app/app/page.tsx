@@ -115,6 +115,7 @@ import { AnalyticsAssistant } from "../components/AnalyticsAssistant";
 import { RecommendationImpactCard } from "../components/RecommendationImpactCard";
 // Lite v5 Spark Daily — flag-gated reframe of the Lite primary slot
 import { LiteSparkDaily } from "../components/LiteSparkDaily";
+import { LiteDeeperDrawer } from "../components/LiteDeeperDrawer";
 import { ChurnForecastCard } from "../components/ChurnForecastCard";
 import { RiskForecastCard } from "../components/RiskForecastCard";
 import { CohortSummaryCard } from "../components/CohortSummaryCard";
@@ -536,6 +537,10 @@ function PageInner() {
   // Lifted so the LiteRarsHero (above the grid) can open a specific
   // cassettone when the merchant clicks a RARS component drill-down.
   const [liteExpandedId, setLiteExpandedId] = useState<CassettoneId | null>(null);
+  // Lite v5: "Deeper" drawer open/closed. Controlled from page so the
+  // drawer can be rendered as a sibling to LiteSparkDaily (needs
+  // access to topProducts/effectiveBrief already loaded here).
+  const [liteDeeperOpen, setLiteDeeperOpen] = useState(false);
   const mainRef = useRef<HTMLElement | null>(null);
   // Track whether user just clicked nav — suppresses observer updates briefly
   const isScrollingRef = useRef(false);
@@ -2807,20 +2812,28 @@ function PageInner() {
                   flips. See /docs/LITE_VISUAL_SPEC_v5.md. */}
               {isLiteFloor &&
                 process.env.NEXT_PUBLIC_LITE_SPARK_DAILY === "true" && (
-                  <LiteSparkDaily
-                    shopDomain={shop}
-                    onOpenDeeper={() => {
-                      // MVP deeper: scroll to the cassettoni grid below.
-                      // Replaced by the dedicated drawer in the next
-                      // commit; contract preserved.
-                      const el = document.querySelector(
-                        "[data-cassettoni-grid]",
-                      );
-                      if (el instanceof HTMLElement) {
-                        el.scrollIntoView({ behavior: "smooth", block: "start" });
-                      }
-                    }}
-                  />
+                  <>
+                    <LiteSparkDaily
+                      shopDomain={shop}
+                      onOpenDeeper={() => setLiteDeeperOpen(true)}
+                    />
+                    <LiteDeeperDrawer
+                      open={liteDeeperOpen}
+                      onClose={() => setLiteDeeperOpen(false)}
+                      apiBase={API_BASE}
+                      shop={shop}
+                      isProUser={isProUser}
+                      displayCurrency={displayCurrency}
+                      pnlData={pnlData}
+                      topProducts={topProducts}
+                      effectiveBrief={effectiveBrief}
+                      briefLoading={briefLoading}
+                      coldStartPhase={coldStartPhase}
+                      loading={loading}
+                      cassettoneExpandedId={liteExpandedId}
+                      onCassettoneExpandedChange={setLiteExpandedId}
+                    />
+                  </>
                 )}
 
               {/* RARS hero — permanent, above the grid. The single
@@ -3096,8 +3109,11 @@ function PageInner() {
                 </section>
               )}
 
-              {isLiteFloor && (
-                <div data-cassettoni-grid>
+              {/* Cassettoni grid — v4 primary placement. v5 moves
+                  this inside the Deeper drawer (Retention tab), so
+                  hide when the Spark Daily flag is on. */}
+              {isLiteFloor &&
+                process.env.NEXT_PUBLIC_LITE_SPARK_DAILY !== "true" && (
                   <LiteCassettoniGrid
                     apiBase={API_BASE}
                     shop={shop}
@@ -3110,8 +3126,7 @@ function PageInner() {
                     expandedId={liteExpandedId}
                     onExpandedChange={setLiteExpandedId}
                   />
-                </div>
-              )}
+                )}
 
               {/* AI Analytics Assistant — Strada 4 dominance move.
                   Moby equivalent: merchant asks in plain English,

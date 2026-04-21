@@ -842,6 +842,7 @@ function AskSpark() {
   return (
     <section
       aria-labelledby="ask-spark-heading"
+      data-ask-spark-zone
       className="mb-8 rounded-3xl border border-white/[0.06] bg-[#0e0e1a]/60 p-7 sm:p-9"
     >
       <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#a78bfa]">

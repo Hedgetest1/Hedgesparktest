@@ -571,7 +571,7 @@ def get_product_margin_drag(
                 SELECT
                     pr.product_key,
                     pr.title,
-                    pr.revenue::float,
+                    pr.revenue,
                     pr.units_sold::int,
                     pc.cogs_per_unit,
                     pc.source

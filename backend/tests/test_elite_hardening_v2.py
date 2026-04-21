@@ -1725,6 +1725,11 @@ def test_no_orphan_service_modules():
                 if isinstance(node, ast.ImportFrom) and node.module:
                     if node.module.startswith("app.services."):
                         imported.add(node.module.split(".")[-1])
+                    elif node.module == "app.services":
+                        # `from app.services import svc_name` — imported
+                        # name IS the service module stem.
+                        for alias in node.names:
+                            imported.add(alias.name)
                 elif isinstance(node, ast.Import):
                     for alias in node.names:
                         if alias.name.startswith("app.services."):
