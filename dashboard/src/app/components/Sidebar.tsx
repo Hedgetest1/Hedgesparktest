@@ -271,7 +271,15 @@ export function Sidebar({
           Every floor stays visible for every tier; inaccessible
           floors render with a lock icon but are still clickable
           (they navigate to a preview page that shows WHAT Pro/Scale
-          unlocks — no dead clicks, no silent hides). */}
+          unlocks — no dead clicks, no silent hides).
+
+          Hidden on /app/settings/* (currentFloor === "settings") —
+          settings is cross-tier configuration, showing 3 floor tabs
+          (two of them locked for Lite users) creates visual noise
+          that has nothing to do with configuring the shop. Merchant
+          returns to the dashboard via the breadcrumb "← Dashboard"
+          present on every settings sub-page. */}
+      {currentFloor !== "settings" && (
       <div className="flex flex-col gap-1 border-b border-white/[0.04] px-2 py-3">
         {FLOORS.map((floor) => {
           const isActive = currentFloor === floor.id;
@@ -310,6 +318,7 @@ export function Sidebar({
           );
         })}
       </div>
+      )}
 
       {/* Section nav — contextual to the current floor. For Phase 1.8.1
           we only render section nav on the Pulse floor; future floors
