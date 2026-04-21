@@ -113,9 +113,6 @@ import { SlackSettings } from "../components/SlackSettings";
 import { AnalyticsAssistant } from "../components/AnalyticsAssistant";
 // Pro-floor — 5 migrated Intelligence cards (previously on /app/intelligence)
 import { RecommendationImpactCard } from "../components/RecommendationImpactCard";
-// Lite v5 Spark Daily — flag-gated reframe of the Lite primary slot
-import { LiteSparkDaily } from "../components/LiteSparkDaily";
-import { LiteDeeperDrawer } from "../components/LiteDeeperDrawer";
 import { ChurnForecastCard } from "../components/ChurnForecastCard";
 import { RiskForecastCard } from "../components/RiskForecastCard";
 import { CohortSummaryCard } from "../components/CohortSummaryCard";
@@ -537,10 +534,6 @@ function PageInner() {
   // Lifted so the LiteRarsHero (above the grid) can open a specific
   // cassettone when the merchant clicks a RARS component drill-down.
   const [liteExpandedId, setLiteExpandedId] = useState<CassettoneId | null>(null);
-  // Lite v5: "Deeper" drawer open/closed. Controlled from page so the
-  // drawer can be rendered as a sibling to LiteSparkDaily (needs
-  // access to topProducts/effectiveBrief already loaded here).
-  const [liteDeeperOpen, setLiteDeeperOpen] = useState(false);
   const mainRef = useRef<HTMLElement | null>(null);
   // Track whether user just clicked nav — suppresses observer updates briefly
   const isScrollingRef = useRef(false);
@@ -2799,42 +2792,6 @@ function PageInner() {
                   individual deep cards. Click a cassettone to expand
                   the full deep card below. Radar + Spark Status remain
                   OUTSIDE this component, at the bottom of the floor. */}
-              {/* ═══ LITE v5 — "Spark Daily" reframe ═══
-                  Gated on NEXT_PUBLIC_LITE_SPARK_DAILY === "true". When
-                  flag is on, the merchant sees the 6-zone morning brief
-                  (Spark Says · Leak Gauge · 3 Fixes · Week Ridge ·
-                  Spark's Memory · Ask Spark) INSTEAD of the 5 big v4
-                  primary sections. Cassettoni grid + AnalyticsAssistant
-                  stay in place below as the MVP "Deeper" fallback; a
-                  dedicated slide-over drawer lands in a follow-up
-                  commit. When flag is off, the v4 layout renders
-                  unchanged — zero visible impact in prod until the flag
-                  flips. See /docs/LITE_VISUAL_SPEC_v5.md. */}
-              {isLiteFloor &&
-                process.env.NEXT_PUBLIC_LITE_SPARK_DAILY === "true" && (
-                  <>
-                    <LiteSparkDaily
-                      shopDomain={shop}
-                      onOpenDeeper={() => setLiteDeeperOpen(true)}
-                    />
-                    <LiteDeeperDrawer
-                      open={liteDeeperOpen}
-                      onClose={() => setLiteDeeperOpen(false)}
-                      apiBase={API_BASE}
-                      shop={shop}
-                      isProUser={isProUser}
-                      displayCurrency={displayCurrency}
-                      pnlData={pnlData}
-                      topProducts={topProducts}
-                      effectiveBrief={effectiveBrief}
-                      briefLoading={briefLoading}
-                      coldStartPhase={coldStartPhase}
-                      loading={loading}
-                      cassettoneExpandedId={liteExpandedId}
-                      onCassettoneExpandedChange={setLiteExpandedId}
-                    />
-                  </>
-                )}
 
               {/* RARS hero — permanent, above the grid. The single
                   differentiator that no competitor replicates, lifted
@@ -2842,8 +2799,7 @@ function PageInner() {
                   this is what HedgeSpark uniquely does. Clicking a
                   component row opens the corresponding drill-down in
                   the cassettone grid below via controlled state. */}
-              {isLiteFloor &&
-                process.env.NEXT_PUBLIC_LITE_SPARK_DAILY !== "true" && (
+              {isLiteFloor && (
                 <LiteRarsHero
                   apiBase={API_BASE}
                   shop={shop}
@@ -2872,8 +2828,7 @@ function PageInner() {
                   weight a strada-2 moat deserves.
                   v5 flag: hidden when Spark Daily is on — content is
                   available via the Deeper drawer. */}
-              {isLiteFloor &&
-                process.env.NEXT_PUBLIC_LITE_SPARK_DAILY !== "true" && (
+              {isLiteFloor && (
                 <section
                   aria-labelledby="lite-benchmarks-heading"
                   className="relative mb-8 overflow-hidden rounded-3xl border border-violet-400/[0.15] bg-gradient-to-br from-[#140d1a] via-[#0a0a14] to-[#0b0c18] p-7 sm:p-9"
@@ -2932,8 +2887,7 @@ function PageInner() {
                   (Settings, Pro tier for bulk entry; Lite can still
                   view the waterfall with estimates).
                   v5 flag: hidden when Spark Daily is on. */}
-              {isLiteFloor &&
-                process.env.NEXT_PUBLIC_LITE_SPARK_DAILY !== "true" && (
+              {isLiteFloor && (
                 <section
                   aria-labelledby="lite-pnl-heading"
                   className="relative mb-8 overflow-hidden rounded-3xl border border-amber-400/[0.15] bg-gradient-to-br from-[#1a0d0a] via-[#0a0a14] to-[#0b0c18] p-7 sm:p-9"
@@ -2993,8 +2947,7 @@ function PageInner() {
                   (peer) → amber (P&L) → emerald (retention) → blue
                   (attribution) → cassettoni grid.
                   v5 flag: hidden when Spark Daily is on. */}
-              {isLiteFloor &&
-                process.env.NEXT_PUBLIC_LITE_SPARK_DAILY !== "true" && (
+              {isLiteFloor && (
                 <section
                   aria-labelledby="lite-attribution-heading"
                   className="relative mb-8 overflow-hidden rounded-3xl border border-blue-400/[0.15] bg-gradient-to-br from-[#0a121a] via-[#0a0a14] to-[#0b0c18] p-7 sm:p-9"
@@ -3044,8 +2997,7 @@ function PageInner() {
                   per-customer predicted-LTV drill-down and full cohort
                   matrix remain Pro depth.
                   v5 flag: hidden when Spark Daily is on. */}
-              {isLiteFloor &&
-                process.env.NEXT_PUBLIC_LITE_SPARK_DAILY !== "true" && (
+              {isLiteFloor && (
                 <section
                   aria-labelledby="lite-retention-heading"
                   className="relative mb-8 overflow-hidden rounded-3xl border border-emerald-400/[0.15] bg-gradient-to-br from-[#0a1612] via-[#0a0a14] to-[#0b0c18] p-7 sm:p-9"
@@ -3112,8 +3064,7 @@ function PageInner() {
               {/* Cassettoni grid — v4 primary placement. v5 moves
                   this inside the Deeper drawer (Retention tab), so
                   hide when the Spark Daily flag is on. */}
-              {isLiteFloor &&
-                process.env.NEXT_PUBLIC_LITE_SPARK_DAILY !== "true" && (
+              {isLiteFloor && (
                   <LiteCassettoniGrid
                     apiBase={API_BASE}
                     shop={shop}
@@ -3136,8 +3087,7 @@ function PageInner() {
                   then ASK about it, then OPT IN to push it to Slack.
                   v5 flag: hidden when Spark Daily is on (Zone 6
                   already renders AnalyticsAssistant reframed). */}
-              {isLiteFloor &&
-                process.env.NEXT_PUBLIC_LITE_SPARK_DAILY !== "true" && (
+              {isLiteFloor && (
                   <AnalyticsAssistant />
                 )}
 

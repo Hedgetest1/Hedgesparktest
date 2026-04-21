@@ -191,8 +191,6 @@ from app.api.merchant_churn import router as merchant_churn_router
 from app.api.revenue_genome import router as revenue_genome_router
 from app.api.goals import router as goals_router
 from app.api.revenue_at_risk import router as rars_router
-from app.api.week_ridge import router as week_ridge_router
-from app.api.spark_memory import router as spark_memory_router
 from app.api.risk_forecast import router as risk_forecast_router
 from app.api.annotations import router as annotations_router
 from app.api.segment_compare import router as segment_compare_router
@@ -628,8 +626,6 @@ app.include_router(playbook_router)
 app.include_router(refund_loss_router)
 app.include_router(goals_router)
 app.include_router(rars_router)
-app.include_router(week_ridge_router)
-app.include_router(spark_memory_router)
 app.include_router(risk_forecast_router)
 app.include_router(annotations_router)
 app.include_router(segment_compare_router)
