@@ -36,6 +36,10 @@ import {
 } from "../lib/sparkVoice";
 import { AnalyticsAssistant } from "./AnalyticsAssistant";
 import { CardError, CardSkeleton } from "./_CardStates";
+import {
+  CardAtmosphere,
+  OrnamentalFlourish,
+} from "./LiteDecorationPrimitives";
 
 // ============================================================================
 // Types (mirroring backend payloads — typed via openapi where available)
@@ -278,13 +282,17 @@ function SparkSays({
 
 type LeakBucket = "product" | "cart" | "retention";
 
+// Semantic colors per spec v5 Addendum 2026-04-21 §A:
+//   product   → rose-400    (#f87171) — problem hue
+//   cart      → yellow-500  (#eab308) — stall hue (mid-flow pause)
+//   retention → violet-400  (#a78bfa) — future-risk, dominant Lite hue
 const LEAK_BUCKET_META: Record<
   LeakBucket,
-  { label: string; color: string }
+  { label: string; color: string; softColor: string }
 > = {
-  product: { label: "Product leaks", color: "#f87171" },
-  cart: { label: "Cart leaks", color: "#e8a04e" },
-  retention: { label: "Retention risk", color: "#a78bfa" },
+  product: { label: "Product", color: "#f87171", softColor: "#fca5a5" },
+  cart: { label: "Cart", color: "#eab308", softColor: "#fde047" },
+  retention: { label: "Retention", color: "#a78bfa", softColor: "#c4b5fd" },
 };
 
 function classifyLeak(source: string): LeakBucket {
@@ -330,355 +338,443 @@ function LeakGauge({
   const prevented = Math.round(rars?.prevented_eur_this_month ?? 0);
   const distribution = computeLeakDistribution(rars?.components);
   const hasDistribution = distribution.total > 0;
+  const hasAnyData = total + prevented > 0;
 
   return (
     <section
       aria-labelledby="leak-gauge-heading"
-      className="relative mb-8 overflow-hidden rounded-3xl border border-[#d4893a]/[0.18] bg-gradient-to-br from-[#1a1405] via-[#0d0a0a] to-[#0a0a14] p-7 sm:p-10"
+      className="relative mb-8 overflow-hidden rounded-3xl border border-violet-400/[0.14] bg-gradient-to-br from-[#100a1e] via-[#0a0a14] to-[#0b0b1a] p-7 sm:p-10"
     >
-      <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#d4893a] to-transparent opacity-70" />
-      <div className="pointer-events-none absolute -right-40 -top-40 h-[420px] w-[420px] rounded-full bg-[#d4893a]/[0.06] blur-[180px]" />
+      <CardAtmosphere
+        washColor="#a78bfa"
+        washCorner="top-left"
+        constellation="lyra"
+        constellationColor="#a78bfa"
+        constellationOpacity={0.14}
+      />
+      <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#a78bfa] to-transparent opacity-55" />
 
       <div className="relative">
-        <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#e8a04e]">
+        <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#c4b5fd]">
           Money at risk · this month
         </div>
         <h2
           id="leak-gauge-heading"
-          className="mt-2 text-[1.75rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2rem]"
+          className="mt-2 text-[1.75rem] font-extrabold leading-[1.05] tracking-tight text-[#a78bfa] sm:text-[2rem]"
         >
           The number no other Shopify tool shows you
         </h2>
+        <OrnamentalFlourish
+          color="#a78bfa"
+          width={220}
+          opacity={0.38}
+          className="mt-3"
+        />
 
-        <div className="mt-6 flex flex-wrap items-center gap-5 sm:gap-7">
-          <div
-            className="font-mono text-[4.5rem] font-extrabold leading-[0.9] tabular-nums sm:text-[5.5rem]"
-            style={{
-              color: total > 0 ? "#d4893a" : "#64748b",
-              textShadow:
-                total > 0 ? "0 0 60px rgba(212,137,58,0.2)" : "none",
-            }}
-          >
-            {error ? "—" : loading ? "…" : `${sym}${total.toLocaleString("en-US")}`}
-          </div>
-
-          {/* Leak distribution donut — shows how the total € splits
-              across Product / Cart / Retention. Ghost state (dashed
-              circle + muted label) when no RARS components yet —
-              honest visual preview of what will appear. */}
-          {!loading && !error && (
-            <LeakDonut
-              distribution={distribution}
-              size={88}
-              currencySym={sym}
+        {/* PROTAGONIST — radial half-gauge */}
+        <div className="mt-8 flex flex-col items-center">
+          {loading ? (
+            <CardSkeleton label="Loading the gauge" />
+          ) : error ? (
+            <CardError
+              message="Couldn't load the risk gauge."
+              label="Gauge failed"
+            />
+          ) : (
+            <LeakRadialGauge
+              total={total}
+              prevented={prevented}
+              sym={sym}
+              hasData={hasAnyData}
             />
           )}
 
-          {prevented > 0 && !loading && !error && (
-            <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/[0.06] px-3.5 py-2">
-              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-400">
-                Prevented this month
-              </div>
-              <div className="mt-0.5 text-[15px] font-bold tabular-nums text-emerald-300">
-                {sym}
-                {prevented.toLocaleString("en-US")}
-              </div>
-            </div>
+          {/* Caption under the gauge — secondary to the visual */}
+          {!loading && !error && (
+            <p className="mt-4 max-w-xl text-center text-[13.5px] leading-relaxed text-slate-400">
+              Five independent signals summed in your store&apos;s currency.
+              Not yesterday&apos;s revenue — right-now risk.
+            </p>
           )}
         </div>
 
-        <p className="mt-4 max-w-2xl text-[14.5px] leading-relaxed text-slate-400">
-          Five independent signals — abandoned high-intent carts, refund
-          trends, nudges underperforming peers, benchmark gaps, monthly
-          targets — summed in your store&apos;s currency. Updated every
-          minute. Not yesterday&apos;s revenue; right-now risk.
-        </p>
-
-        {/* Leak breakdown — 3 rows with € share + proportional bar
-            when there are RARS components. When no components yet,
-            ghost-bars with honest "Watching…" copy (never fake a
-            value). Feeds the same buckets rendered in the donut. */}
-        <div className="mt-8 border-t border-white/[0.06] pt-6">
-          <div className="mb-4 flex items-center justify-between">
-            <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">
-              Leak breakdown · 3 signals
-            </div>
-            {hasDistribution && (
-              <div className="text-[11px] tabular-nums text-slate-500">
-                Total {sym}
-                {Math.round(distribution.total).toLocaleString("en-US")}
-              </div>
-            )}
-          </div>
-          <div className="space-y-3">
-            {(["product", "cart", "retention"] as const).map((bucket) => {
-              const meta = LEAK_BUCKET_META[bucket];
-              const value = distribution.buckets[bucket];
-              const pct =
-                hasDistribution && distribution.total > 0
-                  ? (value / distribution.total) * 100
-                  : 0;
-              return (
-                <LeakBreakdownRow
-                  key={bucket}
-                  label={meta.label}
-                  color={meta.color}
-                  valueEur={value}
-                  pct={pct}
-                  currencySym={sym}
-                  hasData={hasDistribution}
-                />
-              );
-            })}
-          </div>
+        {/* Three mini-donuts — one per bucket. Each shows that
+            bucket's € share with proportional ring. Ghost state
+            (dashed ring + "Watching…") when no distribution yet.
+            This IS the breakdown; no separate row list needed. */}
+        <div className="mt-10 grid grid-cols-3 gap-3 sm:gap-5">
+          {(["product", "cart", "retention"] as const).map((bucket) => {
+            const meta = LEAK_BUCKET_META[bucket];
+            const value = distribution.buckets[bucket];
+            const pct =
+              hasDistribution && distribution.total > 0
+                ? (value / distribution.total) * 100
+                : 0;
+            return (
+              <LeakMiniDonut
+                key={bucket}
+                label={meta.label}
+                color={meta.color}
+                softColor={meta.softColor}
+                value={value}
+                pct={pct}
+                currencySym={sym}
+                hasData={hasDistribution}
+              />
+            );
+          })}
         </div>
+
+        {/* Prevented pill — small emerald accent, bottom-right.
+            Demoted from pre-addendum hero-row position. */}
+        {prevented > 0 && !loading && !error && (
+          <div className="mt-6 flex justify-end">
+            <div className="flex items-center gap-2.5 rounded-full border border-emerald-400/25 bg-emerald-500/[0.06] px-4 py-1.5">
+              <span
+                aria-hidden="true"
+                className="h-1.5 w-1.5 rounded-full bg-emerald-400"
+              />
+              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-300">
+                Prevented this month
+              </span>
+              <span className="text-[13px] font-bold tabular-nums text-emerald-200">
+                {sym}
+                {prevented.toLocaleString("en-US")}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );
 }
 
-// --- Leak distribution donut -------------------------------------------------
-// Inline SVG: 3 arc segments proportional to bucket share, rendered
-// around a central "at risk" eyebrow + small total label. When no
-// distribution yet → dashed circle + "Watching" label. Never fake a
-// slice. Size 88 fits the hero row without dwarfing the € number.
+// --- Radial half-gauge (speedometer) -----------------------------------------
+// The protagonist of Zone 2. Half-circle with 3 colored segments
+// (emerald → yellow → rose) and a needle pointing to the current
+// leak pressure (at_risk / (at_risk + prevented)). Center label
+// shows the € number honestly. Cold-start renders arc muted + no
+// needle + "Watching…" — no fabrication.
 
-function LeakDonut({
-  distribution,
-  size,
-  currencySym,
+function LeakRadialGauge({
+  total,
+  prevented,
+  sym,
+  hasData,
 }: {
-  distribution: LeakDistribution;
-  size: number;
-  currencySym: string;
+  total: number;
+  prevented: number;
+  sym: string;
+  hasData: boolean;
 }) {
-  const stroke = 11;
-  const r = (size - stroke) / 2;
-  const cx = size / 2;
-  const cy = size / 2;
-  const circumference = 2 * Math.PI * r;
+  const width = 340;
+  const height = 200;
+  const cx = 170;
+  const cy = 160;
+  const r = 130;
+  const strokeW = 16;
 
-  const hasData = distribution.total > 0;
+  // Angle convention: θ=0 at left (9 o'clock), increases counter-
+  // clockwise through θ=90 at top (12 o'clock), to θ=180 at right
+  // (3 o'clock). Point at angle θ: (cx - r·cos(θ), cy - r·sin(θ)).
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const pointAt = (angleDeg: number, radius: number): [number, number] => [
+    cx - radius * Math.cos(toRad(angleDeg)),
+    cy - radius * Math.sin(toRad(angleDeg)),
+  ];
 
-  if (!hasData) {
-    return (
-      <div
-        className="flex items-center gap-3"
-        aria-label="Leak distribution — watching for first signals"
-      >
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-          <circle
-            cx={cx}
-            cy={cy}
-            r={r}
-            fill="none"
-            stroke="#3a3a4a"
-            strokeWidth={stroke}
-            strokeDasharray="5 7"
-            opacity={0.55}
-          />
-          <text
-            x={cx}
-            y={cy + 3}
-            textAnchor="middle"
-            className="fill-slate-500"
-            style={{ fontSize: "9px", fontWeight: 600, letterSpacing: "0.1em" }}
-          >
-            —
-          </text>
-        </svg>
-        <div>
-          <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
-            Breakdown
-          </div>
-          <div className="mt-1 text-[11.5px] leading-tight text-slate-500">
-            Watching for first
-            <br />
-            signals of leak…
-          </div>
-        </div>
-      </div>
-    );
+  function arcPath(startDeg: number, endDeg: number, radius: number): string {
+    const [x1, y1] = pointAt(startDeg, radius);
+    const [x2, y2] = pointAt(endDeg, radius);
+    const largeArc = endDeg - startDeg > 180 ? 1 : 0;
+    // sweep=0 because θ increases counter-clockwise (screen-sense),
+    // which in SVG path convention is sweep=0 for arcs going UP.
+    return `M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 0 ${x2} ${y2}`;
   }
 
-  // Build segments.
-  const order: LeakBucket[] = ["product", "cart", "retention"];
-  let cursor = 0;
-  const segments = order.map((bucket) => {
-    const share = distribution.buckets[bucket] / distribution.total;
-    const length = share * circumference;
-    const seg = {
-      bucket,
-      color: LEAK_BUCKET_META[bucket].color,
-      offset: cursor,
-      length,
-    };
-    cursor += length;
-    return seg;
-  });
+  // Three segments: emerald 0-60, yellow 60-120, rose 120-180.
+  const segEmerald = arcPath(0, 60, r);
+  const segYellow = arcPath(60, 120, r);
+  const segRose = arcPath(120, 180, r);
 
-  // Find dominant bucket for the center label.
-  const dominantBucket = order.reduce((best, b) =>
-    distribution.buckets[b] > distribution.buckets[best] ? b : best,
-  );
-  const dominantPct = Math.round(
-    (distribution.buckets[dominantBucket] / distribution.total) * 100,
-  );
+  // Needle angle: at_risk pressure vs total activity (risk+prevented).
+  // 0 → 0° (full emerald, all prevented); 1 → 180° (full rose, all risk).
+  // If both are zero, we don't render a needle.
+  const denom = total + prevented;
+  const pressure = denom > 0 ? total / denom : 0;
+  const needleAngle = 180 * pressure;
+
+  // Needle endpoint at ~r - 12 so it doesn't poke through the arc.
+  const needleLen = r - 18;
+  const [nx, ny] = pointAt(needleAngle, needleLen);
+
+  // Tick labels under the arc — anchor points at 0°, 90°, 180°.
+  const [tickLeftX, tickLeftY] = pointAt(0, r + 8);
+  const [tickMidX, tickMidY] = pointAt(90, r + 8);
+  const [tickRightX, tickRightY] = pointAt(180, r + 8);
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex w-full flex-col items-center">
       <svg
-        width={size}
-        height={size}
-        viewBox={`0 0 ${size} ${size}`}
+        width={width}
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={`Leak breakdown — ${dominantPct}% ${LEAK_BUCKET_META[dominantBucket].label.toLowerCase()}`}
+        aria-label={
+          hasData
+            ? `Leak gauge — ${sym}${total.toLocaleString("en-US")} at risk, ${Math.round(pressure * 100)}% pressure`
+            : "Leak gauge — watching for first signals"
+        }
+        style={{ maxWidth: "100%", height: "auto" }}
       >
-        {/* Track */}
-        <circle
-          cx={cx}
-          cy={cy}
-          r={r}
+        {/* Track — single muted arc behind the 3 segments */}
+        <path
+          d={arcPath(0, 180, r)}
           fill="none"
-          stroke="#222230"
-          strokeWidth={stroke}
+          stroke="#1d1d2a"
+          strokeWidth={strokeW + 2}
+          strokeLinecap="butt"
         />
-        {/* Segments — rotate -90° so the start is at 12 o'clock */}
-        <g transform={`rotate(-90 ${cx} ${cy})`}>
-          {segments.map((seg) => {
-            if (seg.length < 0.01) return null;
-            return (
-              <circle
-                key={seg.bucket}
-                cx={cx}
-                cy={cy}
-                r={r}
-                fill="none"
-                stroke={seg.color}
-                strokeWidth={stroke}
-                strokeLinecap="butt"
-                strokeDasharray={`${seg.length} ${circumference}`}
-                strokeDashoffset={-seg.offset}
-              />
-            );
-          })}
-        </g>
-        {/* Center label — dominant bucket percentage */}
+
+        {/* Three colored segments */}
+        <path
+          d={segEmerald}
+          fill="none"
+          stroke="#34d399"
+          strokeWidth={strokeW}
+          strokeLinecap="butt"
+          opacity={hasData ? 0.88 : 0.35}
+        />
+        <path
+          d={segYellow}
+          fill="none"
+          stroke="#eab308"
+          strokeWidth={strokeW}
+          strokeLinecap="butt"
+          opacity={hasData ? 0.88 : 0.35}
+        />
+        <path
+          d={segRose}
+          fill="none"
+          stroke="#f87171"
+          strokeWidth={strokeW}
+          strokeLinecap="butt"
+          opacity={hasData ? 0.88 : 0.35}
+        />
+
+        {/* Subtle inner glow along the arc — creates depth */}
+        <path
+          d={arcPath(0, 180, r)}
+          fill="none"
+          stroke="url(#gauge-glow)"
+          strokeWidth={strokeW + 4}
+          strokeLinecap="butt"
+          opacity={0.12}
+        />
+        <defs>
+          <linearGradient id="gauge-glow" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stopColor="#34d399" />
+            <stop offset="0.5" stopColor="#eab308" />
+            <stop offset="1" stopColor="#f87171" />
+          </linearGradient>
+        </defs>
+
+        {/* Tick labels */}
         <text
-          x={cx}
-          y={cy - 1}
-          textAnchor="middle"
-          className="fill-slate-200"
-          style={{ fontSize: "14px", fontWeight: 800 }}
-        >
-          {dominantPct}%
-        </text>
-        <text
-          x={cx}
-          y={cy + 12}
+          x={tickLeftX}
+          y={tickLeftY + 12}
           textAnchor="middle"
           className="fill-slate-500"
-          style={{ fontSize: "8px", fontWeight: 700, letterSpacing: "0.1em" }}
+          style={{
+            fontSize: "9px",
+            fontWeight: 700,
+            letterSpacing: "0.12em",
+          }}
         >
-          {dominantBucket.toUpperCase()}
+          LOW
         </text>
+        <text
+          x={tickMidX}
+          y={tickMidY - 8}
+          textAnchor="middle"
+          className="fill-slate-500"
+          style={{
+            fontSize: "9px",
+            fontWeight: 700,
+            letterSpacing: "0.12em",
+          }}
+        >
+          WATCH
+        </text>
+        <text
+          x={tickRightX}
+          y={tickRightY + 12}
+          textAnchor="middle"
+          className="fill-slate-500"
+          style={{
+            fontSize: "9px",
+            fontWeight: 700,
+            letterSpacing: "0.12em",
+          }}
+        >
+          HIGH
+        </text>
+
+        {/* Needle — only when we have data */}
+        {hasData && (
+          <g>
+            {/* Needle body — thin taper from pivot to tip */}
+            <line
+              x1={cx}
+              y1={cy}
+              x2={nx}
+              y2={ny}
+              stroke="#faf7f0"
+              strokeWidth={2.4}
+              strokeLinecap="round"
+              style={{
+                filter: "drop-shadow(0 1px 4px rgba(0,0,0,0.4))",
+              }}
+            />
+            {/* Pivot */}
+            <circle
+              cx={cx}
+              cy={cy}
+              r={7}
+              fill="#a78bfa"
+              stroke="#0a0a14"
+              strokeWidth={2}
+            />
+            <circle cx={cx} cy={cy} r={2.5} fill="#0a0a14" />
+          </g>
+        )}
       </svg>
-      <div className="space-y-1">
-        {order.map((bucket) => {
-          const value = distribution.buckets[bucket];
-          const share = Math.round((value / distribution.total) * 100);
-          if (share === 0 && value === 0) return null;
-          return (
-            <div
-              key={bucket}
-              className="flex items-center gap-2 text-[11px] tabular-nums"
-            >
-              <span
-                aria-hidden="true"
-                className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: LEAK_BUCKET_META[bucket].color }}
-              />
-              <span className="text-slate-400">
-                {LEAK_BUCKET_META[bucket].label}
-              </span>
-              <span className="ml-auto text-slate-300">
-                {currencySym}
-                {Math.round(value).toLocaleString("en-US")}
-              </span>
-            </div>
-          );
-        })}
+
+      {/* Center label — € hero + "at risk" caption */}
+      <div className="-mt-6 text-center">
+        <div
+          className="font-mono text-[2.5rem] font-extrabold leading-none tabular-nums sm:text-[3rem]"
+          style={{
+            color: hasData ? "#faf7f0" : "#475569",
+          }}
+        >
+          {hasData
+            ? `${sym}${total.toLocaleString("en-US")}`
+            : "—"}
+        </div>
+        <div className="mt-2 text-[10.5px] font-bold uppercase tracking-[0.22em] text-slate-500">
+          {hasData ? "At risk right now" : "Watching for first signals…"}
+        </div>
       </div>
     </div>
   );
 }
 
-// --- Leak breakdown row ------------------------------------------------------
-// One row per bucket. Colored € + proportional bar when data exists;
-// dashed ghost-bar + "Watching for …" copy when still cold.
+// --- Mini-donut (one per bucket) ---------------------------------------------
+// Full circle 80×80 SVG. Colored ring proportional to that bucket's
+// share of total distribution. Center: € for the bucket. Below:
+// label + %. Ghost state when no distribution yet.
 
-function LeakBreakdownRow({
+function LeakMiniDonut({
   label,
   color,
-  valueEur,
+  softColor,
+  value,
   pct,
   currencySym,
   hasData,
 }: {
   label: string;
   color: string;
-  valueEur: number;
+  softColor: string;
+  value: number;
   pct: number;
   currencySym: string;
   hasData: boolean;
 }) {
+  const size = 80;
+  const stroke = 7;
+  const r = (size - stroke) / 2;
+  const cx = size / 2;
+  const cy = size / 2;
+  const circumference = 2 * Math.PI * r;
+  const dash = hasData ? (Math.max(0, pct) / 100) * circumference : 0;
+
   return (
-    <div className="rounded-xl border border-white/[0.05] bg-white/[0.015] px-4 py-3">
-      <div className="flex items-center justify-between gap-4">
-        <span
-          className="text-[11px] font-bold uppercase tracking-[0.14em]"
-          style={{ color }}
+    <div className="flex flex-col items-center rounded-2xl border border-white/[0.05] bg-white/[0.015] p-4 text-center">
+      <svg
+        width={size}
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
+        role="img"
+        aria-label={`${label}: ${
+          hasData
+            ? `${currencySym}${Math.round(value).toLocaleString("en-US")} — ${Math.round(pct)}%`
+            : "watching for first signals"
+        }`}
+      >
+        {/* Track */}
+        {hasData ? (
+          <circle
+            cx={cx}
+            cy={cy}
+            r={r}
+            fill="none"
+            stroke="#1d1d2a"
+            strokeWidth={stroke}
+          />
+        ) : (
+          <circle
+            cx={cx}
+            cy={cy}
+            r={r}
+            fill="none"
+            stroke={color}
+            strokeWidth={stroke}
+            strokeDasharray="3 5"
+            opacity={0.25}
+          />
+        )}
+        {/* Filled arc */}
+        {hasData && dash > 0 && (
+          <g transform={`rotate(-90 ${cx} ${cy})`}>
+            <circle
+              cx={cx}
+              cy={cy}
+              r={r}
+              fill="none"
+              stroke={color}
+              strokeWidth={stroke}
+              strokeLinecap="round"
+              strokeDasharray={`${dash} ${circumference}`}
+            />
+          </g>
+        )}
+        {/* Center — % of total */}
+        <text
+          x={cx}
+          y={cy + 4}
+          textAnchor="middle"
+          style={{
+            fontSize: "13px",
+            fontWeight: 800,
+            fill: hasData ? softColor : "#475569",
+          }}
         >
-          {label}
-        </span>
-        {hasData ? (
-          <span
-            className="text-[13px] font-semibold tabular-nums"
-            style={{ color }}
-          >
-            {currencySym}
-            {Math.round(valueEur).toLocaleString("en-US")}
-            <span className="ml-1.5 text-[11px] font-medium text-slate-500">
-              {Math.round(pct)}%
-            </span>
-          </span>
-        ) : (
-          <span className="text-[11.5px] text-slate-500">
-            Watching for first signals…
-          </span>
-        )}
+          {hasData ? `${Math.round(pct)}%` : "—"}
+        </text>
+      </svg>
+
+      <div
+        className="mt-3 text-[10.5px] font-bold uppercase tracking-[0.14em]"
+        style={{ color: hasData ? color : "#64748b" }}
+      >
+        {label}
       </div>
-      {/* Proportional bar — real width when data exists, ghost
-          dashed-stripe at 100% width when still watching. */}
-      <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-white/[0.035]">
-        {hasData ? (
-          <div
-            className="h-full rounded-full transition-[width] duration-500 ease-out"
-            style={{
-              width: `${Math.max(pct, 2)}%`,
-              backgroundColor: color,
-              opacity: pct > 0 ? 0.85 : 0.25,
-            }}
-          />
-        ) : (
-          <div
-            className="h-full w-full"
-            style={{
-              backgroundImage: `repeating-linear-gradient(-45deg, ${color}22 0 4px, transparent 4px 9px)`,
-              opacity: 0.5,
-            }}
-          />
-        )}
+      <div className="mt-0.5 text-[13px] font-bold tabular-nums text-slate-200">
+        {hasData
+          ? `${currencySym}${Math.round(value).toLocaleString("en-US")}`
+          : "—"}
       </div>
     </div>
   );

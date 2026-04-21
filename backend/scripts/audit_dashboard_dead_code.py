@@ -77,6 +77,20 @@ EXPLICIT_ALLOWLIST: set[str] = {
     # for the PeerBenchmarks card; the current card uses a different
     # drawer variant. Kept for future restructure.
     "dashboard/src/app/components/DetailDrawer.tsx::DrawerPeerComparison",
+    # Lite v5 decoration primitives — Grain, Constellation,
+    # AtmosphericWash, BreathingGroup, DropCap are part of the α
+    # primitives module landed in commit β (Zone 2 pilot) but will
+    # be consumed zone-by-zone across commits γ-ζ per
+    # /docs/LITE_VISUAL_SPEC_v5.md §E implementation order. CardAtmosphere
+    # (which IS imported) wraps three of them internally; the bare
+    # exports are kept so each zone can compose them directly when
+    # the default preset doesn't fit. Remove from allowlist once all
+    # 6 zones consume them — audit then re-validates naturally.
+    "dashboard/src/app/components/LiteDecorationPrimitives.tsx::Grain",
+    "dashboard/src/app/components/LiteDecorationPrimitives.tsx::Constellation",
+    "dashboard/src/app/components/LiteDecorationPrimitives.tsx::AtmosphericWash",
+    "dashboard/src/app/components/LiteDecorationPrimitives.tsx::BreathingGroup",
+    "dashboard/src/app/components/LiteDecorationPrimitives.tsx::DropCap",
 }
 
 # Only flag real React component / hook identifiers:
