@@ -494,3 +494,202 @@ From the proposal pushback; any of these that materializes is a rollback signal.
 If rubric comes in below 9.6, we iterate before flipping the flag in
 prod. The "11/10 unreachable" bar is the one that ships, not the
 "9/10 is fine" one.
+
+---
+
+## ADDENDUM 2026-04-21 — Decoration layer + palette reframe + chart-dominance
+
+**Why this addendum exists.** After three iteration commits (drawer,
+leak donut, ghost week ridge), the founder reported — for the 10,000th
+time — "percepisco poca bellezza visiva, mi manca l'aspetto estetico,
+chiamalo decorazione, ma mi manca proprio". The root cause was mine:
+§5 above locked "3 primary charts and only 3" and §4 above anchored
+amber as the dominant Lite hue. Both were MY interpretation of the
+founder's earlier "narrative-first / clean" direction — misread. The
+actual direction is:
+
+1. **Decoration, elegance, trust, calm** — ambient craft layer, not
+   garnish on prose. The product must feel *designed by someone who
+   loves the craft*, not functional-correct-and-austere.
+2. **Chart-dominant reframe** — every zone leads with a visual, text
+   becomes caption. §5's "only 3 primary charts" rule is retired.
+3. **Lite palette is violet + cream + white** — not amber-dominant.
+   Amber stays ONLY in semantic contexts defined below.
+
+This addendum supersedes §4 and §5 for /app/lite v5. The rest of v5
+(zone structure §2, copy voice §3, gates §1, data contract §8,
+backend §9) stays in force.
+
+### A. Palette reframe (Lite-specific)
+
+| Role | Token | Usage |
+|---|---|---|
+| **Dominant** | `#a78bfa` violet-400 / `#c4b5fd` violet-300 | Section eyebrows, H2 titles, ornament strokes, hero-number accents for neutral metrics, dominant gauge fills |
+| **Text — primary** | `#faf7f0` cream | Headlines, narrative body on hero cards, large metric labels |
+| **Text — secondary** | `#e2e8f0` white-ish / `#cbd5e1` slate-300 | Card body copy, captions |
+| **Text — muted** | `#94a3b8` slate-400 / `#64748b` slate-500 | Timestamps, metadata, empty-state hints |
+| **Positive** | `#34d399` emerald-400 / `#6ee7b7` emerald-300 | Captured revenue, prevented €, growth, "things are working" |
+| **Problem** | `#f87171` rose-400 / `#fca5a5` rose-300 | Leaks, losses, degradation, "money walking away" |
+| **Stall / waiting** | `#eab308` yellow-500 / `#facc15` yellow-400 | Cold start, "watching…", pending baselines, plateau metrics, neutral-but-not-good status |
+| **Background** | `#07070f` → `#0a0a14` → `#0e0e1a` gradient | Canvas. Cards sit at `#0e0e1a/60` |
+| **Ornament stroke (decoration)** | `rgba(167,139,250,0.12-0.18)` violet very soft | Constellation lines, corner flourishes |
+| **Grain** | violet tinted noise @ 3% opacity | Every card's background layer |
+
+**Amber retired from Lite dominance.** `#d4893a` and `#e8a04e` appear
+ONLY in: (a) the HedgeSpark wordmark gradient (brand anchor,
+untouchable); (b) the `hs-cta-gradient` class (brand CTA, keeps its
+amber→violet ramp); (c) explicit "warning / counterfactual" callouts
+when rose is too harsh and yellow is too casual. Everywhere else in
+Lite v5 → violet or semantic (emerald/rose/yellow).
+
+**Yellow is new.** `#eab308` (yellow-500) enters as the **stall**
+color. The product has three honest states a merchant should feel
+instantly: good (emerald), bad (rose), **waiting / neutral / plateau
+(yellow)**. Before today, "waiting" was rendered as slate-500 text
+— flat and invisible. Yellow gives stall its own visible identity
+without crying wolf like rose would.
+
+### B. Decoration layer — the ambient craft
+
+The decoration layer sits BEHIND the data, never competes with it.
+Mood references, ordered by applicability: **Linear** (grain +
+editorial calm + restraint), **Stripe Press** (typography + sparse
+ornaments), **Vercel** (atmospheric gradients + trust). Not Arc, not
+Figma-mascot aesthetics — too playful / too cartoon for the Lite
+target audience of Shopify merchants running €15k-€150k/mo stores
+who want to feel *grown-up* while using the product.
+
+**Six decoration primitives**, used sparingly (never all at once in
+one zone):
+
+| Primitive | Spec | Where it appears |
+|---|---|---|
+| **Grain** | violet-tinted SVG noise, 3% opacity, repeating 180×180px pattern, CSS `background-image` on every card | ALL cards (sets the baseline material feel — elevated from flat) |
+| **Constellation ornament** | SVG 5-9 dots + thin lines between them, `stroke-width: 0.6px`, opacity 0.12-0.18, violet. Asymmetric — always in the top-right corner quadrant, never centered | Zone 1, Zone 2, Zone 4 (not every card — every OTHER card, so it reads as a signature not as a pattern) |
+| **Atmospheric wash** | radial gradient from one corner, violet or semantic, blur 180px, opacity 0.06-0.10 | One wash per card (directional, never symmetric) |
+| **Typography gesture** | (1) drop-cap serif for Zone 1 greeting — `font-family: 'Lora', 'PT Serif', serif; font-size: 4.5rem; color: violet-300 → cream gradient; italic`; (2) occasional italic-serif accent on single verbs within the Spark narrative ("I noticed" → noticed in serif italic); (3) variation of font-weight within same sentence for emphasis | Zone 1 hero narrative only — too much elsewhere = noisy |
+| **Ornamental flourish** | Horizontal SVG scroll — thin violet stroke with 2-3 decorative nodes, 240×12px, 30% opacity | Under Zone 1 headline, under Zone 2 H2 (signature editorial gesture; zones 3-6 don't use it, asymmetry is the ornament) |
+| **Ambient motion** | SLOW breathing: opacity 0.8 → 1.0 → 0.8 over 6-8 seconds on ornament SVGs; constellation dots twinkle sequentially, 400ms apart, 3s cycle; atmospheric washes shift corner over 12 seconds | All decoration. Never the data. The data is stable; the room breathes. |
+
+**Explicitly forbidden (founder-stated):**
+- Floating particles (reads as cartoon / toy)
+- Pulsing glows behind numbers (reads as urgency — Lite is calm-trust)
+- The Spark mascot (not used in Lite v5 primary at all — reserved for
+  future re-introduction if the context warrants it)
+- Hand-drawn illustrations of products/scenes
+- Emoji-style icons (Lucide/Heroicons stroke icons only, and only
+  when a semantic glyph is strictly required)
+- Any animation over 8s cycle that "pulses" or "throbs"
+- Gradients on section H2 titles (reserved for wordmark only)
+
+**Trust-first motion rule.** Every animation must pass: "does this
+make the merchant feel *calm watched over*, or *urgent notified*?"
+Only calm passes. No blinking, no shaking, no fast fades.
+
+### C. Chart-dominance reframe for the 6 zones
+
+Retires §5's "3 primary charts only" rule. Every zone now leads with
+a chart or visualization; text is caption, not protagonist.
+
+| Zone | Protagonist visual | Primitives | Text role |
+|---|---|---|---|
+| 1 — Spark Says | **Horizon band** — 100%-width × 56px SVG showing storefront-activity pulse since midnight (1-hour buckets, event count) as a smooth area in violet @ 0.25 opacity under the greeting. Ornament + drop-cap on top | horizon band, drop-cap serif, constellation top-right, flourish under headline | Caption: greeting + one headline + one detail |
+| 2 — Leak Gauge | **Radial half-gauge** — 320×180 SVG speedometer. Arc from emerald (-90°) through yellow (0°) to rose (+90°). Needle angle derived from `total_at_risk / shop_30d_avg_at_risk` clamped [-90°, +90°]. Central text: € number + "at risk". Below the gauge: 3 mini full-donuts (72×72) — one per bucket (Product/Cart/Retention) with € inside. Atmospheric wash amber→violet top-left | radial-gauge, mini-donuts, ornament top-right, grain | Caption: one H2 + one short paragraph explaining the gauge |
+| 3 — Today's 3 Fixes | **Per-row sparklines** — each of the 3 fix cards carries a 160×44 SVG mini-area chart of that leak's 7-day trend + directional chevron (↑ rose / ↓ emerald) + € | sparkline, chevron, per-row grain | Caption: product name + one-line fix tip |
+| 4 — Week Ridge | **Ridge enlarged** to 720×200 (was 120). Adds per-day delta markers (small violet chevrons above each day). Below: **heatmap calendar 28 days** (4×7 grid, cell size 18px, cell color = capture/at-risk ratio on yellow↔emerald scale) 360×100. Constellation ornament top-right | enlarged ridge, delta chevrons, heatmap, ornament | Caption: interpretation sentence |
+| 5 — Spark's Memory | **Vertical timeline with area-chart spine** — left column is a vertical violet area shape @ 0.15 opacity (the underlying metric at the time of each event, rendered as a thin vertical ribbon); event nodes anchor on the ribbon. Right column text per event | area-spine, node dots, subtle grain | Caption: relative timestamp + event sentence (first-person Spark, unchanged) |
+| 6 — Ask Spark | Unchanged (input surface). Add only the grain layer + ornament for aesthetic consistency | grain, corner ornament | Unchanged |
+
+**Rule**: removing the protagonist visual makes the zone uninterpretable.
+If a zone fails this test, the visual is decoration, not protagonist.
+
+### D. What stays unchanged (important — do not undo these)
+
+- Geist Sans as primary typography + Geist Mono for tabular numbers
+  (drop-cap + italic serif-accent are ADDITIVE, not replacements)
+- `rounded-3xl` card shells + existing border/shadow treatment
+- The LiteCassettoniGrid (in drawer Retention tab) — big cassettoni
+  with big numbers, those look right and stay
+- Copy voice (§3 Spark as narrator, first-person, max 12 words)
+- Data contract (§8 — never fabricate, real endpoints only)
+- Feature flag `NEXT_PUBLIC_LITE_SPARK_DAILY` as the cutover gate
+- CLAUDE.md §4 canon for the REST of the product (Pro, landing,
+  email) — this addendum is Lite-v5-scoped. A later evolution may
+  propagate, but only if the Lite v5 direction lands first.
+
+### E. Implementation order
+
+Post-approval:
+
+1. **Commit α — decoration primitives module** (new file
+   `LiteDecorationPrimitives.tsx`): `Grain`, `Constellation`,
+   `AtmosphericWash`, `OrnamentalFlourish`, `BreathingGroup`
+   components. Pure SVG, no data. Unit-visual tested in isolation.
+2. **Commit β — Zone 2 pilot (Leak Gauge)**: radial half-gauge
+   (retires the 88-donut introduced 7f846f5), 3 mini-donuts, grain,
+   ornament, atmospheric wash, violet palette. Single zone rebuilt
+   end-to-end as direction proof.
+3. **Founder review of Zone 2**. If direction approved, proceed to 4.
+   If correction needed, iterate on Zone 2 only before touching more.
+4. **Commits γ-ζ — Zones 1, 3, 4, 5** one per commit, each atomic,
+   each using the α primitives.
+5. **Commit η — Zone 6 decoration polish**.
+6. **Commit θ — propagation**: drawer empty states adopt the same
+   decoration language (ghost charts + grain + ornament); email
+   morning brief picks up the palette shift; PDF export layer picks
+   up the chart-dominant layout.
+7. **Gate audit** (§1): all 5 gates re-run on the new direction;
+   rubric ≥ 9.6 required; if below, iterate before flag flip.
+
+Expected total scope: ~8-12 commits, ~2-3 sessions of focused work.
+Feature flag stays off in prod throughout — no merchant visibility
+until the founder flips the flag after gate audit passes.
+
+### F. Devil's advocate for this addendum
+
+1. **Palette retirement of amber in Lite ≠ trivial.** Existing Lite
+   cards reference `#e8a04e` / `#d4893a` in ~40 places. Migration
+   touches every Lite file. Mitigation: addendum § A locks the
+   tokens, migration happens in commit α primitives (shared tokens)
+   + zone-by-zone. Founder sees one zone per commit — easy to revert.
+
+2. **"Decoration elegant/calm/trust" is subjective.** What I call
+   elegant Linear-style the founder might call *clinical*. What I
+   call calm the founder might call *boring*. Mitigation: commit β
+   (Zone 2 pilot) is the calibration round. Ship, founder judges,
+   iterate on Zone 2 ONLY until landed, then propagate.
+
+3. **Yellow (stall) is a new semantic.** Adding a fourth color to
+   the palette raises the color-literacy bar for merchants. Risk:
+   merchant sees yellow, doesn't know if it's "warning" or "stall".
+   Mitigation: yellow appears ONLY with explicit caption words
+   ("Watching…", "Waiting…", "Steady", "Plateau") — never on a
+   number alone. If copy says "watching", merchant learns yellow =
+   stall. First 3 exposures self-teach.
+
+4. **Chart-dominance could bloat the primary view.** 6 new SVG
+   protagonists + grain + ornament on every card could push the
+   largest chunk past budget. Mitigation: primitives module α is
+   tree-shakable; ornament SVGs are inline (no assets); grain is a
+   single reusable pattern. Budget watch at each commit.
+
+5. **"Retire the 88-donut we just shipped in 7f846f5"** is backwards
+   motion. Commit β explicitly supersedes it. This is OK — the
+   donut served a pilot purpose (direction calibration) and the
+   addendum is the result of that feedback. Not revert-regression,
+   but forward iteration with the learning.
+
+### G. Success criteria for this addendum's implementation
+
+- Every zone passes "remove the protagonist visual — is the zone
+  weaker?" with YES
+- Founder reaction on Zone 2 pilot (commit β) is "yes that's the
+  mood" with ≤2 correction notes
+- All 5 v5 gates § 1 still pass (merchant understands in <10s, easy
+  to use, drawer preserves depth, visuals serve storytelling + are
+  beautiful, €39 justified)
+- No amber color remains in Lite outside the 3 approved semantic
+  cases (wordmark / CTA gradient / explicit warnings)
+- Bundle budget stays ≤ 5% over current baseline at each commit
+- Decoration layer never blocks input events (pointer-events: none
+  on all ornaments — functional invariant)
