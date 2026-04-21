@@ -20,15 +20,6 @@ sandbox/
 logs/
 *.log
 
-# Filebrowser — operational, contains user DB (credentials)
-filebrowser-data/
-
-# Founder-uploaded refs / screenshots (via filebrowser)
-screenshots/
-
-# Operational backups dir
-backups/
-
 # Backup files
 *.backup
 *.backup.*
