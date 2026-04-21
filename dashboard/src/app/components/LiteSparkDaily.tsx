@@ -276,6 +276,45 @@ function SparkSays({
 // Zone 2 — The Leak Gauge
 // ============================================================================
 
+type LeakBucket = "product" | "cart" | "retention";
+
+const LEAK_BUCKET_META: Record<
+  LeakBucket,
+  { label: string; color: string }
+> = {
+  product: { label: "Product leaks", color: "#f87171" },
+  cart: { label: "Cart leaks", color: "#e8a04e" },
+  retention: { label: "Retention risk", color: "#a78bfa" },
+};
+
+function classifyLeak(source: string): LeakBucket {
+  const s = source.toLowerCase();
+  if (/cart|checkout|shipping|payment/.test(s)) return "cart";
+  if (/retention|cohort|churn|refund|repeat|ltv/.test(s)) return "retention";
+  return "product";
+}
+
+type LeakDistribution = {
+  buckets: Record<LeakBucket, number>;
+  total: number;
+};
+
+function computeLeakDistribution(
+  components: RarsComponent[] | undefined,
+): LeakDistribution {
+  const buckets: Record<LeakBucket, number> = {
+    product: 0,
+    cart: 0,
+    retention: 0,
+  };
+  for (const c of components ?? []) {
+    const bucket = classifyLeak(c.source);
+    buckets[bucket] += Math.max(0, c.loss_eur || 0);
+  }
+  const total = buckets.product + buckets.cart + buckets.retention;
+  return { buckets, total };
+}
+
 function LeakGauge({
   rars,
   loading,
@@ -289,6 +328,8 @@ function LeakGauge({
   const sym = currencySymbol(currency);
   const total = Math.round(rars?.total_at_risk_eur ?? 0);
   const prevented = Math.round(rars?.prevented_eur_this_month ?? 0);
+  const distribution = computeLeakDistribution(rars?.components);
+  const hasDistribution = distribution.total > 0;
 
   return (
     <section
@@ -309,7 +350,7 @@ function LeakGauge({
           The number no other Shopify tool shows you
         </h2>
 
-        <div className="mt-6 flex flex-wrap items-end gap-5">
+        <div className="mt-6 flex flex-wrap items-center gap-5 sm:gap-7">
           <div
             className="font-mono text-[4.5rem] font-extrabold leading-[0.9] tabular-nums sm:text-[5.5rem]"
             style={{
@@ -320,8 +361,21 @@ function LeakGauge({
           >
             {error ? "—" : loading ? "…" : `${sym}${total.toLocaleString("en-US")}`}
           </div>
+
+          {/* Leak distribution donut — shows how the total € splits
+              across Product / Cart / Retention. Ghost state (dashed
+              circle + muted label) when no RARS components yet —
+              honest visual preview of what will appear. */}
+          {!loading && !error && (
+            <LeakDonut
+              distribution={distribution}
+              size={88}
+              currencySym={sym}
+            />
+          )}
+
           {prevented > 0 && !loading && !error && (
-            <div className="mb-4 rounded-xl border border-emerald-400/25 bg-emerald-500/[0.06] px-3.5 py-2">
+            <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/[0.06] px-3.5 py-2">
               <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-400">
                 Prevented this month
               </div>
@@ -340,41 +394,293 @@ function LeakGauge({
           minute. Not yesterday&apos;s revenue; right-now risk.
         </p>
 
-        {/* Leak bars — Phase 2 will read baseline fields off each source
-            endpoint's `baseline_median_14d`. Until those ship, all three
-            rows render a "Watching for baseline" placeholder — never
-            fake a level. */}
+        {/* Leak breakdown — 3 rows with € share + proportional bar
+            when there are RARS components. When no components yet,
+            ghost-bars with honest "Watching…" copy (never fake a
+            value). Feeds the same buckets rendered in the donut. */}
         <div className="mt-8 border-t border-white/[0.06] pt-6">
-          <div className="mb-4 text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">
-            Leak intensity · 3 signals
+          <div className="mb-4 flex items-center justify-between">
+            <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">
+              Leak breakdown · 3 signals
+            </div>
+            {hasDistribution && (
+              <div className="text-[11px] tabular-nums text-slate-500">
+                Total {sym}
+                {Math.round(distribution.total).toLocaleString("en-US")}
+              </div>
+            )}
           </div>
           <div className="space-y-3">
-            {(
-              [
-                { label: "Product leaks", color: "#f87171" },
-                { label: "Cart leaks", color: "#e8a04e" },
-                { label: "Retention risk", color: "#a78bfa" },
-              ] as const
-            ).map((row) => (
-              <div
-                key={row.label}
-                className="flex items-center justify-between gap-4 rounded-xl border border-white/[0.05] bg-white/[0.015] px-4 py-3"
-              >
-                <span
-                  className="text-[11px] font-bold uppercase tracking-[0.14em]"
-                  style={{ color: row.color }}
-                >
-                  {row.label}
-                </span>
-                <span className="text-[12px] text-slate-500">
-                  Watching — baseline ready in ~14 days
-                </span>
-              </div>
-            ))}
+            {(["product", "cart", "retention"] as const).map((bucket) => {
+              const meta = LEAK_BUCKET_META[bucket];
+              const value = distribution.buckets[bucket];
+              const pct =
+                hasDistribution && distribution.total > 0
+                  ? (value / distribution.total) * 100
+                  : 0;
+              return (
+                <LeakBreakdownRow
+                  key={bucket}
+                  label={meta.label}
+                  color={meta.color}
+                  valueEur={value}
+                  pct={pct}
+                  currencySym={sym}
+                  hasData={hasDistribution}
+                />
+              );
+            })}
           </div>
         </div>
       </div>
     </section>
+  );
+}
+
+// --- Leak distribution donut -------------------------------------------------
+// Inline SVG: 3 arc segments proportional to bucket share, rendered
+// around a central "at risk" eyebrow + small total label. When no
+// distribution yet → dashed circle + "Watching" label. Never fake a
+// slice. Size 88 fits the hero row without dwarfing the € number.
+
+function LeakDonut({
+  distribution,
+  size,
+  currencySym,
+}: {
+  distribution: LeakDistribution;
+  size: number;
+  currencySym: string;
+}) {
+  const stroke = 11;
+  const r = (size - stroke) / 2;
+  const cx = size / 2;
+  const cy = size / 2;
+  const circumference = 2 * Math.PI * r;
+
+  const hasData = distribution.total > 0;
+
+  if (!hasData) {
+    return (
+      <div
+        className="flex items-center gap-3"
+        aria-label="Leak distribution — watching for first signals"
+      >
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+          <circle
+            cx={cx}
+            cy={cy}
+            r={r}
+            fill="none"
+            stroke="#3a3a4a"
+            strokeWidth={stroke}
+            strokeDasharray="5 7"
+            opacity={0.55}
+          />
+          <text
+            x={cx}
+            y={cy + 3}
+            textAnchor="middle"
+            className="fill-slate-500"
+            style={{ fontSize: "9px", fontWeight: 600, letterSpacing: "0.1em" }}
+          >
+            —
+          </text>
+        </svg>
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+            Breakdown
+          </div>
+          <div className="mt-1 text-[11.5px] leading-tight text-slate-500">
+            Watching for first
+            <br />
+            signals of leak…
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Build segments.
+  const order: LeakBucket[] = ["product", "cart", "retention"];
+  let cursor = 0;
+  const segments = order.map((bucket) => {
+    const share = distribution.buckets[bucket] / distribution.total;
+    const length = share * circumference;
+    const seg = {
+      bucket,
+      color: LEAK_BUCKET_META[bucket].color,
+      offset: cursor,
+      length,
+    };
+    cursor += length;
+    return seg;
+  });
+
+  // Find dominant bucket for the center label.
+  const dominantBucket = order.reduce((best, b) =>
+    distribution.buckets[b] > distribution.buckets[best] ? b : best,
+  );
+  const dominantPct = Math.round(
+    (distribution.buckets[dominantBucket] / distribution.total) * 100,
+  );
+
+  return (
+    <div className="flex items-center gap-3">
+      <svg
+        width={size}
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
+        role="img"
+        aria-label={`Leak breakdown — ${dominantPct}% ${LEAK_BUCKET_META[dominantBucket].label.toLowerCase()}`}
+      >
+        {/* Track */}
+        <circle
+          cx={cx}
+          cy={cy}
+          r={r}
+          fill="none"
+          stroke="#222230"
+          strokeWidth={stroke}
+        />
+        {/* Segments — rotate -90° so the start is at 12 o'clock */}
+        <g transform={`rotate(-90 ${cx} ${cy})`}>
+          {segments.map((seg) => {
+            if (seg.length < 0.01) return null;
+            return (
+              <circle
+                key={seg.bucket}
+                cx={cx}
+                cy={cy}
+                r={r}
+                fill="none"
+                stroke={seg.color}
+                strokeWidth={stroke}
+                strokeLinecap="butt"
+                strokeDasharray={`${seg.length} ${circumference}`}
+                strokeDashoffset={-seg.offset}
+              />
+            );
+          })}
+        </g>
+        {/* Center label — dominant bucket percentage */}
+        <text
+          x={cx}
+          y={cy - 1}
+          textAnchor="middle"
+          className="fill-slate-200"
+          style={{ fontSize: "14px", fontWeight: 800 }}
+        >
+          {dominantPct}%
+        </text>
+        <text
+          x={cx}
+          y={cy + 12}
+          textAnchor="middle"
+          className="fill-slate-500"
+          style={{ fontSize: "8px", fontWeight: 700, letterSpacing: "0.1em" }}
+        >
+          {dominantBucket.toUpperCase()}
+        </text>
+      </svg>
+      <div className="space-y-1">
+        {order.map((bucket) => {
+          const value = distribution.buckets[bucket];
+          const share = Math.round((value / distribution.total) * 100);
+          if (share === 0 && value === 0) return null;
+          return (
+            <div
+              key={bucket}
+              className="flex items-center gap-2 text-[11px] tabular-nums"
+            >
+              <span
+                aria-hidden="true"
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: LEAK_BUCKET_META[bucket].color }}
+              />
+              <span className="text-slate-400">
+                {LEAK_BUCKET_META[bucket].label}
+              </span>
+              <span className="ml-auto text-slate-300">
+                {currencySym}
+                {Math.round(value).toLocaleString("en-US")}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// --- Leak breakdown row ------------------------------------------------------
+// One row per bucket. Colored € + proportional bar when data exists;
+// dashed ghost-bar + "Watching for …" copy when still cold.
+
+function LeakBreakdownRow({
+  label,
+  color,
+  valueEur,
+  pct,
+  currencySym,
+  hasData,
+}: {
+  label: string;
+  color: string;
+  valueEur: number;
+  pct: number;
+  currencySym: string;
+  hasData: boolean;
+}) {
+  return (
+    <div className="rounded-xl border border-white/[0.05] bg-white/[0.015] px-4 py-3">
+      <div className="flex items-center justify-between gap-4">
+        <span
+          className="text-[11px] font-bold uppercase tracking-[0.14em]"
+          style={{ color }}
+        >
+          {label}
+        </span>
+        {hasData ? (
+          <span
+            className="text-[13px] font-semibold tabular-nums"
+            style={{ color }}
+          >
+            {currencySym}
+            {Math.round(valueEur).toLocaleString("en-US")}
+            <span className="ml-1.5 text-[11px] font-medium text-slate-500">
+              {Math.round(pct)}%
+            </span>
+          </span>
+        ) : (
+          <span className="text-[11.5px] text-slate-500">
+            Watching for first signals…
+          </span>
+        )}
+      </div>
+      {/* Proportional bar — real width when data exists, ghost
+          dashed-stripe at 100% width when still watching. */}
+      <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-white/[0.035]">
+        {hasData ? (
+          <div
+            className="h-full rounded-full transition-[width] duration-500 ease-out"
+            style={{
+              width: `${Math.max(pct, 2)}%`,
+              backgroundColor: color,
+              opacity: pct > 0 ? 0.85 : 0.25,
+            }}
+          />
+        ) : (
+          <div
+            className="h-full w-full"
+            style={{
+              backgroundImage: `repeating-linear-gradient(-45deg, ${color}22 0 4px, transparent 4px 9px)`,
+              opacity: 0.5,
+            }}
+          />
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -627,16 +933,7 @@ function WeekRidge({
           ) : error ? (
             <CardError message="I hit a hiccup loading your week." label="Week failed to load" />
           ) : coldStart || days.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-white/[0.1] bg-white/[0.01] px-4 py-8 text-center">
-              <div className="text-[12px] font-semibold text-slate-300">
-                Watching your week build
-              </div>
-              <p className="mt-1 text-[12px] leading-relaxed text-slate-500">
-                Once 3+ days of orders are in, this shows your daily
-                captured revenue vs. daily leaks. No fake numbers until
-                there&apos;s something real to show.
-              </p>
-            </div>
+            <WeekRidgeGhost />
           ) : (
             <WeekRidgeChart days={days} />
           )}
@@ -749,6 +1046,125 @@ function WeekRidgeChart({ days }: { days: WeekRidgeDay[] }) {
             style={{ background: "#d4893a", opacity: 0.5 }}
           />
           At risk
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// --- Week Ridge ghost empty state --------------------------------------------
+// Honest silhouette preview: dashed stroke outlines the shape the
+// real chart will take (two layered ridges, amber under emerald) at
+// 12% opacity so the merchant can VISUALISE the chart before they
+// have data — without fabricating a single number. Central overlay
+// says exactly what's missing and when it arrives.
+
+function WeekRidgeGhost() {
+  const width = 720;
+  const height = 120;
+  const padX = 20;
+  const padY = 10;
+  const usableW = width - padX * 2;
+  const usableH = height - padY * 2;
+
+  // Stylised 7-point silhouette — identical across all shops (no
+  // per-shop fabrication implied). Low peaks early, higher peaks
+  // later. Two layers offset so they read as "two metrics".
+  const atRiskGhost = [0.45, 0.55, 0.38, 0.52, 0.48, 0.62, 0.58];
+  const capturedGhost = [0.22, 0.3, 0.25, 0.4, 0.35, 0.5, 0.45];
+
+  const xAt = (i: number) =>
+    padX + (i / (atRiskGhost.length - 1)) * usableW;
+  const yAt = (v: number) => padY + usableH - v * usableH;
+
+  function smooth(pts: number[]): string {
+    const points: [number, number][] = pts.map((v, i) => [xAt(i), yAt(v)]);
+    if (points.length === 0) return "";
+    let d = `M ${points[0][0]} ${points[0][1]}`;
+    for (let i = 1; i < points.length; i++) {
+      const [x0, y0] = points[i - 1];
+      const [x1, y1] = points[i];
+      const cx = (x0 + x1) / 2;
+      d += ` C ${cx} ${y0}, ${cx} ${y1}, ${x1} ${y1}`;
+    }
+    return d;
+  }
+
+  const atRiskPath = smooth(atRiskGhost);
+  const capturedPath = smooth(capturedGhost);
+  const floor = padY + usableH;
+  const atRiskArea = `${atRiskPath} L ${padX + usableW} ${floor} L ${padX} ${floor} Z`;
+  const capturedArea = `${capturedPath} L ${padX + usableW} ${floor} L ${padX} ${floor} Z`;
+
+  const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+  return (
+    <div>
+      <div className="relative">
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          preserveAspectRatio="none"
+          className="h-[120px] w-full"
+          role="img"
+          aria-label="Week Ridge silhouette — chart preview, no real data yet"
+        >
+          {/* Ghost areas — very faint */}
+          <path d={atRiskArea} fill="#d4893a" opacity={0.08} />
+          <path d={capturedArea} fill="#34d399" opacity={0.1} />
+          {/* Ghost strokes — dashed so it's obviously a preview */}
+          <path
+            d={atRiskPath}
+            fill="none"
+            stroke="#d4893a"
+            strokeOpacity={0.35}
+            strokeWidth={1.3}
+            strokeDasharray="4 5"
+          />
+          <path
+            d={capturedPath}
+            fill="none"
+            stroke="#34d399"
+            strokeOpacity={0.4}
+            strokeWidth={1.3}
+            strokeDasharray="4 5"
+          />
+        </svg>
+
+        {/* Overlay: honest empty-state copy centered on the chart */}
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div className="rounded-full border border-white/[0.06] bg-[#0a0a14]/85 px-4 py-2 backdrop-blur-sm">
+            <div className="text-center text-[11.5px] font-semibold leading-tight text-slate-200">
+              First full week ready when 3+ days of orders land
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Muted day labels — reinforces the 7-day axis the chart will
+          inhabit, no fake values. */}
+      <div className="mt-2 flex justify-between text-[10px] tabular-nums text-slate-600">
+        {labels.map((lbl) => (
+          <span key={lbl}>{lbl}</span>
+        ))}
+      </div>
+
+      {/* Legend stays — the colours the chart will use. */}
+      <div className="mt-2 flex items-center gap-4 text-[11px] text-slate-500">
+        <span className="flex items-center gap-1.5">
+          <span
+            aria-hidden
+            className="inline-block h-2 w-3 rounded-sm"
+            style={{ background: "#34d399", opacity: 0.55 }}
+          />
+          Captured (coming)
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span
+            aria-hidden
+            className="inline-block h-2 w-3 rounded-sm"
+            style={{ background: "#d4893a", opacity: 0.4 }}
+          />
+          At risk (coming)
         </span>
       </div>
     </div>
