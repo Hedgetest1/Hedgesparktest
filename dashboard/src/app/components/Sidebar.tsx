@@ -191,6 +191,86 @@ const NAV_ITEMS: NavItem[] = [
   // and belongs to the top chrome, not the left nav.
 ];
 
+// ─── Lite-floor NAV items ────────────────────────────────────────
+// The Pulse NAV_ITEMS above (Daily Brief / Store Pulse / Revenue /
+// Signals / Funnel / Live / Audience / Nudges / Price) are designed
+// for the Pro layout — most of those sections are gated `!isLiteFloor`
+// in /app/page.tsx so clicking them on Lite scrolls to nothing.
+// Lite has a completely different vertical spine: RARS hero → Peers
+// → P&L → Attribution → Retention → Features cassettoni → Radar.
+// Founder directive 2026-04-21: "scorro le features di lite e non
+// succede niente... solo radar funziona... non fa riferimento alle
+// features Lite". NAV_ITEMS_LITE fixes that.
+//
+// Each id maps to a `section-lite-*` anchor rendered on /app (Lite
+// tier) — see page.tsx for the anchors. Clicking scrolls via the
+// shared handleNavigate → scrollIntoView pattern.
+const NAV_ITEMS_LITE: NavItem[] = [
+  {
+    id: "lite-rars",
+    label: "Revenue at risk",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+      </svg>
+    ),
+  },
+  {
+    id: "lite-peers",
+    label: "You vs peers",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+      </svg>
+    ),
+  },
+  {
+    id: "lite-pnl",
+    label: "Profit",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.306a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
+      </svg>
+    ),
+  },
+  {
+    id: "lite-attribution",
+    label: "Attribution",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+      </svg>
+    ),
+  },
+  {
+    id: "lite-retention",
+    label: "Retention",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+      </svg>
+    ),
+  },
+  {
+    id: "lite-features",
+    label: "Features",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+      </svg>
+    ),
+  },
+  {
+    id: "live",
+    label: "Live Radar",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h3l2.25-6.75L12 18.75l2.25-9 2.25 4.5h2.25" />
+      </svg>
+    ),
+  },
+];
+
 const SECTION_TO_NAV: Record<string, string> = {
   brief: "brief",
   overview: "overview",
@@ -208,9 +288,18 @@ const SECTION_TO_NAV: Record<string, string> = {
   "scroll-cohorts": "nudges",
   "price-intelligence": "price-intelligence",
   "market-intelligence": "price-intelligence",
+  // Lite-floor anchor ids → NAV_ITEMS_LITE nav ids. The observer
+  // watches `section-lite-*` IDs; stripping the section- prefix
+  // yields the nav id match.
+  "lite-rars": "lite-rars",
+  "lite-peers": "lite-peers",
+  "lite-pnl": "lite-pnl",
+  "lite-attribution": "lite-attribution",
+  "lite-retention": "lite-retention",
+  "lite-features": "lite-features",
 };
 
-export { NAV_ITEMS, SECTION_TO_NAV };
+export { NAV_ITEMS, NAV_ITEMS_LITE, SECTION_TO_NAV };
 
 export function Sidebar({
   collapsed,
@@ -320,11 +409,13 @@ export function Sidebar({
       </div>
       )}
 
-      {/* Section nav — contextual to the current floor. For Phase 1.8.1
-          we only render section nav on the Pulse floor; future floors
-          will plug in their own section list here. */}
+      {/* Section nav — contextual to the current floor + tier.
+          Lite uses NAV_ITEMS_LITE (7 entries that match the actual
+          Lite vertical: RARS, Peers, P&L, Attribution, Retention,
+          Features, Radar). Pro/Scale on Pulse floor use the original
+          NAV_ITEMS. Other floors currently render no section nav. */}
       <nav className="flex flex-1 flex-col gap-1 overflow-y-auto py-4">
-        {currentFloor !== "pulse" ? null : NAV_ITEMS.map((item) => {
+        {currentFloor !== "pulse" ? null : (tier === "lite" ? NAV_ITEMS_LITE : NAV_ITEMS).map((item) => {
           const isActive = activeNavId === item.id;
           const isLocked = item.pro && tier === "lite";
           return (

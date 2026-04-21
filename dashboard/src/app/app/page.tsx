@@ -2503,22 +2503,24 @@ function PageInner() {
                   component row opens the corresponding drill-down in
                   the cassettone grid below via controlled state. */}
               {isLiteFloor && (
-                <LiteRarsHero
-                  apiBase={API_BASE}
-                  shop={shop}
-                  displayCurrency={displayCurrency}
-                  onOpenCassettone={(id) => {
-                    setLiteExpandedId(id);
-                    // Scroll the grid into view so the newly-opened
-                    // cassettone panel lands in the merchant's viewport.
-                    // Small timeout so the state update + render land
-                    // before the scroll computes the target position.
-                    setTimeout(() => {
-                      const el = document.getElementById(`cassettone-panel-${id}`);
-                      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-                    }, 60);
-                  }}
-                />
+                <section id="section-lite-rars">
+                  <LiteRarsHero
+                    apiBase={API_BASE}
+                    shop={shop}
+                    displayCurrency={displayCurrency}
+                    onOpenCassettone={(id) => {
+                      setLiteExpandedId(id);
+                      // Scroll the grid into view so the newly-opened
+                      // cassettone panel lands in the merchant's viewport.
+                      // Small timeout so the state update + render land
+                      // before the scroll computes the target position.
+                      setTimeout(() => {
+                        const el = document.getElementById(`cassettone-panel-${id}`);
+                        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }, 60);
+                    }}
+                  />
+                </section>
               )}
 
               {/* Peer benchmarks — "you vs peers" surface between the
@@ -2533,6 +2535,7 @@ function PageInner() {
                   available via the Deeper drawer. */}
               {isLiteFloor && (
                 <section
+                  id="section-lite-peers"
                   aria-labelledby="lite-benchmarks-heading"
                   className="relative mb-8 overflow-hidden rounded-3xl border border-violet-400/[0.15] bg-gradient-to-br from-[#140d1a] via-[#0a0a14] to-[#0b0c18] p-7 sm:p-9"
                 >
@@ -2592,6 +2595,7 @@ function PageInner() {
                   v5 flag: hidden when Spark Daily is on. */}
               {isLiteFloor && (
                 <section
+                  id="section-lite-pnl"
                   aria-labelledby="lite-pnl-heading"
                   className="relative mb-8 overflow-hidden rounded-3xl border border-amber-400/[0.15] bg-gradient-to-br from-[#1a0d0a] via-[#0a0a14] to-[#0b0c18] p-7 sm:p-9"
                 >
@@ -2652,6 +2656,7 @@ function PageInner() {
                   v5 flag: hidden when Spark Daily is on. */}
               {isLiteFloor && (
                 <section
+                  id="section-lite-attribution"
                   aria-labelledby="lite-attribution-heading"
                   className="relative mb-8 overflow-hidden rounded-3xl border border-blue-400/[0.15] bg-gradient-to-br from-[#0a121a] via-[#0a0a14] to-[#0b0c18] p-7 sm:p-9"
                 >
@@ -2702,6 +2707,7 @@ function PageInner() {
                   v5 flag: hidden when Spark Daily is on. */}
               {isLiteFloor && (
                 <section
+                  id="section-lite-retention"
                   aria-labelledby="lite-retention-heading"
                   className="relative mb-8 overflow-hidden rounded-3xl border border-emerald-400/[0.15] bg-gradient-to-br from-[#0a1612] via-[#0a0a14] to-[#0b0c18] p-7 sm:p-9"
                 >
@@ -2764,10 +2770,9 @@ function PageInner() {
                 </section>
               )}
 
-              {/* Cassettoni grid — v4 primary placement. v5 moves
-                  this inside the Deeper drawer (Retention tab), so
-                  hide when the Spark Daily flag is on. */}
+              {/* Cassettoni grid — v4 primary placement. */}
               {isLiteFloor && (
+                <section id="section-lite-features" className="mb-8">
                   <LiteCassettoniGrid
                     apiBase={API_BASE}
                     shop={shop}
@@ -2780,7 +2785,8 @@ function PageInner() {
                     expandedId={liteExpandedId}
                     onExpandedChange={setLiteExpandedId}
                   />
-                )}
+                </section>
+              )}
 
               {/* AI Analytics Assistant — Strada 4 dominance move.
                   Moby equivalent: merchant asks in plain English,
