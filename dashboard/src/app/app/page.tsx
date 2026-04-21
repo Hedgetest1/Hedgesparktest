@@ -2547,7 +2547,7 @@ function PageInner() {
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <h2
                           id="lite-benchmarks-heading"
-                          className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-violet-300 sm:text-[2.5rem]"
+                          className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-[#C4B5FD] sm:text-[2.5rem]"
                         >
                           You vs peers
                         </h2>
@@ -2607,7 +2607,7 @@ function PageInner() {
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <h2
                           id="lite-pnl-heading"
-                          className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.5rem]"
+                          className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-[#C4B5FD] sm:text-[2.5rem]"
                         >
                           Profit intelligence
                         </h2>
@@ -2668,7 +2668,7 @@ function PageInner() {
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <h2
                           id="lite-attribution-heading"
-                          className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-blue-300 sm:text-[2.5rem]"
+                          className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-[#C4B5FD] sm:text-[2.5rem]"
                         >
                           Channel attribution
                         </h2>
@@ -2719,7 +2719,7 @@ function PageInner() {
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <h2
                           id="lite-retention-heading"
-                          className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-emerald-300 sm:text-[2.5rem]"
+                          className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-[#C4B5FD] sm:text-[2.5rem]"
                         >
                           Customer retention
                         </h2>
@@ -2780,7 +2780,7 @@ function PageInner() {
                   <div className="mb-5">
                     <h2
                       id="lite-signals-heading"
-                      className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-[#a78bfa] sm:text-[2.5rem]"
+                      className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-[#C4B5FD] sm:text-[2.5rem]"
                     >
                       Signals
                     </h2>

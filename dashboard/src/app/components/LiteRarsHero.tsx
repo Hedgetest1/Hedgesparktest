@@ -133,7 +133,7 @@ export function LiteRarsHero({
           <div>
             <h2
               id="lite-rars-heading"
-              className="text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#fbbf24] sm:text-[2.75rem]"
+              className="text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#F5A58B] sm:text-[2.75rem]"
             >
               Money at risk · this month
             </h2>
