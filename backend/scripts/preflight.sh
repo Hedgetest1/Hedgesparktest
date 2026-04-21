@@ -328,6 +328,26 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2o-quater. Merchant voice coherence audit. Blocking on forbidden
+# pricing phrases (CLAUDE.md §3) anywhere in dashboard source, and
+# on third-person narration ("HedgeSpark noticed", "The system
+# detected", "Our algorithm", "Our AI") in Spark-surface files
+# (dashboard app + components, chat_voice, spark_voice, merchant
+# chatbot). Warns on unglossed jargon + personality anti-patterns.
+# Single source of truth: app/services/spark_voice.py constants.
+# See /docs/HEDGESPARK_MERCHANT_COHERENCE_SPEC.md §5.
+# ---------------------------------------------------------------------------
+step "Merchant voice coherence (audit_merchant_voice_coherence.py)"
+if "$PY" "$BACKEND/scripts/audit_merchant_voice_coherence.py" > /tmp/preflight_voice_coherence.log 2>&1; then
+    # Script may print warnings to stdout; extract the final summary line.
+    summary=$(tail -1 /tmp/preflight_voice_coherence.log)
+    ok "$summary"
+else
+    bad "forbidden pricing phrase or third-person narration on a Spark surface — see /tmp/preflight_voice_coherence.log"
+    tail -30 /tmp/preflight_voice_coherence.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2o-ter. OpenAPI types freshness audit. Catches the drift class where
 # the backend adds/changes an endpoint but dashboard/src/app/lib/
 # api-types.ts isn't regenerated. The component then ships with a
