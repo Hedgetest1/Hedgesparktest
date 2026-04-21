@@ -131,15 +131,15 @@ export function LiteRarsHero({
       <div className="relative">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <div>
-            <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#fbbf24]">
-              Money at risk · this month
-            </div>
             <h2
               id="lite-rars-heading"
-              className="mt-2 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-white sm:text-[2.75rem]"
+              className="text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#fbbf24] sm:text-[2.75rem]"
             >
-              The number no other Shopify tool shows you
+              Money at risk · this month
             </h2>
+            <div className="mt-1 text-[16px] font-medium leading-snug text-slate-200 sm:text-[17px]">
+              The number no other Shopify tool shows you
+            </div>
           </div>
           <div className="flex flex-shrink-0 flex-wrap items-start gap-2">
             <ExportButton surface="rars" accentColor="#fbbf24" label="CSV" />

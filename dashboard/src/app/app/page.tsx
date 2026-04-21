@@ -2544,15 +2544,12 @@ function PageInner() {
                   <div className="pointer-events-none absolute -right-32 -top-32 h-[340px] w-[340px] rounded-full bg-[#a78bfa]/[0.05] blur-[150px]" />
                   <div className="relative">
                     <div className="mb-5">
-                      <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-violet-300">
-                        You vs peers
-                      </div>
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <h2
                           id="lite-benchmarks-heading"
-                          className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-white sm:text-[2.5rem]"
+                          className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-violet-300 sm:text-[2.5rem]"
                         >
-                          How you rank against similar Shopify stores
+                          You vs peers
                         </h2>
                         <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
                           <ExportButton surface="benchmarks" accentColor="#a78bfa" label="Peer CSV" />
@@ -2560,6 +2557,9 @@ function PageInner() {
                           <ExportButton surface="benchmarks_vertical" accentColor="#a78bfa" label="Vertical CSV" />
                           <ExportButton surface="benchmarks_vertical" accentColor="#a78bfa" label="Vertical PDF" format="pdf" />
                         </div>
+                      </div>
+                      <div className="mt-1 text-[16px] font-medium leading-snug text-slate-200 sm:text-[17px]">
+                        How you rank against similar Shopify stores
                       </div>
                       <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
                         Four metrics compared against anonymous peers in your
@@ -2604,20 +2604,20 @@ function PageInner() {
                   <div className="pointer-events-none absolute -right-32 -top-32 h-[340px] w-[340px] rounded-full bg-[#e8a04e]/[0.05] blur-[150px]" />
                   <div className="relative">
                     <div className="mb-5">
-                      <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#e8a04e]">
-                        Profit intelligence
-                      </div>
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <h2
                           id="lite-pnl-heading"
-                          className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-white sm:text-[2.5rem]"
+                          className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.5rem]"
                         >
-                          What you actually keep after costs
+                          Profit intelligence
                         </h2>
                         <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
                           <ExportButton surface="pnl" accentColor="#e8a04e" />
                           <ExportButton surface="pnl" accentColor="#e8a04e" format="pdf" />
                         </div>
+                      </div>
+                      <div className="mt-1 text-[16px] font-medium leading-snug text-slate-200 sm:text-[17px]">
+                        What you actually keep after costs
                       </div>
                       <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
                         Revenue minus COGS, payment fees, and shipping — the
@@ -2665,20 +2665,20 @@ function PageInner() {
                   <div className="pointer-events-none absolute -right-32 -top-32 h-[340px] w-[340px] rounded-full bg-[#60a5fa]/[0.05] blur-[150px]" />
                   <div className="relative">
                     <div className="mb-5">
-                      <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-blue-300">
-                        Channel attribution
-                      </div>
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <h2
                           id="lite-attribution-heading"
-                          className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-white sm:text-[2.5rem]"
+                          className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-blue-300 sm:text-[2.5rem]"
                         >
-                          Where your converting traffic comes from
+                          Channel attribution
                         </h2>
                         <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
                           <ExportButton surface="attribution" accentColor="#60a5fa" />
                           <ExportButton surface="attribution" accentColor="#60a5fa" format="pdf" />
                         </div>
+                      </div>
+                      <div className="mt-1 text-[16px] font-medium leading-snug text-slate-200 sm:text-[17px]">
+                        Where your converting traffic comes from
                       </div>
                       <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
                         UTM-deterministic attribution — every converting
@@ -2716,20 +2716,20 @@ function PageInner() {
                   <div className="pointer-events-none absolute -right-32 -top-32 h-[340px] w-[340px] rounded-full bg-[#34d399]/[0.05] blur-[150px]" />
                   <div className="relative">
                     <div className="mb-5">
-                      <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-emerald-300">
-                        Customer retention
-                      </div>
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <h2
                           id="lite-retention-heading"
-                          className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-white sm:text-[2.5rem]"
+                          className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-emerald-300 sm:text-[2.5rem]"
                         >
-                          How well your customers come back
+                          Customer retention
                         </h2>
                         <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
                           <ExportButton surface="cohorts_monthly" accentColor="#34d399" label="Cohorts CSV" />
                           <ExportButton surface="cohorts_monthly" accentColor="#34d399" label="Cohorts PDF" format="pdf" />
                         </div>
+                      </div>
+                      <div className="mt-1 text-[16px] font-medium leading-snug text-slate-200 sm:text-[17px]">
+                        How well your customers come back
                       </div>
                       <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
                         Week-1 and week-4 repeat-purchase rates across your
