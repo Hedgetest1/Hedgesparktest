@@ -16,7 +16,7 @@ import { SlackSettings } from "../../../components/SlackSettings";
 
 export default function SlackSettingsPage() {
   return (
-    <FloorLayout floor="intelligence">
+    <FloorLayout floor="settings">
       {() => <SlackSurface />}
     </FloorLayout>
   );

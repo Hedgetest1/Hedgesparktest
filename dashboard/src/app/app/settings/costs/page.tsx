@@ -98,7 +98,7 @@ function sourceBadgeTheme(source: string): { label: string; color: string } {
 
 export default function ProductCostsSettingsPage() {
   return (
-    <FloorLayout floor="intelligence">
+    <FloorLayout floor="settings">
       {({ isProUser }) => <ProductCostsSurface isProUser={isProUser} />}
     </FloorLayout>
   );

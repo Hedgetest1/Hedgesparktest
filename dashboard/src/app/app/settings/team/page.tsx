@@ -19,7 +19,7 @@ const API_BASE =
 
 export default function TeamSettingsPage() {
   return (
-    <FloorLayout floor="intelligence">
+    <FloorLayout floor="settings">
       {(session) => <TeamSurface session={session} />}
     </FloorLayout>
   );

@@ -194,7 +194,7 @@ const SETTINGS: SettingsCard[] = [
 
 export default function SettingsHubPage() {
   return (
-    <FloorLayout floor="intelligence">
+    <FloorLayout floor="settings">
       {() => <SettingsHub />}
     </FloorLayout>
   );
@@ -237,7 +237,7 @@ function SettingsHub() {
               className="group rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5 transition-colors hover:border-[#e8a04e]/30 hover:bg-[#e8a04e]/[0.04]"
             >
               <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400 group-hover:bg-[#e8a04e]/10 group-hover:text-[#e8a04e]">
+                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-[#a78bfa]/10 text-[#a78bfa] group-hover:bg-[#e8a04e]/10 group-hover:text-[#e8a04e]">
                   {s.icon}
                 </div>
                 <div className="min-w-0 flex-1">

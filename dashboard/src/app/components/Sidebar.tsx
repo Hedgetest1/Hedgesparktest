@@ -31,7 +31,12 @@ export type NavItem = {
  * TIER_2 billing-sprint job, tracked in
  * `project_tier_rename_dashboard_backlog.md`.
  * ──────────────────────────────────────────────────────────────────── */
-export type Floor = "pulse" | "intelligence" | "operations";
+// "settings" is a cross-tier meta-floor — used by /app/settings/*
+// routes so the Sidebar does NOT highlight any of the 3 real floors
+// (pulse/intelligence/operations) while the merchant is configuring
+// their store. Introduced 2026-04-21 per founder directive: "Settings
+// non dovrebbe evidenziare nessuna tra Lite, Pro e Scale".
+export type Floor = "pulse" | "intelligence" | "operations" | "settings";
 
 type FloorDef = {
   id: Floor;

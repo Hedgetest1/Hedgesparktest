@@ -21,7 +21,7 @@ import {
 
 export default function CurrencySettingsPage() {
   return (
-    <FloorLayout floor="intelligence">
+    <FloorLayout floor="settings">
       {() => <CurrencySurface />}
     </FloorLayout>
   );

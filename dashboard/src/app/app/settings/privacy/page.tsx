@@ -22,7 +22,7 @@ import type { SessionState } from "../../../lib/useSession";
 
 export default function PrivacySettingsPage() {
   return (
-    <FloorLayout floor="intelligence">
+    <FloorLayout floor="settings">
       {(session) => <PrivacySurface session={session} />}
     </FloorLayout>
   );

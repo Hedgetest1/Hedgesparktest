@@ -26,7 +26,7 @@ import type { SessionState } from "../../../lib/useSession";
 
 export default function CostDefaultsPage() {
   return (
-    <FloorLayout floor="intelligence">
+    <FloorLayout floor="settings">
       {(session) => <CostDefaultsSurface session={session} />}
     </FloorLayout>
   );

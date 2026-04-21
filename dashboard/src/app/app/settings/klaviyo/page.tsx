@@ -26,7 +26,7 @@ import type { SessionState } from "../../../lib/useSession";
 
 export default function KlaviyoSettingsPage() {
   return (
-    <FloorLayout floor="intelligence">
+    <FloorLayout floor="settings">
       {(session) => <KlaviyoSurface session={session} />}
     </FloorLayout>
   );

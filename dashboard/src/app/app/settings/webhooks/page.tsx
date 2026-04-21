@@ -20,7 +20,7 @@ const API_BASE =
 
 export default function SignalWebhooksPage() {
   return (
-    <FloorLayout floor="intelligence">
+    <FloorLayout floor="settings">
       {(session) => <SignalWebhooksSurface session={session} />}
     </FloorLayout>
   );
