@@ -1943,6 +1943,7 @@ function PageInner() {
         onNavigate={handleNavigate}
         tier={tier}
         currentFloor="pulse"
+        isLiteView={isLiteFloor}
       />
 
       <div className="flex flex-1 flex-col overflow-hidden">

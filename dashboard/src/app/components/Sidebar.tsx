@@ -308,6 +308,7 @@ export function Sidebar({
   onNavigate,
   tier,
   currentFloor = "pulse",
+  isLiteView = false,
 }: {
   collapsed: boolean;
   onToggle: () => void;
@@ -318,6 +319,13 @@ export function Sidebar({
    *  Drives the active-state on the floor selector at the top of the
    *  sidebar. Section nav below only renders on the Pulse floor. */
   currentFloor?: Floor;
+  /** True when the main /app route is rendering the Lite-floor
+   *  vertical (RARS + Peers + P&L + Attribution + Retention +
+   *  Cassettoni + Radar). Derived from isLiteFloor in page.tsx — NOT
+   *  from the merchant's tier, because a Pro merchant navigating to
+   *  /app/lite still sees the Lite layout and wants Lite section-nav.
+   *  When true, NAV_ITEMS_LITE is used instead of NAV_ITEMS. */
+  isLiteView?: boolean;
 }) {
   const activeRef = useRef<HTMLButtonElement | null>(null);
 
@@ -415,7 +423,7 @@ export function Sidebar({
           Features, Radar). Pro/Scale on Pulse floor use the original
           NAV_ITEMS. Other floors currently render no section nav. */}
       <nav className="flex flex-1 flex-col gap-1 overflow-y-auto py-4">
-        {currentFloor !== "pulse" ? null : (tier === "lite" ? NAV_ITEMS_LITE : NAV_ITEMS).map((item) => {
+        {currentFloor !== "pulse" ? null : (isLiteView ? NAV_ITEMS_LITE : NAV_ITEMS).map((item) => {
           const isActive = activeNavId === item.id;
           const isLocked = item.pro && tier === "lite";
           return (
