@@ -109,7 +109,6 @@ import { ChannelAttributionCard } from "../components/ChannelAttributionCard";
 import { MonthlyCohortsCard } from "../components/MonthlyCohortsCard";
 import { GatewayProductsCard } from "../components/GatewayProductsCard";
 import { ExportButton } from "../components/ExportButton";
-import { SlackSettings } from "../components/SlackSettings";
 import { AnalyticsAssistant } from "../components/AnalyticsAssistant";
 // Pro-floor — 5 migrated Intelligence cards (previously on /app/intelligence)
 import { RecommendationImpactCard } from "../components/RecommendationImpactCard";
@@ -3654,20 +3653,11 @@ function PageInner() {
               </section>
               </SectionErrorBoundary>
 
-              {/* Slack integration — moved here (2026-04-20 revision)
-                  per founder directive "spostato dopo il radar".
-                  Positioned BELOW the radar (which is the last value-
-                  bearing visual on the floor) and ABOVE the System
-                  Status Bar. Rationale: once the merchant has seen
-                  RARS hero → benchmarks → P&L → retention → channel
-                  attribution → cassettoni drill-downs → radar, they've
-                  consumed the full "right-now intelligence" narrative;
-                  NOW the opt-in to pipe a summary to Slack makes sense. */}
-              {isLiteFloor && (
-                <div className="mb-8">
-                  <SlackSettings />
-                </div>
-              )}
+              {/* Slack integration migrated 2026-04-21 to
+                  /app/settings/slack per founder directive: Slack is
+                  a configuration surface, not an on-floor card. Entry
+                  point is now the TopBar gear → hub → Slack sub-page.
+                  Lite floor no longer renders SlackSettings inline. */}
 
               {/* ═══ SYSTEM STATUS BAR — intelligence progress + aliveness ═══
                   Moved here (bottom of the floor) per founder directive

@@ -56,20 +56,72 @@ const SETTINGS: SettingsCard[] = [
       </svg>
     ),
   },
+  {
+    href: "/app/settings/currency",
+    title: "Display currency",
+    blurb:
+      "USD ⇄ EUR toggle for every amount on the dashboard. Purely a presentation setting — data stays in shop native currency.",
+    status: "live",
+    icon: (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        className="h-5 w-5"
+        aria-hidden="true"
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-2.25 0-4.5-1.5-4.5-3.75S9.75 4.5 12 4.5c1.157 0 2.2.464 2.955 1.214m-6.96 9.072c.755.75 1.798 1.214 2.955 1.214" />
+      </svg>
+    ),
+  },
+  {
+    href: "/app/settings/slack",
+    title: "Slack integration",
+    blurb:
+      "Pipe the daily merchant summary — Revenue-at-Risk, top leaks, recoveries — to your team's Slack channel. One-click OAuth.",
+    status: "live",
+    icon: (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        className="h-5 w-5"
+        aria-hidden="true"
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+      </svg>
+    ),
+  },
+  {
+    href: "/app/settings/klaviyo",
+    title: "Klaviyo integration",
+    blurb:
+      "Forward HedgeSpark intelligence events into your Klaviyo flows. Private API key, encrypted at rest.",
+    status: "live",
+    icon: (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        className="h-5 w-5"
+        aria-hidden="true"
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+      </svg>
+    ),
+  },
 ];
 
 const INLINE_FALLBACKS: { title: string; blurb: string }[] = [
   {
-    title: "Display currency",
-    blurb: "USD ⇄ EUR toggle for every amount on the dashboard.",
-  },
-  {
     title: "Cost defaults",
     blurb: "Shop-wide COGS %, shipping per order, payment fees, monthly ad spend.",
-  },
-  {
-    title: "Klaviyo",
-    blurb: "Connect your Klaviyo API key for cross-channel nudge delivery.",
   },
   {
     title: "Privacy (Art. 22)",
@@ -90,8 +142,8 @@ function SettingsHub() {
     <>
       <div className="mb-8">
         <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-500">
-          <Link href="/app/lite" className="text-slate-400 hover:text-[#e8a04e]">
-            ← Lite
+          <Link href="/app" className="text-slate-400 hover:text-[#e8a04e]">
+            ← Dashboard
           </Link>
           <span>/</span>
           <span className="text-slate-300">Settings</span>
@@ -145,7 +197,11 @@ function SettingsHub() {
         </div>
       </section>
 
-      {/* Currently-inline settings — live in /app/lite for now */}
+      {/* Still-inline settings — rendered inside the main /app page
+          (Pro/Scale floors) via SettingsSection, awaiting their own
+          sub-page migration in the next sprint. Lite does NOT render
+          these inline — merchant reaches them via this hub once the
+          sub-pages land. */}
       <section
         aria-labelledby="settings-inline-heading"
         className="mb-8 rounded-2xl border border-white/[0.04] bg-white/[0.01] p-5"
@@ -154,15 +210,13 @@ function SettingsHub() {
           id="settings-inline-heading"
           className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500"
         >
-          Still on the Lite floor for now
+          Migration in progress
         </h2>
         <p className="mb-4 text-[12px] leading-relaxed text-slate-400">
-          These settings are accessible at the bottom of{" "}
-          <Link href="/app/lite" className="text-[#e8a04e] hover:underline">
-            /app/lite
-          </Link>
-          . Each is being migrated to its own page here — one sub-page at a
-          time. Meanwhile, functionality is unchanged.
+          These settings are still rendered inline at the bottom of the
+          main dashboard (Pro/Scale floors) while their dedicated
+          sub-pages are built. Functionality is unchanged; only the
+          location is moving.
         </p>
         <ul className="space-y-2">
           {INLINE_FALLBACKS.map((f) => (
