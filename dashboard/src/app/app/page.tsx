@@ -113,6 +113,8 @@ import { SlackSettings } from "../components/SlackSettings";
 import { AnalyticsAssistant } from "../components/AnalyticsAssistant";
 // Pro-floor — 5 migrated Intelligence cards (previously on /app/intelligence)
 import { RecommendationImpactCard } from "../components/RecommendationImpactCard";
+// Lite v5 Spark Daily — flag-gated reframe of the Lite primary slot
+import { LiteSparkDaily } from "../components/LiteSparkDaily";
 import { ChurnForecastCard } from "../components/ChurnForecastCard";
 import { RiskForecastCard } from "../components/RiskForecastCard";
 import { CohortSummaryCard } from "../components/CohortSummaryCard";
@@ -2792,13 +2794,43 @@ function PageInner() {
                   individual deep cards. Click a cassettone to expand
                   the full deep card below. Radar + Spark Status remain
                   OUTSIDE this component, at the bottom of the floor. */}
+              {/* ═══ LITE v5 — "Spark Daily" reframe ═══
+                  Gated on NEXT_PUBLIC_LITE_SPARK_DAILY === "true". When
+                  flag is on, the merchant sees the 6-zone morning brief
+                  (Spark Says · Leak Gauge · 3 Fixes · Week Ridge ·
+                  Spark's Memory · Ask Spark) INSTEAD of the 5 big v4
+                  primary sections. Cassettoni grid + AnalyticsAssistant
+                  stay in place below as the MVP "Deeper" fallback; a
+                  dedicated slide-over drawer lands in a follow-up
+                  commit. When flag is off, the v4 layout renders
+                  unchanged — zero visible impact in prod until the flag
+                  flips. See /docs/LITE_VISUAL_SPEC_v5.md. */}
+              {isLiteFloor &&
+                process.env.NEXT_PUBLIC_LITE_SPARK_DAILY === "true" && (
+                  <LiteSparkDaily
+                    shopDomain={shop}
+                    onOpenDeeper={() => {
+                      // MVP deeper: scroll to the cassettoni grid below.
+                      // Replaced by the dedicated drawer in the next
+                      // commit; contract preserved.
+                      const el = document.querySelector(
+                        "[data-cassettoni-grid]",
+                      );
+                      if (el instanceof HTMLElement) {
+                        el.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }
+                    }}
+                  />
+                )}
+
               {/* RARS hero — permanent, above the grid. The single
                   differentiator that no competitor replicates, lifted
                   to top weight so it's unmistakable on day-1 that
                   this is what HedgeSpark uniquely does. Clicking a
                   component row opens the corresponding drill-down in
                   the cassettone grid below via controlled state. */}
-              {isLiteFloor && (
+              {isLiteFloor &&
+                process.env.NEXT_PUBLIC_LITE_SPARK_DAILY !== "true" && (
                 <LiteRarsHero
                   apiBase={API_BASE}
                   shop={shop}
@@ -2824,8 +2856,11 @@ function PageInner() {
                   already renders it); /analytics/benchmarks just opens
                   the same backend to Lite. No duplicate component.
                   Wrapped in a section header on Lite to give it the
-                  weight a strada-2 moat deserves. */}
-              {isLiteFloor && (
+                  weight a strada-2 moat deserves.
+                  v5 flag: hidden when Spark Daily is on — content is
+                  available via the Deeper drawer. */}
+              {isLiteFloor &&
+                process.env.NEXT_PUBLIC_LITE_SPARK_DAILY !== "true" && (
                 <section
                   aria-labelledby="lite-benchmarks-heading"
                   className="relative mb-8 overflow-hidden rounded-3xl border border-violet-400/[0.15] bg-gradient-to-br from-[#140d1a] via-[#0a0a14] to-[#0b0c18] p-7 sm:p-9"
@@ -2882,8 +2917,10 @@ function PageInner() {
                   when default assumptions are in play — the precision
                   upgrades when the merchant inputs real COGS
                   (Settings, Pro tier for bulk entry; Lite can still
-                  view the waterfall with estimates). */}
-              {isLiteFloor && (
+                  view the waterfall with estimates).
+                  v5 flag: hidden when Spark Daily is on. */}
+              {isLiteFloor &&
+                process.env.NEXT_PUBLIC_LITE_SPARK_DAILY !== "true" && (
                 <section
                   aria-labelledby="lite-pnl-heading"
                   className="relative mb-8 overflow-hidden rounded-3xl border border-amber-400/[0.15] bg-gradient-to-br from-[#1a0d0a] via-[#0a0a14] to-[#0b0c18] p-7 sm:p-9"
@@ -2941,8 +2978,10 @@ function PageInner() {
                   with real data.  Blue accent keeps the 4-section
                   chromatic story: amber (money-at-risk) → violet
                   (peer) → amber (P&L) → emerald (retention) → blue
-                  (attribution) → cassettoni grid. */}
-              {isLiteFloor && (
+                  (attribution) → cassettoni grid.
+                  v5 flag: hidden when Spark Daily is on. */}
+              {isLiteFloor &&
+                process.env.NEXT_PUBLIC_LITE_SPARK_DAILY !== "true" && (
                 <section
                   aria-labelledby="lite-attribution-heading"
                   className="relative mb-8 overflow-hidden rounded-3xl border border-blue-400/[0.15] bg-gradient-to-br from-[#0a121a] via-[#0a0a14] to-[#0b0c18] p-7 sm:p-9"
@@ -2990,8 +3029,10 @@ function PageInner() {
                   richness) — no new component. Backend opened to Lite
                   via /analytics/cohorts/summary sibling endpoint. The
                   per-customer predicted-LTV drill-down and full cohort
-                  matrix remain Pro depth. */}
-              {isLiteFloor && (
+                  matrix remain Pro depth.
+                  v5 flag: hidden when Spark Daily is on. */}
+              {isLiteFloor &&
+                process.env.NEXT_PUBLIC_LITE_SPARK_DAILY !== "true" && (
                 <section
                   aria-labelledby="lite-retention-heading"
                   className="relative mb-8 overflow-hidden rounded-3xl border border-emerald-400/[0.15] bg-gradient-to-br from-[#0a1612] via-[#0a0a14] to-[#0b0c18] p-7 sm:p-9"
@@ -3056,18 +3097,20 @@ function PageInner() {
               )}
 
               {isLiteFloor && (
-                <LiteCassettoniGrid
-                  apiBase={API_BASE}
-                  shop={shop}
-                  displayCurrency={displayCurrency}
-                  topProducts={topProducts}
-                  effectiveBrief={effectiveBrief}
-                  briefLoading={briefLoading}
-                  coldStartPhase={coldStartPhase}
-                  loading={loading}
-                  expandedId={liteExpandedId}
-                  onExpandedChange={setLiteExpandedId}
-                />
+                <div data-cassettoni-grid>
+                  <LiteCassettoniGrid
+                    apiBase={API_BASE}
+                    shop={shop}
+                    displayCurrency={displayCurrency}
+                    topProducts={topProducts}
+                    effectiveBrief={effectiveBrief}
+                    briefLoading={briefLoading}
+                    coldStartPhase={coldStartPhase}
+                    loading={loading}
+                    expandedId={liteExpandedId}
+                    onExpandedChange={setLiteExpandedId}
+                  />
+                </div>
               )}
 
               {/* AI Analytics Assistant — Strada 4 dominance move.
@@ -3075,8 +3118,13 @@ function PageInner() {
                   Spark pulls real numbers from services and answers
                   with grounded prose. Positioned between cassettoni
                   grid and Slack so merchants first SEE the data,
-                  then ASK about it, then OPT IN to push it to Slack. */}
-              {isLiteFloor && <AnalyticsAssistant />}
+                  then ASK about it, then OPT IN to push it to Slack.
+                  v5 flag: hidden when Spark Daily is on (Zone 6
+                  already renders AnalyticsAssistant reframed). */}
+              {isLiteFloor &&
+                process.env.NEXT_PUBLIC_LITE_SPARK_DAILY !== "true" && (
+                  <AnalyticsAssistant />
+                )}
 
               {/* ═══ REVENUE AT RISK HERO — Pro-floor only (Lite now
                   surfaces this inside the cassettoni grid above). ═══ */}

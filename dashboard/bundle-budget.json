@@ -41,10 +41,17 @@
     "chunks_total_bytes": 1761906,
     "chunks_count": 34
   },
+  "_baseline_2026_04_21_lite_v5_spark_daily": {
+    "_note": "Lite v5 'Spark Daily' — new LiteSparkDaily component (~700 LOC, 6 zones, inline Week Ridge SVG) + sparkVoice.ts helper. Total chunks grew 1762→1812 KB (+50). Still feature-flag gated (NEXT_PUBLIC_LITE_SPARK_DAILY) — zero prod impact until flag flips. Budget raised 1800000 -> 1900000 for ~5% headroom through v5 drawer + email retrofit follow-ups.",
+    "largest_chunk_bytes": 766604,
+    "root_main_total_bytes": 455826,
+    "chunks_total_bytes": 1812486,
+    "chunks_count": 34
+  },
   "budgets": {
     "largest_chunk_bytes": 820000,
     "root_main_total_bytes": 520000,
-    "chunks_total_bytes": 1800000,
+    "chunks_total_bytes": 1900000,
     "chunks_count_max": 40
   }
 }
