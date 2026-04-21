@@ -136,7 +136,7 @@ export function LiteRarsHero({
             </div>
             <h2
               id="lite-rars-heading"
-              className="mt-2 text-[1.75rem] font-extrabold leading-[1.05] tracking-tight text-white sm:text-[2rem]"
+              className="mt-2 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-white sm:text-[2.75rem]"
             >
               The number no other Shopify tool shows you
             </h2>

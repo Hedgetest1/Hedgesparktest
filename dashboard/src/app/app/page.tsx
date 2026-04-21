@@ -2550,7 +2550,7 @@ function PageInner() {
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <h2
                           id="lite-benchmarks-heading"
-                          className="text-[1.5rem] font-extrabold leading-[1.08] tracking-tight text-white sm:text-[1.75rem]"
+                          className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-white sm:text-[2.5rem]"
                         >
                           How you rank against similar Shopify stores
                         </h2>
@@ -2610,7 +2610,7 @@ function PageInner() {
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <h2
                           id="lite-pnl-heading"
-                          className="text-[1.5rem] font-extrabold leading-[1.08] tracking-tight text-white sm:text-[1.75rem]"
+                          className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-white sm:text-[2.5rem]"
                         >
                           What you actually keep after costs
                         </h2>
@@ -2671,7 +2671,7 @@ function PageInner() {
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <h2
                           id="lite-attribution-heading"
-                          className="text-[1.5rem] font-extrabold leading-[1.08] tracking-tight text-white sm:text-[1.75rem]"
+                          className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-white sm:text-[2.5rem]"
                         >
                           Where your converting traffic comes from
                         </h2>
@@ -2722,7 +2722,7 @@ function PageInner() {
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <h2
                           id="lite-retention-heading"
-                          className="text-[1.5rem] font-extrabold leading-[1.08] tracking-tight text-white sm:text-[1.75rem]"
+                          className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-white sm:text-[2.5rem]"
                         >
                           How well your customers come back
                         </h2>
