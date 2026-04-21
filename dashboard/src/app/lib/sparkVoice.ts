@@ -39,18 +39,39 @@ export function greetNightShift(shopDisplayName: string): string {
 // Opening verdict (Zone 1 "Spark Says", second line)
 // ---------------------------------------------------------------------------
 
+// Currency symbol map. Mirrors app/core/currency.py so frontend
+// renders the same symbol as backend for the merchant's currency.
+// Unicode escapes keep the map readable without embedding raw glyphs
+// in source (the values ARE the correct glyphs at runtime).
+const _CURRENCY_SYMBOLS: Record<string, string> = {
+  USD: "$", // $
+  EUR: "€", // €
+  GBP: "£", // £
+  JPY: "¥", // ¥
+  CAD: "C$", // C$
+  AUD: "A$", // A$
+  CHF: "CHF ", // CHF (NBSP)
+};
+
+export function currencySymbol(code: string | null | undefined): string {
+  if (!code) return _CURRENCY_SYMBOLS.USD;
+  const up = code.toUpperCase();
+  return _CURRENCY_SYMBOLS[up] ?? `${up} `;
+}
+
 export interface OpeningVerdictParams {
   totalAtRiskEur: number;
   countPlaces: number;
   preventedEur?: number;
-  currencySymbol?: string;
+  /** Currency code like "USD" / "EUR" / "GBP". Null/undefined → USD. */
+  currency?: string | null;
 }
 
 /** Three deterministic states: leaking / steady / clean. */
 export function openingVerdict(params: OpeningVerdictParams): string {
   const total = Math.round(params.totalAtRiskEur);
   const prevented = Math.round(params.preventedEur ?? 0);
-  const sym = params.currencySymbol ?? "€";
+  const sym = currencySymbol(params.currency);
   const totalFmt = total.toLocaleString("en-US");
   const preventedFmt = prevented.toLocaleString("en-US");
 

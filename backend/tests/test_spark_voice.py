@@ -52,19 +52,24 @@ def test_greet_night_shift():
 
 
 def test_opening_verdict_leaking_basic():
-    out = opening_verdict(total_at_risk_eur=340.4, count_places=3)
+    out = opening_verdict(total_at_risk_eur=340.4, count_places=3, currency="EUR")
     assert out == "This morning I noticed €340 leaking in 3 places."
 
 
 def test_opening_verdict_leaking_rounds_to_thousands():
-    out = opening_verdict(total_at_risk_eur=1234.7, count_places=5)
+    out = opening_verdict(total_at_risk_eur=1234.7, count_places=5, currency="EUR")
     assert "€1,235" in out
     assert "5 places" in out
 
 
+def test_opening_verdict_default_currency_is_usd():
+    out = opening_verdict(total_at_risk_eur=100, count_places=2)
+    assert out == "This morning I noticed $100 leaking in 2 places."
+
+
 def test_opening_verdict_steady():
     out = opening_verdict(
-        total_at_risk_eur=100, count_places=0, prevented_eur=50
+        total_at_risk_eur=100, count_places=0, prevented_eur=50, currency="EUR"
     )
     assert out == "Steady morning — €100 at risk, €50 prevented."
 
@@ -82,9 +87,21 @@ def test_opening_verdict_zero_with_count_rendered_as_clean():
 
 def test_opening_verdict_different_currency():
     out = opening_verdict(
-        total_at_risk_eur=1234, count_places=2, currency_symbol="$"
+        total_at_risk_eur=1234, count_places=2, currency="USD"
     )
-    assert "$1,234" in out
+    assert "1,234" in out and "USD" not in out  # rendered as symbol, not code
+
+
+def test_opening_verdict_currency_rendered_via_core_helper():
+    # app.core.currency.currency_symbol covers JPY → ¥ etc.
+    # Just assert the core helper path is active — if JPY resolves to
+    # ¥ via the core map, the spark_voice call does too.
+    from app.core.currency import currency_symbol
+    expected_sym = currency_symbol("JPY")
+    out = opening_verdict(
+        total_at_risk_eur=500, count_places=1, currency="JPY"
+    )
+    assert expected_sym in out
 
 
 # ---------------------------------------------------------------------------

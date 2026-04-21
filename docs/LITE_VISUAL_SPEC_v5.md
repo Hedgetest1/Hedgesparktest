@@ -190,15 +190,18 @@ Background emerald-500/[0.03], border emerald-400/[0.15].
 
 **Chart — "Week Ridge" (the signature primary chart):**
 - SVG 100% width × 120px height (100px mobile)
-- 7 day columns (rolling 7 days ending today)
+- 7 day columns (rolling 7 days ending today, shop-timezone)
 - **Two overlapping area layers with smooth curves:**
-  - Back layer: at-risk amount, `#d4893a` / opacity 0.35, stroke `#d4893a` / opacity 0.5 / 1.5px
-  - Front layer: prevented amount, `#34d399` / opacity 0.7, stroke `#34d399` / 1.5px
+  - Back layer: at-risk EUR, `#d4893a` / opacity 0.35, stroke `#d4893a` / opacity 0.5 / 1.5px
+  - Front layer: captured revenue EUR, `#34d399` / opacity 0.7, stroke `#34d399` / 1.5px
 - Smoothing: cubic Bezier with tension 0.3 — curves but not wavy
-- Y-scale: `max(max(risk_day), max(prevented_day))` ceiling, auto-fit
+- Y-scale: `max(max(at_risk_day), max(captured_day))` ceiling, auto-fit
 - X-axis: 7 tick labels (Mon/Tue/…/Sun or rolling dates), 11px `text-slate-500`, no grid lines
 - No axis title, no tooltip on hover (click opens Deeper → Retention for full table)
 - Draw-in animation on first mount (stroke-dasharray 1.2s ease-out)
+
+**Why captured revenue (not prevented revenue) for the emerald layer:**
+Prevented-revenue tracking requires a real holdout-vs-treatment purchase comparison (see `revenue_at_risk._compute_prevented` — explicit no-op today per principle §2 rule 4: "no false claims"). Shipping Week Ridge with prevented=0 always would produce a flat emerald layer and fail Gate 4. Captured-revenue (actual orders via `shop_orders`) is a HONEST substitute: it tells a parallel story — "what you kept vs what walked away" — and upgrades to prevented-revenue without a chart redesign when holdout purchase tracking ships.
 
 **Below the chart — one interpretation sentence (16px cream):**
 
@@ -206,14 +209,15 @@ Deterministic based on week totals:
 
 | Condition | Sentence |
 |---|---|
-| `prevented > at_risk * 1.1` | `You saved €{prevented} this week — **+{delta}%** better than last week.` |
-| `at_risk > prevented * 1.1` | `€{at_risk} leaked this week, vs €{prevented} saved. Let's close the gap.` |
-| otherwise | `€{prevented} saved vs €{at_risk} at risk — steady week.` |
-| cold start (<7 days) | `Watching your week build. First full 7-day read ready {day}.` |
+| `captured >= at_risk * 1.1` | `You captured €{captured} this week — more than the €{at_risk} that walked away.` |
+| `at_risk > captured * 1.1` | `€{captured} captured this week, vs €{at_risk} at risk. Let's close the gap.` |
+| otherwise | `€{captured} captured vs €{at_risk} at risk — steady week.` |
+| cold start (<7 days of data) | `Watching your week build. First full 7-day read ready {day}.` |
 
-The `{delta}%` is week-over-week change in prevented amount.
+**At-risk estimation methodology (published in drawer):**
+Daily at-risk EUR = (count of abandoned high-intent visitors that day) × shop 30-day AOV × baseline conversion rate (2%). Tagged `(est.)` in drawer methodology — upgrades to deterministic when holdout data lands.
 
-**Data source:** new endpoint `/analytics/week-ridge` — returns `{ days: [{date, at_risk_eur, prevented_eur}] × 7, week_over_week_pct }`. Derived from existing RARS history + prevented_events table. Backend pre-work, §9.
+**Data source:** new endpoint `/analytics/week-ridge` — returns `{ days: [{date, at_risk_eur, captured_eur}] × up_to_7, currency, week_over_week_captured_pct, cold_start: bool }`. Derived from `events` (abandoned high-intent count) + `shop_orders` (actual captured revenue). Backend pre-work, §9.
 
 ### Zone 5 — "Spark's Memory" (rolling log, humble surface)
 
@@ -384,10 +388,11 @@ fabrication. Empty states say "—" or "Watching…", never fake a value.
 
 **New endpoint 1: `/analytics/week-ridge`**
 - GET, requires merchant session
-- Response: `{ days: [{date: ISO, at_risk_eur: number, prevented_eur: number}], week_over_week_pct: number, currency: string }`
-- Derived from: existing RARS history table + prevented_events table, rolling 7 days ending today (shop timezone)
-- Tests: cold-start returns fewer days; no fabricated zero-pad; currency matches shop ccy cache
-- TIER: 0 (additive read endpoint)
+- Response: `{ days: [{date: ISO, at_risk_eur: number, captured_eur: number}], currency: string, week_over_week_captured_pct: number | null, cold_start: bool }`
+- Derived from: `events` (count of abandoned_high_intent events per day, estimated to EUR via 30-day AOV × 2% baseline CVR) + `shop_orders` (sum of captured revenue per day), rolling up to 7 days ending today (shop timezone). No new table, no migration — queries only.
+- Cold-start: any shop with <3 days of shop_order activity returns `cold_start: true` and `days: []`; UI renders "Watching your week build" instead of a chart.
+- Tests: cold-start path; exactly-7-day path; currency matches shop ccy cache; at_risk is tagged as estimate in methodology
+- TIER: 0 (additive read endpoint, read-only queries on existing tables)
 
 **New endpoint 2: `/merchant/spark-memory`**
 - GET, requires merchant session
