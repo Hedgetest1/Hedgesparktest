@@ -149,57 +149,24 @@ body {
   --lite-border: rgba(212, 116, 90, 0.28);
 }
 
-/* Canvas — radial gradient ambient: saturated at top-left corner,
-   sfumato verso il bottom-right per morbidezza di transizione dai
-   cards. Non flat, non busy — una "stanza" boutique. */
 .lite-theme {
-  background:
-    radial-gradient(1200px 700px at 12% -10%, #E8DCF0 0%, transparent 55%),
-    radial-gradient(1000px 600px at 88% 110%, #DCD0E8 0%, transparent 50%),
-    var(--lite-bg-canvas);
+  background-color: var(--lite-bg-canvas);
   color: var(--lite-ink-primary);
 }
 
-/* Cards Lite — linear gradient sottile + soft peach shadow per
-   profondità. Non flat, non piatto. Hover sollevamento minimo. */
+/* Cards — any rounded shell under a Lite section becomes cream */
 .lite-theme section[id^="section-lite-"] {
-  background: linear-gradient(
-    135deg,
-    var(--lite-bg-card) 0%,
-    #F5E2C4 50%,
-    var(--lite-bg-card-soft) 100%
-  ) !important;
-  background-image: linear-gradient(
-    135deg,
-    var(--lite-bg-card) 0%,
-    #F5E2C4 50%,
-    var(--lite-bg-card-soft) 100%
-  ) !important;
-  border-color: rgba(212, 116, 90, 0.42) !important;
-  box-shadow:
-    0 1px 2px rgba(74, 69, 96, 0.06),
-    0 8px 32px rgba(212, 116, 90, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  background: var(--lite-bg-card) !important;
+  background-image: none !important;
+  border-color: var(--lite-border) !important;
   color: var(--lite-ink-primary);
-  transition: box-shadow 0.28s ease, transform 0.28s ease;
-}
-.lite-theme section[id^="section-lite-"]:hover {
-  box-shadow:
-    0 2px 4px rgba(74, 69, 96, 0.08),
-    0 12px 40px rgba(212, 116, 90, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
-/* Section H2 title — peach gradient (not flat). Gradient from
-   saturated peach to a burnt peach for editorial texture.
-   RarsHero h2 keeps its inline #F5A58B — overridden here too
-   because the inline style from React is less specific than this. */
+/* Section title color override — peach for all 5 Lite h2's.
+   RarsHero h2 keeps the #F5A58B inline style (soft peach
+   pastel is fine on cream because the 44px size clears AA large). */
 .lite-theme h2[id^="lite-"] {
-  background: linear-gradient(135deg, #D4745A 0%, #C96A4E 60%, #B35E45 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  color: transparent !important;
+  color: var(--lite-accent-peach) !important;
 }
 
 /* Subtitle / sub-line — dark purple-slate */
@@ -213,62 +180,18 @@ body {
   color: var(--lite-ink-muted) !important;
 }
 
-/* Dark card shells from components (LiteRarsHero, cassettoni,
-   inner list items) — any hardcoded dark bg becomes cream. */
-.lite-theme [class*="bg-\\[\\#0e0e1a"],
-.lite-theme [class*="bg-\\[\\#0a0a14"],
-.lite-theme [class*="bg-\\[\\#0b0c18"],
-.lite-theme [class*="bg-\\[\\#0d0a0a"],
-.lite-theme [class*="bg-\\[\\#140d1a"],
-.lite-theme [class*="bg-\\[\\#1a0d0a"],
-.lite-theme [class*="bg-\\[\\#1a1405"],
-.lite-theme [class*="bg-\\[\\#0a121a"],
-.lite-theme [class*="bg-\\[\\#0a1612"] {
-  background-color: var(--lite-bg-card) !important;
-  background-image: linear-gradient(
-    135deg,
-    var(--lite-bg-card) 0%,
-    var(--lite-bg-card-soft) 100%
-  ) !important;
-}
-
-/* Inner cards (list rows, pills wrappers) — a softer cream alt so
-   they sit on top of the main card without looking like a second
-   card shell. */
-.lite-theme section[id^="section-lite-"] [class*="bg-white/\\[0\\.015"],
-.lite-theme section[id^="section-lite-"] [class*="bg-white/\\[0\\.02"],
-.lite-theme section[id^="section-lite-"] [class*="bg-white/\\[0\\.04"],
-.lite-theme section[id^="section-lite-"] [class*="bg-white/\\[0\\.05"],
-.lite-theme section[id^="section-lite-"] [class*="bg-white/\\[0\\.06"] {
-  background-color: rgba(240, 222, 182, 0.55) !important;
-  background-image: none !important;
-  border-color: rgba(145, 119, 184, 0.24) !important;
-}
-
-/* Borders — most white-alpha borders become lilac-soft for coherence */
-.lite-theme [class*="border-white/\\[0\\.04"],
-.lite-theme [class*="border-white/\\[0\\.05"],
-.lite-theme [class*="border-white/\\[0\\.06"],
-.lite-theme [class*="border-white/\\[0\\.07"],
-.lite-theme [class*="border-white/\\[0\\.08"],
-.lite-theme [class*="border-white/\\[0\\.1"],
-.lite-theme [class*="border-white/\\[0\\.14"] {
-  border-color: rgba(145, 119, 184, 0.22) !important;
-}
-
-/* Big numbers (tabular-nums at ≥ 2rem) — lilac→sky gradient.
-   This matches any number that was `text-white`/`text-cream` or an
-   explicit hex that isn't semantic. Opt-out via `.hs-num-semantic`. */
-.lite-theme .font-extrabold.tabular-nums:not(.hs-num-semantic):not([class*="text-emerald"]):not([class*="text-rose"]):not([class*="text-yellow"]):not([class*="text-amber"]) {
+/* Ornament stripes — lilac + sky-blue gradient, as the column's
+   vertical stripes. Use as utility on emphasis text (big numbers,
+   callout spans). */
+.lite-gradient-text {
   background: linear-gradient(135deg, #9177B8 0%, #7A95C8 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
-/* Explicit utility for any caller that wants the lilac→sky gradient
-   on non-number text (kept for Design System reuse). */
-.lite-gradient-text,
+/* Numeric heroes that were text-white on dark should pick up the
+   lilac-sky gradient for Lite. Opt-in via class, not global. */
 .lite-theme .hs-num-hero {
   background: linear-gradient(135deg, #9177B8 0%, #7A95C8 100%);
   -webkit-background-clip: text;
@@ -276,42 +199,14 @@ body {
   background-clip: text;
 }
 
-/* Semantic pill/chip backgrounds (emerald / rose / yellow / amber
-   bg-500/10 patterns) — explicitly preserved. No override. Trend
-   indicators MUST keep their semantic hue even on cream cards. */
-
-/* Rose / emerald text inside pills stays too — override only bulk
-   text-slate-* and text-white, not semantic text-emerald-*. */
-
-/* Accent amber text (links, "Replace key", "Ask Spark about") —
-   on cream these would disappear. Swap amber to burnt peach. */
-.lite-theme [class*="text-\\[\\#e8a04e"],
-.lite-theme [class*="text-\\[\\#d4893a"],
-.lite-theme [class*="text-\\[\\#fbbf24"],
-.lite-theme .text-amber-300,
-.lite-theme .text-amber-400 {
-  color: #B35E45 !important;
+/* Inner cards inside sections (rank rows, pills) get a soft-cream
+   alt background so they stand out from the cream card base. */
+.lite-theme section[id^="section-lite-"] [class*="bg-white/[0.015]"],
+.lite-theme section[id^="section-lite-"] [class*="bg-white/[0.02]"] {
+  background-color: var(--lite-bg-card-soft) !important;
+  background-image: none !important;
+  border-color: var(--lite-border) !important;
 }
 
-/* Violet / blue accent text (eyebrows, peer labels) — swap to the
-   lilac token so it coheres with the gradient language. */
-.lite-theme [class*="text-\\[\\#a78bfa"],
-.lite-theme [class*="text-\\[\\#c4b5fd"],
-.lite-theme .text-violet-300,
-.lite-theme .text-violet-400,
-.lite-theme .text-blue-300,
-.lite-theme .text-blue-400 {
-  color: #9177B8 !important;
-}
-
-/* Buttons that were emerald-filled (primary CTAs) on dark — keep
-   emerald fill (semantic "go" signal, legitimate). Just ensure text
-   inside stays white. */
-.lite-theme .bg-emerald-500\\/90,
-.lite-theme .bg-emerald-500 {
-  color: #ffffff !important;
-}
-.lite-theme .bg-emerald-500\\/90 *,
-.lite-theme .bg-emerald-500 * {
-  color: #ffffff !important;
-}
+/* Rose / emerald / amber accent pills (semantic trend indicators)
+   stay as designed — explicitly preserve by not overriding them. */
