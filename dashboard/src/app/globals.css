@@ -112,159 +112,109 @@ body {
 .hs-scroll-smooth { scroll-behavior: smooth; }
 
 /* ════════════════════════════════════════════════════════════════
-   Lite theme — "colonna" design system (studied from photo)
+   Lite theme — pastel "colonna" palette
    ════════════════════════════════════════════════════════════════
+   Applied to <main> only (Sidebar + TopBar remain dark chrome).
+   Scope triggered when merchant is on /app/lite (isLiteFloor).
    Reference: /opt/wishspark/screenshots/WhatsApp Image 2026-04-21
-   at 19.49.12.jpeg — pastel-boutique column, cream body on lilac
-   wall, peach floral accents, lilac+sky vertical stripes.
+   at 19.49.12.jpeg — pastel boutique column.
 
-   Palette extracted from the photo with contrast discipline:
-
-   WALL (canvas)           #D4C4E0   lavender medium pastel
-   WALL wash (ambient)     #C8B2DC   saturated pocket for radial
-   WALL cool (highlight)   #DFD2E8   lifted region
-
-   CREAM (card body)
-     top (highlight)       #F9EACF   luminous edge
-     mid (base)            #F0DCB0   main cream tone
-     deep (bottom shade)   #E3C890   settle to warm base
-     warm (rope tone)      #ECCE98   inner sub-card variant
-
-   PEACH (decorative, accent text, titles)
-     peach                 #E87B5E   saturated, 4:1 on cream AA
-     peach deep            #C85A3F   hover / links / dense text
-
-   STRIPES (on-column verticals — used for big-number gradients)
-     stripe lilac          #8F6FB8   lilac stripe (readable)
-     stripe sky            #4B72A8   sky stripe (readable)
-
-   INK (text, studied for AAA on cream)
-     primary               #2A1A3E   14:1 on #F0DCB0 (AAA)
-     body                  #4A3D5C   9:1 on cream (AAA)
-     muted                 #7E7393   4.8:1 on cream (AA)
-
-   SEMANTIC (preserved — trend signals, not decoration)
-     emerald, rose, yellow default Tailwind values — saturated
-     enough to read on cream.
+   Palette:
+     canvas (wall)     #D9CCE3  soft lilac
+     card (column)     #F5E6CC  cream
+     accent (flowers)  #D4745A  peach — saturated enough for text-on-cream
+     accent soft       #F5A58B  peach pastel for decorations only
+     text primary      #2A2438  dark purple-slate (contrast ~12:1 on cream)
+     text secondary    #4A4560  medium purple-slate
+     text muted        #8B85A0  light muted
+     gradient accent   #9177B8 → #7A95C8  lilac-to-sky for emphasis text
 
    Rules:
-     - Applied to <main> only; Sidebar/TopBar stay dark chrome.
-     - Scoped via `.lite-theme` class (isLiteFloor drives it).
-     - Semantic colors intentionally NOT overridden.
-     - Override targeted: only the patterns actually used in Lite
-       components, not catch-all `[class*="bg-["]`.
+     - Semantic colors (rose / emerald / yellow) preserved for trend
+       indicators (good / bad / stall). They're NOT overridden.
+     - Chrome (Sidebar / TopBar) is OUTSIDE .lite-theme — stays dark.
+     - Overrides target Tailwind's utility classes via descendant
+       selectors, scoped to .lite-theme. No component refactor needed.
    */
 
 :root {
-  --lite-wall:        #D4C4E0;
-  --lite-wall-wash:   #C8B2DC;
-  --lite-wall-cool:   #DFD2E8;
-
-  --lite-cream-top:   #F9EACF;
-  --lite-cream-mid:   #F0DCB0;
-  --lite-cream-deep:  #E3C890;
-  --lite-cream-warm:  #ECCE98;
-
-  --lite-peach:       #E87B5E;
-  --lite-peach-deep:  #C85A3F;
-
-  --lite-stripe-lilac:#8F6FB8;
-  --lite-stripe-sky:  #4B72A8;
-
-  --lite-ink:         #2A1A3E;
-  --lite-ink-body:    #4A3D5C;
-  --lite-ink-muted:   #7E7393;
-
-  --lite-divider:     rgba(143, 111, 184, 0.22);
-  --lite-border-card: rgba(232, 123, 94, 0.34);
-
-  --lite-shadow-rest:
-    0 2px 6px rgba(45, 26, 62, 0.08),
-    0 12px 32px rgba(232, 123, 94, 0.10);
-  --lite-shadow-hover:
-    0 4px 10px rgba(45, 26, 62, 0.12),
-    0 20px 48px rgba(232, 123, 94, 0.14);
+  --lite-bg-canvas: #D9CCE3;
+  --lite-bg-card: #F5E6CC;
+  --lite-bg-card-soft: #F0DEB6;
+  --lite-accent-peach: #D4745A;
+  --lite-accent-peach-soft: #F5A58B;
+  --lite-ink-primary: #2A2438;
+  --lite-ink-secondary: #4A4560;
+  --lite-ink-muted: #8B85A0;
+  --lite-border: rgba(212, 116, 90, 0.28);
 }
 
-/* ──────────────────────────────────────────────────────────────
-   Canvas — lilac wall with a warm radial pocket (sun streaming
-   into the boutique). Subtle, non-kinetic.
-   ────────────────────────────────────────────────────────────── */
+/* Canvas — radial gradient ambient: saturated at top-left corner,
+   sfumato verso il bottom-right per morbidezza di transizione dai
+   cards. Non flat, non busy — una "stanza" boutique. */
 .lite-theme {
   background:
-    radial-gradient(1300px 800px at 18% -8%, var(--lite-wall-cool) 0%, transparent 58%),
-    radial-gradient(900px 600px at 92% 105%, var(--lite-wall-wash) 0%, transparent 50%),
-    var(--lite-wall);
-  color: var(--lite-ink);
+    radial-gradient(1200px 700px at 12% -10%, #E8DCF0 0%, transparent 55%),
+    radial-gradient(1000px 600px at 88% 110%, #DCD0E8 0%, transparent 50%),
+    var(--lite-bg-canvas);
+  color: var(--lite-ink-primary);
 }
 
-/* ──────────────────────────────────────────────────────────────
-   Cards — cream with 3-stop gradient (light → mid → deep) for
-   material depth + soft peach shadow stack. Top inset highlight
-   adds the "natural light on ceramic" effect from the photo.
-   ────────────────────────────────────────────────────────────── */
+/* Cards Lite — linear gradient sottile + soft peach shadow per
+   profondità. Non flat, non piatto. Hover sollevamento minimo. */
 .lite-theme section[id^="section-lite-"] {
   background: linear-gradient(
-    162deg,
-    var(--lite-cream-top) 0%,
-    var(--lite-cream-mid) 52%,
-    var(--lite-cream-deep) 100%
+    135deg,
+    var(--lite-bg-card) 0%,
+    #F5E2C4 50%,
+    var(--lite-bg-card-soft) 100%
   ) !important;
   background-image: linear-gradient(
-    162deg,
-    var(--lite-cream-top) 0%,
-    var(--lite-cream-mid) 52%,
-    var(--lite-cream-deep) 100%
+    135deg,
+    var(--lite-bg-card) 0%,
+    #F5E2C4 50%,
+    var(--lite-bg-card-soft) 100%
   ) !important;
-  border: 1px solid var(--lite-border-card) !important;
-  box-shadow: var(--lite-shadow-rest);
-  color: var(--lite-ink);
-  transition: box-shadow 0.3s ease, transform 0.3s ease;
-  position: relative;
-}
-.lite-theme section[id^="section-lite-"]::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.58);
-  pointer-events: none;
+  border-color: rgba(212, 116, 90, 0.42) !important;
+  box-shadow:
+    0 1px 2px rgba(74, 69, 96, 0.06),
+    0 8px 32px rgba(212, 116, 90, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  color: var(--lite-ink-primary);
+  transition: box-shadow 0.28s ease, transform 0.28s ease;
 }
 .lite-theme section[id^="section-lite-"]:hover {
-  box-shadow: var(--lite-shadow-hover);
+  box-shadow:
+    0 2px 4px rgba(74, 69, 96, 0.08),
+    0 12px 40px rgba(212, 116, 90, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
-/* ──────────────────────────────────────────────────────────────
-   Section H2 titles — flat peach `#E87B5E`. No gradient on titles
-   (gradient on all titles + all big numbers becomes noise).
-   Peach for titoli, gradient reserved for big numbers.
-   ────────────────────────────────────────────────────────────── */
+/* Section H2 title — peach gradient (not flat). Gradient from
+   saturated peach to a burnt peach for editorial texture.
+   RarsHero h2 keeps its inline #F5A58B — overridden here too
+   because the inline style from React is less specific than this. */
 .lite-theme h2[id^="lite-"] {
-  color: var(--lite-peach) !important;
-  background: none !important;
-  -webkit-text-fill-color: var(--lite-peach) !important;
+  background: linear-gradient(135deg, #D4745A 0%, #C96A4E 60%, #B35E45 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent !important;
 }
 
-/* ──────────────────────────────────────────────────────────────
-   Text — ink hierarchy. Matches Tailwind slate scale to our ink.
-   ────────────────────────────────────────────────────────────── */
+/* Subtitle / sub-line — dark purple-slate */
 .lite-theme .text-slate-200,
 .lite-theme .text-slate-300,
-.lite-theme .text-white,
-.lite-theme .text-cream {
-  color: var(--lite-ink-body) !important;
+.lite-theme .text-white {
+  color: var(--lite-ink-secondary) !important;
 }
 .lite-theme .text-slate-400,
-.lite-theme .text-slate-500,
-.lite-theme .text-slate-600 {
+.lite-theme .text-slate-500 {
   color: var(--lite-ink-muted) !important;
 }
 
-/* ──────────────────────────────────────────────────────────────
-   Dark card shells inside components (LiteRarsHero, cassettoni
-   panels, AnalyticsAssistant, SystemStatusBar, etc.) — any
-   hardcoded dark hex becomes cream with the same gradient.
-   ────────────────────────────────────────────────────────────── */
+/* Dark card shells from components (LiteRarsHero, cassettoni,
+   inner list items) — any hardcoded dark bg becomes cream. */
 .lite-theme [class*="bg-\\[\\#0e0e1a"],
 .lite-theme [class*="bg-\\[\\#0a0a14"],
 .lite-theme [class*="bg-\\[\\#0b0c18"],
@@ -273,124 +223,95 @@ body {
 .lite-theme [class*="bg-\\[\\#1a0d0a"],
 .lite-theme [class*="bg-\\[\\#1a1405"],
 .lite-theme [class*="bg-\\[\\#0a121a"],
-.lite-theme [class*="bg-\\[\\#0a1612"],
-.lite-theme [class*="bg-\\[\\#07070f"] {
-  background-color: var(--lite-cream-mid) !important;
+.lite-theme [class*="bg-\\[\\#0a1612"] {
+  background-color: var(--lite-bg-card) !important;
   background-image: linear-gradient(
-    162deg,
-    var(--lite-cream-top) 0%,
-    var(--lite-cream-mid) 55%,
-    var(--lite-cream-deep) 100%
+    135deg,
+    var(--lite-bg-card) 0%,
+    var(--lite-bg-card-soft) 100%
   ) !important;
-  color: var(--lite-ink) !important;
 }
 
-/* ──────────────────────────────────────────────────────────────
-   Inner sub-cards (rank rows, list items, pills) — cream warm
-   solid (like the rope on the column) with lilac-soft border.
-   Sit ABOVE the main card gradient → visually one layer up.
-   ────────────────────────────────────────────────────────────── */
-.lite-theme [class*="bg-white/\\[0\\.015"],
-.lite-theme [class*="bg-white/\\[0\\.02"],
-.lite-theme [class*="bg-white/\\[0\\.03"],
-.lite-theme [class*="bg-white/\\[0\\.04"],
-.lite-theme [class*="bg-white/\\[0\\.05"],
-.lite-theme [class*="bg-white/\\[0\\.06"] {
-  background-color: var(--lite-cream-warm) !important;
+/* Inner cards (list rows, pills wrappers) — a softer cream alt so
+   they sit on top of the main card without looking like a second
+   card shell. */
+.lite-theme section[id^="section-lite-"] [class*="bg-white/\\[0\\.015"],
+.lite-theme section[id^="section-lite-"] [class*="bg-white/\\[0\\.02"],
+.lite-theme section[id^="section-lite-"] [class*="bg-white/\\[0\\.04"],
+.lite-theme section[id^="section-lite-"] [class*="bg-white/\\[0\\.05"],
+.lite-theme section[id^="section-lite-"] [class*="bg-white/\\[0\\.06"] {
+  background-color: rgba(240, 222, 182, 0.55) !important;
   background-image: none !important;
-  border-color: var(--lite-divider) !important;
+  border-color: rgba(145, 119, 184, 0.24) !important;
 }
 
-/* ──────────────────────────────────────────────────────────────
-   Borders — white-alpha on dark → lilac-soft on cream.
-   ────────────────────────────────────────────────────────────── */
+/* Borders — most white-alpha borders become lilac-soft for coherence */
 .lite-theme [class*="border-white/\\[0\\.04"],
 .lite-theme [class*="border-white/\\[0\\.05"],
 .lite-theme [class*="border-white/\\[0\\.06"],
 .lite-theme [class*="border-white/\\[0\\.07"],
 .lite-theme [class*="border-white/\\[0\\.08"],
 .lite-theme [class*="border-white/\\[0\\.1"],
-.lite-theme [class*="border-white/\\[0\\.14"],
-.lite-theme [class*="border-white/\\[0\\.18"] {
-  border-color: var(--lite-divider) !important;
+.lite-theme [class*="border-white/\\[0\\.14"] {
+  border-color: rgba(145, 119, 184, 0.22) !important;
 }
 
-/* ──────────────────────────────────────────────────────────────
-   Big numbers — lilac→sky stripe gradient (the vertical stripes
-   of the column, verticalized to text). Applied to any
-   extrabold tabular-nums that is NOT semantic-colored.
-   ────────────────────────────────────────────────────────────── */
-.lite-theme .font-extrabold.tabular-nums:not([class*="text-emerald"]):not([class*="text-rose"]):not([class*="text-yellow"]):not([class*="text-amber"]) {
-  background: linear-gradient(180deg, var(--lite-stripe-lilac) 0%, var(--lite-stripe-sky) 100%);
+/* Big numbers (tabular-nums at ≥ 2rem) — lilac→sky gradient.
+   This matches any number that was `text-white`/`text-cream` or an
+   explicit hex that isn't semantic. Opt-out via `.hs-num-semantic`. */
+.lite-theme .font-extrabold.tabular-nums:not(.hs-num-semantic):not([class*="text-emerald"]):not([class*="text-rose"]):not([class*="text-yellow"]):not([class*="text-amber"]) {
+  background: linear-gradient(135deg, #9177B8 0%, #7A95C8 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
-/* Opt-in utility for the same gradient on non-number text. */
+/* Explicit utility for any caller that wants the lilac→sky gradient
+   on non-number text (kept for Design System reuse). */
 .lite-gradient-text,
 .lite-theme .hs-num-hero {
-  background: linear-gradient(180deg, var(--lite-stripe-lilac) 0%, var(--lite-stripe-sky) 100%);
+  background: linear-gradient(135deg, #9177B8 0%, #7A95C8 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
-/* ──────────────────────────────────────────────────────────────
-   Accent text — amber (links, replace-key CTAs) → peach deep
-   Violet/blue accents (eyebrows, peer labels) → stripe lilac
-   Both readable on cream.
-   ────────────────────────────────────────────────────────────── */
+/* Semantic pill/chip backgrounds (emerald / rose / yellow / amber
+   bg-500/10 patterns) — explicitly preserved. No override. Trend
+   indicators MUST keep their semantic hue even on cream cards. */
+
+/* Rose / emerald text inside pills stays too — override only bulk
+   text-slate-* and text-white, not semantic text-emerald-*. */
+
+/* Accent amber text (links, "Replace key", "Ask Spark about") —
+   on cream these would disappear. Swap amber to burnt peach. */
 .lite-theme [class*="text-\\[\\#e8a04e"],
 .lite-theme [class*="text-\\[\\#d4893a"],
 .lite-theme [class*="text-\\[\\#fbbf24"],
-.lite-theme [class*="text-\\[\\#fcd34d"],
-.lite-theme .text-amber-200,
 .lite-theme .text-amber-300,
 .lite-theme .text-amber-400 {
-  color: var(--lite-peach-deep) !important;
+  color: #B35E45 !important;
 }
 
+/* Violet / blue accent text (eyebrows, peer labels) — swap to the
+   lilac token so it coheres with the gradient language. */
 .lite-theme [class*="text-\\[\\#a78bfa"],
 .lite-theme [class*="text-\\[\\#c4b5fd"],
-.lite-theme [class*="text-\\[\\#9177B8"],
-.lite-theme .text-violet-200,
 .lite-theme .text-violet-300,
 .lite-theme .text-violet-400,
-.lite-theme .text-blue-200,
 .lite-theme .text-blue-300,
 .lite-theme .text-blue-400 {
-  color: var(--lite-stripe-lilac) !important;
+  color: #9177B8 !important;
 }
 
-/* ──────────────────────────────────────────────────────────────
-   Semantic pills/chips — preserved. Emerald CTAs keep white text
-   fill; emerald text on cream reads 4.5:1 AA and stays.
-   ────────────────────────────────────────────────────────────── */
+/* Buttons that were emerald-filled (primary CTAs) on dark — keep
+   emerald fill (semantic "go" signal, legitimate). Just ensure text
+   inside stays white. */
 .lite-theme .bg-emerald-500\\/90,
-.lite-theme .bg-emerald-500,
-.lite-theme .bg-emerald-600 {
+.lite-theme .bg-emerald-500 {
   color: #ffffff !important;
 }
 .lite-theme .bg-emerald-500\\/90 *,
-.lite-theme .bg-emerald-500 *,
-.lite-theme .bg-emerald-600 * {
+.lite-theme .bg-emerald-500 * {
   color: #ffffff !important;
-}
-/* Emerald text saturation bump for cream bg */
-.lite-theme .text-emerald-300,
-.lite-theme .text-emerald-400 {
-  color: #0F7F50 !important;
-}
-/* Rose text saturation bump for cream bg */
-.lite-theme .text-rose-300,
-.lite-theme .text-rose-400 {
-  color: #C4342A !important;
-}
-/* Yellow stall — needs to be readable on cream (bright yellow
-   is invisible). Dark amber works as stall on cream. */
-.lite-theme .text-yellow-300,
-.lite-theme .text-yellow-400,
-.lite-theme .text-yellow-500 {
-  color: #A87D16 !important;
 }
