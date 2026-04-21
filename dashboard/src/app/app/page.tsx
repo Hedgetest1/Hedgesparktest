@@ -2771,9 +2771,28 @@ function PageInner() {
                 </section>
               )}
 
-              {/* Cassettoni grid — v4 primary placement. */}
+              {/* Cassettoni grid — v4 primary placement. Six signal
+                  cards (RARS / Daily Brief / Abandoned Intent / Live
+                  Opps / Visitor Intent / Hot Products) with quick-read
+                  numbers + click-to-expand. */}
               {isLiteFloor && (
-                <section id="section-lite-features" className="mb-8">
+                <section id="section-lite-signals" className="mb-8">
+                  <div className="mb-5">
+                    <h2
+                      id="lite-signals-heading"
+                      className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-[#a78bfa] sm:text-[2.5rem]"
+                    >
+                      Signals
+                    </h2>
+                    <div className="mt-1 text-[16px] font-medium leading-snug text-slate-200 sm:text-[17px]">
+                      Six quick-read signals from your store
+                    </div>
+                    <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
+                      Each card is a standalone signal — one big number,
+                      one click to expand into the full analysis with
+                      methodology, recent history, and what-to-do.
+                    </p>
+                  </div>
                   <LiteCassettoniGrid
                     apiBase={API_BASE}
                     shop={shop}

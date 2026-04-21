@@ -252,8 +252,8 @@ const NAV_ITEMS_LITE: NavItem[] = [
     ),
   },
   {
-    id: "lite-features",
-    label: "Features",
+    id: "lite-signals",
+    label: "Signals",
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
         <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
@@ -296,7 +296,7 @@ const SECTION_TO_NAV: Record<string, string> = {
   "lite-pnl": "lite-pnl",
   "lite-attribution": "lite-attribution",
   "lite-retention": "lite-retention",
-  "lite-features": "lite-features",
+  "lite-signals": "lite-signals",
 };
 
 export { NAV_ITEMS, NAV_ITEMS_LITE, SECTION_TO_NAV };
