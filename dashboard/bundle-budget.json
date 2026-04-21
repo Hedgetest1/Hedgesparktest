@@ -55,10 +55,17 @@
     "chunks_total_bytes": 1888835,
     "chunks_count": 35
   },
+  "_baseline_2026_04_21_settings_migration_complete": {
+    "_note": "Settings migration Phase 1+2 complete — 7 sub-pages under /app/settings (costs, cost-defaults, currency, slack, klaviyo, privacy, webhooks, team). Each new page ships its own route chunk; chunks_count rose 35→41 (+6) as Next.js code-splits by route. Inline SettingsSection (~560 LOC) deleted from /app page.tsx so largest_chunk actually SHRUNK 825→750 KB (-75 KB) and chunks_total fell 1889→1817 KB (-72 KB). Net: dashboard is smaller per-route, just more routes. Budget chunks_count raised 40 -> 48 for ~15% headroom for future sub-pages.",
+    "largest_chunk_bytes": 750207,
+    "root_main_total_bytes": 455826,
+    "chunks_total_bytes": 1816908,
+    "chunks_count": 41
+  },
   "budgets": {
     "largest_chunk_bytes": 860000,
     "root_main_total_bytes": 520000,
     "chunks_total_bytes": 1950000,
-    "chunks_count_max": 40
+    "chunks_count_max": 48
   }
 }

@@ -3,25 +3,19 @@
 /**
  * /app/settings — Settings hub.
  *
- * Top-right gear in the TopBar routes here. Lists every settings
- * category available to the merchant with a one-click path into the
- * dedicated sub-page for each.
+ * Top-right gear in the TopBar routes here. Single source of truth
+ * for every configuration surface across Lite/Pro/Scale tiers (the
+ * in-page inline SettingsSection was retired 2026-04-21 Phase 2 —
+ * see commit log for the migration). Each category is a dedicated
+ * sub-page for deep-linkability and shared URLs.
  *
- * Pattern established alongside /app/settings/costs (2026-04-19 sprint):
- * every settings category gets its own sub-page rather than living in a
- * bottom-of-dashboard accordion. This hub is the directory.
- *
- * 2026-04-20 status — sub-pages available:
- *   /app/settings/costs    — per-product COGS + Shopify sync
- *
- * Pending migrations (bottom of /app still renders these inline via
- * SettingsSection; each will get its own /app/settings/<area> sub-page
- * in a follow-up sprint):
- *   • Display currency  (USD ⇄ EUR toggle)
- *   • Cost defaults     (shop-wide COGS + shipping + payment fees)
- *   • Klaviyo           (connect / disconnect merchant's key)
- *   • Privacy / Art. 22 (automated-targeting opt-out)
- *   • Team              (future — multi-seat management)
+ * Sub-pages live:
+ *   /app/settings/costs          — per-product COGS + Shopify sync
+ *   /app/settings/cost-defaults  — shop-wide cost fallbacks
+ *   /app/settings/currency       — USD ⇄ EUR display toggle
+ *   /app/settings/slack          — Slack digest integration
+ *   /app/settings/klaviyo        — Klaviyo API key + verification
+ *   /app/settings/privacy        — GDPR Art. 22 opt-out
  */
 
 import Link from "next/link";
@@ -116,16 +110,85 @@ const SETTINGS: SettingsCard[] = [
       </svg>
     ),
   },
-];
-
-const INLINE_FALLBACKS: { title: string; blurb: string }[] = [
   {
+    href: "/app/settings/cost-defaults",
     title: "Cost defaults",
-    blurb: "Shop-wide COGS %, shipping per order, payment fees, monthly ad spend.",
+    blurb:
+      "Shop-wide COGS %, shipping, payment fees, monthly ad spend. Fallbacks for products without per-SKU cost rows.",
+    status: "live",
+    icon: (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        className="h-5 w-5"
+        aria-hidden="true"
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h12M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
+      </svg>
+    ),
   },
   {
+    href: "/app/settings/privacy",
     title: "Privacy (Art. 22)",
-    blurb: "Opt-out of automated decision-making for your storefront data.",
+    blurb:
+      "Opt out of automated decision-making on your storefront data. GDPR Art. 22 compliance toggle.",
+    status: "live",
+    icon: (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        className="h-5 w-5"
+        aria-hidden="true"
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" />
+      </svg>
+    ),
+  },
+  {
+    href: "/app/settings/webhooks",
+    title: "Signal webhooks",
+    blurb:
+      "Pipe intelligence events to Zapier, Make, Slack, n8n, or your own URL. HMAC-signed for authenticity.",
+    status: "live",
+    icon: (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        className="h-5 w-5"
+        aria-hidden="true"
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+      </svg>
+    ),
+  },
+  {
+    href: "/app/settings/team",
+    title: "Team",
+    blurb:
+      "Invite colleagues with role-based access. Permissions apply across every floor.",
+    status: "live",
+    icon: (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        className="h-5 w-5"
+        aria-hidden="true"
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+      </svg>
+    ),
   },
 ];
 
@@ -197,41 +260,6 @@ function SettingsHub() {
         </div>
       </section>
 
-      {/* Still-inline settings — rendered inside the main /app page
-          (Pro/Scale floors) via SettingsSection, awaiting their own
-          sub-page migration in the next sprint. Lite does NOT render
-          these inline — merchant reaches them via this hub once the
-          sub-pages land. */}
-      <section
-        aria-labelledby="settings-inline-heading"
-        className="mb-8 rounded-2xl border border-white/[0.04] bg-white/[0.01] p-5"
-      >
-        <h2
-          id="settings-inline-heading"
-          className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500"
-        >
-          Migration in progress
-        </h2>
-        <p className="mb-4 text-[12px] leading-relaxed text-slate-400">
-          These settings are still rendered inline at the bottom of the
-          main dashboard (Pro/Scale floors) while their dedicated
-          sub-pages are built. Functionality is unchanged; only the
-          location is moving.
-        </p>
-        <ul className="space-y-2">
-          {INLINE_FALLBACKS.map((f) => (
-            <li
-              key={f.title}
-              className="rounded-lg border border-white/[0.04] bg-white/[0.015] p-3"
-            >
-              <div className="text-[12.5px] font-semibold text-slate-200">
-                {f.title}
-              </div>
-              <div className="mt-0.5 text-[11px] text-slate-500">{f.blurb}</div>
-            </li>
-          ))}
-        </ul>
-      </section>
     </>
   );
 }
