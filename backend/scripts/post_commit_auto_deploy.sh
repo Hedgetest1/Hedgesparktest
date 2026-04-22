@@ -40,6 +40,30 @@ log()  { printf "%b[auto-deploy] %s%b\n" "$YEL" "$1" "$NC"; }
 ok()   { printf "%b[auto-deploy] ✓ %s%b\n" "$GREEN" "$1" "$NC"; }
 fail() { printf "%b[auto-deploy] ✗ %s%b\n" "$RED" "$1" "$NC" >&2; }
 
+# Health probe with exponential backoff. Born 2026-04-22 after the
+# fixed `sleep 2 + curl once` pattern produced a false-FAIL on commit
+# a423c44 when the backend took > 2s to bind to :8000 post-reload.
+# Uvicorn's reload path varies by app size + import graph; a single
+# 2s checkpoint is too optimistic. Retries on 1s → 2s → 4s → 8s
+# delays (total budget ~15s), returns 0 on first success, 1 if the
+# whole budget is exhausted without a healthy response.
+_health_probe_with_backoff() {
+    local url="$1"
+    local delay=1
+    local total=0
+    local budget=15
+    while [ "$total" -lt "$budget" ]; do
+        if curl -sf -o /dev/null --max-time 3 "$url"; then
+            return 0
+        fi
+        sleep "$delay"
+        total=$((total + delay))
+        delay=$((delay * 2))
+        [ "$delay" -gt 8 ] && delay=8
+    done
+    return 1
+}
+
 # Opt-out via env var
 if [ "${HS_NO_AUTO_DEPLOY:-0}" = "1" ]; then
     log "HS_NO_AUTO_DEPLOY=1 set — skipping auto-deploy for this commit"
@@ -135,12 +159,10 @@ fi
 if [ "$BACKEND_TOUCHED" = "1" ] && [ "$DASH_TOUCHED" = "0" ]; then
     log "running backend reload..."
     if pm2 reload wishspark-backend --update-env >> "$LOG" 2>&1; then
-        # Quick health probe
-        sleep 2
-        if curl -sf -o /dev/null http://127.0.0.1:8000/system/health; then
+        if _health_probe_with_backoff "http://127.0.0.1:8000/system/health"; then
             ok "backend reload green"
         else
-            fail "backend reload but health probe FAILED"
+            fail "backend reload but health probe FAILED after 15s budget"
             exit 1
         fi
     else
@@ -155,11 +177,10 @@ fi
 if [ "$BACKEND_TOUCHED" = "1" ] && [ "$DASH_TOUCHED" = "1" ]; then
     log "running backend reload (dashboard already deployed above)..."
     if pm2 reload wishspark-backend --update-env >> "$LOG" 2>&1; then
-        sleep 2
-        if curl -sf -o /dev/null http://127.0.0.1:8000/system/health; then
+        if _health_probe_with_backoff "http://127.0.0.1:8000/system/health"; then
             ok "backend reload green"
         else
-            fail "backend reload but health probe FAILED"
+            fail "backend reload but health probe FAILED after 15s budget"
             exit 1
         fi
     fi
