@@ -10,10 +10,21 @@ it only fires on a real test run. If someone deletes the retry
 backoff in /app/page.tsx or the session_version check in deps.py,
 production ships the regression until the next E2E run. This audit
 catches the same class at preflight time by asserting the invariants
-still exist verbatim in source.
+still exist in source.
 
-Each invariant here maps 1:1 to an E2E scenario. When editing this
-file, also edit the scenario it protects — and vice versa.
+Implementation
+--------------
+- Python files are parsed with `ast.parse` and the AST is walked to
+  locate the target function, then searched for the required node
+  patterns. This defeats the "comment out the invariant" attack that
+  a regex-only audit would miss.
+- TypeScript files are scanned with regex against a comment-stripped
+  copy of the file (line-comments `//...` and block-comments `/* */`
+  are removed before matching), so commented-out invariants fail the
+  audit the same way AST does for Python.
+
+Each invariant maps 1:1 to an E2E scenario. When editing this file,
+also edit the scenario it protects — and vice versa.
 
 Exit code:
   0 — every invariant present in source
@@ -21,116 +32,283 @@ Exit code:
 """
 from __future__ import annotations
 
+import ast
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 REPO = Path(__file__).resolve().parents[2]
 BACKEND = REPO / "backend"
 DASHBOARD = REPO / "dashboard"
 
-INVARIANTS = [
-    # (friendly-name, absolute-path, regex-pattern, failing-E2E-scenario-id)
-    (
-        "retry backoff on /merchant/me",
-        DASHBOARD / "src/app/app/page.tsx",
-        r"retryDelaysMs\s*=\s*\[",
+
+# ---------------------------------------------------------------------------
+# Python AST helpers
+# ---------------------------------------------------------------------------
+
+
+def _parse_python(path: Path) -> ast.Module:
+    return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+
+
+def _find_function(module: ast.Module, name: str) -> ast.FunctionDef | None:
+    for node in ast.walk(module):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            return node  # type: ignore[return-value]
+    return None
+
+
+def py_function_has_none_check(path: Path, func_name: str, var_name: str) -> tuple[bool, str]:
+    """
+    Assert function `func_name` in `path` contains an `if <var_name> is None:`
+    statement that raises. Defeats the "comment the line" regex scam.
+    """
+    try:
+        mod = _parse_python(path)
+    except SyntaxError as exc:
+        return False, f"syntax error parsing {path.name}: {exc}"
+    func = _find_function(mod, func_name)
+    if func is None:
+        return False, f"function `{func_name}` not found in {path.name}"
+    for node in ast.walk(func):
+        if not isinstance(node, ast.If):
+            continue
+        test = node.test
+        # Match: `<name> is None`
+        if (
+            isinstance(test, ast.Compare)
+            and isinstance(test.left, ast.Name)
+            and test.left.id == var_name
+            and len(test.ops) == 1
+            and isinstance(test.ops[0], ast.Is)
+            and len(test.comparators) == 1
+            and isinstance(test.comparators[0], ast.Constant)
+            and test.comparators[0].value is None
+        ):
+            # Body must raise (not just pass/log/return)
+            for sub in ast.walk(node):
+                if isinstance(sub, ast.Raise):
+                    return True, f"{func_name}: `if {var_name} is None:` → raise present"
+    return False, f"{func_name}: no `if {var_name} is None: raise ...` in function body"
+
+
+def py_function_has_compare(
+    path: Path, func_name: str, left: str, op_type: type, right: str
+) -> tuple[bool, str]:
+    """
+    Assert function body contains a comparison `<left> <op> <right>`
+    where <op> is the ast comparison operator class (e.g. ast.Lt).
+    """
+    try:
+        mod = _parse_python(path)
+    except SyntaxError as exc:
+        return False, f"syntax error parsing {path.name}: {exc}"
+    func = _find_function(mod, func_name)
+    if func is None:
+        return False, f"function `{func_name}` not found in {path.name}"
+    for node in ast.walk(func):
+        if not isinstance(node, ast.Compare):
+            continue
+        if (
+            isinstance(node.left, ast.Name)
+            and node.left.id == left
+            and len(node.ops) == 1
+            and isinstance(node.ops[0], op_type)
+            and len(node.comparators) == 1
+            and isinstance(node.comparators[0], ast.Name)
+            and node.comparators[0].id == right
+        ):
+            return True, f"{func_name}: `{left} {op_type.__name__} {right}` present"
+    return False, f"{func_name}: no `{left} < {right}` comparison in body"
+
+
+def py_function_calls_with_kw(
+    path: Path, func_name: str, call_attr: str, kw_name: str, kw_value_repr: str
+) -> tuple[bool, str]:
+    """
+    Assert function `func_name` contains a call to `something.<call_attr>(...)`
+    with keyword `kw_name=<expected>`. Used for `jwt.decode(algorithms=["HS256"])`.
+    """
+    try:
+        mod = _parse_python(path)
+    except SyntaxError as exc:
+        return False, f"syntax error parsing {path.name}: {exc}"
+    func = _find_function(mod, func_name)
+    if func is None:
+        return False, f"function `{func_name}` not found in {path.name}"
+    for node in ast.walk(func):
+        if not isinstance(node, ast.Call):
+            continue
+        callee = node.func
+        if isinstance(callee, ast.Attribute) and callee.attr == call_attr:
+            for kw in node.keywords:
+                if kw.arg == kw_name and ast.unparse(kw.value) == kw_value_repr:
+                    return True, f"{func_name}: `.{call_attr}({kw_name}={kw_value_repr})` call present"
+    return False, f"{func_name}: no `.{call_attr}({kw_name}={kw_value_repr})` call in body"
+
+
+# ---------------------------------------------------------------------------
+# TypeScript helpers — regex on a comment-stripped copy
+# ---------------------------------------------------------------------------
+
+_LINE_COMMENT_RE = re.compile(r"//[^\n]*")
+_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
+
+
+def _strip_comments(src: str) -> str:
+    return _LINE_COMMENT_RE.sub("", _BLOCK_COMMENT_RE.sub("", src))
+
+
+def ts_contains(path: Path, pattern: str, *, label: str) -> tuple[bool, str]:
+    if not path.exists():
+        return False, f"missing file: {path.relative_to(REPO)}"
+    src = _strip_comments(path.read_text(encoding="utf-8"))
+    if re.search(pattern, src):
+        return True, f"{label} present (in live code, not a comment)"
+    return False, f"{label} not found in {path.relative_to(REPO)} (live code, comments stripped)"
+
+
+def file_exists(path: Path) -> tuple[bool, str]:
+    if path.exists():
+        return True, "present"
+    return False, f"missing file: {path.relative_to(REPO)}"
+
+
+# ---------------------------------------------------------------------------
+# Invariants registry — each maps 1:1 to an E2E scenario
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Invariant:
+    name: str
+    scenarios: str
+    check: Callable[[], tuple[bool, str]]
+
+
+INVARIANTS: list[Invariant] = [
+    Invariant(
+        "retry backoff on /merchant/me (inline)",
         "S6",
+        lambda: ts_contains(
+            DASHBOARD / "src/app/app/page.tsx",
+            r"retryDelaysMs\s*=\s*\[",
+            label="retryDelaysMs array literal",
+        ),
     ),
-    (
-        "hint-cookie recovery path (readHintCookie)",
-        DASHBOARD / "src/app/app/page.tsx",
-        r"readHintCookie|hs_shop",
+    Invariant(
+        "hint-cookie recovery (readHintCookie reference)",
         "S2 / S3 / S4 / S5",
+        lambda: ts_contains(
+            DASHBOARD / "src/app/app/page.tsx",
+            r"\breadHintCookie\b|\bhs_shop\b",
+            label="hs_shop hint-cookie reader",
+        ),
     ),
-    (
+    Invariant(
         "bootstrap via /auth/session redirect",
-        DASHBOARD / "src/app/app/page.tsx",
-        r"bootstrapWithShop|/auth/session\?shop=",
         "S2",
+        lambda: ts_contains(
+            DASHBOARD / "src/app/app/page.tsx",
+            r"bootstrapWithShop|/auth/session\?shop=",
+            label="bootstrapWithShop / /auth/session redirect",
+        ),
     ),
-    (
+    Invariant(
         "Reconnect UI button copy",
-        DASHBOARD / "src/app/app/page.tsx",
-        r"Reconnect my store",
         "S7",
+        lambda: ts_contains(
+            DASHBOARD / "src/app/app/page.tsx",
+            r"Reconnect my store",
+            label="'Reconnect my store' button copy",
+        ),
     ),
-    (
-        "useSession retry backoff (shared hook)",
-        DASHBOARD / "src/app/lib/useSession.ts",
-        r"retryDelaysMs\s*=\s*\[",
+    Invariant(
+        "useSession hook retry backoff",
         "S6 (hook path)",
+        lambda: ts_contains(
+            DASHBOARD / "src/app/lib/useSession.ts",
+            r"retryDelaysMs\s*=\s*\[",
+            label="retryDelaysMs array literal (hook)",
+        ),
     ),
-    (
+    Invariant(
         "session_version mismatch rejection (forced logout)",
-        BACKEND / "app/core/deps.py",
-        r"token_sv\s*<\s*db_sv",
         "S5",
+        lambda: py_function_has_compare(
+            BACKEND / "app/core/deps.py",
+            "require_merchant_session",
+            left="token_sv",
+            op_type=ast.Lt,
+            right="db_sv",
+        ),
     ),
-    (
+    Invariant(
         "merchant-existence gate (JWT for unknown shop → 401)",
-        BACKEND / "app/core/deps.py",
-        r"if\s+merchant\s+is\s+None\s*:",
         "S12",
+        lambda: py_function_has_none_check(
+            BACKEND / "app/core/deps.py",
+            "require_merchant_session",
+            var_name="merchant",
+        ),
     ),
-    (
+    Invariant(
         "JWT signature verification via HS256",
-        BACKEND / "app/core/merchant_session.py",
-        r'algorithms\s*=\s*\["HS256"\]',
         "S3",
+        lambda: py_function_calls_with_kw(
+            BACKEND / "app/core/merchant_session.py",
+            "verify_session_token",
+            call_attr="decode",
+            kw_name="algorithms",
+            kw_value_repr="['HS256']",
+        ),
     ),
-    (
-        "JWT expiry enforcement via jwt.decode()",
-        BACKEND / "app/core/merchant_session.py",
-        r"jwt\.decode\(",
+    Invariant(
+        "JWT decode call present",
         "S4",
+        lambda: py_function_calls_with_kw(
+            BACKEND / "app/core/merchant_session.py",
+            "verify_session_token",
+            call_attr="decode",
+            kw_name="algorithms",
+            kw_value_repr="['HS256']",
+        ),
     ),
-    (
+    Invariant(
         "/auth/session unknown-shop → install redirect",
-        BACKEND / "app/api/shopify_oauth.py",
-        r"RedirectResponse\(\s*url=f?\"[^\"]*\{_APP_URL\}/auth/install",
         "S8",
+        lambda: ts_contains(
+            BACKEND / "app/api/shopify_oauth.py",
+            r"/auth/install\?shop=",
+            label="/auth/install redirect target",
+        ),
     ),
-    (
+    Invariant(
         "E2E suite file present",
-        DASHBOARD / "e2e/session_durability.spec.ts",
-        None,  # existence check only
         "all",
+        lambda: file_exists(DASHBOARD / "e2e/session_durability.spec.ts"),
     ),
-    (
+    Invariant(
         "E2E helper file present",
-        DASHBOARD / "e2e/helpers/session.ts",
-        None,
         "all",
+        lambda: file_exists(DASHBOARD / "e2e/helpers/session.ts"),
     ),
 ]
 
 
-def check_one(name: str, path: Path, pattern: str | None, scenario: str) -> tuple[bool, str]:
-    if not path.exists():
-        return False, f"missing file: {path.relative_to(REPO)}"
-    if pattern is None:
-        return True, "present"
-    try:
-        text = path.read_text(encoding="utf-8")
-    except Exception as exc:
-        return False, f"unreadable: {exc}"
-    if re.search(pattern, text):
-        return True, "invariant found"
-    return False, f"pattern not found in {path.relative_to(REPO)} (E2E {scenario} would regress)"
-
-
 def main() -> int:
     failures: list[str] = []
-    print("session-durability invariants audit")
+    print("session-durability invariants audit (AST + comment-stripped regex)")
     print(f"  repo: {REPO}")
     print(f"  checks: {len(INVARIANTS)}")
-    for name, path, pattern, scenario in INVARIANTS:
-        ok, msg = check_one(name, path, pattern, scenario)
+    for inv in INVARIANTS:
+        ok, msg = inv.check()
         status = "✓" if ok else "✗"
-        print(f"  {status} [{scenario}] {name}: {msg}")
+        print(f"  {status} [{inv.scenarios}] {inv.name}: {msg}")
         if not ok:
-            failures.append(f"{scenario}: {name} — {msg}")
+            failures.append(f"{inv.scenarios}: {inv.name} — {msg}")
     print()
     if failures:
         print(f"BLOCKED — {len(failures)} invariant(s) missing:")
@@ -141,7 +319,7 @@ def main() -> int:
         print("  dashboard/e2e/session_durability.spec.ts + this audit")
         print("  to reflect the new design. Never remove invariants blindly.")
         return 1
-    print("OK — every session-durability invariant present in source.")
+    print("OK — every session-durability invariant present in source (AST-verified).")
     return 0
 
 

@@ -1933,7 +1933,15 @@ function PageInner() {
   // Render
   // ---------------------------------------------------------------------------
   return (
-    <div className="flex h-screen overflow-hidden bg-[#07070f] text-white">
+    <div
+      className="flex h-screen overflow-hidden bg-[#07070f] text-white"
+      // Stable data-attributes for the session-durability E2E suite
+      // (S10). Expose the RESOLVED tier and whether preview mode is
+      // active so tests can assert that ?as=starter on a Pro merchant
+      // downgrades to "lite" without relying on fragile DOM copy.
+      data-tier-resolved={tier}
+      data-tier-preview={isPreviewing ? "1" : "0"}
+    >
       <PreviewBanner isPreviewing={isPreviewing} />
       <ProductTour isProUser={isProUser} />
       <Sidebar

@@ -57,6 +57,21 @@ Required env:
 
 Total runtime: ~34s. Zero flake observed across 3 consecutive runs.
 
+## Nightly CI run
+
+`.github/workflows/e2e-session-durability.yml` runs the session suite
+automatically every night at 03:17 UTC against prod (+ manual
+`workflow_dispatch` trigger from the Actions UI). Cost: ~40s per run,
+~20 minutes/month — well inside GitHub Actions free-tier. Required
+setup (one-off):
+
+1. GitHub repo → Settings → Secrets and variables → Actions → New repository secret
+2. Name: `MERCHANT_SESSION_SECRET` — value from `backend/.env` of the same name
+3. Save
+
+Failures upload the Playwright HTML report as a 14-day artifact so
+the reason is visible without re-running locally.
+
 ## Drift preventer
 
 The preflight step `Session durability invariants` (in

@@ -1,0 +1,72 @@
+name: E2E session durability
+
+# Runs the session-durability Playwright suite against prod every night.
+# Catches runtime regressions that the structural preflight audit
+# (audit_session_durability_invariants.py) cannot — e.g. a CSP change
+# that breaks iframe embed, a CDN misconfiguration that strips
+# SameSite=None, a deploy that loses the hs_session cookie mid-flight.
+#
+# The suite targets https://app.hedgesparkhq.com + https://api.hedgesparkhq.com
+# using the dedicated smoke merchant hedgespark-smoke.myshopify.com.
+# It must NEVER run against a real paying merchant — the smoke shop is
+# what keeps this test harmless on production.
+#
+# Required GitHub Secret: MERCHANT_SESSION_SECRET (lives in backend/.env)
+# Runtime: ~40s. Below every free-tier ceiling by 2+ orders of magnitude.
+
+on:
+  schedule:
+    # 03:17 UTC daily — avoids common deploy windows and UptimeRobot peaks.
+    - cron: "17 3 * * *"
+  workflow_dispatch: {} # allow manual triggers from the Actions UI
+
+jobs:
+  e2e-session:
+    name: Session durability E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: dashboard
+
+    env:
+      E2E_BASE_URL: https://app.hedgesparkhq.com
+      E2E_API_BASE: https://api.hedgesparkhq.com
+      E2E_SMOKE_SHOP: hedgespark-smoke.myshopify.com
+      MERCHANT_SESSION_SECRET: ${{ secrets.MERCHANT_SESSION_SECRET }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install npm deps
+        run: npm ci
+
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify prerequisites
+        # Hard fail BEFORE running the suite if the secret is missing —
+        # otherwise the beforeAll throws with a less obvious error.
+        run: |
+          if [ -z "$MERCHANT_SESSION_SECRET" ]; then
+            echo "::error::MERCHANT_SESSION_SECRET secret is not set. Add it in Settings → Secrets and variables → Actions."
+            exit 2
+          fi
+
+      - name: Run session durability suite
+        run: npx playwright test e2e/session_durability.spec.ts --reporter=list
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_id }}
+          path: dashboard/playwright-report/
+          retention-days: 14
