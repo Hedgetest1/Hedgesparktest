@@ -1204,26 +1204,51 @@ def test_exactly_one_alembic_head():
 #   - `if __name__ == "__main__":` guards
 # ---------------------------------------------------------------------------
 
-_PRINT_ALLOWLIST: set[str] = {
+# Allowlist is keyed by (file, enclosing_function_name) — NOT by line
+# number. Line numbers shift on every edit above the call site, which
+# turned the old line-based allowlist into a treadmill (e.g. the
+# 2026-04-22 email_governance expansion shifted regenerate_baselines
+# prints 344 → 417 → 389 across three commits). Function names are
+# stable across refactors that don't rename the function itself; when
+# someone DOES rename a function, the test fails on the renamed call
+# site and the rename lands together with the allowlist update —
+# which is exactly what we want to review.
+_PRINT_ALLOWLIST: set[tuple[str, str]] = {
     # Dev-only CLI baseline regenerator, invoked manually when an
-    # email template is intentionally changed. Docstring above the
-    # function says "Print new baseline hashes for all templates".
-    "app/services/email_governance.py:389",
-    "app/services/email_governance.py:393",
-    "app/services/email_governance.py:394",
+    # email template is intentionally changed. The three prints are
+    # the user-copyable new baseline dict.
+    ("app/services/email_governance.py", "regenerate_baselines"),
     # Context builder CLI utility — only callers are its own
     # `if __name__ == "__main__":` block and a test. Prints are
     # the user-facing result of a manual doc-sync run.
-    "app/system/context_builder.py:174",
-    "app/system/context_builder.py:175",
+    ("app/system/context_builder.py", "build_context"),
 }
+
+
+def _build_enclosing_func_map(tree: ast.AST) -> dict[int, str]:
+    """Return {lineno: enclosing_function_name} for every line inside a
+    `def` or `async def`. Nested functions override outer scopes because
+    ast.walk iterates pre-order (outer first, inner last), so later
+    assignments win — which is exactly the innermost scope we want.
+    Lines outside any function map to nothing (absent key)."""
+    by_line: dict[int, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            start = node.lineno
+            end = getattr(node, "end_lineno", None) or start
+            for ln in range(start, end + 1):
+                by_line[ln] = node.name
+    return by_line
 
 
 def test_no_bare_print_in_production_code():
     """`print(...)` in production code bypasses the structured
     logger and leaks to stdout. Use `log.info/warning/error` instead.
     Scans the whole `app/` tree — `app/scripts/` is exempt because
-    it holds one-shot CLI utilities that legitimately print to stdout."""
+    it holds one-shot CLI utilities that legitimately print to stdout.
+    Exceptions are keyed by (file, enclosing-function-name) in
+    _PRINT_ALLOWLIST above; `if __name__ == "__main__":` guards are
+    auto-exempt."""
     hits: list[str] = []
     for root in [_BACKEND / "app"]:
         if not root.exists():
@@ -1243,6 +1268,8 @@ def test_no_bare_print_in_production_code():
                 tree = ast.parse(source)
             except SyntaxError:
                 continue
+
+            enclosing_func = _build_enclosing_func_map(tree)
 
             # Track which lines are under `if __name__ == "__main__"`
             # — prints there are legit entry-point harness code.
@@ -1269,18 +1296,19 @@ def test_no_bare_print_in_production_code():
                 if not (isinstance(func, ast.Name) and func.id == "print"):
                     continue
                 lineno = node.lineno
-                key = f"{rel}:{lineno}"
-                if key in _PRINT_ALLOWLIST:
-                    continue
                 if lineno in main_guard_lines:
                     continue
+                func_name = enclosing_func.get(lineno)
+                if func_name and (rel, func_name) in _PRINT_ALLOWLIST:
+                    continue
                 line = source.splitlines()[lineno - 1].strip()
-                hits.append(f"{key}  {line[:90]}")
+                scope = f"{func_name}()" if func_name else "<module>"
+                hits.append(f"{rel}:{lineno} ({scope})  {line[:90]}")
 
     assert not hits, (
         f"{len(hits)} bare `print(...)` call(s) in production code — "
-        f"replace with `log.info/warning/error` or add to _PRINT_ALLOWLIST "
-        f"with justification:\n  "
+        f"replace with `log.info/warning/error` or add "
+        f"(file, function-name) to _PRINT_ALLOWLIST with justification:\n  "
         + "\n  ".join(hits[:20])
     )
 
