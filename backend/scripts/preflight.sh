@@ -509,6 +509,21 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2t. Email registry coherence — blocks drift between TEMPLATE_REGISTRY /
+# IDENTITY_RULES / producer literals / baselines. Born 2026-04-22 after 8
+# templates + 5 orphan types silently hard-blocked in prod.
+# ---------------------------------------------------------------------------
+step "Email registry coherence (audit_email_registry.py)"
+if "$PY" "$BACKEND/scripts/audit_email_registry.py" > /tmp/preflight_email_registry.log 2>&1; then
+    _EMAIL_REG_SUMMARY=$(tail -1 /tmp/preflight_email_registry.log | tr -d '\r')
+    ok "${_EMAIL_REG_SUMMARY:-email registry coherent}"
+else
+    bad "email registry audit failed — see /tmp/preflight_email_registry.log"
+    tail -30 /tmp/preflight_email_registry.log || true
+    fail=1
+fi
+
+# ---------------------------------------------------------------------------
 # 3. Python AST parse check — any syntax error blocks commit
 # ---------------------------------------------------------------------------
 step "Python AST parse (staged .py files)"
