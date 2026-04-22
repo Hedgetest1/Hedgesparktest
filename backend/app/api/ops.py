@@ -224,6 +224,37 @@ def get_dashboard_health(
     }
 
 
+@router.get("/email-health")
+def get_email_health(
+    _auth: bool = Depends(require_operator),
+):
+    """Email deliverability health — Resend domain verification state.
+
+    Returns the cached domain status (verified / failed / pending / unknown)
+    plus the last-verified sticky state used by the hourly flip-detection
+    task. When `verified=false` every email through a `@hedgesparkhq.com`
+    sender is short-circuited by `send_email()` to avoid burning Resend
+    API quota and polluting `merchant_emails` with ambiguous `send_failed`
+    rows — see `app/services/email_deliverability.py` and
+    `docs/RESEND_DNS_RUNBOOK.md`.
+    """
+    from app.services.email_deliverability import (
+        get_domain_status,
+        read_last_verified_state,
+    )
+    status = get_domain_status()
+    return {
+        "verified": status.get("verified", True),
+        "status": status.get("status", "unknown"),
+        "reason": status.get("reason", ""),
+        "from_cache": status.get("from_cache", False),
+        "fetched_at": status.get("fetched_at"),
+        "last_verified_state_sticky": read_last_verified_state(),
+        "send_suppressed_while_failed": True,
+        "runbook": "docs/RESEND_DNS_RUNBOOK.md",
+    }
+
+
 @router.get("/silent-fallback")
 def get_silent_fallback_summary(
     days: int = Query(default=1, ge=1, le=7),

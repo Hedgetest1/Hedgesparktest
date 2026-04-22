@@ -693,6 +693,8 @@ must satisfy:
 | `hs:llm_realmodel_drift:history` | B2 weekly drift rolling 8-week history | 90d |
 | `hs:vint:v1:{shop_md5_16}` | Visitor Intent Classification aggregate cache (Phase 1.9.3) | 60s |
 | `hs:liveopps:v1:{shop_md5_16}` | Live Opportunities page-leak aggregate cache (Phase 1.9.3) | 60s |
+| `hs:email:domain_status:v1` | Resend domain verification state cache (deliverability preventer) | 10min |
+| `hs:email:last_verified:v1` | Sticky last-known verified state for flip detection | 30d |
 
 **Note (2026-04-18):** This table is the CURATED list. The backend
 currently uses ~150 Redis prefixes total; the rest are tracked

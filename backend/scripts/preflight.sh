@@ -491,6 +491,24 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2t. Email deliverability (Resend DNS verification). WARN-only gate — DNS
+# lives at the registrar, not in code, so we cannot block commits on an
+# external misconfig. But we surface the state on every commit so the
+# operator knows whether merchant email is flowing or suppressed.
+# Born 2026-04-22 after hedgesparkhq.com DNS flipped `failed` for 10 days
+# silently. Companion to `app/services/email_deliverability.py` + the
+# hourly `_run_email_dns_status_check` task + `/ops/email-health`.
+# ---------------------------------------------------------------------------
+step "Email deliverability (audit_email_deliverability.py)"
+if "$PY" "$BACKEND/scripts/audit_email_deliverability.py" > /tmp/preflight_email_health.log 2>&1; then
+    _EMAIL_SUMMARY=$(tail -1 /tmp/preflight_email_health.log | tr -d '\r')
+    ok "${_EMAIL_SUMMARY:-email deliverability check passed}"
+else
+    bad "email deliverability audit errored — see /tmp/preflight_email_health.log"
+    tail -15 /tmp/preflight_email_health.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 3. Python AST parse check — any syntax error blocks commit
 # ---------------------------------------------------------------------------
 step "Python AST parse (staged .py files)"

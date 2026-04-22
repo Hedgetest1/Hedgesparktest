@@ -1,0 +1,198 @@
+"""Tests for the email deliverability preventer.
+
+Covers:
+  - `uses_org_domain()` classifies the three known cases correctly
+  - `get_domain_status()` fail-opens when the Resend API is unreachable
+  - `get_domain_status()` classifies status=failed / verified correctly
+  - `send_email()` short-circuits when domain failed AND org sender
+  - `send_email()` passes through when sender is explicit resend.dev
+  - Hourly task detects verified ↔ failed flips and calls telegram
+  - Hourly task is silent on unchanged state + first observation
+"""
+from __future__ import annotations
+
+from unittest.mock import MagicMock, patch
+
+
+# ---------------------------------------------------------------------------
+# uses_org_domain
+# ---------------------------------------------------------------------------
+
+def test_uses_org_domain_matches_hedgesparkhq():
+    from app.services.email_deliverability import uses_org_domain
+    assert uses_org_domain("HedgeSpark <dev@hedgesparkhq.com>") is True
+    assert uses_org_domain("dev@hedgesparkhq.com") is True
+    assert uses_org_domain("digest@hedgesparkhq.com") is True
+
+
+def test_uses_org_domain_rejects_resend_dev():
+    from app.services.email_deliverability import uses_org_domain
+    assert uses_org_domain("HedgeSpark <onboarding@resend.dev>") is False
+    assert uses_org_domain("onboarding@resend.dev") is False
+
+
+def test_uses_org_domain_handles_none_and_empty():
+    from app.services.email_deliverability import uses_org_domain
+    assert uses_org_domain(None) is False
+    assert uses_org_domain("") is False
+
+
+# ---------------------------------------------------------------------------
+# get_domain_status — API reachable
+# ---------------------------------------------------------------------------
+
+def test_get_domain_status_verified_path():
+    from app.services import email_deliverability as ed
+
+    fake_api = {"status": "verified", "name": "hedgesparkhq.com"}
+    with patch.object(ed, "_fetch_domain_status", return_value=fake_api), \
+         patch.object(ed, "_client", create=True, return_value=None):
+        # Force-refresh to skip any cached Redis value.
+        out = ed.get_domain_status(force_refresh=True)
+
+    assert out["verified"] is True
+    assert out["status"] == "verified"
+    assert out["reason"] == ""
+
+
+def test_get_domain_status_failed_path():
+    from app.services import email_deliverability as ed
+
+    fake_api = {"status": "failed", "name": "hedgesparkhq.com"}
+    with patch.object(ed, "_fetch_domain_status", return_value=fake_api):
+        out = ed.get_domain_status(force_refresh=True)
+
+    assert out["verified"] is False
+    assert out["status"] == "failed"
+    assert "failed" in out["reason"]
+
+
+def test_get_domain_status_fail_open_on_api_unreachable():
+    """When the Resend API returns None (no key / timeout / 5xx), the
+    preventer must fail OPEN so transient API outages never suppress mail."""
+    from app.services import email_deliverability as ed
+
+    with patch.object(ed, "_fetch_domain_status", return_value=None):
+        out = ed.get_domain_status(force_refresh=True)
+
+    assert out["verified"] is True
+    assert out["status"] == "unknown"
+    assert out["reason"] == "api_unreachable"
+
+
+# ---------------------------------------------------------------------------
+# send_email — suppression gate
+# ---------------------------------------------------------------------------
+
+def test_send_email_suppressed_when_domain_failed_and_org_sender():
+    """With DNS failed and default sender (org domain), send_email must
+    return None without touching the Resend SDK."""
+    import os
+    os.environ["RESEND_API_KEY"] = "test_key_ignored"
+    from app.core import email as core_email
+
+    with patch("app.services.email_deliverability.is_domain_verified", return_value=False), \
+         patch("app.services.email_deliverability.uses_org_domain", return_value=True), \
+         patch.object(core_email, "_get_from_address", return_value="HedgeSpark <dev@hedgesparkhq.com>"):
+        import resend  # type: ignore
+        with patch.object(resend.Emails, "send") as sdk_send:
+            result = core_email.send_email(
+                to="merchant@example.com",
+                subject="test",
+                html="<p>hi</p>",
+            )
+
+    assert result is None
+    assert sdk_send.called is False
+
+
+def test_send_email_passthrough_when_explicit_resend_dev_sender():
+    """Operator scripts that explicitly pass a non-org sender (typically
+    onboarding@resend.dev for founder self-test) must flow through even
+    when DNS is failed."""
+    import os
+    os.environ["RESEND_API_KEY"] = "test_key_ignored"
+    from app.core import email as core_email
+
+    fake_resp = {"id": "resend_abc_123"}
+    # is_domain_verified returns False but the sender is NOT org-domain,
+    # so uses_org_domain short-circuits the gate.
+    with patch("app.services.email_deliverability.is_domain_verified", return_value=False), \
+         patch("app.services.email_deliverability.uses_org_domain", return_value=False):
+        import resend  # type: ignore
+        with patch.object(resend.Emails, "send", return_value=fake_resp):
+            result = core_email.send_email(
+                to="tedialarana@gmail.com",
+                subject="test",
+                html="<p>hi</p>",
+                from_address="HedgeSpark <onboarding@resend.dev>",
+            )
+
+    assert result == "resend_abc_123"
+
+
+# ---------------------------------------------------------------------------
+# Hourly task — flip detection
+# ---------------------------------------------------------------------------
+
+def test_dns_status_task_alerts_on_flip_to_verified():
+    from app.workers.tasks import email_dns_status_task as t
+
+    status = {"verified": True, "status": "verified", "reason": "", "fetched_at": 0}
+    with patch("app.services.email_deliverability.get_domain_status", return_value=status), \
+         patch("app.services.email_deliverability.invalidate_cache"), \
+         patch("app.services.email_deliverability.read_last_verified_state", return_value=False), \
+         patch("app.services.email_deliverability.write_last_verified_state"), \
+         patch("app.services.telegram_agent.send_message") as mock_tg:
+        t.run()
+
+    assert mock_tg.called
+    msg = mock_tg.call_args[0][0]
+    assert "🟢" in msg
+    assert "verified" in msg.lower()
+
+
+def test_dns_status_task_alerts_on_flip_to_failed():
+    from app.workers.tasks import email_dns_status_task as t
+
+    status = {"verified": False, "status": "failed", "reason": "resend_status=failed", "fetched_at": 0}
+    with patch("app.services.email_deliverability.get_domain_status", return_value=status), \
+         patch("app.services.email_deliverability.invalidate_cache"), \
+         patch("app.services.email_deliverability.read_last_verified_state", return_value=True), \
+         patch("app.services.email_deliverability.write_last_verified_state"), \
+         patch("app.services.telegram_agent.send_message") as mock_tg:
+        t.run()
+
+    assert mock_tg.called
+    msg = mock_tg.call_args[0][0]
+    assert "🔴" in msg
+    assert "failed" in msg.lower()
+
+
+def test_dns_status_task_silent_on_unchanged():
+    from app.workers.tasks import email_dns_status_task as t
+
+    status = {"verified": True, "status": "verified", "reason": "", "fetched_at": 0}
+    with patch("app.services.email_deliverability.get_domain_status", return_value=status), \
+         patch("app.services.email_deliverability.invalidate_cache"), \
+         patch("app.services.email_deliverability.read_last_verified_state", return_value=True), \
+         patch("app.services.email_deliverability.write_last_verified_state"), \
+         patch("app.services.telegram_agent.send_message") as mock_tg:
+        t.run()
+
+    assert mock_tg.called is False
+
+
+def test_dns_status_task_silent_on_first_observation():
+    """When prev state is None (first ever run), don't spam an alert."""
+    from app.workers.tasks import email_dns_status_task as t
+
+    status = {"verified": False, "status": "failed", "reason": "", "fetched_at": 0}
+    with patch("app.services.email_deliverability.get_domain_status", return_value=status), \
+         patch("app.services.email_deliverability.invalidate_cache"), \
+         patch("app.services.email_deliverability.read_last_verified_state", return_value=None), \
+         patch("app.services.email_deliverability.write_last_verified_state"), \
+         patch("app.services.telegram_agent.send_message") as mock_tg:
+        t.run()
+
+    assert mock_tg.called is False

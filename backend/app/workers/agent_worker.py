@@ -2043,6 +2043,30 @@ def _run_dashboard_asset_probe():
         dashboard_asset_probe_task.mark_done()
 
 
+def _run_email_dns_status_check():
+    """Hourly: refresh Resend domain verification cache + flip detect.
+
+    Born 2026-04-22 after 10 days of silent email suppression against
+    hedgesparkhq.com. DNS verification lives outside our control (it
+    depends on DNS records set at the registrar), so the self-healing
+    pipeline cannot repair it — but it CAN surface the exact moment
+    the founder's fix lands by refreshing the Resend status cache and
+    firing a Telegram alert on `failed → verified` flip. Symmetric
+    alert fires on `verified → failed` so a future regression surfaces
+    within one hour instead of rotting for days.
+
+    Self-gated to ~1 hour via the task module's should_run()."""
+    from app.workers.tasks import email_dns_status_task
+    if not email_dns_status_task.should_run():
+        return
+    try:
+        email_dns_status_task.run()
+    except Exception as exc:
+        log(f"email_dns_status error (non-fatal): {exc}")
+    finally:
+        email_dns_status_task.mark_done()
+
+
 def _run_dashboard_auto_remediation():
     """Deterministic auto-remediation for any unresolved
     `dashboard_asset_drift` alert. Runs `pm2 restart wishspark-dashboard
@@ -2085,6 +2109,11 @@ def run_cycle():
     # Phase 0-pre-1b: Deterministic auto-remediation for any unresolved
     # dashboard_asset_drift alert. Shell-only (pm2 restart), no LLM.
     _run_dashboard_auto_remediation()
+
+    # Phase 0-pre-1c: Hourly Resend DNS verification poll. Fires
+    # 🟢 / 🔴 Telegram alert on verified ↔ failed flip so founder
+    # knows the instant a DNS fix lands (or breaks again).
+    _run_email_dns_status_check()
 
     # Phase 0-pre0: Worker watchdog (α5) — resurrect stale workers FIRST
     _run_worker_watchdog()

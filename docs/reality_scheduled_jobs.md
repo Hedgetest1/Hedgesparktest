@@ -46,6 +46,7 @@ Listed here in execution order with the actual gate.
 |---|---|---|
 | `_run_dashboard_asset_probe` | in-process 5min `should_run()` + Redis SETNX alert dedup (1/hour) | Phase 0-pre-1 — catches stale Next.js in-memory manifest bugs by fetching `/`, `/app`, `/pricing` and HEAD-probing every `_next/static` chunk; alerts `dashboard_asset_drift` on any non-200 |
 | `_run_dashboard_auto_remediation` | hourly rate-limit (max 3/hour via Redis) + back-to-back cooldown 120s + kill-switch env `DASHBOARD_AUTO_REMEDIATION_ENABLED=1` (default ON) | Phase 0-pre-1b — deterministic `pm2 restart wishspark-dashboard --update-env` for any unresolved `dashboard_asset_drift` alert; re-probes and resolves origin alert on success or escalates `dashboard_asset_drift_auto_remediation_failed` on failure. Shell-only, no LLM. |
+| `_run_email_dns_status_check` | in-process 1h `should_run()` | Phase 0-pre-1c — refreshes Resend `hedgesparkhq.com` domain verification cache; flip-detects verified ↔ failed against `hs:email:last_verified:v1` and fires 🟢 / 🔴 Telegram alert on change. Cannot repair DNS (registrar-side) — only surface state + pair with `send_email()` runtime suppression gate. Companion: `docs/RESEND_DNS_RUNBOOK.md`. |
 | `_run_worker_watchdog` | no gate (Phase 0-pre0, runs FIRST in cycle) | every 15min cycle — resurrects stale PM2 workers |
 | `_run_orchestrator` | no gate | every 15min cycle |
 | `_run_onboarding` | no gate | every 15min cycle |
@@ -117,6 +118,7 @@ Main loop calls `run_product_metrics_task` + `run_store_metrics_task`
 | `night_shift_task.run` | `night_shift_task.is_due()` → `should_run_nightly_now()` day-lock | wraps `night_shift_agent.run_nightly_for_all_pro` once per day; also triggers MA-6 email batch |
 | `rollout_promotion_task.run` | in-process 5-min cooldown | walks flag registry; `promote_if_healthy` handles dwell + SLO gate per flag |
 | `dashboard_asset_probe_task.run` | invoked by agent_worker `_run_dashboard_asset_probe` (Phase 0-pre-1, see above) — listed here for task-module coverage | owned by agent_worker, not aggregation_worker |
+| `email_dns_status_task.run` | invoked by agent_worker `_run_email_dns_status_check` (Phase 0-pre-1c, see above) — listed here for task-module coverage | owned by agent_worker, not aggregation_worker |
 | `_check_cycle_time_regression` | per-hour cooldown (Redis) | 60s warn / 180s critical threshold; creates `aggregation_cycle_slow` ops_alert |
 
 ---

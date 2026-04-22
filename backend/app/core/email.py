@@ -89,13 +89,37 @@ def send_email(
         )
         return None
 
+    final_from = from_address or _get_from_address()
+
+    # ── Deliverability gate ────────────────────────────────────────────
+    # If the sender uses @hedgesparkhq.com but Resend has the domain in a
+    # failed state (DKIM/SPF detached), Resend silently drops the mail
+    # post-API. Short-circuit here with a distinct log so the orchestrator
+    # + /ops/email-health can surface the real reason instead of a generic
+    # "send_failed". Fail-open when the deliverability module can't decide.
+    try:
+        from app.services.email_deliverability import (
+            is_domain_verified,
+            uses_org_domain,
+        )
+        if uses_org_domain(final_from) and not is_domain_verified():
+            log.warning(
+                "email: DNS_SUPPRESSED to=%s subject=%r from=%s "
+                "(resend domain verification failed — see /ops/email-health)",
+                to, subject, final_from,
+            )
+            return None
+    except Exception as exc:
+        # Fail-open on any unexpected deliverability-module error.
+        log.warning("email: deliverability gate error (fail-open): %s", exc)
+
     try:
         import resend
 
         resend.api_key = api_key
 
         params: dict = {
-            "from": from_address or _get_from_address(),
+            "from": final_from,
             "to": [to],
             "subject": subject,
             "html": html,
