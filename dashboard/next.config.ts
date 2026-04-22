@@ -60,13 +60,53 @@ const securityHeaders = [
   // frame-ancestors, which correctly allows Shopify admin embedding.
 ];
 
+// Email clients (Gmail, Outlook, Apple Mail) proxy external images through
+// their own CDN (e.g. googleusercontent.com). The global `Cross-Origin-
+// Resource-Policy: same-site` header blocks those proxies — images render
+// as a broken-placeholder square on mobile Gmail in particular (desktop
+// sometimes recovers via fallback fetch after minutes).
+//
+// For static image assets the Spectre/CORB concern CORP protects against
+// does not apply (PNG/JPG/SVG/WEBP/GIF are inert: the browser will never
+// mis-parse them as a script). Override CORP to `cross-origin` for image
+// extensions so email logos render reliably on every client.
+//
+// Born 2026-04-22 after empirical observation on Gmail mobile: logo-beta-v2.png
+// rendered as "?" in a box on phones, desktop occasionally.
+const imageAssetHeaders = securityHeaders.map((h) =>
+  h.key === "Cross-Origin-Resource-Policy"
+    ? { key: "Cross-Origin-Resource-Policy", value: "cross-origin" }
+    : h,
+);
+
+// Static image assets used by email templates. When an email client's
+// image proxy (Gmail's googleusercontent.com, Apple Mail's CDN, etc.)
+// fetches these cross-origin, the global `same-site` CORP would block
+// them. Hardcoded list so the override is surgical — every addition is
+// reviewed rather than wildcard-opened.
+const EMAIL_ASSET_PATHS = [
+  "/logo-beta-v2.png",
+  "/hedgespark-logo.png",
+  "/hedgespark.png",
+  "/logo-hedgespark.png",
+  "/logo.png",
+];
+
 const nextConfig: NextConfig = {
   async headers() {
     return [
+      // Order matters, and Next.js applies LATER matching rules on top of
+      // earlier ones: catch-all first, then specific image-path overrides
+      // so the email-asset CORP override (cross-origin) wins over the
+      // default (same-site) from the catch-all.
       {
         source: "/:path*",
         headers: securityHeaders,
       },
+      ...EMAIL_ASSET_PATHS.map((p) => ({
+        source: p,
+        headers: imageAssetHeaders,
+      })),
     ];
   },
   // Tier-named floor URLs (founder directive 2026-04-20).
