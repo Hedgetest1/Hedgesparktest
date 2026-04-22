@@ -21,6 +21,12 @@ instance of that class at commit time:
            registered in TEMPLATE_REGISTRY (no ghosts).
     INV-4  Every template in _TEMPLATE_BASELINES matches the current
            render hash (i.e. no un-refreshed drift at commit time).
+    INV-5  Every renderer key in email_templates._RENDERERS has a
+           matching entry in _TEMPLATE_BASELINES. Catches the case
+           where a dev ships a new _render_* without a baseline hash
+           — INV-4 silently passes such a template because its drift
+           check only iterates baselines. Added 2026-04-22 to close
+           that gap (noted as debt in the original sprint).
 
 Exit codes
 ----------
@@ -158,6 +164,26 @@ def main() -> int:
                 f"and update _TEMPLATE_BASELINES in the same commit"
             )
 
+    # ── INV-5: every _RENDERERS key has a baseline ────────────────────
+    # Inline-HTML producers (lite_morning_digest, roi_report, gdpr_processor,
+    # onboarding_health) do NOT go through _RENDERERS — they build HTML
+    # directly — so they legitimately have no baseline. This check covers
+    # only the template renderers wired into `render_email()`.
+    try:
+        from app.services.email_templates import _RENDERERS
+    except Exception as exc:
+        violations.append(f"INV-5 cannot import _RENDERERS: {exc}")
+        _RENDERERS = {}
+    baseline_keys = set(_TEMPLATE_BASELINES.keys())
+    for renderer_key in _RENDERERS.keys():
+        if renderer_key not in baseline_keys:
+            violations.append(
+                f"INV-5 _RENDERERS[{renderer_key!r}] has no entry in "
+                f"_TEMPLATE_BASELINES — add one via `regenerate_baselines()` "
+                f"and a matching _BASELINE_CONTEXTS entry in "
+                f"email_governance.py so INV-4 can track drift on it"
+            )
+
     if violations:
         print(f"FAIL: {len(violations)} email-registry invariant violation(s):")
         for v in violations:
@@ -168,7 +194,8 @@ def main() -> int:
     print(
         f"OK: email registry coherent — "
         f"{len(registered)} types, {len(IDENTITY_RULES)} identities, "
-        f"{len(_TEMPLATE_BASELINES)} baselines "
+        f"{len(_TEMPLATE_BASELINES)} baselines, "
+        f"{len(_RENDERERS)} renderers "
         f"({len(producer_hits)} producer literals checked)"
     )
     return 0
