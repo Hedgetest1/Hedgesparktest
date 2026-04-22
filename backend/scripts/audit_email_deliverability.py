@@ -63,10 +63,19 @@ def _check_published_dkim_strict() -> tuple[bool, str]:
     Returns (ok, reason). `ok=True` means Gmail would accept the
     signature from a structural standpoint; `ok=False` flags a
     published record that passes lax Resend checks but fails strict
-    Gmail DMARC alignment."""
+    Gmail DMARC alignment.
+
+    Queries Google Public DNS (8.8.8.8) directly — that is the
+    resolver Gmail's inbound MTA consults when verifying DKIM. Using
+    the local stub resolver instead (systemd-resolved at 127.0.0.53)
+    would surface stale TTL cache after a DNS change and fire false
+    WARNs until the record's TTL expires (up to 48 hours for our
+    current records). Discovered 2026-04-22: minutes after the
+    founder fixed the whitespace, 8.8.8.8 already served the clean
+    record but the local resolver kept the broken one cached."""
     try:
         out = subprocess.run(
-            ["dig", "+short", "TXT", _DKIM_HOST],
+            ["dig", "@8.8.8.8", "+short", "TXT", _DKIM_HOST],
             capture_output=True, text=True, timeout=5.0,
         )
     except Exception as exc:
