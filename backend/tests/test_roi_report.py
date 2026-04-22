@@ -1,4 +1,4 @@
-"""Tests for F7 — Monthly ROI self-justification report."""
+"""Tests for the ROI report generator (dashboard + weekly digest consumer)."""
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -6,8 +6,6 @@ from unittest.mock import patch
 from app.services.roi_report import (
     _PRO_TIER_COST_EUR,
     _month_key,
-    _render_email_html,
-    _render_email_text,
     generate_roi_report,
 )
 
@@ -26,30 +24,12 @@ def test_generate_report_has_all_fields(db):
     assert isinstance(report.prevented_eur, float)
     assert isinstance(report.net_roi_eur, float)
     assert report.headline
-    assert report.email_body_html.startswith("<!DOCTYPE html>")
-    assert "HedgeSpark" in report.email_body_text
 
 
 def test_generate_report_net_roi_equals_prevented_minus_cost(db):
     report = generate_roi_report(db, "roi-math-shop.myshopify.com")
     expected = report.prevented_eur - _PRO_TIER_COST_EUR
     assert abs(report.net_roi_eur - expected) < 0.01
-
-
-def test_email_html_contains_headline_and_costs(db):
-    report = generate_roi_report(db, "roi-html-shop.myshopify.com")
-    html = _render_email_html(report)
-    assert report.headline in html
-    assert f"€{_PRO_TIER_COST_EUR:.0f}" in html
-    assert "Subscription cost" in html
-
-
-def test_email_text_has_all_line_items(db):
-    report = generate_roi_report(db, "roi-text-shop.myshopify.com")
-    text = _render_email_text(report)
-    assert "Subscription cost" in text
-    assert "At-risk detected" in text
-    assert "Net ROI" in text
 
 
 def test_report_headline_positive_roi_shows_green_message(db):

@@ -76,8 +76,6 @@ class Priority(IntEnum):
             # P2 — Engagement (dashboard content — digest@ channel)
             "weekly_digest":          cls.ENGAGEMENT,
             "lite_morning_digest":    cls.ENGAGEMENT,
-            "night_shift_digest":     cls.ENGAGEMENT,
-            "monthly_roi_report":     cls.ENGAGEMENT,
             "first_insight":          cls.ENGAGEMENT,
             # P3 — Lifecycle
             "welcome":                cls.LIFECYCLE,
@@ -116,8 +114,6 @@ _DOWNGRADE_TO_DIGEST = {"first_insight", "connection_issue", "reengagement"}
 _STANDALONE_WORTHY = {
     "weekly_digest",           # The primary value channel (Pro)
     "lite_morning_digest",     # Daily brief push channel (Lite) — Gap A
-    "night_shift_digest",      # Overnight pipeline digest — once/day
-    "monthly_roi_report",      # Monthly ROI statement — once/month
     "welcome",                 # First impression — always standalone
     "beta_welcome",            # Beta-cohort first impression
     "setup_incomplete",        # Onboarding blocker — time-sensitive

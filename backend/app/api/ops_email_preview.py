@@ -58,29 +58,16 @@ def _preview_weekly_digest(db: Session, shop: str):
     return f"Your Weekly Intelligence — {shop_name}", html, plain
 
 
-def _preview_monthly_roi_report(db: Session, shop: str):
-    from app.services.roi_report import (
-        generate_roi_report, _render_email_html, _render_email_text,
-    )
-    report = generate_roi_report(db, shop)
-    return (
-        f"Your ROI Report — {shop}",
-        _render_email_html(report),
-        _render_email_text(report),
-    )
-
-
 _PREVIEWS = {
     "lite_morning_digest": _preview_lite_morning_digest,
     "weekly_digest": _preview_weekly_digest,
-    "monthly_roi_report": _preview_monthly_roi_report,
 }
 
 
 @router.get("/preview", include_in_schema=False)
 def preview_email(
     shop: str = Query(..., description="shop_domain, e.g. foo.myshopify.com"),
-    email_type: str = Query(..., description="one of: lite_morning_digest | weekly_digest | monthly_roi_report"),
+    email_type: str = Query(..., description="one of: lite_morning_digest | weekly_digest"),
     format: str = Query("html", description="html | json"),
     _op: bool = Depends(require_operator),
     db: Session = Depends(get_db),
@@ -94,7 +81,6 @@ def preview_email(
     build ourselves):
       - lite_morning_digest (daily Lite)
       - weekly_digest (Monday Pro)
-      - monthly_roi_report (1st of month Pro)
 
     Transactional lifecycle emails (welcome, setup_incomplete,
     trigger_*, reengagement, etc.) are rendered by `render_email()`

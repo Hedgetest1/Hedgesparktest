@@ -3,10 +3,9 @@
 
 Born 2026-04-22 after the drift class that silently hard-blocked 8
 templates in prod (welcome, beta_welcome, setup_incomplete, 3×followup,
-first_insight, connection_issue) plus 5 orphan email_types
-(lite_morning_digest, night_shift_digest, monthly_roi_report,
-reengagement_drift, gdpr_export). The runtime governance layer was
-correct; what failed was commit-time coherence between three sources
+first_insight, connection_issue) plus a handful of orphan email_types
+that were never wired through governance. The runtime governance layer
+was correct; what failed was commit-time coherence between the sources
 of truth that drifted apart: TEMPLATE_REGISTRY, IDENTITY_RULES,
 producer call sites, and baseline hashes.
 
