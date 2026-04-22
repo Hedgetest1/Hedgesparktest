@@ -28,17 +28,11 @@ def main():
         print(f"Sending to {to}")
         print(f"Subject: {subject}")
         print(f"HTML bytes: {len(html)}")
-        # Resend API confirms hedgesparkhq.com status=failed (used to
-        # work through April 12, then verification broke — DKIM/SPF
-        # detached DNS-side). Until founder re-verifies via
-        # resend.com/domains, only onboarding@resend.dev can deliver
-        # to the Resend account owner's email (tedialarana@gmail.com).
         resend_id = send_email(
             to=to,
-            subject=f"[TEST v3] {subject}",
+            subject=f"[TEST] {subject}",
             html=html,
             text=plain,
-            from_address="HedgeSpark <onboarding@resend.dev>",
         )
         if resend_id:
             print(f"✓ sent — resend_id={resend_id}")
