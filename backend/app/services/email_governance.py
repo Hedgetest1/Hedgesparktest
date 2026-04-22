@@ -285,14 +285,14 @@ def hash_template_content(html: str) -> str:
 #   ./venv/bin/python -c "from app.services.email_governance import regenerate_baselines; regenerate_baselines()"
 
 _TEMPLATE_BASELINES = {
-    "welcome": "cb0db728d2a0d80a",
-    "setup_incomplete": "e15bf76a4cec6e81",
-    "first_insight": "7be153dc92281945",
-    "connection_issue": "0fcf1c99c611eb4a",
-    "followup_opened": "5ac1b935d8323efd",
-    "followup_clicked": "38ff9a1f7e2766e4",
-    "followup_noopen": "a6a3a84ca307e6f9",
-    "beta_welcome": "cfd7f4bc0845a740",
+    "welcome": "84eab68a134ecf6f",
+    "setup_incomplete": "6796493c8a162169",
+    "first_insight": "a08d9c3bfa10fb2e",
+    "connection_issue": "f7dd9eca662f426c",
+    "followup_opened": "f84bec4588f1b97a",
+    "followup_clicked": "21ce507882a904a6",
+    "followup_noopen": "d94dd86490047275",
+    "beta_welcome": "b62953ae377e29f9",
 }
 
 _BASELINE_CONTEXTS = {
