@@ -1359,22 +1359,6 @@ def _run_action_learning():
         db.close()
 
 
-def _run_revenue_triggers():
-    """Send event-driven emails when revenue-significant conditions are detected."""
-    db = SessionLocal()
-    try:
-        from app.services.revenue_triggers import run_revenue_triggers
-        result = run_revenue_triggers(db)
-        db.commit()
-        if result["triggered"] > 0:
-            log(f"revenue_triggers: checked={result['checked']} triggered={result['triggered']} skipped={result['skipped']}")
-    except Exception as exc:
-        log(f"revenue_triggers error (non-fatal): {exc}")
-        db.rollback()
-    finally:
-        db.close()
-
-
 def _run_email_orchestrator_flush():
     """
     Flush pending email intents through the orchestrator.
@@ -2289,9 +2273,6 @@ def run_cycle():
 
     # Phase 7k: Action learning — measure outcomes, feed back into scoring
     _run_action_learning()
-
-    # Phase 7l: Revenue-triggered emails — event-driven merchant notifications
-    _run_revenue_triggers()
 
     # Phase 7m: Email orchestrator flush — resolve conflicts across all email producers
     _run_email_orchestrator_flush()

@@ -78,7 +78,6 @@ Listed here in execution order with the actual gate.
 | `_run_silence_detection` | no gate | every cycle |
 | `_run_action_agent` | no gate | every cycle |
 | `_run_action_learning` | no gate | every cycle |
-| `_run_revenue_triggers` | no gate | every cycle |
 | `_run_email_orchestrator_flush` | no gate | every cycle |
 | `_run_billing_sync` | no gate | every cycle |
 | `_run_scoring_self_eval` | **Sunday only** (`weekday() == 6`) | weekly |

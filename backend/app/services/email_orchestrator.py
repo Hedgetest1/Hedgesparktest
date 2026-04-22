@@ -73,9 +73,6 @@ class Priority(IntEnum):
             # P0 — Critical
             "connection_issue":       cls.CRITICAL,
             # P1 — Revenue
-            "trigger_high_intent_leak":   cls.REVENUE,
-            "trigger_traffic_spike":      cls.REVENUE,
-            "trigger_return_visitor_surge": cls.REVENUE,
             "proof_celebration":          cls.REVENUE,
             # P2 — Engagement
             "weekly_digest":          cls.ENGAGEMENT,
@@ -118,9 +115,6 @@ _STANDALONE_WORTHY = {
     "lite_morning_digest",     # Daily brief push channel (Lite) — Gap A
     "welcome",                 # First impression — always standalone
     "setup_incomplete",        # Onboarding blocker — time-sensitive
-    "trigger_high_intent_leak",     # Real revenue at risk
-    "trigger_traffic_spike",        # Time-sensitive opportunity
-    "trigger_return_visitor_surge", # Revenue opportunity
     "proof_celebration",       # Highest-ROI email (proves value)
 }
 
@@ -488,11 +482,6 @@ def _resolve_conflicts(intents: list[EmailIntent]) -> list[EmailIntent]:
     # Same root cause: setup stuck vs connection lost — keep the onboarding one
     if "setup_incomplete" in types and "connection_issue" in types:
         drop.add("connection_issue")
-
-    # Conflicting signals: "you have active revenue opportunity" + "you've been quiet"
-    has_trigger = any(t.startswith("trigger_") for t in types)
-    if has_trigger and "reengagement" in types:
-        drop.add("reengagement")
 
     if not drop:
         return intents

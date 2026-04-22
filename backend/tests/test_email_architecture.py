@@ -102,7 +102,6 @@ def test_no_orchestrated_parameter():
     Its existence means a direct-send bypass path could be reactivated.
     """
     files_to_check = [
-        str(_BACKEND / "app" / "services" / "revenue_triggers.py"),
         str(_BACKEND / "app" / "services" / "silence_detector.py"),
         str(_BACKEND / "app" / "services" / "merchant_digest.py"),
     ]
@@ -132,8 +131,7 @@ def test_governance_registry_complete():
         "welcome", "beta_welcome", "setup_incomplete", "first_insight",
         "connection_issue", "followup_opened", "followup_clicked",
         "followup_noopen", "weekly_digest", "reengagement",
-        "trigger_high_intent_leak", "trigger_traffic_spike",
-        "trigger_return_visitor_surge", "auto_response",
+        "auto_response",
     }
 
     registered = set(TEMPLATE_REGISTRY.keys())

@@ -152,38 +152,6 @@ TEMPLATE_REGISTRY = {
         "max_sends_per_merchant": 4,  # once per quarter
     },
 
-    # SIGNAL — revenue triggers
-    "trigger_high_intent_leak": {
-        "type": "signal",
-        "renderer": "revenue_triggers._build_trigger_html",
-        "sender": "dev@hedgesparkhq.com",
-        "sender_display": "HedgeSpark",
-        "has_signature": False,
-        "uses_wrap_html": True,
-        "show_logo": True,
-        "max_sends_per_merchant": None,  # rate-limited by orchestrator
-    },
-    "trigger_traffic_spike": {
-        "type": "signal",
-        "renderer": "revenue_triggers._build_trigger_html",
-        "sender": "dev@hedgesparkhq.com",
-        "sender_display": "HedgeSpark",
-        "has_signature": False,
-        "uses_wrap_html": True,
-        "show_logo": True,
-        "max_sends_per_merchant": None,
-    },
-    "trigger_return_visitor_surge": {
-        "type": "signal",
-        "renderer": "revenue_triggers._build_trigger_html",
-        "sender": "dev@hedgesparkhq.com",
-        "sender_display": "HedgeSpark",
-        "has_signature": False,
-        "uses_wrap_html": True,
-        "show_logo": True,
-        "max_sends_per_merchant": None,
-    },
-
     # HYBRID — weekly digest
     "weekly_digest": {
         "type": "hybrid",
@@ -225,17 +193,16 @@ IDENTITY_RULES = {
     "dev@hedgesparkhq.com": {
         "display_name": "HedgeSpark",
         "allowed_types": {"setup_incomplete", "first_insight", "connection_issue",
-                          "reengagement", "trigger_high_intent_leak",
-                          "trigger_traffic_spike", "trigger_return_visitor_surge",
-                          "auto_response"},
+                          "reengagement", "auto_response"},
         "tone": "system intelligence, factual, guiding",
-        "never_sends": {"welcome", "beta_welcome", "followup_*", "weekly_digest"},
+        "never_sends": {"welcome", "beta_welcome", "followup_*",
+                        "weekly_digest", "lite_morning_digest"},
     },
     "digest@hedgesparkhq.com": {
         "display_name": "HedgeSpark",
-        "allowed_types": {"weekly_digest"},
+        "allowed_types": {"weekly_digest", "lite_morning_digest"},
         "tone": "structured report, data-driven, no personal signature",
-        "never_sends": {"everything except weekly_digest"},
+        "never_sends": {"everything except weekly_digest and lite_morning_digest"},
     },
 }
 
@@ -292,9 +259,6 @@ ALLOWED_FIELDS = {
         "revenue_at_risk", "whats_working", "proof", "proof_report",
         "data_confidence", "merchant_plan",
     },
-    "trigger_high_intent_leak": {"product_name", "product_url", "carts", "views", "weekly_loss"},
-    "trigger_traffic_spike": {"product_name", "product_url", "views_1h", "views_24h"},
-    "trigger_return_visitor_surge": {"product_name", "product_url", "return_count"},
     "reengagement": {"shop_name"},
     "auto_response": {"classification", "response_text"},
 }
