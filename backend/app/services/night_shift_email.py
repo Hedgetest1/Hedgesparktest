@@ -224,6 +224,7 @@ def send_for_shop(db: Session, shop_domain: str, report: dict) -> dict:
             subject=subject,
             html=html,
             plain_text=plain,
+            from_address="HedgeSpark <digest@hedgesparkhq.com>",
             producer="night_shift_email",
             context={"day": _day_key(), "shop_name": shop_name},
         )

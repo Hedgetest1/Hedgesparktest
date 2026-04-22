@@ -286,6 +286,7 @@ def send_roi_report(
             subject=f"{report.headline}  ·  HedgeSpark ROI {report.month}",
             html=report.email_body_html,
             plain_text=report.email_body_text,
+            from_address="HedgeSpark <digest@hedgesparkhq.com>",
             producer="roi_report",
             context={"month": report.month, "net_roi_eur": report.net_roi_eur},
         )

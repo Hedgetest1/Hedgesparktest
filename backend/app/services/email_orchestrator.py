@@ -72,10 +72,12 @@ class Priority(IntEnum):
         _MAP = {
             # P0 — Critical
             "connection_issue":       cls.CRITICAL,
-            # P1 — Revenue
-            "proof_celebration":          cls.REVENUE,
-            # P2 — Engagement
+            "gdpr_export":            cls.CRITICAL,  # GDPR Art. 15 — 30-day deadline
+            # P2 — Engagement (dashboard content — digest@ channel)
             "weekly_digest":          cls.ENGAGEMENT,
+            "lite_morning_digest":    cls.ENGAGEMENT,
+            "night_shift_digest":     cls.ENGAGEMENT,
+            "monthly_roi_report":     cls.ENGAGEMENT,
             "first_insight":          cls.ENGAGEMENT,
             # P3 — Lifecycle
             "welcome":                cls.LIFECYCLE,
@@ -86,6 +88,7 @@ class Priority(IntEnum):
             "followup_clicked":       cls.LIFECYCLE,
             # P4 — Winback
             "reengagement":           cls.WINBACK,
+            "reengagement_drift":     cls.WINBACK,
         }
         return _MAP.get(email_type, cls.LIFECYCLE)
 
@@ -103,7 +106,7 @@ _INTENT_TTL = 3600   # intents expire after 1 hour (single cycle)
 _BYPASS_RATE_LIMIT = {"auto_response"}
 
 # Email types that can be merged into a digest
-_DIGEST_MERGEABLE = {"proof_celebration", "first_insight"}
+_DIGEST_MERGEABLE = {"first_insight"}
 
 # Email types that should NEVER send standalone — always merge into digest or drop
 # These are low-value as standalone sends; they only justify inbox space inside a digest
@@ -113,9 +116,13 @@ _DOWNGRADE_TO_DIGEST = {"first_insight", "connection_issue", "reengagement"}
 _STANDALONE_WORTHY = {
     "weekly_digest",           # The primary value channel (Pro)
     "lite_morning_digest",     # Daily brief push channel (Lite) — Gap A
+    "night_shift_digest",      # Overnight pipeline digest — once/day
+    "monthly_roi_report",      # Monthly ROI statement — once/month
     "welcome",                 # First impression — always standalone
+    "beta_welcome",            # Beta-cohort first impression
     "setup_incomplete",        # Onboarding blocker — time-sensitive
-    "proof_celebration",       # Highest-ROI email (proves value)
+    "reengagement_drift",      # Stuck-onboarding recovery — time-sensitive
+    "gdpr_export",             # GDPR Art. 15 — legal deadline
 }
 
 

@@ -164,6 +164,66 @@ TEMPLATE_REGISTRY = {
         "max_sends_per_merchant": None,  # weekly by schedule
     },
 
+    # HYBRID — daily morning brief (Lite tier)
+    "lite_morning_digest": {
+        "type": "hybrid",
+        "renderer": "lite_morning_digest._build_email",  # inline HTML builder
+        "sender": "digest@hedgesparkhq.com",
+        "sender_display": "HedgeSpark",
+        "has_signature": False,
+        "uses_wrap_html": False,  # inline builder, not _wrap_html
+        "show_logo": True,
+        "max_sends_per_merchant": None,  # daily by schedule
+    },
+
+    # HYBRID — night-shift pipeline digest (what the autonomous system did overnight)
+    "night_shift_digest": {
+        "type": "hybrid",
+        "renderer": "email_templates._render_night_shift_digest",
+        "sender": "digest@hedgesparkhq.com",
+        "sender_display": "HedgeSpark",
+        "has_signature": False,
+        "uses_wrap_html": True,
+        "show_logo": True,
+        "max_sends_per_merchant": None,  # once per UTC day, idempotent
+    },
+
+    # HYBRID — monthly ROI report
+    "monthly_roi_report": {
+        "type": "hybrid",
+        "renderer": "roi_report.generate_report",  # inline HTML
+        "sender": "digest@hedgesparkhq.com",
+        "sender_display": "HedgeSpark",
+        "has_signature": False,
+        "uses_wrap_html": False,
+        "show_logo": True,
+        "max_sends_per_merchant": None,  # once per month
+    },
+
+    # SIGNAL — drift re-engagement (stuck onboarding recovery)
+    "reengagement_drift": {
+        "type": "signal",
+        "renderer": "onboarding_health._build_reengagement_email",  # inline HTML
+        "sender": "dev@hedgesparkhq.com",
+        "sender_display": "HedgeSpark",
+        "has_signature": False,
+        "uses_wrap_html": False,
+        "show_logo": False,
+        "max_sends_per_merchant": 4,  # per drift episode chain
+    },
+
+    # COMPLIANCE — GDPR Art. 15 data export
+    "gdpr_export": {
+        "type": "compliance",
+        "renderer": "gdpr_processor._build_export_email",  # inline HTML
+        "sender": "privacy@hedgesparkhq.com",
+        "sender_display": "HedgeSpark Privacy",
+        "has_signature": False,
+        "uses_wrap_html": False,
+        "show_logo": False,
+        "max_sends_per_merchant": None,  # per request
+    },
+
     # AUTO-RESPONSE — reactive
     "auto_response": {
         "type": "signal",
@@ -193,16 +253,24 @@ IDENTITY_RULES = {
     "dev@hedgesparkhq.com": {
         "display_name": "HedgeSpark",
         "allowed_types": {"setup_incomplete", "first_insight", "connection_issue",
-                          "reengagement", "auto_response"},
+                          "reengagement", "reengagement_drift", "auto_response"},
         "tone": "system intelligence, factual, guiding",
         "never_sends": {"welcome", "beta_welcome", "followup_*",
-                        "weekly_digest", "lite_morning_digest"},
+                        "weekly_digest", "lite_morning_digest",
+                        "night_shift_digest", "monthly_roi_report"},
     },
     "digest@hedgesparkhq.com": {
         "display_name": "HedgeSpark",
-        "allowed_types": {"weekly_digest", "lite_morning_digest"},
+        "allowed_types": {"weekly_digest", "lite_morning_digest",
+                          "night_shift_digest", "monthly_roi_report"},
         "tone": "structured report, data-driven, no personal signature",
-        "never_sends": {"everything except weekly_digest and lite_morning_digest"},
+        "never_sends": {"onboarding, problems, auto_response"},
+    },
+    "privacy@hedgesparkhq.com": {
+        "display_name": "HedgeSpark Privacy",
+        "allowed_types": {"gdpr_export"},
+        "tone": "legal, formal, compliance-facing",
+        "never_sends": {"all merchant-facing marketing/onboarding/digest emails"},
     },
 }
 
@@ -260,7 +328,12 @@ ALLOWED_FIELDS = {
         "data_confidence", "merchant_plan",
     },
     "reengagement": {"shop_name"},
+    "reengagement_drift": {"drift_episode", "hours_since_install"},
     "auto_response": {"classification", "response_text"},
+    "lite_morning_digest": {"signals_count", "top_product"},
+    "night_shift_digest": {"day", "shop_name"},
+    "monthly_roi_report": {"month", "net_roi_eur"},
+    "gdpr_export": {"request_id"},
 }
 
 
