@@ -1298,6 +1298,59 @@ def run_bug_triage(db: Session) -> dict:
         )
         summary["created"] += 1
 
+    # Rule 9 — invariant_regression from invariant_monitor.
+    # Chronic-aggregation in alerting.write_alert collapses repeated
+    # invariant-regression alerts into ONE row (occurrence_count++ in
+    # the detail JSON). Rule 7 counts ROWS, so its threshold of 3
+    # never triggers for this class — an invariant that's broken for
+    # 24h produces a single ops_alert row and Rule 7 skips it.
+    #
+    # Rule 9 promotes on EXISTENCE rather than recurrence: any unresolved
+    # invariant_regression alert from `invariant:*` source becomes a
+    # candidate immediately (first triage cycle after the alert fires).
+    # At 10k merchants this matters — a regression affecting all
+    # authenticated endpoints should be escalated in 15min (one
+    # triage cycle) rather than wait for operator notice.
+    #
+    # Scope: only invariant_monitor output (source LIKE 'invariant:*').
+    # Other alert_types can be added if they have similar
+    # existence-is-signal semantics.
+    inv_alerts = db.execute(text("""
+        SELECT id, source, summary, detail
+        FROM ops_alerts
+        WHERE alert_type = 'invariant_regression'
+          AND resolved = false
+          AND created_at >= :cutoff
+          AND source LIKE 'invariant:%'
+        ORDER BY created_at DESC LIMIT 5
+    """), {"cutoff": cutoff}).fetchall()
+
+    for alert in inv_alerts:
+        summary["scanned"] += 1
+        ref = f"invariant_regression:{alert[1]}"
+        if _should_skip_source(db, "invariant_regression", ref, summary):
+            continue
+        _create_candidate(
+            db,
+            source_type="invariant_regression",
+            source_ref=ref,
+            title=f"Structural invariant broken: {(alert[2] or '')[:150]}",
+            summary_text=alert[2],
+            context={
+                "alert_id": alert[0],
+                "source": alert[1],
+                "detail": alert[3],
+                "remediation_hint": (
+                    "A preflight audit is failing on live source. Root cause "
+                    "is typically: (a) someone bypassed pre-commit hook "
+                    "(--no-verify), (b) a merge conflict resolution dropped "
+                    "an invariant, or (c) an intentional design change was "
+                    "not paired with an audit update."
+                ),
+            },
+        )
+        summary["created"] += 1
+
     # Rule 7 — generic recurring-alert catch-all.
     # Anything in ops_alerts that recurs >= _GENERIC_RECURRENCE_THRESHOLD
     # times in the lookback window AND isn't already handled by Rules 1-6
@@ -1310,6 +1363,7 @@ def run_bug_triage(db: Session) -> dict:
         "merchant_reported_bug",
         "frontend_error",
         "semantic_drift",
+        "invariant_regression",  # Rule 9 above
         # Self-healing meta — alerts that the pipeline ITSELF emits.
         # Consuming them here would create an infinite fix-the-fixer loop
         # (root cause of the 180 Telegram messages on 2026-04-16).
