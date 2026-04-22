@@ -290,6 +290,63 @@ test.describe("Session durability — regression suite", () => {
     ).toContain("as=starter");
   });
 
+  test("S11 · session survives a page reload (durability across navigation)", async ({ page, context }) => {
+    await clearAll(context, page);
+    await addSessionCookie(context, { sv: CURRENT_SV });
+    await page.goto("/app");
+    // First load: verify authenticated render (same positive anchor as S1)
+    await expect(
+      page.getByText(SMOKE_SHOP, { exact: false }).first(),
+      "S11 precondition: dashboard must render smoke merchant data on first load",
+    ).toBeVisible({ timeout: 20_000 });
+    const firstLoadToken = (await context.cookies()).find(
+      (c) => c.name === SESSION_COOKIE_NAME,
+    )?.value;
+    expect(firstLoadToken, "S11 precondition: cookie present after first load").toBeTruthy();
+
+    // Reload — the cookie must survive (it's browser-stored) and the
+    // dashboard must come back without bouncing through /auth/session.
+    await page.reload();
+    await expect(
+      page.getByText(SMOKE_SHOP, { exact: false }).first(),
+      "S11 invariant: dashboard must render smoke merchant data again after reload — NO Reconnect UI, NO re-bootstrap",
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      page.getByText(/Reconnect my store/i),
+      "S11 invariant: reload must not trigger Reconnect (cookie survives reload)",
+    ).toHaveCount(0);
+
+    const reloadedToken = (await context.cookies()).find(
+      (c) => c.name === SESSION_COOKIE_NAME,
+    )?.value;
+    expect(
+      reloadedToken,
+      "S11 invariant: hs_session cookie must persist verbatim across reload (no unnecessary re-mint)",
+    ).toBe(firstLoadToken);
+  });
+
+  test("S12 · JWT for nonexistent shop → 401 (existence gate, not just signature gate)", async ({ request }) => {
+    // A valid HS256-signed JWT for a shop that's NOT in the merchants
+    // table must be rejected at the auth gate. Previously this path
+    // returned 200 because require_merchant_session only enforced
+    // signature + sv, not merchant-row existence. The 2026-04-22
+    // hardening (see deps.require_merchant_session) closes this.
+    const bogusShop = `does-not-exist-${Date.now()}.myshopify.com`;
+    const forgedToken = mintToken({ shop: bogusShop });
+    const r = await request.get(`${API_BASE}/merchant/me`, {
+      headers: { Cookie: `${SESSION_COOKIE_NAME}=${forgedToken}` },
+    });
+    expect(
+      r.status(),
+      "S12 invariant: a JWT with a valid signature but for a nonexistent shop must return 401 — the existence gate is the second half of the auth contract",
+    ).toBe(401);
+    const body = await r.json().catch(() => ({}));
+    expect(
+      (body.detail || "").toLowerCase(),
+      "S12 invariant: the 401 body should name 'reinstall' so the merchant-facing UI can render the right remediation copy",
+    ).toContain("reinstall");
+  });
+
   test("S13 · same-origin iframe embed → session flows through (SameSite=None + Secure proof)", async ({ page, context }) => {
     // The real failure mode being tested: if the hs_session cookie were
     // ever set to SameSite=Lax or SameSite=Strict, it would NOT flow
@@ -328,13 +385,21 @@ test.describe("Session durability — regression suite", () => {
     ).toHaveCount(0);
   });
 
-  test("S14 · multi-tab forced-logout consistency → second tab invalidated", async ({ context }) => {
-    // Two tabs share the browser context (thus share cookies). Tab 1
-    // lands with a valid JWT. We then inject a stale-sv JWT into the
-    // shared cookie jar (simulates forced logout triggered elsewhere
-    // — e.g., Shopify Admin uninstall, admin sv bump, or token reset
-    // from another device). Tab 2 opens /app — it must detect the
-    // stale cookie and go through recovery, NOT render a cached view.
+  test("S14 · real /ops/force-logout trigger → other tabs invalidated end-to-end", async ({ context, request }) => {
+    // End-to-end forced-logout path using the REAL admin trigger
+    // (POST /ops/force-logout), not a synthetic sv=-1 cookie. Proves
+    // the full chain: admin bumps session_version → backend rejects
+    // old cookies with 401 → client-side recovery re-mints at new sv.
+    //
+    // Requires DASHBOARD_API_KEY env var (operator credential). In
+    // CI this comes from the same GitHub Secret as the backend
+    // deploy; locally it's sourced from backend/.env.
+    const opsKey = process.env.DASHBOARD_API_KEY;
+    expect(
+      opsKey,
+      "S14 precondition: DASHBOARD_API_KEY must be available in the test env (source backend/.env or set the Secret in CI)",
+    ).toBeTruthy();
+
     await context.clearCookies();
     await addSessionCookie(context, { sv: CURRENT_SV });
 
@@ -344,81 +409,80 @@ test.describe("Session durability — regression suite", () => {
       tabA.locator("[data-tier-resolved]").first(),
       "S14 precondition: tab A must authenticate normally before the forced-logout event",
     ).toBeVisible({ timeout: 20_000 });
+    const preLogoutCookie = (await context.cookies()).find(
+      (c) => c.name === SESSION_COOKIE_NAME,
+    )?.value;
+    expect(preLogoutCookie, "S14 precondition: cookie present before logout").toBeTruthy();
 
-    // Simulate "somewhere else bumped session_version" — overwrite
-    // the cookie with a stale-sv token. Any tab opened AFTER this
-    // point must recover (mint a fresh cookie via /auth/session),
-    // not render as authenticated on the stale value.
-    await context.clearCookies();
-    const stale = mintToken({ sv: CURRENT_SV - 1 });
-    await addSessionCookie(context, { tokenOverride: stale });
+    // Real forced-logout: operator endpoint bumps session_version.
+    const logoutResp = await request.post(`${API_BASE}/ops/force-logout?shop=${encodeURIComponent(SMOKE_SHOP)}`, {
+      headers: { "X-API-Key": opsKey!, "Content-Type": "application/json" },
+      data: {},
+    });
+    expect(
+      logoutResp.ok(),
+      `S14 invariant: /ops/force-logout must return 2xx (got ${logoutResp.status()})`,
+    ).toBe(true);
+    const logoutBody = await logoutResp.json();
+    const newSv: number = logoutBody.new_session_version;
+    expect(
+      newSv,
+      "S14 invariant: force-logout must bump session_version (new_sv > previous_sv)",
+    ).toBeGreaterThan(logoutBody.previous_session_version);
+
+    // Add hint so the client-side recovery path has something to
+    // bootstrap with (simulates a real merchant whose browser has
+    // seen this shop before).
     await addHintOnly(context);
 
     const tabB = await context.newPage();
     await tabB.goto("/app");
-    const token = await waitForSessionCookieChange(context, stale);
+    // The old cookie is now stale (sv < DB sv). Recovery must re-mint
+    // via /auth/session. Wait for the cookie to differ from pre-logout.
+    const recovered = await waitForSessionCookieChange(context, preLogoutCookie!);
     expect(
-      decodeToken(token).sv,
-      "S14 invariant: when session_version bumps system-wide, a newly-opened tab must recover with sv >= current — it must NOT keep the stale cookie",
-    ).toBeGreaterThanOrEqual(CURRENT_SV);
+      decodeToken(recovered).sv,
+      `S14 invariant: after force-logout, any new tab must recover with sv >= ${newSv} (the new DB baseline), not the pre-logout sv`,
+    ).toBeGreaterThanOrEqual(newSv);
     await tabA.close();
     await tabB.close();
   });
 
-  test("S12 · JWT for nonexistent shop → 401 (existence gate, not just signature gate)", async ({ request }) => {
-    // A valid HS256-signed JWT for a shop that's NOT in the merchants
-    // table must be rejected at the auth gate. Previously this path
-    // returned 200 because require_merchant_session only enforced
-    // signature + sv, not merchant-row existence. The 2026-04-22
-    // hardening (see deps.require_merchant_session) closes this.
-    const bogusShop = `does-not-exist-${Date.now()}.myshopify.com`;
-    const forgedToken = mintToken({ shop: bogusShop });
-    const r = await request.get(`${API_BASE}/merchant/me`, {
-      headers: { Cookie: `${SESSION_COOKIE_NAME}=${forgedToken}` },
-    });
+  test("S15 · CSP frame-ancestors allows Shopify Admin embed (embed precondition)", async ({ request }) => {
+    // S13 proves the cookie flows into a same-origin iframe. S15 proves
+    // the CSP header actively allowlists admin.shopify.com and
+    // *.myshopify.com as valid embedders. Together they cover the
+    // full Shopify Admin embed path — the client-side cookie flow AND
+    // the server-side permission gate — without requiring a real
+    // admin.shopify.com origin spoof. If a future CSP tightening
+    // removes these allowances, S15 fails with a clear diff.
+    const BASE_URL = process.env.E2E_BASE_URL || "http://127.0.0.1:3000";
+    const r = await request.head(`${BASE_URL}/app`, { maxRedirects: 5 });
+    expect(r.ok(), "S15 precondition: /app must be reachable").toBe(true);
+    const csp = r.headers()["content-security-policy"] || "";
     expect(
-      r.status(),
-      "S12 invariant: a JWT with a valid signature but for a nonexistent shop must return 401 — the existence gate is the second half of the auth contract",
-    ).toBe(401);
-    const body = await r.json().catch(() => ({}));
+      csp,
+      "S15 invariant: /app response must carry a Content-Security-Policy header",
+    ).not.toBe("");
+    // Extract the frame-ancestors directive from the CSP header. CSP
+    // directives are separated by ';' and whitespace-tokenized.
+    const faMatch = csp.match(/frame-ancestors\s+([^;]+)/i);
     expect(
-      (body.detail || "").toLowerCase(),
-      "S12 invariant: the 401 body should name 'reinstall' so the merchant-facing UI can render the right remediation copy",
-    ).toContain("reinstall");
-  });
-
-  test("S11 · session survives a page reload (durability across navigation)", async ({ page, context }) => {
-    await clearAll(context, page);
-    await addSessionCookie(context, { sv: CURRENT_SV });
-    await page.goto("/app");
-    // First load: verify authenticated render (same positive anchor as S1)
-    await expect(
-      page.getByText(SMOKE_SHOP, { exact: false }).first(),
-      "S11 precondition: dashboard must render smoke merchant data on first load",
-    ).toBeVisible({ timeout: 20_000 });
-    const firstLoadToken = (await context.cookies()).find(
-      (c) => c.name === SESSION_COOKIE_NAME,
-    )?.value;
-    expect(firstLoadToken, "S11 precondition: cookie present after first load").toBeTruthy();
-
-    // Reload — the cookie must survive (it's browser-stored) and the
-    // dashboard must come back without bouncing through /auth/session.
-    await page.reload();
-    await expect(
-      page.getByText(SMOKE_SHOP, { exact: false }).first(),
-      "S11 invariant: dashboard must render smoke merchant data again after reload — NO Reconnect UI, NO re-bootstrap",
-    ).toBeVisible({ timeout: 20_000 });
-    await expect(
-      page.getByText(/Reconnect my store/i),
-      "S11 invariant: reload must not trigger Reconnect (cookie survives reload)",
-    ).toHaveCount(0);
-
-    const reloadedToken = (await context.cookies()).find(
-      (c) => c.name === SESSION_COOKIE_NAME,
-    )?.value;
+      faMatch,
+      "S15 invariant: CSP must declare a frame-ancestors directive (Shopify Admin embed depends on it)",
+    ).toBeTruthy();
+    const directive = faMatch![1].trim().toLowerCase();
     expect(
-      reloadedToken,
-      "S11 invariant: hs_session cookie must persist verbatim across reload (no unnecessary re-mint)",
-    ).toBe(firstLoadToken);
+      directive,
+      "S15 invariant: frame-ancestors must allowlist https://admin.shopify.com so Shopify Admin can embed /app",
+    ).toContain("admin.shopify.com");
+    expect(
+      directive,
+      "S15 invariant: frame-ancestors must allowlist https://*.myshopify.com so merchant storefront admin can embed /app",
+    ).toMatch(/\*\.myshopify\.com/);
+    expect(
+      directive,
+      "S15 invariant: frame-ancestors must include 'self' so same-origin iframe embed (S13) works",
+    ).toContain("'self'");
   });
 });

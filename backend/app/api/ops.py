@@ -3088,3 +3088,42 @@ def get_pipeline_health(
         "auto_merge": auto_merge_info,
         "freshness_warnings": freshness_warnings,
     }
+
+
+# ---------------------------------------------------------------------------
+# Force logout — admin-triggered session_version bump
+#
+# When an operator needs to invalidate ALL active sessions for a merchant
+# (suspected token leak, security incident, bug-cleanup), this endpoint
+# increments the merchants row session_version column. Every subsequent
+# `require_merchant_session` call with a stale-sv cookie is rejected with
+# 401 via the token_sv < db_sv path in deps.py.
+#
+# Monotonic: sv only grows. No decrement. The operation is intentionally
+# one-directional because session invalidation is an additive trust move.
+# ---------------------------------------------------------------------------
+
+@router.post("/force-logout")
+def force_logout(
+    shop: str = Query(..., description="Shop domain to force-logout (session_version bump)"),
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    from app.models.merchant import Merchant
+    m = db.query(Merchant).filter(Merchant.shop_domain == shop).first()
+    if m is None:
+        raise HTTPException(status_code=404, detail="merchant not found")
+    previous_sv = m.session_version or 0
+    m.session_version = previous_sv + 1
+    db.commit()
+    log.warning(
+        "ops.force_logout: shop=%s session_version %d → %d (all existing sessions invalidated)",
+        shop, previous_sv, previous_sv + 1,
+    )
+    return {
+        "shop_domain": shop,
+        "previous_session_version": previous_sv,
+        "new_session_version": previous_sv + 1,
+        "effect": "all existing JWTs with sv < new_session_version will be rejected on next /merchant/me",
+    }
+

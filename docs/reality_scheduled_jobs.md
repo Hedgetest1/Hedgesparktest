@@ -65,6 +65,7 @@ Listed here in execution order with the actual gate.
 | `_run_daily_digest` | **Rome hour ≥ 8 AND `worker_state.last_digest_date != today_rome`** | **once per Rome day, first cycle after 08:00 Rome** (this IS the daily brief — see memory reality_founder_messaging.md system #1) |
 | `_run_breach_classifier` | `worker_state` dedup | per cadence |
 | `_run_audit_log_integrity_check` | `worker_state` dedup | per cadence |
+| `_run_invariant_monitor` | no gate — cheap subprocess; alerting.write_alert dedup suppresses storms | every cycle (15 min); runs registered preflight audits on live source and emits `invariant_regression` ops_alert on failure |
 | `_run_uninstall_erasure_watchdog` | in-process monotonic ~hourly | hourly |
 | `_run_security_heartbeat` | self-rate-limited via `_should_run()` (hourly) | hourly |
 | `_run_gdpr_sla_enforcement` | no gate | every cycle |

@@ -913,6 +913,41 @@ def _run_audit_log_integrity_check():
         db.close()
 
 
+def _run_invariant_monitor():
+    """
+    Post-merge structural invariant check — runs registered audits
+    (backend/scripts/audit_*.py) against the live source tree. A
+    failure here means the invariant broke AFTER passing preflight,
+    which typically indicates a hook bypass (--no-verify), a merge
+    conflict resolution, or an emergency fix. Emits ops_alerts the
+    bugfix pipeline can react to.
+
+    No Redis lock: cheap (sub-second), idempotent, safe to run on
+    multiple replicas. The alerting.write_alert dedup windows
+    (5-min acute + 24h chronic aggregation) handle repeat suppression.
+    """
+    db = SessionLocal()
+    try:
+        from app.services.invariant_monitor import run_invariant_check
+        summary = run_invariant_check(db)
+        if summary.get("failed", 0) > 0:
+            log(
+                f"invariant_monitor: {summary['failed']}/{summary['checked']} "
+                f"audits failing, {summary['alerts_written']} alerts written"
+            )
+        db.commit()
+    except Exception as exc:
+        log(f"invariant_monitor error (non-fatal): {exc}")
+        try:
+            db.rollback()
+        except Exception as rollback_exc:
+            log.warning(
+                "agent_worker: invariant_monitor rollback failed: %s", rollback_exc
+            )
+    finally:
+        db.close()
+
+
 def _run_uninstall_erasure_watchdog():
     """Self-heal missing shop/redact webhooks — GDPR Art. 17 belt-and-braces."""
     db = SessionLocal()
@@ -2237,6 +2272,16 @@ def run_cycle():
     # Phase 7d-septies: Audit log integrity check — daily chain walk
     # that emits a CRITICAL alert on any tampering evidence.
     _run_audit_log_integrity_check()
+
+    # Phase 7d-septies-bis: Invariant monitor — runs critical preflight
+    # audits against the live source tree on every cycle. Closes the
+    # "someone bypassed pre-commit hook" hole: if a structural
+    # regression lands in main via --no-verify or merge conflict, this
+    # emits an ops_alert within 15min. Rule 7 in bug_triage (≥3
+    # recurrences) then auto-creates a BugFixCandidate after ~45min,
+    # and the standard self-healing pipeline handles the rest. Pure
+    # detect-only — never attempts to fix.
+    _run_invariant_monitor()
 
     # Phase 7d-octies: Breach notification classifier — turns known
     # breach signatures into `breach_response_required` alerts with

@@ -18,7 +18,7 @@ on:
   schedule:
     # 03:17 UTC daily — avoids common deploy windows and UptimeRobot peaks.
     - cron: "17 3 * * *"
-  workflow_dispatch: {} # allow manual triggers from the Actions UI
+  workflow_dispatch: {}  # allow manual triggers from the Actions UI
 
 jobs:
   e2e-session:
@@ -35,6 +35,10 @@ jobs:
       E2E_API_BASE: https://api.hedgesparkhq.com
       E2E_SMOKE_SHOP: hedgespark-smoke.myshopify.com
       MERCHANT_SESSION_SECRET: ${{ secrets.MERCHANT_SESSION_SECRET }}
+      # DASHBOARD_API_KEY is the operator credential used by S14 to call
+      # /ops/force-logout (real admin-trigger end-to-end). Without it
+      # S14 fails fast at the precondition assertion with a clear message.
+      DASHBOARD_API_KEY: ${{ secrets.DASHBOARD_API_KEY }}
 
     steps:
       - uses: actions/checkout@v4
@@ -52,11 +56,15 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Verify prerequisites
-        # Hard fail BEFORE running the suite if the secret is missing —
+        # Hard fail BEFORE running the suite if a secret is missing —
         # otherwise the beforeAll throws with a less obvious error.
         run: |
           if [ -z "$MERCHANT_SESSION_SECRET" ]; then
             echo "::error::MERCHANT_SESSION_SECRET secret is not set. Add it in Settings → Secrets and variables → Actions."
+            exit 2
+          fi
+          if [ -z "$DASHBOARD_API_KEY" ]; then
+            echo "::error::DASHBOARD_API_KEY secret is not set. S14 (real /ops/force-logout trigger) requires it."
             exit 2
           fi
 

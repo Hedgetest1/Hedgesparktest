@@ -161,13 +161,34 @@ def _strip_comments(src: str) -> str:
     return _LINE_COMMENT_RE.sub("", _BLOCK_COMMENT_RE.sub("", src))
 
 
-def ts_contains(path: Path, pattern: str, *, label: str) -> tuple[bool, str]:
+def ts_contains(
+    path: Path,
+    pattern: str,
+    *,
+    label: str,
+    strip_comments: bool = True,
+) -> tuple[bool, str]:
+    """
+    Match `pattern` inside `path`'s source. When strip_comments=True
+    (default) both `//` line-comments and `/* */` block-comments are
+    removed before matching so a commented-out invariant fails.
+
+    Caveat: naive comment-stripping also eats `//` sequences inside
+    string literals (e.g. `"https://..."`). Files that embed URLs in
+    strings should pass strip_comments=False — the trade-off is that
+    a commented-out check won't be detected there. For those files
+    we prefer a false-negative (miss commented invariant) over a
+    false-positive (true invariant incorrectly flagged missing).
+    """
     if not path.exists():
         return False, f"missing file: {path.relative_to(REPO)}"
-    src = _strip_comments(path.read_text(encoding="utf-8"))
+    raw = path.read_text(encoding="utf-8")
+    src = _strip_comments(raw) if strip_comments else raw
     if re.search(pattern, src):
-        return True, f"{label} present (in live code, not a comment)"
-    return False, f"{label} not found in {path.relative_to(REPO)} (live code, comments stripped)"
+        suffix = " (in live code, not a comment)" if strip_comments else ""
+        return True, f"{label} present{suffix}"
+    scope = "live code, comments stripped" if strip_comments else "raw source"
+    return False, f"{label} not found in {path.relative_to(REPO)} ({scope})"
 
 
 def file_exists(path: Path) -> tuple[bool, str]:
@@ -255,6 +276,24 @@ INVARIANTS: list[Invariant] = [
         ),
     ),
     Invariant(
+        "/ops/force-logout admin endpoint present",
+        "S14",
+        lambda: ts_contains(
+            BACKEND / "app/api/ops.py",
+            r'@router\.post\(\s*"/force-logout"\s*\)',
+            label="/ops/force-logout POST route",
+        ),
+    ),
+    Invariant(
+        "force-logout bumps session_version",
+        "S14",
+        lambda: ts_contains(
+            BACKEND / "app/api/ops.py",
+            r"m\.session_version\s*=\s*previous_sv\s*\+\s*1",
+            label="session_version bump in force_logout body",
+        ),
+    ),
+    Invariant(
         "JWT signature verification via HS256",
         "S3",
         lambda: py_function_calls_with_kw(
@@ -283,6 +322,32 @@ INVARIANTS: list[Invariant] = [
             BACKEND / "app/api/shopify_oauth.py",
             r"/auth/install\?shop=",
             label="/auth/install redirect target",
+        ),
+    ),
+    Invariant(
+        "CSP frame-ancestors allowlists Shopify Admin",
+        "S15",
+        # next.config.ts has `https://admin.shopify.com` as a string
+        # constant — naive comment-stripping would eat the `//` inside
+        # the URL, so strip_comments=False here. Trade-off: a
+        # commented-out frame-ancestors directive won't be flagged by
+        # the audit. Runtime E2E S15 catches that case by inspecting
+        # the actual served header, which is the authoritative source.
+        lambda: ts_contains(
+            DASHBOARD / "next.config.ts",
+            r"frame-ancestors[^`;\n]*(admin\.shopify\.com|\$\{SHOPIFY_ADMIN\})",
+            label="frame-ancestors directive with admin.shopify.com (or SHOPIFY_ADMIN template var)",
+            strip_comments=False,
+        ),
+    ),
+    Invariant(
+        "SHOPIFY_ADMIN constant resolves to admin.shopify.com",
+        "S15",
+        lambda: ts_contains(
+            DASHBOARD / "next.config.ts",
+            r'SHOPIFY_ADMIN\s*=\s*"https://admin\.shopify\.com"',
+            label='SHOPIFY_ADMIN = "https://admin.shopify.com"',
+            strip_comments=False,
         ),
     ),
     Invariant(
