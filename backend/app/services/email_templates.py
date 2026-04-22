@@ -218,6 +218,16 @@ def _render_welcome(ctx: dict) -> tuple[str, str, str]:
             "The longer it runs, the smarter it gets for your store.",
             color="#94a3b8",
         )
+        + _separator()
+        + _section_title("One 30-second setup step", accent="cool")
+        + _p(
+            "Your daily brief comes from "
+            "<strong style='color:#e2e8f0;'>digest@hedgesparkhq.com</strong>; "
+            "onboarding alerts from "
+            "<strong style='color:#e2e8f0;'>dev@hedgesparkhq.com</strong>. "
+            "Add both to your contacts so they don't land in spam or promotions.",
+            color="#94a3b8",
+        )
         + _button("Open your dashboard", _DASHBOARD_URL)
         + _p(
             "No action needed from you. HedgeSpark is already learning.",
@@ -237,6 +247,10 @@ def _render_welcome(ctx: dict) -> tuple[str, str, str]:
         f"HedgeSpark doesn't just show you data. It tells you what to fix, "
         f"deploys the fix, and proves whether it worked — with a real control group.\n"
         f"The longer it runs, the smarter it gets for your store.\n\n"
+        f"One 30-second setup step:\n"
+        f"Your daily brief comes from digest@hedgesparkhq.com; onboarding alerts "
+        f"from dev@hedgesparkhq.com. Add both to your contacts so they don't "
+        f"land in spam or promotions.\n\n"
         f"Open your dashboard: {_DASHBOARD_URL}\n\n"
         f"No action needed. HedgeSpark is already learning.\n\n"
         f"Questions? {_SUPPORT_EMAIL}"
@@ -363,6 +377,26 @@ def _render_beta_welcome(ctx: dict) -> tuple[str, str, str]:
             color="#94a3b8",
         )
 
+        # Deliverability — ask merchants to whitelist our senders
+        + _section_title("Make sure you receive our emails", accent="cool")
+        + _p(
+            "Your daily brief comes from "
+            "<strong style='color:#e2e8f0;'>digest@hedgesparkhq.com</strong>; "
+            "onboarding and issue alerts from "
+            "<strong style='color:#e2e8f0;'>dev@hedgesparkhq.com</strong>. "
+            "Some providers route new-domain email to spam at first — "
+            "to keep HedgeSpark in your main inbox:"
+        )
+        + _bullet("Add both addresses to your contacts (30 seconds).")
+        + _bullet(
+            "If this welcome email landed in spam or promotions, move it to "
+            "your primary inbox and mark \"Not spam\"."
+        )
+        + _p(
+            "That's it. Every future brief will arrive cleanly.",
+            color="#94a3b8",
+        )
+
         # What you get — stronger beta advantage
         + _section_title("Your beta advantage")
         + _p(
@@ -472,6 +506,13 @@ def _render_beta_welcome(ctx: dict) -> tuple[str, str, str]:
         f"- Request specific analyses or ask why a metric changed\n"
         f"It's faster than email, and we monitor it actively.\n"
         f"For longer-form feedback or strategic proposals: {_SUPPORT_EMAIL}\n\n"
+        f"MAKE SURE YOU RECEIVE OUR EMAILS\n"
+        f"Your daily brief comes from digest@hedgesparkhq.com; onboarding and "
+        f"issue alerts from dev@hedgesparkhq.com. Some providers route new-domain "
+        f"email to spam at first — to keep HedgeSpark in your main inbox:\n"
+        f"- Add both addresses to your contacts (30 seconds).\n"
+        f"- If this welcome email landed in spam or promotions, move it to your "
+        f"primary inbox and mark \"Not spam\".\n\n"
         f"YOUR BETA ADVANTAGE\n"
         f"Being in this early is not symbolic. Active participants receive:\n"
         f"- Full access to every feature we ship — free for the entire beta\n"
