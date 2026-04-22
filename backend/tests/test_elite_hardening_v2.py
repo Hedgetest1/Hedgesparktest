@@ -1208,9 +1208,9 @@ _PRINT_ALLOWLIST: set[str] = {
     # Dev-only CLI baseline regenerator, invoked manually when an
     # email template is intentionally changed. Docstring above the
     # function says "Print new baseline hashes for all templates".
-    "app/services/email_governance.py:344",
-    "app/services/email_governance.py:348",
-    "app/services/email_governance.py:349",
+    "app/services/email_governance.py:417",
+    "app/services/email_governance.py:421",
+    "app/services/email_governance.py:422",
     # Context builder CLI utility — only callers are its own
     # `if __name__ == "__main__":` block and a test. Prints are
     # the user-facing result of a manual doc-sync run.
