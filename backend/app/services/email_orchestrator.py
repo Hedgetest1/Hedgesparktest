@@ -531,6 +531,33 @@ def _send_intent(db: Session, intent: EmailIntent) -> bool:
         _log_suppressed(db, intent, "missing_recipient_or_html")
         return False
 
+    # ── DNS deliverability pre-gate ──
+    # When Resend has the @hedgesparkhq.com domain in `failed` state,
+    # `send_email()` short-circuits with DNS_SUPPRESSED and returns None —
+    # which the downstream block then logs as generic `send_failed` AND
+    # fires a `write_alert(email_send_failed)` per intent. During a multi-
+    # day DNS outage (2026-04-12 → 21) that pattern would dump one alert
+    # per send attempt into ops_alerts, crowding out real signal. Catch
+    # it here instead: single `dns_gate_closed` suppressed row, no
+    # per-intent alert — the hourly `email_dns_status_check` already
+    # fires one Telegram alert on the flip, which is the true signal.
+    # Fail-open on any unexpected error (never silence real sends).
+    try:
+        from app.services.email_deliverability import (
+            is_domain_verified,
+            uses_org_domain,
+        )
+        if uses_org_domain(intent.from_address) and not is_domain_verified():
+            log.warning(
+                "email_orch: DNS_GATE_CLOSED shop=%s type=%s — suppressing "
+                "(Resend domain verification failed; see /ops/email-health)",
+                intent.shop_domain, intent.email_type,
+            )
+            _log_suppressed(db, intent, "dns_gate_closed")
+            return False
+    except Exception as exc:
+        log.warning("email_orch: dns pre-gate error (fail-open): %s", exc)
+
     # ── Governance validation — ALL violations are hard blocks ──
     governance_hash = ""
     try:

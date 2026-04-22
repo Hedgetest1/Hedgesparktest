@@ -28,7 +28,8 @@ def test_email_orchestrator_send_failed_writes_alert():
     fake_db = MagicMock()
     gov = MagicMock(passed=True, content_hash="abc")
 
-    with patch("app.services.email_governance.validate_intent", return_value=gov), \
+    with patch("app.services.email_deliverability.is_domain_verified", return_value=True), \
+         patch("app.services.email_governance.validate_intent", return_value=gov), \
          patch("app.core.resend_usage.get_resend_usage", return_value={"sent": 0}), \
          patch.object(eo, "_claim_send_slot", return_value=True), \
          patch("app.core.email.send_email", return_value=""), \
@@ -42,6 +43,83 @@ def test_email_orchestrator_send_failed_writes_alert():
     assert kwargs["shop_domain"] == "alert-shop.myshopify.com"
     assert kwargs["severity"] == "warning"
     assert "merchant_digest" in kwargs["source"]
+
+
+def test_email_orchestrator_dns_gate_closed_suppresses_without_alert():
+    """When the Resend domain is in `failed` state, _send_intent must
+    short-circuit BEFORE governance/send, log a `dns_gate_closed`
+    suppressed row, and NOT write a per-intent ops_alert. The hourly
+    flip detector is the only alert for DNS state."""
+    from app.services import email_orchestrator as eo
+
+    intent = MagicMock()
+    intent.intent_id = "intent_dns_gated"
+    intent.shop_domain = "dns-gated.myshopify.com"
+    intent.email_type = "weekly_digest"
+    intent.to_email = "owner@dns-gated.com"
+    intent.html = "<p>hi</p>"
+    intent.plain_text = "hi"
+    intent.subject = "x"
+    intent.from_address = "HedgeSpark <digest@hedgesparkhq.com>"
+    intent.producer = "merchant_digest"
+
+    fake_db = MagicMock()
+
+    with patch("app.services.email_deliverability.is_domain_verified", return_value=False), \
+         patch("app.services.email_deliverability.uses_org_domain", return_value=True), \
+         patch.object(eo, "_log_suppressed") as mock_sup, \
+         patch("app.core.email.send_email") as mock_send, \
+         patch("app.services.alerting.write_alert") as mock_alert, \
+         patch("app.services.email_governance.validate_intent") as mock_gov:
+        ok = eo._send_intent(fake_db, intent)
+
+    assert ok is False
+    assert mock_sup.called
+    reason = mock_sup.call_args.args[2] if len(mock_sup.call_args.args) >= 3 else None
+    assert reason == "dns_gate_closed"
+    # Critical invariants: gate must fire BEFORE governance and BEFORE send,
+    # and must NOT write a per-intent alert (the hourly flip detector is
+    # the single source of truth for DNS state).
+    assert not mock_gov.called
+    assert not mock_send.called
+    assert not mock_alert.called
+
+
+def test_email_orchestrator_dns_gate_open_proceeds_past_gate():
+    """When DNS is verified, the pre-gate is a no-op and flow continues
+    into governance. This locks in that the pre-gate doesn't accidentally
+    short-circuit the happy path."""
+    from app.services import email_orchestrator as eo
+
+    intent = MagicMock()
+    intent.intent_id = "intent_dns_ok"
+    intent.shop_domain = "dns-ok.myshopify.com"
+    intent.email_type = "weekly_digest"
+    intent.to_email = "owner@dns-ok.com"
+    intent.html = "<p>hi</p>"
+    intent.plain_text = "hi"
+    intent.subject = "x"
+    intent.from_address = "HedgeSpark <digest@hedgesparkhq.com>"
+    intent.producer = "merchant_digest"
+    intent.priority = MagicMock(name="HIGH")
+
+    fake_db = MagicMock()
+    gov = MagicMock(passed=True, content_hash="abc")
+
+    with patch("app.services.email_deliverability.is_domain_verified", return_value=True), \
+         patch("app.services.email_governance.validate_intent", return_value=gov) as mock_gov, \
+         patch("app.core.resend_usage.get_resend_usage", return_value={"sent": 0}), \
+         patch.object(eo, "_claim_send_slot", return_value=True), \
+         patch("app.core.email.send_email", return_value="re_abc"), \
+         patch.object(eo, "_log_sent"), \
+         patch.object(eo, "_increment_send_counter"), \
+         patch("app.services.email_performance.record_email_event"):
+        ok = eo._send_intent(fake_db, intent)
+
+    assert ok is True
+    # Governance validation must still run — proof that the pre-gate
+    # didn't eat the request.
+    assert mock_gov.called
 
 
 def test_email_orchestrator_send_success_no_alert():
@@ -63,7 +141,8 @@ def test_email_orchestrator_send_success_no_alert():
     fake_db = MagicMock()
     gov = MagicMock(passed=True, content_hash="abc")
 
-    with patch("app.services.email_governance.validate_intent", return_value=gov), \
+    with patch("app.services.email_deliverability.is_domain_verified", return_value=True), \
+         patch("app.services.email_governance.validate_intent", return_value=gov), \
          patch("app.core.resend_usage.get_resend_usage", return_value={"sent": 0}), \
          patch.object(eo, "_claim_send_slot", return_value=True), \
          patch("app.core.email.send_email", return_value="re_123"), \
