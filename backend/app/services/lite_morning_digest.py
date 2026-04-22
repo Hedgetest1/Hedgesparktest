@@ -501,7 +501,7 @@ def run_lite_morning_digest_cycle(db: Session) -> dict:
                     subject=subject,
                     html=html,
                     plain_text=plain_text,
-                    from_address="HedgeSpark <brief@hedgesparkhq.com>",
+                    from_address="HedgeSpark <digest@hedgesparkhq.com>",
                     producer="lite_morning_digest",
                     context={
                         "signals_count": int(brief.get("signals_count") or 0),
