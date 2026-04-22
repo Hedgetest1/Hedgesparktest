@@ -533,7 +533,8 @@ fi
 # ---------------------------------------------------------------------------
 step "Session durability invariants (audit_session_durability_invariants.py)"
 if "$PY" "$BACKEND/scripts/audit_session_durability_invariants.py" > /tmp/preflight_session_durability.log 2>&1; then
-    ok "11 session-durability invariants intact"
+    _SD_COUNT=$(grep -c '^  ✓' /tmp/preflight_session_durability.log || echo "?")
+    ok "${_SD_COUNT} session-durability invariants intact"
 else
     bad "session-durability invariants broken — see /tmp/preflight_session_durability.log"
     tail -30 /tmp/preflight_session_durability.log || true

@@ -92,20 +92,38 @@ def require_merchant_session(
             shop = payload["shop"]
             token_sv = payload.get("sv", 0)
 
-            # Check session_version against DB — enables forced logout
+            # Existence gate: a valid HMAC signature alone is not enough.
+            # A JWT for a shop that doesn't exist in our DB (uninstalled,
+            # never-installed, or forged with a known-secret for a bogus
+            # shop) must be rejected. Prior to this gate the path would
+            # return `shop` unconditionally on valid-signature, which
+            # created a theoretical auth-permissive surface: downstream
+            # queries returned empty so no data leaked, but the auth
+            # middleware itself was too lenient. Hardening adds a
+            # deterministic 401 at the auth gate itself.
             from app.models.merchant import Merchant
             merchant = db.query(Merchant).filter(Merchant.shop_domain == shop).first()
-            if merchant is not None:
-                db_sv = getattr(merchant, "session_version", None) or 0
-                if token_sv < db_sv:
-                    log.warning(
-                        "deps: session rejected — token sv=%d < merchant sv=%d for shop=%s",
-                        token_sv, db_sv, shop,
-                    )
-                    raise HTTPException(
-                        status_code=401,
-                        detail="Session expired. Please log in again.",
-                    )
+            if merchant is None:
+                log.warning(
+                    "deps: session rejected — no merchant row for shop=%s "
+                    "(uninstalled, never-installed, or forged JWT)",
+                    shop,
+                )
+                raise HTTPException(
+                    status_code=401,
+                    detail="Session invalid. Please reinstall HedgeSpark.",
+                )
+            # Check session_version against DB — enables forced logout
+            db_sv = getattr(merchant, "session_version", None) or 0
+            if token_sv < db_sv:
+                log.warning(
+                    "deps: session rejected — token sv=%d < merchant sv=%d for shop=%s",
+                    token_sv, db_sv, shop,
+                )
+                raise HTTPException(
+                    status_code=401,
+                    detail="Session expired. Please log in again.",
+                )
             return shop
         # Cookie exists but is invalid/expired
 

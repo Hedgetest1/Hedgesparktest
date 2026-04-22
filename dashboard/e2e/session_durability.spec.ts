@@ -273,6 +273,28 @@ test.describe("Session durability — regression suite", () => {
     ).toBeTruthy();
   });
 
+  test("S12 · JWT for nonexistent shop → 401 (existence gate, not just signature gate)", async ({ request }) => {
+    // A valid HS256-signed JWT for a shop that's NOT in the merchants
+    // table must be rejected at the auth gate. Previously this path
+    // returned 200 because require_merchant_session only enforced
+    // signature + sv, not merchant-row existence. The 2026-04-22
+    // hardening (see deps.require_merchant_session) closes this.
+    const bogusShop = `does-not-exist-${Date.now()}.myshopify.com`;
+    const forgedToken = mintToken({ shop: bogusShop });
+    const r = await request.get(`${API_BASE}/merchant/me`, {
+      headers: { Cookie: `${SESSION_COOKIE_NAME}=${forgedToken}` },
+    });
+    expect(
+      r.status(),
+      "S12 invariant: a JWT with a valid signature but for a nonexistent shop must return 401 — the existence gate is the second half of the auth contract",
+    ).toBe(401);
+    const body = await r.json().catch(() => ({}));
+    expect(
+      (body.detail || "").toLowerCase(),
+      "S12 invariant: the 401 body should name 'reinstall' so the merchant-facing UI can render the right remediation copy",
+    ).toContain("reinstall");
+  });
+
   test("S11 · session survives a page reload (durability across navigation)", async ({ page, context }) => {
     await clearAll(context, page);
     await addSessionCookie(context, { sv: CURRENT_SV });

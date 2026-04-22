@@ -68,6 +68,12 @@ INVARIANTS = [
         "S5",
     ),
     (
+        "merchant-existence gate (JWT for unknown shop → 401)",
+        BACKEND / "app/core/deps.py",
+        r"if\s+merchant\s+is\s+None\s*:",
+        "S12",
+    ),
+    (
         "JWT signature verification via HS256",
         BACKEND / "app/core/merchant_session.py",
         r'algorithms\s*=\s*\["HS256"\]',
