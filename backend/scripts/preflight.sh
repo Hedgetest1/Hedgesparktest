@@ -524,6 +524,23 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2u. Session-durability invariants — structural preventer for the E2E
+# suite at dashboard/e2e/session_durability.spec.ts. Born 2026-04-22
+# alongside the suite: each check maps 1:1 to an E2E scenario (S1..S11).
+# If someone deletes the retry backoff, the hint-recovery path, the sv
+# check, or the Reconnect UI copy, this audit blocks the commit long
+# before an E2E run would flag it.
+# ---------------------------------------------------------------------------
+step "Session durability invariants (audit_session_durability_invariants.py)"
+if "$PY" "$BACKEND/scripts/audit_session_durability_invariants.py" > /tmp/preflight_session_durability.log 2>&1; then
+    ok "11 session-durability invariants intact"
+else
+    bad "session-durability invariants broken — see /tmp/preflight_session_durability.log"
+    tail -30 /tmp/preflight_session_durability.log || true
+    fail=1
+fi
+
+# ---------------------------------------------------------------------------
 # 3. Python AST parse check — any syntax error blocks commit
 # ---------------------------------------------------------------------------
 step "Python AST parse (staged .py files)"
