@@ -45,12 +45,28 @@ edit them):
 
 | Type | Name | Value | Priority | TTL |
 |---|---|---|---|---|
-| `TXT` | `resend._domainkey` | `p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDAUvzm0LoxudxEXjDQPcciK4P4jnyqqAQ+CKzwVw5nh2HyVI/32MjBzgyJWv3hseu02mWfl0T5CfYvdBRDCI/Sj48ZIaZ5TsHmPiUTvBvdfjDsjsBOsAJ5GMA/veJK/mlxGC5fEWWzo5g8ZnegdPyrKOIXQmThsGA8EgMBhD7mRQIDAQAB` | — | Auto |
+| `TXT` | `resend._domainkey` | `v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDAUvzm0LoxudxEXjDQPcciK4P4jnyqqAQ+CKzwVw5nh2HyVI/32MjBzgyJWv3hseu02mWfl0T5CfYvdBRDCI/Sj48ZIaZ5TsHmPiUTvBvdfjDsjsBOsAJ5GMA/veJK/mlxGC5fEWWzo5g8ZnegdPyrKOIXQmThsGA8EgMBhD7mRQIDAQAB` | — | Auto |
 | `MX` | `send` | `feedback-smtp.eu-west-1.amazonses.com` | `10` | Auto |
 | `TXT` | `send` | `v=spf1 include:amazonses.com ~all` | — | Auto |
 
 Save after each record. Hostinger propagates to `dns-parking.com` within
 ~5 minutes (rarely longer).
+
+> **⚠️ DKIM whitespace trap** (lesson learned 2026-04-22).
+> When pasting the DKIM `p=` value into Hostinger's TXT field, make sure
+> there is **no embedded whitespace** inside the base64. Resend's
+> verifier is lax (accepts spaces + missing tags), **Gmail's verifier is
+> strict**. A corrupted DKIM record will flip Resend to `verified=true`
+> while Gmail silent-drops every email with zero visibility.
+>
+> The `v=DKIM1; k=rsa;` tag prefix is technically optional for Resend
+> but strongly recommended — some strict DMARC verifiers ignore records
+> without it. Paste in one continuous string, no line breaks, no spaces
+> inside the `p=` base64 body.
+>
+> The `audit_email_deliverability.py` preflight now catches this class
+> (strict base64 + whitespace rejection) and WARNs with the exact
+> remediation.
 
 ## 3 — Re-verify
 

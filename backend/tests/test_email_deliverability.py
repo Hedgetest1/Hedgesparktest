@@ -196,3 +196,75 @@ def test_dns_status_task_silent_on_first_observation():
         t.run()
 
     assert mock_tg.called is False
+
+
+# ---------------------------------------------------------------------------
+# Published-DKIM strict-base64 check (audit_email_deliverability.py)
+# ---------------------------------------------------------------------------
+#
+# Context: on 2026-04-22 a DKIM record was pasted into Hostinger with 3
+# embedded spaces inside the p= base64. Resend accepted it (lax decoder),
+# Gmail rejected it (strict decoder) → every email silent-dropped with
+# Resend's last_event still reporting "delivered". These tests lock in
+# the preventer against that exact class.
+
+def _run_dkim_check_with_dig_output(dig_output: str):
+    """Invoke the audit's DKIM checker with a mocked dig subprocess."""
+    from unittest.mock import MagicMock
+    import importlib.util
+    import os
+
+    audit_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "scripts", "audit_email_deliverability.py",
+    )
+    spec = importlib.util.spec_from_file_location("audit_ed", audit_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    fake_result = MagicMock(stdout=dig_output, stderr="")
+    with patch.object(mod.subprocess, "run", return_value=fake_result):
+        return mod._check_published_dkim_strict()
+
+
+def test_dkim_check_rejects_embedded_whitespace():
+    """The exact 2026-04-22 bug: 3 spaces inside base64."""
+    ok, reason = _run_dkim_check_with_dig_output(
+        '"p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDAUvzm0LoxudxEXjDQPcciK4P4jnyqqAQ+CKzwVw5nh2HyVI/32MjBzgyJWv3hseu02mWfl0T5CfYv   dBRDCI/Sj48ZIaZ5TsHmPiUTvBvdfjDsjsBOsAJ5GMA/veJK/mlxGC5fEWWzo5g8ZnegdPyrKOIXQmThsGA8EgMBhD7mRQIDAQAB"'
+    )
+    assert ok is False
+    assert "whitespace" in reason.lower()
+
+
+def test_dkim_check_accepts_clean_tagged_record():
+    """v=DKIM1; k=rsa; p=<clean base64> — the canonical good form."""
+    ok, reason = _run_dkim_check_with_dig_output(
+        '"v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDAUvzm0LoxudxEXjDQPcciK4P4jnyqqAQ+CKzwVw5nh2HyVI/32MjBzgyJWv3hseu02mWfl0T5CfYvdBRDCI/Sj48ZIaZ5TsHmPiUTvBvdfjDsjsBOsAJ5GMA/veJK/mlxGC5fEWWzo5g8ZnegdPyrKOIXQmThsGA8EgMBhD7mRQIDAQAB"'
+    )
+    assert ok is True
+    assert reason == ""
+
+
+def test_dkim_check_accepts_bare_p_value():
+    """Resend's short form (no v=DKIM1; tag) is also accepted when clean."""
+    ok, reason = _run_dkim_check_with_dig_output(
+        '"p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDAUvzm0LoxudxEXjDQPcciK4P4jnyqqAQ+CKzwVw5nh2HyVI/32MjBzgyJWv3hseu02mWfl0T5CfYvdBRDCI/Sj48ZIaZ5TsHmPiUTvBvdfjDsjsBOsAJ5GMA/veJK/mlxGC5fEWWzo5g8ZnegdPyrKOIXQmThsGA8EgMBhD7mRQIDAQAB"'
+    )
+    assert ok is True
+
+
+def test_dkim_check_fails_open_on_missing_record():
+    """Empty dig output (no TXT) returns False with clear reason."""
+    ok, reason = _run_dkim_check_with_dig_output("")
+    assert ok is False
+    assert "no TXT record" in reason
+
+
+def test_dkim_check_rejects_malformed_base64():
+    """Characters outside the base64 alphabet are caught."""
+    ok, reason = _run_dkim_check_with_dig_output(
+        '"p=not!valid@base64"'
+    )
+    assert ok is False
+    # Reason could mention either the decode failure or special chars.
+    assert "p=" in reason or "base64" in reason.lower()

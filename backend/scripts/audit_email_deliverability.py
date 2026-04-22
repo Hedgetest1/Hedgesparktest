@@ -11,9 +11,13 @@ What it checks
 --------------
 1. The Resend API is reachable with the current `RESEND_API_KEY`.
 2. The `hedgesparkhq.com` domain status is `verified`.
-3. No scheduled email cron (lite_morning_digest, merchant_digest, etc.)
-   is enabled in env while status=failed — if so, the WARN becomes
-   louder so the operator notices before committing more email features.
+3. The published DKIM TXT record decodes as strict base64. Gmail's
+   verifier rejects records with embedded whitespace (Resend's lax
+   verifier does not) — so a Resend "verified" status is insufficient
+   to guarantee Gmail-side DKIM alignment. Born 2026-04-22 after
+   Resend reported `last_event=delivered` for a test email Gmail
+   silent-dropped — root cause was 3 embedded spaces in the published
+   `p=` base64 from a Hostinger paste.
 
 Exit codes
 ----------
@@ -28,7 +32,10 @@ Run manually any time with:
 """
 from __future__ import annotations
 
+import base64
 import os
+import re
+import subprocess
 import sys
 
 # Allow `from app.services.email_deliverability import ...` when run
@@ -44,6 +51,58 @@ try:
     load_dotenv(os.path.join(_root, ".env"))
 except Exception:
     pass
+
+
+_DKIM_HOST = "resend._domainkey.hedgesparkhq.com"
+
+
+def _check_published_dkim_strict() -> tuple[bool, str]:
+    """Fetch the DKIM TXT record via dig and confirm the `p=` base64
+    decodes under strict (whitespace-intolerant) rules.
+
+    Returns (ok, reason). `ok=True` means Gmail would accept the
+    signature from a structural standpoint; `ok=False` flags a
+    published record that passes lax Resend checks but fails strict
+    Gmail DMARC alignment."""
+    try:
+        out = subprocess.run(
+            ["dig", "+short", "TXT", _DKIM_HOST],
+            capture_output=True, text=True, timeout=5.0,
+        )
+    except Exception as exc:
+        return True, f"dns_lookup_unavailable: {exc}"  # fail-open
+
+    raw = (out.stdout or "").strip()
+    if not raw:
+        return False, f"no TXT record at {_DKIM_HOST}"
+
+    # dig +short returns each TXT string quoted and one record per line;
+    # multi-string records are space-separated quoted chunks on one line.
+    # Concatenate all chunks into a single string (standard DNS behavior).
+    concatenated = "".join(re.findall(r'"([^"]*)"', raw)) or raw
+
+    # Extract the p= base64 body (optional v=DKIM1; k=rsa; prefix tolerated).
+    m = re.search(r"p=([^;]*)$", concatenated) or re.search(r"p=(.+)", concatenated)
+    if not m:
+        return False, "DKIM TXT missing p= tag"
+
+    p_value = m.group(1)
+    # Any whitespace inside base64 is invalid — Gmail's strict decoder
+    # rejects it even though Resend's lax decoder (and dig's display
+    # concatenation) swallow it. Flag explicitly.
+    if any(c.isspace() for c in p_value):
+        return False, (
+            f"DKIM `p=` contains embedded whitespace — strict base64 will "
+            f"fail signature verification (Gmail silent-drops). Fix: edit "
+            f"{_DKIM_HOST} TXT at registrar, remove whitespace from the key."
+        )
+
+    try:
+        base64.b64decode(p_value, validate=True)
+    except Exception as exc:
+        return False, f"DKIM `p=` strict base64 decode failed: {exc}"
+
+    return True, ""
 
 
 def main() -> int:
@@ -65,8 +124,20 @@ def main() -> int:
     state = status.get("status", "unknown")
     verified = bool(status.get("verified", True))
 
-    if verified and state == "verified":
+    # Orthogonal check: Resend's verifier is lax, Gmail's is strict. A
+    # record can be "verified" on Resend and still silent-drop on Gmail
+    # if the published base64 contains whitespace or malformed tags.
+    dkim_ok, dkim_reason = _check_published_dkim_strict()
+
+    if verified and state == "verified" and dkim_ok:
         print("OK: Resend domain hedgesparkhq.com verified — email flows enabled")
+        return 0
+
+    if verified and state == "verified" and not dkim_ok:
+        print(
+            "WARN: Resend says verified but published DKIM fails strict "
+            "validation — Gmail will silent-drop. %s" % dkim_reason
+        )
         return 0
 
     if state == "unknown":
