@@ -42,8 +42,21 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SERVICES_DIR = REPO_ROOT / "app" / "services"
 
-_LLM_URL_RE = re.compile(r"api\.(anthropic|openai)\.com")
-_MERCHANT_PARAM_NAMES = {"shop", "shop_domain", "merchant", "merchant_domain"}
+_LLM_URL_RE = re.compile(
+    r"api\.(anthropic|openai|mistral)\.com"
+    r"|generativelanguage\.googleapis\.com"
+    r"|ai\.google\.dev"
+)
+# 2026-04-23 DA: expanded from 4 names to 9 to cover common multi-tenant
+# naming. `tenant` / `account` aren't in our codebase today but are
+# common in SaaS patterns — adding proactively so a future refactor
+# doesn't slip past the audit via renaming.
+_MERCHANT_PARAM_NAMES = {
+    "shop", "shop_domain",
+    "merchant", "merchant_domain", "merchant_id",
+    "tenant", "tenant_id",
+    "account", "account_id",
+}
 
 # Files that implement their own per-merchant gate via a different
 # mechanism (e.g. Redis-backed atomic count limiter with a merchant-

@@ -37,7 +37,16 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SERVICES_DIR = REPO_ROOT / "app" / "services"
 
-_LLM_URL_MARKERS = ("api.anthropic.com", "api.openai.com")
+# URL markers for supported LLM providers. Extensible.
+# 2026-04-23 DA: added Mistral + Google to keep parity with
+# audit_llm_truncation_rejection vendor coverage.
+_LLM_URL_MARKERS = (
+    "api.anthropic.com",
+    "api.openai.com",
+    "api.mistral.ai",
+    "generativelanguage.googleapis.com",
+    "ai.google.dev",
+)
 
 
 def _is_llm_url(node: ast.AST) -> bool:
@@ -60,6 +69,18 @@ def _has_timeout_kwarg(node: ast.Call) -> bool:
 
 
 def _scan_file(path: Path) -> list[tuple[int, str]]:
+    """Find any `.post(url, ...)` or `.get(url, ...)` or `.request(...)`
+    call targeting an LLM API URL and missing a timeout kwarg.
+
+    2026-04-23 DA hardening: matches ANY `<expr>.post()` whose first
+    arg is an LLM URL, not just bare `httpx.post`. This catches:
+      - httpx.AsyncClient().post(url, ...)
+      - self.client.post(url, ...)
+      - session.post(url, ...)   (aiohttp-style)
+      - requests.post(url, ...)   (sync requests)
+    Under the "ignores caller name" rule the audit catches any HTTP
+    library's post-to-LLM without relying on import-name matching.
+    """
     findings: list[tuple[int, str]] = []
     try:
         src = path.read_text()
@@ -67,12 +88,21 @@ def _scan_file(path: Path) -> list[tuple[int, str]]:
     except Exception:
         return findings
 
+    _HTTP_METHODS = {"post", "get", "put", "delete", "patch", "request", "send"}
+
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        # Narrow to httpx.post(...)
         fn = node.func
-        if not (isinstance(fn, ast.Attribute) and fn.attr == "post"):
+        # Any `*.post(...)` or `requests.post(...)` — we ignore the caller
+        # expression entirely. The URL is the discriminator.
+        method_name = None
+        if isinstance(fn, ast.Attribute):
+            method_name = fn.attr
+        elif isinstance(fn, ast.Name):
+            # Covers `requests.post` imported as `post`, etc.
+            method_name = fn.id
+        if method_name not in _HTTP_METHODS:
             continue
         if not node.args:
             continue
@@ -80,7 +110,9 @@ def _scan_file(path: Path) -> list[tuple[int, str]]:
         if not _is_llm_url(first_arg):
             continue
         if not _has_timeout_kwarg(node):
-            findings.append((node.lineno, "httpx.post to LLM API without timeout="))
+            findings.append(
+                (node.lineno, f"{method_name}(...) to LLM API without timeout=")
+            )
     return findings
 
 

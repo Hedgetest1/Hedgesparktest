@@ -48,18 +48,39 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SERVICES_DIR = REPO_ROOT / "app" / "services"
 
-_ANTHROPIC_URL_RE = re.compile(r"api\.anthropic\.com")
-_OPENAI_URL_RE = re.compile(r"api\.openai\.com")
-# Both tokens must be present somewhere in the file. We don't require
-# tight coupling because the idiomatic pattern binds stop_reason to a
-# local then compares on the next line (bugfix_pipeline) — that span
-# is longer than a simple lookahead can reach cleanly. A file that
-# has both `stop_reason` and `"max_tokens"` as string literals is a
-# strong signal the rejection check is wired.
-_ANTHROPIC_STOP_REASON_RE = re.compile(r'["\']stop_reason["\']')
-_ANTHROPIC_MAX_TOKENS_LITERAL_RE = re.compile(r'==\s*["\']max_tokens["\']|["\']max_tokens["\']\s*==')
-_OPENAI_FINISH_REASON_RE = re.compile(r'["\']finish_reason["\']')
-_OPENAI_LENGTH_LITERAL_RE = re.compile(r'==\s*["\']length["\']|["\']length["\']\s*==')
+# Vendor URLs we audit. Extensible: adding a new vendor requires
+# adding (url_re, stop_field_re, truncation_literal_re, human_name).
+# 2026-04-23 DA: case-insensitive match on field names + sentinel
+# values so `stop_reason == "MAX_TOKENS"` (uppercase) can't slip past.
+_VENDOR_SIGNATURES: list[tuple[re.Pattern, re.Pattern, re.Pattern, str]] = [
+    (
+        re.compile(r"api\.anthropic\.com"),
+        re.compile(r'["\']stop_reason["\']', re.IGNORECASE),
+        re.compile(r'==\s*["\']max_tokens["\']|["\']max_tokens["\']\s*==', re.IGNORECASE),
+        "anthropic",
+    ),
+    (
+        re.compile(r"api\.openai\.com"),
+        re.compile(r'["\']finish_reason["\']', re.IGNORECASE),
+        re.compile(r'==\s*["\']length["\']|["\']length["\']\s*==', re.IGNORECASE),
+        "openai",
+    ),
+    # Future vendors (adding here enables the audit automatically):
+    # Mistral:  stop_reason == "length" (same as OpenAI)
+    # Gemini:   finishReason == "MAX_TOKENS"
+    (
+        re.compile(r"api\.mistral\.ai"),
+        re.compile(r'["\']finish_reason["\']', re.IGNORECASE),
+        re.compile(r'==\s*["\']length["\']|["\']length["\']\s*==', re.IGNORECASE),
+        "mistral",
+    ),
+    (
+        re.compile(r"generativelanguage\.googleapis\.com|ai\.google\.dev"),
+        re.compile(r'["\']finishReason["\']', re.IGNORECASE),
+        re.compile(r'==\s*["\']MAX_TOKENS["\']|["\']MAX_TOKENS["\']\s*==', re.IGNORECASE),
+        "google",
+    ),
+]
 
 
 def _scan_file(path: Path) -> list[str]:
@@ -70,24 +91,15 @@ def _scan_file(path: Path) -> list[str]:
     except Exception:
         return findings
 
-    hits_anthropic = bool(_ANTHROPIC_URL_RE.search(src))
-    hits_openai = bool(_OPENAI_URL_RE.search(src))
-
-    if hits_anthropic:
-        has_stop_reason = bool(_ANTHROPIC_STOP_REASON_RE.search(src))
-        has_reject = bool(_ANTHROPIC_MAX_TOKENS_LITERAL_RE.search(src))
-        if not (has_stop_reason and has_reject):
+    for url_re, field_re, literal_re, vendor in _VENDOR_SIGNATURES:
+        if not url_re.search(src):
+            continue
+        has_field = bool(field_re.search(src))
+        has_reject = bool(literal_re.search(src))
+        if not (has_field and has_reject):
             findings.append(
-                "calls api.anthropic.com but has no stop_reason=='max_tokens' "
-                "rejection — truncated output will flow to the parser"
-            )
-    if hits_openai:
-        has_finish_reason = bool(_OPENAI_FINISH_REASON_RE.search(src))
-        has_reject = bool(_OPENAI_LENGTH_LITERAL_RE.search(src))
-        if not (has_finish_reason and has_reject):
-            findings.append(
-                "calls api.openai.com but has no finish_reason=='length' "
-                "rejection — truncated output will flow to the parser"
+                f"calls {vendor} LLM API but has no truncation-sentinel "
+                f"rejection — truncated output will flow to the parser"
             )
     return findings
 
