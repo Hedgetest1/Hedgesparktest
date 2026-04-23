@@ -309,6 +309,22 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2o-septies-bis. Tier naming canonical audit. Born 2026-04-23 after
+# the Lite→Starter rename incident: a multi-file rename was built on
+# a stale memory premise without running the cheap disconfirming grep.
+# This audit asserts the canonical tier names (Lite/Pro/Scale) are
+# present in the landing page.tsx so any future unintentional rename
+# is blocked at commit time with a link to the memory explaining why.
+# ---------------------------------------------------------------------------
+step "Tier naming canonical (audit_tier_naming_canonical.py)"
+if "$PY" "$BACKEND/scripts/audit_tier_naming_canonical.py" --strict > /tmp/preflight_tier_naming.log 2>&1; then
+    ok "Lite/Pro/Scale canonical naming intact on landing"
+else
+    bad "tier naming drift detected — see /tmp/preflight_tier_naming.log"
+    tail -20 /tmp/preflight_tier_naming.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2o-septies. Session hook centralization audit. Enforces that only
 # `lib/useSession.ts` (and the legacy `/app/page.tsx` pre-Phase-2
 # migration target) call /merchant/me or /merchant/plan directly.
