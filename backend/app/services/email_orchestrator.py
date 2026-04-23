@@ -506,8 +506,16 @@ def _is_merchant_paused(db: Session, shop: str) -> bool:
             {"shop": shop},
         ).first()
         return bool(row and row[0]) if row else False
-    except Exception:
-        return False  # fail-open — don't block sends on query error
+    except Exception as exc:
+        # Fail-open — don't block sends on query error. Logged at WARNING
+        # so the fail-open firing is observable (pre-2026-04-23 this path
+        # was silent and an outage could have disabled the pause-respect
+        # gate without any signal).
+        log.warning(
+            "email_orch: _is_merchant_paused fail-open (shop=%s): %s",
+            shop, type(exc).__name__,
+        )
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -684,8 +692,15 @@ def _claim_send_slot(shop: str, email_type: str) -> bool:
                 email_type, shop,
             )
         return bool(result)
-    except Exception:
-        return True  # fail-open
+    except Exception as exc:
+        # Fail-open so Redis outage doesn't silence all emails. Logged
+        # at WARNING — the dupe-guard is a soft guarantee that depends
+        # on Redis; when it fails we want to know.
+        log.warning(
+            "email_orch: _claim_send_slot fail-open (shop=%s type=%s): %s",
+            shop, email_type, type(exc).__name__,
+        )
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -711,7 +726,13 @@ def _recent_send_count(db: Session, shop: str, days: int) -> int:
             {"shop": shop, "days": days},
         ).scalar()
         return int(row or 0)
-    except Exception:
+    except Exception as exc:
+        # Fail-safe 0 so one DB error doesn't block email sends, but log
+        # so we notice if rate-limit counting is silently broken at scale.
+        log.warning(
+            "email_orch: _recent_send_count fail-safe (shop=%s days=%d): %s",
+            shop, days, type(exc).__name__,
+        )
         return 0
 
 
@@ -851,7 +872,14 @@ def get_merchant_email_context(db: Session, shop: str) -> dict:
         sent_7d = int(row[1] or 0) if row else 0
         sent_30d = int(row[2] or 0) if row else 0
 
-    except Exception:
+    except Exception as exc:
+        # Fail-safe empty context — the caller uses this for display /
+        # governance telemetry, not for hard gating. Log so silent
+        # degradation is observable.
+        log.warning(
+            "email_orch: get_merchant_email_context fail-safe (shop=%s): %s",
+            shop, type(exc).__name__,
+        )
         last_sent = None
         sent_7d = 0
         sent_30d = 0
