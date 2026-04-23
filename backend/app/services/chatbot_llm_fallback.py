@@ -78,14 +78,25 @@ _INPUT_COST_EUR_PER_1K = 0.00092
 _OUTPUT_COST_EUR_PER_1K = 0.0046
 
 
-def _call_haiku(prompt: str) -> tuple[str | None, float]:
-    """Direct Anthropic Haiku call. Returns (answer, cost_eur)."""
+def _call_haiku(prompt: str) -> tuple[str | None, float, int, int]:
+    """Direct Anthropic Haiku call.
+
+    Returns (answer, cost_eur, input_tokens, output_tokens). The token
+    counts come from Anthropic's `usage` struct — ground truth, not
+    estimated from string length. Callers can thread these values into
+    `record_usage` for accurate global-budget accounting (2026-04-23
+    fix — previously the caller approximated with `len(answer)//4`
+    which drifts from reality on prompts with heavy tool/system context).
+
+    On any failure: returns (None, 0.0, 0, 0) so the caller's
+    `if not answer` branch still short-circuits cleanly.
+    """
     import os
     import httpx
 
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     if not api_key:
-        return None, 0.0
+        return None, 0.0, 0, 0
 
     # PII guard — merchant-facing chatbot prompt includes shop snapshot
     # (orders, RARS, products). Fail-closed mirrors budget-exhaustion path.
@@ -94,14 +105,14 @@ def _call_haiku(prompt: str) -> tuple[str | None, float]:
         assert_clean(prompt, context="chatbot_llm_fallback")
     except LLMPayloadViolation as exc:
         log.warning("chatbot_llm_fallback: pii_guard blocked call: %s", exc)
-        return None, 0.0
+        return None, 0.0, 0, 0
     except Exception as exc:
         log.debug("chatbot_llm_fallback: pii_guard non-fatal: %s", exc)
 
     try:
         from app.core.llm_budget import is_provider_backed_off, record_429
         if is_provider_backed_off("anthropic"):
-            return None, 0.0
+            return None, 0.0, 0, 0
     except Exception as exc:
         log.warning("chatbot_llm_fallback: backoff check failed: %s", exc)
 
@@ -123,7 +134,7 @@ def _call_haiku(prompt: str) -> tuple[str | None, float]:
         )
     except Exception as exc:
         log.warning("chatbot_llm: Haiku request failed: %s", type(exc).__name__)
-        return None, 0.0
+        return None, 0.0, 0, 0
 
     if resp.status_code == 429:
         try:
@@ -131,14 +142,14 @@ def _call_haiku(prompt: str) -> tuple[str | None, float]:
             record_429("anthropic")
         except Exception as exc:
             log.warning("chatbot_llm_fallback: record_429 failed: %s", exc)
-        return None, 0.0
+        return None, 0.0, 0, 0
 
     if resp.status_code != 200:
         log.warning(
             "chatbot_llm: Haiku returned %d: %s",
             resp.status_code, (resp.text or "")[:200],
         )
-        return None, 0.0
+        return None, 0.0, 0, 0
 
     try:
         data = resp.json()
@@ -150,10 +161,10 @@ def _call_haiku(prompt: str) -> tuple[str | None, float]:
         cost = (in_tok / 1000.0) * _INPUT_COST_EUR_PER_1K + (
             out_tok / 1000.0
         ) * _OUTPUT_COST_EUR_PER_1K
-        return answer or None, cost
+        return (answer or None), cost, in_tok, out_tok
     except Exception as exc:
         log.warning("chatbot_llm: Haiku parse failed: %s", exc)
-        return None, 0.0
+        return None, 0.0, 0, 0
 
 
 @dataclass
@@ -401,7 +412,7 @@ def try_llm_fallback(
     except Exception as exc:
         log.warning("chatbot_llm_fallback: budget gate check failed: %s", exc)
 
-    answer, actual_cost = _call_haiku(prompt)
+    answer, actual_cost, in_tokens, out_tokens = _call_haiku(prompt)
     if not answer:
         return LlmFallbackResult(
             success=False, answer=None, cost_eur=0.0, reason="llm_empty_or_error",
@@ -447,16 +458,16 @@ def try_llm_fallback(
     except Exception as exc:
         log.warning("chatbot_llm_fallback: record_merchant_charge failed: %s", exc)
 
-    # Record global-budget usage — 2026-04-23 audit found this call was
-    # missing, producing a budget-bypass where merchant-paid Haiku
-    # volume never rolled up into the monthly cap. tokens_used estimated
-    # from answer length since _call_haiku doesn't return the usage struct
-    # directly (matches the estimation style used in bugfix_pipeline).
+    # Record global-budget usage with GROUND-TRUTH token counts from
+    # Anthropic's usage struct (2026-04-23: threaded through from
+    # _call_haiku instead of `len(answer)//4` approximation). Fall back
+    # to len-based estimate only if Anthropic omitted usage entirely.
     try:
         from app.core.llm_budget import record_usage
+        tokens_used = (in_tokens + out_tokens) or (len(answer) // 4)
         record_usage(
             "chatbot_fallback",
-            tokens_used=len(answer) // 4,
+            tokens_used=tokens_used,
             provider="anthropic",
             model=_HAIKU_MODEL,
         )

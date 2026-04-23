@@ -51,7 +51,12 @@ def test_successful_call_records_global_usage(db):
     with patch.object(cb, "_should_use_llm", return_value=(True, "ok")), \
          patch.object(cb, "_build_rag_context", return_value=_make_rag_context()), \
          patch("app.core.llm_budget.check_budget", return_value=(True, "ok")), \
-         patch.object(cb, "_call_haiku", return_value=("Your last 30 days show 42 orders totaling €1234. Top product Widget contributed €500.", 0.0012)), \
+         patch.object(cb, "_call_haiku", return_value=(
+             "Your last 30 days show 42 orders totaling €1234. Top product Widget contributed €500.",
+             0.0012,
+             450,   # input_tokens (ground truth from Anthropic usage struct)
+             37,    # output_tokens
+         )), \
          patch.object(cb, "_validate_response", return_value=(True, "ok")), \
          patch("app.core.llm_budget.record_usage") as mock_record, \
          patch("app.core.llm_budget.record_merchant_charge") as mock_merchant:
@@ -65,6 +70,13 @@ def test_successful_call_records_global_usage(db):
     assert kwargs.get("model", "").startswith("claude-haiku"), (
         f"model must be a Haiku variant, got {kwargs.get('model')!r}"
     )
+    # Ground-truth token count: sum of Anthropic's input + output (2026-04-23).
+    # Previously the caller approximated with len(answer)//4 which drifts
+    # badly on prompts with heavy system context.
+    assert kwargs.get("tokens_used") == 450 + 37, (
+        f"tokens_used must equal input_tokens + output_tokens from Anthropic "
+        f"usage struct, got {kwargs.get('tokens_used')!r}"
+    )
     assert mock_merchant.call_count == 1, (
         "record_merchant_charge must continue firing (unchanged contract)"
     )
@@ -75,7 +87,7 @@ def test_llm_error_does_not_call_record_usage(db):
     with patch.object(cb, "_should_use_llm", return_value=(True, "ok")), \
          patch.object(cb, "_build_rag_context", return_value=_make_rag_context()), \
          patch("app.core.llm_budget.check_budget", return_value=(True, "ok")), \
-         patch.object(cb, "_call_haiku", return_value=(None, 0.0)), \
+         patch.object(cb, "_call_haiku", return_value=(None, 0.0, 0, 0)), \
          patch("app.core.llm_budget.record_usage") as mock_record:
         result = cb.try_llm_fallback(db, shop_domain="fixture.myshopify.com", message="question")
 
@@ -83,6 +95,33 @@ def test_llm_error_does_not_call_record_usage(db):
     assert result.reason == "llm_empty_or_error"
     assert mock_record.call_count == 0, (
         "record_usage must NOT fire when the LLM returned empty"
+    )
+
+
+def test_token_count_falls_back_to_estimate_when_usage_omitted(db):
+    """If Anthropic returns no usage struct, len-based estimate is used.
+
+    `_call_haiku` returns (0, 0) for input/output token counts when the
+    parse path can't find `usage.input_tokens` — the caller must fall
+    back to `len(answer)//4` rather than recording 0 (which would hide
+    the spend from global-budget accounting).
+    """
+    answer_text = "A" * 200  # deterministic length → 200//4 = 50 tokens
+    with patch.object(cb, "_should_use_llm", return_value=(True, "ok")), \
+         patch.object(cb, "_build_rag_context", return_value=_make_rag_context()), \
+         patch("app.core.llm_budget.check_budget", return_value=(True, "ok")), \
+         patch.object(cb, "_call_haiku", return_value=(answer_text, 0.001, 0, 0)), \
+         patch.object(cb, "_validate_response", return_value=(True, "ok")), \
+         patch("app.core.llm_budget.record_usage") as mock_record, \
+         patch("app.core.llm_budget.record_merchant_charge"):
+        result = cb.try_llm_fallback(db, shop_domain="fixture.myshopify.com", message="q")
+
+    assert result.success is True
+    assert mock_record.call_count == 1
+    _, kwargs = mock_record.call_args
+    assert kwargs.get("tokens_used") == 50, (
+        f"fallback to len-estimate when usage absent; expected 50 "
+        f"(len=200 // 4), got {kwargs.get('tokens_used')!r}"
     )
 
 
@@ -97,7 +136,7 @@ def test_validation_failure_does_not_record_usage(db):
     with patch.object(cb, "_should_use_llm", return_value=(True, "ok")), \
          patch.object(cb, "_build_rag_context", return_value=_make_rag_context()), \
          patch("app.core.llm_budget.check_budget", return_value=(True, "ok")), \
-         patch.object(cb, "_call_haiku", return_value=("Some answer", 0.001)), \
+         patch.object(cb, "_call_haiku", return_value=("Some answer", 0.001, 200, 10)), \
          patch.object(cb, "_validate_response", return_value=(False, "hallucinated_number")), \
          patch("app.core.llm_budget.record_usage") as mock_record, \
          patch("app.services.alerting.write_alert"):
