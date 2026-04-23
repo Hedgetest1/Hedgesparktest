@@ -184,6 +184,41 @@ class TestLoopHealth:
         stuck = [s for s in result["stuck_items"] if s["status"] == "open"]
         assert len(stuck) > 0
 
+    def test_visibility_only_sources_are_not_stuck(self, db):
+        # Regression: frontend_error (and any other _VISIBILITY_ONLY_SOURCE_TYPES)
+        # candidates are by design never auto-proposed — they stay in 'open'
+        # until a human operator triages them. They MUST NOT count as "stuck"
+        # in get_loop_health, otherwise they accumulate → is_healthy=False →
+        # circuit breaker trips → auto-apply paused (observed 5-day deadlock
+        # 2026-04-18 → 2026-04-23).
+        from app.services.bugfix_pipeline import _VISIBILITY_ONLY_SOURCE_TYPES
+
+        # Count pre-existing stuck rows so the assertion tolerates other
+        # test data already in the DB (session is SAVEPOINT-isolated but
+        # prior assertions in this test class may have created rows).
+        baseline = len(get_loop_health(db)["stuck_items"])
+
+        # Create one stuck candidate per visibility-only source type — all
+        # 10 days old, all status=open, well past the 72h threshold.
+        for src in _VISIBILITY_ONLY_SOURCE_TYPES:
+            vis = BugFixCandidate(
+                source_type=src,
+                source_ref=f"stuck_visibility_{src}",
+                title=f"Visibility-only stuck {src}",
+                status="open",
+                created_at=_now() - timedelta(days=10),
+            )
+            db.add(vis)
+        db.flush()
+
+        # Stuck count must NOT have grown — all the new rows are
+        # visibility-only and must be filtered out.
+        after = len(get_loop_health(db)["stuck_items"])
+        assert after == baseline, (
+            f"visibility-only candidates leaked into stuck_items "
+            f"(baseline={baseline}, after={after})"
+        )
+
     def test_healthy_with_no_issues(self, db):
         # Clean slate — should be healthy
         result = get_loop_health(db)

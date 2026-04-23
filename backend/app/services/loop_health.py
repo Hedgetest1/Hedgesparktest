@@ -455,16 +455,27 @@ def get_loop_health(db: Session) -> dict:
     # Stuck items — single aggregation instead of 5 per-status queries.
     # Each status has its own threshold hour cutoff; the CASE expression
     # encodes that mapping in SQL so we walk the table once.
+    #
+    # EXCLUDE visibility-only source types (frontend_error, etc.) — by design
+    # they never leave `open` (auto_propose skips them; operator triages
+    # manually). Counting them as "stuck" false-positives is_healthy → trips
+    # the circuit breaker forever → auto-apply paused deadlock (observed
+    # 2026-04-18 → 2026-04-23: 5 days of consecutive_unhealthy because
+    # 3 frontend_error candidates accumulated the query with nothing wrong).
+    from app.services.bugfix_pipeline import _VISIBILITY_ONLY_SOURCE_TYPES
+    _vis_only = tuple(_VISIBILITY_ONLY_SOURCE_TYPES) or ("__none__",)
     stuck_rows = db.execute(text("""
         SELECT status, COUNT(*) AS cnt
         FROM bugfix_candidates
-        WHERE (status = 'open'            AND created_at <= :cut_open)
-           OR (status = 'analyzed'        AND created_at <= :cut_analyzed)
-           OR (status = 'patch_proposed'  AND created_at <= :cut_proposed)
-           OR (status = 'approved'        AND created_at <= :cut_approved)
-           OR (status = 'applying'        AND created_at <= :cut_applying)
+        WHERE source_type NOT IN :vis_only
+          AND ((status = 'open'            AND created_at <= :cut_open)
+            OR (status = 'analyzed'        AND created_at <= :cut_analyzed)
+            OR (status = 'patch_proposed'  AND created_at <= :cut_proposed)
+            OR (status = 'approved'        AND created_at <= :cut_approved)
+            OR (status = 'applying'        AND created_at <= :cut_applying))
         GROUP BY status
     """), {
+        "vis_only":     _vis_only,
         "cut_open":     now - timedelta(hours=_STUCK_HOURS["open"]),
         "cut_analyzed": now - timedelta(hours=_STUCK_HOURS["analyzed"]),
         "cut_proposed": now - timedelta(hours=_STUCK_HOURS["patch_proposed"]),

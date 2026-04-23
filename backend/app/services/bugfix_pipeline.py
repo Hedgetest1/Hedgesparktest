@@ -2201,6 +2201,12 @@ def _recover_stuck_candidates(db: Session):
             .filter(
                 BugFixCandidate.status == state,
                 BugFixCandidate.created_at <= cutoff,
+                # Exclude visibility-only source_types (frontend_error etc.)
+                # — by design those never leave `open` (auto_propose skips
+                # them). Counting them here produces false pipeline_stall
+                # alerts that in turn trip the circuit breaker. Same root
+                # cause as the loop_health stuck_items filter.
+                ~BugFixCandidate.source_type.in_(list(_VISIBILITY_ONLY_SOURCE_TYPES)),
             )
             .order_by(BugFixCandidate.created_at)
             .limit(10)
