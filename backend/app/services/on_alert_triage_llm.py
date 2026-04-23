@@ -336,6 +336,10 @@ def _call_anthropic(
         )
         if resp.status_code == 200:
             data = resp.json()
+            # Truncation rejection — 2026-04-23 sweep.
+            if data.get("stop_reason") == "max_tokens":
+                log.warning("on_alert_triage_llm: anthropic TRUNCATED at max_tokens=%d", max_tokens)
+                return "", model, 0, 0
             txt = data.get("content", [{}])[0].get("text", "")
             _usage = data.get("usage") or {}
             return txt, model, int(_usage.get("input_tokens") or 0), int(_usage.get("output_tokens") or 0)
@@ -376,11 +380,12 @@ def _call_openai(
         )
         if resp.status_code == 200:
             data = resp.json()
-            txt = (
-                data.get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "")
-            )
+            choice = data.get("choices", [{}])[0]
+            # Truncation rejection — 2026-04-23 sweep.
+            if choice.get("finish_reason") == "length":
+                log.warning("on_alert_triage_llm: openai TRUNCATED at max_tokens=%d", max_tokens)
+                return "", model, 0, 0
+            txt = choice.get("message", {}).get("content", "")
             _usage = data.get("usage") or {}
             return txt, model, int(_usage.get("prompt_tokens") or 0), int(_usage.get("completion_tokens") or 0)
         if resp.status_code == 429:

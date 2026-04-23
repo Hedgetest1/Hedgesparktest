@@ -374,7 +374,15 @@ def _call_anthropic(system: str, user: str, key: str, model: str) -> str:
             timeout=_HTTP_TIMEOUT,
         )
         if r.status_code == 200:
-            return r.json().get("content", [{}])[0].get("text", "")
+            body = r.json()
+            # Truncation rejection — 2026-04-23 sweep. The benchmark
+            # corpus measures deterministic output-shape properties
+            # (JSON validity, refusal rate); a truncated response
+            # corrupts all downstream signals. Treat as errored.
+            if body.get("stop_reason") == "max_tokens":
+                log.info("llm_realmodel_drift: anthropic TRUNCATED — scenario errored")
+                return ""
+            return body.get("content", [{}])[0].get("text", "")
         if r.status_code == 429:
             record_429("anthropic")
             log.info("llm_realmodel_drift: anthropic 429 — tripped backoff")
@@ -420,10 +428,13 @@ def _call_openai(system: str, user: str, key: str, model: str) -> str:
             timeout=_HTTP_TIMEOUT,
         )
         if r.status_code == 200:
-            return (
-                r.json().get("choices", [{}])[0]
-                .get("message", {}).get("content", "")
-            )
+            body = r.json()
+            choice = body.get("choices", [{}])[0]
+            # Truncation rejection — 2026-04-23 sweep (mirror of anthropic).
+            if choice.get("finish_reason") == "length":
+                log.info("llm_realmodel_drift: openai TRUNCATED — scenario errored")
+                return ""
+            return choice.get("message", {}).get("content", "")
         if r.status_code == 429:
             record_429("openai")
             log.info("llm_realmodel_drift: openai 429 — tripped backoff")

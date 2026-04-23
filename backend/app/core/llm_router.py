@@ -20,9 +20,13 @@ from dataclasses import dataclass
 
 log = logging.getLogger("llm_router")
 
-# Model definitions
-SONNET = "claude-sonnet-4-20250514"
-OPUS = "claude-opus-4-20250514"
+# Model definitions — canonical per CLAUDE.md. Default to latest and
+# most capable. 2026-04-23 upgrade: Sonnet 4 → 4.6, Opus 4 → 4.7 (the
+# older -20250514 suffixes were stale Claude-4-original strings). Any
+# future upgrade goes through `model_upgrade_agent` proposal flow; this
+# is the pre-proposal baseline.
+SONNET = "claude-sonnet-4-6"
+OPUS = "claude-opus-4-7"
 
 SONNET_OPENAI = "gpt-4o-mini"
 OPUS_OPENAI = "gpt-4o"

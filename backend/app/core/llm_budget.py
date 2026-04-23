@@ -147,11 +147,18 @@ _BUDGET_ALERT_THRESHOLD = 0.9  # alert at 90% usage
 
 # Conservative cost-per-1k-token estimates (output tokens, which dominate cost)
 # These are UPPER BOUNDS — we'd rather block slightly early than overspend.
+# 2026-04-23: canonical keys refreshed to match llm_router lineup. Legacy
+# -20250514 keys kept as aliases so historical Redis counters keyed on
+# the old strings still resolve a cost.
 _COST_PER_1K_TOKENS: dict[str, float] = {
     "gpt-4o-mini":                 0.0006,   # $0.60/M output
     "gpt-4o":                      0.010,    # $10/M output
-    "claude-sonnet-4-20250514":    0.015,    # $15/M output
-    "claude-opus-4-20250514":      0.075,    # $75/M output
+    "claude-sonnet-4-6":           0.015,    # $15/M output
+    "claude-opus-4-7":             0.075,    # $75/M output
+    "claude-haiku-4-5-20251001":   0.004,    # $4/M output (Haiku 4.5)
+    # Legacy aliases (pre-2026-04-23 upgrade)
+    "claude-sonnet-4-20250514":    0.015,    # legacy alias
+    "claude-opus-4-20250514":      0.075,    # legacy alias
     "default":                     0.010,    # conservative fallback
 }
 

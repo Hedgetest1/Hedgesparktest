@@ -856,6 +856,12 @@ def _call_opus(context: str) -> str:
 
         if resp.status_code == 200:
             body = resp.json()
+            # Truncation rejection — 2026-04-23 sweep. Opus-generated
+            # strategic proposals must be complete to be parseable;
+            # truncated JSON would corrupt the proposal batch.
+            if body.get("stop_reason") == "max_tokens":
+                log.warning("monthly_audit: Opus TRUNCATED at max_tokens=%d", MAX_TOKENS)
+                return ""
             text = body.get("content", [{}])[0].get("text", "")
             # Ground-truth tokens from Anthropic usage struct (2026-04-23
             # sweep): previously only output_tokens was accounted, which

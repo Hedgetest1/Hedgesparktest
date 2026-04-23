@@ -389,6 +389,10 @@ def _call_opus(context: str) -> str:
         )
         if resp.status_code == 200:
             body = resp.json()
+            # Truncation rejection — 2026-04-23 sweep.
+            if body.get("stop_reason") == "max_tokens":
+                log.warning("meta_reviewer: Opus TRUNCATED — review result discarded")
+                return ""
             text_out = body.get("content", [{}])[0].get("text", "")
             # Ground-truth tokens (2026-04-23 sweep): previously only
             # output_tokens was recorded, understating Opus cost by ~50%.

@@ -153,6 +153,13 @@ def _call_haiku(prompt: str) -> tuple[str | None, float, int, int]:
 
     try:
         data = resp.json()
+        # Truncation rejection — 2026-04-23 sweep. A mid-answer cutoff
+        # would produce a partial merchant-facing response (bad UX) or
+        # invalid JSON (if the prompt asked for structured output).
+        # Reject cleanly; caller falls back to deterministic template.
+        if data.get("stop_reason") == "max_tokens":
+            log.warning("chatbot_llm: Haiku TRUNCATED at max_tokens=%d", _MAX_OUTPUT_TOKENS)
+            return None, 0.0, 0, 0
         content = data.get("content", [])
         answer = content[0].get("text", "") if content else ""
         usage = data.get("usage", {})

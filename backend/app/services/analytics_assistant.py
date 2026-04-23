@@ -34,7 +34,7 @@ log = logging.getLogger("analytics_assistant")
 
 _MAX_QUESTION_LEN = 500
 _MAX_TOKENS = 600
-_MODEL = "claude-sonnet-4-20250514"
+_MODEL = "claude-sonnet-4-6"  # 2026-04-23 upgrade from Sonnet 4 → 4.6
 _TIMEOUT = 25.0
 
 _SYSTEM_PROMPT = """\
@@ -299,6 +299,12 @@ def _call_anthropic(prompt: str) -> str:
         )
         if resp.status_code == 200:
             data = resp.json()
+            # Truncation rejection — 2026-04-23 sweep. A truncated answer
+            # to a merchant Q would cut off mid-insight (bad UX) — reject
+            # so the UI falls back to the deterministic template.
+            if data.get("stop_reason") == "max_tokens":
+                log.warning("analytics_assistant: anthropic TRUNCATED at max_tokens=%d", _MAX_TOKENS)
+                return ""
             text = data.get("content", [{}])[0].get("text", "")
             usage = data.get("usage") or {}
             total_tokens = int(usage.get("input_tokens") or 0) + int(usage.get("output_tokens") or 0)

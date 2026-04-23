@@ -643,12 +643,24 @@ async def _call_openai_with_retry(messages: list[dict]) -> str:
                 resp.raise_for_status()   # permanent errors raise immediately
                 data = resp.json()
 
+                # Truncation rejection — 2026-04-23 sweep. A truncated
+                # nudge variant would be partial copy rendered to a
+                # merchant's storefront. Fail explicit; caller falls back.
+                choice = data.get("choices", [{}])[0]
+                if choice.get("finish_reason") == "length":
+                    log.warning("nudge_composer: OpenAI TRUNCATED at max_tokens=%d", _OPENAI_MAX_TOKENS)
+                    raise httpx.HTTPStatusError(
+                        "truncated",
+                        request=resp.request,
+                        response=resp,
+                    )
+
                 # Record successful usage for budget tracking
                 from app.core.llm_budget import record_usage
                 tokens = data.get("usage", {}).get("total_tokens", _OPENAI_MAX_TOKENS)
                 record_usage("nudge_composer", tokens_used=tokens, provider="openai", model=_OPENAI_MODEL)
 
-                return data["choices"][0]["message"]["content"]
+                return choice["message"]["content"]
 
         except (httpx.TimeoutException, httpx.NetworkError) as exc:
             last_exc = exc

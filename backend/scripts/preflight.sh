@@ -351,6 +351,30 @@ else
     tail -20 /tmp/preflight_llm_tokens.log || true
 fi
 
+step "LLM truncation rejection audit (audit_llm_truncation_rejection.py)"
+if "$BACKEND/venv/bin/python" "$BACKEND/scripts/audit_llm_truncation_rejection.py" --strict > /tmp/preflight_llm_trunc.log 2>&1; then
+    ok "every LLM wrapper rejects truncated output"
+else
+    bad "LLM wrapper missing truncation rejection — see /tmp/preflight_llm_trunc.log"
+    tail -20 /tmp/preflight_llm_trunc.log || true
+fi
+
+step "LLM model freshness (audit_llm_model_version_freshness.py)"
+if "$BACKEND/venv/bin/python" "$BACKEND/scripts/audit_llm_model_version_freshness.py" --strict > /tmp/preflight_llm_fresh.log 2>&1; then
+    ok "every Claude model string matches canonical lineup"
+else
+    bad "stale Claude model string detected — see /tmp/preflight_llm_fresh.log"
+    tail -20 /tmp/preflight_llm_fresh.log || true
+fi
+
+step "LLM HTTP timeout presence (audit_llm_http_timeout.py)"
+if "$BACKEND/venv/bin/python" "$BACKEND/scripts/audit_llm_http_timeout.py" --strict > /tmp/preflight_llm_timeout.log 2>&1; then
+    ok "every httpx.post to LLM API has a timeout"
+else
+    bad "unbounded LLM httpx.post detected — see /tmp/preflight_llm_timeout.log"
+    tail -20 /tmp/preflight_llm_timeout.log || true
+fi
+
 step "LLM PII guard coverage (audit_llm_pii_guard_coverage.py)"
 if "$PY" "$BACKEND/scripts/audit_llm_pii_guard_coverage.py" --strict > /tmp/preflight_llm_pii.log 2>&1; then
     ok "every LLM call site passes through PII guard (or opt-out annotated)"

@@ -43,21 +43,25 @@ def _get_current_approved(module: str, db=None) -> dict:
     except Exception:
         return {"provider": "anthropic", "model": SONNET}
 
-# Candidate models to consider (update manually when new versions release)
+# Candidate models to consider (update manually when new versions release).
+# 2026-04-23: baseline matches current `llm_router.SONNET` / `OPUS`
+# defaults, so `_evaluate_candidate` no-ops via the current==candidate
+# dedup guard (line ~98). When Anthropic ships a version above 4.7/4.6,
+# add it here and the evaluation sprint fires on the next weekly cycle.
 CANDIDATE_MODELS = [
     {
         "provider": "anthropic",
-        "model": "claude-sonnet-4-20250514",
+        "model": "claude-sonnet-4-6",
         "modules": ["orchestrator", "bugfix_proposal", "evolution_audit"],
-        "reason": "Latest Sonnet release — improved instruction following",
-        "expected_benefit": "Better structured JSON output, fewer parse errors",
+        "reason": "Current Sonnet 4.6 baseline — placeholder until 4.7/5.0 ships",
+        "expected_benefit": "n/a — dedup path skips same-as-current",
     },
     {
         "provider": "anthropic",
-        "model": "claude-opus-4-20250514",
+        "model": "claude-opus-4-7",
         "modules": ["bugfix_proposal"],
-        "reason": "Opus 4 — stronger reasoning for complex multi-file patches",
-        "expected_benefit": "Higher quality patches for TIER_1+ bugs",
+        "reason": "Current Opus 4.7 baseline — placeholder until next release",
+        "expected_benefit": "n/a — dedup path skips same-as-current",
     },
 ]
 
@@ -210,10 +214,14 @@ def evaluate_upgrade(db: Session, proposal_id: int) -> str:
                     )
                     if resp.status_code == 200:
                         _body = resp.json()
-                        text = _body.get("content", [{}])[0].get("text", "")
-                        _usage = _body.get("usage") or {}
-                        in_tok = int(_usage.get("input_tokens") or 0)
-                        out_tok = int(_usage.get("output_tokens") or 0)
+                        # Truncation rejection — 2026-04-23 sweep.
+                        if _body.get("stop_reason") == "max_tokens":
+                            log.warning("model_upgrade: anthropic TRUNCATED — scenario result discarded")
+                        else:
+                            text = _body.get("content", [{}])[0].get("text", "")
+                            _usage = _body.get("usage") or {}
+                            in_tok = int(_usage.get("input_tokens") or 0)
+                            out_tok = int(_usage.get("output_tokens") or 0)
                     elif resp.status_code == 429:
                         record_429("anthropic")
                 except Exception as exc:
@@ -235,10 +243,15 @@ def evaluate_upgrade(db: Session, proposal_id: int) -> str:
                     )
                     if resp.status_code == 200:
                         _body = resp.json()
-                        text = _body.get("choices", [{}])[0].get("message", {}).get("content", "")
-                        _usage = _body.get("usage") or {}
-                        in_tok = int(_usage.get("prompt_tokens") or 0)
-                        out_tok = int(_usage.get("completion_tokens") or 0)
+                        _choice = _body.get("choices", [{}])[0]
+                        # Truncation rejection — 2026-04-23 sweep.
+                        if _choice.get("finish_reason") == "length":
+                            log.warning("model_upgrade: openai TRUNCATED — scenario result discarded")
+                        else:
+                            text = _choice.get("message", {}).get("content", "")
+                            _usage = _body.get("usage") or {}
+                            in_tok = int(_usage.get("prompt_tokens") or 0)
+                            out_tok = int(_usage.get("completion_tokens") or 0)
                     elif resp.status_code == 429:
                         record_429("openai")
                 except Exception as exc:

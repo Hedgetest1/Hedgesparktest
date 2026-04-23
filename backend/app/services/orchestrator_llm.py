@@ -195,7 +195,7 @@ Analyze the system state and propose actions if needed. Return strict JSON."""
 # API callers
 # ---------------------------------------------------------------------------
 
-def _call_anthropic(user_message: str, model: str = "claude-sonnet-4-20250514", max_tokens: int = 512) -> tuple[str, str, int, int]:
+def _call_anthropic(user_message: str, model: str = "claude-sonnet-4-6", max_tokens: int = 512) -> tuple[str, str, int, int]:
     """Call Anthropic Claude API. Handles 429 with backoff.
 
     Returns (response_text, model_name, input_tokens, output_tokens).
@@ -227,6 +227,13 @@ def _call_anthropic(user_message: str, model: str = "claude-sonnet-4-20250514", 
         )
         if resp.status_code == 200:
             data = resp.json()
+            # Truncation rejection — 2026-04-23 sweep. Anthropic signals
+            # mid-response cutoff via stop_reason="max_tokens". Truncated
+            # JSON downstream is unparseable; better to fail explicitly
+            # here than let _parse_response silently reject garbage.
+            if data.get("stop_reason") == "max_tokens":
+                log.warning("orchestrator_llm: Anthropic TRUNCATED at max_tokens=%d", max_tokens)
+                return "", model, 0, 0
             text = data.get("content", [{}])[0].get("text", "")
             _usage = data.get("usage") or {}
             return text, model, int(_usage.get("input_tokens") or 0), int(_usage.get("output_tokens") or 0)
@@ -274,7 +281,13 @@ def _call_openai(user_message: str, model: str = "gpt-4o-mini", max_tokens: int 
         )
         if resp.status_code == 200:
             data = resp.json()
-            text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            choice = data.get("choices", [{}])[0]
+            # Truncation rejection — 2026-04-23 sweep. OpenAI signals
+            # mid-response cutoff via choices[0].finish_reason == "length".
+            if choice.get("finish_reason") == "length":
+                log.warning("orchestrator_llm: OpenAI TRUNCATED at max_tokens=%d", max_tokens)
+                return "", model, 0, 0
+            text = choice.get("message", {}).get("content", "")
             _usage = data.get("usage") or {}
             return text, model, int(_usage.get("prompt_tokens") or 0), int(_usage.get("completion_tokens") or 0)
         if resp.status_code == 429:

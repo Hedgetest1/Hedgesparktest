@@ -35,8 +35,16 @@ FIXED_COSTS = {
     "resend_email": float(os.getenv("COST_RESEND_EUR", "0.0")),
 }
 
-# LLM cost per 1K tokens (approximate, input+output blended)
+# LLM cost per 1K tokens (approximate, input+output blended).
+# 2026-04-23: keys refreshed to match the canonical model strings in
+# `llm_router` (Sonnet 4 → 4.6, Opus 4 → 4.7). Old keys retained as
+# aliases so historical rows in `llm_daily_usage` don't lose cost
+# attribution when the summary walks Redis counters.
 LLM_COST_PER_1K = {
+    "anthropic:claude-sonnet-4-6": 0.006,
+    "anthropic:claude-opus-4-7": 0.030,
+    "anthropic:claude-haiku-4-5-20251001": 0.0015,
+    # Legacy aliases (pre-2026-04-23 upgrade)
     "anthropic:claude-sonnet-4-20250514": 0.006,
     "anthropic:claude-opus-4-20250514": 0.030,
     "openai:gpt-4o-mini": 0.0003,
