@@ -111,6 +111,10 @@ def run_invariant_check(db: Session) -> dict:
         _check_postgres_capacity(db, summary)
     except Exception as exc:
         log.warning("invariant_monitor: postgres-capacity check failed: %s", exc)
+    try:
+        _check_bugfix_proposal_provenance(db, summary)
+    except Exception as exc:
+        log.warning("invariant_monitor: bugfix-provenance check failed: %s", exc)
 
     for script_name, alert_type, source in _AUDITS:
         summary["checked"] += 1
@@ -303,6 +307,94 @@ def _check_redis_durability(db: Session, summary: dict) -> None:
         summary["alerts_written"] += 1
     except Exception as exc:
         log.error("invariant_monitor: redis-durability alert write failed: %s", exc)
+
+
+def _check_bugfix_proposal_provenance(db: Session, summary: dict) -> None:
+    """BugFixCandidate.proposal_provider must be populated whenever propose
+    was attempted — runtime regression detector for the 2026-04-23 fix.
+
+    Background: an E2E probe on 2026-04-23 exposed a latent observability
+    gap — when a downstream validator (diff-structure, semantic, security)
+    rejected an LLM-proposed patch, `candidate.proposal_provider` stayed
+    NULL even though the LLM had been called and budget had been charged.
+    Post-hoc cost attribution was therefore impossible. The fix threads
+    actual_provider from _call_llm back into propose_patch and persists
+    it BEFORE any validation gate (plus `"template_cache"` sentinel on
+    cache-hit path for truthful accounting).
+
+    This check fires if ANY BugFixCandidate from the last 24h has
+    `proposal_attempted_at IS NOT NULL AND proposal_provider IS NULL`.
+    Such a row would mean the fix regressed silently — either via direct
+    edit of propose_patch, via a new caller that forgot the contract, or
+    via a new proposal source (not LLM, not cache) that was wired in
+    without an explicit sentinel.
+
+    Threshold: 1 (zero tolerance — the fix is trivial to get right).
+    """
+    _expected_min_window_hours = int(os.getenv(
+        "EXPECTED_BUGFIX_PROVENANCE_WINDOW_HOURS", "24"
+    ))
+    from sqlalchemy import text as _text
+    # Hours is int-coerced from env above, safe to interpolate directly.
+    # SQLAlchemy text() does not support parameter-binding for INTERVAL
+    # literal values, hence the f-string.
+    sql = (
+        "SELECT id, title, source_type, proposal_attempted_at, status "
+        "FROM bugfix_candidates "
+        "WHERE proposal_attempted_at IS NOT NULL "
+        "  AND proposal_provider IS NULL "
+        f"  AND proposal_attempted_at > NOW() - INTERVAL '{_expected_min_window_hours} hours' "
+        "ORDER BY proposal_attempted_at DESC LIMIT 5"
+    )
+    try:
+        rows = db.execute(_text(sql)).fetchall()
+    except Exception as exc:
+        log.warning("invariant_monitor: bugfix-provenance probe failed: %s", exc)
+        return
+
+    summary["checked"] += 1
+    if not rows:
+        return
+
+    summary["failed"] += 1
+    sample = [
+        {
+            "candidate_id": r[0],
+            "title": (r[1] or "")[:80],
+            "source_type": r[2],
+            "proposal_attempted_at": r[3].isoformat() if r[3] else None,
+            "status": r[4],
+        }
+        for r in rows
+    ]
+    try:
+        from app.services.alerting import write_alert
+        write_alert(
+            db,
+            severity="warning",
+            source="invariant:bugfix_proposal_provenance",
+            alert_type="invariant_regression",
+            summary=(
+                f"{len(rows)} BugFixCandidate row(s) in last "
+                f"{_expected_min_window_hours}h have proposal_attempted_at "
+                "set but proposal_provider=NULL — observability regression"
+            ),
+            detail={
+                "window_hours": _expected_min_window_hours,
+                "rows_affected_sample": sample,
+                "class": "bugfix_proposal_provenance_regression",
+                "remediation": (
+                    "Check app/services/bugfix_pipeline.py::propose_patch — "
+                    "actual_provider from _call_llm must be written to "
+                    "candidate.proposal_provider BEFORE any validation gate. "
+                    "Template-cache hits must set proposal_provider="
+                    "'template_cache'. See 2026-04-23 E2E probe commit."
+                ),
+            },
+        )
+        summary["alerts_written"] += 1
+    except Exception as exc:
+        log.error("invariant_monitor: bugfix-provenance alert write failed: %s", exc)
 
 
 def _check_postgres_capacity(db: Session, summary: dict) -> None:

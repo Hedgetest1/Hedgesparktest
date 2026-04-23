@@ -245,9 +245,12 @@ def test_bugfix_anthropic_timeout_fallback(monkeypatch):
         return _openai_ok('{"diff":"--- a\\n+++ b\\n"}')
 
     with patch("httpx.post", side_effect=fake_post):
-        result = bugfix_pipeline._call_llm("fix this bug")
+        text, provider, model = bugfix_pipeline._call_llm("fix this bug")
 
-    assert result, "fallback to openai must return content"
+    assert text, "fallback to openai must return content"
+    assert provider == "openai", (
+        f"fallback must record openai as actual provider, got {provider!r}"
+    )
     # Verify cost was recorded under openai (actual provider), not none/anthropic
     assert llm_budget._provider_cost_eur.get("openai", 0) > 0, (
         "openai cost must be recorded when fallback engages"
@@ -269,9 +272,10 @@ def test_bugfix_anthropic_500_fallback(monkeypatch):
         return _openai_ok('{"ok":1}')
 
     with patch("httpx.post", side_effect=fake_post):
-        result = bugfix_pipeline._call_llm("task")
+        text, provider, _model = bugfix_pipeline._call_llm("task")
 
-    assert result == '{"ok":1}'
+    assert text == '{"ok":1}'
+    assert provider == "openai"
 
 
 def test_bugfix_both_fail_returns_empty_no_crash(monkeypatch):
@@ -288,9 +292,14 @@ def test_bugfix_both_fail_returns_empty_no_crash(monkeypatch):
         raise httpx.ConnectError("network")
 
     with patch("httpx.post", side_effect=fake_post):
-        result = bugfix_pipeline._call_llm("task")
+        text, provider, _model = bugfix_pipeline._call_llm("task")
 
-    assert result == ""
+    assert text == ""
+    # Even on full failure, provider must be populated so the candidate row
+    # records which provider was attempted last (truthful provenance).
+    assert provider in ("anthropic", "openai"), (
+        f"provider must record last-attempted even on failure, got {provider!r}"
+    )
     # Allow for escalation retry (sonnet → opus): max 4 calls
     # (2 providers × 2 attempts with escalation)
     assert call_count[0] <= 4, "no infinite retry loop"

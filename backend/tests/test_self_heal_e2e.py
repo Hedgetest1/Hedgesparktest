@@ -286,7 +286,7 @@ def test_self_heal_e2e_real_propose_with_fake_llm(db):
     #    path. Only the network boundary is stubbed.
     with patch(
         "app.services.bugfix_pipeline._call_llm",
-        return_value=_FAKE_LLM_RESPONSE,
+        return_value=(_FAKE_LLM_RESPONSE, "anthropic", "claude-sonnet-4-6"),
     ) as mocked_call:
         success = propose_patch(db, candidate.id)
         db.flush()
@@ -405,7 +405,7 @@ def test_self_heal_e2e_real_propose_fingerprint_dedup(db):
     # budget contention with pre-existing rows on the shared dev DB).
     with patch(
         "app.services.bugfix_pipeline._call_llm",
-        return_value=_FAKE_LLM_RESPONSE,
+        return_value=(_FAKE_LLM_RESPONSE, "anthropic", "claude-sonnet-4-6"),
     ) as mocked_call:
         propose_patch(db, candidate.id)
 

@@ -124,7 +124,10 @@ def test_propose_patch_stores_result(db):
         "test_command": "python -m pytest tests/test_mock_stores.py -v",
     })
 
-    with patch("app.services.bugfix_pipeline._call_llm", return_value=mock_response):
+    with patch(
+        "app.services.bugfix_pipeline._call_llm",
+        return_value=(mock_response, "anthropic", "claude-sonnet-4-6"),
+    ):
         result = propose_patch(db, c.id)
 
     assert result is True
@@ -133,6 +136,69 @@ def test_propose_patch_stores_result(db):
     assert c.patch_summary == "Add test for alerting module"
     assert "test_mock_stores" in c.patch_diff
     assert c.test_command is not None
+    # proposal_provider is set from the actual return tuple (2026-04-23 fix)
+    assert c.proposal_provider == "anthropic"
+
+
+def test_propose_patch_records_provider_even_on_downstream_validation_failure(db):
+    """
+    E2E probe on 2026-04-23 surfaced a latent observability gap:
+    `candidate.proposal_provider` was only persisted when the WHOLE propose
+    flow succeeded. When a downstream validator (diff-structure,
+    diff-semantics, security-guard, post-LLM fingerprint) rejected the
+    patch, the row said `proposal_provider=None` even though the LLM had
+    been called and Anthropic/OpenAI had been billed. This made cost
+    attribution and post-hoc "which provider failed most" queries
+    impossible.
+
+    Contract: once _call_llm returns a non-empty provider sentinel, the
+    caller MUST persist it on the candidate immediately, BEFORE any
+    validation gate.
+    """
+    c = BugFixCandidate(
+        source_type="manual", source_ref="provider-preserve-test",
+        title="Validation-rejected patch preserves provider",
+        summary="Diff missing leading space on context line",
+        status="open",
+    )
+    db.add(c)
+    db.flush()
+
+    # LLM returns a syntactically well-formed JSON wrapper but the diff
+    # itself is malformed (context line with no leading space) — this is
+    # the exact class of failure seen empirically in the prod probe.
+    bad_diff_response = json.dumps({
+        "patch_summary": "Add docstring",
+        "files": ["tests/test_provider_preserve.py"],
+        "diff": (
+            "--- a/tests/test_provider_preserve.py\n"
+            "+++ b/tests/test_provider_preserve.py\n"
+            "@@ -1,3 +1,4 @@\n"
+            "+\"\"\"\n"
+            "this context line has no leading space — MALFORMED\n"
+            "\"\"\"\n"
+            " import os\n"
+        ),
+        "test_command": "",
+    })
+
+    with patch(
+        "app.services.bugfix_pipeline._call_llm",
+        return_value=(bad_diff_response, "anthropic", "claude-sonnet-4-6"),
+    ):
+        result = propose_patch(db, c.id)
+
+    db.refresh(c)
+    # Propose should have FAILED at a downstream validator
+    assert result is False
+    assert c.status == "analyzed"
+    assert c.failure_reason is not None
+    # …BUT provenance must still be on the row. This is the contract the
+    # E2E probe exposed as broken.
+    assert c.proposal_provider == "anthropic", (
+        f"proposal_provider must survive downstream validation failure; "
+        f"got {c.proposal_provider!r} with failure_reason={c.failure_reason!r}"
+    )
 
 
 def test_propose_patch_does_not_apply(db):
@@ -151,7 +217,10 @@ def test_propose_patch_does_not_apply(db):
         "test_command": "pytest",
     })
 
-    with patch("app.services.bugfix_pipeline._call_llm", return_value=mock_response):
+    with patch(
+        "app.services.bugfix_pipeline._call_llm",
+        return_value=(mock_response, "anthropic", "claude-sonnet-4-6"),
+    ):
         propose_patch(db, c.id)
 
     # Status is proposed, NOT applied
@@ -269,7 +338,10 @@ def test_slack_failure_does_not_break_proposal(db):
         "test_command": "",
     })
 
-    with patch("app.services.bugfix_pipeline._call_llm", return_value=mock_response), \
+    with patch(
+        "app.services.bugfix_pipeline._call_llm",
+        return_value=(mock_response, "anthropic", "claude-sonnet-4-6"),
+    ), \
          patch("app.core.alert_delivery._SLACK_URL", "https://fake"), \
          patch("app.core.alert_delivery.httpx.post", side_effect=Exception("slack down")):
         result = propose_patch(db, c.id)

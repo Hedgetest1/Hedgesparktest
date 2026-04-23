@@ -1568,10 +1568,11 @@ def run_auto_propose(db: Session, max_per_cycle: int = 2) -> dict:
             success = propose_patch(db, c.id)
             if success:
                 summary["proposed"] += 1
-                # Determine provider from env
-                c.proposal_provider = "anthropic" if os.getenv("ANTHROPIC_API_KEY", "").strip() else (
-                    "openai" if os.getenv("OPENAI_API_KEY", "").strip() else "none"
-                )
+                # proposal_provider is now set inside propose_patch() from the
+                # actual provider the router invoked (2026-04-23 fix). We no
+                # longer infer it from env presence, which was a heuristic that
+                # lied when backoff flipped providers mid-call or when the
+                # router chose openai despite anthropic being available.
             else:
                 summary["failed"] += 1
                 c.proposal_error = c.failure_reason or "proposal_returned_false"
@@ -2977,6 +2978,11 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
                     candidate.context_json,
                     source_candidate_id=cached_template.get("source_candidate_id"),
                 )
+                # Truthful provenance: cache hits are not LLM calls but they
+                # ARE a distinct proposal source. Marking the row explicitly
+                # prevents the invariant_monitor "missing proposal_provider"
+                # check from false-positiving on legitimate cache hits.
+                candidate.proposal_provider = "template_cache"
                 log.info(
                     "propose_patch: TEMPLATE CACHE HIT id=%d key=%s (from candidate #%s)",
                     candidate.id,
@@ -2987,8 +2993,16 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
             log.debug("propose_patch: template reuse skipped: %s", exc)
             raw = ""
 
+    actual_provider = ""
+    actual_model = ""
     if not raw:
-        raw = _call_llm(user_message, patch_risk_tier=None, file_count=file_count)
+        raw, actual_provider, actual_model = _call_llm(user_message, patch_risk_tier=None, file_count=file_count)
+        # Persist provenance IMMEDIATELY, before any downstream validation
+        # gate — even a rejected patch cost real money and the audit trail
+        # must record which provider was invoked. Template-cache hits keep
+        # provider=None (no external call was made).
+        if actual_provider:
+            candidate.proposal_provider = actual_provider
     if not raw:
         candidate.failure_reason = "llm_call_failed"
         db.flush()
@@ -3163,10 +3177,13 @@ def _call_llm(
     patch_risk_tier: int | None = None,
     file_count: int = 1,
     previous_failed: bool = False,
-) -> str:
+) -> tuple[str, str, str]:
     """
     Call LLM for patch proposal. Budget-guarded + model-routed.
-    Returns raw response text or empty string.
+    Returns (raw_text, actual_provider, actual_model). Empty text on failure.
+    actual_provider/model are populated whenever the HTTP call was attempted
+    (success OR failure), so callers can persist truthful provenance on the
+    candidate row even when downstream validation rejects the patch.
     If Sonnet fails, retries once with Opus (escalation).
     """
     from app.core.llm_budget import check_budget, record_usage, record_blocked
@@ -3183,7 +3200,7 @@ def _call_llm(
         assert_clean(user_message, context="bugfix_proposal")
     except LLMPayloadViolation as exc:
         log.error("bugfix_pipeline: %s", exc)
-        return ""
+        return "", "pii_blocked", ""
     except Exception as exc:
         log.debug("bugfix_pipeline: llm_pii_guard non-fatal: %s", exc)
 
@@ -3191,7 +3208,7 @@ def _call_llm(
     if not allowed:
         record_blocked("bugfix_proposal", reason)
         log.info("bugfix_pipeline: LLM call blocked by budget: %s", reason)
-        return ""
+        return "", "budget_blocked", ""
 
     from app.core.llm_router import select_model
     import httpx
@@ -3212,14 +3229,17 @@ def _call_llm(
 
     if text:
         record_usage("bugfix_proposal", tokens_used=len(text) // 4, provider=actual_provider, model=actual_model)
-        return text
+        return text, actual_provider, actual_model
 
     # Escalation: if Sonnet failed and not already escalated, try Opus once
     if not previous_failed and not sel.escalation:
         log.info("bugfix_pipeline: Sonnet failed, escalating to Opus")
         return _call_llm(user_message, patch_risk_tier=patch_risk_tier, file_count=file_count, previous_failed=True)
 
-    return ""
+    # Call was attempted but produced no text — still return the provider
+    # the router picked so the candidate row records "we tried anthropic
+    # and it failed", not "we never called anything".
+    return "", actual_provider or sel.provider, actual_model or sel.model
 
 
 def _call_provider(sel, user_message: str, anthropic_key: str, openai_key: str) -> tuple[str, str, str]:

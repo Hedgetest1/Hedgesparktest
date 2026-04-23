@@ -58,7 +58,10 @@ def test_auto_propose_attempts_open_candidates(db):
         "test_command": "pytest",
     })
 
-    with patch("app.services.bugfix_pipeline._call_llm", return_value=mock_response):
+    with patch(
+        "app.services.bugfix_pipeline._call_llm",
+        return_value=(mock_response, "anthropic", "claude-sonnet-4-6"),
+    ):
         summary = run_auto_propose(db)
 
     assert summary["attempted"] >= 1
@@ -83,7 +86,10 @@ def test_auto_propose_stores_error_on_failure(db):
     """LLM failure stores proposal_error without crashing."""
     c = _make_open(db)
 
-    with patch("app.services.bugfix_pipeline._call_llm", return_value=""):
+    with patch(
+        "app.services.bugfix_pipeline._call_llm",
+        return_value=("", "anthropic", "claude-sonnet-4-6"),
+    ):
         summary = run_auto_propose(db)
 
     assert summary["failed"] >= 1
@@ -109,11 +115,17 @@ def test_auto_propose_sets_provider(db):
     c = _make_open(db)
     mock_response = json.dumps({"patch_summary": "fix", "files": ["tests/test_mock_prov.py"], "diff": "--- /dev/null\n+++ b/tests/test_mock_prov.py\n@@ -0,0 +1 @@\n+# test\n", "test_command": ""})
 
-    with patch("app.services.bugfix_pipeline._call_llm", return_value=mock_response):
+    with patch(
+        "app.services.bugfix_pipeline._call_llm",
+        return_value=(mock_response, "openai", "gpt-4o-mini"),
+    ):
         run_auto_propose(db)
 
     db.refresh(c)
-    assert c.proposal_provider is not None
+    # proposal_provider now reflects the ACTUAL provider the router used
+    # (set inside propose_patch from the _call_llm tuple), not an env-based
+    # heuristic. See bugfix_pipeline.py 2026-04-23 fix.
+    assert c.proposal_provider == "openai"
 
 
 # ---------------------------------------------------------------------------

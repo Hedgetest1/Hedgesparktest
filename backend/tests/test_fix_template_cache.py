@@ -315,7 +315,7 @@ def test_propose_patch_calls_llm_on_cache_miss(db):
 
     with mock_patch(
         "app.services.bugfix_pipeline._call_llm",
-        return_value=mock_response,
+        return_value=(mock_response, "anthropic", "claude-sonnet-4-6"),
     ) as mock_llm:
         propose_patch(db, victim.id)
         assert mock_llm.called, "cache miss must fall through to _call_llm"

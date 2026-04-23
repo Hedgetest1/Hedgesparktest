@@ -167,9 +167,12 @@ def test_call_llm_blocks_when_payload_has_pii(monkeypatch):
                        lambda *a, **kw: (_ for _ in ()).throw(
                            AssertionError("provider should not be called")))
 
-    result = bp._call_llm(
+    text, provider, _model = bp._call_llm(
         "Debug context: customer alice@example.com requested refund",
         patch_risk_tier=0,
         file_count=1,
     )
-    assert result == ""
+    assert text == ""
+    # PII block records a sentinel provider so the caller can distinguish
+    # "PII-blocked" from "budget-exhausted" from "HTTP-call-failed".
+    assert provider == "pii_blocked"
