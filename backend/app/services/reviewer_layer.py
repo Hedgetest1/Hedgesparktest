@@ -8,10 +8,13 @@ constitution.
 
 PRIMARY MODE: deterministic (no LLM, no token cost).
     Domain classification → criticality check → constitution rules →
-    history check → blast radius → verdict.
-
-OPTIONAL MODE: llm_assisted (gated, budget-checked).
-    Deterministic assessment + LLM nuance layer. Requires explicit opt-in.
+    history check → blast radius → verdict. This is the only mode
+    currently implemented; the `mode` parameter accepts "llm_assisted"
+    for forward-compat but routes through the same deterministic path.
+    A future enhancement may add LLM nuance on top, gated via
+    `app.core.llm_budget.check_budget`. Until then, any caller that
+    passes `mode="llm_assisted"` gets the deterministic result with
+    the mode string stored on the assessment row for reporting.
 
 Public interface:
     review_entity(db, entity_type, entity_id, mode="deterministic") -> ReviewerAssessment
@@ -471,7 +474,10 @@ def review_entity(
         db: Database session
         entity_type: bugfix_candidate | evolution_proposal | action_approval | model_upgrade | scaling_recommendation
         entity_id: Primary key of the entity
-        mode: "deterministic" (default, no LLM) or "llm_assisted" (budget-gated)
+        mode: "deterministic" (default). "llm_assisted" is accepted for
+              forward-compat but currently routes through the same
+              deterministic path — the mode string is stored on the
+              ReviewerAssessment row but no LLM is invoked yet.
 
     Returns:
         ReviewerAssessment row (persisted to DB), or None if entity not found.
@@ -532,6 +538,11 @@ def review_entity(
         # bugfix_pipeline.touches_self_healing_pipeline check. Defense in
         # depth: if classify_patch_risk missed it or a future refactor
         # weakens that check, the reviewer still catches it.
+        #
+        # FAIL-CLOSED: if the guard itself fails to run (import error,
+        # refactor broke it, etc.), treat as a blocking safety concern.
+        # A self-healing-pipeline check that silently skipped would let a
+        # patch bypass the protection. 2026-04-23 reviewer_layer audit.
         try:
             from app.services.bugfix_pipeline import touches_self_healing_pipeline
             files_list = entity.get("files") or []
@@ -542,12 +553,23 @@ def review_entity(
                         "Patch touches self-healing pipeline files — human review required"
                     )
         except Exception as exc:
-            log.warning("reviewer_layer: review_entity failed: %s", exc)
+            log.warning(
+                "reviewer_layer: self-mod guard failed — forcing block: %s",
+                exc,
+            )
+            blocking.append(
+                "reviewer safety check failed (self-modification guard) — "
+                "cannot verify patch does not touch pipeline; manual review required"
+            )
 
         # Elite block 3: prior-failure fingerprint match — if 3+ prior
         # candidates in the same (domain, source_type) have apply_failed
         # or rolled_back, this one is likely to fail too. Downgrade to
         # human review instead of burning budget.
+        #
+        # FAIL-CLOSED: if the fingerprint query itself errors, we can't
+        # prove the patch is NOT in a failing pattern, so we must treat
+        # it as blocked rather than silently skip. 2026-04-23 audit.
         try:
             from app.models.patch_fingerprint import PatchFingerprint
             from datetime import timedelta
@@ -571,7 +593,14 @@ def review_entity(
                         "new approach needed, not auto-approvable"
                     )
         except Exception as exc:
-            log.warning("reviewer_layer: review_entity failed: %s", exc)
+            log.warning(
+                "reviewer_layer: prior-failure check failed — forcing block: %s",
+                exc,
+            )
+            blocking.append(
+                "reviewer safety check failed (prior-failure fingerprint) — "
+                "cannot verify absence of recurring failure pattern; manual review required"
+            )
 
     if entity["type"] == "model_upgrade":
         if entity.get("eval_result") == "fail":
