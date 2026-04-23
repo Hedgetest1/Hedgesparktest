@@ -800,7 +800,17 @@ def _cmd_scaling(db) -> str:
 # ---------------------------------------------------------------------------
 
 def _cmd_approvals(db) -> str:
-    """List pending TIER_1 action approvals."""
+    """List pending TIER_1 action approvals.
+
+    audit-log: read-only — the UPDATE below expires rows whose
+    expires_at has already passed. This is a lazy-expiry hygiene
+    pattern, not an operator-initiated destructive action: the
+    expiration is time-driven, the operator is just the trigger
+    for the cleanup to happen at this moment. No compliance audit
+    needed per CLAUDE.md §9.3 (operator accountability applies to
+    DECISIONS, not time-driven hygiene). If the lazy-expiry is ever
+    moved to a scheduled task, remove this annotation.
+    """
     if db is None:
         return "No DB session available."
 
@@ -809,7 +819,7 @@ def _cmd_approvals(db) -> str:
 
     now = _now()
 
-    # Expire old approvals
+    # Expire old approvals (lazy-expiry hygiene — see docstring)
     db.execute(text(
         "UPDATE action_approvals SET status = 'expired' "
         "WHERE status = 'pending' AND expires_at < :now"

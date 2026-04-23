@@ -373,6 +373,24 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2o-septies-sexies. Telegram destructive-command audit_log enforcement.
+# Born 2026-04-23 after the Tier-A telegram_agent audit found 2
+# destructive operator commands (_cmd_cleanup_confirm, _cmd_cleanup_safe)
+# mutating DB state with only log.warning() instead of a hash-chained
+# audit_log row. This audit scans every _cmd_* function in
+# telegram_agent.py and asserts it either calls write_audit_log()
+# when it touches UPDATE/DELETE/INSERT SQL OR is annotated
+# `# audit-log: read-only — <reason>` for pure-read commands.
+# ---------------------------------------------------------------------------
+step "Telegram destructive audit_log (audit_telegram_destructive_audited.py)"
+if "$PY" "$BACKEND/scripts/audit_telegram_destructive_audited.py" --strict > /tmp/preflight_tg_audit.log 2>&1; then
+    ok "every destructive _cmd_* writes audit_log (or opt-out annotated)"
+else
+    bad "destructive _cmd_* missing audit_log — see /tmp/preflight_tg_audit.log"
+    tail -20 /tmp/preflight_tg_audit.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2o-septies. Session hook centralization audit. Enforces that only
 # `lib/useSession.ts` (and the legacy `/app/page.tsx` pre-Phase-2
 # migration target) call /merchant/me or /merchant/plan directly.
