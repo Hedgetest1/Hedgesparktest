@@ -211,19 +211,43 @@ _RATE_LIMITS = {
     "/bugfix_apply": 2, "/rollback": 2, "/merge": 2,
 }
 
-_rate_buckets: dict[str, list[float]] = {}  # multi-worker: accept-degrade — operator commands rare, per-worker rate limit tolerated
+_rate_buckets: dict[str, list[float]] = {}  # multi-worker: redis-backed — fallback for Redis-outage only
 _RATE_WINDOW = 60.0
+_RATE_REDIS_PREFIX = "hs:tg_ratelimit:v1"
 
 
 def check_criticality_rate(cmd: str) -> tuple[bool, int]:
     """
     Check criticality-based rate limit.
+
+    Redis primary (INCR per 60s sliding window, cross-worker correct),
+    in-process fallback when Redis unreachable. Safety-critical for
+    high-impact commands like /bugfix_apply, /rollback, /merge (limit=2/min
+    fleet-wide, NOT per-worker).
+
     Returns (allowed, max_per_minute).
     """
     limit = _RATE_LIMITS.get(cmd, 5)
-    now = time.monotonic()
     key = cmd.lower()
 
+    # Redis primary: INCR with 60s window TTL
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            redis_key = f"{_RATE_REDIS_PREFIX}:{key}"
+            count = rc.incr(redis_key)
+            if count == 1:
+                rc.expire(redis_key, int(_RATE_WINDOW))
+            if count > limit:
+                return False, limit
+            return True, limit
+    except Exception:
+        from app.core.silent_fallback import record_silent_return
+        record_silent_return("telegram_safety.rate_limit.redis_error")
+
+    # In-process fallback (Redis outage)
+    now = time.monotonic()
     if key not in _rate_buckets:
         _rate_buckets[key] = []
 
@@ -237,5 +261,13 @@ def check_criticality_rate(cmd: str) -> tuple[bool, int]:
 
 
 def reset_rate_limits():
-    """Clear rate state — for testing."""
+    """Clear rate state — for testing (both Redis + in-process)."""
     _rate_buckets.clear()
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            for k in rc.scan_iter(match=f"{_RATE_REDIS_PREFIX}:*", count=100):
+                rc.delete(k)
+    except Exception:
+        pass  # SILENT-EXCEPT-OK: test-only helper, in-process dict already cleared

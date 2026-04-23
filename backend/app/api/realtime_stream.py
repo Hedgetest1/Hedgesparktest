@@ -51,10 +51,11 @@ _MAX_TICKS_PER_CONNECTION = 360  # 1 hour at 10s ticks → forces clean reconnec
 _MAX_LIVE_CONNECTIONS = 500
 _SNAPSHOT_CACHE_TTL_S = 8.0  # must be < _TICK_SECONDS so we refresh each tick
 _active_connections = 0
-# multi-worker: accept-degrade — per-worker 8s-TTL cache; under 4 workers a
-# popular shop may run 4 snapshot queries/8s instead of 1, tolerated because
-# stale window ≤ 8s matches the SSE tick period.
+# multi-worker: redis-backed — Redis primary at hs:liverts:snap:{shop} with
+# 8s TTL, cross-worker coherent. In-process dict kept only as the
+# Redis-unavailable fallback path (single-worker and Redis-outage safe).
 _snapshot_cache: dict[str, tuple[float, dict]] = {}
+_SNAPSHOT_REDIS_PREFIX = "hs:liverts:snap:v1"
 
 
 def _now_iso() -> str:
@@ -66,7 +67,25 @@ def _build_snapshot(shop: str) -> dict:
 
     Cached per-shop for _SNAPSHOT_CACHE_TTL_S so that multiple concurrent
     viewers of the same dashboard share one heavy query pass per tick.
+    Cache is Redis-primary (cross-worker coherent); falls back to the
+    per-process dict when Redis is unreachable.
     """
+    # Redis primary
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            raw = rc.get(f"{_SNAPSHOT_REDIS_PREFIX}:{shop}")
+            if raw:
+                try:
+                    return json.loads(raw)
+                except Exception:
+                    pass  # SILENT-EXCEPT-OK: corrupt entry falls through to rebuild
+    except Exception:
+        from app.core.silent_fallback import record_silent_return
+        record_silent_return("realtime_stream.snapshot_read.redis_error")
+
+    # In-process fallback (single-worker or Redis outage)
     now = time.monotonic()
     cached = _snapshot_cache.get(shop)
     if cached is not None and (now - cached[0]) < _SNAPSHOT_CACHE_TTL_S:
@@ -127,7 +146,21 @@ def _build_snapshot(shop: str) -> dict:
             "benchmarks": vb_sig,
             "night_shift": ns_sig,
         }
-        _snapshot_cache[shop] = (now, snapshot)
+        # Redis write (primary) + in-process cache (fallback)
+        try:
+            from app.core.redis_client import _client
+            rc = _client()
+            if rc is not None:
+                rc.setex(
+                    f"{_SNAPSHOT_REDIS_PREFIX}:{shop}",
+                    int(_SNAPSHOT_CACHE_TTL_S) + 1,
+                    json.dumps(snapshot, default=str),
+                )
+        except Exception:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("realtime_stream.snapshot_write.redis_error")
+
+        _snapshot_cache[shop] = (time.monotonic(), snapshot)
         # Bound cache size — LRU-style eviction, cheap at this scale
         if len(_snapshot_cache) > 2000:
             oldest = sorted(_snapshot_cache.items(), key=lambda kv: kv[1][0])[:500]

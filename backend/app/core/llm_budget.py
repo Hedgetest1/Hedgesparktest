@@ -266,8 +266,9 @@ _month_key: str = ""
 # outage, acceptable (operator prefers 4 dupes to a silent miss)
 _budget_alert_sent: dict[str, bool] = {}  # "anthropic:2026-04" → True
 
-# multi-worker: accept-degrade — 429 backoff is per-worker; each worker
-# handles its own rate-limit state with the provider
+# multi-worker: redis-backed — fleet-coordinated via hs:llm:429:{provider}
+# SETEX with TTL=backoff_secs (see record_429). In-process dict retained
+# as telemetry (count) and Redis-outage gate only.
 _provider_429: dict[str, dict] = {}   # provider → {last_429: float, backoff_secs: int, count: int}
 _MAX_BACKOFF = 300   # 5 minutes max
 _INITIAL_BACKOFF = 5  # 5 seconds initial
@@ -468,8 +469,16 @@ def _redis_get_float(key: str) -> float:
 # 429 backoff
 # ---------------------------------------------------------------------------
 
+_BACKOFF_REDIS_PREFIX = "hs:llm:429"
+
+
 def record_429(provider: str):
-    """Record a 429 response from a provider. Triggers exponential backoff."""
+    """Record a 429 response from a provider. Triggers exponential backoff
+    across the entire uvicorn worker fleet via Redis SETEX.
+
+    Local dict `_provider_429` retained only as (a) count telemetry and
+    (b) Redis-outage fallback gate.
+    """
     now = time.monotonic()
     state = _provider_429.get(provider, {"last_429": 0, "backoff_secs": 0, "count": 0})
 
@@ -483,6 +492,22 @@ def record_429(provider: str):
         state["backoff_secs"] = min(state["backoff_secs"] * 2, _MAX_BACKOFF)
 
     _provider_429[provider] = state
+
+    # Redis: broadcast the backoff to every worker. Key auto-expires when
+    # the backoff period ends — no explicit "clear" needed.
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            rc.setex(
+                f"{_BACKOFF_REDIS_PREFIX}:{provider}",
+                int(state["backoff_secs"]),
+                "1",
+            )
+    except Exception:
+        from app.core.silent_fallback import record_silent_return
+        record_silent_return("llm_budget.record_429.redis_error")
+
     log.warning(
         "llm_budget: 429 from %s — backoff %ds (total 429s today: %d)",
         provider, state["backoff_secs"], state["count"],
@@ -490,13 +515,35 @@ def record_429(provider: str):
 
 
 def is_provider_backed_off(provider: str) -> bool:
-    """Check if a provider is in 429 backoff. Returns True if still cooling down."""
+    """Check if a provider is in 429 backoff across the fleet.
+
+    Redis-primary (cross-worker coherent) with in-process fallback.
+    Under multi-worker, a 429 on one worker backs off ALL workers
+    until the Redis TTL expires.
+    """
+    # Redis primary — TTL means "still backed off"; absence means "available"
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            if rc.exists(f"{_BACKOFF_REDIS_PREFIX}:{provider}") > 0:
+                return True
+            # Redis says available — sync local state so telemetry doesn't lie
+            state = _provider_429.get(provider)
+            if state and state.get("backoff_secs", 0) > 0:
+                state["backoff_secs"] = 0
+                state["count"] = 0
+            return False
+    except Exception:
+        from app.core.silent_fallback import record_silent_return
+        record_silent_return("llm_budget.is_backed_off.redis_error")
+
+    # Fallback: in-process gate (Redis outage, single-worker, or cold-start)
     state = _provider_429.get(provider)
     if not state or state["backoff_secs"] == 0:
         return False
     elapsed = time.monotonic() - state["last_429"]
     if elapsed >= state["backoff_secs"]:
-        # Backoff expired — reset
         state["backoff_secs"] = 0
         state["count"] = 0
         return False

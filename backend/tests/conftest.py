@@ -20,6 +20,16 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Set env vars BEFORE any app imports (modules read env at import time)
 os.environ["APP_ENV"] = "test"
 os.environ.pop("NOTIFICATIONS_ALLOW_REAL", None)
+
+# Isolate tests from prod Redis state — use Redis DB 15 so the live
+# backend running on this host (DB 0 via .env) doesn't pollute test
+# state and vice versa. Must be set BEFORE any app import reads
+# REDIS_URL at module load.
+_prod_redis = os.environ.get("REDIS_URL") or "redis://localhost:6379/0"
+if _prod_redis.endswith("/0") or _prod_redis.endswith(":6379"):
+    _test_redis = _prod_redis.rstrip("/").rsplit("/", 1)[0] if _prod_redis.endswith("/0") else _prod_redis
+    _test_redis = _test_redis.rstrip("/") + "/15"
+    os.environ["REDIS_URL"] = _test_redis
 os.environ.setdefault("MERCHANT_SESSION_SECRET", "test-session-secret-32chars-long!")
 os.environ.setdefault("SHOPIFY_API_SECRET", "test-shopify-secret")
 os.environ.setdefault("MERCHANT_TOKEN_ENCRYPTION_KEY", os.urandom(32).hex())
@@ -59,6 +69,63 @@ if not os.environ.get("DATABASE_URL_TEST"):
 
 _test_engine = create_engine(_DATABASE_URL, pool_pre_ping=True)
 _TestSession = sessionmaker(bind=_test_engine, autocommit=False, autoflush=False)
+
+
+@pytest.fixture(autouse=True)
+def _reset_redis_state():
+    """Flush the test Redis DB between tests.
+
+    Many HedgeSpark modules cache or gate state via Redis (model_config,
+    llm_budget 429 backoff, orchestrator cooldowns, promotion_pipeline
+    cooldowns, telegram rate limits, shopify rate limits, realtime-stream
+    snapshots, fleet metrics aggregation). Under tests' SAVEPOINT DB
+    isolation these caches get out of sync with rolled-back DB state
+    and pollute subsequent tests.
+
+    Tests run against Redis DB 15 (set above in the file header); live
+    backend runs on DB 0. This fixture FLUSHDB's DB 15 before each test
+    and also clears in-process caches that wouldn't be reset by Redis
+    flush alone (module-level dicts that mirror Redis).
+    """
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            rc.flushdb()
+    except Exception:
+        pass
+    # Reset the in-process dict caches whose Redis-backed twin was just flushed
+    try:
+        from app.services.model_config import _cache, _cache_ts
+        _cache.clear()
+        _cache_ts.clear()
+    except Exception:
+        pass
+    try:
+        from app.services.orchestrator import _cooldown_cache
+        _cooldown_cache.clear()
+    except Exception:
+        pass
+    try:
+        from app.services.promotion_pipeline import _auto_push_cooldown
+        _auto_push_cooldown.clear()
+    except Exception:
+        pass
+    try:
+        from app.core.llm_budget import _provider_429
+        _provider_429.clear()
+    except Exception:
+        pass
+    yield
+    # After-test sweep: same Redis flush so next setUp starts clean even if
+    # a test added keys but raised before teardown.
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            rc.flushdb()
+    except Exception:
+        pass
 
 
 @pytest.fixture()
