@@ -354,7 +354,9 @@ via `scripts/audit_multiworker_safety.py`.
 config.js env block for wishspark-backend, read by
 `app/core/database.py`). 4 workers × (5 + 10) = 60 conn ceiling from
 backend; + 7 singleton PM2 workers × ~2 = 14; + admin headroom ~10; =
-~84, well below Postgres `max_connections=100`.
+~84, well below Postgres `max_connections=200` (bumped from 100 during
+the 2026-04-23 scaling flip). Invariant monitor enforces `>= 200` via
+`_check_postgres_capacity` — env override `EXPECTED_PG_MAX_CONNECTIONS`.
 
 **Singleton guarantee for workers:** the 7 `wishspark-*-worker` /
 `-monitor` / `-optimizer` processes MUST remain `instances: 1` —

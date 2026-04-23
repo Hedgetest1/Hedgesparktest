@@ -247,6 +247,8 @@ async def lifespan(app: FastAPI):
     """
     _startup_env_audit()
     _startup_telegram_warmup()
+    from app.core.metrics import start_background_pusher
+    start_background_pusher()
     yield
 
 

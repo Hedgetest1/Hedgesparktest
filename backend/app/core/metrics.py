@@ -63,8 +63,10 @@ _WORKER_PID = str(os.getpid())
 _METRICS_REDIS_PREFIX = "hs:metrics:worker"
 _METRICS_TTL_S = 60
 _METRICS_PUSH_MIN_INTERVAL_S = 5.0  # throttle pushes to avoid Redis spam
+_METRICS_BG_PUSH_INTERVAL_S = 30.0  # background keepalive (< TTL/2)
 _last_push_ts: float = 0.0
 _push_lock = threading.Lock()  # multi-worker: accept-degrade — per-process push throttle
+_bg_pusher_started = False  # guard: start-once per process
 
 
 class _Counter:
@@ -332,6 +334,39 @@ def _push_snapshot_to_redis(force: bool = False) -> None:
     except Exception:
         from app.core.silent_fallback import record_silent_return
         record_silent_return("metrics.push_snapshot.redis_error")
+
+
+def start_background_pusher() -> None:
+    """Start a daemon thread that keeps this worker's snapshot fresh in Redis.
+
+    Without this, idle workers never push — a fleet under no traffic looks
+    like a 1-worker fleet to /metrics readers. Called once per process from
+    the FastAPI lifespan startup hook. Idempotent.
+    """
+    global _bg_pusher_started
+    if _bg_pusher_started:
+        return
+    _bg_pusher_started = True
+
+    def _loop() -> None:
+        # First push immediately so the worker appears in the aggregate
+        # before the first _METRICS_BG_PUSH_INTERVAL_S elapses.
+        while True:
+            try:
+                _push_snapshot_to_redis(force=True)
+            except Exception as exc:
+                # Never allow the pusher thread to die — that would silently
+                # drop this worker from the fleet gauge forever. Log so the
+                # failure mode is visible instead of merely survived.
+                log.warning("metrics bg pusher: push failed: %s", exc)
+            time.sleep(_METRICS_BG_PUSH_INTERVAL_S)
+
+    t = threading.Thread(
+        target=_loop,
+        name=f"metrics-bg-pusher-{_WORKER_PID}",
+        daemon=True,
+    )
+    t.start()
 
 
 def _read_fleet_snapshots() -> list[dict]:
