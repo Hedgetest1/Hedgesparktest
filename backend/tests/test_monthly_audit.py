@@ -143,6 +143,45 @@ def test_no_auto_apply(db):
     assert row.risk_level in ("LEVEL_2", "LEVEL_3")
 
 
+def test_proposal_persists_provenance(db):
+    """Stored proposals must record proposal_provider + proposal_model
+    (2026-04-23 sibling-audit fix). Defaults match Opus monthly audit."""
+    cycle = _audit_cycle_id() + "-provenance"
+    proposals = [
+        {"title": "Provenance pin", "type": "architecture",
+         "reasoning": "r", "expected_impact": "e", "risk_level": "LEVEL_2"},
+    ]
+    _store_proposals(db, proposals, cycle)
+
+    row = db.query(EvolutionProposal).filter(
+        EvolutionProposal.audit_cycle == cycle,
+    ).first()
+    assert row is not None
+    assert row.proposal_provider == "anthropic", (
+        f"default provider must be anthropic, got {row.proposal_provider!r}"
+    )
+    assert row.proposal_model is not None and row.proposal_model.startswith("claude-opus"), (
+        f"default model must be an Opus variant, got {row.proposal_model!r}"
+    )
+
+
+def test_proposal_provenance_explicit_override(db):
+    """Callers may pass provider/model explicitly (future multi-provider)."""
+    cycle = _audit_cycle_id() + "-override"
+    proposals = [
+        {"title": "Provenance override", "type": "architecture",
+         "reasoning": "r", "expected_impact": "e", "risk_level": "LEVEL_2"},
+    ]
+    _store_proposals(db, proposals, cycle, provider="openai", model="gpt-4o-2026-04")
+
+    row = db.query(EvolutionProposal).filter(
+        EvolutionProposal.audit_cycle == cycle,
+    ).first()
+    assert row is not None
+    assert row.proposal_provider == "openai"
+    assert row.proposal_model == "gpt-4o-2026-04"
+
+
 def test_dedup_prevents_duplicates(db):
     """Same proposal in same cycle is deduped."""
     cycle = _audit_cycle_id()

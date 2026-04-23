@@ -1054,8 +1054,30 @@ def _parse_proposals(raw: str, retired_domains: list[dict] | None = None) -> lis
     return valid
 
 
-def _store_proposals(db: Session, proposals: list[dict], cycle: str) -> int:
-    """Store proposals as EvolutionProposal rows. Returns count stored."""
+def _store_proposals(
+    db: Session,
+    proposals: list[dict],
+    cycle: str,
+    *,
+    provider: str = "anthropic",
+    model: str | None = None,
+) -> int:
+    """Store proposals as EvolutionProposal rows. Returns count stored.
+
+    provider/model capture LLM provenance (2026-04-23 sibling-audit fix)
+    so per-model accuracy + cost-attribution queries are possible without
+    mining commit history. Defaults match the monthly-audit Opus path;
+    pass explicit values if the caller uses a different path.
+    """
+    # Resolve the default model lazily to avoid an import cycle at module
+    # scope; _call_opus uses the same constant from llm_router.
+    if model is None:
+        try:
+            from app.core.llm_router import OPUS as _OPUS_MODEL
+            model = _OPUS_MODEL
+        except Exception:
+            model = None
+
     stored = 0
     for p in proposals:
         dedup_key = f"monthly_opus:{cycle}:{p['title'][:60]}"
@@ -1078,6 +1100,9 @@ def _store_proposals(db: Session, proposals: list[dict], cycle: str) -> int:
             status="open",
             audit_cycle=cycle,
             dedup_key=dedup_key,
+            # LLM provenance — provider + model who produced this proposal.
+            proposal_provider=provider,
+            proposal_model=model,
             # Strategic-bet fields — decision memory + cost awareness
             revenue_thesis=p.get("revenue_thesis"),
             rejected_alternatives=(

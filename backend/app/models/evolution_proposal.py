@@ -97,6 +97,14 @@ class EvolutionProposal(Base):
     # pre_merchant | internal_test | sandbox | real_merchant
     evidence_source = Column(String(32), nullable=True, default="pre_merchant")
 
+    # LLM provenance (added 2026-04-23 sibling audit). The proposal was
+    # produced by an LLM call; provider + model identify which so that
+    # future per-model accuracy / cost-attribution queries are possible
+    # without mining commit history. Nullable to keep legacy rows
+    # (pre-migration) clean — backfill would require commit-time lookup.
+    proposal_provider = Column(String(32), nullable=True)
+    proposal_model = Column(String(64), nullable=True)
+
     __table_args__ = (
         Index("ix_evolution_proposals_status", "status", "created_at"),
         Index("ix_evolution_proposals_dedup", "dedup_key"),
