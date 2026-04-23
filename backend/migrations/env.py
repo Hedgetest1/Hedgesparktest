@@ -50,12 +50,30 @@ load_dotenv()
 # Alembic Config object
 config = context.config
 
-# Override sqlalchemy.url from environment — never read credentials from alembic.ini
-database_url = os.getenv(
-    "DATABASE_URL",
-    "postgresql://aiuser:aipassword@localhost:5432/wishspark"
-)
-config.set_main_option("sqlalchemy.url", database_url)
+# Resolve sqlalchemy.url with the correct precedence:
+#
+#   1. programmatic override via `config.set_main_option("sqlalchemy.url", …)`
+#      before invoking `command.upgrade(cfg, …)`. This is the ONLY way a
+#      caller can target a different DB (e.g. wishspark_test) from the
+#      same Python process without mutating os.environ first.
+#   2. DATABASE_URL env var (default path for CLI `alembic upgrade head`).
+#   3. Hard-coded local default (dev convenience).
+#
+# Bug (2026-04-23): prior code always clobbered step 1 with step 2 because
+# env.py unconditionally called `config.set_main_option(...)` from
+# `os.getenv("DATABASE_URL")`. As a result, programmatic upgrades against
+# the test DB silently ran against prod (which was already at head) and
+# test-DB schema drift went undetected until a test exploded in CI.
+_existing_url = config.get_main_option("sqlalchemy.url")
+if _existing_url and _existing_url not in ("driver://user:pass@localhost/dbname",):
+    # Caller explicitly set a URL via Config — respect it.
+    database_url = _existing_url
+else:
+    database_url = os.getenv(
+        "DATABASE_URL",
+        "postgresql://aiuser:aipassword@localhost:5432/wishspark",
+    )
+    config.set_main_option("sqlalchemy.url", database_url)
 
 # Set up logging from alembic.ini
 if config.config_file_name is not None:

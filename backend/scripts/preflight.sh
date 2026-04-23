@@ -107,6 +107,18 @@ else
     grep -E "Detected (added|removed|type|NULL|changed|comment)" /tmp/preflight_alembic.log | head -30 || true
 fi
 
+# Orthogonal gate: wishspark vs wishspark_test alembic-version parity.
+# Catches the class where a new migration was applied to prod but
+# forgotten on test (or vice-versa). Root-caused + fixed 2026-04-23 in
+# migrations/env.py; this audit is the belt + suspenders.
+step "Alembic test-DB parity (audit_alembic_test_db_parity.py)"
+if "$BACKEND/venv/bin/python" "$BACKEND/scripts/audit_alembic_test_db_parity.py" --strict > /tmp/preflight_alembic_parity.log 2>&1; then
+    ok "wishspark + wishspark_test both at head"
+else
+    bad "alembic test-DB parity violated — see /tmp/preflight_alembic_parity.log"
+    tail -20 /tmp/preflight_alembic_parity.log || true
+fi
+
 # ---------------------------------------------------------------------------
 # 2e. Silent-fallback observability gate (Tier 2.1). Every `if rc is None`
 # fast-path return in app/ must call record_silent_return() so prod Redis

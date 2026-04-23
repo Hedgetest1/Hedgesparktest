@@ -71,6 +71,40 @@ _test_engine = create_engine(_DATABASE_URL, pool_pre_ping=True)
 _TestSession = sessionmaker(bind=_test_engine, autocommit=False, autoflush=False)
 
 
+# ---------------------------------------------------------------------------
+# Session-start safety net — keep wishspark_test at alembic head
+# ---------------------------------------------------------------------------
+# Background: prior to 2026-04-23, a programmatic `alembic upgrade head`
+# against wishspark_test silently ran against PROD because env.py
+# unconditionally overrode `sqlalchemy.url` from `DATABASE_URL`. That bug
+# was fixed in migrations/env.py (it now respects Config override first),
+# but the class of silent divergence deserves a runtime belt + suspenders:
+# we auto-upgrade the test DB here before any test collects. A dev who
+# pulls a branch with a new migration cannot run a stale test DB.
+#
+# Intentional failure mode: if the upgrade itself errors, we FAIL the
+# whole test session with a clear message rather than letting individual
+# tests fail with UndefinedColumn/ProgrammingError noise 30 seconds in.
+try:
+    from alembic.config import Config as _AlembicConfig
+    from alembic import command as _alembic_command
+
+    _alembic_cfg = _AlembicConfig(
+        os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
+    )
+    _alembic_cfg.set_main_option("sqlalchemy.url", _DATABASE_URL)
+    _alembic_command.upgrade(_alembic_cfg, "head")
+except Exception as _alembic_exc:
+    # Surface clearly — stale test DB is a frequent-enough paper-cut that
+    # silent continuation would just produce a blizzard of column errors.
+    raise RuntimeError(
+        f"conftest: failed to upgrade wishspark_test to alembic head: "
+        f"{type(_alembic_exc).__name__}: {_alembic_exc}. "
+        "Investigate migrations/env.py or run "
+        "`DATABASE_URL={_test_url} ./venv/bin/alembic upgrade head` manually."
+    ) from _alembic_exc
+
+
 @pytest.fixture(autouse=True)
 def _reset_redis_state():
     """Flush the test Redis DB between tests.
