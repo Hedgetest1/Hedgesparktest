@@ -136,8 +136,10 @@ def test_propose_patch_stores_result(db):
     assert c.patch_summary == "Add test for alerting module"
     assert "test_mock_stores" in c.patch_diff
     assert c.test_command is not None
-    # proposal_provider is set from the actual return tuple (2026-04-23 fix)
+    # proposal_provider + proposal_model set from the actual return tuple
+    # (2026-04-23 fix + aaa4 migration completing the provenance pair).
     assert c.proposal_provider == "anthropic"
+    assert c.proposal_model == "claude-sonnet-4-6"
 
 
 def test_propose_patch_records_provider_even_on_downstream_validation_failure(db):
@@ -198,6 +200,12 @@ def test_propose_patch_records_provider_even_on_downstream_validation_failure(db
     assert c.proposal_provider == "anthropic", (
         f"proposal_provider must survive downstream validation failure; "
         f"got {c.proposal_provider!r} with failure_reason={c.failure_reason!r}"
+    )
+    # proposal_model added 2026-04-23 migration aaa4 — same contract,
+    # completes the provenance pair.
+    assert c.proposal_model == "claude-sonnet-4-6", (
+        f"proposal_model must survive downstream validation failure; "
+        f"got {c.proposal_model!r}"
     )
 
 

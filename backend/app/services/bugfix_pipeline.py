@@ -2999,10 +2999,12 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
         raw, actual_provider, actual_model = _call_llm(user_message, patch_risk_tier=None, file_count=file_count)
         # Persist provenance IMMEDIATELY, before any downstream validation
         # gate — even a rejected patch cost real money and the audit trail
-        # must record which provider was invoked. Template-cache hits keep
-        # provider=None (no external call was made).
+        # must record which provider + model was invoked. Template-cache
+        # hits set provider="template_cache" on their own path above.
         if actual_provider:
             candidate.proposal_provider = actual_provider
+        if actual_model:
+            candidate.proposal_model = actual_model
     if not raw:
         candidate.failure_reason = "llm_call_failed"
         db.flush()

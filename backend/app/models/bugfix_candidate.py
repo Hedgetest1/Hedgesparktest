@@ -51,7 +51,8 @@ class BugFixCandidate(Base):
     # Proposal metadata
     proposal_attempted_at = Column(DateTime, nullable=True)
     proposal_error = Column(String(512), nullable=True)
-    proposal_provider = Column(String(32), nullable=True)   # anthropic | openai | none
+    proposal_provider = Column(String(32), nullable=True)   # anthropic | openai | template_cache | pii_blocked | budget_blocked
+    proposal_model = Column(String(64), nullable=True)      # e.g. 'claude-sonnet-4-6' — added 2026-04-23 sibling audit
 
     # Risk classification (0=auto-apply, 1=human-approve, 2=never-auto)
     patch_risk_tier = Column(Integer, nullable=True)
