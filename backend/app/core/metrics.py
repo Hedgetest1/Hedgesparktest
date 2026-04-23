@@ -32,7 +32,9 @@ Usage:
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
 import threading
 import time
 
@@ -40,6 +42,29 @@ log = logging.getLogger("metrics")
 from collections import defaultdict
 from contextlib import contextmanager
 from typing import Generator
+
+# ---------------------------------------------------------------------------
+# Multi-worker fleet aggregation (2026-04-23)
+#
+# Under uvicorn --workers 4, each worker has its own module-level counters.
+# A single /metrics scrape returns one worker's view — Prometheus sees 1/N
+# of real fleet traffic unless we aggregate.
+#
+# Approach: every render_metrics() and every track_request() opportunistically
+# serializes local state to Redis keyed by worker PID with a 60s TTL. The
+# renderer reads all worker snapshots from Redis and sums them before
+# emitting Prometheus text. Idle workers that haven't pushed in 60s drop
+# from the aggregate — but they also have no new data worth reporting, so
+# the aggregate is always "recent activity" not "all-time fleet".
+#
+# multi-worker: redis-backed — aggregation via Redis scan+merge
+# ---------------------------------------------------------------------------
+_WORKER_PID = str(os.getpid())
+_METRICS_REDIS_PREFIX = "hs:metrics:worker"
+_METRICS_TTL_S = 60
+_METRICS_PUSH_MIN_INTERVAL_S = 5.0  # throttle pushes to avoid Redis spam
+_last_push_ts: float = 0.0
+_push_lock = threading.Lock()  # multi-worker: accept-degrade — per-process push throttle
 
 
 class _Counter:
@@ -265,76 +290,231 @@ def compute_p95_per_route() -> dict[str, dict]:
 # Prometheus exposition format renderer
 # ---------------------------------------------------------------------------
 
+def _local_snapshot() -> dict:
+    """Serialize this worker's local counter + histogram state."""
+    return {
+        "pid": _WORKER_PID,
+        "ts": time.time(),
+        "request_count": {f"{k[0]}\t{k[1]}\t{k[2]}": v.value
+                          for k, v in _request_count.items()},
+        "request_duration": {f"{k[0]}\t{k[1]}": v.snapshot()
+                             for k, v in _request_duration.items()},
+        "worker_duration": {k: v.snapshot() for k, v in _worker_duration.items()},
+        "worker_errors": {k: v.value for k, v in _worker_errors.items()},
+        "db_duration": _db_duration.snapshot(),
+        "db_count": _db_count.value,
+        "cache_hits": _cache_hits.value,
+        "cache_misses": _cache_misses.value,
+        "error_count": {k: v.value for k, v in _error_count.items()},
+    }
+
+
+def _push_snapshot_to_redis(force: bool = False) -> None:
+    """Push local snapshot to Redis, throttled to once per _METRICS_PUSH_MIN_INTERVAL_S."""
+    global _last_push_ts
+    now = time.monotonic()
+    with _push_lock:
+        if not force and (now - _last_push_ts) < _METRICS_PUSH_MIN_INTERVAL_S:
+            return
+        _last_push_ts = now
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("metrics.push_snapshot.no_redis")
+            return
+        rc.setex(
+            f"{_METRICS_REDIS_PREFIX}:{_WORKER_PID}",
+            _METRICS_TTL_S,
+            json.dumps(_local_snapshot(), default=str),
+        )
+    except Exception:
+        from app.core.silent_fallback import record_silent_return
+        record_silent_return("metrics.push_snapshot.redis_error")
+
+
+def _read_fleet_snapshots() -> list[dict]:
+    """Read all worker snapshots from Redis (active in last 60s)."""
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("metrics.read_fleet.no_redis")
+            return []
+        snaps: list[dict] = []
+        for key in rc.scan_iter(match=f"{_METRICS_REDIS_PREFIX}:*", count=50):
+            raw = rc.get(key)
+            if raw:
+                try:
+                    snaps.append(json.loads(raw))
+                except Exception:
+                    continue  # SILENT-EXCEPT-OK: one corrupt snapshot ignored, others still merged
+        return snaps
+    except Exception:
+        from app.core.silent_fallback import record_silent_return
+        record_silent_return("metrics.read_fleet.redis_error")
+        return []
+
+
+def _merge_counters(snaps: list[dict], key: str) -> dict:
+    """Sum counter values across worker snapshots."""
+    out: dict[str, float] = {}
+    for s in snaps:
+        for k, v in (s.get(key) or {}).items():
+            out[k] = out.get(k, 0) + v
+    return out
+
+
+def _merge_histograms(snaps: list[dict], key: str) -> dict:
+    """Merge histogram snapshots element-wise across workers."""
+    out: dict[str, dict] = {}
+    for s in snaps:
+        for k, h in (s.get(key) or {}).items():
+            agg = out.setdefault(k, {"count": 0, "sum": 0.0, "buckets": None, "inf": 0})
+            agg["count"] += h.get("count", 0)
+            agg["sum"] += h.get("sum", 0)
+            agg["inf"] += h.get("inf", 0)
+            buckets = h.get("buckets") or []
+            if agg["buckets"] is None and buckets:
+                agg["buckets"] = [[b[0], b[1]] for b in buckets]
+            elif buckets and agg["buckets"] and len(agg["buckets"]) == len(buckets):
+                for i, (_, cnt) in enumerate(buckets):
+                    agg["buckets"][i][1] += cnt
+    return out
+
+
+def _merge_single_histogram(snaps: list[dict], key: str) -> dict:
+    """Merge a single (non-keyed) histogram across workers."""
+    agg = {"count": 0, "sum": 0.0, "buckets": None, "inf": 0}
+    for s in snaps:
+        h = s.get(key) or {}
+        agg["count"] += h.get("count", 0)
+        agg["sum"] += h.get("sum", 0)
+        agg["inf"] += h.get("inf", 0)
+        buckets = h.get("buckets") or []
+        if agg["buckets"] is None and buckets:
+            agg["buckets"] = [[b[0], b[1]] for b in buckets]
+        elif buckets and agg["buckets"] and len(agg["buckets"]) == len(buckets):
+            for i, (_, cnt) in enumerate(buckets):
+                agg["buckets"][i][1] += cnt
+    return agg
+
+
+def _sum_scalar(snaps: list[dict], key: str) -> float:
+    total = 0.0
+    for s in snaps:
+        v = s.get(key, 0)
+        if isinstance(v, (int, float)):
+            total += v
+    return total
+
+
 def render_metrics() -> str:
-    """Render all metrics in Prometheus text exposition format."""
+    """Render all metrics in Prometheus text exposition format.
+
+    Fleet-aggregated across uvicorn workers via Redis. Local counters
+    are pushed on each render (throttled) and read back merged with
+    every other worker's recent snapshot.
+    """
+    # Push THIS worker's snapshot first (force=True so the scrape sees fresh data).
+    _push_snapshot_to_redis(force=True)
+    snaps = _read_fleet_snapshots()
+
     lines: list[str] = []
 
-    # Request duration histogram
-    lines.append("# HELP hs_request_duration_seconds HTTP request duration")
-    lines.append("# TYPE hs_request_duration_seconds histogram")
-    for (method, path), hist in sorted(_request_duration.items()):
-        snap = hist.snapshot()
-        labels = f'method="{method}",path="{path}"'
-        for bound, count in snap["buckets"]:
-            lines.append(f'hs_request_duration_seconds_bucket{{{labels},le="{bound}"}} {count}')
-        lines.append(f'hs_request_duration_seconds_bucket{{{labels},le="+Inf"}} {snap["inf"]}')
-        lines.append(f"hs_request_duration_seconds_sum{{{labels}}} {snap['sum']:.6f}")
-        lines.append(f"hs_request_duration_seconds_count{{{labels}}} {snap['count']}")
+    # Fleet size line — operator visibility into how many workers are reporting.
+    lines.append("# HELP hs_fleet_workers_reporting Uvicorn workers reporting to /metrics in last 60s")
+    lines.append("# TYPE hs_fleet_workers_reporting gauge")
+    lines.append(f"hs_fleet_workers_reporting {len(snaps)}")
 
-    # Request count by status
-    lines.append("# HELP hs_requests_total HTTP requests total")
+    # If Redis is down or no snapshots, fall through to local-only rendering
+    # (preserves single-worker + Redis-outage behaviour).
+    if not snaps:
+        snaps = [_local_snapshot()]
+
+    merged_req_count = _merge_counters(snaps, "request_count")
+    merged_req_duration = _merge_histograms(snaps, "request_duration")
+    merged_worker_dur = _merge_histograms(snaps, "worker_duration")
+    merged_worker_err = _merge_counters(snaps, "worker_errors")
+    merged_err_count = _merge_counters(snaps, "error_count")
+    merged_db_hist = _merge_single_histogram(snaps, "db_duration")
+    merged_db_count = _sum_scalar(snaps, "db_count")
+    merged_cache_hits = _sum_scalar(snaps, "cache_hits")
+    merged_cache_misses = _sum_scalar(snaps, "cache_misses")
+
+    # Request duration histogram (fleet-aggregated)
+    lines.append("# HELP hs_request_duration_seconds HTTP request duration (fleet)")
+    lines.append("# TYPE hs_request_duration_seconds histogram")
+    for k in sorted(merged_req_duration):
+        method, path = k.split("\t", 1)
+        agg = merged_req_duration[k]
+        labels = f'method="{method}",path="{path}"'
+        for bound, count in (agg.get("buckets") or []):
+            lines.append(f'hs_request_duration_seconds_bucket{{{labels},le="{bound}"}} {count}')
+        lines.append(f'hs_request_duration_seconds_bucket{{{labels},le="+Inf"}} {agg["inf"]}')
+        lines.append(f"hs_request_duration_seconds_sum{{{labels}}} {agg['sum']:.6f}")
+        lines.append(f"hs_request_duration_seconds_count{{{labels}}} {agg['count']}")
+
+    # Request count by status (fleet-aggregated)
+    lines.append("# HELP hs_requests_total HTTP requests total (fleet)")
     lines.append("# TYPE hs_requests_total counter")
-    for (method, path, status), counter in sorted(_request_count.items()):
+    for k in sorted(merged_req_count):
+        parts = k.split("\t")
+        if len(parts) != 3:
+            continue
+        method, path, status = parts
         lines.append(
             f'hs_requests_total{{method="{method}",path="{path}",status="{status}"}} '
-            f"{counter.value}"
+            f"{merged_req_count[k]}"
         )
 
-    # Worker cycle duration
+    # Worker cycle duration (fleet-aggregated — but note workers are singletons,
+    # so this is effectively identical to local, just via Redis round-trip)
     lines.append("# HELP hs_worker_cycle_seconds Worker cycle duration")
     lines.append("# TYPE hs_worker_cycle_seconds histogram")
-    for name, hist in sorted(_worker_duration.items()):
-        snap = hist.snapshot()
-        for bound, count in snap["buckets"]:
+    for name in sorted(merged_worker_dur):
+        agg = merged_worker_dur[name]
+        for bound, count in (agg.get("buckets") or []):
             lines.append(f'hs_worker_cycle_seconds_bucket{{worker="{name}",le="{bound}"}} {count}')
-        lines.append(f'hs_worker_cycle_seconds_bucket{{worker="{name}",le="+Inf"}} {snap["inf"]}')
-        lines.append(f'hs_worker_cycle_seconds_sum{{worker="{name}"}} {snap["sum"]:.6f}')
-        lines.append(f'hs_worker_cycle_seconds_count{{worker="{name}"}} {snap["count"]}')
+        lines.append(f'hs_worker_cycle_seconds_bucket{{worker="{name}",le="+Inf"}} {agg["inf"]}')
+        lines.append(f'hs_worker_cycle_seconds_sum{{worker="{name}"}} {agg["sum"]:.6f}')
+        lines.append(f'hs_worker_cycle_seconds_count{{worker="{name}"}} {agg["count"]}')
 
     # Worker errors
     lines.append("# HELP hs_worker_errors_total Worker cycle errors")
     lines.append("# TYPE hs_worker_errors_total counter")
-    for name, counter in sorted(_worker_errors.items()):
-        lines.append(f'hs_worker_errors_total{{worker="{name}"}} {counter.value}')
+    for name in sorted(merged_worker_err):
+        lines.append(f'hs_worker_errors_total{{worker="{name}"}} {merged_worker_err[name]}')
 
-    # DB query duration
-    lines.append("# HELP hs_db_query_seconds Database query duration")
+    # DB query duration (fleet-aggregated)
+    lines.append("# HELP hs_db_query_seconds Database query duration (fleet)")
     lines.append("# TYPE hs_db_query_seconds histogram")
-    snap = _db_duration.snapshot()
-    for bound, count in snap["buckets"]:
+    for bound, count in (merged_db_hist.get("buckets") or []):
         lines.append(f'hs_db_query_seconds_bucket{{le="{bound}"}} {count}')
-    lines.append(f'hs_db_query_seconds_bucket{{le="+Inf"}} {snap["inf"]}')
-    lines.append(f"hs_db_query_seconds_sum {snap['sum']:.6f}")
-    lines.append(f"hs_db_query_seconds_count {snap['count']}")
+    lines.append(f'hs_db_query_seconds_bucket{{le="+Inf"}} {merged_db_hist["inf"]}')
+    lines.append(f"hs_db_query_seconds_sum {merged_db_hist['sum']:.6f}")
+    lines.append(f"hs_db_query_seconds_count {merged_db_hist['count']}")
 
-    # Cache
-    lines.append("# HELP hs_cache_hits_total Cache hits")
+    # Cache (fleet-aggregated)
+    lines.append("# HELP hs_cache_hits_total Cache hits (fleet)")
     lines.append("# TYPE hs_cache_hits_total counter")
-    lines.append(f"hs_cache_hits_total {_cache_hits.value}")
-    lines.append("# HELP hs_cache_misses_total Cache misses")
+    lines.append(f"hs_cache_hits_total {merged_cache_hits}")
+    lines.append("# HELP hs_cache_misses_total Cache misses (fleet)")
     lines.append("# TYPE hs_cache_misses_total counter")
-    lines.append(f"hs_cache_misses_total {_cache_misses.value}")
+    lines.append(f"hs_cache_misses_total {merged_cache_misses}")
 
-    # DB query count
-    lines.append("# HELP hs_db_queries_total Database queries total")
+    # DB query count (fleet-aggregated)
+    lines.append("# HELP hs_db_queries_total Database queries total (fleet)")
     lines.append("# TYPE hs_db_queries_total counter")
-    lines.append(f"hs_db_queries_total {_db_count.value}")
+    lines.append(f"hs_db_queries_total {merged_db_count}")
 
-    # Error counts
-    lines.append("# HELP hs_errors_total Application errors by type")
+    # Error counts (fleet-aggregated)
+    lines.append("# HELP hs_errors_total Application errors by type (fleet)")
     lines.append("# TYPE hs_errors_total counter")
-    for error_type, counter in sorted(_error_count.items()):
-        lines.append(f'hs_errors_total{{type="{error_type}"}} {counter.value}')
+    for error_type in sorted(merged_err_count):
+        lines.append(f'hs_errors_total{{type="{error_type}"}} {merged_err_count[error_type]}')
 
     # DB connection pool gauges
     try:
