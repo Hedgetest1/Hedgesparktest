@@ -354,6 +354,27 @@ def answer(
             ],
         )
 
+    # Per-merchant budget gate — 2026-04-23 sweep. Previously only the
+    # GLOBAL `check_budget("analytics_assistant")` ran inside _call_anthropic,
+    # meaning a single merchant could spam questions and eat the whole
+    # daily cap without their per-plan ceiling being consulted. Wired now
+    # at the entry so a merchant over their plan's LLM budget falls back
+    # to the deterministic template without touching the global counter.
+    try:
+        from app.core.llm_budget import can_charge_merchant
+        _ESTIMATED_COST_EUR = 0.005  # ~Sonnet 4.6 at 1500 in + 500 out tokens
+        ok, reason = can_charge_merchant(db, shop, _ESTIMATED_COST_EUR)
+        if not ok:
+            log.info("analytics_assistant: per-merchant budget blocked (%s)", reason)
+            # Gather context for the fallback reply; the deterministic
+            # path still gives the merchant something useful.
+            context, sources = _gather_context(db, shop)
+            return _fallback_answer(context, sources)
+    except Exception as exc:
+        # Fail-open: budget-check errors shouldn't break the merchant's
+        # chat. Global cap still gates the actual LLM call downstream.
+        log.debug("analytics_assistant: per-merchant budget check failed: %s", exc)
+
     context, sources = _gather_context(db, shop)
 
     prior_block = ""

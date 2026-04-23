@@ -375,6 +375,14 @@ else
     tail -20 /tmp/preflight_llm_timeout.log || true
 fi
 
+step "LLM per-merchant budget gate (audit_llm_per_merchant_budget_gate.py)"
+if "$BACKEND/venv/bin/python" "$BACKEND/scripts/audit_llm_per_merchant_budget_gate.py" --strict > /tmp/preflight_llm_merchant.log 2>&1; then
+    ok "every merchant-scoped LLM call passes through can_charge_merchant (or documented alt)"
+else
+    bad "ungated merchant-scoped LLM call — see /tmp/preflight_llm_merchant.log"
+    tail -20 /tmp/preflight_llm_merchant.log || true
+fi
+
 step "LLM PII guard coverage (audit_llm_pii_guard_coverage.py)"
 if "$PY" "$BACKEND/scripts/audit_llm_pii_guard_coverage.py" --strict > /tmp/preflight_llm_pii.log 2>&1; then
     ok "every LLM call site passes through PII guard (or opt-out annotated)"
