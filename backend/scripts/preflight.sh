@@ -325,6 +325,21 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2o-septies-ter. LLM PII guard coverage. Born 2026-04-23 during the
+# Tier-A agent audit: 4 direct httpx.post call sites to anthropic/openai
+# were shipping merchant-adjacent prompts without calling assert_clean.
+# This audit asserts every LLM call site either imports llm_pii_guard
+# OR carries a `# llm_pii_guard_audit: synthetic-only` opt-out line.
+# ---------------------------------------------------------------------------
+step "LLM PII guard coverage (audit_llm_pii_guard_coverage.py)"
+if "$PY" "$BACKEND/scripts/audit_llm_pii_guard_coverage.py" --strict > /tmp/preflight_llm_pii.log 2>&1; then
+    ok "every LLM call site passes through PII guard (or opt-out annotated)"
+else
+    bad "LLM call site missing PII guard — see /tmp/preflight_llm_pii.log"
+    tail -20 /tmp/preflight_llm_pii.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2o-septies. Session hook centralization audit. Enforces that only
 # `lib/useSession.ts` (and the legacy `/app/page.tsx` pre-Phase-2
 # migration target) call /merchant/me or /merchant/plan directly.

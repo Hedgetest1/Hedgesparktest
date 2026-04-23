@@ -1,3 +1,6 @@
+# llm_pii_guard_audit: synthetic-only — _BENCHMARK_SCENARIOS prompts are
+# hardcoded synthetic test cases (worker names, test shop placeholders) used
+# to evaluate candidate model responses. No merchant data flows through.
 """
 model_upgrade_agent.py — Detects, evaluates, and proposes model version upgrades.
 

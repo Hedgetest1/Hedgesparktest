@@ -341,6 +341,17 @@ def _call_opus(context: str) -> str:
     """Call Opus for meta-review. Budget-guarded. 429-aware."""
     from app.core.llm_budget import check_budget, record_usage, record_blocked, is_provider_backed_off, record_429
 
+    # PII guard — proposal context can include shop domains, file paths,
+    # commit messages. Fail-closed mirrors budget-exhaustion path.
+    try:
+        from app.core.llm_pii_guard import assert_clean, LLMPayloadViolation
+        assert_clean(context, context="meta_reviewer")
+    except LLMPayloadViolation as exc:
+        log.warning("meta_reviewer: pii_guard blocked call: %s", exc)
+        return ""
+    except Exception as exc:
+        log.debug("meta_reviewer: pii_guard non-fatal: %s", exc)
+
     allowed, reason = check_budget("monthly_opus_audit")  # shares budget pool with monthly audit
     if not allowed:
         record_blocked("monthly_opus_audit", reason)

@@ -87,6 +87,17 @@ def _call_haiku(prompt: str) -> tuple[str | None, float]:
     if not api_key:
         return None, 0.0
 
+    # PII guard — merchant-facing chatbot prompt includes shop snapshot
+    # (orders, RARS, products). Fail-closed mirrors budget-exhaustion path.
+    try:
+        from app.core.llm_pii_guard import assert_clean, LLMPayloadViolation
+        assert_clean(prompt, context="chatbot_llm_fallback")
+    except LLMPayloadViolation as exc:
+        log.warning("chatbot_llm_fallback: pii_guard blocked call: %s", exc)
+        return None, 0.0
+    except Exception as exc:
+        log.debug("chatbot_llm_fallback: pii_guard non-fatal: %s", exc)
+
     try:
         from app.core.llm_budget import is_provider_backed_off, record_429
         if is_provider_backed_off("anthropic"):

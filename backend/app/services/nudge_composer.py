@@ -583,6 +583,20 @@ async def _call_openai_with_retry(messages: list[dict]) -> str:
     Raises the last exception if all attempts fail — callers handle this by
     falling back to rule-based copy.
     """
+    # PII guard — nudge composer receives product_title, product_url, signals
+    # that derive from merchant store state. Scan every role's content before
+    # dispatch. Fail-closed: PII blocks the call and caller falls back to
+    # rule-based copy, same path as budget-exhaustion.
+    try:
+        from app.core.llm_pii_guard import assert_clean, LLMPayloadViolation
+        serialized = "\n".join(m.get("content", "") for m in messages)
+        assert_clean(serialized, context="nudge_composer")
+    except LLMPayloadViolation as exc:
+        log.warning("nudge_composer: pii_guard blocked call: %s", exc)
+        raise RuntimeError(f"nudge_composer: pii_guard block: {exc}") from exc
+    except Exception as exc:
+        log.debug("nudge_composer: pii_guard non-fatal: %s", exc)
+
     last_exc: Exception | None = None
 
     for attempt, delay in enumerate([(None, *_RETRY_DELAYS)], start=1):
