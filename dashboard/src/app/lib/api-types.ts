@@ -5777,67 +5777,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/analytics/week-ridge": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Week Ridge
-         * @description 7-day Week Ridge payload.
-         *
-         *     Data sources (no new tables, read-only):
-         *     - `shop_orders` (captured revenue per day)
-         *     - `events` (abandoned high-intent visitor count per day,
-         *        predicate matches revenue_at_risk.py's recovery model)
-         *
-         *     At-risk EUR is an estimate tagged as such in drawer methodology:
-         *     `high_intent_count × 30d_AOV × 0.08 recovery`. Captured EUR is
-         *     real order revenue.
-         *
-         *     Cold-start returns `{days: [], cold_start: true}`. The dashboard
-         *     renders "Watching your week build" instead of a chart. No
-         *     fabricated zero-padding.
-         */
-        get: operations["get_week_ridge_analytics_week_ridge_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/merchant/spark-memory": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Spark Memory
-         * @description Up to 5 most-recent events for Spark's Memory timeline (Zone 5).
-         *
-         *     Sources (v1): daily_brief + ops_alerts (scoped to the shop,
-         *     last 7 days, severity in {info, warning}, alert_type mapped to
-         *     canonical Spark event_type). Unmapped alerts are skipped —
-         *     never fabricate a narrative to fit an unknown event.
-         *
-         *     Cold-start: empty events list + count=0. UI renders
-         *     "Watching your store…" placeholder.
-         */
-        get: operations["get_spark_memory_merchant_spark_memory_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/pro/risk-forecast": {
         parameters: {
             query?: never;
@@ -10824,33 +10763,6 @@ export interface components {
              */
             paid_revenue_gap: boolean;
         };
-        /** SparkMemoryEventResponse */
-        SparkMemoryEventResponse: {
-            /** Timestamp */
-            timestamp: string;
-            /** Relative Label */
-            relative_label: string;
-            /** Event Type */
-            event_type: string;
-            /** Sentence */
-            sentence: string;
-            /** Dot Color */
-            dot_color: string;
-        };
-        /** SparkMemoryResponse */
-        SparkMemoryResponse: {
-            /** Shop Domain */
-            shop_domain: string;
-            /** Events */
-            events?: components["schemas"]["SparkMemoryEventResponse"][];
-            /**
-             * Count
-             * @default 0
-             */
-            count: number;
-            /** Generated At */
-            generated_at?: string | null;
-        };
         /** StatusUpdateRequest */
         StatusUpdateRequest: {
             /** Status */
@@ -11520,36 +11432,6 @@ export interface components {
             attempts: number;
             /** Error */
             error?: string | null;
-        };
-        /** WeekRidgeDay */
-        WeekRidgeDay: {
-            /** Date */
-            date: string;
-            /** At Risk Eur */
-            at_risk_eur: number;
-            /** Captured Eur */
-            captured_eur: number;
-        };
-        /** WeekRidgeResponse */
-        WeekRidgeResponse: {
-            /** Shop Domain */
-            shop_domain: string;
-            /** Days */
-            days?: components["schemas"]["WeekRidgeDay"][];
-            /**
-             * Currency
-             * @default USD
-             */
-            currency: string;
-            /** Week Over Week Captured Pct */
-            week_over_week_captured_pct?: number | null;
-            /**
-             * Cold Start
-             * @default false
-             */
-            cold_start: boolean;
-            /** Generated At */
-            generated_at?: string | null;
         };
         /**
          * WeeklyCohortRow
@@ -18720,46 +18602,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RARSResponse"];
-                };
-            };
-        };
-    };
-    get_week_ridge_analytics_week_ridge_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WeekRidgeResponse"];
-                };
-            };
-        };
-    };
-    get_spark_memory_merchant_spark_memory_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SparkMemoryResponse"];
                 };
             };
         };
