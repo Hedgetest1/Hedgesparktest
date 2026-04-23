@@ -3,7 +3,7 @@ brief.py — /brief/today and /brief/today/pro endpoints.
 
 Product boundary
 ----------------
-Lite route  GET /brief/today
+Starter route  GET /brief/today
   Returns the daily brief with diagnostic fields only.
   Prescriptive fields are stripped at this API boundary.
 
@@ -20,7 +20,7 @@ Pro route   GET /brief/today/pro
   Backend-enforced via require_pro_plan (HTTP 403 for non-Pro shops).
 
 Both routes share _get_full_brief(), a three-level cache (Redis → DB →
-on-demand generation).  _strip_to_lite() is applied at the Lite route
+on-demand generation).  _strip_to_starter() is applied at the Starter route
 boundary; the service layer and cache always hold the full (Pro-shaped)
 response so the two routes never need separate cache keys.
 
@@ -78,9 +78,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/brief", tags=["brief"])
 
-# Prescriptive top-level fields excluded from the Lite response.
+# Prescriptive top-level fields excluded from the Starter response.
 # human_action inside metrics_snapshot entries is stripped separately.
-_LITE_BRIEF_EXCLUDE: set[str] = {"top_action", "summary_text"}
+_STARTER_BRIEF_EXCLUDE: set[str] = {"top_action", "summary_text"}
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +92,7 @@ def _serialize(row: DailyBrief) -> dict:
     Serialise a DailyBrief ORM row to a JSON-safe dict.
 
     Always includes all fields (Pro-shaped).  Prescriptive fields are
-    stripped by _strip_to_lite() at the Lite route boundary — not here.
+    stripped by _strip_to_starter() at the Starter route boundary — not here.
 
     metrics_snapshot is decoded from its stored JSON string to a list so
     the client receives a native array rather than a raw string.
@@ -119,17 +119,17 @@ def _serialize(row: DailyBrief) -> dict:
     }
 
 
-def _strip_to_lite(data: dict) -> dict:
+def _strip_to_starter(data: dict) -> dict:
     """
-    Strip prescriptive fields for Lite callers.
+    Strip prescriptive fields for Starter callers.
 
     Removes top_action and summary_text from the top-level dict.
     Removes human_action from every metrics_snapshot entry.
 
     The service layer and Redis cache always hold the full (Pro-shaped)
-    dict — stripping happens only at the Lite route boundary.
+    dict — stripping happens only at the Starter route boundary.
     """
-    result = {k: v for k, v in data.items() if k not in _LITE_BRIEF_EXCLUDE}
+    result = {k: v for k, v in data.items() if k not in _STARTER_BRIEF_EXCLUDE}
     if result.get("metrics_snapshot"):
         result["metrics_snapshot"] = [
             {k: v for k, v in entry.items() if k != "human_action"}
@@ -191,7 +191,7 @@ def _get_full_brief(shop: str, db: Session) -> dict:
     Accepts an injected SQLAlchemy session; does NOT open its own.
     Always returns the full (Pro-shaped) response including all prescriptive
     fields.  The Redis cache also stores the full response.  Callers that
-    serve the Lite route must apply _strip_to_lite() before returning.
+    serve the Starter route must apply _strip_to_starter() before returning.
 
     Sharing one cache key between Lite and Pro is safe because the Pro-shaped
     response is a strict superset of the Lite response — stripping happens at
@@ -262,7 +262,7 @@ def _get_full_brief(shop: str, db: Session) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Lite route — GET /brief/today
+# Starter route — GET /brief/today
 #
 # Diagnostic fields only. top_action, summary_text, and human_action inside
 # each metrics_snapshot entry are stripped at this boundary.
@@ -287,7 +287,7 @@ def get_today_brief(
 
     Pro subscribers call /brief/today/pro to receive the full response.
     """
-    return _strip_to_lite(_get_full_brief(shop, db))
+    return _strip_to_starter(_get_full_brief(shop, db))
 
 
 # ---------------------------------------------------------------------------

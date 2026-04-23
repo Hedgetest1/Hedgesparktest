@@ -3,7 +3,7 @@ live_alerts.py — /analytics/alerts and /analytics/alerts/pro endpoints.
 
 Product boundary
 ----------------
-Lite route  GET /analytics/alerts
+Starter route  GET /analytics/alerts
   Returns diagnostic alert fields only: type, priority, message.
   message is a plain-English count sentence describing what is happening
   (e.g. "14 high-intent visitors browsing now").  It is diagnostic — it
@@ -15,7 +15,7 @@ Pro route   GET /analytics/alerts/pro
   Backend-enforced via require_pro_plan (HTTP 403 for non-Pro shops).
 
 Both routes call _build_alerts() which always computes all fields including
-`action`.  The Lite route strips `action` at the API boundary; the service
+`action`.  The Starter route strips `action` at the API boundary; the service
 function itself is plan-agnostic.
 
 Field classification
@@ -37,7 +37,7 @@ To add a new alert type:
      all three fields (type, priority, message, action).
   2. action must be a plain-English prescriptive sentence (imperative mood).
   3. The new type is automatically Lite-safe (message visible) and Pro-gated
-     (action stripped by the Lite route).
+     (action stripped by the Starter route).
 """
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -54,16 +54,16 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 # ---------------------------------------------------------------------------
 
 
-class LiteAlertRow(BaseModel):
+class StarterAlertRow(BaseModel):
     """One Lite alert (diagnostic only — no action field)."""
     type: str
     message: str
     priority: str
 
 
-class LiteAlertsResponse(BaseModel):
+class StarterAlertsResponse(BaseModel):
     """GET /analytics/alerts — Lite diagnostic alert list."""
-    alerts: list[LiteAlertRow]
+    alerts: list[StarterAlertRow]
 
 
 class ProAlertRow(BaseModel):
@@ -101,21 +101,21 @@ _ALERT_ACTIONS: dict[str, str] = {
     ),
 }
 
-# Fields safe to return to Lite subscribers.
+# Fields safe to return to Starter subscribers.
 # action is intentionally absent — it is prescriptive (Pro only).
-_LITE_ALERT_FIELDS: set[str] = {"type", "priority", "message"}
+_STARTER_ALERT_FIELDS: set[str] = {"type", "priority", "message"}
 
 
 # ---------------------------------------------------------------------------
 # Shared detection helper — always builds full (Pro-shaped) alert list.
-# Prescriptive fields are stripped by the Lite route boundary, not here.
+# Prescriptive fields are stripped by the Starter route boundary, not here.
 # ---------------------------------------------------------------------------
 def _build_alerts(shop: str) -> list[dict]:
     """
     Run the alert detection SQL and return the full alert list.
 
     Each dict contains: type, priority, message, action.
-    The Lite route strips `action` before returning to the caller.
+    The Starter route strips `action` before returning to the caller.
     The Pro route returns the list as-is.
 
     Detection signals:
@@ -190,13 +190,13 @@ def _build_alerts(shop: str) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Lite route — GET /analytics/alerts
+# Starter route — GET /analytics/alerts
 #
 # Diagnostic fields only. `action` is stripped at this boundary.
 # ---------------------------------------------------------------------------
 @router.get(
     "/alerts",
-    response_model=LiteAlertsResponse,
+    response_model=StarterAlertsResponse,
     response_model_exclude_none=False,
 )
 def alerts(
@@ -206,7 +206,7 @@ def alerts(
     Lite alert list — diagnostic fields only (type, priority, message).
 
     message describes what is happening (count-based observation) and is
-    fully visible to Lite subscribers.  It is diagnostic, not prescriptive.
+    fully visible to Starter subscribers.  It is diagnostic, not prescriptive.
 
     action is excluded from this response.
     Pro subscribers call /analytics/alerts/pro to receive it.
@@ -215,7 +215,7 @@ def alerts(
     Pro boundary:  action              (what to do about it)
     """
     raw = _build_alerts(shop)
-    lite = [{k: v for k, v in alert.items() if k in _LITE_ALERT_FIELDS} for alert in raw]
+    lite = [{k: v for k, v in alert.items() if k in _STARTER_ALERT_FIELDS} for alert in raw]
     return {"alerts": lite}
 
 

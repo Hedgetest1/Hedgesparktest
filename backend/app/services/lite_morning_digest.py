@@ -429,12 +429,12 @@ def _build_email(shop_domain: str, brief: dict, db: Session) -> Tuple[str, str, 
 
 
 def run_lite_morning_digest_cycle(db: Session) -> dict:
-    """Process all eligible Lite merchants for today's morning digest.
+    """Process all eligible Starter merchants for today's morning digest.
 
     Eligibility:
       - install_status == "active"
       - contact_email is not NULL and not empty
-      - plan == "lite" OR plan is None (default = Lite)
+      - plan == "starter" OR plan is None (default = Starter)
       - not in _ONBOARDING_BLOCKLIST
       - not already sent today (Redis dedup)
 
@@ -477,11 +477,11 @@ def run_lite_morning_digest_cycle(db: Session) -> dict:
             if m.shop_domain in _ONBOARDING_BLOCKLIST:
                 continue
 
-            # Lite-only. Pro merchants get the weekly digest already;
-            # stacking a daily email on top would be noise. Merchants
-            # with plan=None are treated as Lite (default band).
-            plan = (m.plan or "lite").lower()
-            if plan != "lite":
+            # Starter-only. Pro/Scale merchants get the weekly digest
+            # already; stacking a daily email on top would be noise.
+            # Merchants with plan=None are treated as Starter (default band).
+            plan = (m.plan or "starter").lower()
+            if plan != "starter":
                 continue
 
             summary["processed"] += 1

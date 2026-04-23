@@ -61,7 +61,7 @@ def classify_activation(db: Session, shop_domain: str) -> dict:
         result["stage_name"] = "installed"
         result["details"]["has_token"] = bool(merchant.access_token)
         result["details"]["has_email"] = bool(merchant.contact_email)
-        result["details"]["plan"] = merchant.plan or "lite"
+        result["details"]["plan"] = merchant.plan or "starter"
 
         # Stage 1: tracking
         if merchant.script_tag_id:

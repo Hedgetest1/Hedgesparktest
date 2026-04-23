@@ -37,7 +37,7 @@ _MAX_PRODUCTS = 15
 # Tier cap for Starter/Lite — surfaces the most painful 3 leaks but
 # leaves the tail as Pro moat. If founder decides to loosen/tighten,
 # this is the single constant to tune.
-_LITE_PRODUCT_CAP = 3
+_STARTER_PRODUCT_CAP = 3
 
 
 def _now():
@@ -309,6 +309,6 @@ def _apply_plan_filter(result: dict, plan: str) -> dict:
     if plan == "pro":
         return result
     filtered = dict(result)
-    filtered["products"] = list(result.get("products", []))[:_LITE_PRODUCT_CAP]
+    filtered["products"] = list(result.get("products", []))[:_STARTER_PRODUCT_CAP]
     filtered["session_insights"] = {}
     return filtered
