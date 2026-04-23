@@ -54,8 +54,15 @@ _SQL_CALL = re.compile(
 _TABLE_KEYWORDS = (
     r"(?:FROM|JOIN|UPDATE|INSERT\s+INTO|DELETE\s+FROM|INTO)"
 )
+# Matches either an unquoted identifier or a double-quoted one.
+# Examples:
+#   FROM events                 → "events"
+#   FROM "events"               → '"events"'
+#   FROM public.events          → "public.events"
+#   FROM public."events"        → 'public."events"'
+#   FROM "public"."events"      → '"public"."events"'
 _TABLE_NAME_RE = re.compile(
-    rf"{_TABLE_KEYWORDS}\s+([a-zA-Z_][\w.]*)",
+    rf'{_TABLE_KEYWORDS}\s+("[^"]+"|[a-zA-Z_][\w.]*)(?:\s*\.\s*("[^"]+"|[a-zA-Z_][\w]*))?',
     re.IGNORECASE,
 )
 
@@ -111,9 +118,18 @@ def extract_sql_blocks(path: pathlib.Path) -> list[tuple[int, str]]:
 
 
 def find_cte_names(sql: str) -> set[str]:
-    """Return the set of CTE aliases declared via WITH name AS (...)."""
+    """Return the set of CTE aliases declared via WITH name AS (...).
+
+    2026-04-23 retro DA: also handles `WITH RECURSIVE name AS (...)` by
+    stripping the optional RECURSIVE keyword before the alias capture.
+    Without this, a recursive CTE's name was captured as "recursive"
+    and flagged as a missing table.
+    """
     out: set[str] = set()
-    for m in re.finditer(r"\b(\w+)\s+AS\s*\(", sql, re.I):
+    # Strip optional RECURSIVE so the alias-capture regex still sees
+    # the real name immediately after WITH.
+    sql_normalized = re.sub(r"\bWITH\s+RECURSIVE\b", "WITH", sql, flags=re.I)
+    for m in re.finditer(r"\b(\w+)\s+AS\s*\(", sql_normalized, re.I):
         out.add(m.group(1).lower())
     return out
 
@@ -122,10 +138,20 @@ def find_table_references(sql: str) -> set[str]:
     ctes = find_cte_names(sql)
     seen: set[str] = set()
     for m in _TABLE_NAME_RE.finditer(sql):
-        raw = m.group(1)
-        # Strip schema qualifier if present
+        # Group 2 is the table when regex captured schema AND table
+        # separately (e.g. `FROM "public"."events"`).
+        # Group 1 may itself still be dotted (e.g. `FROM public.events`)
+        # because the `[\w.]*` character class is lenient — we split on
+        # dot here to extract the table half. 2026-04-23 retro DA added
+        # quoted-identifier support on top of the existing dotted form.
+        g1, g2 = m.group(1), m.group(2)
+        raw = g2 if g2 else g1
+        # Strip optional double-quotes around the identifier.
+        raw = raw.strip('"').strip()
+        # Defensive: if g1 still contains a dot (dotted qualified name
+        # captured entirely by g1), split off the schema.
         if "." in raw:
-            raw = raw.split(".", 1)[1]
+            raw = raw.split(".", 1)[1].strip('"').strip()
         name = raw.lower()
         if name in _SKIP_TABLES:
             continue

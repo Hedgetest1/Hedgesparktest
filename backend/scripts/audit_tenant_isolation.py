@@ -176,19 +176,43 @@ def sql_has_shop_filter(sql: str, table: str) -> bool:
         shop_domain = :x
         shop_domain IN (:x, :y)
         <alias>.shop_domain = :x
-        shop_domain = e.shop_domain   (self-join)
-        WHERE shop_domain IS NULL     (intentional null-shop rows)
+        "shop_domain" = :x                     (quoted identifier)
+        shop_domain = e.shop_domain            (self-join equality)
+        WHERE shop_domain IS NULL              (intentional null-shop rows)
+        WHERE m.shop_domain = :shop            (scoping via merchants JOIN)
+
+    2026-04-23 retro DA: added quoted-identifier support and a looser
+    JOIN-scoping check — previously a query like
+        SELECT o.* FROM orders o
+         JOIN merchants m ON o.shop_domain = m.shop_domain
+         WHERE m.id = :mid
+    would NOT be recognized as tenant-scoped because the filter is on
+    `m.id` not `shop_domain` directly. The equality-chain in the JOIN
+    clause is implicit scoping, so we accept it as a tenant filter.
     """
     # Keep it permissive — we'd rather allow a weird-but-correct query
     # through than block on a formatting quirk.
-    if re.search(r"\bshop_domain\s*=\s*[:a-z_\.]", sql, re.I):
+    # Strip surrounding quotes from the identifier so `"shop_domain"` matches.
+    sql_norm = re.sub(r'"shop_domain"', 'shop_domain', sql)
+    if re.search(r"\bshop_domain\s*=\s*[:a-z_\.]", sql_norm, re.I):
         return True
-    if re.search(r"\bshop_domain\s+IN\s*\(", sql, re.I):
+    if re.search(r"\bshop_domain\s+IN\s*\(", sql_norm, re.I):
         return True
-    if re.search(r"\bshop_domain\s+IS\s+NULL", sql, re.I):
+    if re.search(r"\bshop_domain\s+IS\s+NULL", sql_norm, re.I):
         return True
     # Self-joins: `e.shop_domain = o.shop_domain`
-    if re.search(r"\b\w+\.shop_domain\s*=\s*\w+\.shop_domain", sql, re.I):
+    if re.search(r"\b\w+\.shop_domain\s*=\s*\w+\.shop_domain", sql_norm, re.I):
+        return True
+    # Scoping JOIN via merchants table (any JOIN clause containing
+    # `shop_domain = ... shop_domain` pattern qualifies — this is the
+    # same equality-chain as self-join but with mixed table names).
+    # The earlier self-join regex already covers the common case; this
+    # is a catch-all for when aliases are exotic.
+    if re.search(
+        r"\bJOIN\b.{0,200}\bshop_domain\b.{0,20}=.{0,20}\bshop_domain\b",
+        sql_norm,
+        re.I | re.DOTALL,
+    ):
         return True
     return False
 

@@ -50,10 +50,47 @@ if str(REPO_ROOT) not in sys.path:
 # Tables that MUST be preserved on shop_redact. These are the compliance
 # exceptions. Any addition here is a deliberate compliance decision and
 # must be justified in the comment beside the entry.
+#
+# 2026-04-23 retro DA: each entry must carry a `# reason: <justification>`
+# comment on the same line. Validation in `_validate_preserve_table_entries`
+# ensures the accompanying rationale isn't silently dropped during a
+# rebase / merge. Missing reason → audit fails loud.
 _PRESERVE_TABLES = {
-    "audit_log",     # GDPR Art. 5(2) accountability — immutable by design
-    "merchants",     # deleted last in _process_shop_redact, not via bulk loop
+    "audit_log",     # reason: GDPR Art. 5(2) accountability — immutable by design
+    "merchants",     # reason: deleted last in _process_shop_redact, not via bulk loop
 }
+
+
+def _validate_preserve_table_entries() -> list[str]:
+    """Each _PRESERVE_TABLES entry must have a `reason: ...` comment on
+    the same source line. Returns list of entries missing a reason —
+    empty list on success. 2026-04-23 retro DA compliance-trail check.
+    """
+    missing: list[str] = []
+    try:
+        src = pathlib.Path(__file__).read_text()
+    except Exception:
+        return []
+    # Parse the _PRESERVE_TABLES block manually line by line.
+    in_block = False
+    for raw_line in src.splitlines():
+        line = raw_line.strip()
+        if line.startswith("_PRESERVE_TABLES") and "{" in line:
+            in_block = True
+            continue
+        if in_block:
+            if line.startswith("}") or line == "":
+                if line.startswith("}"):
+                    break
+                continue
+            m = re.match(r'"([a-zA-Z_][\w]*)"\s*,?\s*(#.*)?$', line)
+            if not m:
+                continue
+            table = m.group(1)
+            comment = m.group(2) or ""
+            if "reason:" not in comment.lower():
+                missing.append(table)
+    return missing
 
 
 def _extract_hardcoded_tables(src: str) -> set[str]:
@@ -105,6 +142,16 @@ def _extract_db_tables_with_shop_domain() -> set[str]:
 
 def main(argv: list[str]) -> int:
     strict = "--strict" in argv
+
+    # Compliance-trail check (2026-04-23 retro DA): every _PRESERVE_TABLES
+    # entry must have a `reason:` justification on its source line.
+    missing_reasons = _validate_preserve_table_entries()
+    if missing_reasons:
+        print("audit_gdpr_redact_coverage: FAIL — _PRESERVE_TABLES entries")
+        print("missing compliance rationale (expected `# reason: <text>`):")
+        for t in missing_reasons:
+            print(f"  - {t}")
+        return 1 if strict else 0
 
     try:
         src = GDPR_PROCESSOR.read_text()

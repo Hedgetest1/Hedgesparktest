@@ -49,9 +49,15 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 APP_ROOT = REPO_ROOT / "app"
 SCAN_DIRS = ["services", "core", "api", "workers"]
 
+# Multi-provider URL patterns (2026-04-23 retro DA sweep). Keep in sync
+# with audit_llm_truncation_rejection + audit_llm_http_timeout vendor
+# coverage.
 _LLM_URL_PATTERNS = [
     re.compile(r"api\.anthropic\.com"),
     re.compile(r"api\.openai\.com"),
+    re.compile(r"api\.mistral\.ai"),
+    re.compile(r"generativelanguage\.googleapis\.com"),
+    re.compile(r"ai\.google\.dev"),
 ]
 
 _PII_GUARD_PATTERNS = [

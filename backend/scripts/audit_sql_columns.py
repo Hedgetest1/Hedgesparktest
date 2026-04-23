@@ -154,17 +154,25 @@ def find_aliased_column_refs(sql: str, schema: dict[str, set[str]]) -> list[tupl
     past the original audit: it lived inside a depth-1 subquery.
     """
     # Build alias → table map. Handles:
-    #   FROM table_name alias
-    #   FROM table_name AS alias
-    #   JOIN table_name alias
-    #   JOIN table_name AS alias
+    #   FROM table_name alias         (bare + bare)
+    #   FROM table_name AS alias      (bare + AS + bare)
+    #   FROM "table_name" alias       (quoted + bare)
+    #   FROM public.table_name alias  (schema-qualified + bare)
+    # 2026-04-23 retro DA added quoted-name + schema-qualified support;
+    # the prior regex only matched bare identifiers on BOTH sides.
     alias_map: dict[str, str] = {}
     for m in re.finditer(
-        r'\b(?:FROM|JOIN)\s+([a-zA-Z_]\w*)(?:\s+AS)?\s+([a-zA-Z_]\w*)\b',
+        r'\b(?:FROM|JOIN)\s+'
+        # table name: unquoted (optionally schema-qualified) OR double-quoted
+        r'(?:[a-zA-Z_]\w*\.)?("[^"]+"|[a-zA-Z_]\w*)'
+        r'(?:\s+AS)?\s+'
+        # alias must be a plain identifier
+        r'([a-zA-Z_]\w*)\b',
         sql,
         re.IGNORECASE,
     ):
-        table, alias = m.group(1).lower(), m.group(2).lower()
+        raw_table = m.group(1).strip('"').strip()
+        table, alias = raw_table.lower(), m.group(2).lower()
         # Filter out keywords that might look like aliases (WHERE, ORDER, etc.)
         if alias in _COLUMN_SKIPLIST:
             continue
@@ -174,10 +182,15 @@ def find_aliased_column_refs(sql: str, schema: dict[str, set[str]]) -> list[tupl
     if not alias_map:
         return []
 
-    # Find `<alias>.<column>` — column must be a bare identifier
+    # Find `<alias>.<column>` — column must be a bare identifier.
+    # Also supports `"alias"."column"` quoted forms.
     issues: list[tuple[str, str]] = []
-    for m in re.finditer(r'\b([a-zA-Z_]\w*)\.([a-zA-Z_]\w*)\b', sql):
-        alias, col = m.group(1).lower(), m.group(2).lower()
+    column_re = re.compile(
+        r'\b("[^"]+"|[a-zA-Z_]\w*)\.("[^"]+"|[a-zA-Z_]\w*)\b'
+    )
+    for m in column_re.finditer(sql):
+        alias = m.group(1).strip('"').strip().lower()
+        col = m.group(2).strip('"').strip().lower()
         if alias not in alias_map:
             continue
         if col in _COLUMN_SKIPLIST:
