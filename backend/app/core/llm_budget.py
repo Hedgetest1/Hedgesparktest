@@ -246,30 +246,36 @@ GLOBAL_MAX_CALLS_PER_DAY = 150
 # Internal state
 # ---------------------------------------------------------------------------
 
-_daily_counts: dict[str, int] = {}
-_cycle_counts: dict[str, int] = {}
-_last_call: dict[str, float] = {}
+# multi-worker: redis-mirrored — counters dual-written via _redis_incr /
+# _redis_incrbyfloat helpers. check_budget() reconciles by taking
+# max(redis_value, local_value) before decision. 4× per-worker counting
+# is tolerated because the Redis mirror is the authoritative total.
+_daily_counts: dict[str, int] = {}  # multi-worker: redis-mirrored
+_cycle_counts: dict[str, int] = {}  # multi-worker: redis-mirrored
+_last_call: dict[str, float] = {}  # multi-worker: redis-mirrored
 _total_tokens: dict[str, int] = {}
 _blocked_count: int = 0
 _day_key: str = ""
 
-# Monthly cost tracking (in-process, reset on month change)
+# multi-worker: redis-mirrored — monthly spend uses max(redis, local) reconciliation
 _monthly_cost_eur: float = 0.0
 _provider_cost_eur: dict[str, float] = {}  # per-provider cost tracking
 _month_key: str = ""
 
-# Budget alert dedup (one alert per provider per month at 90%)
+# multi-worker: accept-degrade — alert dedup per-worker = 4× alerts max on
+# outage, acceptable (operator prefers 4 dupes to a silent miss)
 _budget_alert_sent: dict[str, bool] = {}  # "anthropic:2026-04" → True
 
-# 429 backoff tracking per provider
+# multi-worker: accept-degrade — 429 backoff is per-worker; each worker
+# handles its own rate-limit state with the provider
 _provider_429: dict[str, dict] = {}   # provider → {last_429: float, backoff_secs: int, count: int}
 _MAX_BACKOFF = 300   # 5 minutes max
 _INITIAL_BACKOFF = 5  # 5 seconds initial
 
-# Both-providers-failed alert dedup: "module:hour_key" → True
+# multi-worker: accept-degrade — alert dedup per-worker (same rationale as _budget_alert_sent)
 _both_failed_alert_sent: dict[str, bool] = {}
 
-# Exhaustion alert dedup (100% cap): "scope:month" → True
+# multi-worker: accept-degrade — alert dedup per-worker
 _exhaustion_alert_sent: dict[str, bool] = {}
 
 # ---------------------------------------------------------------------------

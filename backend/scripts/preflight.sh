@@ -542,6 +542,23 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Multi-worker safety audit — blocks module-level state that silently
+# assumes a single uvicorn worker. Flags suspicious `_*cache`, `_*bucket`,
+# `_*counts`, `_cooldown*`, `_mem_*`, `_rate_*` + any module-level Lock().
+# Overrideable with `# multi-worker: <disposition>` annotation on the
+# declaration or within 6 lines above. Born 2026-04-23 alongside the
+# uvicorn --workers 4 flip.
+# ---------------------------------------------------------------------------
+step "Multi-worker safety audit (audit_multiworker_safety.py)"
+if "$PY" "$BACKEND/scripts/audit_multiworker_safety.py" --strict > /tmp/preflight_multiworker.log 2>&1; then
+    ok "no unannotated multi-worker hazards in app/api|core|services"
+else
+    bad "multi-worker safety audit flagged hazards — see /tmp/preflight_multiworker.log"
+    tail -30 /tmp/preflight_multiworker.log || true
+    fail=1
+fi
+
+# ---------------------------------------------------------------------------
 # 3. Python AST parse check — any syntax error blocks commit
 # ---------------------------------------------------------------------------
 step "Python AST parse (staged .py files)"

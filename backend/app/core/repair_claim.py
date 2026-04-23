@@ -18,7 +18,7 @@ log = logging.getLogger("repair_claim")
 _CLAIM_TTL_SECONDS = 300  # 5 minutes — no single repair takes longer
 
 # In-process fallback when Redis is unavailable
-_fallback_claims: dict[str, float] = {}
+_fallback_claims: dict[str, float] = {}  # multi-worker: redis-backed
 
 
 def _claim_key(shop_domain: str, area: str) -> str:

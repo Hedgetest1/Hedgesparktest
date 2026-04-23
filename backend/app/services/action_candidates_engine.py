@@ -78,7 +78,7 @@ from app.services.revenue_metrics import get_shop_aov
 # works across uvicorn workers too — unlike threading.Lock which is
 # process-local and useless once you fork.
 # ---------------------------------------------------------------------------
-_refresh_last_run: dict[str, float] = {}   # shop → epoch seconds of last refresh
+_refresh_last_run: dict[str, float] = {}   # multi-worker: redis-backed — fast-path cache; real dedup via Redis SETNX
 
 # Minimum seconds between signal refreshes per shop.
 # The opportunity engine internally checks signal TTL (24h), but without this

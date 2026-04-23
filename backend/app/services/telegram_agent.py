@@ -2574,6 +2574,7 @@ def build_daily_digest(db) -> str:
 
 
 # Cache for digest buttons (consumed by send_daily_digest)
+# multi-worker: accept-degrade — telegram_agent runs only in singleton agent_worker, never in uvicorn-API fleet
 _digest_buttons_cache: list[list[dict]] = []
 
 

@@ -98,8 +98,8 @@ def _tracker_url() -> str:
 # ---------------------------------------------------------------------------
 
 _NONCE_TTL: int = 300
-_mem_nonces: dict[str, float] = {}
-_mem_nonces_lock: Lock = Lock()
+_mem_nonces: dict[str, float] = {}  # multi-worker: redis-backed
+_mem_nonces_lock: Lock = Lock()  # multi-worker: redis-backed (protects fallback dict only)
 
 
 def _store_nonce(shop: str, nonce: str) -> None:

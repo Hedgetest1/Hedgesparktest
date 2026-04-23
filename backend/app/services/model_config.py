@@ -25,8 +25,8 @@ _CACHE_TTL_S = 300  # 5 minutes
 # worker uvicorn (post 2026-04-23 scaling flip) Redis is the authoritative
 # cache so that an `activate_model()` on worker #1 propagates to workers
 # #2..#4 within _CACHE_TTL_S, not 4×_CACHE_TTL_S.
-_cache: dict[str, dict] = {}
-_cache_ts: dict[str, float] = {}
+_cache: dict[str, dict] = {}  # multi-worker: redis-backed
+_cache_ts: dict[str, float] = {}  # multi-worker: redis-backed
 
 _REDIS_KEY_PREFIX = "hs:model_cfg:v1"
 

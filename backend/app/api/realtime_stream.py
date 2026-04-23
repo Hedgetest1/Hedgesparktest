@@ -51,6 +51,9 @@ _MAX_TICKS_PER_CONNECTION = 360  # 1 hour at 10s ticks → forces clean reconnec
 _MAX_LIVE_CONNECTIONS = 500
 _SNAPSHOT_CACHE_TTL_S = 8.0  # must be < _TICK_SECONDS so we refresh each tick
 _active_connections = 0
+# multi-worker: accept-degrade — per-worker 8s-TTL cache; under 4 workers a
+# popular shop may run 4 snapshot queries/8s instead of 1, tolerated because
+# stale window ≤ 8s matches the SSE tick period.
 _snapshot_cache: dict[str, tuple[float, dict]] = {}
 
 

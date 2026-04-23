@@ -136,8 +136,8 @@ _DAILY_BUDGET: int = int(os.getenv("OPENAI_DAILY_CALLS_PER_SHOP", "50"))
 
 # Fallback in-memory budget when Redis is unavailable.
 # dict[str, (count: int, date: str)]  — key = shop_domain
-_mem_budget: dict[str, tuple[int, str]] = {}
-_mem_budget_lock = Lock()
+_mem_budget: dict[str, tuple[int, str]] = {}  # multi-worker: redis-backed
+_mem_budget_lock = Lock()  # multi-worker: redis-backed (protects fallback dict only)
 
 
 def _today_utc() -> str:

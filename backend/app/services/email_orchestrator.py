@@ -159,7 +159,7 @@ class EmailIntent:
 # In-memory intent buffer (per agent_worker cycle)
 # ---------------------------------------------------------------------------
 
-_pending_intents: list[EmailIntent] = []
+_pending_intents: list[EmailIntent] = []  # multi-worker: accept-degrade — submit_intent callers are singleton workers only (no uvicorn-API producer)
 
 
 def submit_intent(db: Session, intent: EmailIntent) -> str:

@@ -211,7 +211,7 @@ _RATE_LIMITS = {
     "/bugfix_apply": 2, "/rollback": 2, "/merge": 2,
 }
 
-_rate_buckets: dict[str, list[float]] = {}
+_rate_buckets: dict[str, list[float]] = {}  # multi-worker: accept-degrade — operator commands rare, per-worker rate limit tolerated
 _RATE_WINDOW = 60.0
 
 

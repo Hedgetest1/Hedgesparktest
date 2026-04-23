@@ -30,7 +30,7 @@ _CHAT_MAX_PER_HOUR = 30
 _CHAT_WINDOW = 3600
 
 # In-process fallback (Redis preferred)
-_local_buckets: dict[str, list[float]] = defaultdict(list)
+_local_buckets: dict[str, list[float]] = defaultdict(list)  # multi-worker: redis-backed
 
 
 def _check_merchant_rate_limit(shop_domain: str) -> tuple[bool, int]:

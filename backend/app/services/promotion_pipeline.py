@@ -483,7 +483,7 @@ import time as _time
 
 # Redis-backed cooldown (multi-worker correct). In-process dict retained
 # only as the Redis-unavailable fallback path — see _is_push_on_cooldown.
-_auto_push_cooldown: dict[str, float] = {}
+_auto_push_cooldown: dict[str, float] = {}  # multi-worker: redis-backed
 _AUTO_PUSH_COOLDOWN_S = 3600  # 1 hour
 _AUTO_PUSH_COOLDOWN_REDIS_PREFIX = "hs:auto_push_cooldown:v1"
 

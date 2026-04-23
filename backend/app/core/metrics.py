@@ -125,9 +125,12 @@ class _Histogram:
 # Global metric instances
 # ---------------------------------------------------------------------------
 
-# Request latency by method + path
+# multi-worker: accept-degrade — metrics are per-process for monitoring
+# visibility only. /metrics endpoint returns 1/N of fleet traffic under
+# N uvicorn workers; aggregation across workers lives in the roadmap
+# (Prometheus push-gateway or Redis-based collector).
 _request_duration = defaultdict(_Histogram)  # key: (method, path_group)
-_request_count = defaultdict(_Counter)       # key: (method, path_group, status)
+_request_count = defaultdict(_Counter)       # multi-worker: accept-degrade — per-process counter
 
 # Worker cycle duration
 _worker_duration = defaultdict(lambda: _Histogram(
@@ -144,9 +147,9 @@ _cache_hits = _Counter()
 _cache_misses = _Counter()
 
 # Errors
-_error_count = defaultdict(_Counter)  # key: error_type
+_error_count = defaultdict(_Counter)  # multi-worker: accept-degrade — per-process counter
 
-_lock = threading.Lock()
+_lock = threading.Lock()  # multi-worker: accept-degrade — protects per-process metrics only
 
 
 # ---------------------------------------------------------------------------

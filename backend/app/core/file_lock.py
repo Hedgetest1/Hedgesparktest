@@ -25,7 +25,7 @@ log = logging.getLogger("file_lock")
 _LOCK_TTL_SECONDS = 300  # 5 minutes
 
 # In-process fallback when Redis is unavailable
-_fallback_locks: dict[str, tuple[str, float]] = {}  # key → (owner, timestamp)
+_fallback_locks: dict[str, tuple[str, float]] = {}  # multi-worker: redis-backed — key → (owner, timestamp)
 
 
 def _normalize_path(path: str) -> str:

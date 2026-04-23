@@ -78,7 +78,7 @@ class OrchestratorResult:
 # process dict retained only as a fallback path during Redis outages.
 # ---------------------------------------------------------------------------
 
-_cooldown_cache: dict[str, float] = {}  # Redis-unavailable fallback only
+_cooldown_cache: dict[str, float] = {}  # multi-worker: redis-backed — Redis-unavailable fallback only
 _COOLDOWN_REDIS_PREFIX = "hs:action_cooldown:v1"
 
 
