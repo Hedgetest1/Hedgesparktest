@@ -61,59 +61,81 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 LANDING_PATH = REPO_ROOT / "dashboard" / "src" / "app" / "page.tsx"
+DASHBOARD_APP_PAGE = REPO_ROOT / "dashboard" / "src" / "app" / "app" / "page.tsx"
+USE_SESSION = REPO_ROOT / "dashboard" / "src" / "app" / "lib" / "useSession.ts"
+BACKEND_MERCHANT_API = REPO_ROOT / "backend" / "app" / "api" / "merchant.py"
+BACKEND_LIVE_ALERTS = REPO_ROOT / "backend" / "app" / "api" / "live_alerts.py"
 
-# (substring, semantic reason shown on failure)
-_REQUIRED_LANDING_SUBSTRINGS: list[tuple[str, str]] = [
-    ('key: "lite"',   "entry tier machine id"),
-    ('label: "Lite"', "entry tier user-facing label"),
-    ('key: "pro"',    "mid tier machine id"),
-    ('key: "scale"',  "top tier machine id"),
+# (file_path, substring, semantic reason shown on failure)
+_REQUIRED: list[tuple[Path, str, str]] = [
+    # Landing — single source of truth for user-facing tier names
+    (LANDING_PATH,         'key: "lite"',                "landing entry tier machine id"),
+    (LANDING_PATH,         'label: "Lite"',              "landing entry tier user-facing label"),
+    (LANDING_PATH,         'key: "pro"',                 "landing mid tier machine id"),
+    (LANDING_PATH,         'key: "scale"',               "landing top tier machine id"),
+    # Dashboard tier-state type — must match landing taxonomy
+    (DASHBOARD_APP_PAGE,   '"lite" | "pro"',             "dashboard tier state union"),
+    (USE_SESSION,          '"lite" | "pro"',             "useSession Tier type"),
+    # Backend response contract — /merchant/me normaliser stays at "lite"|"pro"
+    (BACKEND_MERCHANT_API, 'else "lite"',                "merchant.py normalise_plan fallback"),
+    # Backend Pydantic class names (dashboard api-types mirrors these)
+    (BACKEND_LIVE_ALERTS,  "class LiteAlertRow(",        "live_alerts Pydantic entry-tier class"),
+    (BACKEND_LIVE_ALERTS,  "class LiteAlertsResponse(",  "live_alerts Pydantic entry-tier response"),
 ]
 
 
 def main(argv: list[str]) -> int:
     strict = "--strict" in argv
 
-    if not LANDING_PATH.exists():
-        print(
-            f"audit_tier_naming_canonical: FAIL — landing page not found at {LANDING_PATH}",
-            file=sys.stderr,
-        )
-        return 1
+    missing: list[tuple[Path, str, str]] = []
+    unreadable: list[Path] = []
 
-    try:
-        text = LANDING_PATH.read_text()
-    except (OSError, UnicodeDecodeError) as exc:
-        print(
-            f"audit_tier_naming_canonical: FAIL — could not read landing: {exc}",
-            file=sys.stderr,
-        )
-        return 1
-
-    missing: list[tuple[str, str]] = []
-    for needle, reason in _REQUIRED_LANDING_SUBSTRINGS:
+    for path, needle, reason in _REQUIRED:
+        if not path.exists():
+            unreadable.append(path)
+            continue
+        try:
+            text = path.read_text()
+        except (OSError, UnicodeDecodeError):
+            unreadable.append(path)
+            continue
         if needle not in text:
-            missing.append((needle, reason))
+            missing.append((path, needle, reason))
 
-    if not missing:
+    if not missing and not unreadable:
         print(
-            "audit_tier_naming_canonical: clean — Lite/Pro/Scale canonical "
-            "(4/4 substrings present in landing)"
+            f"audit_tier_naming_canonical: clean — {len(_REQUIRED)}/{len(_REQUIRED)} "
+            "canonical anchors present across landing + dashboard + backend"
         )
         return 0
 
     print("audit_tier_naming_canonical: FAIL — canonical tier naming drift detected")
     print()
-    print("Missing from dashboard/src/app/page.tsx:")
-    for needle, reason in missing:
-        print(f"  - {needle!r:30s}  ({reason})")
-    print()
+
+    if unreadable:
+        print("Unreadable / missing files:")
+        for p in unreadable:
+            print(f"  - {p}")
+        print()
+
+    if missing:
+        print("Missing canonical anchors:")
+        by_file: dict[Path, list[tuple[str, str]]] = {}
+        for path, needle, reason in missing:
+            by_file.setdefault(path, []).append((needle, reason))
+        for path, entries in by_file.items():
+            rel = path.relative_to(REPO_ROOT)
+            print(f"  {rel}:")
+            for needle, reason in entries:
+                print(f"    - {needle!r:40s}  ({reason})")
+        print()
+
     print("Canonical tier naming is Lite / Pro / Scale (2026-04-23).")
-    print("If this is an intentional rename by the founder, update BOTH:")
-    print("  1. This script's _REQUIRED_LANDING_SUBSTRINGS list")
+    print("If this is an intentional rename by the founder, update ALL:")
+    print("  1. This script's _REQUIRED list")
     print("  2. The memory file project_tier_rename_dashboard_backlog.md")
     print("  3. The audit_landing_starter_shipped.py header comment")
-    print("...in the same commit.")
+    print("  4. Every file flagged above, coherently, in the same commit")
     print()
     print("If this is NOT an intentional rename, ABORT and investigate:")
     print("  grep -n 'key: \"lite\"\\|label: \"Lite\"' dashboard/src/app/page.tsx")
