@@ -63,6 +63,17 @@ _AUDITS: list[tuple[str, str, str]] = [
         "invariant_regression",
         "invariant:multiworker_safety",
     ),
+    # Dev-flag leaks: added 2026-04-23 after the AUTO_DETECT_ENABLED=1
+    # leak was found live in prod .env. Runtime recognition for the
+    # class of bug where a dev-only env var is active while APP_URL
+    # points at hedgesparkhq.com. Preflight cannot see .env (gitignored);
+    # this is the only layer that catches an .env-driven leak — fires
+    # within 15 min of backend boot with leaky env.
+    (
+        "audit_dev_flag_leaks.py",
+        "invariant_regression",
+        "invariant:dev_flag_leaks",
+    ),
 ]
 
 _TIMEOUT_SECONDS = 30
@@ -108,8 +119,12 @@ def run_invariant_check(db: Session) -> dict:
             log.warning("invariant_monitor: audit script missing: %s", script_path)
             continue
         try:
+            # --strict forces exit 1 on any finding. Without it, audits
+            # default to report-only (exit 0) for preflight readability;
+            # runtime-check path MUST see failures as non-zero to trigger
+            # the ops_alert branch below.
             result = subprocess.run(
-                [_PYTHON_BIN, str(script_path)],
+                [_PYTHON_BIN, str(script_path), "--strict"],
                 capture_output=True,
                 text=True,
                 timeout=_TIMEOUT_SECONDS,

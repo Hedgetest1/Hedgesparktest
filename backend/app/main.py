@@ -804,6 +804,29 @@ def _startup_env_audit() -> None:
             "install sentry-sdk[fastapi] to enable production error tracking."
         )
 
+    # Dev-flag leak check — boot-time recognition for the bug class that
+    # triggered the 2026-04-23 AUTO_DETECT leak. Deliberately non-fatal
+    # (does not raise) so a mis-configured beta host can still boot —
+    # the CRITICAL log + 15-min invariant_monitor alert are loud enough
+    # to surface the issue without hard-blocking service recovery.
+    try:
+        from scripts.audit_dev_flag_leaks import scan_env, _looks_like_production
+        leak_hits = scan_env()
+        if leak_hits and _looks_like_production():
+            for name, _value, reason in leak_hits:
+                _startup_log.critical(
+                    "DEV-FLAG LEAK: %s is active in prod context — %s "
+                    "Remediation: remove from backend/.env, then pm2 restart wishspark-backend.",
+                    name, reason,
+                )
+        elif leak_hits:
+            _startup_log.info(
+                "dev-flag-audit: %d non-prod dev flag(s) active (APP_URL does not contain hedgesparkhq.com) — acceptable",
+                len(leak_hits),
+            )
+    except Exception as exc:
+        _startup_log.warning("dev-flag-audit: check failed (non-fatal): %s", exc)
+
 
 def _startup_telegram_warmup() -> None:
     """Pre-establish Telegram TLS connection in a background thread so the
