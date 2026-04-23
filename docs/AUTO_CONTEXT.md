@@ -1,5 +1,5 @@
 # WishSpark Auto Context
-Auto-generated: 2026-04-18T00:17:33.314634 UTC
+Auto-generated: 2026-04-23T23:00:01.230072 UTC
 
 ## Project Root
 /opt/wishspark
@@ -22,6 +22,7 @@ Auto-generated: 2026-04-18T00:17:33.314634 UTC
 /backend/app/api/agency.py
 /backend/app/api/agent.py
 /backend/app/api/ai_actions.py
+/backend/app/api/analytics_assistant.py
 /backend/app/api/annotations.py
 /backend/app/api/anomaly_fusion.py
 /backend/app/api/anomaly_replay.py
@@ -65,6 +66,7 @@ Auto-generated: 2026-04-18T00:17:33.314634 UTC
 /backend/app/api/knowledge_graph.py
 /backend/app/api/legal_pages.py
 /backend/app/api/lift.py
+/backend/app/api/lite_export.py
 /backend/app/api/live_alerts.py
 /backend/app/api/live_opportunities.py
 /backend/app/api/live_visitors.py
@@ -76,6 +78,7 @@ Auto-generated: 2026-04-18T00:17:33.314634 UTC
 /backend/app/api/merchant_groups.py
 /backend/app/api/merchant_privacy.py
 /backend/app/api/merchant_rules.py
+/backend/app/api/merchant_slack.py
 /backend/app/api/mta.py
 /backend/app/api/night_shift.py
 /backend/app/api/nudge_dna.py
@@ -85,10 +88,12 @@ Auto-generated: 2026-04-18T00:17:33.314634 UTC
 /backend/app/api/onboarding.py
 /backend/app/api/opportunities.py
 /backend/app/api/ops.py
+/backend/app/api/ops_email_preview.py
 /backend/app/api/orders.py
 /backend/app/api/outbound_webhooks.py
 /backend/app/api/playbook.py
 /backend/app/api/pnl.py
+/backend/app/api/prediction_accuracy.py
 /backend/app/api/price_intelligence.py
 /backend/app/api/price_sensitivity.py
 /backend/app/api/product_metrics.py
@@ -98,6 +103,7 @@ Auto-generated: 2026-04-18T00:17:33.314634 UTC
 /backend/app/api/public_proofs.py
 /backend/app/api/public_roi_counter.py
 /backend/app/api/public_status.py
+/backend/app/api/public_transparency.py
 /backend/app/api/realtime_stream.py
 /backend/app/api/refund_loss.py
 /backend/app/api/resend_webhooks.py
@@ -108,6 +114,7 @@ Auto-generated: 2026-04-18T00:17:33.314634 UTC
 /backend/app/api/risk_forecast.py
 /backend/app/api/roi_hero.py
 /backend/app/api/roi_report.py
+/backend/app/api/rum.py
 /backend/app/api/segment_compare.py
 /backend/app/api/segments.py
 /backend/app/api/sentry_webhooks.py
@@ -149,6 +156,7 @@ Auto-generated: 2026-04-18T00:17:33.314634 UTC
 /backend/app/services/adversarial_test_gen.py
 /backend/app/services/agency.py
 /backend/app/services/alerting.py
+/backend/app/services/analytics_assistant.py
 /backend/app/services/annotations.py
 /backend/app/services/anomaly_fusion.py
 /backend/app/services/audience_segments.py
@@ -178,9 +186,12 @@ Auto-generated: 2026-04-18T00:17:33.314634 UTC
 /backend/app/services/conversion_service.py
 /backend/app/services/cross_pollination.py
 /backend/app/services/customer_churn_scorer.py
+/backend/app/services/dashboard_auto_remediation.py
+/backend/app/services/dashboard_drift_scope.py
 /backend/app/services/data_integrity_probe.py
 /backend/app/services/data_retention.py
 /backend/app/services/digest_formatter.py
+/backend/app/services/email_deliverability.py
 /backend/app/services/email_governance.py
 /backend/app/services/email_journey.py
 /backend/app/services/email_orchestrator.py
@@ -212,6 +223,7 @@ Auto-generated: 2026-04-18T00:17:33.314634 UTC
 /backend/app/services/inbound_email_processor.py
 /backend/app/services/instant_onboarding.py
 /backend/app/services/intelligence_report.py
+/backend/app/services/invariant_monitor.py
 /backend/app/services/klaviyo_connection.py
 /backend/app/services/klaviyo_events.py
 /backend/app/services/klaviyo_export.py
@@ -219,7 +231,9 @@ Auto-generated: 2026-04-18T00:17:33.314634 UTC
 /backend/app/services/learning_isolation.py
 /backend/app/services/lesson_gc.py
 /backend/app/services/lighthouse_monitor.py
+/backend/app/services/lite_morning_digest.py
 /backend/app/services/llm_benchmark_monitor.py
+/backend/app/services/llm_realmodel_drift.py
 /backend/app/services/loop_health.py
 /backend/app/services/ltv_engine.py
 /backend/app/services/margin_guard.py
@@ -248,6 +262,8 @@ Auto-generated: 2026-04-18T00:17:33.314634 UTC
 /backend/app/services/nudge_optimizer.py
 /backend/app/services/nudge_rank.py
 /backend/app/services/observability_spikes.py
+/backend/app/services/on_alert_responder.py
+/backend/app/services/on_alert_triage_llm.py
 /backend/app/services/onboarding.py
 /backend/app/services/onboarding_funnel.py
 /backend/app/services/onboarding_health.py
@@ -263,6 +279,7 @@ Auto-generated: 2026-04-18T00:17:33.314634 UTC
 /backend/app/services/pipeline_heartbeat.py
 /backend/app/services/pipeline_self_upgrade.py
 /backend/app/services/pnl_engine.py
+/backend/app/services/prediction_log.py
 /backend/app/services/price_intelligence_engine.py
 /backend/app/services/price_radar_service.py
 /backend/app/services/price_sensitivity.py
@@ -283,11 +300,11 @@ Auto-generated: 2026-04-18T00:17:33.314634 UTC
 /backend/app/services/revenue_genome.py
 /backend/app/services/revenue_loss.py
 /backend/app/services/revenue_metrics.py
-/backend/app/services/revenue_triggers.py
 /backend/app/services/reviewer_layer.py
 /backend/app/services/risk_forecast.py
 /backend/app/services/roi_report.py
 /backend/app/services/rule_engine.py
+/backend/app/services/rum_monitor.py
 /backend/app/services/scaling_intelligence.py
 /backend/app/services/scoring_calibration.py
 /backend/app/services/security_heartbeat.py
@@ -306,7 +323,9 @@ Auto-generated: 2026-04-18T00:17:33.314634 UTC
 /backend/app/services/simulation_engine.py
 /backend/app/services/simulation_probe.py
 /backend/app/services/sip_engine.py
+/backend/app/services/slack_dispatcher.py
 /backend/app/services/soc2_controls.py
+/backend/app/services/spark_voice.py
 /backend/app/services/store_context.py
 /backend/app/services/store_insight_engine.py
 /backend/app/services/storefront_preview.py
@@ -368,6 +387,7 @@ Auto-generated: 2026-04-18T00:17:33.314634 UTC
 /backend/app/models/ops_alert.py
 /backend/app/models/outbound_webhook.py
 /backend/app/models/patch_fingerprint.py
+/backend/app/models/prediction_log.py
 /backend/app/models/price_intelligence.py
 /backend/app/models/price_watch.py
 /backend/app/models/product.py
@@ -401,7 +421,21 @@ Auto-generated: 2026-04-18T00:17:33.314634 UTC
 /agency
 /app
 /app/groups
+/app/intelligence
+/app/lite
 /app/marketplace
+/app/operations
+/app/pro
+/app/scale
+/app/settings
+/app/settings/cost-defaults
+/app/settings/costs
+/app/settings/currency
+/app/settings/klaviyo
+/app/settings/privacy
+/app/settings/slack
+/app/settings/team
+/app/settings/webhooks
 /cookies
 /install
 /pricing
@@ -409,6 +443,7 @@ Auto-generated: 2026-04-18T00:17:33.314634 UTC
 /proof
 /status
 /terms
+/transparency
 
 ## Agent Notes
 - Read AGENTS.md first
