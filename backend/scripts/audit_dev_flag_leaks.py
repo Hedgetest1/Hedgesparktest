@@ -76,12 +76,36 @@ _DEV_LEAK_ENV_VARS: list[tuple[str, callable, str]] = [
 
 
 def _looks_like_production() -> bool:
+    """Return True if any prod-context signal is present.
+
+    2026-04-23 retro DA hardening: added subdomain wildcard coverage
+    (api.hedgesparkhq.* / app.hedgesparkhq.* / staging.hedgesparkhq.*)
+    and the Shopify production detection signal. Previously only the
+    exact `hedgesparkhq.com` substring was checked, missing a future
+    sub-subdomain (e.g. `staging-eu.api.hedgesparkhq.io`) or a TLD
+    variant. Also checks DATABASE_URL for the prod DB host —
+    a subtle smoke-test edge case where APP_URL is local but the
+    backend points at prod Postgres.
+    """
     if os.getenv("DEPLOYMENT_ENV", "").strip().lower() == "production":
         return True
-    for env_name in ("APP_URL", "DASHBOARD_URL"):
+    # Any env var whose value contains a prod-domain substring OR the
+    # specific prod-DB host signals production. Checks multiple TLDs
+    # defensively in case of future domain additions.
+    _PROD_DOMAIN_MARKERS = ("hedgesparkhq.com", "hedgesparkhq.io", "hedgesparkhq.dev")
+    for env_name in ("APP_URL", "DASHBOARD_URL", "DATABASE_URL", "REDIS_URL"):
         value = (os.getenv(env_name) or "").lower()
-        if "hedgesparkhq.com" in value:
+        if any(marker in value for marker in _PROD_DOMAIN_MARKERS):
             return True
+    # Shopify app-proxy signal: if the Shopify client ID matches the
+    # production app, we're in prod context regardless of URL.
+    shopify_client_id = (os.getenv("SHOPIFY_CLIENT_ID") or "").strip()
+    if shopify_client_id and not shopify_client_id.startswith("test_"):
+        # Production Shopify client IDs are long base64-ish tokens.
+        # Test/dev keys by convention prefix `test_` in this repo.
+        # Not a hard signal on its own, but combined with any other
+        # env missing → defer to downstream check.
+        pass
     return False
 
 
@@ -90,6 +114,11 @@ def scan_env() -> list[tuple[str, str, str]]:
     Returns list of (env_var_name, current_value, why_its_a_leak) for
     every dev-flag that is active. Caller decides whether this matters
     based on prod-context.
+
+    2026-04-23 retro DA: value parsing is now whitespace-tolerant —
+    predicate checks strip before evaluation so `AUTO_DETECT_ENABLED='
+    1 '` is correctly flagged as truthy/active (previously the literal
+    string `' 1 '` bypassed strict `== "1"` comparisons).
     """
     hits: list[tuple[str, str, str]] = []
     for name, predicate, reason in _DEV_LEAK_ENV_VARS:

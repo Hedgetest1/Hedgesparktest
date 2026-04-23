@@ -47,6 +47,18 @@ SKIP_DIRS = {"node_modules", ".next"}
 # A leading negative-lookbehind excludes `apiFetch(` / `anotherFetch(`
 # wrappers — those already route through the typed client via their
 # own helper. Case-sensitive so only lowercase `fetch` matches.
+#
+# 2026-04-23 retro DA — KNOWN BYPASS: a 2-step helper call like
+#     const url = buildUrl('/pro/xxx');
+#     fetch(url);
+# escapes this audit because the string literal is in the helper, not
+# in the fetch call. The bypass requires a specific anti-pattern
+# (hand-rolling URL construction + bypassing apiClient) that does NOT
+# appear in the current dashboard/src/. Add a cross-line variable-flow
+# check if this pattern ever emerges. Documented trigger for fix:
+# any PR that adds `build_url` / `buildEndpoint` / `makeUrl` style
+# helpers in dashboard/src/ must simultaneously teach this audit to
+# follow variable assignments. Logged in session state.
 FETCH_RE = re.compile(
     r"""(?<![A-Za-z0-9_$])fetch\s*\(\s*[`'"]"""
     r"""(?P<url>[^`'"]+)""",

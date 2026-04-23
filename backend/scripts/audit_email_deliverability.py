@@ -99,11 +99,26 @@ def _check_published_dkim_strict() -> tuple[bool, str]:
     # Any whitespace inside base64 is invalid — Gmail's strict decoder
     # rejects it even though Resend's lax decoder (and dig's display
     # concatenation) swallow it. Flag explicitly.
-    if any(c.isspace() for c in p_value):
+    # 2026-04-23 retro DA: also catches zero-width characters and null
+    # bytes which were silently passing the whitespace-only check. A
+    # registrar web-editor can introduce ZWSP or ZWNJ via copy-paste
+    # from rich-text sources; Gmail's strict decoder rejects these
+    # equivalently to visible whitespace.
+    _INVISIBLE_RE = re.compile(
+        r"["
+        r"\x00-\x08\x0b-\x0c\x0e-\x1f\x7f"  # control chars (NBSP-adjacent)
+        r"\s"                                # standard whitespace
+        r"​‌‍‎‏"    # zero-width space/joiner/nonjoiner/LRM/RLM
+        r"﻿"                            # BOM / zero-width no-break space
+        r"]"
+    )
+    if _INVISIBLE_RE.search(p_value):
+        offender = next((repr(c) for c in p_value if _INVISIBLE_RE.match(c)), "?")
         return False, (
-            f"DKIM `p=` contains embedded whitespace — strict base64 will "
-            f"fail signature verification (Gmail silent-drops). Fix: edit "
-            f"{_DKIM_HOST} TXT at registrar, remove whitespace from the key."
+            f"DKIM `p=` contains invisible character {offender} — strict "
+            f"base64 will fail signature verification (Gmail silent-drops). "
+            f"Fix: edit {_DKIM_HOST} TXT at registrar, paste the key as "
+            f"plain text and remove any whitespace/zero-width/BOM chars."
         )
 
     try:

@@ -222,7 +222,15 @@ def check_money_aggregation(files: list[tuple[Path, list[str]]]) -> list[Finding
                 # an explanatory comment ("# no currency filter yet")
                 # previously produced a false negative. We only trust
                 # SQL/kwarg patterns, not prose.
-                raw = lines[max(0, i - 26):i + 30]
+                #
+                # 2026-04-23 retro DA: widened from 26 to 50 lines before
+                # and 60 after. Several prod queries have multi-CTE
+                # structures where the currency filter is in the top
+                # WITH clause and the SUM is in the final SELECT —
+                # easily 40+ lines apart. The cost of false negatives
+                # (missing a real leak) >> cost of false positives
+                # (slightly wider context), so we err on wider.
+                raw = lines[max(0, i - 50):i + 60]
                 stripped_ctx = [
                     re.sub(r"#.*$", "", ln) for ln in raw
                     if not ln.lstrip().startswith("#")
