@@ -481,8 +481,11 @@ def merge_promotion(db: Session, promotion_id: int) -> str:
 
 import time as _time
 
+# Redis-backed cooldown (multi-worker correct). In-process dict retained
+# only as the Redis-unavailable fallback path — see _is_push_on_cooldown.
 _auto_push_cooldown: dict[str, float] = {}
 _AUTO_PUSH_COOLDOWN_S = 3600  # 1 hour
+_AUTO_PUSH_COOLDOWN_REDIS_PREFIX = "hs:auto_push_cooldown:v1"
 
 _AUTO_MERGE_COOLDOWN_S = 3600  # 1 hour — never merge more than one TIER_0 fix per hour
 _AUTO_MERGE_COOLDOWN_REDIS_KEY = "hs:auto_merge_cooldown"
@@ -508,14 +511,32 @@ _AUTO_MERGE_FORBIDDEN_PREFIXES: tuple[str, ...] = (
 
 
 def _is_push_on_cooldown(candidate_id: int) -> bool:
-    key = str(candidate_id)
-    last = _auto_push_cooldown.get(key)
+    redis_key = f"{_AUTO_PUSH_COOLDOWN_REDIS_PREFIX}:{candidate_id}"
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            return rc.exists(redis_key) > 0
+    except Exception:
+        pass  # SILENT-EXCEPT-OK: Redis optional — falls through to in-process dict
+    # Fallback: per-process dict (single-worker or Redis outage)
+    last = _auto_push_cooldown.get(str(candidate_id))
     if last is None:
         return False
     return (_time.monotonic() - last) < _AUTO_PUSH_COOLDOWN_S
 
 
 def _set_push_cooldown(candidate_id: int):
+    redis_key = f"{_AUTO_PUSH_COOLDOWN_REDIS_PREFIX}:{candidate_id}"
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            rc.setex(redis_key, _AUTO_PUSH_COOLDOWN_S, "1")
+            return
+    except Exception:
+        pass  # SILENT-EXCEPT-OK: Redis optional — falls through to in-process dict
+    # Fallback: per-process dict (single-worker or Redis outage)
     _auto_push_cooldown[str(candidate_id)] = _time.monotonic()
 
 

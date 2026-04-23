@@ -70,27 +70,63 @@ class OrchestratorResult:
 
 
 # ---------------------------------------------------------------------------
-# Cooldown tracking (in-process, reset on restart — acceptable for Tier 0)
+# Cooldown tracking — Redis primary (multi-worker correct), in-process fallback
+#
+# Pre-2026-04-23 this was a module-level dict, safe under single-worker
+# uvicorn but would fire actions 4× per cycle under --workers 4 (each
+# worker having its own dict). Now Redis-backed via SETEX, with the in-
+# process dict retained only as a fallback path during Redis outages.
 # ---------------------------------------------------------------------------
 
-_cooldown_cache: dict[str, float] = {}
+_cooldown_cache: dict[str, float] = {}  # Redis-unavailable fallback only
+_COOLDOWN_REDIS_PREFIX = "hs:action_cooldown:v1"
+
+
+def _cooldown_redis_key(action: str, target: str) -> str:
+    return f"{_COOLDOWN_REDIS_PREFIX}:{action}::{target}"
 
 
 def _is_on_cooldown(action: str, target: str) -> bool:
-    key = f"{action}::{target}"
-    last = _cooldown_cache.get(key)
+    key = _cooldown_redis_key(action, target)
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            return rc.exists(key) > 0
+    except Exception:
+        pass  # SILENT-EXCEPT-OK: Redis optional — falls through to in-process dict
+    # Fallback: per-process dict (single-worker or Redis outage)
+    last = _cooldown_cache.get(f"{action}::{target}")
     if last is None:
         return False
     return (time.monotonic() - last) < ACTION_COOLDOWN_SECONDS
 
 
 def _set_cooldown(action: str, target: str):
+    key = _cooldown_redis_key(action, target)
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            rc.setex(key, ACTION_COOLDOWN_SECONDS, "1")
+            return
+    except Exception:
+        pass  # SILENT-EXCEPT-OK: Redis optional — falls through to in-process dict
+    # Fallback: per-process dict (single-worker or Redis outage)
     _cooldown_cache[f"{action}::{target}"] = time.monotonic()
 
 
 def _clear_cooldowns():
-    """For testing only."""
+    """For testing only — clears both Redis and in-process cooldown state."""
     _cooldown_cache.clear()
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            for key in rc.scan_iter(match=f"{_COOLDOWN_REDIS_PREFIX}:*", count=100):
+                rc.delete(key)
+    except Exception:
+        pass  # SILENT-EXCEPT-OK: test-only helper, in-process dict already cleared above
 
 
 # ---------------------------------------------------------------------------

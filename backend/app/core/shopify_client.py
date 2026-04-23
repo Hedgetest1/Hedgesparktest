@@ -72,7 +72,61 @@ class _TokenBucket:
             time.sleep(0.1)
 
 
+# Legacy in-process bucket — kept as a Redis-unavailable fallback. Single-
+# worker safe; in multi-worker deployments the Redis rate limiter below
+# is authoritative.
 _bucket = _TokenBucket(rate=2.0, burst=4)
+
+
+# ---------------------------------------------------------------------------
+# Per-shop Redis rate limiter (multi-worker correct)
+#
+# Shopify's actual limit is 2 req/s per SHOP (not per app). With uvicorn
+# running 4 workers + 7 singleton PM2 workers, a per-process _TokenBucket
+# lets the fleet issue up to 8 req/s to a single shop, hitting 429 four
+# times sooner than intended.
+#
+# This helper counts per-shop requests in Redis with 1-second windows,
+# capped at 2 per window. Approximates Shopify's leaky-bucket rate without
+# the complexity of a distributed token bucket.
+#
+# Redis key: hs:shopify_rl:{shop}:{unix_epoch_seconds}
+# TTL: 2 seconds (covers the window + one grace tick to handle clock skew).
+#
+# Fallback: when Redis is unreachable, falls back to the per-process
+# _TokenBucket so single-worker / dev environments still behave correctly.
+# ---------------------------------------------------------------------------
+def _acquire_shopify_token(shop_domain: str, timeout: float = 30.0) -> bool:
+    """Acquire one Shopify API rate-limit token for `shop_domain`.
+
+    Returns True when a token was granted within `timeout` seconds,
+    False if the caller should give up and return None to the request
+    issuer.
+    """
+    deadline = time.monotonic() + timeout
+    backoff = 0.1
+    while time.monotonic() < deadline:
+        try:
+            from app.core.redis_client import _client
+            rc = _client()
+            if rc is not None:
+                window = int(time.time())
+                key = f"hs:shopify_rl:{shop_domain}:{window}"
+                count = rc.incr(key)
+                if count == 1:
+                    rc.expire(key, 2)
+                if count <= 2:
+                    return True
+                # Over per-shop cap for this window — back off until next
+                time.sleep(min(backoff, max(0.05, deadline - time.monotonic())))
+                backoff = min(backoff * 1.5, 0.5)
+                continue
+        except Exception:
+            pass  # SILENT-EXCEPT-OK: Redis optional — falls through to legacy in-process bucket below
+        # Redis unreachable — fall back to per-process bucket (safe single-worker,
+        # degraded but non-blocking under multi-worker + Redis outage combined).
+        return _bucket.acquire(timeout=max(0.1, deadline - time.monotonic()))
+    return False
 
 # ---------------------------------------------------------------------------
 # Retry configuration
@@ -132,8 +186,8 @@ def shopify_request(
     }
 
     for attempt in range(max_retries + 1):
-        # Acquire rate limit token
-        if not _bucket.acquire(timeout=30.0):
+        # Acquire rate limit token (per-shop, Redis-backed → multi-worker safe)
+        if not _acquire_shopify_token(shop_domain, timeout=30.0):
             logger.warning(
                 "shopify_client: rate limit timeout shop=%s path=%s",
                 shop_domain, path,
@@ -246,8 +300,8 @@ async def shopify_request_async(
     }
 
     for attempt in range(max_retries + 1):
-        # Rate limit (blocking in thread — acceptable for async workers)
-        if not _bucket.acquire(timeout=30.0):
+        # Rate limit (per-shop, Redis-backed → multi-worker safe)
+        if not _acquire_shopify_token(shop_domain, timeout=30.0):
             logger.warning("shopify_client_async: rate limit timeout shop=%s", shop_domain)
             return None
 

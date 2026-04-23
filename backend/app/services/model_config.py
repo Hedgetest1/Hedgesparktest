@@ -20,16 +20,45 @@ from app.models.active_model_config import ActiveModelConfig
 log = logging.getLogger("model_config")
 
 _CACHE_TTL_S = 300  # 5 minutes
+
+# In-process fallback — used only when Redis is unreachable. Under multi-
+# worker uvicorn (post 2026-04-23 scaling flip) Redis is the authoritative
+# cache so that an `activate_model()` on worker #1 propagates to workers
+# #2..#4 within _CACHE_TTL_S, not 4×_CACHE_TTL_S.
 _cache: dict[str, dict] = {}
 _cache_ts: dict[str, float] = {}
+
+_REDIS_KEY_PREFIX = "hs:model_cfg:v1"
 
 
 def _now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def _redis():
+    try:
+        from app.core.redis_client import _client
+        return _client()
+    except Exception:
+        return None
+
+
 def invalidate_cache(module: str | None = None):
-    """Clear cache for one or all modules."""
+    """Clear cache for one or all modules (Redis + in-process)."""
+    rc = _redis()
+    try:
+        if rc is not None:
+            if module:
+                rc.delete(f"{_REDIS_KEY_PREFIX}:{module}")
+            else:
+                # Clear all cached modules — SCAN is cheap (tens of keys max)
+                for key in rc.scan_iter(match=f"{_REDIS_KEY_PREFIX}:*", count=50):
+                    rc.delete(key)
+    except Exception as exc:
+        log.warning("model_config: redis invalidate failed: %s", exc)
+
+    # Always also clear in-process fallback so Redis-down workers converge
+    # at restart.
     if module:
         _cache.pop(module, None)
         _cache_ts.pop(module, None)
@@ -41,18 +70,42 @@ def invalidate_cache(module: str | None = None):
 def get_active_model(module: str, db: Session | None = None) -> dict:
     """
     Return the active model config for a module.
-    Uses in-process cache (5 min TTL), reads from DB on miss.
-    Returns: {"provider": str, "model": str} or defaults.
+
+    Primary: Redis cache (multi-worker consistent, 5 min TTL).
+    Fallback: in-process cache (when Redis unreachable).
+    Miss: read from DB, write back to both layers.
+
+    Returns: {"provider": str, "model": str, "config_id": int | None}.
     """
-    # Check cache
+    import json
+
+    rc = _redis()
+    # 1) Redis hit path
+    if rc is not None:
+        try:
+            raw = rc.get(f"{_REDIS_KEY_PREFIX}:{module}")
+            if raw is not None:
+                try:
+                    return json.loads(raw)
+                except (TypeError, ValueError):
+                    pass  # corrupt cache entry — fall through to DB read
+        except Exception as exc:
+            log.warning("model_config: redis get failed: %s", exc)
+
+    # 2) In-process fallback (Redis down)
     now = time.monotonic()
     if module in _cache and (now - _cache_ts.get(module, 0)) < _CACHE_TTL_S:
         return _cache[module]
 
-    # Read from DB
+    # 3) DB read + populate both cache layers
     result = _read_from_db(module, db)
     _cache[module] = result
     _cache_ts[module] = now
+    if rc is not None:
+        try:
+            rc.setex(f"{_REDIS_KEY_PREFIX}:{module}", _CACHE_TTL_S, json.dumps(result))
+        except Exception as exc:
+            log.warning("model_config: redis setex failed: %s", exc)
     return result
 
 
