@@ -15,6 +15,7 @@ import pathlib
 import re
 import sys
 from collections import defaultdict
+from typing import Iterator
 
 sys.path.insert(0, "/opt/wishspark/backend")
 from sqlalchemy import inspect
@@ -139,28 +140,89 @@ def find_column_refs_in_where(sql: str) -> set[str]:
     return matches
 
 
+def find_aliased_column_refs(sql: str, schema: dict[str, set[str]]) -> list[tuple[str, str]]:
+    """
+    Detect `<alias>.<column>` patterns in the SQL and resolve the alias
+    to a table via `FROM <table> <alias>` or `FROM <table> AS <alias>`
+    (and `JOIN <table> <alias>`). Returns [(table, column), ...] for
+    every alias.column where the alias maps to a known table and the
+    column does not exist on that table.
+
+    Covers subqueries and CTEs transparently — unlike find_column_refs_in_where
+    which is depth-0 only, this walks the whole SQL body. That is why the
+    2026-04-23 `active_nudges n WHERE n.active = true` ghost column slipped
+    past the original audit: it lived inside a depth-1 subquery.
+    """
+    # Build alias → table map. Handles:
+    #   FROM table_name alias
+    #   FROM table_name AS alias
+    #   JOIN table_name alias
+    #   JOIN table_name AS alias
+    alias_map: dict[str, str] = {}
+    for m in re.finditer(
+        r'\b(?:FROM|JOIN)\s+([a-zA-Z_]\w*)(?:\s+AS)?\s+([a-zA-Z_]\w*)\b',
+        sql,
+        re.IGNORECASE,
+    ):
+        table, alias = m.group(1).lower(), m.group(2).lower()
+        # Filter out keywords that might look like aliases (WHERE, ORDER, etc.)
+        if alias in _COLUMN_SKIPLIST:
+            continue
+        if table in schema:
+            alias_map[alias] = table
+
+    if not alias_map:
+        return []
+
+    # Find `<alias>.<column>` — column must be a bare identifier
+    issues: list[tuple[str, str]] = []
+    for m in re.finditer(r'\b([a-zA-Z_]\w*)\.([a-zA-Z_]\w*)\b', sql):
+        alias, col = m.group(1).lower(), m.group(2).lower()
+        if alias not in alias_map:
+            continue
+        if col in _COLUMN_SKIPLIST:
+            continue
+        table = alias_map[alias]
+        if col not in schema[table]:
+            issues.append((table, col))
+    return issues
+
+
 def main() -> int:
     schema = load_schema()
     findings: list[tuple[str, int, str, str, str]] = []
+    aliased_findings: list[tuple[str, int, str, str, str]] = []
 
     for py_file in APP_ROOT.rglob("*.py"):
         if any(part in SKIP_DIRS for part in py_file.parts):
             continue
         for line, sql in extract_sql_blocks(py_file):
+            # Simple-FROM check (original behaviour, depth-0 only)
             table = find_simple_from_table(sql)
-            if not table or table not in schema:
-                continue
-            cols = find_column_refs_in_where(sql)
-            for col in cols:
-                if col not in schema[table]:
-                    findings.append((
-                        str(py_file.relative_to(APP_ROOT.parent)),
-                        line, table, col, sql[:100].replace("\n", " "),
-                    ))
+            if table and table in schema:
+                cols = find_column_refs_in_where(sql)
+                for col in cols:
+                    if col not in schema[table]:
+                        findings.append((
+                            str(py_file.relative_to(APP_ROOT.parent)),
+                            line, table, col, sql[:100].replace("\n", " "),
+                        ))
 
-    if findings:
+            # Aliased ghost column check (subquery-safe — depth-agnostic).
+            # Added 2026-04-23 after onboarding_health.py ghost column
+            # `active_nudges.active` slipped past the simple-FROM audit
+            # because it lived in a depth-1 subquery.
+            for aliased_table, aliased_col in find_aliased_column_refs(sql, schema):
+                aliased_findings.append((
+                    str(py_file.relative_to(APP_ROOT.parent)),
+                    line, aliased_table, aliased_col, sql[:120].replace("\n", " "),
+                ))
+
+    all_findings = findings + aliased_findings
+
+    if all_findings:
         by_col = defaultdict(list)
-        for f, line, tab, col, snip in findings:
+        for f, line, tab, col, snip in all_findings:
             by_col[(tab, col)].append((f, line, snip))
         print(f"MISSING COLUMNS ({len(by_col)} distinct pairs)\n")
         for (tab, col), hits in sorted(by_col.items()):
@@ -172,8 +234,8 @@ def main() -> int:
                 print(f"    ... and {len(hits) - 3} more")
             print()
     else:
-        print("✅ No missing columns in simple-FROM paths")
-    return 0 if not findings else 1
+        print("✅ No missing columns in simple-FROM or aliased-subquery paths")
+    return 0 if not all_findings else 1
 
 
 if __name__ == "__main__":

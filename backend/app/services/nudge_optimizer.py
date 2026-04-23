@@ -200,8 +200,8 @@ def _get_variant_stats(
                 JOIN visitor_purchase_sessions vps
                   ON vps.visitor_id   = ne.visitor_id
                  AND vps.shop_domain  = ne.shop_domain
-                 AND vps.purchased_at >= ne.created_at
-                 AND vps.purchased_at <= ne.created_at + interval '72 hours'
+                 AND vps.confirmed_at >= ne.created_at
+                 AND vps.confirmed_at <= ne.created_at + interval '72 hours'
                 WHERE ne.shop_domain = :shop
                   AND ne.nudge_id    = :nudge_id
                   AND ne.event_type  = 'shown'

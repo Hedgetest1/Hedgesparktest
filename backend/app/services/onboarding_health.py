@@ -184,7 +184,7 @@ def detect_drifting_new_installs(db: Session) -> list[dict]:
         rows = db.execute(text("""
             SELECT m.shop_domain, m.installed_at,
                    (SELECT COUNT(*) FROM active_nudges n
-                    WHERE n.shop_domain = m.shop_domain AND n.active = true) AS nudge_count
+                    WHERE n.shop_domain = m.shop_domain AND n.status = 'active') AS nudge_count
             FROM merchants m
             WHERE m.install_status = 'active'
               AND m.onboarding_status = 'ready'

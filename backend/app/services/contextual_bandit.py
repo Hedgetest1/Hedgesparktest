@@ -324,13 +324,14 @@ def refresh_from_events(
         rows = db.execute(
             sql_text(
                 """
-                SELECT ne.id, ne.visitor_id, ne.ts, ne.variant_name, ne.event_type,
-                       ne.nudge_id, ne.event_meta
+                SELECT ne.id, ne.visitor_id, ne.created_at,
+                       ne.event_meta->>'copy_variant' AS variant_name,
+                       ne.event_type, ne.nudge_id, ne.event_meta
                 FROM nudge_events ne
                 WHERE ne.shop_domain = :shop
-                  AND ne.ts >= :since
+                  AND ne.created_at >= :since
                   AND ne.event_type = 'nudge_impression'
-                ORDER BY ne.ts ASC
+                ORDER BY ne.created_at ASC
                 LIMIT 5000
                 """
             ),
