@@ -51,9 +51,18 @@ elif "sslmode=" in (DATABASE_URL or ""):
 # ---------------------------------------------------------------------------
 # Connection pool configuration
 #
-# pool_size=10        — baseline connections kept alive (server normally uses
-#                       ~3-5 for dashboard + worker requests)
-# max_overflow=20     — burst capacity; total max = pool_size + max_overflow = 30
+# Defaults are sized for SINGLE-WORKER uvicorn (pool_size=20, max_overflow=40
+# → 60 conn max from backend). When flipping to uvicorn --workers 4 (pre-10k
+# merchant hardening), set DB_POOL_SIZE=5 and DB_MAX_OVERFLOW=10 in backend
+# .env — math:
+#   4 workers × (5 + 10) = 60 conn from backend (same ceiling as single-worker)
+#   + 7 PM2 singleton workers × ~2 conn = 14
+#   + admin/psql/pg_stat headroom ~10
+#   = ~84 conn total, well below Postgres max_connections=100
+#
+# Env vars let the pool scale atomically with the worker flip without code
+# changes or separate commits per environment.
+#
 # pool_timeout=30     — seconds to wait for a free connection before raising
 # pool_pre_ping=True  — issues a lightweight SELECT 1 before handing out each
 #                       connection; stale/broken connections are dropped and
@@ -69,10 +78,13 @@ elif "sslmode=" in (DATABASE_URL or ""):
 # With PgBouncer in transaction mode the pool_size here can be reduced to 2-3
 # since PgBouncer owns the real connection pool.  See scripts/pgbouncer.ini.
 # ---------------------------------------------------------------------------
+POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "20"))
+POOL_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "40"))
+
 engine = create_engine(
     DATABASE_URL,
-    pool_size=20,
-    max_overflow=40,
+    pool_size=POOL_SIZE,
+    max_overflow=POOL_MAX_OVERFLOW,
     pool_timeout=30,
     pool_pre_ping=True,
     pool_recycle=1800,
@@ -117,10 +129,12 @@ DATABASE_READ_URL = os.getenv("DATABASE_READ_URL")
 if DATABASE_READ_URL:
     log.info("database: read replica configured (DATABASE_READ_URL set)")
     _read_connect_args: dict = dict(_connect_args)
+    READ_POOL_SIZE = int(os.getenv("DB_READ_POOL_SIZE", "15"))
+    READ_POOL_MAX_OVERFLOW = int(os.getenv("DB_READ_MAX_OVERFLOW", "25"))
     read_engine = create_engine(
         DATABASE_READ_URL,
-        pool_size=15,
-        max_overflow=25,
+        pool_size=READ_POOL_SIZE,
+        max_overflow=READ_POOL_MAX_OVERFLOW,
         pool_timeout=30,
         pool_pre_ping=True,
         pool_recycle=1800,

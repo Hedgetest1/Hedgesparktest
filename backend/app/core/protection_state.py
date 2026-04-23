@@ -91,13 +91,16 @@ def _redis_pressure() -> tuple[str, dict]:
 def _db_pool_pressure() -> tuple[str, dict]:
     """Return (level, detail) from the SQLAlchemy pool."""
     try:
-        from app.core.database import engine
+        from app.core.database import engine, POOL_MAX_OVERFLOW
         pool = engine.pool
         # checkedout() = in-use connections; size() = pool_size
         in_use = pool.checkedout()
         size = pool.size()
         overflow = pool.overflow()
-        total_capacity = size + 30  # max_overflow default from database.py
+        # Use the configured max_overflow (not a hardcoded literal) so
+        # capacity math stays correct when env vars tune the pool size
+        # (e.g. when flipping uvicorn --workers 4 with DB_MAX_OVERFLOW=10).
+        total_capacity = size + POOL_MAX_OVERFLOW
         ratio = in_use / total_capacity if total_capacity > 0 else 0.0
         if ratio >= 0.90:
             return "critical", {"in_use": in_use, "capacity": total_capacity, "ratio": round(ratio, 3)}
