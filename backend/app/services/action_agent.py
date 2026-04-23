@@ -439,13 +439,16 @@ def _summarize_task(task: ActionTask) -> str:
 def _check_nudge_cap(shop_domain: str) -> bool:
     """Check per-merchant daily nudge creation cap. Returns True if under cap.
 
-    Fail-closed: if Redis is unavailable, returns False and writes an
-    ops_alert so the operator knows nudges are being held.
+    Fail-closed: if Redis is unavailable, returns False and records a
+    silent-fallback observation so operators can tell when the fast path
+    is silently the slow path.
     """
     try:
         from app.core.redis_client import _client
+        from app.core.silent_fallback import record_silent_return
         rc = _client()
         if rc is None:
+            record_silent_return("action_agent.nudge_cap")
             log.warning("action_agent: nudge cap — Redis unavailable, fail-closed for %s", shop_domain)
             return False  # fail-closed
         key = f"{_REDIS_NUDGE_CAP_PREFIX}{shop_domain}"
