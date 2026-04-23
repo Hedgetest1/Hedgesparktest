@@ -333,6 +333,21 @@ def _provider_and_key() -> tuple[str, str, str]:
 
 
 def _call_anthropic(system: str, user: str, key: str, model: str) -> str:
+    # Defensive PII guard — even though llm_realmodel_drift currently uses
+    # synthetic benchmark corpora (no merchant data), any future addition
+    # of real-data prompts would leak without this check. Added 2026-04-23
+    # during the Tier-A agent audit. Fail-closed: PII detected → empty
+    # return, matches budget-exhaustion/429 path.
+    try:
+        from app.core.llm_pii_guard import assert_clean, LLMPayloadViolation
+        assert_clean(f"{system}\n{user}", context="llm_realmodel_drift")
+    except LLMPayloadViolation as exc:
+        log.warning("llm_realmodel_drift: pii_guard blocked call: %s", exc)
+        return ""
+    except Exception as exc:
+        # Non-fatal — pii_guard itself failed. Log but proceed (benchmark
+        # corpus is synthetic; the check is defensive-depth only).
+        log.debug("llm_realmodel_drift: pii_guard non-fatal: %s", exc)
     try:
         r = httpx.post(
             "https://api.anthropic.com/v1/messages",
@@ -360,6 +375,15 @@ def _call_anthropic(system: str, user: str, key: str, model: str) -> str:
 
 
 def _call_openai(system: str, user: str, key: str, model: str) -> str:
+    # Mirror of _call_anthropic PII guard — see that function for rationale.
+    try:
+        from app.core.llm_pii_guard import assert_clean, LLMPayloadViolation
+        assert_clean(f"{system}\n{user}", context="llm_realmodel_drift")
+    except LLMPayloadViolation as exc:
+        log.warning("llm_realmodel_drift: pii_guard blocked call: %s", exc)
+        return ""
+    except Exception as exc:
+        log.debug("llm_realmodel_drift: pii_guard non-fatal: %s", exc)
     try:
         r = httpx.post(
             "https://api.openai.com/v1/chat/completions",
