@@ -242,8 +242,6 @@ Folder name is still `/opt/wishspark/` (internal only; do not rename).
   Lifetimely — all card-first)
 - Default CTA copy when pricing is undecided: "Install on Shopify", "Get
   started", "Connect your store" — pricing-neutral
-- The existing "Lite $0 forever" tier on the landing is stale placeholder
-  and must be replaced when pricing is formally decided
 
 **Landing page source of truth:** `dashboard/src/app/page.tsx`. Major
 overhaul shipped 2026-04-09 (Live Radar, Pro/Lite zones, Natural Earth map).
@@ -283,9 +281,8 @@ Every Pro card MUST use the unified error/loading/empty primitives from
 - `CardEmpty` for warming / no-data (with ETA hint)
 - `useCardFetch<T>()` hook for typed fetch with automatic state transitions
 
-Silent `.catch(() => {})` patterns are a regression. The Ω⁷ triple sprint
-(2026-04-13) retrofitted the 3 new killer cards; remaining cards are
-migrated on sight.
+Silent `.catch(() => {})` patterns are a regression. Migrate any
+non-compliant card on sight.
 
 ---
 
@@ -477,11 +474,10 @@ quarantine. Scope is locked to safety/efficiency/cost/executability
 
 ### 8.7 Tracker versioning
 
-- `TRACKER_VERSION` in `app/core/tracker_version.py`. **Bump on every
-  `tracker/*.js` change.** Script tag URL: `{APP_URL}/tracker.js?v={VERSION}`.
+- `TRACKER_VERSION` in `app/core/tracker_version.py` is the source of
+  truth. **Bump on every `tracker/*.js` change.** Script tag URL:
+  `{APP_URL}/tracker.js?v={VERSION}`.
 - Stale tags auto-cleaned on next onboarding cycle.
-- Currently at **v12** (post A1/A7 self-healing sprint — tracker error
-  telemetry + rage-click/pogo-stick detection).
 
 ---
 
@@ -733,9 +729,6 @@ not Redis — removed stale `hs:digest:*` rows.
 
 ```bash
 # Backend tests — the entire suite must pass, no exclusions.
-# Historical exclusions for test_scaling_intelligence, test_daily_digest_v2,
-# and test_landing_integrity were fixed in the 2026-04-14 hardening sprint
-# (hermeticity leaks against the shared prod DB — see cycle 3 commit).
 cd /opt/wishspark/backend
 ./venv/bin/python -m pytest tests/ -q
 
@@ -774,12 +767,10 @@ The script runs `npx next build`, restarts the `wishspark-dashboard` PM2
 process, then invokes `audit_dashboard_live.py --strict` to confirm
 every `_next/static` chunk referenced in the served HTML resolves 200.
 Non-zero exit = the deploy is broken and must be investigated before
-declaring it done. Born 2026-04-18 after a rebuild-without-restart
-silently served a landing that pointed at a deleted CSS chunk (500) —
-merchants saw an unstyled white page while PM2 + `/` + `/system/health`
-all reported green. **Never skip the verification step.** The same
-invariant is enforced at preflight time via `audit_dashboard_live.py`
-(preflight step 2s) so commits cannot ship with drift.
+declaring it done. **Never skip the verification step** — PM2 green
+and `/system/health` green do NOT prove the served HTML references
+live chunks. The same invariant is enforced at preflight time via
+`audit_dashboard_live.py` so commits cannot ship with drift.
 
 **Backend + workers:**
 ```bash
