@@ -158,7 +158,11 @@ def try_has_write_without_rollback(try_node: ast.Try) -> bool:
       * db.add(...)                   (ORM add)
       * db.flush()                    (flushes pending writes)
       * db.delete(obj)                (ORM delete)
-      * db.execute(text("INSERT... | UPDATE... | DELETE..."))
+      * db.merge(...)                 (ORM merge — upsert-like, 2026-04-23 retro DA)
+      * db.bulk_insert_mappings(...)  (ORM bulk insert, 2026-04-23 retro DA)
+      * db.bulk_update_mappings(...)  (ORM bulk update, 2026-04-23 retro DA)
+      * db.bulk_save_objects(...)     (ORM bulk save, 2026-04-23 retro DA)
+      * db.execute(text("INSERT... | UPDATE... | DELETE... | MERGE..."))
 
     Writes are NOT:
       * db.execute(text("SELECT ..."))  (read, nothing to roll back)
@@ -186,7 +190,11 @@ def try_has_write_without_rollback(try_node: ast.Try) -> bool:
             has_write = True
             has_own_commit = True
             continue
-        if name in {"flush", "add", "delete"}:
+        if name in {
+            "flush", "add", "delete", "merge",
+            "bulk_insert_mappings", "bulk_update_mappings", "bulk_save_objects",
+            "add_all",
+        }:
             has_write = True
             continue
         if name == "execute":

@@ -86,9 +86,17 @@ ANNOTATION_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Calls that always flag (locks)
-_LOCK_CALL_NAMES = {"Lock", "RLock", "Semaphore", "BoundedSemaphore"}
-_LOCK_ATTR_TARGETS = {"threading", "asyncio"}
+# Calls that always flag (locks / per-worker synchronization primitives).
+# 2026-04-23 retro DA: expanded beyond Lock/RLock/Semaphore to Event,
+# Condition, Barrier (all threading primitives that don't share state
+# across processes) plus queue.Queue variants — per-worker queues hold
+# state that the other 3 uvicorn workers can't observe.
+_LOCK_CALL_NAMES = {
+    "Lock", "RLock", "Semaphore", "BoundedSemaphore",
+    "Event", "Condition", "Barrier",
+    "Queue", "LifoQueue", "PriorityQueue", "SimpleQueue",
+}
+_LOCK_ATTR_TARGETS = {"threading", "asyncio", "queue"}
 
 
 def _is_empty_container_expr(node: ast.AST) -> bool:

@@ -67,28 +67,64 @@ EXCLUDED_FILES = {
     APP / "api" / "resend_webhooks.py",            # inbound webhook ingest
 }
 
-# Matches `email_type="<literal>"` or `email_type='<literal>'` only.
-# Skips `email_type=foo` (variable) and `email_type=intent.email_type`.
+# Matches `email_type="<literal>"` or `email_type='<literal>'`.
+# 2026-04-23 retro DA: also resolves the common indirection pattern
+# where producers assign a constant and reference it:
+#     EMAIL_TYPE = "welcome"
+#     ...
+#     submit_intent(EmailIntent(email_type=EMAIL_TYPE, ...))
+# We walk the AST so the constant definition and the `email_type=`
+# keyword argument are both captured, then resolve references.
 _LITERAL_TYPE_RE = re.compile(r'''email_type\s*=\s*["']([a-z][a-z0-9_]+)["']''')
 
 
 def _scan_producer_literals() -> dict[str, list[str]]:
-    """Return {email_type: [file:line, ...]} for every literal producer reference."""
+    """Return {email_type: [file:line, ...]} for every literal producer
+    reference OR constant-resolved reference."""
+    import ast as _ast
     hits: dict[str, list[str]] = {}
     for root in PRODUCER_DIRS:
         for py in root.rglob("*.py"):
             if py in EXCLUDED_FILES:
                 continue
             try:
-                lines = py.read_text().splitlines()
+                src = py.read_text()
+                lines = src.splitlines()
             except Exception:
                 continue
+            # Pass 1: literal inline references (fast regex).
             for ln, line in enumerate(lines, 1):
                 m = _LITERAL_TYPE_RE.search(line)
                 if not m:
                     continue
                 et = m.group(1)
                 hits.setdefault(et, []).append(f"{py.relative_to(BACKEND)}:{ln}")
+            # Pass 2: AST-based resolution of constant-assigned email types.
+            # Build a map {NAME: "literal"} for module-level string constants,
+            # then find any `email_type=<Name>` kwarg whose Name is in the map.
+            try:
+                tree = _ast.parse(src, filename=str(py))
+            except SyntaxError:
+                continue
+            const_map: dict[str, str] = {}
+            for node in tree.body:
+                if isinstance(node, _ast.Assign) and len(node.targets) == 1:
+                    tgt = node.targets[0]
+                    if isinstance(tgt, _ast.Name) and isinstance(node.value, _ast.Constant):
+                        if isinstance(node.value.value, str):
+                            const_map[tgt.id] = node.value.value
+            if not const_map:
+                continue
+            for node in _ast.walk(tree):
+                if not isinstance(node, _ast.keyword):
+                    continue
+                if node.arg != "email_type":
+                    continue
+                if isinstance(node.value, _ast.Name) and node.value.id in const_map:
+                    et = const_map[node.value.id]
+                    hits.setdefault(et, []).append(
+                        f"{py.relative_to(BACKEND)}:{node.value.lineno} (via constant {node.value.id})"
+                    )
     return hits
 
 

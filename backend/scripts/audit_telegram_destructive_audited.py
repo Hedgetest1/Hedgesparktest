@@ -65,8 +65,12 @@ _SCAN_FILES = [
 ]
 
 _CMD_PREFIX = "_cmd_"
+# 2026-04-23 retro DA: added MERGE (upsert), and TRUNCATE PARTITION
+# which the base TRUNCATE match already catches (TRUNCATE alone). DROP
+# COLUMN is a subset of ALTER — already covered. This regex catches
+# the SQL statement keyword after optional leading whitespace.
 _DESTRUCTIVE_SQL_RE = re.compile(
-    r"\b(UPDATE|DELETE|INSERT|TRUNCATE|DROP|ALTER)\b\s+",
+    r"\b(UPDATE|DELETE|INSERT|TRUNCATE|DROP|ALTER|MERGE)\b\s+",
     re.IGNORECASE,
 )
 _OPT_OUT_MARKER = "audit-log: read-only"
@@ -110,11 +114,22 @@ def _function_has_destructive_sql(func: ast.FunctionDef, src: str) -> tuple[bool
         # Narrow to likely-DB-session variable names to exclude
         # redis.delete(key) and other cache/Redis cleanups which are
         # not compliance-destructive.
+        # 2026-04-23 retro DA: expanded from `.delete` alone to include
+        # ORM bulk-mutation methods and merge (upsert-like operations),
+        # which were silently bypassing the compliance audit because
+        # they don't match the literal SQL-keyword regex above.
+        _DESTRUCTIVE_ORM_METHODS = {
+            "delete",
+            "merge",
+            "bulk_insert_mappings",
+            "bulk_update_mappings",
+            "bulk_save_objects",
+        }
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            if (node.func.attr == "delete"
+            if (node.func.attr in _DESTRUCTIVE_ORM_METHODS
                     and isinstance(node.func.value, ast.Name)
                     and node.func.value.id in {"db", "session", "Session", "_db"}):
-                return True, f"{node.func.value.id}.delete(...)"
+                return True, f"{node.func.value.id}.{node.func.attr}(...)"
 
     return False, ""
 
