@@ -50,12 +50,15 @@ from typing import Generator
 # A single /metrics scrape returns one worker's view — Prometheus sees 1/N
 # of real fleet traffic unless we aggregate.
 #
-# Approach: every render_metrics() and every track_request() opportunistically
-# serializes local state to Redis keyed by worker PID with a 60s TTL. The
-# renderer reads all worker snapshots from Redis and sums them before
-# emitting Prometheus text. Idle workers that haven't pushed in 60s drop
-# from the aggregate — but they also have no new data worth reporting, so
-# the aggregate is always "recent activity" not "all-time fleet".
+# Approach: each worker runs a daemon thread (see `start_background_pusher`,
+# launched from the FastAPI lifespan) that force-pushes the local snapshot
+# to Redis every 30s with a 60s TTL — guarantees every alive worker is in
+# the aggregate within 30s of startup regardless of traffic. `render_metrics`
+# ALSO force-pushes on scrape so the worker handling the scrape contributes
+# zero-staleness data. The renderer reads all worker snapshots and sums them
+# before emitting Prometheus text. A worker whose bg pusher has been dead
+# for 60s decays from the aggregate — which is the signal the invariant
+# monitor uses to detect a silently-crashed worker.
 #
 # multi-worker: redis-backed — aggregation via Redis scan+merge
 # ---------------------------------------------------------------------------
@@ -66,7 +69,7 @@ _METRICS_PUSH_MIN_INTERVAL_S = 5.0  # throttle pushes to avoid Redis spam
 _METRICS_BG_PUSH_INTERVAL_S = 30.0  # background keepalive (< TTL/2)
 _last_push_ts: float = 0.0
 _push_lock = threading.Lock()  # multi-worker: accept-degrade — per-process push throttle
-_bg_pusher_started = False  # guard: start-once per process
+_bg_pusher_started = False  # multi-worker: per-process — each worker starts its own pusher
 
 
 class _Counter:
