@@ -206,7 +206,7 @@ def format_digest(digest: dict) -> tuple[str, str]:
             if ins.get("detail"):
                 lines.append(f"    {ins['detail']}")
 
-    plan = digest.get("merchant_plan", "starter")
+    plan = digest.get("merchant_plan", "lite")
     if plan != "pro" and risk.get("opportunities"):
         top_opp = risk["opportunities"][0]
         lines += [

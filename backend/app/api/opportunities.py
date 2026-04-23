@@ -78,11 +78,11 @@ from app.services.opportunity_engine import get_or_refresh_signals
 
 router = APIRouter()
 
-# Fields that are safe to return to Starter subscribers (Surface A only).
+# Fields that are safe to return to Lite subscribers (Surface A only).
 # human_action is intentionally absent — it is prescriptive (Pro only).
 # If new fields are added to the OpportunitySignal schema, audit them here
-# before including them in the Starter response.
-_STARTER_SIGNAL_FIELDS = {
+# before including them in the Lite response.
+_LITE_SIGNAL_FIELDS = {
     "product_url",
     "signal_type",
     "signal_strength",
@@ -96,7 +96,7 @@ _STARTER_SIGNAL_FIELDS = {
 
 
 # ---------------------------------------------------------------------------
-# Surface A — Starter route  GET /opportunities
+# Surface A — Lite route  GET /opportunities
 #
 # OpportunitySignal table. Diagnostic fields only.
 # human_action is stripped at this boundary.
@@ -106,7 +106,7 @@ def opportunities(
     shop: str = Depends(require_merchant_session),
 ):
     """
-    Starter opportunity signals — diagnostic fields only.
+    Lite opportunity signals — diagnostic fields only.
 
     Returns signals derived from the events table using eight rule-based
     detectors (no AI, no external calls).  Results are served from a
@@ -116,16 +116,16 @@ def opportunities(
     human_action is excluded from this response.
     Pro subscribers call /opportunities/pro to receive it.
 
-    Starter boundary: signal_type, explanation, human_label, signal_strength
-                      (what is happening — diagnostic)
-    Pro boundary:     human_action
-                      (what to do about it — prescriptive)
+    Lite boundary: signal_type, explanation, human_label, signal_strength
+                   (what is happening — diagnostic)
+    Pro boundary:  human_action
+                   (what to do about it — prescriptive)
     """
     signals = get_or_refresh_signals(shop)
     # Strip prescriptive fields at the API boundary.
     # human_action is always computed by the detection engine but must not
-    # be returned to Starter callers.  _STARTER_SIGNAL_FIELDS is the allow-list.
-    return [{k: v for k, v in sig.items() if k in _STARTER_SIGNAL_FIELDS} for sig in signals]
+    # be returned to Lite callers.  _LITE_SIGNAL_FIELDS is the allow-list.
+    return [{k: v for k, v in sig.items() if k in _LITE_SIGNAL_FIELDS} for sig in signals]
 
 
 # ---------------------------------------------------------------------------

@@ -174,7 +174,7 @@ def compute_churn_score(db: Session, shop_domain: str) -> dict:
         if merchant_row:
             installed_at = merchant_row[0]
             billing_active = merchant_row[1]
-            plan = merchant_row[2] or "starter"
+            plan = merchant_row[2] or "lite"
 
             if installed_at:
                 tenure_days = (now - installed_at).days

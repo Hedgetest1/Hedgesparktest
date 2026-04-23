@@ -37,7 +37,7 @@ GET /setup/status?shop=<domain>[&deep=true]
             "tracker_ok":             true,
             "tracker_id":             "87654321",
             "billing_active":         false,
-            "billing_plan":           "starter",
+            "billing_plan":           "lite",
             "billing_charge_pending": false
         }
     }

@@ -16,30 +16,31 @@ Response
     200 OK — JSON dict:
 
     shop_domain      str   the validated shop domain
-    plan             str   "lite" or "pro" (frontend contract — see below)
+    plan             str   "lite" or "pro"
     billing_active   bool  true when the billing subscription is active
     install_status   str   "active" or "uninstalled"
 
     400 if shop param is missing or invalid (from require_shop).
 
-Plan normalisation (frontend contract — unchanged for backward-compat)
-----------------------------------------------------------------------
+Plan normalisation
+------------------
 merchants.plan stores the raw plan string set at install/upgrade time.
-Known values in the current schema: "starter", "pro", "scale", plus
-legacy rows that may carry "lite" or None.
+Known values in the current schema default to "starter".  To keep the
+frontend contract simple, this endpoint normalises the value:
 
-This endpoint returns ONLY "pro" or "lite" today to preserve the
-existing dashboard contract (tier = "lite" | "pro"). The dashboard
-tier-state + Scale surfacing will migrate in a coordinated follow-up:
-at that point this normaliser will return verbatim tier names.
+    "pro"  → "pro"
+    anything else (starter, lite, free, etc.) → "lite"
+
+This means adding a new plan tier in the future requires only a change
+here, not in every frontend component that checks the plan.
 
 Missing merchant row
 --------------------
-If no row exists in merchants for the given shop_domain, the endpoint
-returns plan="lite", billing_active=False, install_status="active"
-rather than 404.  This fail-safe default ensures the frontend always
-renders a valid gated state and never shows Pro features to an
-unverified shop.
+If no row exists in merchants for the given shop_domain (e.g. the shop
+connected before the OAuth flow wrote a row, or in a test environment),
+the endpoint returns plan="lite", billing_active=False, install_status="active"
+rather than 404.  This fail-safe default ensures the frontend always renders
+a valid gated state and never shows Pro features to an unverified shop.
 """
 from __future__ import annotations
 
@@ -65,15 +66,11 @@ _PRO_TRIAL_DAYS: int   = int(os.getenv("SHOPIFY_PRO_TRIAL_DAYS", "14"))
 
 def _normalise_plan(raw: str | None) -> str:
     """
-    Normalise the raw plan string from the merchants table for the
-    frontend contract (tier = "lite" | "pro").
+    Normalise the raw plan string from the merchants table.
 
     Returns "pro" only when the stored value is exactly "pro".
-    All other values — "starter", "lite", "scale", "free", None, or any
-    unknown string — map to "lite" so the current dashboard keeps
-    rendering the correct gated state. Scale surfacing requires a
-    coordinated dashboard follow-up before the normaliser can pass
-    "scale" / "starter" through verbatim.
+    All other values — "starter", "lite", "free", None, or any unknown
+    string — map to "lite".
     """
     return _PRO_PLAN if raw == _PRO_PLAN else "lite"
 

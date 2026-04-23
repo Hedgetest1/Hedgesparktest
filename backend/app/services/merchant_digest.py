@@ -129,7 +129,7 @@ def run_merchant_digest_cycle(db: Session) -> dict:
             # Assemble digest
             try:
                 from app.services.weekly_digest import assemble_digest
-                digest = assemble_digest(db, m.shop_domain, merchant_plan=m.plan or "starter")
+                digest = assemble_digest(db, m.shop_domain, merchant_plan=m.plan or "lite")
 
                 if not digest:
                     summary["no_data"] += 1

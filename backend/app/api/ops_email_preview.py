@@ -45,7 +45,7 @@ def _preview_weekly_digest(db: Session, shop: str):
     from app.services.digest_formatter import format_digest
     from app.models.merchant import Merchant
     m = db.query(Merchant).filter(Merchant.shop_domain == shop).first()
-    plan = (m.plan if m else None) or "starter"
+    plan = (m.plan if m else None) or "lite"
     digest = assemble_digest(db, shop, merchant_plan=plan)
     if not digest:
         return (

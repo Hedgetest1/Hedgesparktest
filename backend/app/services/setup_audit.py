@@ -102,7 +102,7 @@ class SetupChecks:
     tracker_id:             Optional[str] = None
     # billing
     billing_active:         bool          = False
-    billing_plan:           str           = "starter"
+    billing_plan:           str           = "lite"
     billing_charge_pending: bool          = False
 
 
@@ -252,7 +252,7 @@ def compute_audit_fast(db: Session, shop_domain: str) -> SetupAudit:
 
     # Billing
     checks.billing_active         = bool(merchant.billing_active)
-    checks.billing_plan           = merchant.plan or "starter"
+    checks.billing_plan           = merchant.plan or "lite"
     checks.billing_charge_pending = (
         bool(merchant.billing_charge_id) and not merchant.billing_active
     )
@@ -374,7 +374,7 @@ async def compute_audit_deep(db: Session, shop_domain: str) -> SetupAudit:
 
     # Billing — always from DB (Shopify billing state is only updated by our callback)
     checks.billing_active         = bool(merchant.billing_active)
-    checks.billing_plan           = merchant.plan or "starter"
+    checks.billing_plan           = merchant.plan or "lite"
     checks.billing_charge_pending = (
         bool(merchant.billing_charge_id) and not merchant.billing_active
     )

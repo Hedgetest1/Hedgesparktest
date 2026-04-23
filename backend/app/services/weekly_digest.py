@@ -33,7 +33,7 @@ def _humanize_product_url(product_url: str) -> str:
     return slug.replace("-", " ").replace("_", " ").title()
 
 
-def assemble_digest(db: Session, shop_domain: str, merchant_plan: str = "starter") -> dict | None:
+def assemble_digest(db: Session, shop_domain: str, merchant_plan: str = "lite") -> dict | None:
     """
     Build the weekly revenue digest payload for one merchant.
 
