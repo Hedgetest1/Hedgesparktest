@@ -212,44 +212,61 @@ class TestAnalyticsAssistantWrapper:
 
 class TestModelUpgradeEvaluator:
     """Pin the truncation + token-threading contract on the inline
-    httpx.post inside `evaluate_upgrade`. The wrapper isn't factored
-    out, so we patch at httpx level and exercise the outer entry."""
+    httpx.post inside `evaluate_upgrade`.
 
-    def _make_proposal(self):
-        proposal = MagicMock()
-        proposal.id = 1
-        proposal.candidate_provider = "anthropic"
-        proposal.candidate_model = "claude-sonnet-4-6"
-        proposal.target_module = "orchestrator"
-        # evaluate_upgrade only accepts status in ("pending", "evaluating")
-        proposal.status = "pending"
-        return proposal
+    DA-3 hardening (2026-04-23): uses the real DB (`db` fixture from
+    conftest) instead of a MagicMock session, so a future rename of
+    `db.get(ModelUpgradeProposal, id)` to a different lookup idiom
+    would break the test instead of silently passing. The real ORM
+    also validates the row schema matches the model definition."""
 
-    def test_truncation_treated_as_no_text(self):
+    @staticmethod
+    def _seed_proposal(db):
+        """Insert a real ModelUpgradeProposal row and return it.
+
+        Status must be `pending` or `evaluating` for `evaluate_upgrade`
+        to accept it. We use `pending` to exercise the full path
+        including the status→evaluating transition.
+        """
+        from app.models.model_upgrade import ModelUpgradeProposal
+        row = ModelUpgradeProposal(
+            current_provider="anthropic",
+            current_model="claude-sonnet-4-6",
+            candidate_provider="anthropic",
+            candidate_model="claude-sonnet-4-6",
+            target_module="orchestrator",
+            reason="test fixture",
+            expected_benefit="n/a",
+            risk_level="LEVEL_2",
+            status="pending",
+        )
+        db.add(row)
+        db.flush()
+        return row
+
+    def test_truncation_treated_as_no_text(self, db):
         from app.services import model_upgrade_agent as m
 
-        proposal = self._make_proposal()
-        fake_db = MagicMock()
-        fake_db.get.return_value = proposal
+        proposal = self._seed_proposal(db)
 
         with patch("httpx.post", return_value=_anthropic_truncated()), \
              patch("app.core.llm_budget.check_budget", return_value=(True, "ok")), \
              patch("app.core.llm_budget.record_usage") as mock_record, \
              patch("app.core.llm_budget.is_provider_backed_off", return_value=False), \
              patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-test"}):
-            result = m.evaluate_upgrade(fake_db, proposal.id)
+            result = m.evaluate_upgrade(db, proposal.id)
 
-        # Truncation → text stays empty → no_key/api_call_failed branch
-        # treats it as blocked, no record_usage fires.
+        # Truncation → text stays empty → api_call_failed branch marks
+        # proposal blocked, no record_usage fires.
         assert result == "blocked"
         assert mock_record.call_count == 0
+        db.refresh(proposal)
+        assert proposal.status == "blocked"
 
-    def test_happy_path_threads_ground_truth_tokens(self):
+    def test_happy_path_threads_ground_truth_tokens(self, db):
         from app.services import model_upgrade_agent as m
 
-        proposal = self._make_proposal()
-        fake_db = MagicMock()
-        fake_db.get.return_value = proposal
+        proposal = self._seed_proposal(db)
 
         # Use a response with the keys the scenario evaluator accepts,
         # so text is non-empty and record_usage fires.
@@ -262,7 +279,7 @@ class TestModelUpgradeEvaluator:
              patch("app.core.llm_budget.record_usage") as mock_record, \
              patch("app.core.llm_budget.is_provider_backed_off", return_value=False), \
              patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-test"}):
-            m.evaluate_upgrade(fake_db, proposal.id)
+            m.evaluate_upgrade(db, proposal.id)
 
         assert mock_record.call_count == 1
         _args, kwargs = mock_record.call_args

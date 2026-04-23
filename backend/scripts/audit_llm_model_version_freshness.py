@@ -1,33 +1,39 @@
 #!/usr/bin/env python3
-"""audit_llm_model_version_freshness.py — block stale Claude model strings.
+"""audit_llm_model_version_freshness.py — block stale LLM model strings.
 
 Problem class
 -------------
-Claude model identifiers drift over time. Examples:
+LLM model identifiers drift over time:
   - `claude-sonnet-4-20250514` → superseded by `claude-sonnet-4-6`
   - `claude-opus-4-20250514`   → superseded by `claude-opus-4-7`
-  - `claude-haiku-4-5-20251001` (current)
+  - `gpt-4-turbo-2024-04-09`   → legacy OpenAI naming
+  - future: `mistral-*`, `gemini-*`, etc.
 
 CLAUDE.md operating principle: "default to the latest and most
-capable Claude models". On 2026-04-23 a sweep found 6 files hardcoded
-to the earlier -20250514 strings well after Sonnet 4.6 / Opus 4.7
-became canonical. The API still accepts them (backward-compat), so no
-runtime error — just quietly-suboptimal output + stale cost tables.
+capable Claude models". Same rule applies to any LLM provider — a
+stale model string is either quietly-suboptimal (still served) or a
+silent failure (retired).
 
-This audit maintains a CANONICAL_MODELS allowlist sourced from
-CLAUDE.md. Any Claude model identifier in `app/` that is NOT in the
-allowlist (and not tagged as a legacy alias) trips the audit.
+This audit maintains per-provider CANONICAL_MODELS allowlists. Any
+model identifier in `app/` with a recognizable provider prefix
+(claude-, gpt-, mistral-, gemini-) that is NOT in the allowlist
+trips the audit.
 
-Canonical list (2026-04-23)
----------------------------
-  claude-opus-4-7
-  claude-sonnet-4-6
-  claude-haiku-4-5-20251001
+DA-2 hardening (2026-04-23): expanded from Claude-only regex to
+multi-provider prefix matching, so adding a new provider (e.g.
+Mistral) tomorrow doesn't bypass the audit — the new provider's
+model strings will still be flagged as unknown until added to the
+appropriate CANONICAL set.
+
+Canonical lists (2026-04-23)
+----------------------------
+  Anthropic: claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5-20251001
+  OpenAI:    gpt-4o, gpt-4o-mini
 
 Exit code
 ---------
   0 — clean
-  1 — stale model string found (--strict)
+  1 — stale/unknown model string found (--strict)
 """
 from __future__ import annotations
 
@@ -38,12 +44,34 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 APP_DIR = REPO_ROOT / "app"
 
-# Keep in sync with CLAUDE.md model lineup.
-CANONICAL_MODELS = {
-    "claude-opus-4-7",
-    "claude-sonnet-4-6",
-    "claude-haiku-4-5-20251001",
+# Keep in sync with CLAUDE.md model lineup + providers actually wired
+# in llm_router / nudge_composer / bugfix_pipeline today.
+CANONICAL_MODELS: dict[str, set[str]] = {
+    "anthropic": {
+        "claude-opus-4-7",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5-20251001",
+    },
+    "openai": {
+        "gpt-4o",
+        "gpt-4o-mini",
+    },
+    # Future providers: add their prefix below + a set of canonical
+    # model strings. The audit will start flagging stale strings
+    # immediately.
+    # "mistral": {"mistral-large-latest", ...},
+    # "google":  {"gemini-2.5-pro", ...},
 }
+
+# Prefix → provider routing. Any string with one of these prefixes is
+# compared against the matching CANONICAL set; other string shapes
+# (e.g. "text-embedding-3") pass through unchecked.
+_PROVIDER_PREFIXES: list[tuple[str, str]] = [
+    ("claude-", "anthropic"),
+    ("gpt-", "openai"),
+    ("mistral-", "mistral"),
+    ("gemini-", "google"),
+]
 
 # Files that legitimately reference LEGACY model strings as historical
 # aliases — cost-attribution tables, migration breadcrumbs, etc. They
@@ -59,7 +87,19 @@ LEGACY_ALIAS_ALLOWLIST = {
     str((APP_DIR / "core" / "llm_budget.py").relative_to(REPO_ROOT)),
 }
 
-_CLAUDE_MODEL_RE = re.compile(r'["\'](claude-[a-z0-9\-]+)["\']')
+# Any quoted string that starts with a known provider prefix is a
+# candidate model identifier. Non-prefix strings (library names,
+# header keys) are skipped.
+_MODEL_CANDIDATE_RE = re.compile(
+    r'["\']((?:' + "|".join(p for p, _ in _PROVIDER_PREFIXES) + r')[a-z0-9\-.]+)["\']'
+)
+
+
+def _resolve_provider(model: str) -> str | None:
+    for prefix, provider in _PROVIDER_PREFIXES:
+        if model.startswith(prefix):
+            return provider
+    return None
 
 
 def _scan_file(path: Path) -> list[tuple[int, str]]:
@@ -74,11 +114,16 @@ def _scan_file(path: Path) -> list[tuple[int, str]]:
         stripped = line.lstrip()
         if stripped.startswith("#"):
             continue
-        for m in _CLAUDE_MODEL_RE.finditer(line):
+        for m in _MODEL_CANDIDATE_RE.finditer(line):
             model = m.group(1)
-            if model in CANONICAL_MODELS:
+            provider = _resolve_provider(model)
+            if provider is None:
+                # No known prefix — not a model string we audit.
                 continue
-            findings.append((i, model))
+            canonical = CANONICAL_MODELS.get(provider, set())
+            if model in canonical:
+                continue
+            findings.append((i, f"{model} (provider={provider})"))
     return findings
 
 
@@ -103,14 +148,19 @@ def main() -> int:
             rel = path.relative_to(REPO_ROOT)
             print(f"  {rel}:{lineno}  {model}")
         print()
-        print(f"Canonical models: {sorted(CANONICAL_MODELS)}")
+        print("Canonical lineup:")
+        for provider, models in sorted(CANONICAL_MODELS.items()):
+            print(f"  {provider}: {sorted(models)}")
+        print()
         print("Update the hardcoded string OR add the file to")
         print("LEGACY_ALIAS_ALLOWLIST in this audit if it's intentionally")
         print("keeping the legacy string (e.g. cost-attribution table).")
         return 1 if strict else 0
 
-    print(f"✓ every Claude model reference matches the canonical "
-          f"lineup — {len(CANONICAL_MODELS)} canonical entries")
+    total = sum(len(s) for s in CANONICAL_MODELS.values())
+    providers = len(CANONICAL_MODELS)
+    print(f"✓ every LLM model reference matches the canonical lineup "
+          f"— {total} canonical entries across {providers} providers")
     return 0
 
 
