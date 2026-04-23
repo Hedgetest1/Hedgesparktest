@@ -18,6 +18,26 @@ well under 1ms per call. False positives are the acceptable failure
 mode — blocking a suspect prompt costs an LLM call, leaking PII costs
 a regulator action.
 
+Why regex-only vs semantic NLP (Presidio/spaCy NER)
+---------------------------------------------------
+A 2026-04-23 devil's-advocate audit flagged "could miss natural-
+language PII like 'John at Acme ordered yesterday'". The evaluation:
+
+  1. Our LLM flow sends ONLY aggregated metrics (DPIA Art. 28). No
+     module concatenates raw customer rows into a prompt. The
+     chatbot snapshot passes orders/revenue/products — shop-scope
+     structured data, not merchant-narrative text.
+  2. Structured-PII patterns (email, phone, card, token, key) ARE
+     the exhaustive threat surface for our architecture. Regex hits
+     every one.
+  3. Semantic NER adds ~200MB model + 8-40 €/mo compute at scale
+     for a threat that doesn't exist in our current call shape.
+
+Decision: regex is top-1 for THIS architecture. If a future code
+path adds free-form customer text to an LLM prompt (e.g. merchant
+pastes support-ticket copy), revisit — but add the NLP layer THEN,
+not prematurely. Logged to ledger as [LLM-01] at that trigger.
+
 Patterns
 --------
     * Email addresses (RFC 5322-ish)

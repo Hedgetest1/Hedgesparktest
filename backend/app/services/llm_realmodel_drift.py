@@ -11,6 +11,18 @@ tokenizer change, refusal-policy update, or JSON-formatting drift
 would slip past A5 and only surface when real production prompts
 start returning malformed output.
 
+Role: this IS our real-API E2E canary
+-------------------------------------
+Wrapper contract tests (`tests/test_llm_wrapper_contracts.py`) cover
+truncation, 429, token-threading with mocked httpx. This module is
+the complementary check — it fires REAL requests against REAL model
+endpoints with a 20-scenario corpus. If Anthropic retires a model,
+changes the `usage` struct shape, or ships a response-format break,
+this weekly run surfaces the regression within 7 days — WITHOUT
+needing a per-PR CI cost hit (€0.50/run × PR cadence would be
+expensive). Logged to ledger as the €0-alt-path that closes
+[LLM-02].
+
 This monitor runs a small fixed prompt corpus against the REAL
 Anthropic primary model once per week and computes four structural
 signals:

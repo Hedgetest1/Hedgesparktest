@@ -25,6 +25,28 @@ Mistral) tomorrow doesn't bypass the audit — the new provider's
 model strings will still be flagged as unknown until added to the
 appropriate CANONICAL set.
 
+Why manual CANONICAL_MODELS sync (not auto-polling Anthropic API)
+-----------------------------------------------------------------
+A follow-up DA flagged "manual CLAUDE.md sync is stale-prone vs
+auto-polling Anthropic's model list". Evaluation: manual sync is
+INTENTIONALLY safer than auto-polling.
+
+  1. Auto-polling would silently adopt a model Anthropic has
+     deprecated + schedule-for-retirement but still serves —
+     supply-chain risk (retirement announcement misses, we auto-
+     pick it up, then the model is pulled out from under us).
+  2. Release cadence is quarterly-ish (Sonnet 4 → 4.6 → 4.7 over
+     ~6 months). Human-in-the-loop review of release notes is
+     fast and catches retirement warnings that the API list
+     doesn't surface.
+  3. This audit FAILS PREFLIGHT on any unknown prefix+model combo,
+     so a dev who adds a new model string without updating
+     CANONICAL_MODELS is blocked at commit. The gate is the
+     preflight, not the poll.
+
+Decision: manual sync is top-1 for our supply-chain threat model.
+Logged to ledger as [LLM-03] with that rationale.
+
 Canonical lists (2026-04-23)
 ----------------------------
   Anthropic: claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5-20251001
