@@ -382,15 +382,29 @@ def try_llm_fallback(
 
     prompt = _build_prompt(context, message)
 
+    # Global-budget gate — 2026-04-23 audit found this path was bypassing
+    # the monthly cap entirely. Haiku calls below still charge the merchant
+    # via record_merchant_charge, but the global cap must ALSO be checked
+    # so aggregate LLM spend across modules cannot exceed the ceiling.
+    try:
+        from app.core.llm_budget import check_budget, record_blocked
+        allowed, gate_reason = check_budget("chatbot_fallback")
+        if not allowed:
+            record_blocked("chatbot_fallback", gate_reason)
+            log.info(
+                "chatbot_llm_fallback: blocked by global budget: %s", gate_reason
+            )
+            return LlmFallbackResult(
+                success=False, answer=None, cost_eur=0.0,
+                reason=f"budget_exhausted:{gate_reason}",
+            )
+    except Exception as exc:
+        log.warning("chatbot_llm_fallback: budget gate check failed: %s", exc)
+
     answer, actual_cost = _call_haiku(prompt)
     if not answer:
         return LlmFallbackResult(
             success=False, answer=None, cost_eur=0.0, reason="llm_empty_or_error",
-        )
-
-    if not answer:
-        return LlmFallbackResult(
-            success=False, answer=None, cost_eur=0.0, reason="empty_llm_response",
         )
 
     ok, vreason = _validate_response(answer, context)
@@ -432,6 +446,22 @@ def try_llm_fallback(
         record_merchant_charge(shop_domain, actual_cost or _ESTIMATED_COST_EUR)
     except Exception as exc:
         log.warning("chatbot_llm_fallback: record_merchant_charge failed: %s", exc)
+
+    # Record global-budget usage — 2026-04-23 audit found this call was
+    # missing, producing a budget-bypass where merchant-paid Haiku
+    # volume never rolled up into the monthly cap. tokens_used estimated
+    # from answer length since _call_haiku doesn't return the usage struct
+    # directly (matches the estimation style used in bugfix_pipeline).
+    try:
+        from app.core.llm_budget import record_usage
+        record_usage(
+            "chatbot_fallback",
+            tokens_used=len(answer) // 4,
+            provider="anthropic",
+            model=_HAIKU_MODEL,
+        )
+    except Exception as exc:
+        log.warning("chatbot_llm_fallback: record_usage failed: %s", exc)
 
     return LlmFallbackResult(
         success=True,

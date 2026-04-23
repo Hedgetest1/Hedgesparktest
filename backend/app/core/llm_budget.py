@@ -231,6 +231,19 @@ BUDGET_LIMITS: dict[str, dict] = {
         "max_tokens_per_request": 600,
         "cooldown_seconds": 30,
     },
+    # Merchant Pro chatbot RAG-first, LLM fallback (2026-04-23 audit
+    # found this path was missing from BUDGET_LIMITS entirely — Haiku
+    # calls were charged to merchants via record_merchant_charge but
+    # NEVER accounted against the global monthly cap, producing a
+    # budget-bypass at scale). Haiku 4.5 is cheap; daily cap tuned to
+    # keep worst-case spend < €1/day across 10k merchants assuming ~20%
+    # RAG-miss rate and ~€0.003/call.
+    "chatbot_fallback": {
+        "max_calls_per_day": 400,
+        "max_calls_per_cycle": 400,
+        "max_tokens_per_request": 1024,
+        "cooldown_seconds": 0,
+    },
     "default": {
         "max_calls_per_day": 20,
         "max_calls_per_cycle": 2,
