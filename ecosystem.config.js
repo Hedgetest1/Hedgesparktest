@@ -90,12 +90,21 @@ module.exports = {
     },
 
     // -------------------------------------------------------------------------
-    // FastAPI backend — uvicorn ASGI server
+    // FastAPI backend — uvicorn ASGI server with 4 worker subprocesses.
+    //
+    // PM2 runs 1 instance of the uvicorn MASTER; uvicorn itself forks 4
+    // worker children to handle requests. This is the correct multi-
+    // worker pattern — setting PM2 `instances: 4` would launch 4 uvicorn
+    // MASTERS all binding the same port, which fails.
+    //
+    // DB pool is env-tuned in database.py (DB_POOL_SIZE=5,
+    // DB_MAX_OVERFLOW=10 in backend/.env for this config): 4×(5+10) = 60
+    // conn from backend, well below Postgres max_connections=100.
     // -------------------------------------------------------------------------
     {
       name:                "wishspark-backend",
       script:              "/opt/wishspark/backend/venv/bin/python",
-      args:                "-m uvicorn app.main:app --host 127.0.0.1 --port 8000",
+      args:                "-m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 4",
       cwd:                 "/opt/wishspark/backend",
       interpreter:         "none",
       exec_mode:           "fork",
@@ -105,12 +114,18 @@ module.exports = {
       max_restarts:        10,
       restart_delay:       5000,
       kill_timeout:        10000,  // 10s graceful shutdown — finish in-flight requests
-      max_memory_restart:  "512M",
+      max_memory_restart:  "1024M",  // 4 workers × ~200M each
       out_file:            "/opt/wishspark/logs/backend-out.log",
       error_file:          "/opt/wishspark/logs/backend-error.log",
       merge_logs:          false,
       env: {
-        PYTHONPATH: "/opt/wishspark/backend",
+        PYTHONPATH:        "/opt/wishspark/backend",
+        // DB pool tuned for 4 uvicorn workers. Total backend conn:
+        // 4 × (5 + 10) = 60; + 7 singleton PM2 workers × ~2 = 14;
+        // + admin/psql headroom ~10; = ~84, below Postgres max_connections=100.
+        // See app/core/database.py for the env-read logic.
+        DB_POOL_SIZE:      "5",
+        DB_MAX_OVERFLOW:   "10",
       },
     },
 

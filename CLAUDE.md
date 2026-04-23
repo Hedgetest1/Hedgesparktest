@@ -329,18 +329,38 @@ Config lives at `/docker/traefik/dynamic/wishspark.yml` (hot-reload).
 
 **Stack:** FastAPI + Postgres + Redis (Docker) + Next.js 16.2.3 + React 19.
 
-### PM2 processes (all singleton, fork mode)
+### PM2 processes (fork mode)
 
-| Process | Script | Cycle |
-|---|---|---|
-| wishspark-backend | uvicorn app.main:app | Always |
-| wishspark-dashboard | next start | Always |
-| wishspark-worker | intelligence_worker.py | 10 min |
-| wishspark-agent-worker | agent_worker.py | 15 min |
-| wishspark-aggregation-worker | aggregation_worker.py | 5 min |
-| wishspark-segment-monitor | segment_monitor_worker.py | 5 min |
-| wishspark-nudge-optimizer | nudge_optimization_worker.py | 6 hours |
-| wishspark-gdpr-worker | gdpr_worker.py | 5 min |
+| Process | Script | PM2 instances | Concurrency | Cycle |
+|---|---|---|---|---|
+| wishspark-backend | uvicorn app.main:app | 1 | **--workers 4** (uvicorn) | Always |
+| wishspark-dashboard | next start | 1 | single | Always |
+| wishspark-worker | intelligence_worker.py | 1 (singleton) | single | 10 min |
+| wishspark-agent-worker | agent_worker.py | 1 (singleton) | single | 15 min |
+| wishspark-aggregation-worker | aggregation_worker.py | 1 (singleton) | single | 5 min |
+| wishspark-segment-monitor | segment_monitor_worker.py | 1 (singleton) | single | 5 min |
+| wishspark-nudge-optimizer | nudge_optimization_worker.py | 1 (singleton) | single | 6 hours |
+| wishspark-gdpr-worker | gdpr_worker.py | 1 (singleton) | single | 5 min |
+
+**Backend concurrency model (post 2026-04-23 scaling flip):** PM2 runs
+1 uvicorn MASTER process, which forks 4 WORKER subprocesses sharing
+port 8000. Request load spreads across the 4 workers; module-level
+mutable state would NOT share across them, so every such site in
+`app/api|core|services` is either Redis-backed, Redis-mirrored, or
+annotated `# multi-worker: accept-degrade` — enforced at preflight
+via `scripts/audit_multiworker_safety.py`.
+
+**DB pool math:** `DB_POOL_SIZE=5`, `DB_MAX_OVERFLOW=10` (ecosystem.
+config.js env block for wishspark-backend, read by
+`app/core/database.py`). 4 workers × (5 + 10) = 60 conn ceiling from
+backend; + 7 singleton PM2 workers × ~2 = 14; + admin headroom ~10; =
+~84, well below Postgres `max_connections=100`.
+
+**Singleton guarantee for workers:** the 7 `wishspark-*-worker` /
+`-monitor` / `-optimizer` processes MUST remain `instances: 1` —
+multiple instances would duplicate watermark advances, retention
+runs, dedup passes, and LLM call counters. Only `wishspark-backend`
+uses multi-worker via uvicorn's own fork manager.
 
 ---
 
