@@ -26,9 +26,9 @@ def _set_telegram_env(monkeypatch):
     """Set TELEGRAM_CHAT_ID for auth tests and reset rate/safety state."""
     monkeypatch.setattr("app.services.telegram_agent._CHAT_ID", AUTHORIZED_CHAT)
     monkeypatch.setattr("app.services.telegram_agent._BOT_TOKEN", "test-token")
-    # Reset rate limiters
-    from app.services.telegram_agent import reset_rate_limits
-    reset_rate_limits()
+    # Reset rate limiters — rate limiting is entirely in telegram_safety
+    # now (Redis-backed). The telegram_agent-local reset_rate_limits was
+    # deleted as dead code 2026-04-23.
     from app.core.telegram_safety import reset_rate_limits as reset_safety_rates
     reset_safety_rates()
     # Bypass idempotency and locking in tests (Redis may not be available)

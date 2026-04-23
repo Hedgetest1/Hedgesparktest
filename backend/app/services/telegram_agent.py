@@ -96,36 +96,12 @@ def is_authorized_chat(chat_id: str) -> bool:
     return str(chat_id).strip() == _CHAT_ID
 
 
-# ---------------------------------------------------------------------------
-# Command rate limiter — prevents spam (5 same commands per minute)
-# ---------------------------------------------------------------------------
-_cmd_rate: dict[str, list[float]] = {}  # cmd → [timestamp, ...]
-_CMD_RATE_LIMIT = 5
-_CMD_RATE_WINDOW = 60.0  # seconds
-
-
-def _check_rate_limit(cmd: str) -> bool:
-    """Returns True if command is allowed, False if rate-limited."""
-    import time
-    now = time.monotonic()
-    key = cmd.lower()
-
-    if key not in _cmd_rate:
-        _cmd_rate[key] = []
-
-    # Clean old entries
-    _cmd_rate[key] = [t for t in _cmd_rate[key] if now - t < _CMD_RATE_WINDOW]
-
-    if len(_cmd_rate[key]) >= _CMD_RATE_LIMIT:
-        return False
-
-    _cmd_rate[key].append(now)
-    return True
-
-
-def reset_rate_limits():
-    """Clear rate limit state — for testing."""
-    _cmd_rate.clear()
+# Rate limiting for commands runs through
+# `app.core.telegram_safety.check_criticality_rate` (Redis-backed,
+# criticality-aware). The legacy per-process `_check_rate_limit`/
+# `_cmd_rate` helpers that used to live here were removed 2026-04-23
+# during the telegram_agent audit — they were zero-caller dead code
+# and created a false sense of rate-limiting while never being invoked.
 
 
 def register_bot_commands() -> bool:
@@ -1758,6 +1734,31 @@ def _cmd_cleanup_confirm(db, chat_id: str | None = None) -> str:
     # Decode scope for audit log
     scope_str = scope if isinstance(scope, str) else scope.decode() if isinstance(scope, bytes) else "full"
 
+    # Hash-chained audit row — canonical operator-accountability per
+    # CLAUDE.md §9.3. The log.warning below is a human-readable backup;
+    # the chained row is the compliance-queryable proof of destructive
+    # cleanup. Added 2026-04-23 during telegram_agent audit.
+    try:
+        from app.services.audit import write_audit_log
+        write_audit_log(
+            db,
+            actor_type="telegram_operator",
+            actor_name=str(chat_id or "unknown"),
+            action_type="telegram_cleanup_confirm",
+            target_type="ops_cleanup_batch",
+            after_state={
+                "scope": scope_str,
+                "alerts_resolved": alerts_resolved,
+                "incidents_dismissed": incidents_dismissed,
+                "candidates_discarded": candidates_discarded,
+            },
+            status="completed",
+            metadata={"command": "/cleanup_confirm", "scope": scope_str},
+        )
+        db.commit()
+    except Exception as exc:
+        log.error("cleanup_confirm: audit_log write failed (proceeding): %s", exc)
+
     log.warning(
         "AUDIT cleanup scope=%s actor_chat=%s alerts=%d incidents=%d candidates=%d",
         scope_str, chat_id or "unknown",
@@ -1808,6 +1809,28 @@ def _cmd_cleanup_safe(db, chat_id: str | None = None) -> str:
     alerts_resolved = len(alert_result.fetchall())
 
     db.commit()
+
+    # Hash-chained audit row \u2014 mirrors _cmd_cleanup_confirm. Safe cleanup
+    # touches only non-critical old alerts, but operator-action still
+    # deserves a queryable chain entry for compliance.
+    try:
+        from app.services.audit import write_audit_log
+        write_audit_log(
+            db,
+            actor_type="telegram_operator",
+            actor_name=str(chat_id or "unknown"),
+            action_type="telegram_cleanup_safe",
+            target_type="ops_cleanup_batch",
+            after_state={
+                "scope": "safe",
+                "alerts_resolved": alerts_resolved,
+            },
+            status="completed",
+            metadata={"command": "/cleanup_safe", "scope": "safe"},
+        )
+        db.commit()
+    except Exception as exc:
+        log.error("cleanup_safe: audit_log write failed (proceeding): %s", exc)
 
     log.warning(
         "AUDIT cleanup scope=%s actor_chat=%s alerts=%d",
