@@ -458,39 +458,95 @@ def _process_shop_redact(db: Session, req: GdprRequest) -> str:
     shop = req.shop_domain
     deleted: dict[str, int] = {}
 
-    # Deletion order: leaf tables first, tenant root last.
-    # Table names must match the __tablename__ in each model exactly.
-    # Every table with a shop_domain column must be listed here.
-    # Every table with a shop_domain column must be listed here.
     # Deletion order: leaf tables first (FK children), tenant root last.
+    # Table names must match the __tablename__ in each model exactly.
+    # Every table with a shop_domain column must be listed here OR in
+    # _GDPR_PRESERVE_TABLES (below, for compliance-required retention
+    # like the audit chain). Preflight `audit_gdpr_redact_coverage.py`
+    # enforces this invariant at commit time — adding a new table with
+    # shop_domain without updating this list will FAIL preflight.
     # worker_log and worker_state have no shop_domain — excluded.
+    #
+    # 2026-04-23 expansion: discovered via information_schema query that
+    # 23 tables with shop_domain were missing from this list (GDPR
+    # Art. 17 non-compliance live). All 23 added below, grouped by
+    # category + commented. merchants + audit_log are the only
+    # shop_domain tables intentionally excluded from bulk redaction.
     tables = [
+        # Event-level behavioral data (highest-volume PII).
+        # `events` is a range-partitioned table by timestamp — a single
+        # DELETE on the parent cascades to events_default + events_y* so
+        # partition children are NOT listed here (the preflight audit
+        # detects them and excludes from the coverage check).
         "events",
+        "events_legacy",
+        "analytics_events",
         "nudge_events",
         "nudge_impression_daily",
+        "onboarding_events",
+        "email_events",
+        # Visitor identity + attribution
         "visitor_purchase_sessions",
+        "visitor_product_state",
+        "visitors",
+        # Nudge + action state
         "active_nudges",
         "action_tasks",
         "action_snapshots",
+        "action_approvals",
+        "action_outcomes",
+        "autonomous_actions",
         "execution_tracking",
         "execution_baselines",
         "execution_audiences",
         "execution_opportunities",
+        # Signal + intelligence
         "opportunity_signals",
-        "product_metrics",
-        "store_metrics",
-        "shop_orders",
-        "visitors",
-        "visitor_product_state",
         "product_opportunities",
+        "store_intelligence_profiles",
+        "sip_snapshots",
+        "prediction_log",
+        # Merchant-level state + telemetry
+        "merchant_journey_states",
+        "merchant_email_stats",
+        "merchant_emails",
+        "merchant_rules",
+        "merchant_group_members",
+        "ops_alerts",
+        "support_incidents",
+        "inbound_emails",
+        # Product + pricing catalogues
+        "products",
+        "product_metrics",
+        "product_costs",
         "price_intelligence",
         "price_watch",
         "market_lookup",
         "unique_product_detection",
-        "daily_brief",
+        "shop_orders",
+        "shop_cost_defaults",
         "shop_conversion_calibrations",
-        "products",
+        "store_metrics",
         "wishlist_items",
+        # Community + public-proof
+        "community_template_clones",
+        "cig_merchant_mappings",
+        "public_proof_shares",
+        # Agency + ad connectors (merchant PII in OAuth tokens + spend data)
+        "agency_clients",
+        "ad_connections",
+        "ad_spend_daily",
+        # Trust + contracts
+        "trust_contracts",
+        "trust_execution_log",
+        # Outbound webhooks
+        "outbound_webhook_subscriptions",
+        "outbound_webhook_deliveries",
+        # Reports
+        "daily_brief",
+        "night_shift_reports",
+        # GDPR requests themselves (last so we lose the handle to req
+        # only after the rest is gone; req.id was captured earlier)
         "gdpr_requests",
     ]
 

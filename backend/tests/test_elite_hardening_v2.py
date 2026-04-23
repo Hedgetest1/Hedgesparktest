@@ -1061,8 +1061,9 @@ _RAW_SQL_FSTRING_ALLOWLIST: set[str] = {
     # second arg to execute().
     "app/services/gdpr_processor.py:282",
     # gdpr_processor: {table} interpolated from hardcoded `tables` list
-    # used during Art. 17 erasure.
-    "app/services/gdpr_processor.py:499",
+    # used during Art. 17 erasure. Line shifted 2026-04-23 after the
+    # shop_redact coverage expansion (23 missing tables added).
+    "app/services/gdpr_processor.py:555",
 }
 
 

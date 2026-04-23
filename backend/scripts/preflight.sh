@@ -340,6 +340,21 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2o-septies-quater. GDPR shop_redact coverage. Born 2026-04-23 during
+# the Tier-A gdpr_processor audit: discovered 23 tables with shop_domain
+# were NOT in the hardcoded deletion list — GDPR Art. 17 non-compliance
+# live. This audit asserts every shop_domain table in the DB is either
+# in the redaction list OR explicitly preserved (audit_log, merchants).
+# ---------------------------------------------------------------------------
+step "GDPR shop_redact coverage (audit_gdpr_redact_coverage.py)"
+if "$PY" "$BACKEND/scripts/audit_gdpr_redact_coverage.py" --strict > /tmp/preflight_gdpr.log 2>&1; then
+    ok "every shop_domain table covered by shop_redact (or preserved)"
+else
+    bad "shop_redact coverage gap — see /tmp/preflight_gdpr.log"
+    tail -20 /tmp/preflight_gdpr.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2o-septies. Session hook centralization audit. Enforces that only
 # `lib/useSession.ts` (and the legacy `/app/page.tsx` pre-Phase-2
 # migration target) call /merchant/me or /merchant/plan directly.
