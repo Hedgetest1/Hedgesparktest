@@ -187,6 +187,8 @@ def evaluate_upgrade(db: Session, proposal_id: int) -> str:
     import os
 
     text = ""
+    in_tok = 0
+    out_tok = 0
     provider = proposal.candidate_provider
     model = proposal.candidate_model
 
@@ -207,7 +209,11 @@ def evaluate_upgrade(db: Session, proposal_id: int) -> str:
                         timeout=20.0,
                     )
                     if resp.status_code == 200:
-                        text = resp.json().get("content", [{}])[0].get("text", "")
+                        _body = resp.json()
+                        text = _body.get("content", [{}])[0].get("text", "")
+                        _usage = _body.get("usage") or {}
+                        in_tok = int(_usage.get("input_tokens") or 0)
+                        out_tok = int(_usage.get("output_tokens") or 0)
                     elif resp.status_code == 429:
                         record_429("anthropic")
                 except Exception as exc:
@@ -228,14 +234,21 @@ def evaluate_upgrade(db: Session, proposal_id: int) -> str:
                         timeout=20.0,
                     )
                     if resp.status_code == 200:
-                        text = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                        _body = resp.json()
+                        text = _body.get("choices", [{}])[0].get("message", {}).get("content", "")
+                        _usage = _body.get("usage") or {}
+                        in_tok = int(_usage.get("prompt_tokens") or 0)
+                        out_tok = int(_usage.get("completion_tokens") or 0)
                     elif resp.status_code == 429:
                         record_429("openai")
                 except Exception as exc:
                     log.warning("model_upgrade: eval call failed: %s", exc)
 
     if text:
-        record_usage("evolution_audit", tokens_used=len(text) // 4, provider=provider, model=model)
+        # Ground-truth tokens (2026-04-23 sweep). Fall back to len-estimate
+        # only if provider omitted usage struct.
+        _tokens = (in_tok + out_tok) or (len(text) // 4)
+        record_usage("evolution_audit", tokens_used=_tokens, provider=provider, model=model)
 
     # If no text was produced, the API was never actually called successfully
     if not text:

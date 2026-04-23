@@ -147,15 +147,17 @@ def triage(context_packet: dict) -> TriageVerdict | None:
 
     raw = ""
     model = sel.model
+    in_tok = 0
+    out_tok = 0
     if sel.provider == "anthropic" and anthropic_key:
-        raw, model = _call_anthropic(
+        raw, model, in_tok, out_tok = _call_anthropic(
             user_message, anthropic_key, model=sel.model,
             max_tokens=sel.max_tokens,
         )
         if not raw:
             record_429("anthropic") if sel.provider == "anthropic" else None
     if not raw and openai_key and not is_provider_backed_off("openai"):
-        raw, model = _call_openai(
+        raw, model, in_tok, out_tok = _call_openai(
             user_message, openai_key,
             model="gpt-4o-mini", max_tokens=sel.max_tokens,
         )
@@ -165,8 +167,11 @@ def triage(context_packet: dict) -> TriageVerdict | None:
         return None
 
     try:
+        # Ground-truth token count from provider usage struct (2026-04-23
+        # sweep). Fall back to len-estimate only if usage absent.
+        _tokens = (in_tok + out_tok) or ((len(user_message) + len(raw)) // 4)
         record_usage(
-            _MODULE, tokens_used=(len(user_message) + len(raw)) // 4,
+            _MODULE, tokens_used=_tokens,
             provider=sel.provider, model=model,
         )
     except Exception:
@@ -309,7 +314,9 @@ def _parse_verdict(raw: str, model: str) -> TriageVerdict | None:
 def _call_anthropic(
     user_message: str, api_key: str, *,
     model: str, max_tokens: int,
-) -> tuple[str, str]:
+) -> tuple[str, str, int, int]:
+    """Returns (text, model, input_tokens, output_tokens). Ground-truth
+    tokens from Anthropic's `usage` struct (2026-04-23 sweep)."""
     try:
         resp = httpx.post(
             "https://api.anthropic.com/v1/messages",
@@ -330,22 +337,25 @@ def _call_anthropic(
         if resp.status_code == 200:
             data = resp.json()
             txt = data.get("content", [{}])[0].get("text", "")
-            return txt, model
+            _usage = data.get("usage") or {}
+            return txt, model, int(_usage.get("input_tokens") or 0), int(_usage.get("output_tokens") or 0)
         if resp.status_code == 429:
             from app.core.llm_budget import record_429
             record_429("anthropic")
-            return "", model
+            return "", model, 0, 0
         log.warning("on_alert_triage_llm: anthropic status=%d", resp.status_code)
-        return "", model
+        return "", model, 0, 0
     except Exception as exc:
         log.warning("on_alert_triage_llm: anthropic failed: %s", type(exc).__name__)
-        return "", model
+        return "", model, 0, 0
 
 
 def _call_openai(
     user_message: str, api_key: str, *,
     model: str, max_tokens: int,
-) -> tuple[str, str]:
+) -> tuple[str, str, int, int]:
+    """Returns (text, model, input_tokens, output_tokens). OpenAI names
+    these prompt_tokens / completion_tokens in its usage struct."""
     try:
         resp = httpx.post(
             "https://api.openai.com/v1/chat/completions",
@@ -371,13 +381,14 @@ def _call_openai(
                 .get("message", {})
                 .get("content", "")
             )
-            return txt, model
+            _usage = data.get("usage") or {}
+            return txt, model, int(_usage.get("prompt_tokens") or 0), int(_usage.get("completion_tokens") or 0)
         if resp.status_code == 429:
             from app.core.llm_budget import record_429
             record_429("openai")
-            return "", model
+            return "", model, 0, 0
         log.warning("on_alert_triage_llm: openai status=%d", resp.status_code)
-        return "", model
+        return "", model, 0, 0
     except Exception as exc:
         log.warning("on_alert_triage_llm: openai failed: %s", type(exc).__name__)
-        return "", model
+        return "", model, 0, 0

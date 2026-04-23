@@ -388,8 +388,14 @@ def _call_opus(context: str) -> str:
             timeout=60.0,
         )
         if resp.status_code == 200:
-            text_out = resp.json().get("content", [{}])[0].get("text", "")
-            tokens = resp.json().get("usage", {}).get("output_tokens", len(text_out) // 4)
+            body = resp.json()
+            text_out = body.get("content", [{}])[0].get("text", "")
+            # Ground-truth tokens (2026-04-23 sweep): previously only
+            # output_tokens was recorded, understating Opus cost by ~50%.
+            _usage = body.get("usage") or {}
+            _in = int(_usage.get("input_tokens") or 0)
+            _out = int(_usage.get("output_tokens") or 0)
+            tokens = (_in + _out) or (len(text_out) // 4)
             record_usage("monthly_opus_audit", tokens_used=tokens, provider="anthropic", model=OPUS)
             return text_out
         if resp.status_code == 429:

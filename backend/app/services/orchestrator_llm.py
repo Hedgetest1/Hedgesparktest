@@ -164,16 +164,21 @@ Analyze the system state and propose actions if needed. Return strict JSON."""
 
     raw = ""
     model = sel.model
+    in_tok = 0
+    out_tok = 0
 
     if sel.provider == "anthropic" and _ANTHROPIC_KEY:
-        raw, model = _call_anthropic(user_message, model=sel.model, max_tokens=sel.max_tokens)
+        raw, model, in_tok, out_tok = _call_anthropic(user_message, model=sel.model, max_tokens=sel.max_tokens)
     if not raw and _OPENAI_KEY:
         if sel.provider == "anthropic":
             log.info("orchestrator_llm: anthropic failed, fallback=openai")
-        raw, model = _call_openai(user_message, model=sel.model if sel.provider == "openai" else "gpt-4o-mini", max_tokens=sel.max_tokens)
+        raw, model, in_tok, out_tok = _call_openai(user_message, model=sel.model if sel.provider == "openai" else "gpt-4o-mini", max_tokens=sel.max_tokens)
 
     if raw:
-        record_usage("orchestrator", tokens_used=len(raw) // 4, provider=sel.provider, model=model)
+        # Ground-truth tokens from provider `usage` struct (2026-04-23
+        # sweep). Fall back to len-estimate only if usage absent.
+        _tokens = (in_tok + out_tok) or (len(raw) // 4)
+        record_usage("orchestrator", tokens_used=_tokens, provider=sel.provider, model=model)
 
     if not raw:
         return LLMDecisionResult(
@@ -190,13 +195,18 @@ Analyze the system state and propose actions if needed. Return strict JSON."""
 # API callers
 # ---------------------------------------------------------------------------
 
-def _call_anthropic(user_message: str, model: str = "claude-sonnet-4-20250514", max_tokens: int = 512) -> tuple[str, str]:
-    """Call Anthropic Claude API. Handles 429 with backoff. Returns (response_text, model_name)."""
+def _call_anthropic(user_message: str, model: str = "claude-sonnet-4-20250514", max_tokens: int = 512) -> tuple[str, str, int, int]:
+    """Call Anthropic Claude API. Handles 429 with backoff.
+
+    Returns (response_text, model_name, input_tokens, output_tokens).
+    Token counts come from Anthropic's `usage` struct — ground truth,
+    not estimated from string length (2026-04-23 sweep).
+    """
     from app.core.llm_budget import is_provider_backed_off, record_429
 
     if is_provider_backed_off("anthropic"):
         log.info("orchestrator_llm: Anthropic backed off (429 cooldown)")
-        return "", model
+        return "", model, 0, 0
 
     try:
         resp = httpx.post(
@@ -218,24 +228,30 @@ def _call_anthropic(user_message: str, model: str = "claude-sonnet-4-20250514", 
         if resp.status_code == 200:
             data = resp.json()
             text = data.get("content", [{}])[0].get("text", "")
-            return text, model
+            _usage = data.get("usage") or {}
+            return text, model, int(_usage.get("input_tokens") or 0), int(_usage.get("output_tokens") or 0)
         if resp.status_code == 429:
             record_429("anthropic")
-            return "", model
+            return "", model, 0, 0
         log.warning("orchestrator_llm: Anthropic returned %d", resp.status_code)
-        return "", model
+        return "", model, 0, 0
     except Exception as exc:
         log.warning("orchestrator_llm: Anthropic call failed: %s", type(exc).__name__)
-        return "", model
+        return "", model, 0, 0
 
 
-def _call_openai(user_message: str, model: str = "gpt-4o-mini", max_tokens: int = 512) -> tuple[str, str]:
-    """Call OpenAI API as fallback. Handles 429 with backoff. Returns (response_text, model_name)."""
+def _call_openai(user_message: str, model: str = "gpt-4o-mini", max_tokens: int = 512) -> tuple[str, str, int, int]:
+    """Call OpenAI API as fallback. Handles 429 with backoff.
+
+    Returns (response_text, model_name, input_tokens, output_tokens) —
+    OpenAI's usage struct names them prompt_tokens / completion_tokens
+    which we normalize to input/output for budget-layer symmetry.
+    """
     from app.core.llm_budget import is_provider_backed_off, record_429
 
     if is_provider_backed_off("openai"):
         log.info("orchestrator_llm: OpenAI backed off (429 cooldown)")
-        return "", model
+        return "", model, 0, 0
 
     try:
         resp = httpx.post(
@@ -259,15 +275,16 @@ def _call_openai(user_message: str, model: str = "gpt-4o-mini", max_tokens: int 
         if resp.status_code == 200:
             data = resp.json()
             text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-            return text, model
+            _usage = data.get("usage") or {}
+            return text, model, int(_usage.get("prompt_tokens") or 0), int(_usage.get("completion_tokens") or 0)
         if resp.status_code == 429:
             record_429("openai")
-            return "", model
+            return "", model, 0, 0
         log.warning("orchestrator_llm: OpenAI returned %d", resp.status_code)
-        return "", model
+        return "", model, 0, 0
     except Exception as exc:
         log.warning("orchestrator_llm: OpenAI call failed: %s", type(exc).__name__)
-        return "", model
+        return "", model, 0, 0
 
 
 # ---------------------------------------------------------------------------

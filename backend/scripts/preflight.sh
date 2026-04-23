@@ -343,6 +343,14 @@ fi
 # This audit asserts every LLM call site either imports llm_pii_guard
 # OR carries a `# llm_pii_guard_audit: synthetic-only` opt-out line.
 # ---------------------------------------------------------------------------
+step "LLM token ground-truth audit (audit_llm_token_ground_truth.py)"
+if "$BACKEND/venv/bin/python" "$BACKEND/scripts/audit_llm_token_ground_truth.py" --strict > /tmp/preflight_llm_tokens.log 2>&1; then
+    ok "every record_usage uses ground-truth tokens"
+else
+    bad "LLM token approximation detected — see /tmp/preflight_llm_tokens.log"
+    tail -20 /tmp/preflight_llm_tokens.log || true
+fi
+
 step "LLM PII guard coverage (audit_llm_pii_guard_coverage.py)"
 if "$PY" "$BACKEND/scripts/audit_llm_pii_guard_coverage.py" --strict > /tmp/preflight_llm_pii.log 2>&1; then
     ok "every LLM call site passes through PII guard (or opt-out annotated)"

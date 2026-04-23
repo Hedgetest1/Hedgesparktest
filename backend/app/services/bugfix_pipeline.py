@@ -3227,10 +3227,15 @@ def _call_llm(
         openai_available=bool(openai_key),
     )
 
-    text, actual_provider, actual_model = _call_provider(sel, user_message, anthropic_key, openai_key)
+    text, actual_provider, actual_model, in_tok, out_tok = _call_provider(sel, user_message, anthropic_key, openai_key)
 
     if text:
-        record_usage("bugfix_proposal", tokens_used=len(text) // 4, provider=actual_provider, model=actual_model)
+        # Ground-truth token count (2026-04-23 sweep). Falls back to a
+        # len-based estimate only if the provider omitted `usage` — at
+        # which point something is wrong upstream and we prefer a rough
+        # accounting over silent 0.
+        _tokens = (in_tok + out_tok) or (len(text) // 4)
+        record_usage("bugfix_proposal", tokens_used=_tokens, provider=actual_provider, model=actual_model)
         return text, actual_provider, actual_model
 
     # Escalation: if Sonnet failed and not already escalated, try Opus once
@@ -3244,12 +3249,15 @@ def _call_llm(
     return "", actual_provider or sel.provider, actual_model or sel.model
 
 
-def _call_provider(sel, user_message: str, anthropic_key: str, openai_key: str) -> tuple[str, str, str]:
+def _call_provider(sel, user_message: str, anthropic_key: str, openai_key: str) -> tuple[str, str, str, int, int]:
     """
     Make the actual API call based on model selection. Handles 429 with backoff.
 
-    Returns (raw_text, actual_provider, actual_model) tuple.
-    Empty string on failure.
+    Returns (raw_text, actual_provider, actual_model, input_tokens, output_tokens).
+    Empty string + (0, 0) tokens on failure. Token counts come from the
+    provider's own `usage` struct (ground truth) — 2026-04-23 hardening
+    swept `len(text)//4` approximation from all LLM record_usage sites.
+
     Rejects truncated output (max_tokens reached) before returning —
     truncated JSON is unparseable and should not propagate.
     """
@@ -3283,7 +3291,10 @@ def _call_provider(sel, user_message: str, anthropic_key: str, openai_key: str) 
                         log.warning("bugfix_pipeline: Anthropic output TRUNCATED (max_tokens=%d)", sel.max_tokens)
                         anthropic_failed = True
                     else:
-                        return body.get("content", [{}])[0].get("text", ""), "anthropic", sel.model
+                        _usage = body.get("usage") or {}
+                        _in = int(_usage.get("input_tokens") or 0)
+                        _out = int(_usage.get("output_tokens") or 0)
+                        return body.get("content", [{}])[0].get("text", ""), "anthropic", sel.model, _in, _out
                 elif resp.status_code == 429:
                     record_429("anthropic")
                     anthropic_failed = True
@@ -3324,8 +3335,11 @@ def _call_provider(sel, user_message: str, anthropic_key: str, openai_key: str) 
                 finish = choice.get("finish_reason", "")
                 if finish == "length":
                     log.warning("bugfix_pipeline: OpenAI output TRUNCATED (max_tokens=%d)", sel.max_tokens)
-                    return "", "openai", model
-                return choice.get("message", {}).get("content", ""), "openai", model
+                    return "", "openai", model, 0, 0
+                _usage = body.get("usage") or {}
+                _in = int(_usage.get("prompt_tokens") or 0)
+                _out = int(_usage.get("completion_tokens") or 0)
+                return choice.get("message", {}).get("content", ""), "openai", model, _in, _out
             if resp.status_code == 429:
                 record_429("openai")
             else:
@@ -3333,7 +3347,7 @@ def _call_provider(sel, user_message: str, anthropic_key: str, openai_key: str) 
         except Exception as exc:
             log.warning("bugfix_pipeline: OpenAI %s failed: %s", model, type(exc).__name__)
 
-    return "", sel.provider, sel.model
+    return "", sel.provider, sel.model, 0, 0
 
 
 # ---------------------------------------------------------------------------

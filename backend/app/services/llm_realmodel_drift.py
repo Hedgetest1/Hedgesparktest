@@ -348,6 +348,14 @@ def _call_anthropic(system: str, user: str, key: str, model: str) -> str:
         # Non-fatal — pii_guard itself failed. Log but proceed (benchmark
         # corpus is synthetic; the check is defensive-depth only).
         log.debug("llm_realmodel_drift: pii_guard non-fatal: %s", exc)
+    # 429 backoff — 2026-04-23 sweep. Previously this path bypassed the
+    # shared provider-backoff machinery, meaning a rate-limited Anthropic
+    # would be hammered repeatedly by the 20-scenario corpus instead of
+    # tripping the circuit breaker after the first 429.
+    from app.core.llm_budget import is_provider_backed_off, record_429
+    if is_provider_backed_off("anthropic"):
+        log.info("llm_realmodel_drift: anthropic backed off (429 cooldown)")
+        return ""
     try:
         r = httpx.post(
             "https://api.anthropic.com/v1/messages",
@@ -367,6 +375,10 @@ def _call_anthropic(system: str, user: str, key: str, model: str) -> str:
         )
         if r.status_code == 200:
             return r.json().get("content", [{}])[0].get("text", "")
+        if r.status_code == 429:
+            record_429("anthropic")
+            log.info("llm_realmodel_drift: anthropic 429 — tripped backoff")
+            return ""
         log.info("llm_realmodel_drift: anthropic %d", r.status_code)
         return ""
     except Exception as exc:
@@ -384,6 +396,11 @@ def _call_openai(system: str, user: str, key: str, model: str) -> str:
         return ""
     except Exception as exc:
         log.debug("llm_realmodel_drift: pii_guard non-fatal: %s", exc)
+    # 429 backoff — 2026-04-23 sweep (mirror of anthropic above).
+    from app.core.llm_budget import is_provider_backed_off, record_429
+    if is_provider_backed_off("openai"):
+        log.info("llm_realmodel_drift: openai backed off (429 cooldown)")
+        return ""
     try:
         r = httpx.post(
             "https://api.openai.com/v1/chat/completions",
@@ -407,6 +424,10 @@ def _call_openai(system: str, user: str, key: str, model: str) -> str:
                 r.json().get("choices", [{}])[0]
                 .get("message", {}).get("content", "")
             )
+        if r.status_code == 429:
+            record_429("openai")
+            log.info("llm_realmodel_drift: openai 429 — tripped backoff")
+            return ""
         log.info("llm_realmodel_drift: openai %d", r.status_code)
         return ""
     except Exception as exc:

@@ -855,8 +855,15 @@ def _call_opus(context: str) -> str:
         )
 
         if resp.status_code == 200:
-            text = resp.json().get("content", [{}])[0].get("text", "")
-            tokens_used = resp.json().get("usage", {}).get("output_tokens", len(text) // 4)
+            body = resp.json()
+            text = body.get("content", [{}])[0].get("text", "")
+            # Ground-truth tokens from Anthropic usage struct (2026-04-23
+            # sweep): previously only output_tokens was accounted, which
+            # understated cost by ~50% on Opus (input context is large).
+            _usage = body.get("usage") or {}
+            _in = int(_usage.get("input_tokens") or 0)
+            _out = int(_usage.get("output_tokens") or 0)
+            tokens_used = (_in + _out) or (len(text) // 4)
             record_usage("monthly_opus_audit", tokens_used=tokens_used, provider="anthropic", model=OPUS)
             return text
 
