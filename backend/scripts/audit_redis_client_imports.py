@@ -52,22 +52,44 @@ REDIS_MODULE = APP_ROOT / "core" / "redis_client.py"
 def _allowed_names() -> set[str]:
     """Parse redis_client.py and return every top-level def/assign name.
     We include underscored names too (like `_client`) since callers
-    legitimately import them across the codebase."""
+    legitimately import them across the codebase.
+
+    2026-04-23 retro DA: also picks up walrus-assigned names at module
+    scope (`NAME := value`), not just plain assignments. Python doesn't
+    permit `NAME := x` at module top-level outside expression context,
+    so this is a defensive addition against future Python versions
+    that may allow it. Also handles ast.AugAssign (`x += y` at module
+    level) and tuple-unpack assignments like `A, B = 1, 2`.
+    """
     tree = ast.parse(REDIS_MODULE.read_text(encoding="utf-8"))
     names: set[str] = set()
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             names.add(node.name)
         elif isinstance(node, ast.Assign):
+            # Handle tuple unpacking: `A, B = f()` binds both.
             for target in node.targets:
                 if isinstance(target, ast.Name):
                     names.add(target.id)
+                elif isinstance(target, (ast.Tuple, ast.List)):
+                    for elt in target.elts:
+                        if isinstance(elt, ast.Name):
+                            names.add(elt.id)
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
             names.add(node.target.id)
+        elif isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name):
+            names.add(node.target.id)
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            # Re-exports — `from redis import ...` makes `redis` the local name.
+            # Re-exports. For `import X as Y`, the local binding is Y;
+            # for `import X`, the local binding is X. Track the local
+            # binding — that's what callers actually reference.
             for alias in node.names:
                 names.add(alias.asname or alias.name.split(".")[0])
+    # Walrus-assigned bindings at module scope (defensive for future
+    # Python versions that may permit this at top-level).
+    for node in ast.walk(tree):
+        if isinstance(node, ast.NamedExpr) and isinstance(node.target, ast.Name):
+            names.add(node.target.id)
     return names
 
 

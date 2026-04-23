@@ -18,15 +18,8 @@
  * preserved on purpose to keep the swap small.
  */
 
-import { useEffect, useState } from "react";
-import { apiClient } from "@/app/lib/api-client";
 import Link from "next/link";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
-
-function apiHeaders(): HeadersInit {
-  return { "Content-Type": "application/json" };
-}
+import { useSession } from "@/app/lib/useSession";
 
 // ---------------------------------------------------------------------------
 // Feature data
@@ -143,29 +136,14 @@ function ArrowLeftIcon() {
 // Main page
 // ---------------------------------------------------------------------------
 export default function PricingPage() {
-  const [tier, setTier] = useState<"lite" | "pro" | null>(null);
-
-  useEffect(() => {
-    if (!API_BASE) {
-      setTier("lite");
-      return;
-    }
-
-    apiClient
-      .GET("/merchant/me")
-      .then(({ data, error: err }) => {
-        if (err || !data) {
-          setTier("lite");
-          return;
-        }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const j = data as any;
-        setTier(j.plan === "pro" && j.billing_active === true ? "pro" : "lite");
-      })
-      .catch(() => {
-        setTier("lite");
-      });
-  }, []);
+  // Session-identity fetch centralized in useSession (2026-04-23 retro
+  // DA migration). Previously this page had an inline apiClient.GET
+  // call that bypassed the shared fallback chain. useSession returns
+  // `tier: "lite" | "pro"` derived from the same plan + billing_active
+  // logic, plus `resolved` so we can distinguish "still loading" from
+  // "resolved to lite".
+  const session = useSession();
+  const tier: "lite" | "pro" | null = session.resolved ? session.tier : null;
 
   const dashboardHref = "/app";
   const isProUser = tier === "pro";

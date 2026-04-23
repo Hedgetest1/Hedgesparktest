@@ -46,12 +46,29 @@ ALLOWLIST: set[str] = {
     "dashboard/src/app/app/page.tsx",
 }
 
+# 2026-04-23 retro DA hardening: accepts single-quoted strings, template
+# literals, alternate casings. Multi-line matching supported via DOTALL
+# across the full-file scan below — a line-by-line scan misses the
+# pattern where someone writes:
+#     apiClient
+#       .GET("/merchant/me")
+# Avoiding overly-broad wrapper matching (e.g. `.sendVerify(...)`) to
+# keep false-positive rate near zero; the allowlist is the escape hatch
+# for legitimate outliers.
+_URL_RE = r"""['"`]/merchant/(?:me|plan)['"`]"""
+
+# Line-scoped patterns — caught by the line-by-line scan.
 PATTERNS = [
-    re.compile(r'apiClient\.GET\(\s*"/merchant/me"'),
-    re.compile(r'apiClient\.GET\(\s*"/merchant/plan"'),
-    re.compile(r'\bfetch\([^)]*"/merchant/me"'),
-    re.compile(r'\bfetch\([^)]*"/merchant/plan"'),
+    re.compile(r'(?i)\bapi[_]?[Cc]lient\.(?:GET|get|POST|post)\(\s*' + _URL_RE),
+    re.compile(r'(?i)\bfetch\([^)]*' + _URL_RE),
 ]
+
+# File-scoped pattern for multi-line apiClient.GET chains. Runs on the
+# full file text with DOTALL; catches the two-line form where `apiClient`
+# ends a line and `.GET("/merchant/me")` starts the next.
+_MULTILINE_PATTERN = re.compile(
+    r'(?is)\bapi[_]?[Cc]lient\s*\n\s*\.(?:GET|get|POST|post)\(\s*' + _URL_RE
+)
 
 
 def scan_file(path: Path) -> list[tuple[int, str]]:
@@ -60,11 +77,17 @@ def scan_file(path: Path) -> list[tuple[int, str]]:
     except (OSError, UnicodeDecodeError):
         return []
     findings: list[tuple[int, str]] = []
+    # Line-scoped patterns.
     for lineno, line in enumerate(text.splitlines(), start=1):
         for p in PATTERNS:
             if p.search(line):
                 findings.append((lineno, line.strip()))
                 break
+    # Multi-line apiClient.GET chain (e.g. method-chain across 2 lines).
+    for m in _MULTILINE_PATTERN.finditer(text):
+        lineno = text.count("\n", 0, m.start()) + 1
+        snippet = m.group(0).replace("\n", " ").strip()
+        findings.append((lineno, f"[multi-line] {snippet}"))
     return findings
 
 

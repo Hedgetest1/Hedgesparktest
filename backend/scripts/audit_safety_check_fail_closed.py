@@ -79,35 +79,65 @@ class Finding:
     reason: str
 
 
-def _try_body_is_safety_check(body: list[ast.stmt]) -> bool:
-    """True if try body contains an append to a safety list OR a raise."""
-    for node in ast.walk(ast.Module(body=body, type_ignores=[])):
-        # Pattern A: <safety_list>.append(...)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            if node.func.attr == "append" and isinstance(node.func.value, ast.Name):
-                if node.func.value.id in _SAFETY_LIST_NAMES:
+def _is_safety_list_mutation(node: ast.AST) -> bool:
+    """True if `node` is a signal that a safety list has been mutated.
+
+    Recognizes:
+        <list>.append(x)               (original)
+        <list>.extend([x, y])          (2026-04-23 retro DA — extend variant)
+        <list> += [x]                  (AugAssign list concat)
+        <set> |= {x}                   (AugAssign set union, 2026-04-23 retro DA)
+        <set>.add(x)                   (set add, 2026-04-23 retro DA)
+        <set>.update({x, y})           (set update, 2026-04-23 retro DA)
+    """
+    # Method-call patterns
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+        if isinstance(node.func.value, ast.Name):
+            if node.func.value.id in _SAFETY_LIST_NAMES:
+                if node.func.attr in {"append", "extend", "add", "update"}:
                     return True
-        # Pattern B: explicit raise — the author is raising on bad state
+    # AugAssign patterns (e.g. `concerns |= {x}` or `blocking += [y]`)
+    if isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name):
+        if node.target.id in _SAFETY_LIST_NAMES:
+            if isinstance(node.op, (ast.Add, ast.BitOr)):
+                return True
+    return False
+
+
+def _try_body_is_safety_check(body: list[ast.stmt]) -> bool:
+    """True if try body contains a safety-list mutation OR a raise."""
+    for node in ast.walk(ast.Module(body=body, type_ignores=[])):
+        if _is_safety_list_mutation(node):
+            return True
         if isinstance(node, ast.Raise):
             return True
     return False
 
 
 def _except_body_is_fail_closed(body: list[ast.stmt]) -> bool:
-    """True if except body appends to safety list OR raises."""
+    """True if except body mutates the safety list OR raises."""
     for node in ast.walk(ast.Module(body=body, type_ignores=[])):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            if node.func.attr == "append" and isinstance(node.func.value, ast.Name):
-                if node.func.value.id in _SAFETY_LIST_NAMES:
-                    return True
+        if _is_safety_list_mutation(node):
+            return True
         if isinstance(node, ast.Raise):
             return True
     return False
 
 
 def _has_opt_out_on_line(src_lines: list[str], try_lineno: int) -> bool:
-    """Check the try line AND the two lines above for the opt-out marker."""
-    for offset in (0, -1, -2):
+    """Check the try line AND the six lines above for the opt-out marker.
+
+    2026-04-23 retro DA: widened annotation window from 2 to 6 lines
+    because an author may place a multi-line rationale comment above
+    the try block:
+        # safety-check: fail-open-ok —
+        # the Redis probe can fail transiently during deploy; we log
+        # and continue because ...
+        try: ...
+    The prior 2-line window missed the marker when the rationale was
+    on the earliest of a multi-line comment.
+    """
+    for offset in range(0, -7, -1):
         idx = try_lineno - 1 + offset
         if 0 <= idx < len(src_lines):
             if _OPT_OUT_MARKER in src_lines[idx]:

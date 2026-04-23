@@ -26,10 +26,29 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DASHBOARD_SRC = REPO_ROOT / "dashboard" / "src"
 
-# Match `process.env.NEXT_PUBLIC_API_BASE` NOT followed by a word char
-# (so `NEXT_PUBLIC_API_BASE_URL` is allowed, bare `NEXT_PUBLIC_API_BASE`
-# is flagged).
-PATTERN = re.compile(r"process\.env\.NEXT_PUBLIC_API_BASE(?!\w)")
+# Patterns that reach the canonical env var through different syntaxes.
+# 2026-04-23 retro DA hardening: previously only caught `process.env.X`
+# dot access. Now also catches bracket access and destructure patterns
+# that were bypassing silently:
+#   process.env.NEXT_PUBLIC_API_BASE                     — dot (original)
+#   process.env['NEXT_PUBLIC_API_BASE']                  — bracket (NEW)
+#   process.env["NEXT_PUBLIC_API_BASE"]                  — bracket quoted (NEW)
+#   const { NEXT_PUBLIC_API_BASE } = process.env         — destructure (NEW)
+#
+# In each case the variant WITHOUT a trailing `_URL` is the bug.
+PATTERNS = [
+    # Dot access — `process.env.NEXT_PUBLIC_API_BASE` not followed by word char.
+    re.compile(r"process\.env\.NEXT_PUBLIC_API_BASE(?!\w)"),
+    # Bracket access with quotes.
+    re.compile(r"""process\.env\[\s*['"]NEXT_PUBLIC_API_BASE['"]\s*\]"""),
+    # Destructure from process.env.
+    re.compile(
+        r"""(?:const|let|var)\s*\{[^{}]*\bNEXT_PUBLIC_API_BASE(?!\w)[^{}]*\}\s*=\s*process\.env\b"""
+    ),
+]
+
+# Backward-compat single-pattern export for any external caller.
+PATTERN = PATTERNS[0]
 
 
 def scan_file(path: Path) -> list[tuple[int, str]]:
@@ -40,7 +59,7 @@ def scan_file(path: Path) -> list[tuple[int, str]]:
 
     findings: list[tuple[int, str]] = []
     for lineno, line in enumerate(text.splitlines(), start=1):
-        if PATTERN.search(line):
+        if any(p.search(line) for p in PATTERNS):
             findings.append((lineno, line.strip()))
     return findings
 
