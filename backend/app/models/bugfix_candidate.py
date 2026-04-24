@@ -10,7 +10,7 @@ Outcome tracking (post-apply):
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, Index
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, Index
 
 from app.core.database import Base
 
@@ -92,9 +92,21 @@ class BugFixCandidate(Base):
     # pre_merchant | internal_test | sandbox | real_merchant
     evidence_source = Column(String(32), nullable=True, default="pre_merchant")
 
+    # Sibling-hunt pipeline phase (Sprint A, migration bbb1 on 2026-04-25):
+    # When a fix is applied and sibling_hunt finds the same pattern in
+    # other files, it spawns child candidates with this FK pointing at
+    # the original. Lets operators/LLM trace batch-fix classes.
+    parent_candidate_id = Column(
+        Integer,
+        ForeignKey("bugfix_candidates.id", ondelete="SET NULL",
+                   name="fk_bugfix_candidates_parent"),
+        nullable=True,
+    )
+
     __table_args__ = (
         Index("ix_bugfix_candidates_status", "status", "created_at"),
         Index("ix_bugfix_candidates_source", "source_type", "source_ref"),
         Index("ix_bugfix_candidates_domain", "affected_domain", "outcome_status"),
         Index("ix_bugfix_candidates_outcome", "outcome_status", "outcome_measured_at"),
+        Index("ix_bugfix_candidates_parent", "parent_candidate_id"),
     )

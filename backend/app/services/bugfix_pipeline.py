@@ -4781,6 +4781,23 @@ def _apply_bugfix_candidate_impl(db: Session, candidate_id: int) -> ApplyResult:
         except Exception as exc:
             log.warning("bugfix_apply: promotion creation failed (non-fatal): %s", exc)
 
+        # Sprint A — sibling hunt phase (2026-04-25).
+        # Feature-flagged by SIBLING_HUNT_ENABLED (default off, pipeline
+        # is paused pre-merchant). When on, the just-applied patch is
+        # scanned for pattern-matching siblings across the codebase and
+        # each hit becomes a child BugFixCandidate with parent FK.
+        # Non-fatal — never blocks apply; always logged.
+        try:
+            from app.services.sibling_hunt import scan_and_queue as sibling_scan
+            sibling_ids = sibling_scan(db, candidate)
+            if sibling_ids:
+                log.info(
+                    "bugfix_apply: sibling_hunt queued %d child(ren) for parent=%d",
+                    len(sibling_ids), candidate.id,
+                )
+        except Exception as exc:
+            log.warning("bugfix_apply: sibling_hunt failed (non-fatal): %s", exc)
+
         log.info("bugfix_apply: SUCCESS id=%d sha=%s title=%s", candidate.id, commit_sha, candidate.title)
         return result
 
