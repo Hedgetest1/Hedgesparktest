@@ -306,36 +306,39 @@ def cron_monitor(
 ):
     """Decorator factory wrapping a worker cycle in Sentry cron monitoring.
 
-    Sentry cron monitoring (Team plan feature) tracks expected cadence and
-    fires an alert when a check-in is late or a run exceeds `max_runtime`.
-    Configures the monitor at runtime — no manual setup in the Sentry UI.
+    **Quota-gated by env var `SENTRY_CRON_MONITORING`**. Default = empty
+    (no worker monitored). Sentry Team plan base includes only 1 cron
+    monitor — wiring all 6 workers saturates the quota immediately
+    (learned empirically 2026-04-24). Operator sets a comma-separated
+    allowlist of slugs in `.env` to opt specific workers in:
 
-    Usage (in each worker):
+        SENTRY_CRON_MONITORING=agent_worker_cycle
 
-        @cron_monitor(slug="agent_worker_cycle", interval_minutes=15)
-        def run_cycle():
-            ...
+    Anything not in the allowlist returns a no-op decorator, letting
+    us ship the `@cron_monitor` decorators in every worker while
+    respecting the current plan's quota. Upgrade the plan → expand
+    the allowlist.
 
-    Parameters
-    ----------
-    slug
-        Unique slug for this monitor in the Sentry org. One per worker
-        cycle; collisions merge check-ins.
-    interval_minutes
-        Expected cadence in minutes.
-    max_runtime_minutes
-        Fail the check-in if the wrapped function exceeds this. Default
-        is 2× `interval_minutes` (headroom for one slow run without
-        paging on normal variance).
-    checkin_margin
-        Minutes late before a missed check-in triggers an alert.
+    Fallback observability: even without Sentry cron, the internal
+    `invariant_monitor` already verifies worker health every 15min
+    via the preflight audits + WorkerState.last_run_at DB queries.
+    Sentry cron is additive, not load-bearing.
 
-    No-op when sentry_sdk isn't installed. When Sentry is disabled
-    (missing DSN) the SDK's monitor decorator is a no-op by design
-    and shipping the decorator is still safe.
+    Parameters as before: slug, interval_minutes, max_runtime_minutes
+    (default 2× interval), checkin_margin (default 5).
     """
     if max_runtime_minutes is None:
         max_runtime_minutes = interval_minutes * 2
+
+    # Quota gate: empty allowlist = every call is a no-op.
+    allowlist_raw = os.getenv("SENTRY_CRON_MONITORING", "").strip()
+    allowlist = {s.strip() for s in allowlist_raw.split(",") if s.strip()}
+
+    if slug not in allowlist:
+        def _noop_decorator(fn):
+            return fn
+        return _noop_decorator
+
     try:
         from sentry_sdk.crons import monitor as _monitor
     except ImportError:
