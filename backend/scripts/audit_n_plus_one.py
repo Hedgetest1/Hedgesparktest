@@ -60,19 +60,81 @@ def call_is_db_read(call: ast.Call) -> bool:
     return False
 
 
-def loop_is_small_literal(iter_node: ast.expr) -> bool:
-    """Exempt range(...) with small constants."""
+def _resolve_call_len_of_constant(call: ast.Call, module_scope: ast.Module) -> int | None:
+    """If `call` is `len(X)` where X is a module-level Name bound to a
+    Constant collection, return its length. Else None. Used by
+    loop_is_small_literal to recognize `range(len(KNOWN_IDS))` patterns
+    where KNOWN_IDS is a module-level tuple/list constant."""
+    if not (isinstance(call.func, ast.Name) and call.func.id == "len" and len(call.args) == 1):
+        return None
+    arg = call.args[0]
+    if not isinstance(arg, ast.Name):
+        return None
+    # Look for a module-level assignment: KNOWN_IDS = (...) or [...]
+    for stmt in module_scope.body:
+        targets: list[ast.expr] = []
+        value: ast.expr | None = None
+        if isinstance(stmt, ast.Assign):
+            targets = list(stmt.targets)
+            value = stmt.value
+        elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
+            targets = [stmt.target]
+            value = stmt.value
+        else:
+            continue
+        for t in targets:
+            if isinstance(t, ast.Name) and t.id == arg.id:
+                if isinstance(value, (ast.Tuple, ast.List, ast.Set)):
+                    return len(value.elts)
+                if isinstance(value, ast.Constant) and isinstance(value.value, (str, bytes)):
+                    return len(value.value)
+    return None
+
+
+def loop_is_small_literal(iter_node: ast.expr, module_scope: ast.Module | None = None) -> bool:
+    """Exempt range(...) with small constants, including
+    `range(len(KNOWN_IDS))` where KNOWN_IDS is a module-level
+    tuple/list/set constant (MED-10 closure)."""
     if not isinstance(iter_node, ast.Call):
         return False
     if not isinstance(iter_node.func, ast.Name) or iter_node.func.id != "range":
         return False
-    # range(N) or range(a, b) where the final bound is a small constant
     last = iter_node.args[-1] if iter_node.args else None
-    return (
-        isinstance(last, ast.Constant)
-        and isinstance(last.value, int)
-        and last.value <= 10
-    )
+    if isinstance(last, ast.Constant) and isinstance(last.value, int) and last.value <= 10:
+        return True
+    # MED-10: range(len(CONST)) where CONST is module-level tuple/list
+    if isinstance(last, ast.Call) and module_scope is not None:
+        n = _resolve_call_len_of_constant(last, module_scope)
+        if n is not None and n <= 10:
+            return True
+    return False
+
+
+def _assignments_in_loop(for_node: ast.For) -> dict[str, str]:
+    """Build a simple def-use map for the loop body: for every
+    `tmp = loop_var` or `tmp = loop_var.attr` assignment, record that
+    `tmp` is an alias for the loop-var. MED-10 closure: catches
+    `for x in xs: y = x; db.query(filter=y)` which the pre-MED-10
+    scanner missed because it only matched loop_vars directly."""
+    aliases: dict[str, str] = {}
+    for stmt in for_node.body:
+        if not isinstance(stmt, ast.Assign):
+            continue
+        # Single-target assignments only; avoid edge cases with tuples.
+        if len(stmt.targets) != 1:
+            continue
+        tgt = stmt.targets[0]
+        if not isinstance(tgt, ast.Name):
+            continue
+        # Value must reference the loop-var directly or via attribute.
+        val = stmt.value
+        referenced: set[str] = set()
+        for sub in ast.walk(val):
+            if isinstance(sub, ast.Name):
+                referenced.add(sub.id)
+        if referenced:
+            aliases[tgt.id] = next(iter(referenced))
+    return aliases
 
 
 def audit_file(path: pathlib.Path) -> list[Finding]:
@@ -91,7 +153,7 @@ def audit_file(path: pathlib.Path) -> list[Finding]:
     for node in ast.walk(tree):
         if not isinstance(node, ast.For):
             continue
-        if loop_is_small_literal(node.iter):
+        if loop_is_small_literal(node.iter, module_scope=tree):
             continue
 
         # Extract the loop var name(s)
@@ -104,14 +166,24 @@ def audit_file(path: pathlib.Path) -> list[Finding]:
         else:
             loop_vars = set()
 
+        # MED-10: expand loop_vars with aliases assigned inside the loop.
+        # e.g. `for x in xs: y = x; db.query(filter=y)` — `y` is a
+        # one-hop alias for `x`; the DB call matches if it references
+        # EITHER name.
+        aliases = _assignments_in_loop(node)
+        expanded_vars = set(loop_vars)
+        for alias, origin in aliases.items():
+            if origin in loop_vars:
+                expanded_vars.add(alias)
+
         # Scan the loop body for DB calls
         for inner in ast.walk(ast.Module(body=node.body, type_ignores=[])):
             if isinstance(inner, ast.Call) and call_is_db_read(inner):
-                # Check if the loop variable is referenced in the call
+                # Check if the loop variable (or any alias) is referenced
                 used_names = {
                     n.id for n in ast.walk(inner) if isinstance(n, ast.Name)
                 }
-                if loop_vars & used_names:
+                if expanded_vars & used_names:
                     findings.append(Finding(
                         rel, node.lineno,
                         ", ".join(sorted(loop_vars)) or "?",

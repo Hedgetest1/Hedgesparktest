@@ -43,44 +43,79 @@ TYPES_PATH = REPO_ROOT / "dashboard" / "src" / "app" / "lib" / "api-types.ts"
 OPENAPI_URL = "http://127.0.0.1:8000/openapi.json"
 
 
-def fetch_openapi_paths() -> set[str] | None:
-    """Return the set of route paths from live openapi.json, or None
-    if the backend is unreachable (then skip the check)."""
+def fetch_openapi_paths() -> tuple[set[str] | None, str | None]:
+    """Return (paths, reason_for_skip). `paths` is None only when the
+    backend is unreachable — in which case `reason_for_skip` explains
+    why (for logging). Any other failure (non-200, malformed JSON,
+    permission error) returns (None, "<reason>") so the caller can
+    distinguish fail-open from genuine skip.
+
+    MED-11 closure 2026-04-24: pre-fix this returned None on ANY
+    exception, silently masking malformed responses or auth errors
+    behind "backend unreachable" — a fail-open blindspot.
+    """
     try:
         with urllib.request.urlopen(OPENAPI_URL, timeout=3) as resp:
             if resp.status != 200:
-                return None
-            data = json.loads(resp.read())
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
-        return None
-    return set(data.get("paths", {}).keys())
+                return None, f"backend returned HTTP {resp.status}"
+            body = resp.read()
+    except (urllib.error.URLError, TimeoutError) as exc:
+        return None, f"backend unreachable: {type(exc).__name__}: {exc}"
+    except Exception as exc:
+        return None, f"fetch error: {type(exc).__name__}: {exc}"
+
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError as exc:
+        # This is a fail-CLOSED case now: if the backend returns malformed
+        # JSON, that's a real bug (corrupted openapi.json) — surface loud,
+        # not silently skip.
+        return None, f"openapi.json malformed: {exc}"
+
+    paths = data.get("paths")
+    if not isinstance(paths, dict):
+        return None, "openapi.json missing or malformed 'paths' field"
+    return set(paths.keys()), None
 
 
 def extract_types_paths(types_text: str) -> set[str]:
     """Pull path keys from the generated api-types.ts body. The
     openapi-typescript generator emits each path as a string key
     like:    "/analytics/live-opportunities": { ... }
-    inside the `paths` interface. We grep exactly that pattern."""
-    # Only matches inside the top-level `paths` interface — the
-    # schema interface can also have string keys but different
-    # indentation (generator always uses 4 spaces for paths). Err on
-    # the side of broader matching; false positives are fine here
-    # since we only CARE about backend paths that are missing.
-    # `(/[^"]*)` not `(/[^"]+)` — the root path "/" has no character
-    # after the leading slash; `+` would miss it.
-    pattern = re.compile(r'^\s+"(/[^"]*)":\s*\{', re.MULTILINE)
+    inside the `paths` interface.
+
+    MED-11 closure 2026-04-24: pre-fix the regex hardcoded `^\\s+"`
+    which worked for 4-space indent (the generator's 2024 default) but
+    silently failed if a user configured 2-space indent, tabs, or if a
+    future generator version changed formatting. We now accept any
+    leading whitespace AND strip it, which is what "indent-agnostic"
+    means in practice."""
+    # Indent-agnostic: match any leading whitespace (spaces, tabs, mixed).
+    # Root path "/" is captured by `[^"]*` (not `+`) — has no character
+    # after the leading slash.
+    pattern = re.compile(r'^[ \t]+"(/[^"]*)":\s*\{', re.MULTILINE)
     return set(m.group(1) for m in pattern.finditer(types_text))
 
 
 def main(argv: list[str]) -> int:
-    openapi_paths = fetch_openapi_paths()
+    openapi_paths, skip_reason = fetch_openapi_paths()
     if openapi_paths is None:
+        # Graceful skip ONLY when backend is genuinely unreachable.
+        # Malformed responses are reported loudly so the operator
+        # investigates instead of assuming "all good" from a silent skip.
+        is_unreachable = skip_reason and "unreachable" in skip_reason
+        if is_unreachable:
+            print(
+                f"audit_openapi_types_fresh: {skip_reason} "
+                f"at {OPENAPI_URL} — skipping (start backend + re-run "
+                "preflight to enable this check)."
+            )
+            return 0
         print(
-            "audit_openapi_types_fresh: backend unreachable at "
-            f"{OPENAPI_URL} — skipping (start backend + re-run preflight "
-            "to enable this check)."
+            f"audit_openapi_types_fresh: FAIL — {skip_reason or 'unknown fetch error'}",
+            file=sys.stderr,
         )
-        return 0
+        return 2
 
     if not TYPES_PATH.exists():
         print(

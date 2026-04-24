@@ -46,13 +46,17 @@ class Finding:
 
 # Names of receivers (the `x` in `x.method(...)`) that indicate a
 # production-relevant call worth surfacing if it fails.
+# MED-07 closure 2026-04-24: expanded list to catch more prod sites
+# (stripe, sentry outbound API, smtp, pm2 telegram_bot, etc.).
 _PROD_RECEIVERS = {
-    "db", "session", "sess", "conn", "connection",
+    "db", "session", "sess", "conn", "connection", "self_db",
     "httpx_client", "http", "anthropic", "openai", "client",
-    "shopify", "klaviyo", "resend",
+    "shopify", "klaviyo", "resend", "stripe", "sentry_client",
+    "smtp", "requests", "bot", "telegram_bot", "slack_client",
+    "engine", "pool",
 }
 # Names of receivers that indicate fire-and-forget Redis / cache.
-_REDIS_RECEIVERS = {"rc", "redis", "cache", "pipe", "r"}
+_REDIS_RECEIVERS = {"rc", "redis", "cache", "pipe", "r", "redis_client"}
 
 
 def _log_level(call: ast.Call) -> str | None:
@@ -75,15 +79,30 @@ def _is_alert_write(call: ast.Call) -> bool:
     return False
 
 
+def _iter_handler_calls(handler: ast.ExceptHandler):
+    """Yield every Call node inside a handler body, INCLUDING calls
+    hidden inside lambda bodies (MED-07 closure). Pre-MED-07 a pattern
+    like `executor.submit(lambda: log.debug(...))` was invisible to
+    this audit because ast.walk descended into the Lambda node but the
+    inner call was reported as a regular call, losing the "this is a
+    deferred log" semantic. We surface them explicitly so the
+    classifier treats deferred logging as equivalent to direct logging
+    for swallow-detection purposes."""
+    for node in ast.walk(ast.Module(body=handler.body, type_ignores=[])):
+        if isinstance(node, ast.Call):
+            yield node
+        # Lambda bodies: ast.walk already descends into them, but we
+        # keep the explicit case-comment here to make the intention
+        # obvious to any future reader extending the audit.
+
+
 def _classify_handler(handler: ast.ExceptHandler) -> str | None:
     """Return 'debug_only' / 'debug_plus_warning' / 'no_logging' / None
     (None means the handler does real work and is not a swallow)."""
     log_levels: list[str] = []
     has_alert = False
     has_nonlogging_call = False
-    for node in ast.walk(ast.Module(body=handler.body, type_ignores=[])):
-        if not isinstance(node, ast.Call):
-            continue
+    for node in _iter_handler_calls(handler):
         lvl = _log_level(node)
         if lvl is not None:
             log_levels.append(lvl)

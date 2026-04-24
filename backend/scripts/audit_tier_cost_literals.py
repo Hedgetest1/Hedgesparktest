@@ -36,6 +36,7 @@ Exit codes:
 from __future__ import annotations
 
 import ast
+import re
 import sys
 from pathlib import Path
 
@@ -45,14 +46,22 @@ SCAN_ROOTS = [APP_ROOT / "services", APP_ROOT / "api"]
 
 # Variable-name substrings that indicate the value is a
 # subscription/tier/cost/ROI number that MUST be plan-aware.
+# MED-19 closure 2026-04-24: matched as word-parts, not as substring
+# collision. Pre-MED-19 `net_roi` would also match `MONTHLY_PRO_ROI_CAP`
+# because "roi" was a substring hit in a longer identifier (module
+# constant, upper-case). Fix: match identifiers where every separator-
+# delimited token aligns with one of the tokens below OR the identifier
+# is lowercase (the real variable-naming convention for computed
+# cost/ROI values). Module-level UPPER_CASE constants are exempt
+# separately via _is_upper_constant().
 SEMANTIC_COST_TOKENS = {
-    "_tier_cost",
-    "_tier_eur",
+    "tier_cost",
+    "tier_eur",
     "subscription",
     "net_roi",
     "subscription_cost",
-    "_pro_cost",
-    "_pro_tier",
+    "pro_cost",
+    "pro_tier",
     "monthly_plan",
 }
 
@@ -62,15 +71,58 @@ SEMANTIC_COST_TOKENS = {
 SAFE_LITERALS = {0, 0.0, 1, 1.0, -1, -1.0, 100, 100.0, None}
 
 # Allowlist: explicit exemptions for legitimate constants that look
-# like subscription costs but aren't. Format: "path:lineno".
+# like subscription costs but aren't. Format: "path:lineno" or the
+# specific variable name (e.g. "MONTHLY_PRO_COST") — latter applies
+# everywhere the name appears. Use the first form for one-off exemptions,
+# the second for module-level UPPER_CASE constants that are
+# intentionally hardcoded (product decision, not arithmetic drift).
 ALLOWLIST: set[str] = set()
+NAME_ALLOWLIST: set[str] = {
+    # UPPER_CASE module constants where a hardcoded cost literal is
+    # the source-of-truth. Arithmetic that USES these is fine; the
+    # constant ITSELF isn't drift.
+    "MONTHLY_PRO_COST",
+    "MONTHLY_PRO_EUR",
+    "MONTHLY_STARTER_EUR",
+    "MONTHLY_SCALE_EUR",
+}
+
+
+def _is_upper_constant(name: str) -> bool:
+    """True if the identifier is an UPPER_SNAKE_CASE module-level
+    constant (e.g. `MONTHLY_PRO_COST`). These are by convention the
+    source-of-truth for hardcoded costs — not arithmetic drift."""
+    return bool(re.fullmatch(r"[A-Z][A-Z0-9_]+", name))
 
 
 def _name_is_cost_semantic(name: str) -> bool:
     """True if the target variable name matches a cost/subscription/
-    ROI semantic pattern that must be plan-aware."""
-    lower = name.lower()
-    return any(tok in lower for tok in SEMANTIC_COST_TOKENS)
+    ROI semantic pattern that must be plan-aware.
+
+    MED-19 closure 2026-04-24: word-boundary matching — token must
+    appear as a `_`-delimited word, not an arbitrary substring. Skips
+    UPPER_CASE constants (they are source-of-truth by convention).
+    """
+    if name in NAME_ALLOWLIST:
+        return False
+    if _is_upper_constant(name):
+        return False
+    # Split into tokens on underscore boundaries; an identifier like
+    # `net_roi` has tokens {"net", "roi"}. A match is when any
+    # multi-token SEMANTIC_COST_TOKEN appears as a contiguous sub-
+    # sequence in the identifier's token list.
+    id_tokens = name.lower().split("_")
+    for tok in SEMANTIC_COST_TOKENS:
+        tok_parts = tok.split("_")
+        if len(tok_parts) == 1:
+            if tok_parts[0] in id_tokens:
+                return True
+        else:
+            # look for contiguous subsequence
+            for i in range(len(id_tokens) - len(tok_parts) + 1):
+                if id_tokens[i:i + len(tok_parts)] == tok_parts:
+                    return True
+    return False
 
 
 def _collect_literals_in_arithmetic(node: ast.AST) -> list[tuple[int, str]]:

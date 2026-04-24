@@ -116,6 +116,50 @@ def _extract_code_prefixes(app_root: Path) -> dict[str, list[tuple[str, int]]]:
                 ):
                     pref = _stable_prefix(head.value)
                     found.setdefault(pref, []).append((rel, node.lineno))
+                continue
+
+            # Case 3 (MED-02 closure): walrus operator (NamedExpr) —
+            #   `if (key := f"hs:foo:{x}") in ...`
+            # The assignment target isn't relevant for prefix extraction;
+            # we look at the assigned value directly. ast.walk already
+            # visits the inner expression, so this is a belt-and-braces
+            # check for clarity; the inner Constant / JoinedStr cases
+            # above will trigger first when walk reaches them.
+            # Retained here to pin the intention + guard against future
+            # AST-walker refactors that might miss walrus inner nodes.
+            if isinstance(node, ast.NamedExpr):
+                inner = node.value
+                if isinstance(inner, ast.Constant) and isinstance(inner.value, str):
+                    if inner.value.startswith(KEY_FAMILIES):
+                        pref = _stable_prefix(inner.value)
+                        found.setdefault(pref, []).append((rel, node.lineno))
+                continue
+
+            # Case 4 (MED-02 closure): BinOp string concatenation —
+            #   `"hs:" + "foo:" + shop`
+            #   `config.REDIS_PREFIX + ":" + key`
+            # We walk left-deep to collect contiguous Constant left-
+            # operands and build the stable prefix. Stops at the first
+            # non-Constant (where the variable part begins).
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+                parts: list[str] = []
+                cur: ast.AST = node
+                # Unwind `((A + B) + C) + D` left-deep.
+                while isinstance(cur, ast.BinOp) and isinstance(cur.op, ast.Add):
+                    right = cur.right
+                    if isinstance(right, ast.Constant) and isinstance(right.value, str):
+                        parts.insert(0, right.value)
+                    else:
+                        parts = []  # non-constant segment — can't confidently extract prefix
+                        break
+                    cur = cur.left
+                if parts and isinstance(cur, ast.Constant) and isinstance(cur.value, str):
+                    parts.insert(0, cur.value)
+                if parts:
+                    joined = "".join(parts)
+                    if joined.startswith(KEY_FAMILIES):
+                        pref = _stable_prefix(joined)
+                        found.setdefault(pref, []).append((rel, node.lineno))
 
     return found
 
