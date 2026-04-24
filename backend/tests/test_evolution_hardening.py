@@ -55,6 +55,13 @@ def _make_proposal(db, *, dedup_key, status="open", target_file="app/services/au
 
 def test_needs_revalidation_blocks_recreation(db):
     """Engine must NOT recreate a proposal whose dedup_key is in needs_revalidation."""
+    # Hermeticity: the scanner genuinely produces this dedup_key if
+    # action_executor.py has a missing test, so prod rows could
+    # pollute the assertion. Clean inside SAVEPOINT first.
+    db.query(EvolutionProposal).filter(
+        EvolutionProposal.dedup_key == "missing_test:action_executor.py"
+    ).delete(synchronize_session=False)
+    db.flush()
     # Manually create a needs_revalidation proposal with a known dedup_key
     # that one of the scanners would produce
     _make_proposal(
@@ -94,6 +101,10 @@ def test_open_blocks_recreation(db):
 
 def test_accepted_blocks_recreation(db):
     """Engine must NOT recreate a proposal whose dedup_key is accepted."""
+    db.query(EvolutionProposal).filter(
+        EvolutionProposal.dedup_key == "missing_test:action_executor.py"
+    ).delete(synchronize_session=False)
+    db.flush()
     _make_proposal(
         db,
         dedup_key="missing_test:action_executor.py",

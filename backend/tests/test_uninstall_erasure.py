@@ -32,8 +32,12 @@ def _make_uninstalled(db, hours_since: int) -> Merchant:
     return m
 
 
-def test_inside_grace_window_is_untouched(db):
-    """Merchants uninstalled < 48h ago must NOT be redacted yet."""
+def test_inside_grace_window_is_untouched(db):  # hermetic-ok: uuid-via-callee
+    """Merchants uninstalled < 48h ago must NOT be redacted yet.
+
+    Hermeticity: `_make_uninstalled()` generates a uuid-scoped
+    shop_domain (`watchdog-{uuid4().hex[:8]}.myshopify.com`) and the
+    assertion filters by that unique shop — prod rows cannot collide."""
     m = _make_uninstalled(db, hours_since=24)
     report = run_uninstall_erasure_watchdog(db)
     assert report["self_healed"] == 0

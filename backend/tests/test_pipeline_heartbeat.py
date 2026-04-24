@@ -50,9 +50,16 @@ def test_cooldown_blocks_consecutive_runs(monkeypatch):
     assert result["status"] == "cooldown"
 
 
-def test_full_happy_path_against_real_db(db):
+def test_full_happy_path_against_real_db(db):  # hermetic-ok: uuid-via-callee
     """End-to-end against the real DB. The candidate must be created
-    and then cleaned up — leave the database exactly as we found it."""
+    and then cleaned up — leave the database exactly as we found it.
+
+    Hermeticity: `run_heartbeat()` generates a fresh `run_id = uuid.uuid4()
+    .hex[:12]` inside the service (app/services/pipeline_heartbeat.py:264);
+    every OpsAlert source + BugFixCandidate source_ref is scoped to that
+    run_id. Negative assertions filter by the unique source_ref, so prod
+    rows cannot collide. The `counts_after == counts_before` delta check
+    is also intrinsically hermetic (prod churn during test is cancelled)."""
     _clear_cooldown()
 
     candidates_before = db.query(BugFixCandidate).filter(

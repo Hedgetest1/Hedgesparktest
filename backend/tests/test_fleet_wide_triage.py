@@ -112,6 +112,14 @@ def test_three_shops_same_alert_type_different_template_no_fleet(db):
 
 def test_frontend_error_excluded_from_fleet_wide(db):
     """frontend_error is visibility-only — fleet rule must skip it."""
+    # Hermeticity: frontend_error is a real alert type; prod may have
+    # fleet_wide candidates. Clean inside SAVEPOINT so the negative
+    # assertion is hermetic.
+    db.query(BugFixCandidate).filter(
+        BugFixCandidate.source_type == "fleet_wide",
+        BugFixCandidate.source_ref.like("fleet:frontend_error:%"),
+    ).delete(synchronize_session=False)
+    db.flush()
     for shop_idx in range(5):
         _seed_alert(
             db,

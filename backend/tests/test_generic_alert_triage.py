@@ -90,6 +90,12 @@ def test_generic_below_threshold_does_not_trigger(db):
 
 def test_generic_handled_alert_type_skipped(db):
     """alert_type already covered by Rule 1-6 must NOT be picked by Rule 7."""
+    # Hermeticity: frontend_error is a real alert type with prod rows.
+    db.query(BugFixCandidate).filter(
+        BugFixCandidate.source_type == "ops_alert_generic",
+        BugFixCandidate.source_ref.like("generic:frontend_error:%"),
+    ).delete(synchronize_session=False)
+    db.flush()
     _seed_alerts(db, alert_type="frontend_error", source="fe:test:abcd1234", count=5)
     run_bug_triage(db)
     # Rule 5 (frontend_error) creates a candidate with source_type='frontend_error',
@@ -128,6 +134,12 @@ def test_pipeline_self_reference_guard_blocks_bugfix_apply_failed(db):
       1. Rule 7's `handled_alert_types` tuple (SQL-level exclusion)
       2. `_create_candidate`'s `_is_pipeline_self_reference` guard
     """
+    # Hermeticity: bugfix_apply_failed is emitted by real pipeline flow;
+    # prod may have candidates from pre-guard rows.
+    db.query(BugFixCandidate).filter(
+        BugFixCandidate.source_ref.like("generic:bugfix_apply_failed:%")
+    ).delete(synchronize_session=False)
+    db.flush()
     _seed_alerts(
         db, alert_type="bugfix_apply_failed",
         source="bugfix_apply", count=10, severity="critical",
@@ -143,6 +155,10 @@ def test_pipeline_self_reference_guard_blocks_bugfix_apply_failed(db):
 
 def test_pipeline_self_reference_guard_blocks_deploy_failed(db):
     """`deploy_failed` alerts emitted by promotion_pipeline must not loop."""
+    db.query(BugFixCandidate).filter(
+        BugFixCandidate.source_ref.like("generic:deploy_failed:%")
+    ).delete(synchronize_session=False)
+    db.flush()
     _seed_alerts(
         db, alert_type="deploy_failed",
         source="deploy:ci_remote", count=10, severity="critical",
@@ -166,6 +182,12 @@ def test_pipeline_self_reference_guard_blocks_fleet_wide_deploy_failed(db):
     This test seeds the classic fan-out shape for a pipeline-internal
     alert and asserts that NO fleet_wide candidate is created.
     """
+    # Hermeticity: governed_tier1_applied is a real alert type.
+    db.query(BugFixCandidate).filter(
+        BugFixCandidate.source_type == "fleet_wide",
+        BugFixCandidate.source_ref.like("fleet:governed_tier1_applied:%"),
+    ).delete(synchronize_session=False)
+    db.flush()
     # Seed 4 distinct shops each reporting the same pipeline-internal
     # alert type — fleet threshold is 3, so this would trigger Rule 8
     # if the alert type weren't excluded.
@@ -201,6 +223,12 @@ def test_sentry_fingerprint_storm_excluded_from_rule_7(db):
     Lock: 5 recurring storm alerts MUST NOT produce an ops_alert_generic
     candidate.
     """
+    # Hermeticity: sentry_fingerprint_storm is emitted by real pipeline.
+    db.query(BugFixCandidate).filter(
+        BugFixCandidate.source_type == "ops_alert_generic",
+        BugFixCandidate.source_ref.like("generic:sentry_fingerprint_storm:%"),
+    ).delete(synchronize_session=False)
+    db.flush()
     _seed_alerts(
         db, alert_type="sentry_fingerprint_storm",
         source="sentry_fp_storm:deadbeefcafe1234",

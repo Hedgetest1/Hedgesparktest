@@ -794,6 +794,22 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2j. Test hermeticity (audit_test_hermeticity.py --strict)
+# ---------------------------------------------------------------------------
+# Born 2026-04-25 as Phase-1.1 LOW-03 closure. All 10 literal-string
+# hermeticity-risky tests either cleaned with .delete() inside SAVEPOINT
+# or tagged with `# hermetic-ok: <valid-reason>`. Flipped to --strict
+# so regressions block commits.
+step "Test hermeticity (audit_test_hermeticity.py --strict)"
+if "$PY" "$BACKEND/scripts/audit_test_hermeticity.py" --strict > /tmp/preflight_hermeticity.log 2>&1; then
+    ok "$(tail -1 /tmp/preflight_hermeticity.log)"
+else
+    bad "test hermeticity regression — see /tmp/preflight_hermeticity.log"
+    tail -30 /tmp/preflight_hermeticity.log || true
+    fail=1
+fi
+
+# ---------------------------------------------------------------------------
 # 3. Python AST parse check — any syntax error blocks commit
 # ---------------------------------------------------------------------------
 step "Python AST parse (staged .py files)"

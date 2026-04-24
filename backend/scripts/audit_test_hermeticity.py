@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import ast
 import pathlib
+import re
 import sys
 from dataclasses import dataclass
 from _audit_telemetry_shim import telemetered
@@ -67,6 +68,22 @@ _UNIQUENESS_MARKERS = (
     "secrets.token_hex",
     "secrets.token_urlsafe",
 )
+
+# Comment marker on the test function's `def` line that opts out of the
+# hermeticity check. Reason is required to prevent blanket skips.
+# Format:  def test_foo(db):  # hermetic-ok: <reason>
+#
+# Valid reasons (allowlist — new ones land via code-review decision):
+#   uuid-via-callee     — uniqueness generated inside a called function
+#   savepoint-rollback  — test explicitly cleans inside SAVEPOINT
+#   counts-delta        — assertion is delta-based (before/after), not
+#                         absolute count
+_HERMETIC_OK_RE = re.compile(r"#\s*hermetic-ok\s*:\s*([a-z][a-z0-9_-]*)")
+_VALID_HERMETIC_REASONS = frozenset({
+    "uuid-via-callee",
+    "savepoint-rollback",
+    "counts-delta",
+})
 
 
 def _uses_uniqueness_marker(node: ast.AST) -> bool:
@@ -164,11 +181,28 @@ def _calls_query_finalizer(node: ast.AST) -> bool:
     return False
 
 
+def _has_hermetic_ok_marker(
+    source_lines: list[str], node: ast.AST
+) -> bool:
+    """True if a `# hermetic-ok: <reason>` comment (with valid reason)
+    appears on the `def <name>():` header line of the function."""
+    def_line = getattr(node, "lineno", 0)
+    if def_line <= 0 or def_line > len(source_lines):
+        return False
+    m = _HERMETIC_OK_RE.search(source_lines[def_line - 1])
+    if not m:
+        return False
+    reason = m.group(1)
+    return reason in _VALID_HERMETIC_REASONS
+
+
 def scan_file(path: pathlib.Path) -> list[Suspicion]:
     try:
-        tree = ast.parse(path.read_text())
+        raw = path.read_text()
+        tree = ast.parse(raw)
     except Exception:
         return []
+    source_lines = raw.splitlines()
     out: list[Suspicion] = []
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -190,6 +224,9 @@ def scan_file(path: pathlib.Path) -> list[Suspicion]:
             # filters cannot collide with prod writes, so negative
             # assertions are hermetic by construction.
             continue
+        if _has_hermetic_ok_marker(source_lines, node):
+            # Test explicitly opted out with a documented reason.
+            continue
         out.append(Suspicion(
             file=str(path.relative_to(TESTS_DIR.parent)),
             function=node.name,
@@ -202,6 +239,7 @@ def scan_file(path: pathlib.Path) -> list[Suspicion]:
 
 @telemetered("audit_test_hermeticity")
 def main() -> int:
+    strict = "--strict" in sys.argv
     findings: list[Suspicion] = []
     for f in sorted(TESTS_DIR.glob("test_*.py")):
         findings.extend(scan_file(f))
@@ -210,7 +248,6 @@ def main() -> int:
         print("✅ No suspicious negative-state-without-cleanup patterns found")
         return 0
 
-    # Informational: informational exit code (2), never blocking.
     print(f"⚠️  {len(findings)} test functions flagged for hermeticity review:")
     print()
     for s in findings:
@@ -221,8 +258,12 @@ def main() -> int:
     print("These tests query a shared table and assert negative state without")
     print("resetting the table first inside the SAVEPOINT. If the production")
     print("worker writes a matching row during the test run, the assertion")
-    print("will flip and the test will flake. Consider adding a reset call.")
-    return 2
+    print("will flip and the test will flake. Add a `.delete()` cleanup at")
+    print("the top of the test, OR tag `def test_foo():  # hermetic-ok: "
+          "<reason>` if the test is hermetic via an external mechanism.")
+    # Strict mode (preflight) blocks; informational mode (default) keeps
+    # the old exit=2 non-blocking behavior for operator triage runs.
+    return 1 if strict else 2
 
 
 if __name__ == "__main__":
