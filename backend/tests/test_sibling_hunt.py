@@ -198,6 +198,37 @@ def test_scan_and_queue_creates_children(db, enable_sibling_hunt, monkeypatch, t
         assert c.source_ref.startswith(f"sibling:{parent.id}:src/")
 
 
+def test_scan_and_queue_respects_daily_cap(db, enable_sibling_hunt, monkeypatch, tmp_path):
+    """Fleet-wide daily cap prevents multi-parent flood of the queue."""
+    root = tmp_path / "src"
+    root.mkdir()
+    # 3 files that would all match
+    for i in range(3):
+        (root / f"f{i}.py").write_text("assert row is None  # real pattern\n")
+    monkeypatch.setattr(sibling_hunt, "BACKEND_ROOT", tmp_path)
+    monkeypatch.setattr(sibling_hunt, "_SEARCH_ROOTS", (root,))
+    # Cap at 1 for the test
+    monkeypatch.setattr(sibling_hunt, "_MAX_SIBLINGS_PER_DAY", 1)
+
+    parent = BugFixCandidate(
+        status="applied",
+        source_type="ops_alert",
+        source_ref="probe:daily_cap",
+        title="daily cap test",
+        patch_diff=(
+            "--- a/x.py\n+++ b/x.py\n@@\n"
+            "-    assert row is None  # long enough to exceed min length\n"
+        ),
+        patch_files=json.dumps(["src/x.py"]),
+    )
+    db.add(parent)
+    db.flush()
+
+    first_ids = sibling_hunt.scan_and_queue(db, parent)
+    # Cap=1 → at most 1 child even though 3 match
+    assert len(first_ids) == 1
+
+
 def test_scan_and_queue_dedups_existing(db, enable_sibling_hunt, monkeypatch, tmp_path):
     """A second scan_and_queue on the same parent doesn't create
     duplicate children (source_ref uniqueness per parent)."""

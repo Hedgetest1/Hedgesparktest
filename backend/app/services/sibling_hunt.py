@@ -70,6 +70,11 @@ _SEARCH_ROOTS = (
 )
 
 _MAX_SIBLINGS_PER_PARENT = int(os.getenv("SIBLING_HUNT_MAX_PER_PARENT", "15"))
+# Cross-parent daily cap prevents queue flooding when multiple parents
+# apply in rapid succession. Each parent still individually capped at
+# _MAX_SIBLINGS_PER_PARENT; this is the fleet-wide backstop. Default
+# 50/day — tunable once empirical data arrives post-merchant.
+_MAX_SIBLINGS_PER_DAY = int(os.getenv("SIBLING_HUNT_MAX_DAILY", "50"))
 # Minimum length AFTER comment-strip. 15 chars keeps substantive
 # patterns (`assert row is None` = 18) but skips noise (`pass`,
 # `return True`, `if x:`).
@@ -272,6 +277,27 @@ def scan_and_queue(db: Session, parent: BugFixCandidate) -> list[int]:
 
     if not all_hits:
         return []
+
+    # Fleet-wide rate limit: cap siblings created per calendar day so
+    # a burst of parent-applies can't flood the queue.
+    from datetime import datetime, timezone, timedelta
+    today_start = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0, tzinfo=None,
+    )
+    created_today = db.query(BugFixCandidate).filter(
+        BugFixCandidate.source_type == "sibling",
+        BugFixCandidate.created_at >= today_start,
+    ).count()
+    daily_headroom = max(0, _MAX_SIBLINGS_PER_DAY - created_today)
+    if daily_headroom == 0:
+        log.warning(
+            "sibling_hunt: daily cap %d reached — parent=%d queued no siblings",
+            _MAX_SIBLINGS_PER_DAY, parent.id,
+        )
+        record_silent_return("sibling_hunt.daily_cap_reached")
+        return []
+    if len(all_hits) > daily_headroom:
+        all_hits = all_hits[:daily_headroom]
 
     # Dedup against already-queued siblings + existing candidates with
     # same source_ref so repeated runs don't pile duplicates.
