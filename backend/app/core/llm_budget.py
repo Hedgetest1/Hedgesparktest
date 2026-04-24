@@ -251,6 +251,19 @@ BUDGET_LIMITS: dict[str, dict] = {
         "max_tokens_per_request": 1024,
         "cooldown_seconds": 0,
     },
+    # Sprint B (2026-04-25) — adversarial 3-lens reviewer runs Haiku
+    # for each internal/investor/competitor CTO pass per candidate
+    # passing through reviewer_layer. At 3 calls × ~1000 tokens per
+    # candidate × ~30% of candidates-requiring-adversarial (TIER_1+)
+    # the empirical cost at 10k merchants is ~€13/mo (well within
+    # the €500 hard ceiling). Daily cap tuned so a burst of
+    # TIER_1 candidates can't exhaust budget in one day.
+    "adversarial_reviewer": {
+        "max_calls_per_day": 300,   # 100 candidates/day × 3 lenses
+        "max_calls_per_cycle": 300,
+        "max_tokens_per_request": 1024,
+        "cooldown_seconds": 0,
+    },
     "default": {
         "max_calls_per_day": 20,
         "max_calls_per_cycle": 2,

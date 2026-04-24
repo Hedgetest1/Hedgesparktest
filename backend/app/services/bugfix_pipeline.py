@@ -3170,6 +3170,26 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
         except Exception as exc:
             log.warning("bugfix_pipeline: reviewer assessment after propose failed: %s", exc)
 
+    # Sprint B (2026-04-25) — adversarial 3-lens review for TIER_1+
+    # candidates. Runs 3 Haiku calls (internal/investor/competitor CTO
+    # personas) against the proposed patch, persists findings. TIER_0
+    # skips to save budget (low-risk by definition). Feature-flagged
+    # via ADVERSARIAL_REVIEWER_ENABLED (default off, pipeline paused
+    # pre-merchant).
+    if tier != PATCH_TIER_0:
+        try:
+            from app.services.adversarial_reviewer import review_with_3_lenses
+            findings = review_with_3_lenses(db, candidate)
+            if findings:
+                max_sev = max(f.severity for f in findings)
+                log.info(
+                    "bugfix_pipeline: adversarial review candidate=%d "
+                    "findings=%d max_severity=%d",
+                    candidate.id, len(findings), max_sev,
+                )
+        except Exception as exc:
+            log.warning("bugfix_pipeline: adversarial review failed (non-fatal): %s", exc)
+
     log.info("bugfix_pipeline: patch proposed id=%d title=%s", candidate.id, candidate.title)
     return True
 

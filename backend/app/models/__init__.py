@@ -5,6 +5,7 @@ from app.models.action_task import ActionTask
 from app.models.active_model_config import ActiveModelConfig
 from app.models.active_nudge import ActiveNudge
 from app.models.ad_spend import AdConnection, AdSpendDaily
+from app.models.adversarial_review_finding import AdversarialReviewFinding
 from app.models.agency import Agency, AgencyClient
 from app.models.analytics_event import AnalyticsEvent
 from app.models.audit_log import AuditLog
