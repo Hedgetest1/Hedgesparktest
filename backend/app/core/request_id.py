@@ -37,14 +37,19 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
         set_request_context(request_id=request_id, shop_domain=shop)
 
-        # Enrich Sentry scope with request context (no-op if Sentry not active)
+        # Enrich Sentry scope with request context (no-op if Sentry not active).
+        # set_user(id=shop_domain) lets Sentry's "Users" filter group events
+        # by merchant — useful when triaging which shop is affected by a bug.
+        # We deliberately use shop_domain (a tenant identifier) rather than
+        # any raw PII; the DPIA treats shop_domain as a tenant ID.
         try:
             import sentry_sdk
             scope = sentry_sdk.get_current_scope()
             scope.set_tag("request_id", request_id)
+            scope.set_tag("route", request.url.path)
             if shop:
                 scope.set_tag("shop_domain", shop)
-            scope.set_tag("route", request.url.path)
+                scope.set_user({"id": shop, "username": shop.replace(".myshopify.com", "")})
         except Exception as exc:
             log.warning("request_id: sentry scope enrichment failed: %s", exc)
 

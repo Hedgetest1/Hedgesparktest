@@ -260,6 +260,44 @@ def get_component() -> str | None:
     return _initialized_for
 
 
+def sentry_span(op: str, description: str, **data):
+    """Context manager wrapping a code block in a Sentry performance span.
+
+    Sentry's HttpxIntegration + SqlalchemyIntegration auto-create spans for
+    HTTP calls and SQL queries; use this helper when you want to time a
+    custom code section (e.g. an orchestrator phase, a multi-step
+    business logic flow) and have it appear as a child span on the
+    parent transaction.
+
+    Usage:
+
+        from app.core.sentry_init import sentry_span
+
+        with sentry_span("orchestrator.run", "agent_worker_phase") as span:
+            span.set_data("merchants_processed", count)
+            ...
+
+    Returns a no-op context object when sentry_sdk isn't installed or no
+    transaction is currently active.
+    """
+    try:
+        import sentry_sdk
+        return sentry_sdk.start_span(op=op, description=description, **{"data": data} if data else {})
+    except Exception:
+        # No-op CM that mimics the .set_data() interface so callers don't
+        # need to guard for missing Sentry.
+        class _NoopSpan:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def set_data(self, *args, **kwargs):
+                pass
+            def set_tag(self, *args, **kwargs):
+                pass
+        return _NoopSpan()
+
+
 def cron_monitor(
     slug: str,
     interval_minutes: int,

@@ -536,6 +536,17 @@ def run_orchestrator_cycle(db: Session) -> OrchestratorResult:
     cycle_id = f"orch_{secrets.token_hex(4)}"
     result = OrchestratorResult(cycle_id=cycle_id)
 
+    # Tag the current Sentry transaction (agent_worker cron) with this
+    # cycle_id so any event raised during the cycle — LLM failure,
+    # action_fn exception, DB rollback — links back to the exact
+    # orchestrator pass in the dashboard. Free: auto-no-op when Sentry
+    # is disabled (get_current_scope returns a no-op scope).
+    try:
+        import sentry_sdk
+        sentry_sdk.get_current_scope().set_tag("orchestrator.cycle_id", cycle_id)
+    except Exception:
+        pass  # SILENT-EXCEPT-OK: scope enrichment is best-effort
+
     # Step 1: Evaluate
     candidates = _evaluate_decisions(db)
     result.actions_evaluated = len(candidates)
