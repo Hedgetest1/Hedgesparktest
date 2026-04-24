@@ -33,73 +33,18 @@ import ast
 import sys
 from pathlib import Path
 
+# Add backend/ to sys.path so we can import the canonical list from
+# app.core.wired_audits (single source of truth shared with
+# invariant_monitor._check_silent_audits).
+_BACKEND_ROOT = Path(__file__).resolve().parent.parent
+if str(_BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_ROOT))
+
 SCRIPTS_DIR = Path(__file__).resolve().parent
 
-# Audits that HAVE been wired to record_run via _audit_telemetry_shim.
-# The wiring is done via `@telemetered("audit_NAME")` decorator on
-# `def main(...)` (preferred), or an inline `emit(...)` call. Either
-# way the module-level `from _audit_telemetry_shim import ...` must
-# be present — that's what this preventer checks.
-#
-# DO NOT remove an entry without also removing the shim call in the
-# audit itself — the preventer's job is exactly to catch that mistake.
-#
-# This set is the authoritative list of every `audit_*.py` in preflight
-# EXCEPT `audit_audit_telemetry_coverage.py` (the pin itself, which
-# does not participate in telemetry by design).
-WIRED_AUDITS: set[str] = {
-    "audit_alembic_test_db_parity.py",
-    "audit_bundle_budget.py",
-    "audit_claude_md_pm2_map.py",
-    "audit_claude_md_redis_keys.py",
-    "audit_commit_devils_advocate.py",
-    "audit_dashboard_api_base_env.py",
-    "audit_dashboard_dead_code.py",
-    "audit_dashboard_fetches.py",
-    "audit_dashboard_live.py",
-    "audit_data_truth.py",
-    "audit_dead_endpoints.py",
-    "audit_dev_flag_leaks.py",
-    "audit_email_deliverability.py",
-    "audit_email_registry.py",
-    "audit_empty_path_fields.py",
-    "audit_exception_debug.py",
-    "audit_exception_sinks.py",
-    "audit_gdpr_redact_coverage.py",
-    "audit_input_bounds.py",
-    "audit_landing_starter_shipped.py",
-    "audit_llm_http_timeout.py",
-    "audit_llm_model_version_freshness.py",
-    "audit_llm_per_merchant_budget_gate.py",
-    "audit_llm_pii_guard_coverage.py",
-    "audit_llm_token_ground_truth.py",
-    "audit_llm_truncation_rejection.py",
-    "audit_merchant_voice_coherence.py",
-    "audit_model_drift.py",
-    "audit_multiworker_safety.py",
-    "audit_n_plus_one.py",
-    "audit_openapi_types_fresh.py",
-    "audit_redis_client_imports.py",
-    "audit_redis_footprint.py",
-    "audit_response_models.py",
-    "audit_safety_check_fail_closed.py",
-    "audit_scheduled_jobs_map.py",
-    "audit_sentry_alert_rules_drift.py",
-    "audit_sentry_invariants.py",
-    "audit_session_durability_invariants.py",
-    "audit_session_hook_centralization.py",
-    "audit_silent_returns.py",
-    "audit_sql_columns.py",
-    "audit_sql_schema.py",
-    "audit_ssr_body_size.py",
-    "audit_stale_doctrine_defaults.py",
-    "audit_telegram_destructive_audited.py",
-    "audit_tenant_isolation.py",
-    "audit_test_hermeticity.py",
-    "audit_tier_cost_literals.py",
-    "audit_tier_naming_canonical.py",
-    "audit_timezone.py",
-}
+# Canonical list lives in app.core.wired_audits so invariant_monitor
+# and this preventer stay in sync by construction.
+from app.core.wired_audits import WIRED_AUDITS  # noqa: E402
 
 _SHIM_MODULE = "_audit_telemetry_shim"
 

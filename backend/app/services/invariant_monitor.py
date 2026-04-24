@@ -147,6 +147,10 @@ def run_invariant_check(db: Session) -> dict:
         _check_bugfix_proposal_provenance(db, summary)
     except Exception as exc:
         log.warning("invariant_monitor: bugfix-provenance check failed: %s", exc)
+    try:
+        _check_silent_audits(db, summary)
+    except Exception as exc:
+        log.warning("invariant_monitor: silent-audits check failed: %s", exc)
 
     for script_name, alert_type, source in _AUDITS:
         summary["checked"] += 1
@@ -465,3 +469,123 @@ def _check_postgres_capacity(db: Session, summary: dict) -> None:
         summary["alerts_written"] += 1
     except Exception as exc:
         log.error("invariant_monitor: postgres-capacity alert write failed: %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Silent-audit detection — catches regression where a wired audit stops
+# emitting telemetry to /ops/audit-telemetry.
+# ---------------------------------------------------------------------------
+#
+# Two failure modes detected:
+#  1. "Silent with history" — audit emitted within the last 14 days but the
+#     most recent emission is older than SILENT_THRESHOLD_DAYS days. Most
+#     likely: audit was removed from preflight, renamed without updating
+#     the shim, or its call path short-circuits before reaching the
+#     decorator.
+#  2. "Never observed" — audit is listed in WIRED_AUDITS but has ZERO
+#     telemetry entries in the last INITIAL_GRACE_DAYS. Fires only after
+#     a generous grace window so the first run of a freshly-wired audit
+#     doesn't page us.
+#
+# Cooldown: ops_alerts dedups by (alert_type, source) for 24h, so firing
+# every 15min per cycle doesn't spam. Alert stays open until resolved
+# manually OR the audit starts emitting again (dedup source resolves).
+
+_SILENT_THRESHOLD_DAYS = int(os.getenv("AUDIT_SILENT_THRESHOLD_DAYS", "7"))
+_INITIAL_GRACE_DAYS = int(os.getenv("AUDIT_INITIAL_GRACE_DAYS", "14"))
+_TELEMETRY_WINDOW_DAYS = 30  # how far back we look for history
+
+
+def _check_silent_audits(db: Session, summary: dict) -> None:
+    """Alert on wired audits that stopped (or never started) emitting
+    telemetry to the /ops/audit-telemetry rollup."""
+    try:
+        from app.core.wired_audits import WIRED_AUDITS
+        from app.services.audit_telemetry import read_all_audits
+    except Exception as exc:
+        log.warning("invariant_monitor: silent-audits import failed: %s", exc)
+        return
+
+    try:
+        telemetry = read_all_audits(days=_TELEMETRY_WINDOW_DAYS)
+    except Exception as exc:
+        log.warning("invariant_monitor: silent-audits read failed: %s", exc)
+        return
+
+    summary["checked"] += 1
+
+    from datetime import date
+    today = date.today()
+
+    silent_with_history: list[tuple[str, int]] = []
+    never_observed: list[str] = []
+
+    for audit_file in WIRED_AUDITS:
+        audit_name = audit_file[:-3] if audit_file.endswith(".py") else audit_file
+        entry = telemetry.get(audit_name)
+        if entry is None:
+            never_observed.append(audit_name)
+            continue
+        last_day_str = entry.get("last_day", "")
+        if not last_day_str:
+            never_observed.append(audit_name)
+            continue
+        try:
+            last_day = date.fromisoformat(last_day_str)
+        except (ValueError, TypeError):
+            continue
+        gap_days = (today - last_day).days
+        if gap_days > _SILENT_THRESHOLD_DAYS:
+            silent_with_history.append((audit_name, gap_days))
+
+    # Grace window for the "never observed" bucket: only alert after the
+    # telemetry system has been running long enough that every wired
+    # audit SHOULD have had at least one preflight cycle to emit. Gate:
+    # at least ONE audit has `days_seen >= INITIAL_GRACE_DAYS` within
+    # the TELEMETRY_WINDOW_DAYS query window — that proves the system
+    # has been live for at least that many distinct days.
+    grace_window_passed = any(
+        entry.get("days_seen", 0) >= _INITIAL_GRACE_DAYS
+        for entry in telemetry.values()
+    )
+
+    reportable_never = never_observed if grace_window_passed else []
+
+    if not silent_with_history and not reportable_never:
+        return
+
+    summary["failed"] += 1
+    try:
+        from app.services.alerting import write_alert
+        write_alert(
+            db,
+            severity="warning",
+            source="invariant:silent_audits",
+            alert_type="invariant_regression",
+            summary=(
+                f"Audit telemetry gaps: "
+                f"{len(silent_with_history)} silent >"
+                f"{_SILENT_THRESHOLD_DAYS}d, "
+                f"{len(reportable_never)} never observed"
+            ),
+            detail={
+                "silent_with_history": [
+                    {"audit": n, "days_since_last_emission": g}
+                    for n, g in sorted(silent_with_history, key=lambda x: -x[1])
+                ],
+                "never_observed": sorted(reportable_never),
+                "threshold_days": _SILENT_THRESHOLD_DAYS,
+                "initial_grace_days": _INITIAL_GRACE_DAYS,
+                "window_days": _TELEMETRY_WINDOW_DAYS,
+                "remediation": (
+                    "Check /ops/audit-telemetry. For each silent audit: "
+                    "(a) confirm it still runs in preflight.sh, (b) confirm "
+                    "the @telemetered decorator is present on main(), "
+                    "(c) restart backend if the shim module itself was "
+                    "changed and cached imports are stale."
+                ),
+            },
+        )
+        summary["alerts_written"] += 1
+    except Exception as exc:
+        log.error("invariant_monitor: silent-audits alert write failed: %s", exc)
