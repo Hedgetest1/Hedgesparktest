@@ -35,11 +35,11 @@ def test_load_local_rules_basic(tmp_path):
     p = _write_yaml(tmp_path, textwrap.dedent("""
         rules:
           - name: a
-            action_match: all
+            actionMatch: all
             conditions: []
             actions: []
           - name: b
-            action_match: any
+            actionMatch: any
             conditions: []
             actions: []
     """))
@@ -53,11 +53,11 @@ def test_load_local_rules_rejects_duplicate_names(tmp_path):
     p = _write_yaml(tmp_path, textwrap.dedent("""
         rules:
           - name: dup
-            action_match: all
+            actionMatch: all
             conditions: []
             actions: []
           - name: dup
-            action_match: all
+            actionMatch: all
             conditions: []
             actions: []
     """))
@@ -70,7 +70,7 @@ def test_load_local_rules_rejects_missing_required_key(tmp_path):
     p = _write_yaml(tmp_path, textwrap.dedent("""
         rules:
           - name: incomplete
-            action_match: all
+            actionMatch: all
             # missing conditions + actions
     """))
     with pytest.raises(ValueError, match="missing required key"):
@@ -92,7 +92,7 @@ def test_compute_yaml_hash_changes_on_edit(tmp_path):
     from app.services.sentry_alert_rules import compute_yaml_hash
     p = _write_yaml(tmp_path, "rules: []\n")
     h1 = compute_yaml_hash(p)
-    p.write_text("rules: [{name: x, action_match: all, conditions: [], actions: []}]\n")
+    p.write_text("rules: [{name: x, actionMatch: all, conditions: [], actions: []}]\n")
     h2 = compute_yaml_hash(p)
     assert h1 != h2
 
@@ -100,14 +100,14 @@ def test_compute_yaml_hash_changes_on_edit(tmp_path):
 def test_compute_diff_create_update_delete():
     from app.services.sentry_alert_rules import compute_diff
     local = [
-        {"name": "keep_same", "action_match": "all", "conditions": [], "actions": []},
-        {"name": "needs_update", "action_match": "all", "conditions": [{"id": "x"}], "actions": []},
-        {"name": "new_one", "action_match": "all", "conditions": [], "actions": []},
+        {"name": "keep_same", "actionMatch": "all", "conditions": [], "actions": []},
+        {"name": "needs_update", "actionMatch": "all", "conditions": [{"id": "x"}], "actions": []},
+        {"name": "new_one", "actionMatch": "all", "conditions": [], "actions": []},
     ]
     remote = [
-        {"id": "1", "name": "keep_same", "action_match": "all", "conditions": [], "actions": []},
-        {"id": "2", "name": "needs_update", "action_match": "all", "conditions": [], "actions": []},
-        {"id": "3", "name": "to_delete", "action_match": "all", "conditions": [], "actions": []},
+        {"id": "1", "name": "keep_same", "actionMatch": "all", "conditions": [], "actions": []},
+        {"id": "2", "name": "needs_update", "actionMatch": "all", "conditions": [], "actions": []},
+        {"id": "3", "name": "to_delete", "actionMatch": "all", "conditions": [], "actions": []},
     ]
     diff = compute_diff(local, remote)
     assert {r["name"] for r in diff["to_create"]} == {"new_one"}
@@ -120,11 +120,11 @@ def test_compute_diff_create_update_delete():
 def test_compute_diff_ignores_server_only_fields():
     from app.services.sentry_alert_rules import compute_diff
     local = [
-        {"name": "x", "action_match": "all", "conditions": [], "actions": []},
+        {"name": "x", "actionMatch": "all", "conditions": [], "actions": []},
     ]
     remote = [
         # Same logical content, but with Sentry-server-only fields populated.
-        {"id": "9", "name": "x", "action_match": "all", "conditions": [], "actions": [],
+        {"id": "9", "name": "x", "actionMatch": "all", "conditions": [], "actions": [],
          "dateCreated": "2026-04-24", "createdBy": {"id": 1}, "owner": "team:1"},
     ]
     diff = compute_diff(local, remote)
@@ -136,8 +136,8 @@ def test_compute_diff_ignores_server_only_fields():
 def test_apply_diff_dry_run_no_api_calls():
     from app.services import sentry_alert_rules as sar
     diff = {
-        "to_create": [{"name": "a", "action_match": "all", "conditions": [], "actions": []}],
-        "to_update": [{"name": "b", "_remote_id": "5", "action_match": "all", "conditions": [], "actions": []}],
+        "to_create": [{"name": "a", "actionMatch": "all", "conditions": [], "actions": []}],
+        "to_update": [{"name": "b", "_remote_id": "5", "actionMatch": "all", "conditions": [], "actions": []}],
         "to_delete": [{"id": "9", "name": "c"}],
     }
     with patch.dict(os.environ, {

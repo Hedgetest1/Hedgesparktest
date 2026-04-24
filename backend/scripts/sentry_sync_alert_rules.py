@@ -35,6 +35,10 @@ from pathlib import Path
 # Allow running as script from anywhere
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+# Load backend/.env before reading SENTRY_AUTH_TOKEN / ORG / PROJECT.
+from app.core.env_bootstrap import load_env
+load_env()
+
 from app.services.sentry_alert_rules import (
     apply_diff,
     compute_diff,

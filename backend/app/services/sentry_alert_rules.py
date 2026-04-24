@@ -74,7 +74,7 @@ def load_local_rules(path: Path | None = None) -> list[dict[str, Any]]:
     for i, r in enumerate(rules):
         if not isinstance(r, dict):
             raise ValueError(f"{target}: rule[{i}] must be a mapping")
-        for k in ("name", "action_match", "conditions", "actions"):
+        for k in ("name", "actionMatch", "conditions", "actions"):
             if k not in r:
                 raise ValueError(f"{target}: rule[{i}] missing required key '{k}'")
         if r["name"] in seen_names:

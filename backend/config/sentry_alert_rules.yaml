@@ -35,8 +35,8 @@
 rules:
   - name: "production_error_burst"
     description: "≥10 errors in 5min on production. Catches incident-level spikes early."
-    action_match: "all"
-    filter_match: "all"
+    actionMatch: "all"
+    filterMatch: "all"
     frequency: 30
     conditions:
       - id: "sentry.rules.conditions.event_frequency.EventFrequencyCondition"
@@ -55,8 +55,8 @@ rules:
 
   - name: "regression_alert"
     description: "Issue marked as regression by Sentry. Page immediately — something we previously fixed re-broke."
-    action_match: "all"
-    filter_match: "all"
+    actionMatch: "all"
+    filterMatch: "all"
     frequency: 5
     conditions:
       - id: "sentry.rules.conditions.regression_event.RegressionEventCondition"
@@ -68,8 +68,8 @@ rules:
 
   - name: "pii_scrub_spike"
     description: "≥5 events tagged sentry.pii_scrubbed=true in 1h. PII guard regex hit — investigate the source path."
-    action_match: "all"
-    filter_match: "all"
+    actionMatch: "all"
+    filterMatch: "all"
     frequency: 60
     conditions:
       - id: "sentry.rules.conditions.event_frequency.EventFrequencyCondition"
@@ -88,8 +88,8 @@ rules:
 
   - name: "billing_path_critical"
     description: "Any error in /billing/* — payment flows can't fail silently. Page on first event."
-    action_match: "all"
-    filter_match: "all"
+    actionMatch: "all"
+    filterMatch: "all"
     frequency: 5
     conditions:
       - id: "sentry.rules.conditions.first_seen_event.FirstSeenEventCondition"
@@ -105,8 +105,8 @@ rules:
 
   - name: "auth_path_critical"
     description: "Any error in /auth/* — Shopify install/session flow break = merchant onboarding stops. Page on first event."
-    action_match: "all"
-    filter_match: "all"
+    actionMatch: "all"
+    filterMatch: "all"
     frequency: 5
     conditions:
       - id: "sentry.rules.conditions.first_seen_event.FirstSeenEventCondition"
@@ -122,8 +122,8 @@ rules:
 
   - name: "worker_error_burst"
     description: "≥5 errors with component matching worker (any of 6 PM2 singletons) in 15min. Worker degradation early signal."
-    action_match: "all"
-    filter_match: "any"
+    actionMatch: "all"
+    filterMatch: "any"
     frequency: 30
     conditions:
       - id: "sentry.rules.conditions.event_frequency.EventFrequencyCondition"
