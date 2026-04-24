@@ -157,10 +157,27 @@ def post_message(
         return True, ""
 
     except Exception as exc:
+        # Best-effort error-state persist. The exception may itself be a
+        # commit failure (line 148 / 156) — in that case the session is
+        # dirty and any further ORM op raises PendingRollbackError, so
+        # we rollback before retrying the error-state write. If THAT
+        # commit also fails (DB down), we log and return without
+        # masking the original failure to the caller.
         err = f"slack post error: {type(exc).__name__}: {exc}"
-        m.slack_status = "error"
-        m.slack_last_error = err[:255]
-        db.commit()
+        try:
+            db.rollback()
+            m.slack_status = "error"
+            m.slack_last_error = err[:255]
+            db.commit()
+        except Exception as inner_exc:
+            try:
+                db.rollback()
+            except Exception:
+                pass  # SILENT-EXCEPT-OK: rollback-of-rollback when DB itself is down
+            log.error(
+                "slack_dispatcher: error-state persist failed for %s: %s",
+                shop, inner_exc,
+            )
         log.warning("slack_dispatcher: exception for %s: %s", shop, exc)
         return False, err
 

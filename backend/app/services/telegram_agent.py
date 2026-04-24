@@ -1767,6 +1767,14 @@ def _cmd_cleanup_confirm(db, chat_id: str | None = None) -> str:
         )
         db.commit()
     except Exception as exc:
+        # Destructive cleanup at line 1742 is ALREADY committed — the
+        # audit row is best-effort. Rollback to keep the session usable
+        # for any subsequent operation in the same handler. The
+        # log.warning below remains as the human-readable backup.
+        try:
+            db.rollback()
+        except Exception:
+            pass  # SILENT-EXCEPT-OK: rollback-of-rollback in best-effort audit path
         log.error("cleanup_confirm: audit_log write failed (proceeding): %s", exc)
 
     log.warning(
@@ -1840,6 +1848,13 @@ def _cmd_cleanup_safe(db, chat_id: str | None = None) -> str:
         )
         db.commit()
     except Exception as exc:
+        # Mirror of _cmd_cleanup_confirm: destructive cleanup at line
+        # 1821 is ALREADY committed; the audit row is best-effort.
+        # Rollback to leave the session in a usable state.
+        try:
+            db.rollback()
+        except Exception:
+            pass  # SILENT-EXCEPT-OK: rollback-of-rollback in best-effort audit path
         log.error("cleanup_safe: audit_log write failed (proceeding): %s", exc)
 
     log.warning(

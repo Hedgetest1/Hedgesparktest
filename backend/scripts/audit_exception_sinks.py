@@ -339,7 +339,25 @@ def audit_file(path: pathlib.Path) -> list[Finding]:
     return findings
 
 
-def main() -> int:
+CRITICAL_KINDS = ("write_no_rollback", "lying_return")
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Exit codes:
+      * 0 — no findings at the requested severity
+      * 1 — findings at the requested severity exist (blocking)
+
+    Flags:
+      --critical-only   Block only on CRITICAL kinds (write_no_rollback,
+                        lying_return). bare_pass + catches_base are
+                        printed as INFO but do NOT fail the audit.
+                        Used by preflight (Tier 2.2.b) so the 4 SINK
+                        class shipped 2026-04-23/24 stays at zero.
+      (no flag)         Legacy behavior — any finding fails.
+    """
+    argv = list(sys.argv[1:] if argv is None else argv)
+    critical_only = "--critical-only" in argv
+
     all_findings: dict[str, list[Finding]] = defaultdict(list)
     for py in APP_ROOT.rglob("*.py"):
         if any(part in SKIP_DIRS for part in py.parts):
@@ -350,6 +368,16 @@ def main() -> int:
     total = sum(len(v) for v in all_findings.values())
     if total == 0:
         print("✅ No dangerous exception sinks found.")
+        return 0
+
+    blocking_kinds = CRITICAL_KINDS if critical_only else tuple(all_findings.keys())
+    blocking_count = sum(len(all_findings.get(k, [])) for k in blocking_kinds)
+
+    if critical_only and blocking_count == 0:
+        print(
+            f"✅ No CRITICAL exception sinks (write_no_rollback / lying_return). "
+            f"({total} INFO findings present — bare_pass / catches_base — not blocking.)"
+        )
         return 0
 
     print(f"❌ EXCEPTION SINK FINDINGS ({total} across {len(all_findings)} categories)\n")
@@ -375,7 +403,7 @@ def main() -> int:
             print(f"  {file}  [{lines}]")
         print()
 
-    return 1
+    return 1 if blocking_count > 0 else 0
 
 
 if __name__ == "__main__":

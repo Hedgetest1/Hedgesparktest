@@ -267,6 +267,14 @@ def _write_triage_receipt(
         )
         db.commit()
     except Exception as exc:
+        # Best-effort audit row — restore session so the caller's loop
+        # over remaining alerts can continue to query the DB. Without
+        # rollback, the next ORM op on the same session raises
+        # PendingRollbackError.
+        try:
+            db.rollback()
+        except Exception:
+            pass  # SILENT-EXCEPT-OK: rollback-of-rollback in best-effort audit path
         log.warning(
             "on_alert_responder: audit write failed for alert id=%s: %s",
             alert.get("id"), exc,

@@ -148,6 +148,23 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2f-bis. Exception-sinks audit (Tier 2.2.b). Blocks on CRITICAL kinds:
+#   * write_no_rollback — try-block with `db.commit()` paired with
+#     `except: log.warning(...)` and NO `db.rollback()`. Leaves the
+#     SQLAlchemy session in PendingRollbackError state for the caller.
+#     Pinned to ZERO on 2026-04-24 by the SINK-01..04 sweep.
+#   * lying_return — `except: return True` without fail-open marker.
+# bare_pass + catches_base are reported as INFO and do NOT block.
+# ---------------------------------------------------------------------------
+step "Exception-sinks audit (audit_exception_sinks.py --critical-only)"
+if "$BACKEND/venv/bin/python" "$BACKEND/scripts/audit_exception_sinks.py" --critical-only > /tmp/preflight_exc_sinks.log 2>&1; then
+    ok "no CRITICAL exception sinks (write_no_rollback / lying_return)"
+else
+    bad "CRITICAL exception sinks detected — see /tmp/preflight_exc_sinks.log"
+    tail -40 /tmp/preflight_exc_sinks.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2g. Input-bounds audit (Tier 2.3). Every Pydantic request model field
 # of type str / list / dict must declare an upper bound (max_length,
 # max_items, or pattern=). OWASP A03/A04 — no unbounded user input
