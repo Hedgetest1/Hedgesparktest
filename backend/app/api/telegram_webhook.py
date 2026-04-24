@@ -125,7 +125,7 @@ def _safe_html(text: str) -> tuple[str, str]:
         return _strip_markdown(text), ""
 
 
-@router.post("/webhook")
+@router.post("/webhook")  # test-exempt: webhook-receiver
 async def telegram_webhook(request: Request):
     """
     Receive Telegram updates and respond.

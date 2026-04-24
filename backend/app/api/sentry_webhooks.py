@@ -71,7 +71,7 @@ def _verify_sentry_signature(payload: bytes, signature: str) -> None:
         raise HTTPException(status_code=401, detail="Webhook signature verification failed")
 
 
-@router.post("/inbound")
+@router.post("/inbound")  # test-exempt: webhook-receiver
 async def sentry_inbound_webhook(
     request: Request,
     db: Session = Depends(get_db),

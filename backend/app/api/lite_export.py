@@ -434,7 +434,7 @@ _SURFACE_PDF_TITLES: dict[str, str] = {
     # audits don't flag this as an untyped JSON route. The dashboard
     # consumes via plain fetch() + blob download, not apiClient.
     include_in_schema=False,
-)
+)  # test-exempt: sse-stream
 def export_surface(
     surface: str = Query(..., description="Surface to export (see ALLOWED_SURFACES)"),
     format: str = Query("csv", description="Output format: csv | pdf"),

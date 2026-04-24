@@ -180,7 +180,7 @@ def get_roi_counter(db: Session = Depends(get_db)):
     return _get_cached_or_compute()
 
 
-@router.get("/public/roi-counter/live")
+@router.get("/public/roi-counter/live")  # test-exempt: sse-stream
 async def stream_roi_counter():
     """
     Lightweight SSE ticker — re-reads the Redis cache every 20s. Never

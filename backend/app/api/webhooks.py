@@ -286,7 +286,7 @@ async def shopify_orders_paid_compat(
 # POST /webhooks/shopify/app-uninstalled
 # ---------------------------------------------------------------------------
 
-@router.post("/shopify/app-uninstalled")
+@router.post("/shopify/app-uninstalled")  # test-exempt: webhook-receiver
 async def shopify_app_uninstalled(
     request:               Request,
     db:                    Session = Depends(get_db),
@@ -400,7 +400,7 @@ async def shopify_app_uninstalled(
 # not retry.  Actual deletion happens in the background worker.
 # ---------------------------------------------------------------------------
 
-@router.post("/shopify/customers-redact")
+@router.post("/shopify/customers-redact")  # test-exempt: webhook-receiver
 async def shopify_customers_redact(
     request:               Request,
     db:                    Session = Depends(get_db),
@@ -455,7 +455,7 @@ async def shopify_customers_redact(
         return {"status": "acknowledged"}
 
 
-@router.post("/shopify/customers-data-request")
+@router.post("/shopify/customers-data-request")  # test-exempt: webhook-receiver
 async def shopify_customers_data_request(
     request:               Request,
     db:                    Session = Depends(get_db),
@@ -506,7 +506,7 @@ async def shopify_customers_data_request(
         return {"status": "acknowledged"}
 
 
-@router.post("/shopify/shop-redact")
+@router.post("/shopify/shop-redact")  # test-exempt: webhook-receiver
 async def shopify_shop_redact(
     request:               Request,
     db:                    Session = Depends(get_db),

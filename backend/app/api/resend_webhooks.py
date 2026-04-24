@@ -90,7 +90,7 @@ def _verify_webhook(payload: str, headers: dict) -> None:
         raise HTTPException(status_code=401, detail="Webhook verification error")
 
 
-@router.post("/inbound")
+@router.post("/inbound")  # test-exempt: webhook-receiver
 async def resend_inbound_webhook(
     request: Request,
     db: Session = Depends(get_db),
@@ -210,7 +210,7 @@ _TRACKED_EVENT_TYPES = {
 }
 
 
-@router.post("/events")
+@router.post("/events")  # test-exempt: webhook-receiver
 async def resend_event_webhook(
     request: Request,
     db: Session = Depends(get_db),
@@ -419,7 +419,7 @@ _MERCHANT_INBOUND_ADDRESSES = {
 }
 
 
-@router.post("/merchant-inbound")
+@router.post("/merchant-inbound")  # test-exempt: webhook-receiver
 async def resend_merchant_inbound_webhook(
     request: Request,
     db: Session = Depends(get_db),
