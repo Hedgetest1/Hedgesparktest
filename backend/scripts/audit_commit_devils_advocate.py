@@ -158,6 +158,8 @@ def check_section(section: list[str]) -> list[tuple[int, str, str]]:
 
 
 def main(argv: list[str]) -> int:
+    from _audit_telemetry_shim import emit
+
     if len(argv) < 1:
         print(
             "audit_commit_devils_advocate: need commit-msg file path",
@@ -186,11 +188,13 @@ def main(argv: list[str]) -> int:
     section_info = extract_da_section(message)
     if section_info is None:
         # No DA section at all — trivial commit or pre-§19 style. Allowed.
+        emit("audit_commit_devils_advocate", findings=0, severity="info")
         return 0
 
     section, _ = section_info
     findings = check_section(section)
     if not findings:
+        emit("audit_commit_devils_advocate", findings=0, severity="info")
         return 0
 
     print(
@@ -213,6 +217,8 @@ def main(argv: list[str]) -> int:
     for i, phrase, line in findings:
         print(f"  line {i + 1}: \"{phrase}\" — {line[:120]}")
     print()
+    emit("audit_commit_devils_advocate",
+         findings=len(findings), severity="warn")
     return 1
 
 

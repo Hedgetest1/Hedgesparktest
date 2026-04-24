@@ -148,11 +148,14 @@ def name_is_imported_anywhere(
 
 
 def main(argv: list[str]) -> int:
+    from _audit_telemetry_shim import emit
+
     if not DASHBOARD_SRC.exists():
         print(
             f"audit_dashboard_dead_code: {DASHBOARD_SRC} not found — skip",
             file=sys.stderr,
         )
+        emit("audit_dashboard_dead_code", findings=0, severity="info")
         return 0
 
     all_files = [
@@ -186,6 +189,7 @@ def main(argv: list[str]) -> int:
             f"audit_dashboard_dead_code: clean — scanned "
             f"{len(all_files)} files, 0 orphan exports"
         )
+        emit("audit_dashboard_dead_code", findings=0, severity="info")
         return 0
 
     print(
@@ -200,6 +204,7 @@ def main(argv: list[str]) -> int:
     for path, name in orphans:
         print(f"  {path}  →  {name}")
     print()
+    emit("audit_dashboard_dead_code", findings=len(orphans), severity="warn")
     return 1
 
 

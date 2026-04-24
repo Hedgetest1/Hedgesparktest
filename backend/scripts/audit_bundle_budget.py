@@ -87,8 +87,11 @@ def _gather() -> dict | None:
 
 
 def main() -> int:
+    from _audit_telemetry_shim import emit
+
     if os.environ.get("SKIP_BUNDLE_BUDGET") == "1":
         print("audit_bundle_budget: SKIP_BUNDLE_BUDGET=1 — skipped")
+        emit("audit_bundle_budget", findings=0, severity="info")
         return 0
 
     metrics = _gather()
@@ -97,6 +100,7 @@ def main() -> int:
             "audit_bundle_budget: no .next build found — skipped "
             f"(run `cd {DASHBOARD} && npx next build` to produce one)"
         )
+        emit("audit_bundle_budget", findings=0, severity="info")
         return 0
 
     budget = _load_budget()
@@ -140,10 +144,12 @@ def main() -> int:
             "If the regression is intentional, update "
             f"{BUDGET_FILE.name} with a reviewed delta and the new baseline."
         )
+        emit("audit_bundle_budget", findings=len(over), severity="warn")
         return 1
 
     print()
     print("OK: all bundle budgets within cap.")
+    emit("audit_bundle_budget", findings=0, severity="info")
     return 0
 
 
