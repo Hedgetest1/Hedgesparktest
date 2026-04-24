@@ -40,6 +40,7 @@ WIRED_AUDITS: frozenset[str] = frozenset({
     "audit_email_deliverability.py",
     "audit_email_registry.py",
     "audit_empty_path_fields.py",
+    "audit_endpoint_test_coverage.py",
     "audit_exception_debug.py",
     "audit_exception_sinks.py",
     "audit_gdpr_redact_coverage.py",

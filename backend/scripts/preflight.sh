@@ -810,6 +810,27 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2k. Endpoint test coverage (audit_endpoint_test_coverage.py)
+# ---------------------------------------------------------------------------
+# Born 2026-04-25. Surfaces routes with no test-file path reference.
+# Warn-only bootstrap — 198 routes uncovered at audit birth, visible
+# as a telemetry trend via /ops/audit-telemetry. Flip to --strict once
+# the gap is closed (either by writing tests or tagging with
+# `# test-exempt: <valid-reason>`).
+step "Endpoint test coverage (audit_endpoint_test_coverage.py)"
+if "$PY" "$BACKEND/scripts/audit_endpoint_test_coverage.py" > /tmp/preflight_endpoint_test_cov.log 2>&1; then
+    total="$(grep -oP 'Total distinct routes:\s+\*\*\K\d+' /tmp/preflight_endpoint_test_cov.log || echo '?')"
+    covered="$(grep -oP 'Covered:\s+\*\*\K\d+' /tmp/preflight_endpoint_test_cov.log || echo '?')"
+    exempted="$(grep -oP 'Exempted:\s+\*\*\K\d+' /tmp/preflight_endpoint_test_cov.log || echo '?')"
+    uncovered="$(grep -oP 'Uncovered:\s+\*\*\K\d+' /tmp/preflight_endpoint_test_cov.log || echo '?')"
+    ok "endpoints: $total total, $covered covered, $exempted exempted, $uncovered uncovered"
+else
+    bad "endpoint test coverage audit error — see /tmp/preflight_endpoint_test_cov.log"
+    tail -20 /tmp/preflight_endpoint_test_cov.log || true
+    fail=1
+fi
+
+# ---------------------------------------------------------------------------
 # 3. Python AST parse check — any syntax error blocks commit
 # ---------------------------------------------------------------------------
 step "Python AST parse (staged .py files)"
