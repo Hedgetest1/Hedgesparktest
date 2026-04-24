@@ -755,6 +755,23 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2h. Tier-gates preventer (audit_tier_gates.py --preventer)
+# ---------------------------------------------------------------------------
+# Born 2026-04-25 alongside Phase 1.1 of the v1.0 launch roadmap. Warns
+# when a `Depends(require_pro_session)` call site lacks a `# tier:` tag
+# so future Pro gates can't silently creep in without product review.
+# Warn-only during bootstrap — flip to --strict once the 139 existing
+# gates have been tagged.
+step "Tier-gates preventer (audit_tier_gates.py --preventer)"
+if "$PY" "$BACKEND/scripts/audit_tier_gates.py" --preventer > /tmp/preflight_tier_gates.log 2>&1; then
+    ok "$(head -1 /tmp/preflight_tier_gates.log)"
+else
+    bad "tier-gates preventer regression — see /tmp/preflight_tier_gates.log"
+    tail -20 /tmp/preflight_tier_gates.log || true
+    fail=1
+fi
+
+# ---------------------------------------------------------------------------
 # 3. Python AST parse check — any syntax error blocks commit
 # ---------------------------------------------------------------------------
 step "Python AST parse (staged .py files)"

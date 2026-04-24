@@ -73,6 +73,7 @@ WIRED_AUDITS: frozenset[str] = frozenset({
     "audit_tenant_isolation.py",
     "audit_test_hermeticity.py",
     "audit_tier_cost_literals.py",
+    "audit_tier_gates.py",
     "audit_tier_naming_canonical.py",
     "audit_timezone.py",
 })
