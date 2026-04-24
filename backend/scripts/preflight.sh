@@ -740,6 +740,21 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2g. Audit telemetry coverage regression pin (audit_audit_telemetry_coverage.py)
+# ---------------------------------------------------------------------------
+# Born 2026-04-24 alongside the /ops/audit-telemetry rollup. Ensures
+# every audit listed in WIRED_AUDITS still imports _audit_telemetry_shim
+# so the rollup doesn't silently go stale after a refactor.
+step "Audit telemetry coverage (audit_audit_telemetry_coverage.py)"
+if "$PY" "$BACKEND/scripts/audit_audit_telemetry_coverage.py" > /tmp/preflight_audit_telemetry.log 2>&1; then
+    ok "$(tail -1 /tmp/preflight_audit_telemetry.log)"
+else
+    bad "audit telemetry coverage regression — see /tmp/preflight_audit_telemetry.log"
+    tail -20 /tmp/preflight_audit_telemetry.log || true
+    fail=1
+fi
+
+# ---------------------------------------------------------------------------
 # 3. Python AST parse check — any syntax error blocks commit
 # ---------------------------------------------------------------------------
 step "Python AST parse (staged .py files)"
