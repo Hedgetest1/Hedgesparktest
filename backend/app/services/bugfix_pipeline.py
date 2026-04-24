@@ -3176,19 +3176,39 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
     # skips to save budget (low-risk by definition). Feature-flagged
     # via ADVERSARIAL_REVIEWER_ENABLED (default off, pipeline paused
     # pre-merchant).
+    adversarial_findings: list = []
     if tier != PATCH_TIER_0:
         try:
             from app.services.adversarial_reviewer import review_with_3_lenses
-            findings = review_with_3_lenses(db, candidate)
-            if findings:
-                max_sev = max(f.severity for f in findings)
+            adversarial_findings = review_with_3_lenses(db, candidate)
+            if adversarial_findings:
+                max_sev = max(f.severity for f in adversarial_findings)
                 log.info(
                     "bugfix_pipeline: adversarial review candidate=%d "
                     "findings=%d max_severity=%d",
-                    candidate.id, len(findings), max_sev,
+                    candidate.id, len(adversarial_findings), max_sev,
                 )
         except Exception as exc:
             log.warning("bugfix_pipeline: adversarial review failed (non-fatal): %s", exc)
+
+    # Sprint C (2026-04-25) — iterative fix loop. If any adversarial
+    # lens flagged severity >= 7, schedule a follow-up iteration
+    # candidate that will be picked up by next bug_triage cycle with
+    # augmented context (parent diff + DA concerns). Max depth 3;
+    # beyond that escalates to human via ops_alert. Feature-flagged
+    # ITERATIVE_FIX_ENABLED (default off).
+    if adversarial_findings:
+        try:
+            from app.services.iterative_fix import maybe_schedule_iteration
+            iteration = maybe_schedule_iteration(db, candidate, adversarial_findings)
+            if iteration is not None:
+                log.info(
+                    "bugfix_pipeline: scheduled iteration candidate=%d "
+                    "(iter=%d) from parent=%d",
+                    iteration.id, iteration.iteration_num, candidate.id,
+                )
+        except Exception as exc:
+            log.warning("bugfix_pipeline: iterative_fix failed (non-fatal): %s", exc)
 
     log.info("bugfix_pipeline: patch proposed id=%d title=%s", candidate.id, candidate.title)
     return True

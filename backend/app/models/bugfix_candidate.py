@@ -103,10 +103,19 @@ class BugFixCandidate(Base):
         nullable=True,
     )
 
+    # Sprint C (2026-04-25) — iterative fix loop post-DA. 1 for original
+    # candidates, 2+ for iterations spawned when adversarial_reviewer
+    # flags severity >= 7 on any lens. Capped at ITERATIVE_FIX_MAX_DEPTH
+    # (default 3) in iterative_fix.py.
+    iteration_num = Column(
+        Integer, nullable=False, default=1, server_default="1",
+    )
+
     __table_args__ = (
         Index("ix_bugfix_candidates_status", "status", "created_at"),
         Index("ix_bugfix_candidates_source", "source_type", "source_ref"),
         Index("ix_bugfix_candidates_domain", "affected_domain", "outcome_status"),
         Index("ix_bugfix_candidates_outcome", "outcome_status", "outcome_measured_at"),
         Index("ix_bugfix_candidates_parent", "parent_candidate_id"),
+        Index("ix_bugfix_candidates_iteration", "parent_candidate_id", "iteration_num"),
     )
