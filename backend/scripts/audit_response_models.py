@@ -35,6 +35,7 @@ import ast
 import pathlib
 import sys
 from collections import Counter, defaultdict
+from _audit_telemetry_shim import telemetered
 
 APP_ROOT = pathlib.Path(__file__).resolve().parent.parent / "app"
 API_ROOT = APP_ROOT / "api"
@@ -222,6 +223,7 @@ def count_total_routes() -> tuple[int, int]:
 _TARGET_PREFIXES = ("/pro/", "/merchant/", "/analytics/")
 
 
+@telemetered("audit_response_models")
 def main() -> int:
     findings = walk()
     by_file = defaultdict(list)

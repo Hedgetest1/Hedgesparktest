@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from _audit_telemetry_shim import telemetered
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DASHBOARD_SRC = REPO_ROOT / "dashboard" / "src"
@@ -64,6 +65,7 @@ def scan_file(path: Path) -> list[tuple[int, str]]:
     return findings
 
 
+@telemetered("audit_dashboard_api_base_env")
 def main(argv: list[str]) -> int:
     if not DASHBOARD_SRC.exists():
         print(

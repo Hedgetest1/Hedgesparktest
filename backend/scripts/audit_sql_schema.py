@@ -25,6 +25,7 @@ import pathlib
 import re
 import sys
 from collections import defaultdict
+from _audit_telemetry_shim import telemetered
 
 sys.path.insert(0, "/opt/wishspark/backend")
 
@@ -185,6 +186,7 @@ def find_column_references(sql: str, known_tables: dict[str, set[str]]) -> set[t
     return out
 
 
+@telemetered("audit_sql_schema")
 def main() -> int:
     schema = load_schema()
     print(f"loaded {len(schema)} tables from schema\n")

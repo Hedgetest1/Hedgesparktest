@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import os
 import sys
+from _audit_telemetry_shim import telemetered
 
 
 _DEV_LEAK_ENV_VARS: list[tuple[str, callable, str]] = [
@@ -135,6 +136,7 @@ def scan_env() -> list[tuple[str, str, str]]:
     return hits
 
 
+@telemetered("audit_dev_flag_leaks")
 def main(argv: list[str]) -> int:
     strict = "--strict" in argv
     prod_context = _looks_like_production()

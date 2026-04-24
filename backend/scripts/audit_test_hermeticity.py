@@ -38,6 +38,7 @@ import ast
 import pathlib
 import sys
 from dataclasses import dataclass
+from _audit_telemetry_shim import telemetered
 
 TESTS_DIR = pathlib.Path("/opt/wishspark/backend/tests")
 
@@ -199,6 +200,7 @@ def scan_file(path: pathlib.Path) -> list[Suspicion]:
     return out
 
 
+@telemetered("audit_test_hermeticity")
 def main() -> int:
     findings: list[Suspicion] = []
     for f in sorted(TESTS_DIR.glob("test_*.py")):

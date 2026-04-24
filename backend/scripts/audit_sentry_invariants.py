@@ -34,6 +34,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from _audit_telemetry_shim import telemetered
 
 ROOT = Path(__file__).resolve().parents[2]
 BACKEND = ROOT / "backend"
@@ -334,6 +335,7 @@ def _check_integration_baselines(failures: list[str]) -> None:
         )
 
 
+@telemetered("audit_sentry_invariants")
 def main(argv: list[str] | None = None) -> int:
     failures: list[str] = []
     _check_sentry_init_module(failures)

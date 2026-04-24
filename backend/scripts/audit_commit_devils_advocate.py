@@ -40,6 +40,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from _audit_telemetry_shim import emit, telemetered
 
 # A line qualifies as a devil's-advocate HEADER only when, after
 # stripping optional leading markdown `#`s and whitespace, the line
@@ -157,8 +158,8 @@ def check_section(section: list[str]) -> list[tuple[int, str, str]]:
     return findings
 
 
+@telemetered("audit_commit_devils_advocate")
 def main(argv: list[str]) -> int:
-    from _audit_telemetry_shim import emit
 
     if len(argv) < 1:
         print(

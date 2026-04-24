@@ -32,6 +32,7 @@ import ast
 import pathlib
 import sys
 from collections import defaultdict
+from _audit_telemetry_shim import telemetered
 
 APP_ROOT = pathlib.Path("/opt/wishspark/backend/app")
 SKIP_DIRS = {"__pycache__", ".pytest_cache"}
@@ -342,6 +343,7 @@ def audit_file(path: pathlib.Path) -> list[Finding]:
 CRITICAL_KINDS = ("write_no_rollback", "lying_return")
 
 
+@telemetered("audit_exception_sinks")
 def main(argv: list[str] | None = None) -> int:
     """Exit codes:
       * 0 — no findings at the requested severity

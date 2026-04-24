@@ -36,6 +36,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from _audit_telemetry_shim import telemetered
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 BACKEND_ROOT = REPO_ROOT / "backend"
@@ -346,6 +347,7 @@ def check_personality(files: list[Path]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+@telemetered("audit_merchant_voice_coherence")
 def main() -> int:
     pricing_files = _iter_files(PRICING_SCAN_ROOTS)
     spark_files = _iter_files(SPARK_SURFACE_ROOTS) + [

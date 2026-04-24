@@ -27,6 +27,7 @@ import ast
 import pathlib
 import sys
 from collections import defaultdict
+from _audit_telemetry_shim import telemetered
 
 APP_ROOT = pathlib.Path("/opt/wishspark/backend/app")
 SKIP_DIRS = {"__pycache__", ".pytest_cache"}
@@ -121,6 +122,7 @@ def audit_file(path: pathlib.Path) -> list[Finding]:
     return out
 
 
+@telemetered("audit_timezone")
 def main() -> int:
     by_kind: dict[str, list[Finding]] = defaultdict(list)
     for py in APP_ROOT.rglob("*.py"):

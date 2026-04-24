@@ -16,6 +16,7 @@ import re
 import sys
 from collections import defaultdict
 from typing import Iterator
+from _audit_telemetry_shim import telemetered
 
 sys.path.insert(0, "/opt/wishspark/backend")
 from sqlalchemy import inspect
@@ -201,6 +202,7 @@ def find_aliased_column_refs(sql: str, schema: dict[str, set[str]]) -> list[tupl
     return issues
 
 
+@telemetered("audit_sql_columns")
 def main() -> int:
     schema = load_schema()
     findings: list[tuple[str, int, str, str, str]] = []

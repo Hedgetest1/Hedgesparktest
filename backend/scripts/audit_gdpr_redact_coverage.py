@@ -38,6 +38,7 @@ from __future__ import annotations
 import pathlib
 import re
 import sys
+from _audit_telemetry_shim import telemetered
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 GDPR_PROCESSOR = REPO_ROOT / "app" / "services" / "gdpr_processor.py"
@@ -140,6 +141,7 @@ def _extract_db_tables_with_shop_domain() -> set[str]:
     return all_shop_tables - partition_children
 
 
+@telemetered("audit_gdpr_redact_coverage")
 def main(argv: list[str]) -> int:
     strict = "--strict" in argv
 

@@ -29,6 +29,7 @@ import ast
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from _audit_telemetry_shim import telemetered
 
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -163,6 +164,7 @@ def _scan_file(path: Path) -> list[Finding]:
     return findings
 
 
+@telemetered("audit_empty_path_fields")
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--strict", action="store_true",

@@ -26,6 +26,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from _audit_telemetry_shim import telemetered
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 REPO_ROOT = BACKEND_ROOT.parent
@@ -79,6 +80,7 @@ def _extract_ecosystem_names(js_text: str) -> dict[str, int]:
     return out
 
 
+@telemetered("audit_claude_md_pm2_map")
 def main(argv: list[str]) -> int:
     warn_only = "--warn-only" in argv
 

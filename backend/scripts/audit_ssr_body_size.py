@@ -43,6 +43,7 @@ from __future__ import annotations
 import pathlib
 import re
 import sys
+from _audit_telemetry_shim import telemetered
 
 SERVER_APP = pathlib.Path("/opt/wishspark/dashboard/.next/server/app")
 
@@ -63,6 +64,7 @@ def _body_size(html: str) -> int | None:
     return len(m.group(1))
 
 
+@telemetered("audit_ssr_body_size")
 def main() -> int:
     args = sys.argv[1:]
     detail = "--detail" in args

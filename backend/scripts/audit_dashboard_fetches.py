@@ -37,6 +37,7 @@ import pathlib
 import re
 import sys
 from collections import Counter, defaultdict
+from _audit_telemetry_shim import telemetered
 
 DASHBOARD_ROOT = pathlib.Path("/opt/wishspark/dashboard/src/app")
 SKIP_FILES = {"api-client.ts", "api-types.ts"}
@@ -114,6 +115,7 @@ def walk() -> list[Finding]:
     return findings
 
 
+@telemetered("audit_dashboard_fetches")
 def main() -> int:
     findings = walk()
     by_file = defaultdict(list)

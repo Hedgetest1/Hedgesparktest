@@ -23,6 +23,7 @@ import pathlib
 import re
 import sys
 from collections import defaultdict
+from _audit_telemetry_shim import telemetered
 
 sys.path.insert(0, "/opt/wishspark/backend")
 
@@ -118,6 +119,7 @@ def _any_file_contains_all(haystack_files: list[pathlib.Path], needles: list[str
     return False
 
 
+@telemetered("audit_dead_endpoints")
 def main() -> int:
     routes = _collect_routes()
     print(f"Scanning {len(routes)} (method, path) pairs…\n")

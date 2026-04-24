@@ -43,6 +43,7 @@ from __future__ import annotations
 import ast
 import pathlib
 import sys
+from _audit_telemetry_shim import telemetered
 
 BACKEND_ROOT = pathlib.Path(__file__).resolve().parent.parent
 APP_ROOT = BACKEND_ROOT / "app"
@@ -116,6 +117,7 @@ def _find_bad_imports(allowed: set[str]) -> list[tuple[pathlib.Path, int, str]]:
     return bad
 
 
+@telemetered("audit_redis_client_imports")
 def main() -> int:
     strict = "--strict" in sys.argv
     allowed = _allowed_names()

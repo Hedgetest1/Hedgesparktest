@@ -44,6 +44,7 @@ import json
 import os
 import pathlib
 import sys
+from _audit_telemetry_shim import emit, telemetered
 
 DASHBOARD = pathlib.Path("/opt/wishspark/dashboard")
 BUDGET_FILE = DASHBOARD / "bundle-budget.json"
@@ -86,8 +87,8 @@ def _gather() -> dict | None:
     }
 
 
+@telemetered("audit_bundle_budget")
 def main() -> int:
-    from _audit_telemetry_shim import emit
 
     if os.environ.get("SKIP_BUNDLE_BUDGET") == "1":
         print("audit_bundle_budget: SKIP_BUNDLE_BUDGET=1 — skipped")

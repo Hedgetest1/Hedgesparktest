@@ -37,6 +37,7 @@ import os
 import re
 import subprocess
 import sys
+from _audit_telemetry_shim import telemetered
 
 # Allow `from app.services.email_deliverability import ...` when run
 # standalone from the backend/ directory.
@@ -129,6 +130,7 @@ def _check_published_dkim_strict() -> tuple[bool, str]:
     return True, ""
 
 
+@telemetered("audit_email_deliverability")
 def main() -> int:
     try:
         # Delay import so --help works without app deps loaded.

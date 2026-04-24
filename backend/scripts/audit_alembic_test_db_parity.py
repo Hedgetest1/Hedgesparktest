@@ -52,6 +52,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from _audit_telemetry_shim import telemetered
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 VERSIONS_DIR = REPO_ROOT / "migrations" / "versions"
@@ -143,6 +144,7 @@ def _resolve_head_via_alembic() -> str | None:
         return None
 
 
+@telemetered("audit_alembic_test_db_parity")
 def main() -> int:
     strict = "--strict" in sys.argv
 

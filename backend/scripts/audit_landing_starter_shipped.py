@@ -41,6 +41,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from _audit_telemetry_shim import telemetered
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 LANDING_PATH = REPO_ROOT / "dashboard" / "src" / "app" / "page.tsx"
@@ -131,6 +132,7 @@ def bullet_is_wired(bullet: str, dashboard_blob: str) -> tuple[bool, str]:
     return False, f"mapping for '{matching_keys[0]}' does not match dashboard"
 
 
+@telemetered("audit_landing_starter_shipped")
 def main(argv: list[str]) -> int:
     if not LANDING_PATH.exists():
         print(

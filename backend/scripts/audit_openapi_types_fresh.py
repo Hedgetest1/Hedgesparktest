@@ -37,6 +37,7 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+from _audit_telemetry_shim import telemetered
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 TYPES_PATH = REPO_ROOT / "dashboard" / "src" / "app" / "lib" / "api-types.ts"
@@ -97,6 +98,7 @@ def extract_types_paths(types_text: str) -> set[str]:
     return set(m.group(1) for m in pattern.finditer(types_text))
 
 
+@telemetered("audit_openapi_types_fresh")
 def main(argv: list[str]) -> int:
     openapi_paths, skip_reason = fetch_openapi_paths()
     if openapi_paths is None:

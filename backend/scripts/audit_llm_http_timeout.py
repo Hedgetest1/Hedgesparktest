@@ -33,6 +33,7 @@ from __future__ import annotations
 import ast
 import sys
 from pathlib import Path
+from _audit_telemetry_shim import telemetered
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SERVICES_DIR = REPO_ROOT / "app" / "services"
@@ -116,6 +117,7 @@ def _scan_file(path: Path) -> list[tuple[int, str]]:
     return findings
 
 
+@telemetered("audit_llm_http_timeout")
 def main() -> int:
     strict = "--strict" in sys.argv
     violations: list[tuple[Path, int, str]] = []

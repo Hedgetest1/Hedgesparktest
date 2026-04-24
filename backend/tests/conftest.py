@@ -17,6 +17,13 @@ import time
 # Ensure backend is importable
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Ensure backend/scripts is importable — audit scripts now import the
+# `_audit_telemetry_shim` shim at module level, and tests load audits
+# via `importlib.util.spec_from_file_location`, which does NOT add the
+# script's directory to sys.path. Add it once here so every test that
+# loads an audit can resolve the shim.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
+
 # Set env vars BEFORE any app imports (modules read env at import time)
 os.environ["APP_ENV"] = "test"
 os.environ.pop("NOTIFICATIONS_ALLOW_REAL", None)

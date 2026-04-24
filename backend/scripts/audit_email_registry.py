@@ -42,6 +42,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from _audit_telemetry_shim import telemetered
 
 # Allow `from app.services... import ...` when invoked from backend/
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -134,6 +135,7 @@ def _extract_email_local(from_address: str) -> str:
     return m.group(1) if m else from_address.strip()
 
 
+@telemetered("audit_email_registry")
 def main() -> int:
     try:
         from app.services.email_governance import (

@@ -28,6 +28,7 @@ import pathlib
 import re
 import sys
 from collections import defaultdict
+from _audit_telemetry_shim import telemetered
 
 sys.path.insert(0, "/opt/wishspark/backend")
 from sqlalchemy import inspect
@@ -222,6 +223,7 @@ def path_is_allowlisted(py_path: pathlib.Path) -> bool:
     return any(suffix.endswith(w) or suffix == w for w in ALLOWLIST)
 
 
+@telemetered("audit_tenant_isolation")
 def main() -> int:
     tenant_tables = load_multi_tenant_tables()
     print(f"loaded {len(tenant_tables)} multi-tenant tables from schema\n")

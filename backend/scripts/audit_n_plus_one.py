@@ -22,6 +22,7 @@ import ast
 import pathlib
 import sys
 from collections import defaultdict
+from _audit_telemetry_shim import telemetered
 
 APP_ROOT = pathlib.Path("/opt/wishspark/backend/app")
 SKIP_DIRS = {"__pycache__", ".pytest_cache"}
@@ -193,6 +194,7 @@ def audit_file(path: pathlib.Path) -> list[Finding]:
     return findings
 
 
+@telemetered("audit_n_plus_one")
 def main() -> int:
     all_findings: list[Finding] = []
     for py in APP_ROOT.rglob("*.py"):

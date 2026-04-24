@@ -29,6 +29,7 @@ import ast
 import re
 import sys
 from pathlib import Path
+from _audit_telemetry_shim import telemetered
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 REPO_ROOT = BACKEND_ROOT.parent
@@ -164,6 +165,7 @@ def _extract_code_prefixes(app_root: Path) -> dict[str, list[tuple[str, int]]]:
     return found
 
 
+@telemetered("audit_claude_md_redis_keys")
 def main(argv: list[str]) -> int:
     warn_only = "--warn-only" in argv
 

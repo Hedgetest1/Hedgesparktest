@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import sys
 from dataclasses import dataclass
+from _audit_telemetry_shim import telemetered
 
 
 # Measured empirically via `redis-cli memory usage` on prod (2026-04-18):
@@ -129,6 +130,7 @@ def format_bytes(n: float) -> str:
     return f"{n:.0f} B"
 
 
+@telemetered("audit_redis_footprint")
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--merchants", type=int, default=10_000,

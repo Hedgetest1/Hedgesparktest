@@ -38,6 +38,7 @@ import ast
 import os
 import sys
 from pathlib import Path
+from _audit_telemetry_shim import telemetered
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 APP_ROOT = BACKEND_ROOT / "app"
@@ -167,6 +168,7 @@ def scan_file(path: Path) -> list[tuple[str, int, str, str]]:
     return [(rel, ln, key, default) for (ln, key, default) in v.findings]
 
 
+@telemetered("audit_stale_doctrine_defaults")
 def main(argv: list[str]) -> int:
     warn_only = "--warn-only" in argv
 

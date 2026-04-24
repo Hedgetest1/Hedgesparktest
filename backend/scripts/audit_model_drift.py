@@ -22,6 +22,7 @@ from __future__ import annotations
 import importlib
 import pathlib
 import sys
+from _audit_telemetry_shim import telemetered
 
 sys.path.insert(0, "/opt/wishspark/backend")
 
@@ -111,6 +112,7 @@ def _drift_age_hint(table_name: str) -> str | None:
     return None
 
 
+@telemetered("audit_model_drift")
 def main() -> int:
     insp = inspect(engine)
     db_tables = set(insp.get_table_names())

@@ -56,6 +56,7 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 from typing import List, Tuple
+from _audit_telemetry_shim import telemetered
 
 DASHBOARD_HOST = os.environ.get("DASHBOARD_HOST", "http://127.0.0.1:3000")
 DASHBOARD_DIR = Path(os.environ.get("DASHBOARD_DIR", "/opt/wishspark/dashboard"))
@@ -172,6 +173,7 @@ def _probe_assets() -> List[str]:
     return failures
 
 
+@telemetered("audit_dashboard_live")
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--strict", action="store_true",

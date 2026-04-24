@@ -33,6 +33,7 @@ import ast
 import pathlib
 import sys
 from collections import Counter, defaultdict
+from _audit_telemetry_shim import telemetered
 
 APP_ROOT = pathlib.Path(__file__).resolve().parent.parent / "app"
 SCAN_DIRS = [APP_ROOT / "api", APP_ROOT / "models"]
@@ -208,6 +209,7 @@ def walk(scan_all: bool = False) -> list[Finding]:
     return findings
 
 
+@telemetered("audit_input_bounds")
 def main() -> int:
     scan_all = "--all" in sys.argv
     findings = walk(scan_all=scan_all)

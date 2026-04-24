@@ -42,6 +42,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from _audit_telemetry_shim import emit, telemetered
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DASHBOARD_SRC = REPO_ROOT / "dashboard" / "src"
@@ -147,8 +148,8 @@ def name_is_imported_anywhere(
     return False
 
 
+@telemetered("audit_dashboard_dead_code")
 def main(argv: list[str]) -> int:
-    from _audit_telemetry_shim import emit
 
     if not DASHBOARD_SRC.exists():
         print(

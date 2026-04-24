@@ -38,6 +38,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+from _audit_telemetry_shim import telemetered
 
 REPO = Path(__file__).resolve().parents[2]
 BACKEND = REPO / "backend"
@@ -363,6 +364,7 @@ INVARIANTS: list[Invariant] = [
 ]
 
 
+@telemetered("audit_session_durability_invariants")
 def main() -> int:
     failures: list[str] = []
     print("session-durability invariants audit (AST + comment-stripped regex)")

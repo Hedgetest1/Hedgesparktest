@@ -45,6 +45,7 @@ import ast
 import pathlib
 import sys
 from collections import Counter, defaultdict
+from _audit_telemetry_shim import telemetered
 
 APP_ROOT = pathlib.Path(__file__).resolve().parent.parent / "app"
 SKIP_DIRS = {"__pycache__", ".pytest_cache"}
@@ -233,6 +234,7 @@ def walk_app() -> list[Finding]:
     return findings
 
 
+@telemetered("audit_silent_returns")
 def main() -> int:
     strict = "--strict" in sys.argv
     findings = walk_app()

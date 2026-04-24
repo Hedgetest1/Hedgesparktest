@@ -39,6 +39,7 @@ import ast
 import re
 import sys
 from pathlib import Path
+from _audit_telemetry_shim import telemetered
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 APP_ROOT = BACKEND_ROOT / "app"
@@ -196,6 +197,7 @@ def scan_file(path: Path) -> list[tuple[str, int, str, str]]:
     return [(rel, lineno, name, lit) for (lineno, name, lit) in v.findings]
 
 
+@telemetered("audit_tier_cost_literals")
 def main(argv: list[str]) -> int:
     findings: list[tuple[str, int, str, str]] = []
     for root in SCAN_ROOTS:

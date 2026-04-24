@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from _audit_telemetry_shim import telemetered
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 LANDING_PATH = REPO_ROOT / "dashboard" / "src" / "app" / "page.tsx"
@@ -84,6 +85,7 @@ _REQUIRED: list[tuple[Path, str, str]] = [
 ]
 
 
+@telemetered("audit_tier_naming_canonical")
 def main(argv: list[str]) -> int:
     strict = "--strict" in argv
 

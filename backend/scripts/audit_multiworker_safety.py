@@ -43,6 +43,7 @@ import ast
 import pathlib
 import re
 import sys
+from _audit_telemetry_shim import telemetered
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1] / "app"
@@ -233,6 +234,7 @@ def _scan_file(py: pathlib.Path) -> list[tuple[int, str, str]]:
     return hits
 
 
+@telemetered("audit_multiworker_safety")
 def main() -> int:
     strict = "--strict" in sys.argv
     all_hits: list[tuple[pathlib.Path, int, str, str]] = []

@@ -26,6 +26,7 @@ import re
 import sys
 from dataclasses import dataclass, asdict
 from pathlib import Path
+from _audit_telemetry_shim import telemetered
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 APP_DIR = BACKEND_DIR / "app"
@@ -736,6 +737,7 @@ ALL_CHECKS = [
 ]
 
 
+@telemetered("audit_data_truth")
 def main():
     use_json = "--json" in sys.argv
     strict = "--strict" in sys.argv

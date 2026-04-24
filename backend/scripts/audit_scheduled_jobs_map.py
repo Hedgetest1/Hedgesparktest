@@ -26,6 +26,7 @@ import ast
 import re
 import sys
 from pathlib import Path
+from _audit_telemetry_shim import telemetered
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 REPO_ROOT = BACKEND_ROOT.parent
@@ -156,6 +157,7 @@ def _extract_documented_task_modules(md_text: str) -> set[str]:
     return set(re.findall(r"\b([a-z][a-z0-9_]*_task)\b", md_text))
 
 
+@telemetered("audit_scheduled_jobs_map")
 def main(argv: list[str]) -> int:
     warn_only = "--warn-only" in argv
     verify_doclines = "--verify-doclines" in argv

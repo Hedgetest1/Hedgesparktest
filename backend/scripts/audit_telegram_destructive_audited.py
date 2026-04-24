@@ -56,6 +56,7 @@ import pathlib
 import re
 import sys
 from dataclasses import dataclass
+from _audit_telemetry_shim import telemetered
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 APP_ROOT = REPO_ROOT / "app"
@@ -211,6 +212,7 @@ def scan_file(path: pathlib.Path) -> list[Finding]:
     return findings
 
 
+@telemetered("audit_telegram_destructive_audited")
 def main(argv: list[str]) -> int:
     strict = "--strict" in argv
     all_findings: list[Finding] = []

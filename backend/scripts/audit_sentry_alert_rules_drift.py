@@ -23,6 +23,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from _audit_telemetry_shim import telemetered
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -35,6 +36,7 @@ from app.services.sentry_alert_rules import (
 )
 
 
+@telemetered("audit_sentry_alert_rules_drift")
 def main(argv: list[str] | None = None) -> int:
     if not _RULES_YAML.is_file():
         print(f"❌ Sentry alert rules YAML missing: {_RULES_YAML}")
