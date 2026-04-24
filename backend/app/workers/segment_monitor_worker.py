@@ -85,6 +85,12 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.append("/opt/wishspark/backend")
 
+from app.core.env_bootstrap import load_env
+load_env()
+
+from app.core.sentry_init import init_sentry, cron_monitor
+init_sentry(component="segment_monitor_worker")
+
 from app.core.logging_config import configure_logging, set_worker_context
 configure_logging()
 set_worker_context(worker_name="segment_monitor_worker")
@@ -454,6 +460,7 @@ def _process_product(
 # Main cycle
 # ---------------------------------------------------------------------------
 
+@cron_monitor(slug="segment_monitor_worker_cycle", interval_minutes=5, max_runtime_minutes=9)
 def run_cycle() -> None:
     started_at = datetime.now(timezone.utc).replace(tzinfo=None)
 

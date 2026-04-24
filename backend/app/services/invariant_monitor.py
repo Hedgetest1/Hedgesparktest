@@ -86,6 +86,17 @@ _AUDITS: list[tuple[str, str, str]] = [
         "invariant_regression",
         "invariant:exception_sinks",
     ),
+    # Sentry invariants: added 2026-04-24 after the C1..C4 sweep
+    # centralized init_sentry + wired all 7 PM2 processes + PII scrub +
+    # dashboard SDK. Runtime recognition for the class of regression
+    # where someone deletes the sentry_init module, removes init_sentry
+    # from a worker, or drops the Sentry CSP allowlist entry — fires
+    # within 15min instead of silently losing observability coverage.
+    (
+        "audit_sentry_invariants.py",
+        "invariant_regression",
+        "invariant:sentry_invariants",
+    ),
 ]
 
 _TIMEOUT_SECONDS = 30

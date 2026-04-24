@@ -282,7 +282,8 @@ def sentry_span(op: str, description: str, **data):
     """
     try:
         import sentry_sdk
-        return sentry_sdk.start_span(op=op, description=description, **{"data": data} if data else {})
+        # `name` replaces the deprecated `description` kwarg in sentry-sdk v3.
+        return sentry_sdk.start_span(op=op, name=description, **{"data": data} if data else {})
     except Exception:
         # No-op CM that mimics the .set_data() interface so callers don't
         # need to guard for missing Sentry.

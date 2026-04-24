@@ -165,6 +165,20 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2f-ter. Sentry invariants audit (Tier 2.2.c). Pins the C1..C4 contract
+# shipped 2026-04-24: centralized init module, 7-process coverage
+# (backend + 6 workers), PII scrub, Team-plan quota gate, dashboard SDK
+# files, CSP allowlist. Rebuild the Sentry hardening if this breaks.
+# ---------------------------------------------------------------------------
+step "Sentry invariants audit (audit_sentry_invariants.py)"
+if "$BACKEND/venv/bin/python" "$BACKEND/scripts/audit_sentry_invariants.py" > /tmp/preflight_sentry.log 2>&1; then
+    ok "Sentry init + workers + PII + dashboard + CSP invariants intact"
+else
+    bad "Sentry invariants violated — see /tmp/preflight_sentry.log"
+    tail -30 /tmp/preflight_sentry.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2g. Input-bounds audit (Tier 2.3). Every Pydantic request model field
 # of type str / list / dict must declare an upper bound (max_length,
 # max_items, or pattern=). OWASP A03/A04 — no unbounded user input
