@@ -72,8 +72,9 @@ _DA_HEADERS = re.compile(
 # tag, the phrase is treated as a silent deferral.
 _RED_FLAGS = [
     re.compile(r"\bacceptab(?:le|ility)\b", re.IGNORECASE),
-    re.compile(r"\baccept(?:ed|ing)?\s+(?:for|per)?\s*beta\b", re.IGNORECASE),
-    re.compile(r"\baccettabile\b", re.IGNORECASE),
+    re.compile(r"\baccept(?:ed|ing|able)?\s+(?:for|per)?\s*beta\b", re.IGNORECASE),
+    re.compile(r"\baccettab(?:ile|ilita)\b", re.IGNORECASE),
+    re.compile(r"\baccettat[oa]\b", re.IGNORECASE),  # "accettato/a" — missed 2026-04-25
     re.compile(r"\btolerab(?:le|ility)\b", re.IGNORECASE),
     re.compile(r"\bOK\s+for\s+now\b", re.IGNORECASE),
     re.compile(r"\bper\s+(?:ora|adesso)\s+va\s+bene\b", re.IGNORECASE),
@@ -84,6 +85,13 @@ _RED_FLAGS = [
     re.compile(r"\bfine\s+for\s+(?:beta|now)\b", re.IGNORECASE),
     re.compile(r"\bwill\s+revisit\b", re.IGNORECASE),
     re.compile(r"\bfollow-?up\s+commit\b", re.IGNORECASE),
+    # Added 2026-04-25 after founder caught these 5 silent-defer
+    # phrases that slipped through earlier this session:
+    re.compile(r"\bdiminishing\s+returns?\b", re.IGNORECASE),
+    re.compile(r"\bbootstrap\s+(?:level|fidelity|acceptable|mode)\b", re.IGNORECASE),
+    re.compile(r"\bcat-?a\s+follow-?up\b", re.IGNORECASE),
+    re.compile(r"\bproduct-?maturity\b", re.IGNORECASE),
+    re.compile(r"\bedge\s+case,?\s+accept(?:ed|ing|able)?\b", re.IGNORECASE),
 ]
 
 # Explicit category tags that legitimize a deferral. A red flag paired

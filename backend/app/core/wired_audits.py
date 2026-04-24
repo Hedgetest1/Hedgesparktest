@@ -74,6 +74,7 @@ WIRED_AUDITS: frozenset[str] = frozenset({
     "audit_stale_doctrine_defaults.py",
     "audit_telegram_destructive_audited.py",
     "audit_tenant_isolation.py",
+    "audit_test_flake_detection.py",
     "audit_test_hermeticity.py",
     "audit_tier_cost_literals.py",
     "audit_tier_gates.py",

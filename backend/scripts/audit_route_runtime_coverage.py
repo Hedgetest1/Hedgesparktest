@@ -167,16 +167,34 @@ def _load_coverage(cov_path: pathlib.Path) -> dict[str, set[int]] | None:
 def _parse_args(argv: list[str]) -> dict:
     cov_file = DEFAULT_COV_PATH
     strict = False
+    strict_body = False
     as_json = False
+    min_body_lines = 1
     it = iter(argv)
     for a in it:
         if a == "--cov-file":
             cov_file = pathlib.Path(next(it))
         elif a == "--strict":
             strict = True
+        elif a == "--strict-body":
+            # Closes the "early-return dead code" edge case: require
+            # ≥2 body lines executed so a handler with `return {}` on
+            # the first body line followed by unreachable code doesn't
+            # falsely count as covered. Born 2026-04-25 after founder
+            # caught the silent defer in commit 5bab987.
+            strict_body = True
+            min_body_lines = 2
+        elif a == "--min-body-lines":
+            min_body_lines = int(next(it))
         elif a == "--json":
             as_json = True
-    return {"cov_file": cov_file, "strict": strict, "json": as_json}
+    return {
+        "cov_file": cov_file,
+        "strict": strict,
+        "strict_body": strict_body,
+        "as_json": as_json,
+        "min_body_lines": min_body_lines,
+    }
 
 
 @telemetered("audit_route_runtime_coverage")
@@ -190,7 +208,7 @@ def main(argv: list[str]) -> int:
                f"run `pytest --cov=app.api --cov-report=json:{args['cov_file']}` "
                "first. This audit is informational (exits 0) when no coverage "
                "data is available.")
-        if args["json"]:
+        if args["as_json"]:
             print(json.dumps({
                 "error": "no_coverage_data",
                 "path": str(args["cov_file"]),
@@ -204,38 +222,59 @@ def main(argv: list[str]) -> int:
     uncovered: list[HandlerRecord] = []
     no_cov_data: list[HandlerRecord] = []
 
+    min_body = args["min_body_lines"]
+    partial_covered: list[HandlerRecord] = []
     for h in handlers:
         executed = cov_map.get(h.file_abs)
         if executed is None:
             no_cov_data.append(h)
             continue
-        # Exclude def + decorator lines (they run at import even when
-        # nothing calls the handler). Use body lines (start+1..end).
         body_lines = set(range(h.start_line + 1, h.end_line + 1))
-        if body_lines & executed:
+        hit = body_lines & executed
+        if len(hit) >= min_body:
             covered.append(h)
+        elif len(hit) >= 1:
+            # Body was entered (e.g., first line return) but fewer than
+            # `min_body` lines executed. Under --strict-body this is
+            # classified as partial/suspicious; under default mode it
+            # still counts as covered.
+            if args["strict_body"]:
+                partial_covered.append(h)
+            else:
+                covered.append(h)
         else:
             uncovered.append(h)
 
     payload = {
         "handlers_scanned": len(handlers),
         "runtime_covered": len(covered),
+        "partial_covered": len(partial_covered),
         "runtime_uncovered": len(uncovered),
         "no_coverage_data": len(no_cov_data),
+        "min_body_lines": min_body,
         "uncovered_list": [
             {"method": h.method, "path": h.path,
              "file": h.file, "line": h.start_line}
             for h in sorted(uncovered, key=lambda x: (x.path, x.method))
         ],
+        "partial_list": [
+            {"method": h.method, "path": h.path,
+             "file": h.file, "line": h.start_line}
+            for h in sorted(partial_covered, key=lambda x: (x.path, x.method))
+        ],
     }
 
-    if args["json"]:
+    gate_failed = args["strict"] and (uncovered or (args["strict_body"] and partial_covered))
+
+    if args["as_json"]:
         print(json.dumps(payload, indent=2))
-        return 1 if args["strict"] and uncovered else 0
+        return 1 if gate_failed else 0
 
     print("# Route runtime coverage\n")
     print(f"Handlers scanned:          **{len(handlers)}**")
     print(f"Runtime-covered:           **{len(covered)}**")
+    if partial_covered:
+        print(f"Partial (≥1 body line, <{min_body}):  **{len(partial_covered)}**")
     print(f"Runtime-uncovered:         **{len(uncovered)}**")
     if no_cov_data:
         print(f"Outside coverage scope:    **{len(no_cov_data)}**")
@@ -255,7 +294,7 @@ def main(argv: list[str]) -> int:
                 print(f"- `{h.method} {h.path}` — `{h.file}:{h.start_line}`")
             print()
 
-    return 1 if args["strict"] and uncovered else 0
+    return 1 if gate_failed else 0
 
 
 if __name__ == "__main__":
