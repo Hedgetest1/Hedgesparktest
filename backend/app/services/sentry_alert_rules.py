@@ -51,11 +51,15 @@ _RULES_YAML = _BACKEND_ROOT / "config" / "sentry_alert_rules.yaml"
 _RULES_LOCK = _BACKEND_ROOT / "config" / "sentry_alert_rules.applied.lock"
 
 
-def _credentials() -> tuple[str | None, str | None, str | None]:
+def _credentials(project_override: str | None = None) -> tuple[str | None, str | None, str | None]:
+    """Return (token, org, project). `project_override` lets callers
+    target a non-default project (used for multi-project support in
+    YAML rules with a `project:` field)."""
+    project = project_override or os.getenv("SENTRY_PROJECT", "").strip() or None
     return (
         os.getenv("SENTRY_AUTH_TOKEN", "").strip() or None,
         os.getenv("SENTRY_ORG", "").strip() or None,
-        os.getenv("SENTRY_PROJECT", "").strip() or None,
+        project,
     )
 
 
@@ -111,10 +115,11 @@ def write_applied_hash(hash_hex: str, path: Path | None = None) -> None:
     target.write_text(hash_hex + "\n")
 
 
-def fetch_remote_rules() -> list[dict[str, Any]]:
-    """GET all rules currently configured in the Sentry project. Empty
-    list if API unconfigured or call fails. Never raises."""
-    token, org, project = _credentials()
+def fetch_remote_rules(project_override: str | None = None) -> list[dict[str, Any]]:
+    """GET all rules currently configured in the given Sentry project
+    (defaults to SENTRY_PROJECT env var). Empty list if API unconfigured
+    or call fails. Never raises."""
+    token, org, project = _credentials(project_override)
     if not (token and org and project):
         return []
     url = f"{_API_BASE}/projects/{org}/{project}/rules/"
@@ -124,14 +129,28 @@ def fetch_remote_rules() -> list[dict[str, Any]]:
             resp = client.get(url, headers=headers)
         if resp.status_code != 200:
             log.warning(
-                "sentry_alert_rules: fetch_remote HTTP %d body=%s",
-                resp.status_code, resp.text[:200],
+                "sentry_alert_rules: fetch_remote[%s] HTTP %d body=%s",
+                project, resp.status_code, resp.text[:200],
             )
             return []
         return resp.json() or []
     except Exception as exc:
-        log.warning("sentry_alert_rules: fetch_remote failed: %s", exc)
+        log.warning("sentry_alert_rules: fetch_remote[%s] failed: %s", project, exc)
         return []
+
+
+def rules_by_project(local: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Bucket local YAML rules by the `project` field. Rules without an
+    explicit `project` default to SENTRY_PROJECT (typically the backend
+    project). Returned dict keys are project slugs; values are lists
+    with the `project` field stripped (Sentry API rejects it)."""
+    default_project = os.getenv("SENTRY_PROJECT", "").strip() or "_default"
+    buckets: dict[str, list[dict[str, Any]]] = {}
+    for r in local:
+        target = r.get("project") or default_project
+        clean = {k: v for k, v in r.items() if k != "project"}
+        buckets.setdefault(target, []).append(clean)
+    return buckets
 
 
 def _normalize_rule_for_diff(rule: dict[str, Any]) -> dict[str, Any]:
@@ -179,6 +198,7 @@ def apply_diff(
     *,
     dry_run: bool = True,
     delete_unmanaged: bool = False,
+    project_override: str | None = None,
 ) -> dict[str, Any]:
     """POST/PUT/DELETE to make Sentry match the local YAML.
 
@@ -193,7 +213,7 @@ def apply_diff(
     Returns {"created": N, "updated": N, "deleted": N, "skipped_deletes": N,
     "errors": [...]} for caller observability.
     """
-    token, org, project = _credentials()
+    token, org, project = _credentials(project_override)
     summary = {"created": 0, "updated": 0, "deleted": 0, "skipped_deletes": 0, "errors": []}
     if not (token and org and project):
         summary["errors"].append("SENTRY_AUTH_TOKEN/ORG/PROJECT unset")

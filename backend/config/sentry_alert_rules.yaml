@@ -34,6 +34,7 @@
 
 rules:
   - name: "production_error_burst"
+    project: "python-fastapi"
     description: "≥10 errors in 5min on production. Catches incident-level spikes early."
     actionMatch: "all"
     filterMatch: "all"
@@ -54,6 +55,7 @@ rules:
         targetIdentifier: ""
 
   - name: "regression_alert"
+    project: "python-fastapi"
     description: "Issue marked as regression by Sentry. Page immediately — something we previously fixed re-broke."
     actionMatch: "all"
     filterMatch: "all"
@@ -67,6 +69,7 @@ rules:
         targetIdentifier: ""
 
   - name: "pii_scrub_spike"
+    project: "python-fastapi"
     description: "≥5 events tagged sentry.pii_scrubbed=true in 1h. PII guard regex hit — investigate the source path."
     actionMatch: "all"
     filterMatch: "all"
@@ -87,6 +90,7 @@ rules:
         targetIdentifier: ""
 
   - name: "billing_path_critical"
+    project: "python-fastapi"
     description: "Any error in /billing/* — payment flows can't fail silently. Page on first event."
     actionMatch: "all"
     filterMatch: "all"
@@ -104,6 +108,7 @@ rules:
         targetIdentifier: ""
 
   - name: "auth_path_critical"
+    project: "python-fastapi"
     description: "Any error in /auth/* — Shopify install/session flow break = merchant onboarding stops. Page on first event."
     actionMatch: "all"
     filterMatch: "all"
@@ -120,7 +125,73 @@ rules:
         targetType: "IssueOwners"
         targetIdentifier: ""
 
+  # --- Frontend project: hedgespark-frontend ---
+
+  - name: "frontend_chunk_load_failure"
+    project: "hedgespark-frontend"
+    description: "Next.js dashboard chunk-load errors (user sees blank/loading screen). ≥3 in 15min → page. Common cause: stale CDN cache after deploy."
+    actionMatch: "all"
+    filterMatch: "any"
+    frequency: 30
+    conditions:
+      - id: "sentry.rules.conditions.event_frequency.EventFrequencyCondition"
+        value: 3
+        interval: "15m"
+        comparisonType: "count"
+    filters:
+      - id: "sentry.rules.filters.tagged_event.TaggedEventFilter"
+        key: "error.type"
+        match: "co"
+        value: "ChunkLoadError"
+    actions:
+      - id: "sentry.mail.actions.NotifyEmailAction"
+        targetType: "IssueOwners"
+        targetIdentifier: ""
+
+  - name: "frontend_hydration_mismatch"
+    project: "hedgespark-frontend"
+    description: "React hydration mismatch — SSR output diverged from client render. Can indicate stale build or feature-flag drift. ≥5 in 1h."
+    actionMatch: "all"
+    filterMatch: "any"
+    frequency: 60
+    conditions:
+      - id: "sentry.rules.conditions.event_frequency.EventFrequencyCondition"
+        value: 5
+        interval: "1h"
+        comparisonType: "count"
+    filters:
+      - id: "sentry.rules.filters.tagged_event.TaggedEventFilter"
+        key: "error.value"
+        match: "co"
+        value: "hydrat"
+    actions:
+      - id: "sentry.mail.actions.NotifyEmailAction"
+        targetType: "IssueOwners"
+        targetIdentifier: ""
+
+  - name: "frontend_dashboard_error_burst"
+    project: "hedgespark-frontend"
+    description: "≥10 frontend errors in 15min on production. Top-of-funnel merchant pain detection."
+    actionMatch: "all"
+    filterMatch: "all"
+    frequency: 30
+    conditions:
+      - id: "sentry.rules.conditions.event_frequency.EventFrequencyCondition"
+        value: 10
+        interval: "15m"
+        comparisonType: "count"
+    filters:
+      - id: "sentry.rules.filters.tagged_event.TaggedEventFilter"
+        key: "environment"
+        match: "eq"
+        value: "production"
+    actions:
+      - id: "sentry.mail.actions.NotifyEmailAction"
+        targetType: "IssueOwners"
+        targetIdentifier: ""
+
   - name: "worker_error_burst"
+    project: "python-fastapi"
     description: "≥5 errors with component matching worker (any of 6 PM2 singletons) in 15min. Worker degradation early signal."
     actionMatch: "all"
     filterMatch: "any"

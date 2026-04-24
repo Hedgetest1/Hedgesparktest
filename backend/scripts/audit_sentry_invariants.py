@@ -106,7 +106,9 @@ def _check_alert_rules_iac(failures: list[str]) -> None:
     """D10 closure: Sentry alert rules must be defined in YAML
     (infrastructure-as-code) with a sync engine + drift audit. Verifies
     the trio is intact: YAML config + service module + sync script +
-    drift-audit script all exist and export the expected entry points."""
+    drift-audit script all exist and export the expected entry points.
+    Also pins multi-project support (rules_by_project helper) shipped
+    with SENTRY-1 split."""
     yaml_p = BACKEND / "config/sentry_alert_rules.yaml"
     if not yaml_p.is_file():
         failures.append(f"missing: {yaml_p.relative_to(ROOT)} (D10 alert-rules IaC)")
@@ -119,7 +121,8 @@ def _check_alert_rules_iac(failures: list[str]) -> None:
         for needed in ("def load_local_rules", "def fetch_remote_rules",
                        "def compute_diff", "def apply_diff",
                        "def compute_yaml_hash", "def read_applied_hash",
-                       "def write_applied_hash"):
+                       "def write_applied_hash",
+                       "def rules_by_project"):
             if needed not in src:
                 failures.append(f"{svc.relative_to(ROOT)}: {needed} not exported")
 
@@ -130,6 +133,26 @@ def _check_alert_rules_iac(failures: list[str]) -> None:
     drift_script = BACKEND / "scripts/audit_sentry_alert_rules_drift.py"
     if not drift_script.is_file():
         failures.append(f"missing: {drift_script.relative_to(ROOT)} (drift detection)")
+
+
+def _check_sentry_status_endpoint(failures: list[str]) -> None:
+    """SENTRY-1 closure DA1: /ops/sentry-status endpoint exposes the
+    backend vs frontend DSN split so operators can verify split_ok=true
+    without SSH-ing to check env files."""
+    ops = BACKEND / "app/api/ops.py"
+    src = _read(ops)
+    if src is None:
+        failures.append(f"missing: {ops.relative_to(ROOT)}")
+        return
+    if "@router.get(\"/sentry-status\")" not in src and '/sentry-status' not in src:
+        failures.append(
+            f"{ops.relative_to(ROOT)}: /ops/sentry-status endpoint not wired — "
+            "operator can't verify backend/frontend Sentry project split"
+        )
+    if '"split_ok"' not in src:
+        failures.append(
+            f"{ops.relative_to(ROOT)}: /ops/sentry-status must return `split_ok` field"
+        )
 
 
 def _check_backend_main(failures: list[str]) -> None:
@@ -316,6 +339,7 @@ def main(argv: list[str] | None = None) -> int:
     _check_sentry_init_module(failures)
     _check_sentry_api_module(failures)
     _check_alert_rules_iac(failures)
+    _check_sentry_status_endpoint(failures)
     _check_backend_main(failures)
     _check_workers(failures)
     _check_dashboard(failures)
@@ -324,8 +348,8 @@ def main(argv: list[str] | None = None) -> int:
     if not failures:
         print(
             "✅ Sentry invariants intact "
-            "(init, api, alert-rules-IaC, workers, crons, PII, dashboard, CSP, "
-            "integration-pins, slug-pins)."
+            "(init, api, alert-rules-IaC, sentry-status, workers, crons, PII, "
+            "dashboard, CSP, integration-pins, slug-pins)."
         )
         return 0
 

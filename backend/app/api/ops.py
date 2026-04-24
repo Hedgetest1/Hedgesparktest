@@ -165,6 +165,64 @@ def get_sentry_budget(
     return get_quota_summary(refresh=refresh)
 
 
+@router.get("/sentry-status")
+def get_sentry_status(
+    _auth: bool = Depends(require_operator),
+):
+    """Surfaces the current Sentry configuration split — backend DSN
+    (from `SENTRY_DSN`) vs frontend DSN (from `NEXT_PUBLIC_SENTRY_DSN`
+    read from `dashboard/.env.local`). Lets the operator verify at a
+    glance that SENTRY-1 split is preserved (DSNs differ, distinct
+    project IDs), without having to SSH and diff files.
+
+    The DSN "project ID" component is the trailing numeric segment of
+    the DSN URL (Sentry's internal numeric project identifier). We do
+    NOT return the full DSN — only the project ID, the org hostname
+    region, and a boolean `split_ok`. Zero secret exposure.
+    """
+    import os
+    from pathlib import Path
+    import re
+
+    def _extract_project_id(dsn: str) -> str | None:
+        m = re.search(r"/(\d+)\s*$", (dsn or "").strip())
+        return m.group(1) if m else None
+
+    def _extract_region(dsn: str) -> str | None:
+        m = re.search(r"ingest\.([a-z]+)\.sentry\.io", dsn or "")
+        return m.group(1) if m else None
+
+    backend_dsn = os.getenv("SENTRY_DSN", "")
+
+    # Read NEXT_PUBLIC_SENTRY_DSN from dashboard/.env.local. Gitignored
+    # but mounted on this VPS.
+    dashboard_env = Path("/opt/wishspark/dashboard/.env.local")
+    frontend_dsn = ""
+    if dashboard_env.is_file():
+        for line in dashboard_env.read_text().splitlines():
+            if line.startswith("NEXT_PUBLIC_SENTRY_DSN="):
+                frontend_dsn = line.split("=", 1)[1].strip()
+                break
+
+    be_id = _extract_project_id(backend_dsn)
+    fe_id = _extract_project_id(frontend_dsn)
+
+    return {
+        "backend": {
+            "configured": bool(backend_dsn),
+            "project_id": be_id,
+            "region": _extract_region(backend_dsn),
+        },
+        "frontend": {
+            "configured": bool(frontend_dsn),
+            "project_id": fe_id,
+            "region": _extract_region(frontend_dsn),
+        },
+        "split_ok": bool(be_id and fe_id and be_id != fe_id),
+        "same_dsn_warning": bool(backend_dsn and frontend_dsn and backend_dsn == frontend_dsn),
+    }
+
+
 @router.get("/dashboard-health")
 def get_dashboard_health(
     _auth: bool = Depends(require_operator),

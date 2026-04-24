@@ -46,6 +46,7 @@ from app.services.sentry_alert_rules import (
     fetch_remote_rules,
     is_configured,
     load_local_rules,
+    rules_by_project,
     write_applied_hash,
 )
 
@@ -57,9 +58,12 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     local = load_local_rules()
-    print(f"Local rules in YAML: {len(local)}")
-    for r in local:
-        print(f"  - {r['name']}")
+    buckets = rules_by_project(local)
+    print(f"Local rules in YAML: {len(local)} across {len(buckets)} project(s)")
+    for proj, rs in buckets.items():
+        print(f"  [{proj}] {len(rs)} rule(s):")
+        for r in rs:
+            print(f"    - {r['name']}")
 
     if not is_configured():
         print(
@@ -67,32 +71,40 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    remote = fetch_remote_rules()
-    print(f"\nRemote rules in Sentry: {len(remote)}")
-    diff = compute_diff(local, remote)
-    print(
-        f"Diff: create={len(diff['to_create'])} update={len(diff['to_update'])} "
-        f"delete={len(diff['to_delete'])}"
-    )
+    totals = {"created": 0, "updated": 0, "deleted": 0, "skipped_deletes": 0}
+    errors: list[str] = []
+    for proj, rs in buckets.items():
+        print(f"\n=== Project: {proj} ===")
+        remote = fetch_remote_rules(project_override=proj)
+        print(f"Remote rules: {len(remote)}")
+        diff = compute_diff(rs, remote)
+        print(
+            f"Diff: create={len(diff['to_create'])} update={len(diff['to_update'])} "
+            f"delete={len(diff['to_delete'])}"
+        )
+        summary = apply_diff(
+            diff, dry_run=not args.apply, delete_unmanaged=args.prune,
+            project_override=proj,
+        )
+        for k in ("created", "updated", "deleted", "skipped_deletes"):
+            totals[k] += summary[k]
+        errors.extend(summary["errors"])
 
-    summary = apply_diff(diff, dry_run=not args.apply, delete_unmanaged=args.prune)
-    print("\nSummary:")
-    print(
-        f"  created          : {summary['created']}"
-        f"  updated          : {summary['updated']}"
-    )
-    print(f"  deleted          : {summary['deleted']}")
-    print(f"  skipped_deletes  : {summary['skipped_deletes']}")
-    if summary["errors"]:
-        print(f"\nErrors ({len(summary['errors'])}):")
-        for e in summary["errors"]:
+    print("\nTotals:")
+    print(f"  created          : {totals['created']}")
+    print(f"  updated          : {totals['updated']}")
+    print(f"  deleted          : {totals['deleted']}")
+    print(f"  skipped_deletes  : {totals['skipped_deletes']}")
+    if errors:
+        print(f"\nErrors ({len(errors)}):")
+        for e in errors:
             print(f"  - {e}")
         return 1
 
     if args.apply:
         h = compute_yaml_hash()
         write_applied_hash(h)
-        print(f"\n✅ Applied. Lock file updated with hash {h[:12]}…")
+        print(f"\n✅ Applied across {len(buckets)} project(s). Lock hash {h[:12]}…")
     else:
         print("\nDry-run only. Pass --apply to actually write.")
     return 0

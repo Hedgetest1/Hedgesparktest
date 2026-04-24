@@ -180,10 +180,11 @@ def test_real_yaml_loads_and_has_critical_rules():
         assert required in names, f"required rule '{required}' missing from shipped YAML"
 
 
-def test_drift_audit_bootstrap_passes_when_unconfigured():
-    """Drift audit should NOT fail when SENTRY_AUTH_TOKEN is unset and
-    no lock file has been created — that's the expected pre-activation
-    state (founder hasn't set up Sentry API auth yet)."""
+def test_drift_audit_passes_when_yaml_matches_lock():
+    """Post-activation state (2026-04-24): lock file exists + YAML hash
+    matches. Drift audit should return 0 with 'in sync' message.
+    Pre-activation bootstrap state is covered by the unit test on
+    read_applied_hash returning None below."""
     env = os.environ.copy()
     env.pop("SENTRY_AUTH_TOKEN", None)
     result = subprocess.run(
@@ -192,7 +193,57 @@ def test_drift_audit_bootstrap_passes_when_unconfigured():
         capture_output=True, text=True, timeout=15, env=env,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "bootstrap" in result.stdout.lower()
+    # Either "in sync" (post-activation) or "bootstrap" (pre-activation) is acceptable.
+    out = result.stdout.lower()
+    assert ("in sync" in out) or ("bootstrap" in out), (
+        f"expected 'in sync' or 'bootstrap' in: {out}"
+    )
+
+
+def test_rules_by_project_buckets_correctly(tmp_path):
+    """SENTRY-1 multi-project support: rules with explicit `project:`
+    field bucket into that project; rules without default to
+    SENTRY_PROJECT env var. The `project` field is stripped from the
+    payload sent to Sentry (not a valid API field)."""
+    from app.services.sentry_alert_rules import rules_by_project
+    local = [
+        {"name": "backend_rule", "project": "python-fastapi", "actionMatch": "all",
+         "conditions": [], "actions": []},
+        {"name": "frontend_rule", "project": "hedgespark-frontend", "actionMatch": "all",
+         "conditions": [], "actions": []},
+        {"name": "default_rule", "actionMatch": "all", "conditions": [], "actions": []},
+    ]
+    with patch.dict(os.environ, {"SENTRY_PROJECT": "python-fastapi"}):
+        buckets = rules_by_project(local)
+    assert set(buckets.keys()) == {"python-fastapi", "hedgespark-frontend"}
+    be = [r["name"] for r in buckets["python-fastapi"]]
+    fe = [r["name"] for r in buckets["hedgespark-frontend"]]
+    assert "backend_rule" in be
+    assert "default_rule" in be  # no project → default to SENTRY_PROJECT
+    assert "frontend_rule" in fe
+    # project field is stripped from payloads (Sentry API doesn't accept it).
+    for bucket in buckets.values():
+        for r in bucket:
+            assert "project" not in r, f"project field leaked into payload: {r}"
+
+
+def test_real_yaml_has_frontend_rules():
+    """SENTRY-1 closure: the shipped YAML must include frontend-specific
+    alert rules since we split into a separate Sentry project."""
+    from app.services.sentry_alert_rules import load_local_rules, rules_by_project
+    rules = load_local_rules()
+    with patch.dict(os.environ, {"SENTRY_PROJECT": "python-fastapi"}):
+        buckets = rules_by_project(rules)
+    assert "hedgespark-frontend" in buckets, (
+        "SENTRY-1 split left no frontend-specific rules — frontend incidents "
+        "would only match 'High Priority Issues' default, missing chunk-load/hydration detection"
+    )
+    fe_names = {r["name"] for r in buckets["hedgespark-frontend"]}
+    for required in ("frontend_chunk_load_failure", "frontend_hydration_mismatch",
+                     "frontend_dashboard_error_burst"):
+        assert required in fe_names, (
+            f"required frontend rule '{required}' missing after SENTRY-1 split"
+        )
 
 
 def test_drift_audit_fails_on_hash_mismatch(tmp_path):

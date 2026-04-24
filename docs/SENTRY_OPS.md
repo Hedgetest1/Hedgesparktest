@@ -68,10 +68,23 @@ Sentry entity):
 If headroom < 20% OR goes negative → gate behind an allowlist env var,
 upgrade the plan (founder-domain), or choose a different approach.
 
-## Separate frontend project (SENTRY-1, Cat-A — zero cost)
+## Separate frontend project (SENTRY-1, ✅ SHIPPED 2026-04-24)
 
-**Status:** Not yet. Today the frontend (`dashboard/`) and backend
-(`app/`) share a single Sentry DSN + project, differentiated only by
+**Status:** Active. Backend and frontend now live in two distinct
+Sentry projects:
+
+| Surface | Project | Project ID |
+|---|---|---|
+| Backend + 6 workers | `python-fastapi` | `4511133878714448` |
+| Next.js dashboard (client + SSR + edge) | `hedgespark-frontend` | `4511274872340560` |
+
+Both in the `hedgespark` org on the EU region (de.sentry.io).
+Independent quota accounting, separate stack-trace symbolication,
+distinct alert routing. The 6 YAML alert rules apply to the backend
+project today; frontend uses "High Priority Issues" Sentry default.
+
+**Previous state (kept here for history):** Pre-2026-04-24 the
+frontend (`dashboard/`) and backend (`app/`) shared a single Sentry DSN + project, differentiated only by
 the `component` tag (`backend` / `frontend` / `frontend-ssr` /
 `frontend-edge` / `<worker_name>`).
 
