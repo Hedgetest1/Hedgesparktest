@@ -40,6 +40,72 @@ recommended long-term for cleaner stack-trace symbolication).
   monitor (6 workers × check-ins would saturate the quota within
   hours). See "Cron monitoring" section below.
 
+## Team-plan base limits (as of 2026-04-24)
+
+When adding anything that produces Sentry events, cross-check against
+this table before merging. See `feedback_sentry_quota_pre_check.md`
+for the full rule.
+
+| Quota type | Team-plan base | Notes |
+|---|---|---|
+| Errors / month | 50k | Scales with plan |
+| Transactions / month | 100k | Scales with plan |
+| Session Replays / month | 50 | Sparingly — 1% session rate + 100% on-error |
+| Profiles / month | 50k | Attached to traced transactions |
+| **Cron monitors** | **1** | **Quota-gated via `SENTRY_CRON_MONITORING` allowlist — opting in >1 requires plan upgrade** |
+| Uptime monitors | 1 | Likewise — not currently wired anywhere in the code |
+| Attachments | 1 GiB/mo | Not used today |
+| Seats | 1 dev | Founder account |
+
+**Pre-change checklist** (before merging any code that mints a new
+Sentry entity):
+
+1. Which quota type does it touch?
+2. What's the plan's base limit for that type?
+3. Estimated volume at today's scale + at 10k-merchant scale?
+4. Headroom after merge?
+
+If headroom < 20% OR goes negative → gate behind an allowlist env var,
+upgrade the plan (founder-domain), or choose a different approach.
+
+## Separate frontend project (SENTRY-1, Cat-A — zero cost)
+
+**Status:** Not yet. Today the frontend (`dashboard/`) and backend
+(`app/`) share a single Sentry DSN + project, differentiated only by
+the `component` tag (`backend` / `frontend` / `frontend-ssr` /
+`frontend-edge` / `<worker_name>`).
+
+**Why migrate:** cleaner stack-trace symbolication (frontend needs
+source-maps uploaded to the frontend project; backend uses Python
+server-side frames — mixing pollutes search). Independent quota
+accounting per surface also makes the quota dashboard more useful
+(distinguish "dashboard bug spiking" from "backend bug spiking").
+
+**Zero cost:** Team plan allows multiple projects. This is purely a
+Sentry-UI setup + env change, not a pricing bump.
+
+**Code already supports it:** `dashboard/sentry.client.config.ts` +
+`.server.config.ts` + `.edge.config.ts` read `NEXT_PUBLIC_SENTRY_DSN`
+from env, which is a separate var from the backend `SENTRY_DSN`.
+Setting the two to different values splits the data flow without any
+code change.
+
+**Migration steps (founder, ~10 min):**
+
+1. Sentry UI → Projects → Create project `hedgespark-frontend`
+   (platform: javascript-nextjs).
+2. Copy its DSN.
+3. `dashboard/.env.local`: set
+   `NEXT_PUBLIC_SENTRY_DSN=<new-frontend-dsn>` (keep backend
+   `SENTRY_DSN` unchanged).
+4. Rebuild dashboard: `dashboard/scripts/deploy.sh`.
+5. Verify events arrive in the new project.
+6. Update `SENTRY_PROJECT` env if source-map upload needs the new
+   project slug.
+
+Tracked in `project_founder_money_gap_ledger.md` as SENTRY-1 (cost =
+€0, time = 10min founder + 0min code).
+
 ## Env var setup
 
 `backend/.env.example` documents every Sentry var. Minimum for prod:

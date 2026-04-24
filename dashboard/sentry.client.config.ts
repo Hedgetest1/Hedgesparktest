@@ -8,6 +8,33 @@
  *
  * DSN: NEXT_PUBLIC_SENTRY_DSN. If unset, init is skipped (no-op).
  *
+ * Bundle cost
+ * -----------
+ * `Sentry.replayIntegration()` is statically imported below, which
+ * adds ~60KB gzipped to the client bundle regardless of
+ * `replaysSessionSampleRate`. The sample rate ONLY affects how many
+ * sessions actually get recorded + uploaded — NOT bundle size.
+ * Adjusting the rate does not change bundle budget (`audit_bundle_
+ * budget.py`). What DOES change budget: adding new integrations
+ * (canvasIntegration, browserTracingIntegration extras, etc.). Last
+ * measured post-C4 (2026-04-24): largest_chunk 87.3% / root 87.7% /
+ * total 93.5% of cap — headroom ~100KB per bucket. Any new
+ * integration here MUST be audited against that headroom.
+ *
+ * Separate frontend project recommendation
+ * ----------------------------------------
+ * Today the frontend and backend share one DSN + project, tagged by
+ * `component` for filtering. For cleaner stack-trace symbolication +
+ * independent quota accounting, a second Sentry project
+ * (hedgespark-frontend) is recommended long-term — zero cost on the
+ * Team plan. Docs/SENTRY_OPS.md "Separate projects" section has the
+ * migration steps. Tracked as ledger entry SENTRY-1.
+ *
+ * DSN separation is already wired at the config layer: set
+ * NEXT_PUBLIC_SENTRY_DSN to a different value than backend SENTRY_DSN
+ * and the two surfaces report to separate projects with no code
+ * change needed.
+ *
  * Tier: TIER_0 (observability config).
  */
 import * as Sentry from "@sentry/nextjs";
