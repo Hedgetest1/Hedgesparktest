@@ -25,9 +25,14 @@ const BACKEND = "https://api.hedgesparkhq.com";
 const SHOPIFY_ADMIN = "https://admin.shopify.com";
 const SHOPIFY_STOREFRONTS = "https://*.myshopify.com";
 
+// Sentry ingest endpoints — the DSN region (de.sentry.io) determines
+// which subdomain the SDK posts events + replay segments to. Allowed
+// in connect-src so the browser SDK can reach Sentry from the dashboard.
+const SENTRY_INGEST = "https://*.ingest.de.sentry.io";
+
 const csp = [
   "default-src 'self'",
-  `connect-src 'self' ${BACKEND}`,
+  `connect-src 'self' ${BACKEND} ${SENTRY_INGEST}`,
   // Next.js hydration needs inline scripts. We whitelist 'unsafe-inline'
   // here and rely on the backend-side strict CSP + security_preflight_guard
   // to prevent injection of untrusted content.
@@ -123,4 +128,29 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// Sentry wrap — adds source-map upload (when SENTRY_AUTH_TOKEN is set)
+// and bundles the @sentry/nextjs middleware/instrumentation hooks. Safe
+// no-op when @sentry/nextjs isn't installed (config returned as-is).
+import { withSentryConfig } from "@sentry/nextjs";
+
+export default withSentryConfig(nextConfig, {
+  // Source maps + release tagging only when explicitly authenticated.
+  silent: !process.env.CI,
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+
+  // Tunnel route — bypasses ad-blockers that block direct Sentry calls
+  // by proxying events through our own /monitoring path. Disabled by
+  // default; opt-in by setting NEXT_PUBLIC_SENTRY_TUNNEL=1.
+  tunnelRoute: process.env.NEXT_PUBLIC_SENTRY_TUNNEL === "1" ? "/monitoring" : undefined,
+
+  // Tree-shake unused logger statements out of the bundle.
+  disableLogger: true,
+
+  // Don't auto-instrument source maps when tokens missing — saves CI
+  // time on PR builds that don't need to upload.
+  sourcemaps: {
+    disable: !process.env.SENTRY_AUTH_TOKEN,
+  },
+});
