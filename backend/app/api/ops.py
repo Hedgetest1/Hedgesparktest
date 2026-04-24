@@ -223,6 +223,49 @@ def get_sentry_status(
     }
 
 
+@router.get("/audit-telemetry")
+def get_audit_telemetry(
+    _auth: bool = Depends(require_operator),
+    days: int = 7,
+):
+    """Return per-audit fire-rate + findings trend over `days` days.
+
+    Backed by `app.services.audit_telemetry`. Redis HASH
+    `hs:audit_telemetry:{audit}:{day}` populated by preflight audits +
+    invariant_monitor. Each entry:
+      - runs: total executions observed in the window
+      - findings_total: cumulative findings count
+      - findings_last: findings count on the most recent day seen
+      - last_severity: "info" / "warn" / "critical"
+      - last_day: YYYY-MM-DD of most recent record
+      - days_seen: distinct days with activity
+
+    Operator view: "which audits fired this week, and when did each
+    one last produce findings?" — the slow-drift signal that a
+    point-in-time preflight pass can't answer.
+
+    `days` is clamped to [1, 90] to match the TTL envelope.
+    """
+    from app.services.audit_telemetry import read_all_audits
+
+    days_clamped = max(1, min(int(days), 90))
+    summary = read_all_audits(days=days_clamped)
+
+    total_runs = sum(s["runs"] for s in summary.values())
+    active_audits = len(summary)
+    audits_with_findings = sum(
+        1 for s in summary.values() if s["findings_total"] > 0
+    )
+
+    return {
+        "window_days": days_clamped,
+        "active_audits": active_audits,
+        "audits_with_findings_in_window": audits_with_findings,
+        "total_runs": total_runs,
+        "audits": summary,
+    }
+
+
 @router.get("/dashboard-health")
 def get_dashboard_health(
     _auth: bool = Depends(require_operator),
