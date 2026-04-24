@@ -179,6 +179,46 @@ def walk() -> list[Finding]:
     return findings
 
 
+def count_total_routes() -> tuple[int, int]:
+    """MED-13 closure 2026-04-24: return (total_routes,
+    target_prefix_routes) across api/*.py — the denominator for
+    coverage %. A route is any `@<router>.<METHOD>("...")` decorator
+    on a non-hidden router. Target-prefix = /pro/ | /merchant/ |
+    /analytics/."""
+    total = 0
+    target_total = 0
+    if not API_ROOT.exists():
+        return 0, 0
+    for path in API_ROOT.rglob("*.py"):
+        if any(part in SKIP_DIRS for part in path.parts):
+            continue
+        try:
+            tree = ast.parse(path.read_text())
+        except Exception:
+            continue
+        hidden = _hidden_routers(tree)
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for dec in node.decorator_list:
+                info = _decorator_is_route(dec)
+                if info is None:
+                    continue
+                router_name, _, route_path = info
+                if router_name in hidden:
+                    continue
+                kwargs = _kwargs_of(dec)
+                include = kwargs.get("include_in_schema")
+                if include is not None and _bool_const(include) is False:
+                    continue
+                if _returns_stream(node):
+                    continue
+                total += 1
+                if route_path.startswith(_TARGET_PREFIXES):
+                    target_total += 1
+    return total, target_total
+
+
 _TARGET_PREFIXES = ("/pro/", "/merchant/", "/analytics/")
 
 
@@ -191,9 +231,18 @@ def main() -> int:
     target = [f for f in findings if f.path.startswith(_TARGET_PREFIXES)]
     other = [f for f in findings if not f.path.startswith(_TARGET_PREFIXES)]
 
+    # MED-13: coverage % using the full-route counter.
+    total_routes, target_total = count_total_routes()
+    missing_any = len(findings)
+    missing_target = len(target)
+    cov_overall = ((total_routes - missing_any) / total_routes * 100.0) if total_routes else 100.0
+    cov_target = ((target_total - missing_target) / target_total * 100.0) if target_total else 100.0
+
     print(f"audit_response_models: scanned {API_ROOT}")
-    print(f"  routes missing response_model (total)       : {len(findings)}")
-    print(f"    on /pro/ | /merchant/ | /analytics/       : {len(target)}")
+    print(f"  coverage (overall)                          : {total_routes - missing_any}/{total_routes}  ({cov_overall:.1f}%)")
+    print(f"  coverage (/pro|/merchant|/analytics)        : {target_total - missing_target}/{target_total}  ({cov_target:.1f}%)")
+    print(f"  routes missing response_model (total)       : {missing_any}")
+    print(f"    on /pro/ | /merchant/ | /analytics/       : {missing_target}")
     print(f"    other prefixes (lower priority)           : {len(other)}")
     print()
 

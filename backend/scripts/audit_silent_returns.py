@@ -61,8 +61,48 @@ SELF_REFERENTIAL_FILES = {
 }
 
 # Names the guard check targets. These are the common accessor-return
-# variable names across the codebase.
-GUARD_NAMES = {"rc", "client", "r", "redis_client", "_rc"}
+# variable names across the codebase. MED-16 closure 2026-04-24:
+# this set is now a BASELINE; the scanner also auto-discovers additional
+# names from actual `if <name> is None: record_silent_return(...)`
+# patterns in the tree — see _discover_guard_names_from_tree().
+GUARD_NAMES_BASELINE = frozenset({"rc", "client", "r", "redis_client", "_rc"})
+
+
+def _discover_guard_names_from_tree(tree: ast.Module) -> set[str]:
+    """Find every `if <Name> is None: <body containing record_silent_return>`
+    and return the set of Name IDs. Lets the audit learn app-specific
+    guard names (e.g. `pipe`, `_cache`, `rds`) without a static list
+    growing stale."""
+    discovered: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If):
+            continue
+        # Match `<Name> is None`
+        test = node.test
+        if not (
+            isinstance(test, ast.Compare)
+            and len(test.ops) == 1
+            and isinstance(test.ops[0], ast.Is)
+            and isinstance(test.left, ast.Name)
+            and len(test.comparators) == 1
+            and isinstance(test.comparators[0], ast.Constant)
+            and test.comparators[0].value is None
+        ):
+            continue
+        # Body must call record_silent_return somewhere.
+        calls_rsr = False
+        for child in ast.walk(ast.Module(body=node.body, type_ignores=[])):
+            if isinstance(child, ast.Call):
+                fn = child.func
+                if isinstance(fn, ast.Name) and fn.id == "record_silent_return":
+                    calls_rsr = True
+                    break
+                if isinstance(fn, ast.Attribute) and fn.attr == "record_silent_return":
+                    calls_rsr = True
+                    break
+        if calls_rsr:
+            discovered.add(test.left.id)
+    return discovered
 
 # Safe fallback literal kinds accepted as a silent-fallback return.
 def _is_fallback_body(body: list[ast.stmt]) -> bool:
@@ -127,13 +167,17 @@ class Finding:
         self.kind = kind  # observed | logged | bare
 
 
-def scan_file(path: pathlib.Path) -> list[Finding]:
+def scan_file(path: pathlib.Path, extra_guards: set[str] | None = None) -> list[Finding]:
     try:
         tree = ast.parse(path.read_text())
     except Exception:
         return []
     findings: list[Finding] = []
     rel = path.relative_to(APP_ROOT.parent).as_posix()
+
+    # MED-16: effective guard set = baseline ∪ any extra names passed in
+    # (auto-derived from the full app/ tree scan by walk_app()).
+    effective_guards = set(GUARD_NAMES_BASELINE) | (extra_guards or set())
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.If):
@@ -150,7 +194,7 @@ def scan_file(path: pathlib.Path) -> list[Finding]:
                 and right.value is None
             ):
                 name = left.id
-        if name not in GUARD_NAMES:
+        if name not in effective_guards:
             continue
         if not _is_fallback_body(node.body):
             continue
@@ -167,13 +211,25 @@ def scan_file(path: pathlib.Path) -> list[Finding]:
 
 def walk_app() -> list[Finding]:
     findings: list[Finding] = []
+    # First pass: auto-discover extra guard names from the whole app/
+    # tree so we aren't constrained to the hardcoded baseline.
+    discovered: set[str] = set()
+    py_paths: list[pathlib.Path] = []
     for path in APP_ROOT.rglob("*.py"):
         if any(part in SKIP_DIRS for part in path.parts):
             continue
         rel = path.relative_to(APP_ROOT.parent).as_posix()
         if rel in SELF_REFERENTIAL_FILES:
             continue
-        findings.extend(scan_file(path))
+        py_paths.append(path)
+        try:
+            tree = ast.parse(path.read_text())
+        except Exception:
+            continue
+        discovered.update(_discover_guard_names_from_tree(tree))
+    # Second pass: scan with the expanded guard set.
+    for path in py_paths:
+        findings.extend(scan_file(path, extra_guards=discovered))
     return findings
 
 

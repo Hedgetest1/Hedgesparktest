@@ -105,10 +105,30 @@ def _pm2_dashboard_start() -> float | None:
     return None
 
 
+def _fetch_with_headers(url: str) -> Tuple[int, bytes, dict[str, str]]:
+    """Variant of _fetch that returns response headers for Cache-Control
+    validation (MED-05). Same 4s timeout / error handling as _fetch."""
+    import urllib.request, urllib.error, socket
+    try:
+        with urllib.request.urlopen(url, timeout=4) as resp:
+            headers = {k.lower(): v for k, v in resp.headers.items()}
+            return resp.status, resp.read(), headers
+    except (urllib.error.URLError, socket.timeout, ConnectionError):
+        return 0, b"", {}
+
+
 def _probe_assets() -> List[str]:
-    """Probe each PROBE_PATH, extract chunk URLs, verify each returns 200.
-    Returns list of human-readable failure strings (empty if all green)."""
+    """Probe each PROBE_PATH, extract chunk URLs, verify each returns 200
+    AND carries a reasonable Cache-Control header (MED-05 closure).
+
+    Next.js bakes hashed chunk names so `_next/static/chunks/*.js`
+    should be served with `Cache-Control: public, max-age=31536000,
+    immutable` (or similar long-lived). A server-side misconfiguration
+    that drops this header creates unnecessary origin-hits + CDN
+    churn. We warn (not fail) on missing/short TTL since the page
+    still renders."""
     failures: List[str] = []
+    warnings: List[str] = []
     seen: set[str] = set()
     for path in PROBE_PATHS:
         code, body = _fetch(f"{DASHBOARD_HOST}{path}")
@@ -123,11 +143,32 @@ def _probe_assets() -> List[str]:
             if asset in seen:
                 continue
             seen.add(asset)
-            acode, _ = _fetch(f"{DASHBOARD_HOST}{asset}")
+            acode, _, aheaders = _fetch_with_headers(f"{DASHBOARD_HOST}{asset}")
             if acode != 200:
                 failures.append(
                     f"{path}: referenced asset {asset} returned HTTP {acode}"
                 )
+                continue
+            # MED-05: verify Cache-Control on hashed static chunks.
+            if "/_next/static/" in asset:
+                cc = aheaders.get("cache-control", "")
+                if not cc:
+                    warnings.append(
+                        f"{asset}: missing Cache-Control header (should be long-lived for hashed chunks)"
+                    )
+                elif "immutable" not in cc.lower() and "max-age" not in cc.lower():
+                    warnings.append(
+                        f"{asset}: weak Cache-Control '{cc}' (expected immutable / max-age for hashed chunk)"
+                    )
+    # Warnings are printed but don't fail — MED-05 opted for "surface
+    # but don't block" because a weak Cache-Control is a perf hit, not
+    # a correctness bug.
+    if warnings:
+        print(f"audit_dashboard_live: Cache-Control warnings ({len(warnings)}):")
+        for w in warnings[:10]:
+            print(f"  - {w}")
+        if len(warnings) > 10:
+            print(f"  ... and {len(warnings) - 10} more")
     return failures
 
 

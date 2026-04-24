@@ -69,6 +69,61 @@ def _extract_defined_fns(py_path: Path) -> set[str]:
     return names
 
 
+def _extract_fn_doclines(py_path: Path) -> dict[str, str]:
+    """MED-14 closure 2026-04-24: for every `_run_*` in agent_worker.py
+    return {fn_name: first_line_of_docstring}. Lets the --verify-doclines
+    flag detect stale documentation where the code docstring no longer
+    matches what the reality map claims the function does."""
+    tree = ast.parse(py_path.read_text(), filename=str(py_path))
+    out: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if not node.name.startswith("_run_"):
+            continue
+        doc = ast.get_docstring(node)
+        first = (doc or "").strip().splitlines()[0].strip() if doc else ""
+        out[node.name] = first
+    return out
+
+
+def _extract_fn_rows_from_md(md_text: str) -> dict[str, str]:
+    """Return {fn_name: description_cell} for every row in the agent_worker
+    section of the reality map. Description cell is the 2nd column (1st
+    is the function name itself)."""
+    m = _SECTION_START_RE.search(md_text)
+    if not m:
+        return {}
+    start = m.end()
+    rest = md_text[start:]
+    nxt = _NEXT_SECTION_RE.search(rest)
+    end = start + (nxt.start() if nxt else len(rest))
+    section = md_text[start:end]
+    out: dict[str, str] = {}
+    # Pattern: `| `_run_foo` | description text | ...`
+    row_re = re.compile(r"\|\s*\*?\*?`(_run_\w+)`\*?\*?\s*\|\s*([^\|]*?)\s*\|")
+    for match in row_re.finditer(section):
+        out[match.group(1)] = match.group(2).strip()
+    return out
+
+
+def _docline_mismatch(code_line: str, md_line: str, min_overlap: float = 0.15) -> bool:
+    """Heuristic: compare whitespace-tokenized lowercase word sets from
+    code docstring first line vs md description cell. If token-overlap
+    fraction falls below `min_overlap`, flag as probably-stale. Very
+    loose — only fires on clear divergence (complete rewrite of one
+    side without updating the other)."""
+    if not code_line or not md_line:
+        return False  # can't compare, skip
+    import re as _re
+    code_tokens = set(_re.findall(r"[a-z0-9]+", code_line.lower()))
+    md_tokens = set(_re.findall(r"[a-z0-9]+", md_line.lower()))
+    if not code_tokens or not md_tokens:
+        return False
+    overlap = len(code_tokens & md_tokens) / max(len(code_tokens), len(md_tokens))
+    return overlap < min_overlap
+
+
 def _extract_task_modules(tasks_dir: Path) -> set[str]:
     """Every `*_task.py` in app/workers/tasks/ is a scheduled-job unit.
     Exclude __init__ and private leading-underscore helpers."""
@@ -92,6 +147,7 @@ def _extract_documented_task_modules(md_text: str) -> set[str]:
 
 def main(argv: list[str]) -> int:
     warn_only = "--warn-only" in argv
+    verify_doclines = "--verify-doclines" in argv
 
     if not AGENT_WORKER.exists():
         print(f"audit_scheduled_jobs_map: worker not found — {AGENT_WORKER}")
@@ -107,6 +163,19 @@ def main(argv: list[str]) -> int:
     task_modules = _extract_task_modules(TASKS_DIR)
     documented_tasks = _extract_documented_task_modules(doc_text)
 
+    # MED-14: docstring vs md-description freshness (optional, opt-in
+    # via --verify-doclines). Non-blocking by design — false positive
+    # rate is too high to gate commits. Operator can run manually
+    # before a reality-map sweep.
+    stale_doclines: list[tuple[str, str, str]] = []
+    if verify_doclines:
+        fn_doclines = _extract_fn_doclines(AGENT_WORKER)
+        fn_md_rows = _extract_fn_rows_from_md(doc_text)
+        for fn, code_line in fn_doclines.items():
+            md_line = fn_md_rows.get(fn, "")
+            if _docline_mismatch(code_line, md_line):
+                stale_doclines.append((fn, code_line[:80], md_line[:80]))
+
     missing = defined - documented        # in code but not in docs
     stale = documented - defined          # in docs but not in code
     missing_tasks = task_modules - documented_tasks  # task module not in docs
@@ -118,6 +187,18 @@ def main(argv: list[str]) -> int:
     # the load-bearing half.
 
     if not missing and not stale and not missing_tasks:
+        # Report stale doclines as non-blocking info (only if --verify-doclines).
+        if stale_doclines:
+            print(
+                f"audit_scheduled_jobs_map: {len(stale_doclines)} possibly-stale "
+                f"docstring/docs-row pair(s) (--verify-doclines):"
+            )
+            for fn, code_line, md_line in stale_doclines[:10]:
+                print(f"  - {fn}")
+                print(f"      code: {code_line!r}")
+                print(f"      docs: {md_line!r}")
+            print("(heuristic — review manually, not a failure)")
+            print()
         print(
             f"audit_scheduled_jobs_map: clean — {len(defined)} agent_worker "
             f"_run_* helpers + {len(task_modules)} task modules all documented"

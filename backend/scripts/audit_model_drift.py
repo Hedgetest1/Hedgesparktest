@@ -76,6 +76,41 @@ KNOWN_ORPHAN_COLUMNS: dict[str, set[str]] = {
 }
 
 
+def _drift_age_hint(table_name: str) -> str | None:
+    """MED-09 closure 2026-04-24: return a short human-readable hint
+    about when the model file for this table was last touched, using
+    `git log -1 --format='%cs' <file>`. Helps operator tell 1-week-old
+    drift from 6-month-old. Best-effort — returns None if git isn't
+    available or the file can't be found."""
+    import subprocess
+    # Derive model file from the table name by scanning app/models/*.py
+    # for a Column-bearing class whose __tablename__ matches. This is
+    # a cheap O(n) pass since we only run it on drift findings (rare).
+    models_dir = pathlib.Path("/opt/wishspark/backend/app/models")
+    candidate: pathlib.Path | None = None
+    for py in models_dir.glob("*.py"):
+        try:
+            src = py.read_text()
+        except Exception:
+            continue
+        if f'__tablename__ = "{table_name}"' in src or f"__tablename__ = '{table_name}'" in src:
+            candidate = py
+            break
+    if candidate is None:
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "log", "-1", "--format=%cs (%h)", str(candidate)],
+            capture_output=True, text=True, timeout=3,
+            cwd="/opt/wishspark",
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return None
+
+
 def main() -> int:
     insp = inspect(engine)
     db_tables = set(insp.get_table_names())
@@ -120,7 +155,9 @@ def main() -> int:
         ok = False
         print(f"COLUMN DRIFTS ({len(drifts)} tables):")
         for table_name, _, in_model_not_db, in_db_not_model in sorted(drifts):
-            print(f"  {table_name}")
+            age_hint = _drift_age_hint(table_name)
+            suffix = f"  (model last touched: {age_hint})" if age_hint else ""
+            print(f"  {table_name}{suffix}")
             if in_model_not_db:
                 print(f"    GHOST in model (model has, DB does not): {sorted(in_model_not_db)}")
             if in_db_not_model:

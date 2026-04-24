@@ -42,6 +42,31 @@ class Finding:
         self.detail = detail
 
 
+def _datetime_aliases(tree: ast.Module) -> set[str]:
+    """MED-21 closure 2026-04-24: resolve `from datetime import datetime
+    [as dt]` + `import datetime as dt` aliases so we also catch
+    `dt.utcnow()` / `dt.now()`. Returns the set of names bound to
+    the `datetime` class (not the module) AND the module itself.
+
+    Pre-MED-21 only the literal receiver `datetime` was matched —
+    the moment a file did `from datetime import datetime as dt`, every
+    `dt.utcnow()` slipped past. Real modules in app/ use both shapes.
+    """
+    names: set[str] = {"datetime"}  # default literal
+    for node in ast.walk(tree):
+        # `from datetime import datetime` / `... as dt`
+        if isinstance(node, ast.ImportFrom) and node.module == "datetime":
+            for alias in node.names:
+                if alias.name == "datetime":
+                    names.add(alias.asname or alias.name)
+        # `import datetime as dt`
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "datetime":
+                    names.add(alias.asname or alias.name)
+    return names
+
+
 def audit_file(path: pathlib.Path) -> list[Finding]:
     try:
         src = path.read_text()
@@ -55,22 +80,24 @@ def audit_file(path: pathlib.Path) -> list[Finding]:
     out: list[Finding] = []
     rel = str(path.relative_to(APP_ROOT.parent))
 
+    dt_names = _datetime_aliases(tree)
+
     has_utcnow = False
     has_naive_now = False
     has_aware_now = False
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute):
-            # datetime.utcnow
+            # datetime.utcnow  or  dt.utcnow  or  <alias>.utcnow
             if (
                 node.attr == "utcnow"
                 and isinstance(node.value, ast.Name)
-                and node.value.id == "datetime"
+                and node.value.id in dt_names
             ):
                 has_utcnow = True
                 out.append(Finding(
                     rel, node.lineno, "utcnow_deprecated",
-                    "datetime.utcnow() is deprecated — returns naive UTC",
+                    f"{node.value.id}.utcnow() is deprecated — returns naive UTC",
                 ))
         if isinstance(node, ast.Call):
             func = node.func
@@ -78,7 +105,7 @@ def audit_file(path: pathlib.Path) -> list[Finding]:
                 isinstance(func, ast.Attribute)
                 and func.attr == "now"
                 and isinstance(func.value, ast.Name)
-                and func.value.id == "datetime"
+                and func.value.id in dt_names
             ):
                 if not node.args:
                     has_naive_now = True

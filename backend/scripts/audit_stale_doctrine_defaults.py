@@ -45,12 +45,59 @@ APP_ROOT = BACKEND_ROOT / "app"
 # Keys that map to runtime-owned doctrine. A literal fallback here is
 # stale documentation waiting to drift. Guard defaults (0.0, 0) are
 # permitted — they're explicit divide-by-zero safety, not doctrine.
-DOCTRINE_KEYS = {
+# MED-18 closure 2026-04-24: DOCTRINE_KEYS is a HARDCODED BASELINE; we
+# also auto-derive additional keys by scanning `app/core/llm_budget.py`
+# for `UPPER_SNAKE_CASE = <number>` module-level constants and treating
+# their lowercased name as a doctrine key. Any new constant added to
+# llm_budget.py auto-joins the guard set without requiring a manual
+# edit to this script.
+DOCTRINE_KEYS_BASELINE = frozenset({
     "monthly_cap_eur",
     "monthly_cost_eur",
     "monthly_remaining_eur",
     "monthly_max_eur",
-}
+})
+
+
+def _auto_doctrine_keys() -> set[str]:
+    """Scan app/core/llm_budget.py for module-level UPPER_SNAKE_CASE
+    numeric constants. Return their names converted to lowercase
+    (matches the dict-key style used in get_usage_summary). Fails
+    gracefully if the file isn't parseable."""
+    p = APP_ROOT / "core" / "llm_budget.py"
+    extra: set[str] = set()
+    if not p.is_file():
+        return extra
+    try:
+        tree = ast.parse(p.read_text())
+    except Exception:
+        return extra
+    for stmt in tree.body:
+        targets: list[ast.expr] = []
+        value: ast.expr | None = None
+        if isinstance(stmt, ast.Assign):
+            targets = list(stmt.targets)
+            value = stmt.value
+        elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
+            targets = [stmt.target]
+            value = stmt.value
+        else:
+            continue
+        if not isinstance(value, ast.Constant) or not isinstance(value.value, (int, float)):
+            continue
+        for t in targets:
+            if not isinstance(t, ast.Name):
+                continue
+            name = t.id
+            # Strip leading underscore conventionally used for "private"
+            # doctrine values (`_LLM_MAX_MONTHLY_EUR`).
+            stripped = name.lstrip("_")
+            if stripped == stripped.upper() and len(stripped) > 2:
+                extra.add(stripped.lower())
+    return extra
+
+
+DOCTRINE_KEYS = set(DOCTRINE_KEYS_BASELINE) | _auto_doctrine_keys()
 
 # Values that are always safe as a fallback (divide-by-zero guards,
 # explicit "nothing" markers). Extend if a new intentional sentinel is
