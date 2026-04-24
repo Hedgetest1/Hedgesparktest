@@ -171,6 +171,16 @@ def init_sentry(component: str = "backend") -> bool:
     if _enabled:
         return True
 
+    # Load backend/.env if it hasn't been loaded yet. env_bootstrap is
+    # idempotent so calling it here is cheap and covers workers that may
+    # import us before any module that loads dotenv. Backend main.py still
+    # benefits from the same guarantee.
+    try:
+        from app.core.env_bootstrap import load_env
+        load_env()
+    except Exception:
+        pass  # SILENT-EXCEPT-OK: env bootstrap is best-effort; os.environ already populated via PM2
+
     dsn = os.getenv("SENTRY_DSN", "").strip()
     if not dsn:
         return False
