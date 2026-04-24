@@ -45,10 +45,18 @@ _INFRA_PATHS = {
 
 
 def _collect_routes() -> list[tuple[str, str]]:
+    """Return (method, path) pairs. Skips routes explicitly marked
+    `deprecated=True` or tagged "deprecated" — those are EXPECTED to
+    be orphan and would pollute the survey."""
     from app.main import app
     out: list[tuple[str, str]] = []
     for r in app.routes:
         if not (hasattr(r, "path") and hasattr(r, "methods")):
+            continue
+        if getattr(r, "deprecated", False):
+            continue
+        tags = getattr(r, "tags", None) or []
+        if any(str(t).lower() == "deprecated" for t in tags):
             continue
         path = str(r.path)
         methods = [m for m in (r.methods or set()) if m not in _IGNORE_METHODS]

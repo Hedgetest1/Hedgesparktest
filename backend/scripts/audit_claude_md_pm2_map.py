@@ -41,22 +41,42 @@ _TABLE_ROW_NAME_RE = re.compile(r"\|\s*(wishspark-[a-z0-9-]+)\s*\|")
 _APP_NAME_RE = re.compile(r'name\s*:\s*"(wishspark-[a-z0-9-]+)"')
 
 
-def _extract_doc_names(md_text: str) -> set[str]:
+def _extract_doc_names(md_text: str) -> dict[str, int]:
+    """Return {name: line_number} for rows in the §6 PM2 table.
+
+    Line numbers are 1-indexed so they can be printed as `CLAUDE.md:NN`
+    for fast operator navigation.
+    """
     m = _SECTION_START_RE.search(md_text)
     if not m:
-        return set()
+        return {}
     start = m.end()
     rest = md_text[start:]
-    # Stop at the next `## ` top-level section or `---` horizontal rule.
     stop_re = re.compile(r"^(?:##\s+|---\s*$)", re.MULTILINE)
     stop = stop_re.search(rest)
     end = start + (stop.start() if stop else len(rest))
+    section_offset = start
     section = md_text[start:end]
-    return set(_TABLE_ROW_NAME_RE.findall(section))
+
+    # 1-indexed line number of the section start in the whole file.
+    base_line = md_text[:section_offset].count("\n") + 1
+
+    out: dict[str, int] = {}
+    for local_idx, line in enumerate(section.splitlines()):
+        match = _TABLE_ROW_NAME_RE.search(line)
+        if match:
+            out.setdefault(match.group(1), base_line + local_idx)
+    return out
 
 
-def _extract_ecosystem_names(js_text: str) -> set[str]:
-    return set(_APP_NAME_RE.findall(js_text))
+def _extract_ecosystem_names(js_text: str) -> dict[str, int]:
+    """Return {name: line_number} for `name: "wishspark-xyz"` entries."""
+    out: dict[str, int] = {}
+    for lineno, line in enumerate(js_text.splitlines(), start=1):
+        match = _APP_NAME_RE.search(line)
+        if match:
+            out.setdefault(match.group(1), lineno)
+    return out
 
 
 def main(argv: list[str]) -> int:
@@ -69,18 +89,20 @@ def main(argv: list[str]) -> int:
         print(f"audit_claude_md_pm2_map: ecosystem not found — {ECOSYSTEM}")
         return 2
 
-    doc_names = _extract_doc_names(CLAUDE_MD.read_text())
-    eco_names = _extract_ecosystem_names(ECOSYSTEM.read_text())
+    doc_map = _extract_doc_names(CLAUDE_MD.read_text())
+    eco_map = _extract_ecosystem_names(ECOSYSTEM.read_text())
 
-    if not doc_names:
+    if not doc_map:
         print("audit_claude_md_pm2_map: could not parse §6 PM2 table — "
               "has the section header changed?")
         return 2
-    if not eco_names:
+    if not eco_map:
         print("audit_claude_md_pm2_map: could not parse ecosystem.config.js "
               "apps — has the name: format changed?")
         return 2
 
+    doc_names = set(doc_map.keys())
+    eco_names = set(eco_map.keys())
     missing = eco_names - doc_names  # running in PM2, not in CLAUDE.md
     stale = doc_names - eco_names    # in CLAUDE.md, not in ecosystem
 
@@ -101,7 +123,7 @@ def main(argv: list[str]) -> int:
             f"NOT in CLAUDE.md §6 (add table row with script + cycle):"
         )
         for name in sorted(missing):
-            print(f"    + {name}")
+            print(f"    + {name}  (ecosystem.config.js:{eco_map[name]})")
         print()
 
     if stale:
@@ -110,7 +132,7 @@ def main(argv: list[str]) -> int:
             f"ecosystem.config.js (remove row — process was deleted):"
         )
         for name in sorted(stale):
-            print(f"    - {name}")
+            print(f"    - {name}  (CLAUDE.md:{doc_map[name]})")
         print()
 
     print("Fix: edit CLAUDE.md §6 — the '### PM2 processes' table.")

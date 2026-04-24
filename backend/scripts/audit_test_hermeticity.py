@@ -53,6 +53,29 @@ class Suspicion:
 
 _NEGATIVE_STATE_ATTRS = {"first", "one_or_none", "scalar", "count"}
 
+# Patterns that prove a test generates unique identifiers and therefore
+# cannot be polluted by production-worker writes during the test run.
+# Any test function whose body matches one of these is considered
+# hermetic by construction and skipped.
+_UNIQUENESS_MARKERS = (
+    "uuid.uuid4",
+    "uuid4()",
+    "uuid.uuid1",
+    "time.time_ns",
+    "time_ns()",
+    "secrets.token_hex",
+    "secrets.token_urlsafe",
+)
+
+
+def _uses_uniqueness_marker(node: ast.AST) -> bool:
+    """True if the function body contains a call to a uniqueness helper
+    (uuid.uuid4 / time.time_ns / secrets.token_*). These produce test-
+    scoped identifiers that cannot collide with prod writes, so
+    negative-state assertions on their filtered queries are safe."""
+    src = ast.unparse(node)
+    return any(marker in src for marker in _UNIQUENESS_MARKERS)
+
 
 def _find_query_models(node: ast.AST) -> set[str]:
     """Walk `node` and collect model names appearing in `db.query(Model)`.
@@ -89,24 +112,39 @@ def _has_delete_on_models(node: ast.AST, models: set[str]) -> bool:
 
 def _has_negative_state_assertion(node: ast.AST) -> tuple[bool, str]:
     """True if the function body contains an assertion like
-    `assert x is None` / `== None` / `== 0` / `is False` where `x`
-    is plausibly a query result. `is not None` / `!= 0` / `is True`
-    are POSITIVE assertions and do NOT trigger this detector."""
+    `assert x is None` / `== None` / `== 0` / `is False` where `x` is a
+    plausible QUERY RESULT (a plain Name or a direct `.first()`/
+    `.one_or_none()`/`.scalar()`/`.count()` call).
+
+    `assert m.billing_active is False` and similar attribute checks
+    are assertions on a row's column, NOT on the row's existence, so
+    they are not hermeticity risks and are skipped.
+
+    `is not None` / `!= 0` / `is True` are POSITIVE assertions and
+    never trigger this detector.
+    """
+    def _is_query_result_lhs(lhs: ast.AST) -> bool:
+        if isinstance(lhs, ast.Name):
+            return True
+        if isinstance(lhs, ast.Call) and isinstance(lhs.func, ast.Attribute):
+            return lhs.func.attr in _NEGATIVE_STATE_ATTRS
+        return False
+
     for child in ast.walk(node):
         if not isinstance(child, ast.Assert):
             continue
         test = child.test
         if not (isinstance(test, ast.Compare) and len(test.ops) == 1):
             continue
+        if not _is_query_result_lhs(test.left):
+            continue
         op = test.ops[0]
         right = test.comparators[0]
-        # `is None` / `is False` — exclude `is not ...`
         if isinstance(op, ast.Is) and isinstance(right, ast.Constant):
             if right.value is None:
                 return True, "assert ... is None"
             if right.value is False:
                 return True, "assert ... is False"
-        # `== 0` / `== None` — exclude `!= ...`
         if isinstance(op, ast.Eq) and isinstance(right, ast.Constant):
             if right.value == 0:
                 return True, "assert ... == 0"
@@ -145,6 +183,11 @@ def scan_file(path: pathlib.Path) -> list[Suspicion]:
         if not models:
             continue
         if _has_delete_on_models(node, models):
+            continue
+        if _uses_uniqueness_marker(node):
+            # Test generates uuid/timestamp-scoped identifiers — its
+            # filters cannot collide with prod writes, so negative
+            # assertions are hermetic by construction.
             continue
         out.append(Suspicion(
             file=str(path.relative_to(TESTS_DIR.parent)),
