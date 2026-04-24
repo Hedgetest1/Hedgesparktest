@@ -230,12 +230,43 @@ def _clamp_severity(raw: object) -> int:
     return max(0, min(10, v))
 
 
+_CRITICAL_SEVERITY_THRESHOLD = 9
+_PARTIAL_COVERAGE_THRESHOLD = len(_LENSES) - 1  # < 2 of 3 lenses = partial
+
+
+def _write_ops_alert(db: Session, severity: str, alert_type: str,
+                     source: str, summary: str, detail: dict) -> None:
+    """Best-effort ops_alert write — never raises into the caller."""
+    try:
+        from app.services.alerting import write_alert
+        write_alert(
+            db,
+            severity=severity,
+            source=source,
+            alert_type=alert_type,
+            summary=summary,
+            detail=detail,
+        )
+    except Exception as exc:
+        log.warning("adversarial_reviewer: ops_alert write failed: %s", exc)
+
+
 def review_with_3_lenses(
     db: Session, candidate: BugFixCandidate,
 ) -> list[AdversarialReviewFinding]:
     """Run adversarial 3-lens review on a candidate. Returns the
     persisted findings (severity-desc ordered, empty list on disabled/
-    error)."""
+    error).
+
+    Side effects:
+      * Emits `adversarial_critical_finding` ops_alert when any lens
+        reports severity >= `_CRITICAL_SEVERITY_THRESHOLD` (escalation
+        policy per the memo — human should see these immediately).
+      * Emits `adversarial_partial_coverage` ops_alert when fewer than
+        `_PARTIAL_COVERAGE_THRESHOLD` lenses produce a finding (e.g.
+        budget exhausted mid-review). Closes Gate-2 DA: prevents false
+        "passed all 3 lenses" verdict when actually fewer ran.
+    """
     if not is_enabled():
         log.debug("adversarial_reviewer: disabled (feature flag off)")
         return []
@@ -270,11 +301,62 @@ def review_with_3_lenses(
         db.flush()
 
     findings.sort(key=lambda f: f.severity, reverse=True)
+
+    # DA Gate-2 closure #1: critical finding → ops_alert for human
+    critical = [f for f in findings if f.severity >= _CRITICAL_SEVERITY_THRESHOLD]
+    for f in critical:
+        _write_ops_alert(
+            db,
+            severity="critical",
+            alert_type="adversarial_critical_finding",
+            source=f"adversarial_reviewer:{f.lens}",
+            summary=(
+                f"Adversarial reviewer ({f.lens} lens) flagged bugfix #{candidate.id} "
+                f"at severity {f.severity}/10 — requires human review before apply"
+            ),
+            detail={
+                "bugfix_candidate_id": candidate.id,
+                "finding_id": f.id,
+                "lens": f.lens,
+                "severity": f.severity,
+                "concern": f.concern,
+                "remediation": f.suggested_remediation,
+            },
+        )
+
+    # DA Gate-2 closure #2: partial coverage → ops_alert so operator
+    # doesn't misread "fewer findings" as "all lenses approved". This
+    # fires e.g. when budget exhaustion silently skips lens 2+.
+    if len(findings) < _PARTIAL_COVERAGE_THRESHOLD:
+        skipped_lenses = [L for L in _LENSES if L not in {f.lens for f in findings}]
+        _write_ops_alert(
+            db,
+            severity="warning",
+            alert_type="adversarial_partial_coverage",
+            source="adversarial_reviewer:partial",
+            summary=(
+                f"Adversarial review produced only {len(findings)} of "
+                f"{len(_LENSES)} lens findings for bugfix #{candidate.id}"
+            ),
+            detail={
+                "bugfix_candidate_id": candidate.id,
+                "findings_count": len(findings),
+                "expected_lenses": list(_LENSES),
+                "missing_lenses": skipped_lenses,
+                "reason_hint": (
+                    "Likely causes: budget exhaustion mid-review, 429 "
+                    "provider backoff, PII guard block, or parse failure. "
+                    "Check recent adversarial_reviewer logs."
+                ),
+            },
+        )
+
     log.info(
-        "adversarial_reviewer: candidate=%d findings=%d max_severity=%d",
+        "adversarial_reviewer: candidate=%d findings=%d max_severity=%d critical=%d",
         candidate.id,
         len(findings),
         findings[0].severity if findings else 0,
+        len(critical),
     )
     return findings
 

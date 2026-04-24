@@ -210,6 +210,78 @@ def test_review_pii_block_returns_no_finding(db, enable_reviewer):
     assert findings == []
 
 
+def test_critical_severity_emits_ops_alert(db, enable_reviewer):
+    """DA Gate-2 closure: severity >= 9 on any lens triggers an
+    `adversarial_critical_finding` ops_alert for human escalation."""
+    candidate = _make_candidate(db)
+    with patch("app.services.adversarial_reviewer.httpx.post") as post, \
+         patch("app.services.adversarial_reviewer.check_budget", return_value=(True, "ok")), \
+         patch("app.services.adversarial_reviewer.is_provider_backed_off", return_value=False), \
+         patch("app.services.adversarial_reviewer.assert_clean"), \
+         patch("app.services.adversarial_reviewer._write_ops_alert") as alert:
+        post.return_value = _fake_resp(200, _mock_haiku_response(
+            severity=10, concern="critical regression", remediation="revert"))
+        findings = adversarial_reviewer.review_with_3_lenses(db, candidate)
+
+    assert len(findings) == 3
+    # 3 critical alerts (one per lens at severity 10)
+    critical_calls = [
+        c for c in alert.call_args_list
+        if "adversarial_critical_finding" in str(c)
+    ]
+    assert len(critical_calls) == 3
+
+
+def test_partial_coverage_emits_ops_alert(db, enable_reviewer):
+    """DA Gate-2 closure: when fewer than threshold lenses produce
+    findings (e.g. budget cut off mid-review), emit alert so partial
+    coverage is visible to operator."""
+    candidate = _make_candidate(db)
+    call_count = {"n": 0}
+
+    def _budget_side(_module):
+        call_count["n"] += 1
+        # Lens 1 allowed, lens 2 and 3 blocked
+        if call_count["n"] == 1:
+            return (True, "ok")
+        return (False, "budget_exhausted")
+
+    with patch("app.services.adversarial_reviewer.check_budget", side_effect=_budget_side), \
+         patch("app.services.adversarial_reviewer.is_provider_backed_off", return_value=False), \
+         patch("app.services.adversarial_reviewer.assert_clean"), \
+         patch("app.services.adversarial_reviewer.httpx.post") as post, \
+         patch("app.services.adversarial_reviewer._write_ops_alert") as alert:
+        post.return_value = _fake_resp(200, _mock_haiku_response(
+            severity=3, concern="minor", remediation="x"))
+        findings = adversarial_reviewer.review_with_3_lenses(db, candidate)
+
+    # Only 1 finding from lens 1 (others budget-blocked)
+    assert len(findings) == 1
+    # Partial coverage alert fired
+    partial_calls = [
+        c for c in alert.call_args_list
+        if "adversarial_partial_coverage" in str(c)
+    ]
+    assert len(partial_calls) == 1
+
+
+def test_full_coverage_no_partial_alert(db, enable_reviewer):
+    """When all 3 lenses produce findings, no partial-coverage alert."""
+    candidate = _make_candidate(db)
+    with patch("app.services.adversarial_reviewer.httpx.post") as post, \
+         patch("app.services.adversarial_reviewer.check_budget", return_value=(True, "ok")), \
+         patch("app.services.adversarial_reviewer.is_provider_backed_off", return_value=False), \
+         patch("app.services.adversarial_reviewer.assert_clean"), \
+         patch("app.services.adversarial_reviewer._write_ops_alert") as alert:
+        post.return_value = _fake_resp(200, _mock_haiku_response(
+            severity=2, concern="ok", remediation=""))
+        findings = adversarial_reviewer.review_with_3_lenses(db, candidate)
+
+    assert len(findings) == 3
+    partial = [c for c in alert.call_args_list if "partial_coverage" in str(c)]
+    assert partial == []
+
+
 def test_parse_response_extracts_embedded_json():
     text = 'Here is my analysis:\n{"severity": 7, "concern": "x", "remediation": "y"}\nDone.'
     out = adversarial_reviewer._parse_response(text)
