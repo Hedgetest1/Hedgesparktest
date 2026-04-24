@@ -151,6 +151,10 @@ def run_invariant_check(db: Session) -> dict:
         _check_silent_audits(db, summary)
     except Exception as exc:
         log.warning("invariant_monitor: silent-audits check failed: %s", exc)
+    try:
+        _check_audit_findings_trend(db, summary)
+    except Exception as exc:
+        log.warning("invariant_monitor: audit-findings-trend check failed: %s", exc)
 
     for script_name, alert_type, source in _AUDITS:
         summary["checked"] += 1
@@ -589,3 +593,119 @@ def _check_silent_audits(db: Session, summary: dict) -> None:
         summary["alerts_written"] += 1
     except Exception as exc:
         log.error("invariant_monitor: silent-audits alert write failed: %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Audit findings-trend detection — catches the "slow accumulation" class.
+# ---------------------------------------------------------------------------
+#
+# Complements silent detection: a silent audit stopped emitting, a trending
+# audit is accumulating findings without tripping the preflight gate. The
+# detection compares two halves of a 14-day window:
+#
+#   first_half:  days [8..14] ago (7 days)
+#   second_half: days [0..7]  ago (7 days)
+#
+# If second_half findings > first_half findings AND exceeds absolute +
+# relative thresholds, emit an alert. Thresholds tuned to avoid noise:
+#   - At least AUDIT_TREND_MIN_ABSOLUTE_DELTA new findings in second half
+#     (default 5) so a 0→1 blip doesn't page.
+#   - Second-half sum must be >= AUDIT_TREND_MIN_SECOND_HALF (default 3)
+#     so a "always noisy" audit with jitter doesn't trip.
+
+_TREND_WINDOW_DAYS = 14
+_TREND_MIN_ABSOLUTE_DELTA = int(os.getenv("AUDIT_TREND_MIN_ABSOLUTE_DELTA", "5"))
+_TREND_MIN_SECOND_HALF = int(os.getenv("AUDIT_TREND_MIN_SECOND_HALF", "3"))
+
+
+def _check_audit_findings_trend(db: Session, summary: dict) -> None:
+    """Alert on wired audits where findings count is trending up —
+    i.e., accumulating a regression that doesn't individually trip
+    preflight."""
+    try:
+        from app.core.wired_audits import WIRED_AUDITS
+        from app.services.audit_telemetry import read_audit_history
+    except Exception as exc:
+        log.warning("invariant_monitor: trend import failed: %s", exc)
+        return
+
+    from datetime import date, timedelta
+    today = date.today()
+    half = _TREND_WINDOW_DAYS // 2
+    # Symmetric split: first_half covers the OLDER 7 days, second_half
+    # covers the NEWER 7 days. The exact boundary day (today - 7) is
+    # excluded so both halves are strictly equal-length.
+    first_cutoff = (today - timedelta(days=half)).isoformat()
+    second_cutoff_start = (today - timedelta(days=half - 1)).isoformat()
+
+    trending: list[dict] = []
+    for audit_file in WIRED_AUDITS:
+        audit_name = audit_file[:-3] if audit_file.endswith(".py") else audit_file
+        try:
+            history = read_audit_history(audit_name, days=_TREND_WINDOW_DAYS)
+        except Exception:
+            continue
+        if not history:
+            continue
+
+        first_half_total = 0
+        second_half_total = 0
+        for rec in history:
+            day = rec.get("day", "")
+            findings = rec.get("findings", 0) or 0
+            if day < first_cutoff:
+                first_half_total += findings
+            elif day >= second_cutoff_start:
+                second_half_total += findings
+            # day == first_cutoff is the boundary day — skipped so halves stay equal-length
+
+        delta = second_half_total - first_half_total
+        if (
+            delta >= _TREND_MIN_ABSOLUTE_DELTA
+            and second_half_total >= _TREND_MIN_SECOND_HALF
+        ):
+            trending.append({
+                "audit": audit_name,
+                "first_half_findings": first_half_total,
+                "second_half_findings": second_half_total,
+                "delta": delta,
+            })
+
+    summary["checked"] += 1
+    if not trending:
+        return
+
+    summary["failed"] += 1
+    try:
+        from app.services.alerting import write_alert
+        # Cap detail to top 20 worst trends to avoid payload bloat in
+        # the ops_alerts row.
+        trending.sort(key=lambda x: -x["delta"])
+        top_trends = trending[:20]
+        write_alert(
+            db,
+            severity="warning",
+            source="invariant:audit_findings_trend",
+            alert_type="invariant_regression",
+            summary=(
+                f"Audit findings trending up: {len(trending)} audit(s) "
+                f"with >= {_TREND_MIN_ABSOLUTE_DELTA} more findings in "
+                f"last {_TREND_WINDOW_DAYS // 2}d vs prior {_TREND_WINDOW_DAYS // 2}d"
+            ),
+            detail={
+                "trending_audits": top_trends,
+                "total_trending": len(trending),
+                "window_days": _TREND_WINDOW_DAYS,
+                "min_absolute_delta": _TREND_MIN_ABSOLUTE_DELTA,
+                "min_second_half": _TREND_MIN_SECOND_HALF,
+                "remediation": (
+                    "Check /ops/audit-telemetry for each trending audit. "
+                    "A regression class is accumulating without tripping "
+                    "preflight. Investigate and either fix the regressions "
+                    "or tighten the preflight gate to catch them earlier."
+                ),
+            },
+        )
+        summary["alerts_written"] += 1
+    except Exception as exc:
+        log.error("invariant_monitor: trend alert write failed: %s", exc)
