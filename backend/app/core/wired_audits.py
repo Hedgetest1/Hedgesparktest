@@ -25,6 +25,7 @@ from __future__ import annotations
 # design — pins verify wiring, they don't participate in it.
 WIRED_AUDITS: frozenset[str] = frozenset({
     "audit_alembic_test_db_parity.py",
+    "audit_backend_frontend_coverage.py",
     "audit_bundle_budget.py",
     "audit_claude_md_pm2_map.py",
     "audit_claude_md_redis_keys.py",

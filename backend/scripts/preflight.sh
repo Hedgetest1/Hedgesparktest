@@ -772,6 +772,28 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2i. Backend→Frontend coverage preventer (audit_backend_frontend_coverage.py)
+# ---------------------------------------------------------------------------
+# Born 2026-04-25. Catches "fantasma" endpoints — merchant-facing
+# backend routes with no UI consumer (excluding api-types.ts). Runs in
+# survey mode today (always exits 0) so we see the 20-route drift
+# without blocking; flip to --strict once either the drift is closed
+# or every intentional-internal route is tagged `# ui-exempt: <reason>`.
+step "Backend→Frontend coverage (audit_backend_frontend_coverage.py)"
+if "$PY" "$BACKEND/scripts/audit_backend_frontend_coverage.py" > /tmp/preflight_be_fe_cov.log 2>&1; then
+    # Extract headline counts from the human report (compact one-liner)
+    scanned="$(grep -oP 'Routes scanned:\s+\*\*\K\d+' /tmp/preflight_be_fe_cov.log || echo '?')"
+    covered="$(grep -oP 'Covered:\s+\*\*\K\d+' /tmp/preflight_be_fe_cov.log || echo '?')"
+    exempted="$(grep -oP 'Exempted:\s+\*\*\K\d+' /tmp/preflight_be_fe_cov.log || echo '?')"
+    uncovered="$(grep -oP 'Uncovered:\s+\*\*\K\d+' /tmp/preflight_be_fe_cov.log || echo '?')"
+    ok "merchant routes: $scanned scanned, $covered covered, $exempted exempted, $uncovered uncovered"
+else
+    bad "backend-frontend coverage preventer error — see /tmp/preflight_be_fe_cov.log"
+    tail -20 /tmp/preflight_be_fe_cov.log || true
+    fail=1
+fi
+
+# ---------------------------------------------------------------------------
 # 3. Python AST parse check — any syntax error blocks commit
 # ---------------------------------------------------------------------------
 step "Python AST parse (staged .py files)"

@@ -290,7 +290,7 @@ if (window.opener && !window.opener.closed) {{
     return HTMLResponse(html, status_code=200)
 
 
-@router.get("/oauth/callback", include_in_schema=False)
+@router.get("/oauth/callback", include_in_schema=False)  # ui-exempt: oauth-callback
 def oauth_callback(
     code: str | None = Query(default=None),
     state: str | None = Query(default=None),

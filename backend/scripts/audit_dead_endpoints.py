@@ -124,10 +124,15 @@ def main() -> int:
     routes = _collect_routes()
     print(f"Scanning {len(routes)} (method, path) pairs…\n")
 
+    # Exclude auto-generated typed contract file — presence there does
+    # NOT prove a route is actually consumed by UI code. Caught 2026-04-25
+    # via grep drill-down into the "17 utility/admin fantasma" survey.
+    _EXCLUDED_CONSUMERS = {"api-types.ts"}
+
     dashboard_files: list[pathlib.Path] = []
     for root in DASHBOARD_ROOTS:
-        dashboard_files += list(root.rglob("*.ts"))
-        dashboard_files += list(root.rglob("*.tsx"))
+        dashboard_files += [p for p in root.rglob("*.ts") if p.name not in _EXCLUDED_CONSUMERS]
+        dashboard_files += [p for p in root.rglob("*.tsx") if p.name not in _EXCLUDED_CONSUMERS]
 
     test_files: list[pathlib.Path] = []
     for root in TEST_ROOTS:
