@@ -74,6 +74,18 @@ _AUDITS: list[tuple[str, str, str]] = [
         "invariant_regression",
         "invariant:dev_flag_leaks",
     ),
+    # Exception-sinks: added 2026-04-24 after the SINK-01..04 sweep
+    # closed all 4 CRITICAL write_no_rollback findings. Runtime
+    # recognition for the class of bug where a try/db.commit + bare
+    # except: log handler omits db.rollback(), leaving the SQLAlchemy
+    # session unusable for the caller's next ORM op. Preflight catches
+    # at commit; this catches at runtime within 15min of any
+    # --no-verify or merge-conflict-resolution bypass.
+    (
+        "audit_exception_sinks.py",
+        "invariant_regression",
+        "invariant:exception_sinks",
+    ),
 ]
 
 _TIMEOUT_SECONDS = 30

@@ -356,7 +356,11 @@ def main(argv: list[str] | None = None) -> int:
       (no flag)         Legacy behavior — any finding fails.
     """
     argv = list(sys.argv[1:] if argv is None else argv)
-    critical_only = "--critical-only" in argv
+    # --strict is an alias for --critical-only in this audit (bare_pass
+    # and catches_base are stylistic INFO, never block). This lets
+    # invariant_monitor's generic `--strict` runner reuse the audit
+    # without per-audit flag plumbing.
+    critical_only = "--critical-only" in argv or "--strict" in argv
 
     all_findings: dict[str, list[Finding]] = defaultdict(list)
     for py in APP_ROOT.rglob("*.py"):
