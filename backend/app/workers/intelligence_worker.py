@@ -5,6 +5,12 @@ sys.path.append("/opt/wishspark/backend")
 import time
 from datetime import datetime, timezone
 
+from app.core.env_bootstrap import load_env
+load_env()
+
+from app.core.sentry_init import init_sentry, cron_monitor
+init_sentry(component="intelligence_worker")
+
 from app.core.logging_config import configure_logging, set_worker_context
 configure_logging()
 set_worker_context(worker_name="intelligence_worker")
@@ -102,6 +108,7 @@ def _write_log(
 # Main cycle
 # ---------------------------------------------------------------------------
 
+@cron_monitor(slug="intelligence_worker_cycle", interval_minutes=10, max_runtime_minutes=18)
 def run_cycle():
     started_at = datetime.now(timezone.utc).replace(tzinfo=None)
     rows_written = 0

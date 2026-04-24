@@ -258,3 +258,57 @@ def is_enabled() -> bool:
 def get_component() -> str | None:
     """Returns the component name init_sentry was called with, if any."""
     return _initialized_for
+
+
+def cron_monitor(
+    slug: str,
+    interval_minutes: int,
+    max_runtime_minutes: int | None = None,
+    checkin_margin: int = 5,
+):
+    """Decorator factory wrapping a worker cycle in Sentry cron monitoring.
+
+    Sentry cron monitoring (Team plan feature) tracks expected cadence and
+    fires an alert when a check-in is late or a run exceeds `max_runtime`.
+    Configures the monitor at runtime — no manual setup in the Sentry UI.
+
+    Usage (in each worker):
+
+        @cron_monitor(slug="agent_worker_cycle", interval_minutes=15)
+        def run_cycle():
+            ...
+
+    Parameters
+    ----------
+    slug
+        Unique slug for this monitor in the Sentry org. One per worker
+        cycle; collisions merge check-ins.
+    interval_minutes
+        Expected cadence in minutes.
+    max_runtime_minutes
+        Fail the check-in if the wrapped function exceeds this. Default
+        is 2× `interval_minutes` (headroom for one slow run without
+        paging on normal variance).
+    checkin_margin
+        Minutes late before a missed check-in triggers an alert.
+
+    No-op when sentry_sdk isn't installed. When Sentry is disabled
+    (missing DSN) the SDK's monitor decorator is a no-op by design
+    and shipping the decorator is still safe.
+    """
+    if max_runtime_minutes is None:
+        max_runtime_minutes = interval_minutes * 2
+    try:
+        from sentry_sdk.crons import monitor as _monitor
+    except ImportError:
+        def _noop_decorator(fn):
+            return fn
+        return _noop_decorator
+
+    monitor_config = {
+        "schedule": {"type": "interval", "value": interval_minutes, "unit": "minute"},
+        "checkin_margin": checkin_margin,
+        "max_runtime": max_runtime_minutes,
+        "timezone": "UTC",
+    }
+    return _monitor(monitor_slug=slug, monitor_config=monitor_config)

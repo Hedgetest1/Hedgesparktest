@@ -49,6 +49,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from app.core.env_bootstrap import load_env
 load_env()
 
+from app.core.sentry_init import init_sentry, cron_monitor
+init_sentry(component="nudge_optimization_worker")
+
 from app.core.logging_config import configure_logging, set_worker_context
 configure_logging()
 set_worker_context(worker_name="nudge_optimization_worker")
@@ -114,6 +117,7 @@ def _record_cycle(db, result: dict, duration_ms: int) -> None:
             log.warning("nudge_optimization_worker: _record_cycle failed: %s", exc)
 
 
+@cron_monitor(slug="nudge_optimization_worker_cycle", interval_minutes=360, max_runtime_minutes=60)
 def _run_cycle() -> None:
     """Run one optimization cycle synchronously (wraps async)."""
     # SELF-PROTECTION: the optimizer generates LLM challenger variants when

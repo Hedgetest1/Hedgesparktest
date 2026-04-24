@@ -82,6 +82,9 @@ sys.path.append("/opt/wishspark/backend")
 from app.core.env_bootstrap import load_env
 load_env()
 
+from app.core.sentry_init import init_sentry, cron_monitor
+init_sentry(component="aggregation_worker")
+
 from app.core.logging_config import configure_logging, set_worker_context
 configure_logging()
 set_worker_context(worker_name="aggregation_worker")
@@ -332,6 +335,7 @@ from app.workers.tasks.store_metrics_task import (  # noqa: E402
 # Main cycle
 # ---------------------------------------------------------------------------
 
+@cron_monitor(slug="aggregation_worker_cycle", interval_minutes=5, max_runtime_minutes=9)
 def run_cycle() -> None:
 
     from app.core.metrics import track_worker_cycle
