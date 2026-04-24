@@ -179,6 +179,22 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2f-quater. Sentry alert-rules drift audit (D10 closure to 10/10).
+# Blocks commits where backend/config/sentry_alert_rules.yaml content
+# hash differs from the recorded sentry_alert_rules.applied.lock —
+# i.e. someone edited the rules YAML but didn't run the sync script
+# to push the change to Sentry. Bootstrap-friendly: passes when
+# SENTRY_AUTH_TOKEN unset (founder hasn't activated yet).
+# ---------------------------------------------------------------------------
+step "Sentry alert-rules drift (audit_sentry_alert_rules_drift.py)"
+if "$BACKEND/venv/bin/python" "$BACKEND/scripts/audit_sentry_alert_rules_drift.py" > /tmp/preflight_sentry_rules.log 2>&1; then
+    ok "Sentry alert-rules YAML in sync with applied lock"
+else
+    bad "Sentry alert-rules drift — see /tmp/preflight_sentry_rules.log"
+    tail -20 /tmp/preflight_sentry_rules.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2g. Input-bounds audit (Tier 2.3). Every Pydantic request model field
 # of type str / list / dict must declare an upper bound (max_length,
 # max_items, or pattern=). OWASP A03/A04 — no unbounded user input

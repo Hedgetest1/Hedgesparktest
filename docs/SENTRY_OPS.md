@@ -167,6 +167,39 @@ agent_worker) already queries `WorkerState.last_run_at` + runs the
 critical preflight audits against live source. Sentry cron is additive,
 not load-bearing.
 
+## Alert rules — Infrastructure-as-Code
+
+**Source of truth:** `backend/config/sentry_alert_rules.yaml` — 6
+default rules shipped 2026-04-24 (D10 closure):
+
+| Rule | Trigger | Why |
+|---|---|---|
+| `production_error_burst` | ≥10 errors / 5min on env=production | Incident-level spike detector |
+| `regression_alert` | Sentry marks issue regression | Caught-it-before re-broke |
+| `pii_scrub_spike` | ≥5 events tagged `sentry.pii_scrubbed=true` / 1h | PII guard regex hit — investigate source |
+| `billing_path_critical` | First-seen in route `co /billing/` | Payment errors page immediately |
+| `auth_path_critical` | First-seen in route `co /auth/` | Onboarding-stop must page |
+| `worker_error_burst` | ≥5 errors with `component co worker` / 15min | Worker degradation early signal |
+
+**Sync workflow:**
+
+1. Edit `sentry_alert_rules.yaml` (add/modify/remove a rule).
+2. Run sync: `./venv/bin/python scripts/sentry_sync_alert_rules.py --apply`
+   (default is dry-run; `--apply` writes; `--prune` also deletes
+   unmanaged rules).
+3. Sync writes the new YAML hash to `sentry_alert_rules.applied.lock`.
+4. Commit YAML + lock together.
+
+**Drift protection:** `scripts/audit_sentry_alert_rules_drift.py`
+runs at preflight + every 15min in invariant_monitor. Compares YAML
+content hash vs lock hash. Mismatch = preflight FAIL with the exact
+sync command to run. Bootstrap mode: passes when `SENTRY_AUTH_TOKEN`
+unset (founder hasn't activated yet).
+
+**Auth required:** `SENTRY_AUTH_TOKEN` (scope: `project:write`) +
+`SENTRY_ORG` + `SENTRY_PROJECT`. Without them the sync script prints
+"skipped" and exits 0 — safe to run from CI even when unconfigured.
+
 ## Notification of new releases
 
 On every prod deploy, invoke:

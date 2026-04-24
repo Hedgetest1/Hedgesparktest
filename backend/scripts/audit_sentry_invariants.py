@@ -102,6 +102,36 @@ def _check_sentry_api_module(failures: list[str]) -> None:
         )
 
 
+def _check_alert_rules_iac(failures: list[str]) -> None:
+    """D10 closure: Sentry alert rules must be defined in YAML
+    (infrastructure-as-code) with a sync engine + drift audit. Verifies
+    the trio is intact: YAML config + service module + sync script +
+    drift-audit script all exist and export the expected entry points."""
+    yaml_p = BACKEND / "config/sentry_alert_rules.yaml"
+    if not yaml_p.is_file():
+        failures.append(f"missing: {yaml_p.relative_to(ROOT)} (D10 alert-rules IaC)")
+
+    svc = BACKEND / "app/services/sentry_alert_rules.py"
+    src = _read(svc)
+    if src is None:
+        failures.append(f"missing: {svc.relative_to(ROOT)} (alert-rules sync engine)")
+    else:
+        for needed in ("def load_local_rules", "def fetch_remote_rules",
+                       "def compute_diff", "def apply_diff",
+                       "def compute_yaml_hash", "def read_applied_hash",
+                       "def write_applied_hash"):
+            if needed not in src:
+                failures.append(f"{svc.relative_to(ROOT)}: {needed} not exported")
+
+    sync_script = BACKEND / "scripts/sentry_sync_alert_rules.py"
+    if not sync_script.is_file():
+        failures.append(f"missing: {sync_script.relative_to(ROOT)} (CLI sync wrapper)")
+
+    drift_script = BACKEND / "scripts/audit_sentry_alert_rules_drift.py"
+    if not drift_script.is_file():
+        failures.append(f"missing: {drift_script.relative_to(ROOT)} (drift detection)")
+
+
 def _check_backend_main(failures: list[str]) -> None:
     p = BACKEND / "app/main.py"
     src = _read(p)
@@ -285,6 +315,7 @@ def main(argv: list[str] | None = None) -> int:
     failures: list[str] = []
     _check_sentry_init_module(failures)
     _check_sentry_api_module(failures)
+    _check_alert_rules_iac(failures)
     _check_backend_main(failures)
     _check_workers(failures)
     _check_dashboard(failures)
@@ -293,7 +324,8 @@ def main(argv: list[str] | None = None) -> int:
     if not failures:
         print(
             "✅ Sentry invariants intact "
-            "(init, api, workers, crons, PII, dashboard, CSP, integration-pins, slug-pins)."
+            "(init, api, alert-rules-IaC, workers, crons, PII, dashboard, CSP, "
+            "integration-pins, slug-pins)."
         )
         return 0
 

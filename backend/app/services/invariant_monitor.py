@@ -97,6 +97,15 @@ _AUDITS: list[tuple[str, str, str]] = [
         "invariant_regression",
         "invariant:sentry_invariants",
     ),
+    # Sentry alert-rules drift: added 2026-04-24 (D10 closure). Runtime
+    # recognition for "YAML edited but never synced to Sentry" — same
+    # class as Terraform-state-drift in IaC. Fires within 15min if a
+    # commit slips through preflight via --no-verify with stale lock.
+    (
+        "audit_sentry_alert_rules_drift.py",
+        "invariant_regression",
+        "invariant:sentry_alert_rules_drift",
+    ),
 ]
 
 _TIMEOUT_SECONDS = 30
