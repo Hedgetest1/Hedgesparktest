@@ -1161,6 +1161,22 @@ def _consume_one_incident(
         candidate.id, incident.id, candidate.title,
         subsystem, risk_tier, incident.recurrence_count,
     )
+
+    # SENTRY-2 closure: notify Sentry that we've linked this issue to
+    # an internal bugfix candidate. Comment-only (no auto-resolve until
+    # the candidate is actually applied + verified). Best-effort —
+    # never fails the triage flow if the API is down or unconfigured.
+    try:
+        from app.services.sentry_api import notify_triage_outcome
+        notify_triage_outcome(
+            sentry_issue_url=incident.sentry_issue_url,
+            incident_status="linked",
+            verdict_summary=candidate.title,
+            bugfix_candidate_id=candidate.id,
+        )
+    except Exception as exc:
+        log.warning("sentry_triage: notify_triage_outcome failed for incident=%d: %s", incident.id, exc)
+
     return "consumed"
 
 

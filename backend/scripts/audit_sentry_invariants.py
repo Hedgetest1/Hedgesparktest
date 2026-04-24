@@ -80,6 +80,28 @@ def _check_sentry_init_module(failures: list[str]) -> None:
         )
 
 
+def _check_sentry_api_module(failures: list[str]) -> None:
+    p = BACKEND / "app/services/sentry_api.py"
+    src = _read(p)
+    if src is None:
+        failures.append(f"missing: {p.relative_to(ROOT)} (SENTRY-2 bidirectional API client)")
+        return
+    for needed in ("def add_issue_comment", "def set_issue_status",
+                    "def extract_issue_id", "def notify_triage_outcome",
+                    "def is_configured"):
+        if needed not in src:
+            failures.append(f"{p.relative_to(ROOT)}: {needed} not exported")
+    # Wire-in check: sentry_triage must call notify_triage_outcome on the
+    # terminal "linked" transition. Without this the bidirectional loop
+    # is half-built — Sentry never learns we acted on the issue.
+    triage = _read(BACKEND / "app/services/sentry_triage.py")
+    if triage and "notify_triage_outcome" not in triage:
+        failures.append(
+            "backend/app/services/sentry_triage.py: notify_triage_outcome() not invoked "
+            "after candidate creation — bidirectional Sentry loop broken (SENTRY-2)"
+        )
+
+
 def _check_backend_main(failures: list[str]) -> None:
     p = BACKEND / "app/main.py"
     src = _read(p)
@@ -262,13 +284,17 @@ def _check_integration_baselines(failures: list[str]) -> None:
 def main(argv: list[str] | None = None) -> int:
     failures: list[str] = []
     _check_sentry_init_module(failures)
+    _check_sentry_api_module(failures)
     _check_backend_main(failures)
     _check_workers(failures)
     _check_dashboard(failures)
     _check_integration_baselines(failures)
 
     if not failures:
-        print("✅ Sentry invariants intact (init, workers, crons, PII, dashboard, CSP, integration-pins, slug-pins).")
+        print(
+            "✅ Sentry invariants intact "
+            "(init, api, workers, crons, PII, dashboard, CSP, integration-pins, slug-pins)."
+        )
         return 0
 
     print(f"❌ Sentry invariant violations ({len(failures)}):\n")
