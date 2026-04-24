@@ -148,6 +148,23 @@ def get_llm_budget(
     return get_usage_summary()
 
 
+@router.get("/sentry-budget")
+def get_sentry_budget(
+    _auth: bool = Depends(require_operator),
+    refresh: bool = False,
+):
+    """Return Sentry quota usage for the past 30 days. Complements
+    /ops/llm-budget: operator can see remaining errors / transactions /
+    replays / profiles / cron-monitor budget before the monthly email
+    arrives. Cached 5min; pass ?refresh=true to bypass.
+
+    Graceful when SENTRY_AUTH_TOKEN / SENTRY_ORG not set — returns
+    {"configured": false, "reason": ...} so the ops dashboard still
+    renders a "not configured" tile instead of 500-ing."""
+    from app.services.sentry_quota import get_quota_summary
+    return get_quota_summary(refresh=refresh)
+
+
 @router.get("/dashboard-health")
 def get_dashboard_health(
     _auth: bool = Depends(require_operator),
