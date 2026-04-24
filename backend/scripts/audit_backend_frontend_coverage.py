@@ -129,21 +129,12 @@ _VALID_EXEMPT_REASONS = frozenset({
 # decorators recognized. We then resolve the full path via the runtime
 # FastAPI `app.routes` enumeration below, which has authoritative
 # prefix data without needing to track variable names by hand.
-_ROUTE_DECORATOR_RE = re.compile(
-    # `@<var>.<method>(` followed by optional whitespace/newlines, then
-    # the path literal. Multi-line decorators (`@router.get(\n "",\n
-    # response_model=...,\n)`) are common — DOTALL lets `\s` match
-    # newlines inside the arg list but we still anchor on `@<var>` at
-    # start-of-line to avoid cross-decorator smearing.
-    r"(?m)^\s*@(\w+)\.(get|post|put|patch|delete)\s*\(\s*"
-    r"[\"']([^\"']*)[\"']"
-    # Optional same-line ui-exempt comment — if the decorator spans
-    # multiple lines, the comment (if any) is usually on the closing-
-    # paren line; we look for it on the FIRST line with the path OR
-    # on the SAME line as the closing paren. Simplest: scan for it in
-    # the 150 chars after the path literal.
-    r"(?:[^)]|\n)*?\)\s*(?:#\s*ui-exempt\s*:\s*([a-z][a-z0-9_-]*))?",
-)
+# ui-exempt comment pattern — matched on the line(s) covered by the
+# decorator (both single-line and multi-line forms). The decorator
+# parser below is AST-based so path-literal edge cases (strings with
+# ")", nested calls, comments between kwargs) cannot confuse it.
+_UI_EXEMPT_RE = re.compile(r"#\s*ui-exempt\s*:\s*([a-z][a-z0-9_-]*)")
+_HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 
 
 @dataclass
@@ -181,14 +172,56 @@ def _parse_file_router_prefixes(tree: ast.Module) -> dict[str, str]:
     return out
 
 
+def _decorator_call_parts(dec: ast.expr) -> tuple[str, str, str] | None:
+    """Return (router_var, http_method, path_literal) for an
+    `@<var>.<method>("<path>", ...)` decorator node, else None.
+
+    AST-based so the path literal is extracted cleanly regardless of
+    parentheses, commas, or nested calls inside the keyword arguments.
+    """
+    if not isinstance(dec, ast.Call):
+        return None
+    fn = dec.func
+    if not isinstance(fn, ast.Attribute):
+        return None
+    if not isinstance(fn.value, ast.Name):
+        return None
+    method = fn.attr
+    if method not in _HTTP_METHODS:
+        return None
+    if not dec.args:
+        return None
+    first_arg = dec.args[0]
+    if not (isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str)):
+        return None
+    return (fn.value.id, method, first_arg.value)
+
+
+def _exempt_reason_for_decorator(
+    text_lines: list[str], dec: ast.expr
+) -> str | None:
+    """Search for `# ui-exempt: <reason>` on any line covered by the
+    decorator's source span (inclusive). Covers both single-line and
+    multi-line decorator forms. Line numbers are 1-indexed."""
+    start = dec.lineno
+    end = getattr(dec, "end_lineno", dec.lineno) or dec.lineno
+    for ln in range(start, end + 1):
+        idx = ln - 1
+        if 0 <= idx < len(text_lines):
+            m = _UI_EXEMPT_RE.search(text_lines[idx])
+            if m:
+                return m.group(1)
+    return None
+
+
 def _extract_decorator_index(api_dir: pathlib.Path) -> dict[tuple[str, str], dict]:
     """Return {(method, FULL_path): {file, line, exempt}}.
 
-    Uses AST to bind each `@<var>.<method>("/x")` decorator to the
-    router variable it references, then joins `<var>'s prefix + /x`
-    to compute the FULL path. That resolves (method, full_path) to a
-    unique (file, line) even when two files contain decorators with
-    the same literal arg.
+    Walks every module-level `FunctionDef` in each `.py` file, matches
+    decorators against `@<router_var>.<http_method>("<path>", ...)`,
+    then joins the router's prefix with the path literal to compute the
+    full runtime path. AST-based end-to-end — regex is only used to
+    scan for the ui-exempt tag within the decorator's source span.
     """
     out: dict[tuple[str, str], dict] = {}
     for py in sorted(api_dir.rglob("*.py")):
@@ -202,41 +235,38 @@ def _extract_decorator_index(api_dir: pathlib.Path) -> dict[tuple[str, str], dic
         if not router_prefixes:
             continue
 
-        # Regex on the source so we capture the same-line ui-exempt
-        # comment that AST drops. For each decorator match we look up
-        # the router var via the regex group 1.
-        for m in _ROUTE_DECORATOR_RE.finditer(text):
-            var_name = m.group(1)
-            method = m.group(2).upper()
-            dec_path = m.group(3)
-            exempt = m.group(4)
-            if method in _IGNORE_METHODS:
-                continue
-            if var_name not in router_prefixes:
-                # decorator on something that isn't a module-level
-                # APIRouter var (e.g., a nested router) — skip
-                continue
-            prefix = router_prefixes[var_name]
-            if dec_path == "/":
-                full = prefix or "/"
-            else:
-                full = (prefix + dec_path) if prefix else dec_path
-                if not full.startswith("/"):
-                    full = "/" + full
+        text_lines = text.splitlines()
+        rel_file = str(py.relative_to(BACKEND_API.parent.parent))
 
-            # m.start() may fall in the leading whitespace of the
-            # decorator — advance to the actual `@` so the reported line
-            # is the decorator's own line, not the blank above it.
-            at_offset = text.find("@", m.start(), m.end())
-            pos = at_offset if at_offset >= 0 else m.start()
-            lineno = text[: pos].count("\n") + 1
-            key = (method, full)
-            if key not in out:
-                out[key] = {
-                    "file": str(py.relative_to(BACKEND_API.parent.parent)),
-                    "line": lineno,
-                    "exempt": exempt,
-                }
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for dec in node.decorator_list:
+                parts = _decorator_call_parts(dec)
+                if parts is None:
+                    continue
+                var_name, method_lc, dec_path = parts
+                method = method_lc.upper()
+                if method in _IGNORE_METHODS:
+                    continue
+                if var_name not in router_prefixes:
+                    continue
+                prefix = router_prefixes[var_name]
+                if dec_path == "/":
+                    full = prefix or "/"
+                else:
+                    full = (prefix + dec_path) if prefix else dec_path
+                    if not full.startswith("/"):
+                        full = "/" + full
+
+                exempt = _exempt_reason_for_decorator(text_lines, dec)
+                key = (method, full)
+                if key not in out:
+                    out[key] = {
+                        "file": rel_file,
+                        "line": dec.lineno,
+                        "exempt": exempt,
+                    }
     return out
 
 
@@ -295,11 +325,35 @@ def _consumer_search_strings(path: str) -> list[str]:
     return [parts[0].rstrip("/"), parts[-1].rstrip("/")]
 
 
+_COMMENT_BLOCK_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
+_COMMENT_LINE_RE = re.compile(r"//[^\n]*")
+
+
+def _strip_comments(text: str) -> str:
+    """Remove TypeScript/JavaScript comments (both `// line` and
+    `/* block */`) from a file's content before substring matching.
+    Closes two Gate-2 DA findings: (a) commented-out fetch calls no
+    longer count as consumers, (b) substring fragility downgraded from
+    "any file mentioning the path" to "any file with uncommented
+    reference".
+
+    Does NOT parse string literals — a path INSIDE a string literal is
+    still counted as a consumer. That's intentional: `fetch("/pro/foo")`
+    is the canonical consumer pattern and the path lives in a string.
+    The prior false positive was specifically commented-out code, which
+    this strip now handles."""
+    # Order matters: strip block comments first (they can contain //),
+    # then line comments.
+    text = _COMMENT_BLOCK_RE.sub("", text)
+    text = _COMMENT_LINE_RE.sub("", text)
+    return text
+
+
 def _has_consumer(path: str, files: list[pathlib.Path]) -> bool:
     # Literal-path fast path
     for f in files:
         try:
-            txt = f.read_text(errors="ignore")
+            txt = _strip_comments(f.read_text(errors="ignore"))
         except Exception:
             continue
         if path in txt:
@@ -311,7 +365,7 @@ def _has_consumer(path: str, files: list[pathlib.Path]) -> bool:
         return False
     for f in files:
         try:
-            txt = f.read_text(errors="ignore")
+            txt = _strip_comments(f.read_text(errors="ignore"))
         except Exception:
             continue
         if all(n in txt for n in needles if n):

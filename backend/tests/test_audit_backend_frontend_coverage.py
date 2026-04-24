@@ -224,6 +224,60 @@ def test_invalid_exempt_reason_flagged(tmp_path, monkeypatch):
     assert rc == 1
 
 
+def test_strip_comments_removes_line_and_block_comments():
+    """Gate-2 DA finding closure: commented-out fetch references must
+    NOT count as consumers. Single-line `//` + block `/* */` stripped
+    before substring match."""
+    mod = _load()
+    src = (
+        "// fetch('/pro/foo');\n"
+        "const keep = '/pro/real';\n"
+        "/* older fetch: '/pro/old' */\n"
+        "/* block\n"
+        "   comment\n"
+        "   fetch('/pro/multi-line-commented')\n"
+        "*/\n"
+        "const also = '/pro/live';\n"
+    )
+    cleaned = mod._strip_comments(src)
+    assert "/pro/foo" not in cleaned
+    assert "/pro/old" not in cleaned
+    assert "/pro/multi-line-commented" not in cleaned
+    assert "/pro/real" in cleaned
+    assert "/pro/live" in cleaned
+
+
+def test_has_consumer_skips_commented_out_references(tmp_path):
+    """Integration: a dashboard file where the route only appears
+    inside a comment must be treated as NO consumer."""
+    mod = _load()
+    f = tmp_path / "consumer.tsx"
+    f.write_text(
+        "// fetch('/pro/foo-bar');  // old\n"
+        "/* @deprecated — was /pro/foo-bar */\n"
+        "fetch('/pro/other');\n"
+    )
+    assert mod._has_consumer("/pro/foo-bar", [f]) is False
+    assert mod._has_consumer("/pro/other", [f]) is True
+
+
+def test_ast_decorator_parser_handles_path_with_closing_paren(tmp_path):
+    """Gate-2 DA finding closure: the old regex-based parser would get
+    confused by a path literal containing `)`. AST parser must extract
+    the path verbatim."""
+    mod = _load()
+    f = tmp_path / "x.py"
+    f.write_text(
+        'from fastapi import APIRouter\n'
+        'router = APIRouter(prefix="/pro")\n'
+        '@router.get("/regex(test)/docs", response_model=X)\n'
+        'def h(): pass\n'
+    )
+    mod.BACKEND_API = tmp_path
+    index = mod._extract_decorator_index(tmp_path)
+    assert ("GET", "/pro/regex(test)/docs") in index
+
+
 def test_is_merchant_facing():
     mod = _load()
     assert mod._is_merchant_facing("/pro/foo") is True

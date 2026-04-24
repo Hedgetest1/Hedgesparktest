@@ -120,10 +120,21 @@ class TestCaching:
         selfheal.assert_not_called()
 
     def test_cache_write_on_miss(self):
+        """Cache miss → setex called. Pins ONLY that contract; mocks all
+        helper sections so the test is deterministic regardless of live
+        DB/Redis state in the full-suite run (eliminated an intermittent
+        flake caught by the founder 2026-04-25)."""
         from app.api import public_transparency as mod
         rc = MagicMock()
         rc.get.return_value = None  # cache miss
-        with patch("app.core.redis_client._client", return_value=rc):
+        with patch("app.core.redis_client._client", return_value=rc), \
+             patch.object(mod, "_self_healing_section", return_value={}), \
+             patch.object(mod, "_llm_drift_section", return_value={}), \
+             patch.object(mod, "_pii_guard_section", return_value={}), \
+             patch.object(mod, "_audit_integrity_section", return_value={}), \
+             patch.object(mod, "_preflight_section", return_value={}), \
+             patch.object(mod, "_holdout_proof_section", return_value={}), \
+             patch.object(mod, "_tests_section", return_value={}):
             mod.get_public_transparency()
         rc.setex.assert_called_once()
         args, _ = rc.setex.call_args
