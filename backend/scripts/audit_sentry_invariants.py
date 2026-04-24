@@ -140,15 +140,135 @@ def _check_dashboard(failures: list[str]) -> None:
             failures.append(f"{cc.relative_to(ROOT)}: replay integration must set blockAllMedia=true (PII)")
 
 
+# ---------------------------------------------------------------------------
+# Integration + cron-monitor enumeration pins
+# ---------------------------------------------------------------------------
+# Rationale: every new Sentry integration added to the client or backend
+# init payload costs bundle size (frontend) or startup memory (backend)
+# AND may produce quota-bearing events (transactions, profiles, replay
+# segments). Every new `@cron_monitor(slug=...)` on a worker adds a
+# cron-monitor quota consumer. We baseline the current set here so any
+# diff that adds a NEW integration or slug trips preflight — forcing
+# the author to answer the 4-question quota pre-check
+# (feedback_sentry_quota_pre_check.md) before merging.
+#
+# Update these BASELINES when you INTENTIONALLY add a new entry. Commit
+# message must cite: quota type / plan limit / volume estimate /
+# headroom (4-question check from feedback_sentry_quota_pre_check.md).
+# ---------------------------------------------------------------------------
+
+# Backend Python integrations registered in app/core/sentry_init.py.
+# Match against `<Name>Integration()` constructor calls in the module.
+_BACKEND_INTEGRATIONS_BASELINE = {
+    "FastApiIntegration",
+    "SqlalchemyIntegration",
+    "HttpxIntegration",
+    "RedisIntegration",
+    "LoggingIntegration",
+}
+
+# Frontend JS integrations in dashboard/sentry.client.config.ts.
+# Match against `Sentry.<Name>Integration` / `replayIntegration` etc.
+_FRONTEND_INTEGRATIONS_BASELINE = {
+    "replayIntegration",  # Sentry.replayIntegration(...)
+}
+
+# @cron_monitor slugs across backend/app/workers/*.py.
+_CRON_SLUGS_BASELINE = {
+    "agent_worker_cycle",
+    "intelligence_worker_cycle",
+    "aggregation_worker_cycle",
+    "segment_monitor_worker_cycle",
+    "nudge_optimization_worker_cycle",
+    "gdpr_worker_cycle",
+}
+
+
+def _extract_backend_integrations() -> set[str]:
+    """Scan app/core/sentry_init.py for `XxxIntegration` class references."""
+    src = _read(BACKEND / "app/core/sentry_init.py") or ""
+    # Match `<Name>Integration` as a word (constructor call or class reference).
+    return set(re.findall(r"\b([A-Z][A-Za-z0-9_]*Integration)\b", src))
+
+
+def _extract_frontend_integrations() -> set[str]:
+    """Scan dashboard/sentry.client.config.ts for integration references.
+    Matches both `Sentry.xxxIntegration(` and bare `xxxIntegration(`."""
+    src = _read(DASHBOARD / "sentry.client.config.ts") or ""
+    # Match `<name>Integration(` as function call (module-local or Sentry.<name>).
+    return set(re.findall(r"\b([a-zA-Z][A-Za-z0-9_]*Integration)\s*\(", src))
+
+
+def _extract_cron_slugs() -> set[str]:
+    """Scan all worker files for `@cron_monitor(slug="...")` literals."""
+    slugs: set[str] = set()
+    pat = re.compile(r'@cron_monitor\(\s*slug\s*=\s*"([^"]+)"')
+    for worker in WORKER_FILES.values():
+        src = _read(worker) or ""
+        slugs.update(pat.findall(src))
+    return slugs
+
+
+def _check_integration_baselines(failures: list[str]) -> None:
+    actual_be = _extract_backend_integrations()
+    # Scanner picks up the class name appearing in an import/usage; we
+    # accept the intersection with the baseline PLUS anything the
+    # regex legitimately flags (the full set).
+    added_be = actual_be - _BACKEND_INTEGRATIONS_BASELINE
+    missing_be = _BACKEND_INTEGRATIONS_BASELINE - actual_be
+    if added_be:
+        failures.append(
+            "backend/app/core/sentry_init.py: NEW Sentry integration(s) detected: "
+            f"{sorted(added_be)} — update _BACKEND_INTEGRATIONS_BASELINE in this audit + "
+            "cite quota pre-check (feedback_sentry_quota_pre_check.md 4-question check) in commit message"
+        )
+    if missing_be:
+        failures.append(
+            "backend/app/core/sentry_init.py: REMOVED Sentry integration(s): "
+            f"{sorted(missing_be)} — update baseline if intentional, otherwise restore"
+        )
+
+    actual_fe = _extract_frontend_integrations()
+    added_fe = actual_fe - _FRONTEND_INTEGRATIONS_BASELINE
+    missing_fe = _FRONTEND_INTEGRATIONS_BASELINE - actual_fe
+    if added_fe:
+        failures.append(
+            "dashboard/sentry.client.config.ts: NEW frontend integration(s): "
+            f"{sorted(added_fe)} — update _FRONTEND_INTEGRATIONS_BASELINE + "
+            "audit_bundle_budget.py headroom + cite quota pre-check in commit"
+        )
+    if missing_fe:
+        failures.append(
+            f"dashboard/sentry.client.config.ts: REMOVED frontend integration(s): {sorted(missing_fe)}"
+        )
+
+    actual_slugs = _extract_cron_slugs()
+    added_slugs = actual_slugs - _CRON_SLUGS_BASELINE
+    missing_slugs = _CRON_SLUGS_BASELINE - actual_slugs
+    if added_slugs:
+        failures.append(
+            "backend/app/workers/*.py: NEW @cron_monitor slug(s): "
+            f"{sorted(added_slugs)} — each slug is a Sentry cron-monitor quota consumer. "
+            "Team-plan base = 1 monitor. Update _CRON_SLUGS_BASELINE + cite quota pre-check + "
+            "confirm SENTRY_CRON_MONITORING allowlist excludes by default"
+        )
+    if missing_slugs:
+        failures.append(
+            "backend/app/workers/*.py: REMOVED @cron_monitor slug(s): "
+            f"{sorted(missing_slugs)} — update baseline if intentional"
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     failures: list[str] = []
     _check_sentry_init_module(failures)
     _check_backend_main(failures)
     _check_workers(failures)
     _check_dashboard(failures)
+    _check_integration_baselines(failures)
 
     if not failures:
-        print("✅ Sentry invariants intact (init, workers, crons, PII, dashboard, CSP).")
+        print("✅ Sentry invariants intact (init, workers, crons, PII, dashboard, CSP, integration-pins, slug-pins).")
         return 0
 
     print(f"❌ Sentry invariant violations ({len(failures)}):\n")

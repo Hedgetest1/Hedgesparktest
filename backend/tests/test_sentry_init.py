@@ -143,3 +143,82 @@ def test_resolve_release_returns_git_sha_or_env():
         # In dev with git available, returns hedgespark@<sha12>
         rel = si._resolve_release()
         assert rel is None or rel.startswith("hedgespark@")
+
+
+def test_audit_pins_integration_baseline():
+    """DA1 closure: the audit enumerates active Sentry integrations and
+    fails if a new one is added without updating the baseline + citing
+    the quota pre-check. Verifies the scanner actually finds the
+    baseline set today — sanity check that the regex isn't broken."""
+    import subprocess
+    result = subprocess.run(
+        ["./venv/bin/python", "scripts/audit_sentry_invariants.py"],
+        cwd="/opt/wishspark/backend",
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, (
+        f"Sentry invariants audit failed — integrations or cron slugs may have drifted:\n{result.stdout}\n{result.stderr}"
+    )
+    assert "integration-pins" in result.stdout
+    assert "slug-pins" in result.stdout
+
+
+def test_audit_flags_new_integration_in_source():
+    """DA1 closure: inject a fake new integration into a temp copy of
+    the module and verify the audit FLAGS it. Proves the pin actually
+    catches additions."""
+    import tempfile, shutil, subprocess
+    from pathlib import Path as P
+    # Create a tempdir + symlink the repo structure + overwrite
+    # sentry_init.py with an injected integration.
+    with tempfile.TemporaryDirectory() as td:
+        tdp = P(td)
+        # Real audit targets /opt/wishspark absolute — we can't easily
+        # re-root. Instead: poke a marker integration name into the
+        # real file temporarily, run audit, assert fail, restore.
+        src_path = P("/opt/wishspark/backend/app/core/sentry_init.py")
+        original = src_path.read_text()
+        try:
+            injected = original + "\n# audit-test-marker: CanvasIntegration\n"
+            src_path.write_text(injected)
+            result = subprocess.run(
+                ["./venv/bin/python", "scripts/audit_sentry_invariants.py"],
+                cwd="/opt/wishspark/backend",
+                capture_output=True, text=True, timeout=30,
+            )
+            assert result.returncode == 1, "audit should fail when new integration detected"
+            assert "CanvasIntegration" in result.stdout
+            assert "quota pre-check" in result.stdout.lower()
+        finally:
+            src_path.write_text(original)
+
+
+def test_da2_dsn_same_as_frontend_emits_warning():
+    """DA2 closure: when NEXT_PUBLIC_SENTRY_DSN equals SENTRY_DSN, the
+    helper logs a loud warning recommending split projects. Tested by
+    patching the module-level logger's warning method to capture the
+    call — bypasses pytest's caplog which conflicts with our JSON
+    logging handler swap in configure_logging()."""
+    si = _reload_sentry_init()
+    fake_dsn = "https://abc@o1.ingest.de.sentry.io/1"
+    with patch.dict(os.environ, {"NEXT_PUBLIC_SENTRY_DSN": fake_dsn}):
+        with patch.object(si.log, "warning") as mock_warn:
+            si._warn_if_dsn_shared(fake_dsn)
+    assert mock_warn.called, "helper must log a WARNING when DSNs match"
+    call_args = mock_warn.call_args[0]
+    assert "SAME Sentry project" in call_args[0], (
+        f"Expected 'SAME Sentry project' in warning; got: {call_args}"
+    )
+
+
+def test_da2_different_dsn_no_warning():
+    """DA2 closure: different DSNs on backend vs frontend = OK, no warning."""
+    si = _reload_sentry_init()
+    with patch.dict(os.environ, {
+        "NEXT_PUBLIC_SENTRY_DSN": "https://fe@o2.ingest.de.sentry.io/2",
+    }):
+        with patch.object(si.log, "warning") as mock_warn:
+            si._warn_if_dsn_shared("https://be@o1.ingest.de.sentry.io/1")
+    assert not mock_warn.called, (
+        f"Unexpected warning with different DSNs; called with: {mock_warn.call_args_list}"
+    )

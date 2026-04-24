@@ -247,7 +247,32 @@ def init_sentry(component: str = "backend") -> bool:
         "sentry_init: initialized for component=%s env=%s traces=%s profiles=%s",
         component, env, base_traces, base_profiles,
     )
+
+    # DA2 preventer — see _warn_if_dsn_shared for the rationale.
+    if component == "backend":
+        _warn_if_dsn_shared(dsn)
     return True
+
+
+def _warn_if_dsn_shared(backend_dsn: str) -> None:
+    """If the backend DSN is ALSO set as the frontend DSN, the two
+    surfaces share a Sentry project. That's functional but makes stack-
+    trace symbolication messy and merges quota accounting. Warn once at
+    startup so the operator sees a loud recommendation rather than
+    silently drifting into a misconfigured setup. Extracted as a
+    standalone helper so it can be tested in isolation without mocking
+    the whole sentry_sdk.init flow.
+
+    See docs/SENTRY_OPS.md 'Separate frontend project' + ledger SENTRY-1.
+    """
+    public_dsn = os.getenv("NEXT_PUBLIC_SENTRY_DSN", "").strip()
+    if public_dsn and public_dsn == backend_dsn:
+        log.warning(
+            "sentry_init: NEXT_PUBLIC_SENTRY_DSN == SENTRY_DSN — backend + frontend "
+            "are posting to the SAME Sentry project. Works, but recommended to split "
+            "(see docs/SENTRY_OPS.md 'Separate frontend project', ledger SENTRY-1). "
+            "Source-map symbolication + quota dashboards improve with split projects."
+        )
 
 
 def is_enabled() -> bool:
