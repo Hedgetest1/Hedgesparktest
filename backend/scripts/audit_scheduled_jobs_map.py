@@ -46,27 +46,38 @@ _NEXT_SECTION_RE = re.compile(r"^##\s+", re.MULTILINE)
 _TABLE_ROW_FN_RE = re.compile(r"\|\s*\*?\*?`(_run_\w+)`")
 
 
-def _extract_documented_fns(md_text: str) -> set[str]:
+def _extract_documented_fns(md_text: str) -> dict[str, int]:
+    """Return {fn_name: line_number} so drift output can point at the
+    exact `docs/reality_scheduled_jobs.md:NN` row. Line numbers are
+    1-indexed for human navigation."""
     m = _SECTION_START_RE.search(md_text)
     if not m:
-        return set()
+        return {}
     start = m.end()
-    # Find the first "## " AFTER the section start.
     rest = md_text[start:]
     nxt = _NEXT_SECTION_RE.search(rest)
     end = start + (nxt.start() if nxt else len(rest))
     section = md_text[start:end]
-    return set(_TABLE_ROW_FN_RE.findall(section))
+    base_line = md_text[:start].count("\n") + 1
+
+    out: dict[str, int] = {}
+    for local_idx, line in enumerate(section.splitlines()):
+        match = _TABLE_ROW_FN_RE.search(line)
+        if match:
+            out.setdefault(match.group(1), base_line + local_idx)
+    return out
 
 
-def _extract_defined_fns(py_path: Path) -> set[str]:
+def _extract_defined_fns(py_path: Path) -> dict[str, int]:
+    """Return {fn_name: line_number} for every `_run_*` function so drift
+    output can point at `app/workers/agent_worker.py:NN`."""
     tree = ast.parse(py_path.read_text(), filename=str(py_path))
-    names: set[str] = set()
+    out: dict[str, int] = {}
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             if node.name.startswith("_run_"):
-                names.add(node.name)
-    return names
+                out.setdefault(node.name, node.lineno)
+    return out
 
 
 def _extract_fn_doclines(py_path: Path) -> dict[str, str]:
@@ -158,10 +169,13 @@ def main(argv: list[str]) -> int:
 
     doc_text = DOC_MAP.read_text()
 
-    defined = _extract_defined_fns(AGENT_WORKER)
-    documented = _extract_documented_fns(doc_text)
+    defined_map = _extract_defined_fns(AGENT_WORKER)
+    documented_map = _extract_documented_fns(doc_text)
     task_modules = _extract_task_modules(TASKS_DIR)
     documented_tasks = _extract_documented_task_modules(doc_text)
+
+    defined = set(defined_map.keys())
+    documented = set(documented_map.keys())
 
     # MED-14: docstring vs md-description freshness (optional, opt-in
     # via --verify-doclines). Non-blocking by design — false positive
@@ -217,7 +231,7 @@ def main(argv: list[str]) -> int:
             f"NOT documented (add a row to the agent_worker table):"
         )
         for fn in sorted(missing):
-            print(f"    + {fn}")
+            print(f"    + {fn}  (app/workers/agent_worker.py:{defined_map[fn]})")
         print()
 
     if stale:
@@ -226,7 +240,7 @@ def main(argv: list[str]) -> int:
             f"found in code (remove the row, or fix the function name):"
         )
         for fn in sorted(stale):
-            print(f"    - {fn}")
+            print(f"    - {fn}  (docs/reality_scheduled_jobs.md:{documented_map[fn]})")
         print()
 
     if missing_tasks:
