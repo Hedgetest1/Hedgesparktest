@@ -2933,6 +2933,42 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
     except Exception as exc:
         log.debug("propose_patch: hard lessons injection failed (non-fatal): %s", exc)
 
+    # Sprint C (2026-04-25) — iteration prompt augmentation. When this
+    # candidate was spawned by iterative_fix as a follow-up to adversarial
+    # findings, its context_json carries the parent's patch_diff + the
+    # blocking concerns. Merge them into the LLM prompt so the new patch
+    # addresses the previous round's adversarial critique instead of
+    # regenerating the same failing patch.
+    if candidate.source_type == "iteration" and candidate.context_json:
+        try:
+            iter_ctx = json.loads(candidate.context_json)
+            if isinstance(iter_ctx, dict) and iter_ctx.get("iteration_parent_id"):
+                parent_diff = iter_ctx.get("parent_patch_diff", "")
+                concerns = iter_ctx.get("adversarial_concerns") or []
+                instruction = iter_ctx.get("instruction", "")
+                if concerns or parent_diff:
+                    iter_block = [
+                        "## ITERATIVE RE-PROPOSE — prior patch was rejected by adversarial DA",
+                    ]
+                    if instruction:
+                        iter_block.append(instruction)
+                    if parent_diff:
+                        iter_block.append(
+                            "### Previous patch diff (reference, do NOT reproduce verbatim):"
+                        )
+                        iter_block.append(f"```diff\n{parent_diff}\n```")
+                    if concerns:
+                        iter_block.append("### Blocking adversarial concerns to address:")
+                        for c in concerns:
+                            iter_block.append(
+                                f"- **{c.get('lens')}** (severity {c.get('severity')}): "
+                                f"{c.get('concern')}\n"
+                                f"  remediation hint: {c.get('suggested_remediation')}"
+                            )
+                    context_parts.append("\n".join(iter_block))
+        except Exception as exc:
+            log.debug("propose_patch: iteration context parse failed (non-fatal): %s", exc)
+
     user_message = "\n\n".join(context_parts)
 
     # Call LLM with routing context

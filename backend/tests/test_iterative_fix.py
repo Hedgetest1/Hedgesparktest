@@ -178,6 +178,50 @@ def test_maybe_schedule_respects_max_depth_env(monkeypatch, db, enable_iterative
     assert child is None
 
 
+def test_propose_patch_augments_prompt_for_iteration_candidate(
+    db, enable_iterative, monkeypatch,
+):
+    """DA Gate-2 closure: the iteration child's context_json is loaded
+    by propose_patch and the LLM prompt includes the parent patch +
+    blocking concerns. Without this, the loop doesn't converge — the
+    LLM would re-propose the same failing patch."""
+    # Arrange — create iteration child directly (simulating what
+    # maybe_schedule_iteration did in a previous cycle)
+    parent = _make_parent(db, patch_diff="-    old_line\n+    new_line\n")
+    findings = [_make_finding(parent.id, "internal", 9, concern="X",
+                              remediation="Y")]
+    child = iterative_fix.maybe_schedule_iteration(db, parent, findings)
+    assert child is not None
+    assert child.source_type == "iteration"
+
+    # Stub _call_llm to capture the prompt — don't actually invoke LLM
+    captured_prompts: list[str] = []
+
+    def _fake_call_llm(user_message, **kwargs):
+        captured_prompts.append(user_message)
+        return ("", "template_cache", "none")
+
+    # Stub reviewer + telemetry dependencies so propose_patch runs
+    from app.services import bugfix_pipeline as bp
+    monkeypatch.setattr(bp, "_call_llm", _fake_call_llm)
+    # Avoid real LLM budget / network calls
+    monkeypatch.setattr(bp, "check_budget_sync", lambda *a, **kw: (True, "ok"),
+                        raising=False)
+
+    # Act — call propose_patch on the iteration candidate
+    bp.propose_patch(db, child.id)
+
+    # Assert — prompt contains iteration augmentation signals
+    assert len(captured_prompts) == 1
+    prompt = captured_prompts[0]
+    assert "ITERATIVE RE-PROPOSE" in prompt
+    assert "Previous patch diff" in prompt
+    assert "old_line" in prompt  # parent patch content
+    assert "internal" in prompt  # blocking concern lens
+    assert "severity 9" in prompt
+    assert "remediation hint: Y" in prompt
+
+
 def test_maybe_schedule_inherits_domain_and_evidence(db, enable_iterative):
     parent = _make_parent(db)
     parent.affected_domain = "revenue_radar"
