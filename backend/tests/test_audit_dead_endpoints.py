@@ -91,3 +91,43 @@ def test_head_and_options_methods_still_filtered():
     assert ("GET", "/x") in out
     assert ("HEAD", "/x") not in out
     assert ("OPTIONS", "/x") not in out
+
+
+def test_strip_comments_removes_line_and_block():
+    """Sibling-fix DA closure: audit_dead_endpoints also strips
+    TS/JS comments before substring match, same as the backend-
+    frontend coverage audit."""
+    mod = _load_module()
+    src = (
+        "// fetch('/pro/commented');\n"
+        "const keep = '/pro/live';\n"
+        "/* block fetch('/pro/blocked') */\n"
+    )
+    cleaned = mod._strip_comments(src)
+    assert "/pro/commented" not in cleaned
+    assert "/pro/blocked" not in cleaned
+    assert "/pro/live" in cleaned
+
+
+def test_file_contains_skips_commented_fetch_in_ts(tmp_path):
+    """A path only referenced inside a `//` comment in a .tsx file
+    must NOT count as a consumer."""
+    mod = _load_module()
+    f = tmp_path / "c.tsx"
+    f.write_text("// fetch('/pro/ghost');\n")
+    assert mod._file_contains([f], "/pro/ghost") is False
+
+
+def test_file_contains_preserves_hash_in_python_tests(tmp_path):
+    """Python test files use `#` for comments and MUST NOT be
+    comment-stripped — stripping would drop real test data."""
+    mod = _load_module()
+    f = tmp_path / "test_x.py"
+    # Path embedded in a Python fixture string — the `#` is NOT a TS
+    # comment, and in fact this file has no TS comments at all.
+    f.write_text(
+        "TEST_PATH = '/pro/real-endpoint'\n"
+        "def test(): assert TEST_PATH == '/pro/real-endpoint'\n"
+    )
+    # Real consumer in Python should still count
+    assert mod._file_contains([f], "/pro/real-endpoint") is True

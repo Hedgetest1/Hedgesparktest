@@ -93,12 +93,32 @@ def _search_strings(path: str) -> list[str]:
     return [parts[0].rstrip("/"), parts[-1].rstrip("/")]
 
 
+_COMMENT_BLOCK_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
+_COMMENT_LINE_RE = re.compile(r"//[^\n]*")
+
+
+def _strip_comments(text: str) -> str:
+    """Remove TypeScript/JavaScript comments before substring matching.
+    Sibling-fix applied 2026-04-25 alongside audit_backend_frontend
+    _coverage — same bug class: commented-out fetch references were
+    counted as real consumers and false-masked orphans."""
+    text = _COMMENT_BLOCK_RE.sub("", text)
+    text = _COMMENT_LINE_RE.sub("", text)
+    return text
+
+
 def _file_contains(haystack_files: list[pathlib.Path], needle: str) -> bool:
     if not needle:
         return False
     for f in haystack_files:
         try:
-            if needle in f.read_text(errors="ignore"):
+            content = f.read_text(errors="ignore")
+            # Only strip comments for TypeScript files — Python test
+            # files use `#` for comments, and stripping those would
+            # drop real test metadata.
+            if f.suffix in (".ts", ".tsx"):
+                content = _strip_comments(content)
+            if needle in content:
                 return True
         except Exception:
             continue
@@ -112,6 +132,8 @@ def _any_file_contains_all(haystack_files: list[pathlib.Path], needles: list[str
     for f in haystack_files:
         try:
             content = f.read_text(errors="ignore")
+            if f.suffix in (".ts", ".tsx"):
+                content = _strip_comments(content)
         except Exception:
             continue
         if all(n in content for n in needles if n):

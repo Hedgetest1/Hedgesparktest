@@ -82,7 +82,7 @@ class BenchmarkResponse(BaseModel):
     "/pro/benchmarks",
     response_model=BenchmarkResponse,
     response_model_exclude_none=False,
-)
+)  # ui-exempt: deprecated
 def get_benchmarks(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
