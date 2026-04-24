@@ -13,39 +13,14 @@ from app.core.rate_limit import RateLimitMiddleware
 from app.core.request_id import RequestIDMiddleware
 
 # ---------------------------------------------------------------------------
-# Sentry error tracking — optional, graceful fallback when not installed
-#
-# Set SENTRY_DSN in backend/.env to enable.  When absent the server runs
-# normally without any error tracking.  When present all unhandled exceptions
-# are captured with full stack traces and shop_domain context attached.
-#
-# Install: pip install sentry-sdk[fastapi]
+# Sentry error tracking — centralized in app/core/sentry_init.py so the
+# backend process and all 7 PM2 workers call the same opinionated init
+# (release SHA, PII scrub, dynamic sampling, profiling, full integration
+# stack). Set SENTRY_DSN in backend/.env to enable; missing DSN is a
+# graceful no-op.
 # ---------------------------------------------------------------------------
-_sentry_enabled = False
-try:
-    import sentry_sdk
-    from sentry_sdk.integrations.fastapi import FastApiIntegration
-    from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
-
-    _SENTRY_DSN = os.getenv("SENTRY_DSN", "")
-    _SENTRY_ENV = os.getenv("SENTRY_ENVIRONMENT", "production")
-    _SENTRY_RATE = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.05"))
-
-    if _SENTRY_DSN:
-        sentry_sdk.init(
-            dsn=_SENTRY_DSN,
-            environment=_SENTRY_ENV,
-            traces_sample_rate=_SENTRY_RATE,
-            integrations=[
-                FastApiIntegration(transaction_style="endpoint"),
-                SqlalchemyIntegration(),
-            ],
-            # Don't send PII — visitor_id is pseudonymous but we play it safe
-            send_default_pii=False,
-        )
-        _sentry_enabled = True
-except ImportError:
-    pass  # sentry-sdk not installed — no-op
+from app.core.sentry_init import init_sentry
+_sentry_enabled = init_sentry(component="backend")
 
 from app.api.decision_engine import router as decision_engine_router
 from app.api.market_lookup import router as market_lookup_router
@@ -796,8 +771,14 @@ def _startup_env_audit() -> None:
 
     # Observability posture
     if _sentry_enabled:
-        _startup_log.info("OBSERVABILITY: Sentry error tracking ENABLED (env=%s rate=%.2f)",
-                          _SENTRY_ENV, _SENTRY_RATE)
+        from app.core.sentry_init import get_component
+        _startup_log.info(
+            "OBSERVABILITY: Sentry error tracking ENABLED (component=%s env=%s traces=%s profiles=%s)",
+            get_component(),
+            os.getenv("SENTRY_ENVIRONMENT", "production"),
+            os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.05"),
+            os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0.10"),
+        )
     else:
         _startup_log.warning(
             "OBSERVABILITY: Sentry NOT enabled — set SENTRY_DSN in backend/.env and "
