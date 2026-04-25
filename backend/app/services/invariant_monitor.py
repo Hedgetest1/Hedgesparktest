@@ -106,6 +106,18 @@ _AUDITS: list[tuple[str, str, str]] = [
         "invariant_regression",
         "invariant:sentry_alert_rules_drift",
     ),
+    # Dashboard a11y patterns: added 2026-04-25 night (F6 + post-DA
+    # closure). Runtime recognition for low-contrast small text
+    # (slate-500/600 + ≤13px), inline-style hex (#64748b / #45556c),
+    # icon-only buttons missing aria-label. Preflight runs --strict;
+    # this catches the same class within 15min of any --no-verify
+    # bypass. The audit is fast (<1s), pure static scan of
+    # dashboard/src.
+    (
+        "audit_dashboard_a11y.py",
+        "invariant_regression",
+        "invariant:dashboard_a11y",
+    ),
 ]
 
 _TIMEOUT_SECONDS = 30

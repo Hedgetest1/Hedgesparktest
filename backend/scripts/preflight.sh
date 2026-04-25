@@ -128,6 +128,22 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2b-sexies. §19 Axis 5 reinforcement — every devil's-advocate lens
+# in the commit message MUST cite executable verification (grep -n,
+# pytest, curl, psql, fenced code block, Evidence: tag). Born after a
+# turn-close where DA paragraphs read fine in prose but contained
+# zero verification, and re-running them surfaced 50 silent
+# regressions. See CLAUDE.md §19 Axis 5 + audit_da_evidence.py.
+# ---------------------------------------------------------------------------
+step "DA evidence scan (audit_da_evidence.py — §19 Axis 5)"
+if "$PY" scripts/audit_da_evidence.py --text-file "$SCAN_INPUT_FILE" > /tmp/preflight_da_evidence.log 2>&1; then
+    ok "every DA lens cites executable verification — §19 Axis 5 satisfied"
+else
+    bad "DA lens without evidence — see /tmp/preflight_da_evidence.log"
+    tail -20 /tmp/preflight_da_evidence.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2b-bis. Data-truth audit — catches currency drift (hardcoded €/$, SUM
 # without currency filter), DST-unsafe timezone SQL, hardcoded DB creds.
 # Baseline 0-findings reached on 2026-04-17 after centralizing

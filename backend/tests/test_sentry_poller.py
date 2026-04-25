@@ -11,9 +11,6 @@ there into BugFixCandidate). These tests pin the behaviors that matter:
 from __future__ import annotations
 
 import os
-from unittest.mock import patch
-
-import pytest
 
 from app.services import sentry_poller
 

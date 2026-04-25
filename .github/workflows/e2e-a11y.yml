@@ -1,0 +1,70 @@
+name: E2E a11y (axe-core)
+
+# Runs the axe-core a11y Playwright suite (public + authenticated) against
+# prod every night. Catches runtime a11y regressions that the static
+# preflight (audit_dashboard_a11y.py) cannot — e.g. a real shop's data
+# state surfacing a previously-empty contrast issue, an interactive
+# overlay landing without aria-label, an `animate-pulse` loading state
+# dropping contrast at the pulsed-down opacity.
+#
+# Public routes need no auth and are always covered. Authenticated routes
+# (/app, /app/pro, /app/lite, etc.) require MERCHANT_SESSION_SECRET to
+# mint a valid hs_session for hedgespark-smoke.myshopify.com. The
+# authenticated suite is skipped cleanly when the secret is absent so a
+# fork can still run the public part.
+#
+# Required GitHub Secret: MERCHANT_SESSION_SECRET (lives in backend/.env)
+# Runtime: ~45s for 16 routes. Within all free-tier ceilings.
+
+on:
+  schedule:
+    # 03:33 UTC daily — 16 minutes after session-durability so the two
+    # suites don't share a worker minute and don't clobber each other's
+    # browser cache state.
+    - cron: "33 3 * * *"
+  workflow_dispatch: {}  # allow manual triggers from the Actions UI
+
+jobs:
+  e2e-a11y:
+    name: a11y axe-core E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: dashboard
+
+    env:
+      E2E_BASE_URL: https://app.hedgesparkhq.com
+      E2E_API_BASE: https://api.hedgesparkhq.com
+      E2E_SMOKE_SHOP: hedgespark-smoke.myshopify.com
+      MERCHANT_SESSION_SECRET: ${{ secrets.MERCHANT_SESSION_SECRET }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install npm deps
+        run: npm ci
+
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run a11y suites (public + authenticated)
+        # The authenticated suite has its own beforeAll skip when
+        # MERCHANT_SESSION_SECRET is unset, so we always pass both
+        # specs. Public-only forks skip auth tests cleanly.
+        run: npx playwright test e2e/a11y.spec.ts e2e/a11y_app.spec.ts --reporter=list
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-a11y-report-${{ github.run_id }}
+          path: dashboard/playwright-report/
+          retention-days: 14
