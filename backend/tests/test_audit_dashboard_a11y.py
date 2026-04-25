@@ -155,6 +155,24 @@ def test_inline_style_uppercase_hex_is_flagged(audit, tmp_path):
     assert len(findings) == 1
 
 
+def test_opacity_modified_slate_500_is_flagged(audit, tmp_path):
+    """REGRESSION: 2026-04-25 night Mode 4 pre-mortem — opacity modifiers
+    on already-low-contrast tokens always REDUCE contrast on dark bg.
+    `text-slate-500/50` would have escaped the original `\\btext-slate-500\\b`
+    regex because `/` breaks word boundary. Extended to `(?:/\\d+)?`."""
+    f = tmp_path / "X.tsx"
+    f.write_text('<div className="text-[10px] text-slate-500/50">x</div>\n')
+    findings = audit.find_low_contrast_small_text(f)
+    assert len(findings) == 1
+
+
+def test_opacity_modified_slate_600_is_flagged(audit, tmp_path):
+    f = tmp_path / "X.tsx"
+    f.write_text('<div className="text-[11px] text-slate-600/80">x</div>\n')
+    findings = audit.find_low_contrast_small_text(f)
+    assert len(findings) == 1
+
+
 # ---------------------------------------------------------------------------
 # Smoke for the strict mode — clean repo means rc=0
 # ---------------------------------------------------------------------------

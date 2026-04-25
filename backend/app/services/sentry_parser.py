@@ -501,7 +501,17 @@ def parse_sentry_webhook(payload: dict) -> dict:
             result["stack_trace"] = stack_text[:4000]
 
         # --- Release ---
-        release = event.get("release") or tags_dict.get("sentry:release") or None
+        # Webhook payloads carry release as a string. The REST `events/latest`
+        # response (used by sentry_poller) carries it as a dict shaped like
+        # {"id": ..., "version": "hedgespark@<sha>", ...}. Normalize so the
+        # downstream `release[:128]` slice always operates on a string.
+        release_raw = event.get("release") or tags_dict.get("sentry:release") or None
+        if isinstance(release_raw, dict):
+            release = release_raw.get("version") or release_raw.get("shortVersion") or None
+        elif isinstance(release_raw, str):
+            release = release_raw
+        else:
+            release = None
         if release:
             result["release"] = release
 

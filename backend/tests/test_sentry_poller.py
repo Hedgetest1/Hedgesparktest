@@ -173,3 +173,52 @@ def test_cooldown_short_circuits(db, monkeypatch):
     result = sentry_poller.poll_recent_issues(db)
     assert result == {"status": "skipped", "reason": "cooldown"}
     assert api_calls == []  # NO API call when cooldown is active
+
+
+def test_dict_shaped_release_field_does_not_crash_parser(monkeypatch):
+    """REGRESSION: the Sentry REST `events/latest` response carries
+    `event.release` as a dict ({id, version, ...}), not a string. The
+    parser used to assign the dict directly to `result['release']`,
+    then sentry_triage.`incident.release = release[:128]` crashed with
+    `TypeError: unhashable type: 'slice'`. Fix in parse_sentry_webhook
+    extracts release.version. Live-observed 2026-04-25 evening: 8
+    SentryIncident rows successfully stored then rolled back due to
+    this exception."""
+    from app.services.sentry_parser import parse_sentry_webhook
+
+    payload = {
+        "data": {
+            "issue": {
+                "id": "999",
+                "title": "test",
+                "metadata": {"type": "Err", "value": "x"},
+                "tags": [],
+            },
+            "event": {
+                "release": {"id": 77460591, "version": "hedgespark@abc123"},
+                "tags": [],
+            },
+        }
+    }
+    parsed = parse_sentry_webhook(payload)
+    assert parsed.get("release") == "hedgespark@abc123"
+
+    # Verify slice safety end-to-end: the field as returned must
+    # support :128 without raising.
+    sliced = (parsed.get("release") or "")[:128]
+    assert isinstance(sliced, str)
+
+
+def test_string_release_field_passes_through(monkeypatch):
+    """The webhook (vs REST) shape carries release as a string. Confirm
+    the normalizer doesn't break that path."""
+    from app.services.sentry_parser import parse_sentry_webhook
+
+    payload = {
+        "data": {
+            "issue": {"id": "1", "title": "x", "metadata": {}, "tags": []},
+            "event": {"release": "hedgespark@xyz", "tags": []},
+        }
+    }
+    parsed = parse_sentry_webhook(payload)
+    assert parsed.get("release") == "hedgespark@xyz"

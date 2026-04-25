@@ -122,7 +122,16 @@ def find_icon_only_buttons(file: Path) -> list[tuple[int, str]]:
 # AND a small font-size token. Single-quoted, double-quoted, and
 # backtick className values are all in scope.
 
-_LOW_CONTRAST_SLATE = re.compile(r"(?<!\S)text-slate-(?:500|600)(?!\S)")
+# Match `text-slate-500`, `text-slate-600`, AND opacity-modified
+# variants like `text-slate-500/50`. Opacity modifiers always REDUCE
+# contrast on dark backgrounds (the foreground composites toward the
+# bg luminance), so slate-500/N is at least as bad as slate-500. We
+# don't include slate-400/N because plain slate-400 already passes
+# 4.5:1 on near-black, and the /N variants are edge-case enough that
+# blanket-flagging them creates false positives on lighter cards.
+_LOW_CONTRAST_SLATE = re.compile(
+    r"(?<!\S)text-slate-(?:500|600)(?:/\d+)?(?!\S)"
+)
 # Match any small-font token: text-xs, OR text-[N(.5)?px] for any
 # integer N <= 13. Matters because axe samples contrast at the actual
 # rendered font size; <14px is "regular text" requiring 4.5:1, while

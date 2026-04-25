@@ -72,12 +72,21 @@ _DA_HEADERS = re.compile(
 )
 
 # A lens reference. Multiple shapes accepted:
-#   - "Lens 1"           (the canonical short form)
+#   - "Lens 1"           (the canonical §19 short form)
 #   - "Lens 1 —"         (em-dash variant)
 #   - "Lens 1 -"         (hyphen variant)
 #   - "Lens N — challenge"  (the §19 strict form)
+#   - "Aspect N", "Angle N"  (close synonyms; both surfaced as escape
+#     candidates in 2026-04-25 night DA Lens 2)
+#
+# Known evasion gap: free words like "Issue 1", "Risk 1", "Concern 1"
+# are too common in unrelated commit prose to trigger on. If a future
+# turn-close uses one of those as a DA-substitute, the audit will not
+# catch it; we accept the gap because the §19 convention (Lens) is
+# canonical and a commit using non-standard terminology is itself a
+# review red flag.
 _LENS_REF = re.compile(
-    r"\bLens\s+(\d+)\b",
+    r"\b(?:Lens|Aspect|Angle)\s+(\d+)\b",
     re.IGNORECASE,
 )
 
@@ -192,12 +201,35 @@ def main(argv: list[str]) -> int:
 
     findings: list[tuple[int, str]] = []
     for i in lens_line_indices:
+        line = full_lines[i]
+        # Skip diff context (preflight passes COMMIT_MSG + STAGED_DIFF
+        # concatenated). A diff hunk line starts with `+` `-` or ` ` and
+        # often references our own docstring examples like
+        # `+# - "Lens 1" (the canonical form)`. We only want to enforce
+        # evidence on PROSE claims in the commit message, not on source
+        # code that documents the audit itself.
+        stripped = line.lstrip()
+        if stripped.startswith(("+#", "-#", " #", "+ #", "- #", "+//", "-//", "+ //", "- //")):
+            continue
+        # Diff body lines that fall inside docstrings (between """ markers
+        # in the diff context) are also out of scope. Easiest signal: the
+        # surrounding ±2 lines mention `"""` or the line itself starts
+        # with `+` or `-` and is wrapped in quote/backtick markers.
+        if (line.startswith("+") or line.startswith("-")) and ('"' in line or "`" in line):
+            # This is a diff body line that contains a quoted Lens
+            # reference — almost certainly source-code documentation,
+            # not a prose claim.
+            local_lo = max(0, i - 2)
+            local_hi = min(len(full_lines), i + 3)
+            local_window = "\n".join(full_lines[local_lo:local_hi])
+            if '"""' in local_window or "# " in local_window:
+                continue
         lo = max(0, i - _EVIDENCE_WINDOW_LINES)
         hi = min(len(full_lines), i + _EVIDENCE_WINDOW_LINES + 1)
         window_text = "\n".join(full_lines[lo:hi])
         if any(tok.search(window_text) for tok in _EVIDENCE_TOKENS):
             continue
-        m = _LENS_REF.search(full_lines[i])
+        m = _LENS_REF.search(line)
         label = f"Lens {m.group(1)}" if m else "Lens"
         findings.append((i, label))
     start = 0  # absolute line numbers since we scan whole message

@@ -223,7 +223,14 @@ def poll_recent_issues(
 
         try:
             result = ingest_webhook(db, payload=payload, sentry_event_id=sentry_event_id)
-            db.flush()
+            # Commit per-issue so a downstream parse crash on the NEXT
+            # iteration cannot rollback this one. The 2026-04-25
+            # `slice(None, 128, None)` incident discovered that without
+            # per-issue commits, 8 successfully-stored incidents were
+            # rolled back when the parser tripped on a dict-shaped
+            # `release` field. Worst case if a commit itself fails we
+            # lose the in-flight incident only, not the whole batch.
+            db.commit()
             if result.get("status") in ("new", "stored"):
                 forwarded += 1
                 inc_id = result.get("incident_id")
