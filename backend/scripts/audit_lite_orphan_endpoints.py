@@ -51,10 +51,16 @@ DASHBOARD_SRC = Path("/opt/wishspark/dashboard/src")
 PRO_PREFIX_PATTERN = re.compile(r'(^|/)pro/')
 
 # Capture: @router.get("/path", ...) or @router.post("/path"), allowing
-# multi-line decorators. The route path is on the same logical line.
+# the path argument to be on a continuation line — many endpoints in
+# this codebase split the decorator across multiple lines:
+#     @router.get(
+#         "/sessions",
+#         response_model=...
+#     )
+# `re.DOTALL` makes `.` span newlines so the regex can reach the path.
 DECORATOR_PATTERN = re.compile(
     r'@(?:app|router)\.(?:get|post|put|delete)\s*\(\s*["\']([^"\']+)["\']',
-    re.MULTILINE,
+    re.DOTALL,
 )
 
 
@@ -71,19 +77,19 @@ def find_endpoints() -> list[tuple[str, Path, str]]:
         m = re.search(r'APIRouter\s*\([^)]*prefix\s*=\s*["\']([^"\']+)["\']', text)
         prefix = m.group(1) if m else ""
 
-        # Walk file: collect decorators with their following def() line
-        # to know which auth decorator applies.
+        # Walk decorators in the file regardless of line boundaries —
+        # match the whole-file content so multi-line decorators are
+        # captured. For each match, extract the surrounding window
+        # (decorator end → next 30 lines) to read the auth dep.
         lines = text.split("\n")
-        for i, line in enumerate(lines):
-            m_dec = DECORATOR_PATTERN.search(line)
-            if not m_dec:
-                continue
+        for m_dec in DECORATOR_PATTERN.finditer(text):
             route = m_dec.group(1)
-            # Look ahead up to 30 lines for the function def to read its
-            # auth dep. Stop at the next decorator.
+            # Locate the line index where the decorator's path token sits
+            # so we can walk forward to the function def.
+            decorator_line_idx = text[:m_dec.end()].count("\n")
             uses_lite_auth = False
             uses_pro_auth = False
-            for j in range(i + 1, min(i + 30, len(lines))):
+            for j in range(decorator_line_idx + 1, min(decorator_line_idx + 30, len(lines))):
                 if DECORATOR_PATTERN.search(lines[j]):
                     break
                 if "require_pro_session" in lines[j]:
@@ -97,7 +103,8 @@ def find_endpoints() -> list[tuple[str, Path, str]]:
             full = f"{prefix}{route}" if prefix else route
             if PRO_PREFIX_PATTERN.search(full):
                 continue
-            out.append((full, py, line.strip()))
+            decorator_line = lines[decorator_line_idx].strip() if decorator_line_idx < len(lines) else ""
+            out.append((full, py, decorator_line))
     return out
 
 
@@ -148,9 +155,96 @@ def is_lite_rendered(hits: list[str]) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# Sub-class B — fetch hidden behind a tier === "pro" gate
+# ---------------------------------------------------------------------------
+# The 2026-04-25 retro DA caught a subtler variant of the same class:
+# the route IS referenced from dashboard/src/app/app/page.tsx (so the
+# orphan-endpoint pass thinks it's covered), but the call site is
+# wrapped in `if (tier === "pro")` or `if (tier !== "pro") return`,
+# meaning Lite merchants never trigger the network call. The consumer
+# component then renders empty forever — same theater bug, different
+# mechanism. This sub-audit greps the page module for that specific
+# pattern.
+
+PAGE_TSX = DASHBOARD_SRC / "app" / "app" / "page.tsx"
+
+# Routes whose consumers are intentionally Pro-only (heavy UX, privacy-
+# sensitive replay viewer, click-heatmap). Backend exposes them with
+# require_merchant_session for completeness, but the dashboard skips
+# the network call on Lite to save a useless round-trip. Any addition
+# here MUST link to the consumer component that renders only on Pro.
+TIER_GATE_EXEMPT: set[str] = {
+    "/analytics/sessions",  # consumer: _sections/SessionsSection.tsx (Pro-only)
+    "/analytics/clicks",    # consumer: clicks heatmap (Pro-only)
+}
+
+# A simple line-window heuristic: for each route reference inside
+# page.tsx, look up to 30 lines above for an opening `if (tier === "pro"`
+# or `if (tier !== "pro") return` statement that hasn't been closed.
+TIER_GATE_PATTERNS = (
+    re.compile(r'\bif\s*\(\s*[^)]*\btier\s*===\s*["\']pro["\']'),
+    re.compile(r'\bif\s*\(\s*[^)]*\btier\s*!==\s*["\']pro["\']\s*\)\s*return'),
+)
+
+
+def is_under_tier_pro_gate(route: str) -> bool:
+    """Return True iff the only references to `route` inside page.tsx
+    are wrapped in a `tier === "pro"` (or `tier !== "pro" return`)
+    block. Approximation only — does naive brace-balance counting."""
+    if not PAGE_TSX.exists():
+        return False
+    try:
+        text = PAGE_TSX.read_text()
+    except Exception:
+        return False
+    lines = text.split("\n")
+
+    # Find all line indices that look like a RUNTIME call to the route.
+    # We deliberately skip type-import lines like `paths["/foo"]` since
+    # those are typed schema references, not network calls; treating
+    # them as "lite-rendered" would always return False even when the
+    # actual call site is gated.
+    # Anchor the route boundary so `/attribution/summary` does NOT match
+    # `/attribution/summary/pro`. The route must end at the closing
+    # quote, a `?` (query string), `/` only at the route's natural
+    # trailing-slash, or end-of-string. We accept characters that
+    # commonly follow a route in source: quote, `?`, `${` (template
+    # interpolation), `,`, ` `, `)`. We also strip a trailing slash
+    # from the route before escaping.
+    norm_route = route.rstrip("/")
+    runtime_call = re.compile(
+        r'(apiClient\.(?:GET|POST|PUT|DELETE)|\bfetch\s*\()'
+        r'[^)]*?["\'`][^"\'`]*'
+        + re.escape(norm_route)
+        + r'(?:[?"\'`]|\$\{)'  # boundary: query, end-quote, or interpolation
+    )
+    ref_lines = [i for i, ln in enumerate(lines) if runtime_call.search(ln)]
+    if not ref_lines:
+        return False  # not actually called at runtime from page.tsx
+
+    def gated(idx: int) -> bool:
+        # Walk backwards up to 60 lines collecting opening braces and
+        # tier gates; if a gate-open lies above without a matching close,
+        # we consider the line gated.
+        brace_balance = 0
+        for j in range(idx, max(idx - 60, -1), -1):
+            line = lines[j]
+            brace_balance += line.count("}") - line.count("{")
+            if brace_balance < 0:
+                # we're inside an open block above
+                for pat in TIER_GATE_PATTERNS:
+                    if pat.search(line):
+                        return True
+        return False
+
+    return all(gated(i) for i in ref_lines)
+
+
 def main() -> int:
     endpoints = find_endpoints()
     orphans: list[tuple[str, Path]] = []
+    tier_gated: list[tuple[str, Path]] = []
     for route, file, _ in endpoints:
         hits = grep_dashboard(route)
         if not hits:
@@ -158,18 +252,37 @@ def main() -> int:
             continue
         if not is_lite_rendered(hits):
             orphans.append((route, file))
+            continue
+        # Sub-audit B — referenced but only under tier === "pro" gate
+        if route in TIER_GATE_EXEMPT:
+            continue
+        if is_under_tier_pro_gate(route):
+            tier_gated.append((route, file))
 
-    if not orphans:
-        print("✅ No Lite-orphan endpoints — every Lite-accessible API has a Lite-rendered consumer.")
+    if not orphans and not tier_gated:
+        print("✅ No Lite-orphan endpoints — every Lite-accessible API has a Lite-rendered consumer not gated to Pro.")
         return 0
 
-    print(f"⚠ {len(orphans)} Lite-accessible endpoint(s) with no detected Lite-floor render path:")
-    for route, file in sorted(orphans):
-        print(f"   {route:50s}  ← {file.relative_to(BACKEND_API.parent.parent)}")
-    print()
+    if orphans:
+        print(f"⚠ {len(orphans)} Lite-accessible endpoint(s) with no detected Lite-floor render path:")
+        for route, file in sorted(orphans):
+            print(f"   {route:50s}  ← {file.relative_to(BACKEND_API.parent.parent)}")
+        print()
+
+    if tier_gated:
+        print(f"⚠ {len(tier_gated)} Lite-accessible endpoint(s) referenced ONLY inside `tier === \"pro\"` gate:")
+        for route, file in sorted(tier_gated):
+            print(f"   {route:50s}  ← {file.relative_to(BACKEND_API.parent.parent)}")
+        print()
+        print("These endpoints are Lite-accessible at the backend but the")
+        print("frontend never fires the call for Lite users — consumers")
+        print("on the Lite floor will render empty forever (theater).")
+        print("Move the fetch out of the tier gate or document the intent.")
+        print()
+
     print("Decide per endpoint:")
     print("  (a) expose on Lite — wire the existing component into the")
-    print("      isLiteFloor branch of dashboard/src/app/app/page.tsx")
+    print("      isLiteFloor branch + remove tier-gate around the fetch")
     print("  (b) intentional Pro-only render — change auth to")
     print("      require_pro_session OR move under a /pro/ route prefix")
     print()

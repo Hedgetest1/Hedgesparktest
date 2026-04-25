@@ -1362,7 +1362,7 @@ function PageInner() {
       // TypeScript validates the URL path, query params, AND response body
       // shape against the generated OpenAPI types — any backend rename
       // surfaces as a compile error on the next `npm run api:types`.
-      const [attrRes, ltvRes, fcRes, behRes, gwRes, predRes, pnlRes] = await Promise.allSettled([
+      const [attrRes, ltvRes, fcRes, behRes, gwRes, predRes] = await Promise.allSettled([
         apiClient.GET("/attribution/summary/pro", {
           params: { query: { days: 30 } },
           headers: typedHeaders,
@@ -1387,10 +1387,6 @@ function PageInner() {
           params: { query: { limit: 10 } },
           headers: typedHeaders,
         }),
-        apiClient.GET("/analytics/pnl", {
-          params: { query: { window_days: 30 } },
-          headers: typedHeaders,
-        }),
       ]);
 
       if (!active) return;
@@ -1413,10 +1409,11 @@ function PageInner() {
       if (predRes.status === "fulfilled" && predRes.value.data != null) {
         setPredictedLtvData(predRes.value.data);
       }
-      if (pnlRes.status === "fulfilled" && pnlRes.value.data != null) {
-        setPnlData(pnlRes.value.data);
-      }
     }
+
+    // /analytics/pnl moved to its own Lite-accessible effect below — the
+    // Lite Profit Intelligence section consumes pnlData and used to be
+    // empty whenever this effect short-circuited on tier !== "pro".
 
     loadProIntelligence().catch((err: unknown) => {
       // Pro intelligence bundle failure — the individual fulfilled slots
@@ -1434,6 +1431,29 @@ function PageInner() {
     return () => { active = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shop, tier]);
+
+  // ---------------------------------------------------------------------------
+  // P&L (Lite-accessible) — fires for both tiers. Backend /analytics/pnl
+  // uses require_merchant_session and the Lite Profit Intelligence
+  // section consumes pnlData. Was previously bundled inside the
+  // Pro-only loadProIntelligence block, which left Lite merchants
+  // with an empty waterfall — caught during the 2026-04-25 retro DA.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!shop) return;
+    let active = true;
+    apiClient
+      .GET("/analytics/pnl", {
+        params: { query: { window_days: 30 } },
+        headers: getHeaders(apiHeaders),
+      })
+      .then((res) => {
+        if (active && res.data != null) setPnlData(res.data);
+      })
+      .catch(() => { /* PnlReport degrades to its own empty state */ });
+    return () => { active = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shop]);
 
   // ---------------------------------------------------------------------------
   // Analytics: alerts, weekly trend, top pages (every 30s)
@@ -1489,17 +1509,26 @@ function PageInner() {
           if (active) setTopPages(pagesRes.data?.pages ?? []);
         } catch { /* top pages is supplementary — degrade silently */ }
 
-        // Funnel, sessions, clicks — Pro only
+        // Visitor funnel — Lite-accessible (consumed by LiteLast7DaysSection
+        // and the Pro funnel section). Backend /analytics/funnel uses
+        // require_merchant_session, so the network call fires for both tiers.
+        try {
+          const funnelRes = await apiClient.GET("/analytics/funnel", { headers: typedHeaders });
+          if (active) setFunnelSteps(funnelRes.data?.steps ?? []);
+        } catch { /* supplementary — degrade silently */ }
+
+        // Sessions + clicks — Pro-only consumers (SessionsSection / clicks
+        // heatmap render only on Pro floors). Backend gates are
+        // require_merchant_session but we skip the calls on Lite to save
+        // network — they'd be unused there.
         if (tier === "pro") {
-          const [sessionsRes, funnelRes, clicksRes] = await Promise.all([
+          const [sessionsRes, clicksRes] = await Promise.all([
             apiClient.GET("/analytics/sessions", { headers: typedHeaders }),
-            apiClient.GET("/analytics/funnel",   { headers: typedHeaders }),
             apiClient.GET("/analytics/clicks",   { headers: typedHeaders }),
           ]);
 
           if (!active) return;
           setSessions(sessionsRes.data?.sessions ?? []);
-          setFunnelSteps(funnelRes.data?.steps ?? []);
           setClicks(clicksRes.data?.clicks ?? []);
         }
       } catch {
