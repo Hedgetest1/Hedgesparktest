@@ -88,18 +88,31 @@ function KpiTile({
   delta,
   deltaLabel,
   yesterday,
+  hint,
 }: {
   label: string;
   value: string;
   delta: number | null | undefined;
   deltaLabel?: string;
   yesterday?: string;
+  hint?: string;
 }) {
   const tone = deltaTone(delta);
   return (
     <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-4 transition-colors hover:border-white/[0.10]">
-      <div className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-slate-500">
-        {label}
+      <div
+        className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.16em] text-slate-500"
+        title={hint}
+      >
+        <span>{label}</span>
+        {hint && (
+          <span
+            aria-label={hint}
+            className="cursor-help text-[11px] font-normal text-slate-600 hover:text-slate-400"
+          >
+            ⓘ
+          </span>
+        )}
       </div>
       <div className="mt-2 text-[28px] font-extrabold leading-none tabular-nums text-white sm:text-[30px]">
         {value}
@@ -230,6 +243,7 @@ export function LiteTodaySection({
                 value={`${data.today.sessions}`}
                 delta={data.deltas.sessions_pct}
                 yesterday={`${data.yesterday.sessions}`}
+                hint="Distinct visitor IDs that fired at least one page-view event today."
               />
               <KpiTile
                 label="Conversion"
@@ -245,6 +259,7 @@ export function LiteTodaySection({
                     ? "—"
                     : `${data.yesterday.conversion_rate_pct.toFixed(2)}%`
                 }
+                hint="Orders today divided by sessions today. Delta is shown in percentage points (pp), not relative %."
               />
               <KpiTile
                 label="New / Returning"
@@ -261,6 +276,7 @@ export function LiteTodaySection({
                     ? "—"
                     : `${data.yesterday.new_customers} / ${data.yesterday.returning_customers}`
                 }
+                hint='"New" = customer placing their first ever order today. "Returning" = customer with at least one prior order in any window.'
               />
             </div>
 
@@ -273,6 +289,13 @@ export function LiteTodaySection({
                 Watching your storefront — the first numbers populate the moment a visitor or order arrives.
               </div>
             )}
+
+            <p className="mt-5 text-[11px] leading-relaxed text-slate-500">
+              <span className="font-semibold text-slate-400">How this is measured.</span>{" "}
+              Revenue / orders / AOV from{" "}
+              <code className="rounded bg-white/[0.04] px-1 py-0.5 text-slate-400">shop_orders</code>
+              {" "}filtered to your store&apos;s primary currency, day-bucketed in your shop timezone. Sessions = distinct visitor IDs that fired a page-view event. Conversion = orders / sessions; delta is percentage points. Delta is hidden (—) whenever yesterday is zero so we never fabricate &quot;+∞%&quot; against a zero baseline.
+            </p>
 
             {state === "ready" && data.top_sellers_today.length > 0 && (
               <div className="mt-7 border-t border-white/[0.06] pt-6">

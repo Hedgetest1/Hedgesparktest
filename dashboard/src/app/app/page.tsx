@@ -103,6 +103,7 @@ import { NudgeDnaCard } from "../components/NudgeDnaCard";
 import { LiteCassettoniGrid, type CassettoneId } from "../components/LiteCassettoniGrid";
 import { LiteRarsHero } from "../components/LiteRarsHero";
 import { LiteTodaySection } from "../components/LiteTodaySection";
+import { LiteLast7DaysSection } from "../components/LiteLast7DaysSection";
 import { PnlReport } from "../components/PnlReport";
 import { MarginDragCard } from "../components/MarginDragCard";
 import { ChannelAttributionCard } from "../components/ChannelAttributionCard";
@@ -2552,6 +2553,26 @@ function PageInner() {
                   apiBase={API_BASE}
                   shop={shop}
                   displayCurrency={displayCurrency}
+                />
+              )}
+
+              {/* Last 7 days — operational trend section closing the
+                  Cat-A follow-up from the 2026-04-25 audit. Reuses the
+                  existing RevenueTrendChart (Pro-only previously) +
+                  FunnelVisualization + the page-level funnelSteps
+                  state already populated via /analytics/funnel. No new
+                  fetches, no forked visuals — pure tier-unlock per
+                  audit_pro_scale_before_build. Cyan accent keeps the
+                  chromatic story coherent: emerald (Today, "right
+                  now") → cyan (Last 7 days, "how you got here") →
+                  violet (peers) → amber (P&L) → blue (attribution) →
+                  emerald (retention) → cassettoni grid. */}
+              {isLiteFloor && (
+                <LiteLast7DaysSection
+                  apiBase={API_BASE}
+                  shop={shop}
+                  displayCurrency={displayCurrency}
+                  funnelSteps={funnelSteps}
                 />
               )}
 
