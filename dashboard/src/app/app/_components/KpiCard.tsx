@@ -47,7 +47,7 @@ export function KpiCard({
           value
         )}
       </div>
-      <div className="mt-1.5 text-[13px] leading-snug text-slate-500">{hint}</div>
+      <div className="mt-1.5 text-[13px] leading-snug text-slate-400">{hint}</div>
     </div>
   );
 }

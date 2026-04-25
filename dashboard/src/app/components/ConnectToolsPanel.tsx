@@ -170,7 +170,7 @@ export function ConnectToolsPanel({
           <h3 className="text-[15px] font-bold text-white">
             Send HedgeSpark signals to your own stack
           </h3>
-          <p className="mt-1 text-[11px] text-slate-500">
+          <p className="mt-1 text-[11px] text-slate-400">
             Works with Shopify Flow · Zapier · Make · n8n · Slack · your own webhook
           </p>
         </div>
@@ -296,7 +296,7 @@ export function ConnectToolsPanel({
                     ))}
                   </div>
                   {w.last_delivery_status && (
-                    <div className="mt-1 text-[10px] text-slate-500">
+                    <div className="mt-1 text-[10px] text-slate-400">
                       Last delivery: <span className={w.last_delivery_status === "delivered" ? "text-emerald-400" : "text-rose-400"}>{w.last_delivery_status}</span>
                       {w.last_delivery_at && (
                         <span> · {new Date(w.last_delivery_at).toLocaleString()}</span>

@@ -302,32 +302,32 @@ export function NudgePerformance({
       {rolled.length > 0 && (
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="rounded-xl border px-4 py-3" style={{ borderColor: "rgba(217, 70, 239, 0.18)", backgroundColor: "rgba(217, 70, 239, 0.04)" }}>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Impressions</div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Impressions</div>
             <div className="mt-1 text-[22px] font-extrabold tabular-nums leading-none text-white">
               {totalShown.toLocaleString()}
             </div>
-            <div className="mt-1 text-[10px] text-slate-500">visitors reached</div>
+            <div className="mt-1 text-[10px] text-slate-400">visitors reached</div>
           </div>
           <div className="rounded-xl border px-4 py-3" style={{ borderColor: "rgba(52, 211, 153, 0.22)", backgroundColor: "rgba(52, 211, 153, 0.05)" }}>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Conversions</div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Conversions</div>
             <div className="mt-1 text-[22px] font-extrabold tabular-nums leading-none text-emerald-400">
               {totalConversions}
             </div>
-            <div className="mt-1 text-[10px] text-slate-500">purchases attributed</div>
+            <div className="mt-1 text-[10px] text-slate-400">purchases attributed</div>
           </div>
           <div className="rounded-xl border px-4 py-3" style={{ borderColor: "rgba(52, 211, 153, 0.22)", backgroundColor: "rgba(52, 211, 153, 0.05)" }}>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Extra revenue</div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Extra revenue</div>
             <div className="mt-1 text-[22px] font-extrabold tabular-nums leading-none text-emerald-400">
               {fmtRollupRevenue(totalRevenue)}
             </div>
-            <div className="mt-1 text-[10px] text-slate-500">exposed group total</div>
+            <div className="mt-1 text-[10px] text-slate-400">exposed group total</div>
           </div>
           <div className="rounded-xl border px-4 py-3" style={{ borderColor: avgLift != null && avgLift > 0 ? "rgba(52, 211, 153, 0.22)" : "rgba(148, 163, 184, 0.14)", backgroundColor: avgLift != null && avgLift > 0 ? "rgba(52, 211, 153, 0.05)" : "rgba(148, 163, 184, 0.03)" }}>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Avg lift</div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Avg lift</div>
             <div className={`mt-1 text-[22px] font-extrabold tabular-nums leading-none ${liftColor}`}>
               {avgLift == null ? "—" : `${avgLift > 0 ? "+" : ""}${avgLift.toFixed(0)}%`}
             </div>
-            <div className="mt-1 text-[10px] text-slate-500">vs holdout control</div>
+            <div className="mt-1 text-[10px] text-slate-400">vs holdout control</div>
           </div>
         </div>
       )}
@@ -363,7 +363,7 @@ export function NudgePerformance({
                     </span>
                   </div>
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                    <span className="text-[10px] uppercase tracking-[0.12em] text-slate-600">
+                    <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">
                       Holdout
                     </span>
                     {HOLDOUT_PRESETS.map((preset) => {
@@ -388,13 +388,13 @@ export function NudgePerformance({
                       );
                     })}
                     {n.holdoutSaving && (
-                      <span className="text-[10px] text-slate-500">saving…</span>
+                      <span className="text-[10px] text-slate-400">saving…</span>
                     )}
                     {n.holdoutError && (
                       <span className="text-[10px] text-rose-400">{n.holdoutError}</span>
                     )}
                     {!n.holdoutSaving && !n.holdoutError && (n.holdout_pct || 0) > 0 && (
-                      <span className="text-[10px] text-slate-600">· scientifically measured</span>
+                      <span className="text-[10px] text-slate-400">· scientifically measured</span>
                     )}
                   </div>
                 </div>
@@ -448,7 +448,7 @@ export function NudgePerformance({
                   )}
                 </div>
               ) : (
-                <div className="text-[11px] text-slate-600">Stats unavailable</div>
+                <div className="text-[11px] text-slate-400">Stats unavailable</div>
               )}
             </div>
           );

@@ -171,7 +171,7 @@ export function PredictionAccuracyCard({
                       MAPE
                     </span>
                   </div>
-                  <div className="mt-1 text-[11px] text-slate-500">
+                  <div className="mt-1 text-[11px] text-slate-400">
                     median error {m.median_error_pct.toFixed(1)}% · {m.sample_size} measured
                   </div>
                 </div>
@@ -190,7 +190,7 @@ export function PredictionAccuracyCard({
               {/* Last predictions mini-table */}
               {m.last_predictions.length > 0 && (
                 <div className="mt-4">
-                  <div className="mb-1.5 grid grid-cols-4 gap-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-600">
+                  <div className="mb-1.5 grid grid-cols-4 gap-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">
                     <div>Horizon</div>
                     <div className="text-right">Predicted</div>
                     <div className="text-right">Actual</div>
@@ -227,7 +227,7 @@ export function PredictionAccuracyCard({
         })}
       </div>
 
-      <p className="mt-5 text-[11px] leading-relaxed text-slate-500">
+      <p className="mt-5 text-[11px] leading-relaxed text-slate-400">
         MAPE = Mean Absolute Percentage Error. Lower is better.
         We keep the last 90 days of matured predictions.
       </p>

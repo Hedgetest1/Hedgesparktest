@@ -152,7 +152,7 @@ export function AnalyticsAssistant() {
         {lastAsked && (
           <div className="mt-6 rounded-2xl border border-white/[0.06] bg-[#0b0b14]/70 p-5">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <div className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+              <div className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-400">
                 You asked
               </div>
               {response?.degraded && (
@@ -181,7 +181,7 @@ export function AnalyticsAssistant() {
                 </div>
                 {(response.data_sources?.length ?? 0) > 0 && (
                   <div className="flex flex-wrap items-center gap-2 border-t border-white/[0.04] pt-3">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                       Based on
                     </span>
                     {(response.data_sources ?? []).map((s) => (

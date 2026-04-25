@@ -165,7 +165,7 @@ export function MonthlyCohortsCard({
   if (!hasData) {
     return (
       <div className="rounded-2xl border border-dashed border-white/[0.12] bg-[#0b0b14]/40 p-6">
-        <div className="mb-3 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+        <div className="mb-3 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-400">
           <span
             className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300"
             aria-hidden="true"
@@ -190,7 +190,7 @@ export function MonthlyCohortsCard({
             >
               <div className="min-w-0 flex-1">
                 <div className="text-[13px] font-semibold text-white">{s.label}</div>
-                <div className="mt-0.5 text-[11.5px] text-slate-500">
+                <div className="mt-0.5 text-[11.5px] text-slate-400">
                   {s.size} customers acquired
                 </div>
               </div>
@@ -222,7 +222,7 @@ export function MonthlyCohortsCard({
       {overall && (
         <div className="mb-5 grid gap-3 sm:grid-cols-4">
           <div className="rounded-2xl border border-white/[0.06] bg-[#0e0e1a]/70 p-4">
-            <div className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-slate-500">
+            <div className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-slate-400">
               Total customers
             </div>
             <div className="mt-2 text-[1.75rem] font-extrabold leading-none tabular-nums text-white">
@@ -239,12 +239,12 @@ export function MonthlyCohortsCard({
             >
               {(overall.repeat_rate * 100).toFixed(0)}%
             </div>
-            <div className="mt-1 text-[11px] text-slate-500">
+            <div className="mt-1 text-[11px] text-slate-400">
               {repeatRateLabel(overall.repeat_rate)}
             </div>
           </div>
           <div className="rounded-2xl border border-white/[0.06] bg-[#0e0e1a]/70 p-4">
-            <div className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-slate-500">
+            <div className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-slate-400">
               Avg ARPC
             </div>
             <div className="mt-2 text-[1.75rem] font-extrabold leading-none tabular-nums text-white">
@@ -252,7 +252,7 @@ export function MonthlyCohortsCard({
             </div>
           </div>
           <div className="rounded-2xl border border-white/[0.06] bg-[#0e0e1a]/70 p-4">
-            <div className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-slate-500">
+            <div className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-slate-400">
               Orders / customer
             </div>
             <div className="mt-2 text-[1.75rem] font-extrabold leading-none tabular-nums text-white">
@@ -303,7 +303,7 @@ export function MonthlyCohortsCard({
                 <div className="text-[13px] font-semibold text-white">
                   {formatMonthLabel(c.cohort_month)}
                 </div>
-                <div className="mt-0.5 text-[11.5px] text-slate-500">
+                <div className="mt-0.5 text-[11.5px] text-slate-400">
                   {c.size} customer{c.size !== 1 ? "s" : ""} acquired · {formatMoneyCompact(c.revenue_total, displayCurrency)} total
                 </div>
               </div>
@@ -344,7 +344,7 @@ export function MonthlyCohortsCard({
 
       {/* Methodology footer */}
       <div className="mt-5 rounded-xl border border-white/[0.04] bg-[#0b0b14]/40 px-4 py-3">
-        <div className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+        <div className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-400">
           How this is measured
         </div>
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-slate-400">

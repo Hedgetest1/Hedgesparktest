@@ -209,7 +209,7 @@ export function MonthlyTargetsCard({
                     <div className="text-[12px] font-semibold text-slate-200">
                       {METRIC_LABELS[p.metric] || p.metric}
                     </div>
-                    <div className="mt-0.5 text-[10px] text-slate-500">
+                    <div className="mt-0.5 text-[10px] text-slate-400">
                       now <span className="font-mono tabular-nums text-slate-300">{fmtForMetric(p.metric, p.current_value, currency)}</span>
                       <span className="mx-1">·</span>
                       projected <span className="font-mono tabular-nums text-slate-300">{fmtForMetric(p.metric, p.projected_value, currency)}</span>
@@ -220,7 +220,7 @@ export function MonthlyTargetsCard({
                   <button
                     type="button"
                     onClick={() => handleDelete(p.metric)}
-                    className="flex-shrink-0 text-[10px] text-slate-600 hover:text-rose-400"
+                    className="flex-shrink-0 text-[10px] text-slate-400 hover:text-rose-400"
                     title="Remove this target"
                   >
                     ✕

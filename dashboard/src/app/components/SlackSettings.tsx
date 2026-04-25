@@ -195,7 +195,7 @@ export function SlackSettings() {
                 {busy === "connect" ? "Saving…" : "Save webhook"}
               </button>
             </div>
-            <p className="mt-3 text-[11.5px] leading-relaxed text-slate-500">
+            <p className="mt-3 text-[11.5px] leading-relaxed text-slate-400">
               Slack workspace → Apps → Incoming Webhooks → Add to Slack → choose a channel → copy the URL.
             </p>
           </details>

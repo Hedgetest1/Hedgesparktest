@@ -111,14 +111,14 @@ export function IntegrationsCard({
           Integrations
         </div>
         <h3 id="integrations-heading" className="text-[15px] font-bold text-white">Ecosystem connections</h3>
-        <p className="mt-1 text-[11px] text-slate-500">
+        <p className="mt-1 text-[11px] text-slate-400">
           {webhooks.length} webhook{webhooks.length === 1 ? "" : "s"} · {connectedAds.length}/3 ad networks
         </p>
       </div>
 
       {/* Ad networks */}
       <div className="mb-4">
-        <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-slate-500">
+        <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-slate-400">
           Ad networks
         </div>
         <div className="space-y-1.5">
@@ -148,7 +148,7 @@ export function IntegrationsCard({
       {/* Outbound webhooks */}
       <div>
         <div className="mb-1.5 flex items-center justify-between">
-          <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
+          <div className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
             Outbound webhooks
           </div>
           {failingWebhooks.length > 0 && (
@@ -158,7 +158,7 @@ export function IntegrationsCard({
           )}
         </div>
         {webhooks.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-white/[0.08] bg-white/[0.01] p-3 text-center text-[11px] text-slate-500">
+          <div className="rounded-lg border border-dashed border-white/[0.08] bg-white/[0.01] p-3 text-center text-[11px] text-slate-400">
             No webhook subscriptions yet. Pipe events into Zapier, n8n, or your own backend.
           </div>
         ) : (
@@ -170,7 +170,7 @@ export function IntegrationsCard({
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[12px] text-slate-300">{w.target_url}</div>
-                  <div className="text-[10px] text-slate-500">
+                  <div className="text-[10px] text-slate-400">
                     {w.event_types.length} event{w.event_types.length === 1 ? "" : "s"}
                   </div>
                 </div>
@@ -186,7 +186,7 @@ export function IntegrationsCard({
               </div>
             ))}
             {webhooks.length > 4 && (
-              <div className="text-center text-[10px] text-slate-500">
+              <div className="text-center text-[10px] text-slate-400">
                 +{webhooks.length - 4} more
               </div>
             )}

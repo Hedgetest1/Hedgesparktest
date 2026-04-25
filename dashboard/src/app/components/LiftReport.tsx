@@ -116,7 +116,7 @@ export function LiftReport({
           <p className="text-[13px] font-semibold text-slate-300">
             No experiments running yet
           </p>
-          <p className="mx-auto mt-2 max-w-md text-[12px] leading-relaxed text-slate-500">
+          <p className="mx-auto mt-2 max-w-md text-[12px] leading-relaxed text-slate-400">
             {data.verdict}
           </p>
         </div>
@@ -144,24 +144,24 @@ export function LiftReport({
           {/* Exposed vs holdout CVR — with visual bars */}
           <div className="mt-5 grid grid-cols-2 gap-3">
             <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3.5">
-              <div className="text-[12px] font-bold uppercase tracking-[0.1em] text-slate-500">Saw your fix</div>
+              <div className="text-[12px] font-bold uppercase tracking-[0.1em] text-slate-400">Saw your fix</div>
               <div className="mt-1 text-[20px] font-bold tabular-nums text-white">
                 {(exposedCvr * 100).toFixed(2)}%
               </div>
               <div className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-white/[0.07]">
                 <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, exposedCvr * 100 * 20)}%` }} />
               </div>
-              <div className="mt-1.5 text-[13px] text-slate-500">{data.total_exposed?.toLocaleString()} visitors</div>
+              <div className="mt-1.5 text-[13px] text-slate-400">{data.total_exposed?.toLocaleString()} visitors</div>
             </div>
             <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3.5">
-              <div className="text-[12px] font-bold uppercase tracking-[0.1em] text-slate-500">Control group</div>
+              <div className="text-[12px] font-bold uppercase tracking-[0.1em] text-slate-400">Control group</div>
               <div className="mt-1 text-[20px] font-bold tabular-nums text-white">
                 {(holdoutCvr * 100).toFixed(2)}%
               </div>
               <div className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-white/[0.07]">
                 <div className="h-full rounded-full bg-slate-600" style={{ width: `${Math.min(100, holdoutCvr * 100 * 20)}%` }} />
               </div>
-              <div className="mt-1.5 text-[13px] text-slate-500">{data.total_holdout?.toLocaleString()} visitors</div>
+              <div className="mt-1.5 text-[13px] text-slate-400">{data.total_holdout?.toLocaleString()} visitors</div>
             </div>
           </div>
 
@@ -195,7 +195,7 @@ export function LiftReport({
                           <div className="truncate text-[15px] font-semibold text-white">
                             {shortUrl(n.product_url)}
                           </div>
-                          <div className="mt-1 text-[13px] text-slate-500">
+                          <div className="mt-1 text-[13px] text-slate-400">
                             {n.exposed_count?.toLocaleString()} saw fix &middot; {n.holdout_count?.toLocaleString()} control
                           </div>
                         </div>

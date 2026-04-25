@@ -338,12 +338,12 @@ function PixelSetupHero({
       <div className="mt-4 flex items-center justify-between">
         <button
           onClick={() => { onTrack("pixel_skipped"); onDismiss(); }}
-          className="text-[11px] text-slate-600 hover:text-slate-400 transition"
+          className="text-[11px] text-slate-400 hover:text-slate-400 transition"
         >
           I&apos;ll do this later
         </button>
         <div className="flex items-center gap-3">
-          <span className="flex items-center gap-1.5 text-[10px] text-slate-600">
+          <span className="flex items-center gap-1.5 text-[10px] text-slate-400">
             <span className="h-1 w-1 animate-pulse rounded-full bg-amber-400" />
             Listening for your first order...
           </span>
@@ -351,7 +351,7 @@ function PixelSetupHero({
       </div>
 
       {/* Skip warning */}
-      <p className="mt-2 text-[10px] text-slate-600">
+      <p className="mt-2 text-[10px] text-slate-400">
         You&apos;ll miss purchase attribution until the pixel is connected.
       </p>
     </div>
@@ -425,7 +425,7 @@ function WelcomeBanner({ onDismiss, shopDomain }: { onDismiss: () => void; shopD
                 </a>
               )}
 
-              <div className="mt-4 flex items-center gap-2 text-[10px] text-slate-600">
+              <div className="mt-4 flex items-center gap-2 text-[10px] text-slate-400">
                 <span className="h-1 w-1 animate-pulse rounded-full bg-violet-400" />
                 Watching for your visit...
               </div>
@@ -452,15 +452,15 @@ function WelcomeBanner({ onDismiss, shopDomain }: { onDismiss: () => void; shopD
 function TimelineHint() {
   return (
     <div className="flex flex-wrap gap-x-6 gap-y-1.5 mt-3">
-      <span className="flex items-center gap-1.5 text-[10px] text-slate-500">
+      <span className="flex items-center gap-1.5 text-[10px] text-slate-400">
         <span className="h-1 w-1 rounded-full bg-emerald-400" />
         Visitors: within minutes
       </span>
-      <span className="flex items-center gap-1.5 text-[10px] text-slate-500">
+      <span className="flex items-center gap-1.5 text-[10px] text-slate-400">
         <span className="h-1 w-1 rounded-full bg-amber-400" />
         First findings: typically under 10 min
       </span>
-      <span className="flex items-center gap-1.5 text-[10px] text-slate-500">
+      <span className="flex items-center gap-1.5 text-[10px] text-slate-400">
         <span className="h-1 w-1 rounded-full bg-violet-400" />
         Full analysis: ~24 hours
       </span>
@@ -867,7 +867,7 @@ export function OnboardingHub({
                   state={checks?.webhook_ok && checks?.tracker_ok ? "done" : "waiting"}
                 />
               </div>
-              <p className="mt-2 text-[10px] text-slate-600">This takes about 10 seconds.</p>
+              <p className="mt-2 text-[10px] text-slate-400">This takes about 10 seconds.</p>
             </div>
           </div>
         </div>
@@ -882,7 +882,7 @@ export function OnboardingHub({
         <div className="h-3 w-40 rounded bg-white/[0.06]" />
         <div className="mt-2 h-2.5 w-64 rounded bg-white/[0.04]" />
         {billingJustActivated && (
-          <div className="mt-2 text-[11px] text-slate-600">Verifying billing with Shopify...</div>
+          <div className="mt-2 text-[11px] text-slate-400">Verifying billing with Shopify...</div>
         )}
       </div>
     );
@@ -1010,7 +1010,7 @@ export function OnboardingHub({
             <span className="text-[12px] font-semibold text-slate-300">
               Tracking active
             </span>
-            <span className="text-[12px] text-slate-500">
+            <span className="text-[12px] text-slate-400">
               — your store is live on HedgeSpark
             </span>
           </div>
@@ -1033,7 +1033,7 @@ export function OnboardingHub({
                   We found {signalCount} revenue opportunity{signalCount === 1 ? "" : "ies"}. Want
                   us to fix {signalCount === 1 ? "it" : "them"}?
                 </div>
-                <div className="mt-0.5 text-[12px] text-slate-500">
+                <div className="mt-0.5 text-[12px] text-slate-400">
                   Pro automatically turns findings into revenue and proves every result against a
                   control group. Closed beta — pricing announced before general launch.
                   {checks.billing_charge_pending && (
@@ -1080,7 +1080,7 @@ export function OnboardingHub({
             </div>
             <div>
               <div className="text-[12px] font-semibold text-slate-300">Getting started</div>
-              <div className="mt-0.5 text-[11px] text-slate-600">{milestoneDone}/{milestoneTotal} complete</div>
+              <div className="mt-0.5 text-[11px] text-slate-400">{milestoneDone}/{milestoneTotal} complete</div>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -1091,7 +1091,7 @@ export function OnboardingHub({
                   style={{ width: `${Math.round((milestoneDone / milestoneTotal) * 100)}%` }}
                 />
               </div>
-              <span className="text-[10px] text-slate-600">
+              <span className="text-[10px] text-slate-400">
                 {Math.round((milestoneDone / milestoneTotal) * 100)}%
               </span>
             </div>

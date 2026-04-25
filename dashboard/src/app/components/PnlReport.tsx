@@ -133,13 +133,13 @@ export function PnlReport({
           className="rounded-xl border px-4 py-3"
           style={{ borderColor: "rgba(255, 255, 255, 0.06)", backgroundColor: "rgba(255, 255, 255, 0.02)" }}
         >
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
             Revenue
           </div>
           <div className="mt-1 text-[22px] font-extrabold tabular-nums leading-none text-white">
             {fmtMoney(data.gross_revenue)}
           </div>
-          <div className="mt-1 text-[10px] text-slate-500">
+          <div className="mt-1 text-[10px] text-slate-400">
             {data.order_count} orders · {data.window_days}d
           </div>
         </div>
@@ -150,7 +150,7 @@ export function PnlReport({
             backgroundColor: `${netMarginColor}0f`,
           }}
         >
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
             Net Profit
           </div>
           <div
@@ -159,7 +159,7 @@ export function PnlReport({
           >
             {fmtMoney(data.net_profit)}
           </div>
-          <div className="mt-1 text-[10px] text-slate-500">after tracked costs</div>
+          <div className="mt-1 text-[10px] text-slate-400">after tracked costs</div>
         </div>
         <div
           className="rounded-xl border px-4 py-3"
@@ -168,7 +168,7 @@ export function PnlReport({
             backgroundColor: `${netMarginColor}0f`,
           }}
         >
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
             Margin
           </div>
           <div
@@ -177,7 +177,7 @@ export function PnlReport({
           >
             {data.net_margin_pct.toFixed(1)}%
           </div>
-          <div className="mt-1 text-[10px] text-slate-500">
+          <div className="mt-1 text-[10px] text-slate-400">
             {data.net_margin_pct >= 20 ? "healthy" : data.net_margin_pct >= 10 ? "tight" : "thin"}
           </div>
         </div>
@@ -186,10 +186,10 @@ export function PnlReport({
       {/* Waterfall — Revenue → costs → Profit */}
       <div className="mb-5">
         <div className="mb-2 flex items-center justify-between">
-          <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+          <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
             Cost waterfall
           </div>
-          <div className="text-[10px] text-slate-600">revenue → profit</div>
+          <div className="text-[10px] text-slate-400">revenue → profit</div>
         </div>
 
         <div className="space-y-1.5">
@@ -197,7 +197,7 @@ export function PnlReport({
           <div className="flex items-center justify-between rounded-lg border border-white/[0.05] bg-white/[0.015] px-3.5 py-2.5">
             <div className="min-w-0 flex-1">
               <div className="text-[12px] font-semibold text-white">Gross Revenue</div>
-              <div className="text-[10px] text-slate-500">from {data.order_count} real Shopify orders</div>
+              <div className="text-[10px] text-slate-400">from {data.order_count} real Shopify orders</div>
             </div>
             <div className="flex-shrink-0 text-[14px] font-bold tabular-nums text-white">
               {fmtMoney(data.gross_revenue)}
@@ -244,7 +244,7 @@ export function PnlReport({
                       </span>
                     )}
                   </div>
-                  <div className="mt-0.5 text-[10px] text-slate-500">{line.sublabel}</div>
+                  <div className="mt-0.5 text-[10px] text-slate-400">{line.sublabel}</div>
                 </div>
                 <div className="flex-shrink-0 text-[13px] font-semibold tabular-nums text-rose-300/90">
                   {isEmpty ? "—" : `− ${fmtMoney(line.amount)}`}
@@ -263,7 +263,7 @@ export function PnlReport({
           >
             <div className="min-w-0 flex-1">
               <div className="text-[12px] font-bold text-white">Net Profit</div>
-              <div className="text-[10px] text-slate-500">
+              <div className="text-[10px] text-slate-400">
                 {data.net_margin_pct.toFixed(1)}% margin
               </div>
             </div>

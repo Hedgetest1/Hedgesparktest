@@ -252,7 +252,7 @@ function ProductCostsSurface({ isProUser }: { isProUser: boolean }) {
     <>
       {/* Breadcrumb + title */}
       <div className="mb-8">
-        <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-500">
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-400">
           <Link
             href="/app/pro"
             className="text-slate-400 hover:text-[#e8a04e]"
@@ -335,7 +335,7 @@ function ProductCostsSurface({ isProUser }: { isProUser: boolean }) {
             >
               {rows ? `${rows.length} products` : "Your products"}
             </h2>
-            <p className="mt-0.5 text-[11px] text-slate-500">
+            <p className="mt-0.5 text-[11px] text-slate-400">
               Click any value to edit · changes saved only when you hit Save
             </p>
           </div>
@@ -379,7 +379,7 @@ function ProductCostsSurface({ isProUser }: { isProUser: boolean }) {
         {loadState === "ready" && rows && rows.length > 0 && (
           <ul className="divide-y divide-white/[0.04]" aria-label="Product cost rows">
             {/* header row */}
-            <li className="grid grid-cols-[1fr_120px_120px_90px_auto] gap-3 pb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+            <li className="grid grid-cols-[1fr_120px_120px_90px_auto] gap-3 pb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
               <span>Product</span>
               <span className="text-right">COGS / unit</span>
               <span className="text-right">Shipping / unit</span>
@@ -404,7 +404,7 @@ function ProductCostsSurface({ isProUser }: { isProUser: boolean }) {
                     >
                       {r.product_title || r.product_key}
                     </div>
-                    <div className="truncate text-[10px] text-slate-500">
+                    <div className="truncate text-[10px] text-slate-400">
                       {r.product_key} · updated {formatAge(r.updated_at)}
                     </div>
                   </div>

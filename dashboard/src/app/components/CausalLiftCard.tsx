@@ -223,7 +223,7 @@ export function CausalLiftCard({
           )}
         </div>
 
-        <div className="mt-3 text-[11px] font-semibold text-slate-500">
+        <div className="mt-3 text-[11px] font-semibold text-slate-400">
           Click for the full measurement method and next action →
         </div>
       </div>

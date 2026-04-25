@@ -83,8 +83,8 @@ export function MascotEmpty({
         />
       </div>
       <div className="text-center">
-        <p className="text-[13px] text-slate-500">{message}</p>
-        {subtext && <p className="mt-1 text-[11px] text-slate-600">{subtext}</p>}
+        <p className="text-[13px] text-slate-400">{message}</p>
+        {subtext && <p className="mt-1 text-[11px] text-slate-400">{subtext}</p>}
       </div>
     </div>
   );

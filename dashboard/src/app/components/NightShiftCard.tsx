@@ -208,7 +208,7 @@ export function NightShiftCard({
           >
             {data.headline}
           </h3>
-          <p className="mt-1 text-[11px] text-slate-500">
+          <p className="mt-1 text-[11px] text-slate-400">
             Generated {relativeTime(data.generated_at)}
           </p>
         </div>
@@ -311,7 +311,7 @@ export function NightShiftCard({
                     {j.verdict}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <span className="font-mono text-[10px] text-slate-500">{j.signal}</span>
+                    <span className="font-mono text-[10px] text-slate-400">{j.signal}</span>
                     <span className="ml-1.5 text-slate-300">{j.reason}</span>
                   </div>
                 </li>

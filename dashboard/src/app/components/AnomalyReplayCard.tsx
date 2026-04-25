@@ -109,7 +109,7 @@ export function AnomalyReplayCard({
           <h3 id="anomaly-replay-heading" className="text-[15px] font-bold text-white">
             Watch what actually happened
           </h3>
-          <p className="mt-1 text-[11px] text-slate-500">
+          <p className="mt-1 text-[11px] text-slate-400">
             The event window around the most recent detected pattern — every visitor, every source.
           </p>
         </div>
@@ -141,7 +141,7 @@ export function AnomalyReplayCard({
       {loading && !data ? (
         <div className="h-20 animate-pulse rounded-xl bg-white/[0.03]" />
       ) : !data || data.summary.total_events === 0 ? (
-        <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-6 text-center text-[12px] text-slate-500">
+        <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-6 text-center text-[12px] text-slate-400">
           No events captured in the selected window.
         </div>
       ) : (
@@ -153,7 +153,7 @@ export function AnomalyReplayCard({
 
           {/* Minute-by-minute timeline — sparkbar */}
           <div className="mb-4">
-            <div className="mb-1.5 flex items-center justify-between text-[10px] uppercase tracking-wide text-slate-500">
+            <div className="mb-1.5 flex items-center justify-between text-[10px] uppercase tracking-wide text-slate-400">
               <span>Minute-by-minute</span>
               <span>{data.summary.total_events} events · {data.summary.unique_visitors} visitors</span>
             </div>
@@ -221,7 +221,7 @@ export function AnomalyReplayCard({
           </div>
 
           {data.truncated && (
-            <p className="mt-3 text-[10px] text-slate-600">
+            <p className="mt-3 text-[10px] text-slate-400">
               Showing first 200 events out of a capped window — expand the range for more context.
             </p>
           )}

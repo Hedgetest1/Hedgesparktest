@@ -17,47 +17,49 @@ uses brand amber `#d4893a` on white at 2.82:1, which is a
 coordinated palette decision (founder-domain per CLAUDE.md §1.1).
 
 **Authenticated routes** (`e2e/a11y_app.spec.ts`): zero
-critical/serious as of 2026-04-25 evening. Routes covered: `/app`,
-`/app?as=lite`, `/app/pro`. Smoke shop:
-`hedgespark-smoke.myshopify.com`. Requires
-`MERCHANT_SESSION_SECRET` env var sourced from `backend/.env`.
-
-**Routes NOT yet axe-covered** (R-blocker:sprint>1d) — added one
-line each in `e2e/a11y_app.spec.ts` as their design ships:
-- `/app/lite` (separate route from `/app?as=lite` preview)
+critical/serious across 10 routes as of 2026-04-25 night.
+Routes covered:
+- `/app` (root)
+- `/app?as=lite` (Lite preview override)
+- `/app/pro` (Pro tier dedicated)
+- `/app/lite` (separate Lite route)
 - `/app/intelligence`
 - `/app/operations`
 - `/app/scale`
 - `/app/marketplace`
-- `/app/settings/*`
 - `/app/groups`
+- `/app/settings`
+
+Smoke shop: `hedgespark-smoke.myshopify.com`. Requires
+`MERCHANT_SESSION_SECRET` env var sourced from `backend/.env`.
 
 Bar stays zero-critical/zero-serious for every newly added route.
+Adding a new dashboard surface = one extra entry in the ROUTES
+array of `e2e/a11y_app.spec.ts`.
 
 ## Static baseline — `audit_dashboard_a11y.py`
 
-Run via preflight (informational, never blocking):
+Run via preflight in `--strict` mode (blocks commits on regression):
 ```
-backend/venv/bin/python backend/scripts/audit_dashboard_a11y.py
+backend/venv/bin/python backend/scripts/audit_dashboard_a11y.py --strict
 ```
 
-**As of 2026-04-25 evening:** 415 findings.
+**As of 2026-04-25 night:** 0 findings (was 415 evening).
 
 | Pattern class | Count | Severity | axe-equivalent |
 |---|---|---|---|
 | Icon-only buttons missing aria-label / title | 0 | CRITICAL | button-name |
-| Low-contrast small text (`text-slate-500/600` + `text-[≤13px]` / `text-xs`) | 415 | SERIOUS | color-contrast |
+| Low-contrast small text (`text-slate-500/600` + `text-[≤13px]` / `text-xs`) | 0 | SERIOUS | color-contrast |
 
-The 415 count is HIGH because `text-[10px] text-slate-500` is a
-common label pattern across the dashboard. axe didn't flag all 415
-because (a) some sites composite onto lighter backgrounds where
-contrast actually passes, and (b) some sites are not yet rendered on
-the routes the runtime suite covers. They remain a STRUCTURAL risk:
-the next route added to axe coverage will surface a fresh batch.
+The 411-className sweep (`text-slate-500/600` -> `text-slate-400` only
+inside class strings paired with a small-font token) closed the gap
+in one pass without changing a single class on regular-size text. The
+audit is now `--strict` so a future regression blocks at preflight.
 
-## What was fixed in F6 (commit landing this baseline)
+## What was fixed in F6 (commits landing this baseline)
 
-Five files, scoped to elements the runtime axe suite caught failing:
+First commit (`142023d`) — targeted fixes for the elements the runtime
+axe suite caught failing on /app, /app?as=lite, /app/pro:
 
 - `dashboard/src/app/components/Sidebar.tsx` — locked-tier nav text
   bumped `text-slate-600` → `text-slate-400` (floor selector + section
@@ -72,14 +74,32 @@ Five files, scoped to elements the runtime axe suite caught failing:
 - `dashboard/src/app/components/LiteTodaySection.tsx` — KpiTile
   label + "yesterday" delta bumped `text-slate-500` → `text-slate-400`.
 
+Second commit (this one) — extended axe coverage to all /app
+subroutes + bulk static sweep:
+
+- `dashboard/e2e/a11y_app.spec.ts` extended from 3 routes to 10 (added
+  `/app/lite`, `/app/intelligence`, `/app/operations`, `/app/scale`,
+  `/app/marketplace`, `/app/groups`, `/app/settings`).
+- `dashboard/src/app/components/FloorLayout.tsx` — "Loading your plan…"
+  no longer relies on `animate-pulse` for visibility (axe sampled at
+  the pulsed-down opacity, which dropped contrast below 4.5:1). Now a
+  static text-slate-200 with `role="status"` + `aria-live="polite"`.
+- `dashboard/src/app/app/marketplace/page.tsx` + `/app/groups/page.tsx`
+  — small-text counts and empty-states bumped `text-slate-500` →
+  `text-slate-400`.
+- 411 className(s) updated across 93 files via the surgical sweep
+  (only inside class strings paired with a small-font token).
+- `audit_dashboard_a11y.py` flipped from info-only to `--strict` in
+  preflight; commits with new low-contrast small text now block.
+
 ## Policy going forward
 
 1. **Runtime suite is the hard gate.** `npm run e2e:a11y` runs in CI
    nightly + on demand. Any critical/serious violation is a blocker.
-2. **Static audit is the leading indicator.** `audit_dashboard_a11y.py`
-   runs on every commit (info-only). Watch the count trend down.
-   When it hits zero, flip to `--strict` and add to the preflight
-   blocking gates.
+   16 routes covered (6 public + 10 authenticated).
+2. **Static audit blocks regressions.** `audit_dashboard_a11y.py`
+   runs `--strict` in preflight. Any new low-contrast small-text site
+   or icon-only button without aria-label fails commit.
 3. **New routes added to `e2e/a11y_app.spec.ts` immediately** when
    their design ships. Don't let coverage drift behind feature work.
 4. **Color tokens for small text:** prefer `text-slate-400` or lighter

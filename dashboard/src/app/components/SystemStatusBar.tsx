@@ -128,7 +128,7 @@ export function SystemStatusBar({
           </div>
 
           {/* Status meta line. */}
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500">
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-400">
             <span>
               <b className="text-slate-300 tabular-nums">{status.data_points.toLocaleString()}</b>{" "}
               data points

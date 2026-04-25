@@ -108,7 +108,7 @@ function KpiTile({
         {hint && (
           <span
             aria-label={hint}
-            className="cursor-help text-[11px] font-normal text-slate-600 hover:text-slate-400"
+            className="cursor-help text-[11px] font-normal text-slate-400 hover:text-slate-400"
           >
             ⓘ
           </span>
@@ -290,7 +290,7 @@ export function LiteTodaySection({
               </div>
             )}
 
-            <p className="mt-5 text-[11px] leading-relaxed text-slate-500">
+            <p className="mt-5 text-[11px] leading-relaxed text-slate-400">
               <span className="font-semibold text-slate-400">How this is measured.</span>{" "}
               Revenue / orders / AOV from{" "}
               <code className="rounded bg-white/[0.04] px-1 py-0.5 text-slate-400">shop_orders</code>
@@ -322,7 +322,7 @@ export function LiteTodaySection({
                       <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-slate-200">
                         {p.product_title}
                       </span>
-                      <span className="flex-shrink-0 text-[11.5px] tabular-nums text-slate-500">
+                      <span className="flex-shrink-0 text-[11.5px] tabular-nums text-slate-400">
                         {p.units_sold} sold
                       </span>
                       <span

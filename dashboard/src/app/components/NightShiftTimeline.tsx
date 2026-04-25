@@ -219,13 +219,13 @@ export function NightShiftTimeline({
             <div className="text-[11px] text-violet-400/70">actions taken</div>
           </div>
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
               This week
             </div>
             <div className="mt-1 text-[26px] font-extrabold tabular-nums text-slate-200">
               {weekCount}
             </div>
-            <div className="text-[11px] text-slate-500">actions total</div>
+            <div className="text-[11px] text-slate-400">actions total</div>
           </div>
           <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/[0.05] px-4 py-3">
             <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
@@ -239,20 +239,20 @@ export function NightShiftTimeline({
             </div>
           </div>
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
               Still measuring
             </div>
             <div className="mt-1 text-[26px] font-extrabold tabular-nums text-slate-200">
               {summary.measuring_week}
             </div>
-            <div className="text-[11px] text-slate-500">verdict pending</div>
+            <div className="text-[11px] text-slate-400">verdict pending</div>
           </div>
         </div>
 
         {/* Overnight list */}
         {topOvernight.length > 0 ? (
           <div className="mt-5 space-y-2">
-            <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">
+            <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
               Last 24 hours · most recent first
             </div>
             {topOvernight.map((action) => {
@@ -273,12 +273,12 @@ export function NightShiftTimeline({
                       <span className="truncate text-[13px] font-semibold text-slate-200">
                         {humanAction(action.action_type, action.nudge_type)}
                       </span>
-                      <span className="text-[11px] text-slate-600" aria-hidden="true">·</span>
-                      <span className="truncate text-[12px] text-slate-500">
+                      <span className="text-[11px] text-slate-400" aria-hidden="true">·</span>
+                      <span className="truncate text-[12px] text-slate-400">
                         {shortProduct(action.product_url)}
                       </span>
                     </div>
-                    <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
                       {action.decision_reason}
                     </p>
                   </div>
@@ -289,7 +289,7 @@ export function NightShiftTimeline({
                     >
                       {label}
                     </div>
-                    <div className="mt-0.5 text-[10px] tabular-nums text-slate-600">
+                    <div className="mt-0.5 text-[10px] tabular-nums text-slate-400">
                       {relativeTime(action.at)}
                     </div>
                   </div>
@@ -306,7 +306,7 @@ export function NightShiftTimeline({
           </div>
         )}
 
-        <div className="mt-4 text-[11px] font-semibold text-slate-500">
+        <div className="mt-4 text-[11px] font-semibold text-slate-400">
           Click for the full week and per-action reasoning →
         </div>
       </div>

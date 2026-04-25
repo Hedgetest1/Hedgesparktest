@@ -352,7 +352,7 @@ export function KpiInsightModal({
           <div className="grid grid-cols-2 gap-2">
             {d.numbers.map((n) => (
               <div key={n.label} className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-3">
-                <div className="text-[10px] uppercase tracking-[0.1em] text-slate-600">{n.label}</div>
+                <div className="text-[10px] uppercase tracking-[0.1em] text-slate-400">{n.label}</div>
                 <div className="mt-1 text-[15px] font-semibold tabular-nums text-white">{n.value}</div>
               </div>
             ))}
@@ -360,7 +360,7 @@ export function KpiInsightModal({
 
           <div className="rounded-xl border border-violet-400/[0.12] bg-violet-500/[0.06] px-4 py-3.5">
             <p className="text-[12px] leading-[1.6] text-slate-300">{d.insight[0]}</p>
-            <p className="mt-1.5 text-[11px] leading-[1.5] text-slate-500">{d.insight[1]}</p>
+            <p className="mt-1.5 text-[11px] leading-[1.5] text-slate-400">{d.insight[1]}</p>
           </div>
 
         </div>

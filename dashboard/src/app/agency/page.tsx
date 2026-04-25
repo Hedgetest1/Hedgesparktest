@@ -189,7 +189,7 @@ export default function AgencyPage() {
         </header>
 
         {loading && (
-          <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center text-[13px] text-slate-500">
+          <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center text-[13px] text-slate-400">
             Loading…
           </div>
         )}
@@ -222,7 +222,7 @@ export default function AgencyPage() {
                   <div className="mt-1 text-[22px] font-extrabold text-amber-300">{fmtMoney(dashboard.totals.revshare_eur)}</div>
                 </div>
                 <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4 text-center">
-                  <div className="text-[10px] uppercase tracking-wide text-slate-500">Active clients</div>
+                  <div className="text-[10px] uppercase tracking-wide text-slate-400">Active clients</div>
                   <div className="mt-1 text-[22px] font-extrabold text-white">{dashboard.totals.client_count}</div>
                 </div>
               </div>
@@ -231,7 +231,7 @@ export default function AgencyPage() {
             <section className="mb-8 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
               <h2 className="mb-3 text-[14px] font-bold text-white">Client roster</h2>
               {dashboard.clients.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-white/[0.08] bg-white/[0.01] p-4 text-center text-[12px] text-slate-500">
+                <div className="rounded-xl border border-dashed border-white/[0.08] bg-white/[0.01] p-4 text-center text-[12px] text-slate-400">
                   No clients yet. Add one below.
                 </div>
               ) : (
@@ -243,7 +243,7 @@ export default function AgencyPage() {
                           <div className="text-[12px] font-semibold text-slate-200">
                             {c.nickname || c.shop_domain}
                           </div>
-                          <div className="mt-1 text-[10px] text-slate-500 truncate">
+                          <div className="mt-1 text-[10px] text-slate-400 truncate">
                             {c.shop_domain} · revshare {c.revshare_pct}%
                           </div>
                         </div>

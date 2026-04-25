@@ -265,7 +265,7 @@ export function RevenueGenomeCard({
               <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400">
                 Top priority
               </span>
-              <span className="text-[11px] text-slate-500">·</span>
+              <span className="text-[11px] text-slate-400">·</span>
               <span className="text-[11px] font-semibold text-slate-300">{topAction.cluster}</span>
               <span className="ml-auto text-[12px] font-extrabold tabular-nums text-rose-400">
                 {topAction.score}/100
@@ -277,7 +277,7 @@ export function RevenueGenomeCard({
           </div>
         )}
 
-        <div className="mt-4 text-[11px] font-semibold text-slate-500">
+        <div className="mt-4 text-[11px] font-semibold text-slate-400">
           Click for the full gene-by-gene breakdown and all priority actions →
         </div>
       </div>

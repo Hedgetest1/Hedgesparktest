@@ -119,7 +119,7 @@ export function PredictedLtv({
       {/* Empty state */}
       {sorted.length === 0 && (
         <div className="rounded-xl border border-dashed border-white/[0.06] bg-white/[0.015] px-4 py-8 text-center">
-          <p className="text-[12px] text-slate-500">
+          <p className="text-[12px] text-slate-400">
             We need orders with customer identity (email or Shopify customer_id) before we
             can compute predicted lifetime value.
           </p>
@@ -161,7 +161,7 @@ export function PredictedLtv({
                       {tier.label}
                     </span>
                   </div>
-                  <div className="mt-0.5 flex items-center gap-3 text-[10px] text-slate-500">
+                  <div className="mt-0.5 flex items-center gap-3 text-[10px] text-slate-400">
                     <span>{c.total_orders} orders</span>
                     <span className="text-slate-700">•</span>
                     <span>spent {fmtMoney(c.total_spend)}</span>
@@ -175,7 +175,7 @@ export function PredictedLtv({
                   <div className="text-[12px] font-bold tabular-nums text-white">
                     {fmtMoney(c.predicted_12m_ltv)}
                   </div>
-                  <div className="mt-0.5 flex items-center justify-end gap-1 text-[10px] text-slate-500">
+                  <div className="mt-0.5 flex items-center justify-end gap-1 text-[10px] text-slate-400">
                     <span>next 12mo</span>
                     {isUp && (
                       <span
@@ -214,7 +214,7 @@ export function PredictedLtv({
               >
                 {fmtMoneyBig(totalPredicted12m)}
               </div>
-              <div className="mt-1 text-[10px] text-slate-500">
+              <div className="mt-1 text-[10px] text-slate-400">
                 {fmtMoney(totalPredicted30d)} in next 30d
               </div>
             </div>

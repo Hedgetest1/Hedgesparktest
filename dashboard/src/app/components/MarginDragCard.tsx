@@ -79,7 +79,7 @@ export function MarginDragCard({
   if (!products.length) {
     return (
       <div className="rounded-2xl border border-dashed border-white/[0.12] bg-[#0b0b14]/40 p-6">
-        <div className="mb-3 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+        <div className="mb-3 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-400">
           <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-300" aria-hidden="true" />
           Preview — product-level margin ranking
         </div>
@@ -105,7 +105,7 @@ export function MarginDragCard({
             </div>
             <div className="mt-2 text-[2rem] font-extrabold leading-none tabular-nums text-amber-300">
               {drag > 0 ? formatMoneyCompact(drag, currency) : "—"}
-              <span className="ml-2 text-[12px] font-semibold tabular-nums text-slate-500">
+              <span className="ml-2 text-[12px] font-semibold tabular-nums text-slate-400">
                 / mo recoverable
               </span>
             </div>
@@ -121,7 +121,7 @@ export function MarginDragCard({
 
       {/* Product ranking */}
       <div className="mb-4">
-        <div className="mb-3 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+        <div className="mb-3 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-400">
           Worst 5 by margin %
         </div>
         <ul className="space-y-2">
@@ -152,7 +152,7 @@ export function MarginDragCard({
                       </span>
                     )}
                   </div>
-                  <div className="mt-0.5 text-[11.5px] text-slate-500 tabular-nums">
+                  <div className="mt-0.5 text-[11.5px] text-slate-400 tabular-nums">
                     {formatMoneyCompact(p.revenue, currency)} revenue · {p.units_sold} units · {formatMoneyCompact(p.cogs, currency)} cogs
                   </div>
                 </div>
@@ -192,7 +192,7 @@ export function MarginDragCard({
 
       {/* Methodology + upgrade hint */}
       <div className="rounded-xl border border-white/[0.04] bg-[#0b0b14]/40 px-4 py-3">
-        <div className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+        <div className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-400">
           How this is measured
         </div>
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-slate-400">

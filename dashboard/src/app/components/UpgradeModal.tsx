@@ -161,7 +161,7 @@ export function UpgradeModal({
                   <div className="text-[13px] font-medium text-slate-200">
                     {feature.title}
                   </div>
-                  <div className="mt-0.5 text-[11px] leading-[1.5] text-slate-500">
+                  <div className="mt-0.5 text-[11px] leading-[1.5] text-slate-400">
                     {feature.description}
                   </div>
                 </div>
@@ -187,7 +187,7 @@ export function UpgradeModal({
 
           {/* Honest beta-phase clarification */}
           {!loading && (
-            <p className="mt-2 text-center text-[11px] text-slate-500">
+            <p className="mt-2 text-center text-[11px] text-slate-400">
               Closed beta — pricing announced before general launch. Cancel anytime from Shopify.
             </p>
           )}
@@ -198,7 +198,7 @@ export function UpgradeModal({
 
           <button
             onClick={onClose}
-            className="mt-3 w-full text-center text-[12px] text-slate-600 transition hover:text-slate-400"
+            className="mt-3 w-full text-center text-[12px] text-slate-400 transition hover:text-slate-400"
           >
             Continue with Lite
           </button>

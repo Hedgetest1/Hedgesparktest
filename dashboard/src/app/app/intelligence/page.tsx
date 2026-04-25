@@ -134,7 +134,7 @@ export default function IntelligencePage() {
             {previewFeatures.length > 0 && (
               <>
                 {isProUser && (
-                  <div className="mb-4 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                  <div className="mb-4 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">
                     Still migrating · live versions arrive one by one
                   </div>
                 )}

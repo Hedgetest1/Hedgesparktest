@@ -153,7 +153,7 @@ export function CausalWhyCard({
             {t("why.title")}
           </h3>
           {data.vertical_display && (
-            <p className="mt-1 text-[11px] text-slate-500">
+            <p className="mt-1 text-[11px] text-slate-400">
               Tuned for <span className="font-semibold text-slate-300">{data.vertical_display}</span> stores
             </p>
           )}
@@ -191,7 +191,7 @@ export function CausalWhyCard({
             {labelize(top.label)}
           </span>
           {top.evidence?.length > 0 && (
-            <span className="text-[10px] text-slate-500">
+            <span className="text-[10px] text-slate-400">
               {top.evidence.length} supporting signal{top.evidence.length === 1 ? "" : "s"}
             </span>
           )}
@@ -216,7 +216,7 @@ export function CausalWhyCard({
       {/* Other hypotheses (collapsed) */}
       {others.length > 0 && (
         <div className="mt-3 space-y-1.5">
-          <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500" id="other-causes-label">
+          <div className="text-[10px] font-medium uppercase tracking-wide text-slate-400" id="other-causes-label">
             Other possible causes
           </div>
           <ul className="space-y-1.5" aria-labelledby="other-causes-label">
@@ -226,7 +226,7 @@ export function CausalWhyCard({
                 className="flex items-center justify-between rounded-lg border border-white/[0.04] bg-white/[0.015] px-3 py-2"
               >
                 <span className="text-[12px] text-slate-300">{labelize(h.label)}</span>
-                <span className="text-[11px] tabular-nums text-slate-500" aria-label={`${Math.round((h.confidence || 0) * 100)} percent confidence`}>
+                <span className="text-[11px] tabular-nums text-slate-400" aria-label={`${Math.round((h.confidence || 0) * 100)} percent confidence`}>
                   {Math.round((h.confidence || 0) * 100)}%
                 </span>
               </li>

@@ -157,7 +157,7 @@ export function RevenueAtRiskHero({
           {fmtMoney(totalAtRisk, data?.currency)}
         </div>
         {hasRisk && (
-          <div className="mb-2 text-[12px] text-slate-500">at risk</div>
+          <div className="mb-2 text-[12px] text-slate-400">at risk</div>
         )}
         {!hasRisk && (
           <div className="mb-2 text-[12px] text-emerald-400">✓ no losses detected</div>
@@ -216,7 +216,7 @@ export function RevenueAtRiskHero({
               >
                 <div className="flex items-center gap-1.5">
                   <span className="text-[14px]">{meta.icon}</span>
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
                     {meta.label}
                   </span>
                 </div>
@@ -224,7 +224,7 @@ export function RevenueAtRiskHero({
                   {fmtMoney(c.loss_eur, data?.currency)}
                 </div>
                 {expanded && (
-                  <div className="mt-1 text-[10px] leading-snug text-slate-500">
+                  <div className="mt-1 text-[10px] leading-snug text-slate-400">
                     {c.narrative || "—"}
                   </div>
                 )}

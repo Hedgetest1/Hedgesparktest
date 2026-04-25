@@ -160,7 +160,7 @@ export function IntelligenceHero({
           <span className="text-[13px] font-bold uppercase tracking-[0.14em] hs-brand-gradient">
             {sev.label}
           </span>
-          <span className="text-[13px] font-bold uppercase tracking-[0.14em] text-slate-500">
+          <span className="text-[13px] font-bold uppercase tracking-[0.14em] text-slate-400">
             {insight.category}
           </span>
         </div>
@@ -215,7 +215,7 @@ export function IntelligenceHero({
 
           {/* Revenue */}
           <div className="group rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3.5 transition-colors hover:bg-white/[0.04]">
-            <div className="text-[12px] font-bold uppercase tracking-wider text-slate-500">Revenue</div>
+            <div className="text-[12px] font-bold uppercase tracking-wider text-slate-400">Revenue</div>
             <div className="mt-1.5 flex items-baseline gap-1.5">
               <span className="text-[1.75rem] font-extrabold tabular-nums text-white">{fmt$(d.revenue_this_week, d.currency)}</span>
               {revChange != null && (
@@ -235,7 +235,7 @@ export function IntelligenceHero({
 
           {/* Orders */}
           <div className="group rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3.5 transition-colors hover:bg-white/[0.04]">
-            <div className="text-[12px] font-bold uppercase tracking-wider text-slate-500">Orders</div>
+            <div className="text-[12px] font-bold uppercase tracking-wider text-slate-400">Orders</div>
             <div className="mt-1.5">
               <span className="text-[1.75rem] font-extrabold tabular-nums text-white">{d.orders_this_week ?? 0}</span>
             </div>
@@ -262,16 +262,16 @@ export function IntelligenceHero({
 
           {/* Visitors */}
           <div className="group rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3.5 transition-colors hover:bg-white/[0.04]">
-            <div className="text-[12px] font-bold uppercase tracking-wider text-slate-500">Visitors</div>
+            <div className="text-[12px] font-bold uppercase tracking-wider text-slate-400">Visitors</div>
             <div className="mt-1.5">
               <span className="text-[1.75rem] font-extrabold tabular-nums text-white">{d.visitors_7d ?? 0}</span>
             </div>
-            <div className="mt-1 text-[13px] text-slate-500">7-day total</div>
+            <div className="mt-1 text-[13px] text-slate-400">7-day total</div>
           </div>
 
           {/* Cart Rate */}
           <div className="group rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3.5 transition-colors hover:bg-white/[0.04]">
-            <div className="text-[12px] font-bold uppercase tracking-wider text-slate-500">Cart Rate</div>
+            <div className="text-[12px] font-bold uppercase tracking-wider text-slate-400">Cart Rate</div>
             <div className="mt-1.5">
               <span className={`text-[1.75rem] font-extrabold tabular-nums ${
                 d.cart_rate != null
@@ -318,7 +318,7 @@ export function IntelligenceHero({
               <span className={`text-[14px] font-bold ${DIR_COLOR[sig.direction] || DIR_COLOR.unknown}`}>
                 {DIR_ARROW[sig.direction] || DIR_ARROW.unknown}
               </span>
-              <span className="text-[12px] font-bold uppercase tracking-wider text-slate-500">{sig.name}</span>
+              <span className="text-[12px] font-bold uppercase tracking-wider text-slate-400">{sig.name}</span>
               <span className="text-[13px] text-slate-400">{sig.detail}</span>
             </div>
           ))}

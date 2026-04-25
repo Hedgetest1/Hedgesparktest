@@ -86,7 +86,7 @@ export function GatewayProducts({
       {/* Empty state */}
       {sorted.length === 0 && (
         <div className="rounded-xl border border-dashed border-white/[0.06] bg-white/[0.015] px-4 py-8 text-center">
-          <p className="text-[12px] text-slate-500">
+          <p className="text-[12px] text-slate-400">
             We need at least 5 identified customers per product before we can surface
             gateway intelligence. Connect Shopify webhooks if you haven&apos;t yet —
             customer identity is the key.
@@ -119,7 +119,7 @@ export function GatewayProducts({
                     <div className="truncate text-[13px] font-semibold text-white">
                       {truncateTitle(p.title, p.product)}
                     </div>
-                    <div className="mt-0.5 flex items-center gap-3 text-[11px] text-slate-500">
+                    <div className="mt-0.5 flex items-center gap-3 text-[11px] text-slate-400">
                       <span>{p.buyer_count} buyers</span>
                       <span className="text-slate-700">•</span>
                       <span>{p.avg_buyer_orders.toFixed(1)} orders/buyer</span>
@@ -176,7 +176,7 @@ export function GatewayProducts({
 
       {/* Legend / insight footer */}
       {sorted.length > 0 && (
-        <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[10px] text-slate-500">
+        <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[10px] text-slate-400">
           <div className="inline-flex items-center gap-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-[#e8a04e]" />
             <span>

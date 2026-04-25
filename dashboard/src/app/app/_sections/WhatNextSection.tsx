@@ -125,7 +125,7 @@ export function WhatNextSection(p: WhatNextSectionProps) {
                   className="mb-2 cursor-pointer rounded-lg border border-violet-400/10 bg-violet-500/[0.03] px-3 py-2 transition hover:border-violet-400/25"
                   onClick={() => setUpgradeModalOpen(true)}
                 >
-                  <p className="text-[12px] text-slate-500">Specific action available <span className="text-violet-400/70">in Pro</span></p>
+                  <p className="text-[12px] text-slate-400">Specific action available <span className="text-violet-400/70">in Pro</span></p>
                 </div>
               )}
 

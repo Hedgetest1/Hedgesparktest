@@ -83,7 +83,7 @@ export function CompetitorPlaybookCard({
           <h3 id="playbook-heading" className="text-[15px] font-bold leading-snug text-white">
             What merchants like you did
           </h3>
-          <p className="mt-1 text-[11px] text-slate-500">
+          <p className="mt-1 text-[11px] text-slate-400">
             Anonymized network-wide aggregation · last {data.lookback_days} days
           </p>
         </div>
@@ -136,7 +136,7 @@ export function CompetitorPlaybookCard({
                     <div className="text-[12px] font-semibold text-slate-200">
                       {prettyAction(entry.action_type)}
                     </div>
-                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-slate-400">
                       <span className="rounded bg-white/[0.04] px-1.5 py-px">{entry.total_shops} peers</span>
                       {wins > 0 && (
                         <span className="rounded bg-emerald-500/10 px-1.5 py-px text-emerald-300">{wins} wins</span>

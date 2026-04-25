@@ -74,7 +74,7 @@ export function ProGate({
             Unlock {label}
           </div>
           {teaser && (
-            <div className="mt-1.5 max-w-[280px] text-[13px] leading-[1.5] text-slate-500">
+            <div className="mt-1.5 max-w-[280px] text-[13px] leading-[1.5] text-slate-400">
               {teaser}
             </div>
           )}

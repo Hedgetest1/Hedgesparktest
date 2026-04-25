@@ -105,7 +105,7 @@ export function OrdersSummary({
         {/* KPI row */}
         <div className="mt-5 grid gap-5 sm:grid-cols-3">
           <div>
-            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
               Last 7 days
             </div>
             <div className="mt-1.5 text-[32px] font-extrabold tabular-nums leading-none text-white">
@@ -116,7 +116,7 @@ export function OrdersSummary({
             </div>
           </div>
           <div>
-            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
               Last 30 days
             </div>
             <div className="mt-1.5 text-[32px] font-extrabold tabular-nums leading-none text-white">
@@ -127,7 +127,7 @@ export function OrdersSummary({
             </div>
           </div>
           <div>
-            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
               Average order
             </div>
             <div className="mt-1.5 text-[32px] font-extrabold tabular-nums leading-none text-white">
@@ -153,7 +153,7 @@ export function OrdersSummary({
                     {p.product_title}
                   </span>
                   <div className="flex flex-shrink-0 items-center gap-4">
-                    <span className="text-[12px] tabular-nums text-slate-500">
+                    <span className="text-[12px] tabular-nums text-slate-400">
                       {p.units_sold} sold
                     </span>
                     <span className="font-extrabold tabular-nums text-emerald-300">
@@ -166,7 +166,7 @@ export function OrdersSummary({
           </div>
         )}
 
-        <div className="mt-4 text-[11px] font-semibold text-slate-500">
+        <div className="mt-4 text-[11px] font-semibold text-slate-400">
           Click for the full product list and revenue breakdown →
         </div>
       </div>

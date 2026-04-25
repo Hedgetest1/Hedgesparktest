@@ -188,7 +188,7 @@ export function RevenueTrendChart({
       <div className="mt-4 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
         <div className="flex items-center gap-2">
           <div className="h-px flex-1 bg-white/[0.06]" />
-          <span className="text-[11px] text-slate-500">
+          <span className="text-[11px] text-slate-400">
             Revenue trend will appear once orders arrive
           </span>
           <div className="h-px flex-1 bg-white/[0.06]" />
@@ -216,7 +216,7 @@ export function RevenueTrendChart({
       <div className="mt-4 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
         <div className="flex items-center gap-2">
           <div className="h-px flex-1 bg-white/[0.06]" />
-          <span className="text-[11px] text-slate-600">Revenue trend will appear once orders arrive</span>
+          <span className="text-[11px] text-slate-400">Revenue trend will appear once orders arrive</span>
           <div className="h-px flex-1 bg-white/[0.06]" />
         </div>
       </div>
@@ -227,7 +227,7 @@ export function RevenueTrendChart({
     <div className="mt-4 overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02]">
       {/* Header row */}
       <div className="flex items-center justify-between px-4 pt-3 pb-1">
-        <div className="text-[11px] font-medium text-slate-500">7-day revenue</div>
+        <div className="text-[11px] font-medium text-slate-400">7-day revenue</div>
         <div className="flex items-center gap-2">
           {momentum !== null && Math.abs(momentum) >= 1 && (
             <span

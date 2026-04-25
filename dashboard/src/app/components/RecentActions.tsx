@@ -26,7 +26,7 @@ export function RecentActions({ actions }: Props) {
 
   return (
     <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-5 py-4">
-      <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+      <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
         Recent actions
       </div>
       <div className="space-y-2">
@@ -39,11 +39,11 @@ export function RecentActions({ actions }: Props) {
               <span className="text-[12px] font-medium text-slate-300">
                 {a.product}
               </span>
-              <span className="ml-2 text-[11px] text-slate-600">
+              <span className="ml-2 text-[11px] text-slate-400">
                 {truncate(a.action, 50)}
               </span>
             </div>
-            <span className="flex-shrink-0 text-[10px] tabular-nums text-slate-600">
+            <span className="flex-shrink-0 text-[10px] tabular-nums text-slate-400">
               {timeAgo(a.timestamp)}
             </span>
           </div>

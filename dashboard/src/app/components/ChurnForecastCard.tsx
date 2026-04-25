@@ -331,7 +331,7 @@ export function ChurnForecastCard({
         </div>
 
         <div className="mt-5 rounded-lg border border-white/[0.05] bg-white/[0.02] px-4 py-4">
-          <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+          <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
             Forecast window
           </div>
           <div className="overflow-hidden rounded-md">
@@ -348,7 +348,7 @@ export function ChurnForecastCard({
           </p>
         </div>
 
-        <div className="mt-3 text-[11px] font-semibold text-slate-500">
+        <div className="mt-3 text-[11px] font-semibold text-slate-400">
           Click for the full method, 95% band and recommended action →
         </div>
       </div>

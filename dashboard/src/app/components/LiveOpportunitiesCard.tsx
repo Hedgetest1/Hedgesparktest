@@ -194,7 +194,7 @@ export function LiveOpportunitiesCard({
                   >
                     {op.priority_score}
                   </div>
-                  <div className="text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                  <div className="text-[10px] uppercase tracking-[0.12em] text-slate-400">
                     priority
                   </div>
                 </div>
@@ -223,7 +223,7 @@ function Stat({ label, value }: { label: string; value: string }) {
       <div className="text-[14px] font-bold tabular-nums text-slate-200">
         {value}
       </div>
-      <div className="text-[10px] uppercase tracking-[0.1em] text-slate-500">
+      <div className="text-[10px] uppercase tracking-[0.1em] text-slate-400">
         {label}
       </div>
     </div>

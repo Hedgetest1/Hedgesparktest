@@ -264,7 +264,7 @@ export function RiskForecastCard({
             <div className="mt-1 text-[28px] font-extrabold tabular-nums text-slate-200">
               {formatMoneyCompact(today, "USD")}
             </div>
-            <div className="mt-0.5 text-[10px] text-slate-500">
+            <div className="mt-0.5 text-[10px] text-slate-400">
               current RARS total
             </div>
           </div>
@@ -307,7 +307,7 @@ export function RiskForecastCard({
 
         {history.length >= 2 && (
           <div className="mt-5 rounded-lg border border-white/[0.05] bg-white/[0.02] px-4 py-4">
-            <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+            <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
               Trajectory
             </div>
             <div className="overflow-hidden rounded-md">
@@ -332,7 +332,7 @@ export function RiskForecastCard({
           </div>
         )}
 
-        <div className="mt-3 text-[11px] font-semibold text-slate-500">
+        <div className="mt-3 text-[11px] font-semibold text-slate-400">
           Click for the 95% band, full method, and recommended action →
         </div>
       </div>

@@ -52,7 +52,7 @@ export function SectionHeading({
         </p>
       )}
       {description && (
-        <p className="mt-1 text-[13px] leading-relaxed text-slate-500">
+        <p className="mt-1 text-[13px] leading-relaxed text-slate-400">
           {description}
         </p>
       )}

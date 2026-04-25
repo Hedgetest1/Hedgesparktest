@@ -204,7 +204,7 @@ function SettingsHub() {
   return (
     <>
       <div className="mb-8">
-        <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-500">
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-400">
           <Link href="/app" className="text-slate-400 hover:text-[#e8a04e]">
             ← Dashboard
           </Link>

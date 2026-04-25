@@ -133,7 +133,7 @@ export default function ProofPage() {
               <div className="bg-gradient-to-r from-emerald-400 to-emerald-300 bg-clip-text text-[3rem] font-extrabold tabular-nums text-transparent">
                 +{lift.toFixed(0)}%
               </div>
-              <div className="mt-1 text-[13px] text-slate-500">conversion lift</div>
+              <div className="mt-1 text-[13px] text-slate-400">conversion lift</div>
             </div>
           )}
 
@@ -164,12 +164,12 @@ export default function ProofPage() {
                 </span>
               )}
               {pVal != null && (
-                <span className="text-[10px] tabular-nums text-slate-600">
+                <span className="text-[10px] tabular-nums text-slate-400">
                   p = {pVal.toFixed(4)}
                 </span>
               )}
               {total > 0 && (
-                <span className="text-[10px] tabular-nums text-slate-600">
+                <span className="text-[10px] tabular-nums text-slate-400">
                   {total.toLocaleString()} visitors measured
                 </span>
               )}
@@ -179,8 +179,8 @@ export default function ProofPage() {
 
         {/* Methodology */}
         <div className="mt-8 rounded-xl border border-white/[0.04] bg-white/[0.01] p-5">
-          <h3 className="text-[12px] font-bold uppercase tracking-[0.12em] text-slate-600">How this was measured</h3>
-          <p className="mt-3 text-[13px] leading-[1.7] text-slate-500">
+          <h3 className="text-[12px] font-bold uppercase tracking-[0.12em] text-slate-400">How this was measured</h3>
+          <p className="mt-3 text-[13px] leading-[1.7] text-slate-400">
             A random 20% of visitors were held back as a control group and shown the original page.
             The remaining 80% saw the optimized version. Conversion rates were compared after sufficient
             traffic to determine statistical significance. No guessing — real holdout testing.
@@ -199,7 +199,7 @@ export default function ProofPage() {
           >
             Get this for your Shopify store
           </a>
-          <p className="mt-4 text-[12px] text-slate-600">
+          <p className="mt-4 text-[12px] text-slate-400">
             First signal in 10 minutes. Built for Shopify stores.
           </p>
         </div>

@@ -94,7 +94,7 @@ export function LiteLast7DaysSection({
               <div className="text-[12.5px] font-semibold text-slate-300">
                 No visitor signal yet
               </div>
-              <p className="mt-1 text-[11.5px] leading-relaxed text-slate-500">
+              <p className="mt-1 text-[11.5px] leading-relaxed text-slate-400">
                 Once your storefront tracker fires its first
                 product_view event, the four funnel steps and per-step
                 drop-off rates appear here automatically.
@@ -103,7 +103,7 @@ export function LiteLast7DaysSection({
           )}
         </div>
 
-        <p className="mt-5 text-[11px] leading-relaxed text-slate-500">
+        <p className="mt-5 text-[11px] leading-relaxed text-slate-400">
           <span className="font-semibold text-slate-400">How this is measured.</span>{" "}
           Revenue trend reads <code className="rounded bg-white/[0.04] px-1 py-0.5 text-slate-400">shop_orders</code> in your store&apos;s
           primary currency, day-bucketed in your shop timezone.

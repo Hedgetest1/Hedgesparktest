@@ -281,7 +281,7 @@ export function ProductConversions({
           <table className="w-full text-left text-[14px]">
             <thead>
               <tr className="border-b border-white/[0.06]">
-                <th className="pb-3 pr-3 text-[11px] font-bold uppercase tracking-[0.1em] text-slate-500">
+                <th className="pb-3 pr-3 text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400">
                   Product
                 </th>
                 <th className="pb-3 px-2">{headerBtn("Views", "views")}</th>
@@ -311,7 +311,7 @@ export function ProductConversions({
                   <td className="py-3 pr-3">
                     <span className="inline-flex items-center gap-2 text-[13px] text-slate-300">
                       {shortName(p.product_name)}
-                      <span className="text-[11px] text-slate-600" aria-hidden="true">
+                      <span className="text-[11px] text-slate-400" aria-hidden="true">
                         ›
                       </span>
                     </span>

@@ -30,14 +30,14 @@ export function SessionsSection(p: SessionsSectionProps) {
         <div>
           <SectionHeading eyebrow="Sessions" title="Recent visitor journeys" />
           {sessions.length === 0 ? (
-            <p className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-3 text-[12px] text-slate-600">
+            <p className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-3 text-[12px] text-slate-400">
               No session data yet.
             </p>
           ) : (
             <div className="overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.02]">
               <table className="min-w-full text-left text-[13px]">
                 <thead>
-                  <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-wide text-slate-600">
+                  <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-wide text-slate-400">
                     <th className="px-4 py-2.5 font-medium">Visitor</th>
                     <th className="px-4 py-2.5 font-medium">Pages</th>
                     <th className="px-4 py-2.5 font-medium">Duration</th>
@@ -59,14 +59,14 @@ export function SessionsSection(p: SessionsSectionProps) {
                         <span className="tabular-nums text-slate-300">
                           {s.pages_visited.length}
                         </span>
-                        <span className="ml-1 text-[10px] text-slate-600">pg</span>
+                        <span className="ml-1 text-[10px] text-slate-400">pg</span>
                       </td>
                       <td className="px-4 py-2.5 tabular-nums text-slate-400">
                         {formatDuration(s.total_duration_seconds)}
                       </td>
                       <td className="max-w-[160px] px-4 py-2.5">
                         <span
-                          className="block truncate text-[11px] text-slate-500"
+                          className="block truncate text-[11px] text-slate-400"
                           title={s.last_page || "—"}
                         >
                           {s.last_page ? shortUrl(s.last_page) : "—"}
@@ -86,7 +86,7 @@ export function SessionsSection(p: SessionsSectionProps) {
         <div>
           <SectionHeading eyebrow="Clicks" title="What visitors click" />
           {clicks.length === 0 ? (
-            <p className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-3 text-[12px] text-slate-600">
+            <p className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-3 text-[12px] text-slate-400">
               No click data yet — track click events to see this.
             </p>
           ) : (
@@ -116,7 +116,7 @@ export function SessionsSection(p: SessionsSectionProps) {
                         />
                       </div>
                     </div>
-                    <span className="w-8 flex-shrink-0 text-right text-[11px] tabular-nums text-slate-500">
+                    <span className="w-8 flex-shrink-0 text-right text-[11px] tabular-nums text-slate-400">
                       {row.clicks}
                     </span>
                   </div>

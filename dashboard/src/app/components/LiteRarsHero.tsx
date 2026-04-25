@@ -175,7 +175,7 @@ export function LiteRarsHero({
               : "—"}
           </div>
           {hasData && (
-            <div className="mb-4 text-[13px] text-slate-500">at risk</div>
+            <div className="mb-4 text-[13px] text-slate-400">at risk</div>
           )}
         </div>
 
@@ -188,7 +188,7 @@ export function LiteRarsHero({
 
         {/* Top 3 components — permanent, no click needed to reveal */}
         <div className="mt-8 border-t border-white/[0.06] pt-7">
-          <div className="mb-5 text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">
+          <div className="mb-5 text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">
             Where it&apos;s leaking · top 3 sources, ranked
           </div>
 
@@ -242,7 +242,7 @@ export function LiteRarsHero({
                           />
                         </div>
                         <div className="mt-1.5 flex items-center justify-between gap-3">
-                          <span className="text-[11.5px] text-slate-500 tabular-nums">
+                          <span className="text-[11.5px] text-slate-400 tabular-nums">
                             {pct}% of total at-risk
                           </span>
                           <span
@@ -310,7 +310,7 @@ export function LiteRarsHero({
             // with the cassettone EmptyPreview pattern — day-1 feels
             // premium instead of a wall of nothing.
             <div className="rounded-2xl border border-dashed border-white/[0.12] bg-[#0b0b14]/40 p-5 sm:p-6">
-              <div className="mb-3 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+              <div className="mb-3 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-400">
                 <span
                   className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#fbbf24]"
                   aria-hidden="true"
@@ -365,7 +365,7 @@ export function LiteRarsHero({
                           aria-hidden="true"
                         />
                       </div>
-                      <div className="mt-1.5 text-[11.5px] text-slate-500 tabular-nums">
+                      <div className="mt-1.5 text-[11.5px] text-slate-400 tabular-nums">
                         {s.pct}% of total at-risk
                       </div>
                     </div>

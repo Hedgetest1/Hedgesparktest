@@ -101,11 +101,11 @@ export function CohortTable({
       {/* Header — internal Pro badge removed. Pro context is owned by the
           parent SectionHeading / Pro Intelligence zone. */}
       <div className="mb-4">
-        <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+        <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
           Cohort Retention
         </div>
         <h3 className="text-[14px] font-semibold text-white">Weekly repeat purchase rates</h3>
-        <p className="mt-0.5 text-[11px] text-slate-500">
+        <p className="mt-0.5 text-[11px] text-slate-400">
           First-purchase cohorts from real Shopify order data
         </p>
       </div>
@@ -114,19 +114,19 @@ export function CohortTable({
       {total > 0 && (
         <div className="mb-4 grid grid-cols-3 gap-2">
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-            <div className="text-[10px] uppercase text-slate-600">Total Customers</div>
+            <div className="text-[10px] uppercase text-slate-400">Total Customers</div>
             <div className="mt-0.5 text-[13px] font-semibold text-white">
               {total.toLocaleString()}
             </div>
           </div>
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-            <div className="text-[10px] uppercase text-slate-600">Avg Week-1 Return</div>
+            <div className="text-[10px] uppercase text-slate-400">Avg Week-1 Return</div>
             <div className={`mt-0.5 text-[13px] font-semibold ${pctColor(avgW1)}`}>
               {formatPct(avgW1)}
             </div>
           </div>
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-            <div className="text-[10px] uppercase text-slate-600">Avg Week-4 Return</div>
+            <div className="text-[10px] uppercase text-slate-400">Avg Week-4 Return</div>
             <div className={`mt-0.5 text-[13px] font-semibold ${pctColor(avgW4)}`}>
               {formatPct(avgW4)}
             </div>
@@ -135,13 +135,13 @@ export function CohortTable({
       )}
 
       {cohorts.length === 0 ? (
-        <p className="text-[12px] text-slate-600">
+        <p className="text-[12px] text-slate-400">
           Cohort data will appear here after your first Shopify orders are ingested via
           the orders webhook. Each cohort represents customers grouped by their first
           purchase week.
         </p>
       ) : weekColumns.length === 0 ? (
-        <p className="text-[12px] text-slate-600">
+        <p className="text-[12px] text-slate-400">
           Cohorts exist but no retention data yet — too few weeks have passed to measure repeats.
         </p>
       ) : (
@@ -150,17 +150,17 @@ export function CohortTable({
           <table className="w-full text-left text-[11px]">
             <thead>
               <tr className="border-b border-white/[0.06]">
-                <th className="py-2 pr-4 text-[10px] font-medium uppercase tracking-[0.1em] text-slate-600">
+                <th className="py-2 pr-4 text-[10px] font-medium uppercase tracking-[0.1em] text-slate-400">
                   Cohort
                 </th>
-                <th className="py-2 pr-4 text-[10px] font-medium uppercase tracking-[0.1em] text-slate-600">
+                <th className="py-2 pr-4 text-[10px] font-medium uppercase tracking-[0.1em] text-slate-400">
                   Size
                 </th>
-                <th className="py-2 pr-4 text-[10px] font-medium uppercase tracking-[0.1em] text-slate-600">
+                <th className="py-2 pr-4 text-[10px] font-medium uppercase tracking-[0.1em] text-slate-400">
                   Revenue
                 </th>
                 {weekColumns.map((w) => (
-                  <th key={`wh-${w}`} className="px-2 py-2 text-center text-[10px] font-medium uppercase tracking-[0.1em] text-slate-600">
+                  <th key={`wh-${w}`} className="px-2 py-2 text-center text-[10px] font-medium uppercase tracking-[0.1em] text-slate-400">
                     W{w}
                   </th>
                 ))}
@@ -200,7 +200,7 @@ export function CohortTable({
         </div>
       )}
 
-      <p className="mt-3 text-[10px] text-slate-600">
+      <p className="mt-3 text-[10px] text-slate-400">
         Customers grouped by first purchase week. Each cell = % who repurchased in that week after acquisition.
       </p>
     </div>

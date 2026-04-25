@@ -33,7 +33,7 @@ function shortUrl(url: string | undefined): string {
 function ScrollDepthBar({ buckets, totalViewers }: { buckets: ScrollBucket[]; totalViewers: number }) {
   if (!buckets || buckets.length === 0 || totalViewers === 0) {
     return (
-      <p className="text-[11px] text-slate-600">No scroll data yet for this product.</p>
+      <p className="text-[11px] text-slate-400">No scroll data yet for this product.</p>
     );
   }
 
@@ -45,7 +45,7 @@ function ScrollDepthBar({ buckets, totalViewers }: { buckets: ScrollBucket[]; to
         return (
           <div key={`b-${i}`}>
             <div className="mb-1 flex items-center justify-between">
-              <span className="text-[10px] text-slate-500">{b.label}</span>
+              <span className="text-[10px] text-slate-400">{b.label}</span>
               <span className={`text-[11px] font-semibold tabular-nums ${colors.text}`}>
                 {pct.toFixed(0)}%
                 <span className="ml-1 font-normal text-slate-600">
@@ -121,17 +121,17 @@ export function HeatmapCard({
       {/* Header — internal Pro badge removed. Pro context is owned by the
           parent SectionHeading / Pro Intelligence zone. */}
       <div className="mb-4">
-        <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+        <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
           Scroll Intelligence
         </div>
         <h3 className="text-[14px] font-semibold text-white">Where visitors stop reading</h3>
-        <p className="mt-0.5 text-[11px] text-slate-500">
+        <p className="mt-0.5 text-[11px] text-slate-400">
           Real scroll depth per product — no session replay needed
         </p>
       </div>
 
       {products.length === 0 ? (
-        <p className="text-[12px] text-slate-600">
+        <p className="text-[12px] text-slate-400">
           Scroll data will appear here once visitors start browsing your product pages.
         </p>
       ) : (
@@ -160,19 +160,19 @@ export function HeatmapCard({
             <>
               <div className="mb-3 grid grid-cols-3 gap-2">
                 <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-                  <div className="text-[10px] uppercase text-slate-600">Viewers</div>
+                  <div className="text-[10px] uppercase text-slate-400">Viewers</div>
                   <div className="mt-0.5 text-[13px] font-semibold text-white">
                     {current.total_viewers?.toLocaleString() ?? "—"}
                   </div>
                 </div>
                 <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-                  <div className="text-[10px] uppercase text-slate-600">Avg Scroll</div>
+                  <div className="text-[10px] uppercase text-slate-400">Avg Scroll</div>
                   <div className="mt-0.5 text-[13px] font-semibold text-white">
                     {current.avg_scroll_depth != null ? `${current.avg_scroll_depth.toFixed(0)}%` : "—"}
                   </div>
                 </div>
                 <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-                  <div className="text-[10px] uppercase text-slate-600">Full Page</div>
+                  <div className="text-[10px] uppercase text-slate-400">Full Page</div>
                   <div className="mt-0.5 text-[13px] font-semibold text-white">
                     {current.deep_reader_pct != null ? `${current.deep_reader_pct.toFixed(0)}%` : "—"}
                   </div>

@@ -154,7 +154,7 @@ export default function GroupsPage() {
         </header>
 
         {loading && (
-          <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center text-[13px] text-slate-500">
+          <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center text-[13px] text-slate-400">
             Loading…
           </div>
         )}
@@ -169,11 +169,11 @@ export default function GroupsPage() {
             <section className="mb-8 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-[14px] font-bold text-white">Your groups</h2>
-                <span className="text-[11px] text-slate-500">{groups.length} group{groups.length === 1 ? "" : "s"}</span>
+                <span className="text-[11px] text-slate-400">{groups.length} group{groups.length === 1 ? "" : "s"}</span>
               </div>
 
               {groups.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-white/[0.08] bg-white/[0.01] p-4 text-center text-[12px] text-slate-500">
+                <div className="rounded-xl border border-dashed border-white/[0.08] bg-white/[0.01] p-4 text-center text-[12px] text-slate-400">
                   No groups yet. Create one to consolidate stores.
                 </div>
               ) : (
@@ -226,13 +226,13 @@ export default function GroupsPage() {
                       </div>
                     </div>
                     <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4 text-center">
-                      <div className="text-[10px] uppercase tracking-wide text-slate-500">Orders</div>
+                      <div className="text-[10px] uppercase tracking-wide text-slate-400">Orders</div>
                       <div className="mt-1 text-[22px] font-extrabold text-white">
                         {dashboard.totals.orders.toLocaleString()}
                       </div>
                     </div>
                     <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4 text-center">
-                      <div className="text-[10px] uppercase tracking-wide text-slate-500">AOV</div>
+                      <div className="text-[10px] uppercase tracking-wide text-slate-400">AOV</div>
                       <div className="mt-1 text-[22px] font-extrabold text-white">
                         {fmtMoney(dashboard.totals.aov_eur, dashboard.base_currency)}
                       </div>
@@ -268,11 +268,11 @@ export default function GroupsPage() {
                                   </span>
                                 )}
                               </div>
-                              <div className="mt-1 text-[10px] text-slate-500 truncate">{m.shop_domain}</div>
+                              <div className="mt-1 text-[10px] text-slate-400 truncate">{m.shop_domain}</div>
                             </div>
                             <div className="flex-shrink-0 text-right">
                               <div className="text-[14px] font-bold tabular-nums text-white">{fmtMoney(m.revenue_eur, dashboard.base_currency)}</div>
-                              <div className="text-[10px] text-slate-500 tabular-nums">{m.orders} orders · AOV {fmtMoney(m.aov_eur, dashboard.base_currency)}</div>
+                              <div className="text-[10px] text-slate-400 tabular-nums">{m.orders} orders · AOV {fmtMoney(m.aov_eur, dashboard.base_currency)}</div>
                             </div>
                           </div>
                           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.05]">

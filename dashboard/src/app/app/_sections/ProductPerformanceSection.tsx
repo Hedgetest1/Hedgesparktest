@@ -76,7 +76,7 @@ export function ProductPerformanceSection(p: ProductPerformanceSectionProps) {
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-[14px]">
             <thead>
-              <tr className="border-b border-white/[0.06] text-[12px] font-bold uppercase tracking-wide text-slate-500">
+              <tr className="border-b border-white/[0.06] text-[12px] font-bold uppercase tracking-wide text-slate-400">
                 <th className="px-5 py-4 font-bold">Product</th>
                 <th className="px-5 py-4 font-bold">Views 24h</th>
                 <th className="px-5 py-4 font-bold">7d Trend</th>
@@ -120,7 +120,7 @@ export function ProductPerformanceSection(p: ProductPerformanceSectionProps) {
                           {shortUrl(row.product_url)}
                         </span>
                         {row.insight && (
-                          <span className="mt-0.5 block text-[12px] leading-4 text-slate-500">
+                          <span className="mt-0.5 block text-[12px] leading-4 text-slate-400">
                             {row.insight}
                           </span>
                         )}
@@ -135,7 +135,7 @@ export function ProductPerformanceSection(p: ProductPerformanceSectionProps) {
                           ) : (
                             <span
                               role="button"
-                              className="mt-0.5 block cursor-pointer text-[10px] leading-3 text-slate-500 transition hover:text-slate-400"
+                              className="mt-0.5 block cursor-pointer text-[10px] leading-3 text-slate-400 transition hover:text-slate-400"
                               onClick={() => setUpgradeModalOpen(true)}
                             >
                               This product needs attention<span className="ml-1.5 text-violet-400/70">Unlock in Pro</span>
@@ -150,7 +150,7 @@ export function ProductPerformanceSection(p: ProductPerformanceSectionProps) {
                     {!row.trend_is_synthetic && row.last_7_days_views.length > 0 ? (
                       <Sparkline values={row.last_7_days_views} />
                     ) : (
-                      <span className="text-[13px] text-slate-600">—</span>
+                      <span className="text-[13px] text-slate-400">—</span>
                     )}
                   </td>
                   <td className="px-5 py-3.5 tabular-nums">
@@ -181,7 +181,7 @@ export function ProductPerformanceSection(p: ProductPerformanceSectionProps) {
                         </span>
                       </span>
                     ) : (
-                      <span className="text-[13px] text-slate-500">No data</span>
+                      <span className="text-[13px] text-slate-400">No data</span>
                     )}
                   </td>
                   <td className="px-5 py-3.5">
@@ -200,16 +200,16 @@ export function ProductPerformanceSection(p: ProductPerformanceSectionProps) {
                       isProUser ? (
                         <span className="cursor-default" title="Estimated from views × baseline conversion × AOV">
                           <span className="block text-[12px] tabular-nums text-amber-400/80">{formatMoneyCompact(row.estimated_loss, resolvedCcy)} potential lost</span>
-                          <span className="block text-[10px] text-slate-500">based on 2% conversion · {formatMoneyCompact(resolvedAov, resolvedCcy)} AOV{!resolvedAovIsReal ? " (est.)" : ""}</span>
+                          <span className="block text-[10px] text-slate-400">based on 2% conversion · {formatMoneyCompact(resolvedAov, resolvedCcy)} AOV{!resolvedAovIsReal ? " (est.)" : ""}</span>
                         </span>
                       ) : (
                         <span
                           role="button"
-                          className="cursor-pointer text-[12px] text-slate-500 transition hover:text-slate-400"
+                          className="cursor-pointer text-[12px] text-slate-400 transition hover:text-slate-400"
                           title="Upgrade to Pro to see estimated revenue loss"
                           onClick={() => setUpgradeModalOpen(true)}
                         >
-                          Revenue at risk<span className="ml-2 text-[11px] text-slate-600">(visible in Pro)</span>
+                          Revenue at risk<span className="ml-2 text-[11px] text-slate-400">(visible in Pro)</span>
                         </span>
                       )
                     ) : (
@@ -222,7 +222,7 @@ export function ProductPerformanceSection(p: ProductPerformanceSectionProps) {
                 <tr className="border-t border-white/[0.04]">
                   <td colSpan={9} className="px-4 py-3">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-[12px] text-slate-500">
+                      <span className="text-[12px] text-slate-400">
                         + {mergedProducts.length - 3} more product{mergedProducts.length - 3 !== 1 ? "s" : ""} tracked
                       </span>
                       <button

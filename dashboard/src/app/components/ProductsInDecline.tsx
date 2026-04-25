@@ -106,7 +106,7 @@ export function ProductsInDecline({
           <h3 className="text-[15px] font-bold text-white">
             {isEmpty ? "No products in decline" : `${data.product_count} products slipping`}
           </h3>
-          <p className="mt-1 text-[11px] text-slate-500">
+          <p className="mt-1 text-[11px] text-slate-400">
             {isEmpty
               ? "Your catalog is stable over the last 28 days."
               : "Based on last 14d vs. prior 14d order momentum"}
@@ -131,10 +131,10 @@ export function ProductsInDecline({
           <table className="w-full text-left text-[12px]">
             <thead>
               <tr className="border-b border-white/[0.05]">
-                <th className="pb-2 pr-3 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">Product</th>
-                <th className="pb-2 px-2 text-right text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">Orders 14d</th>
-                <th className="pb-2 px-2 text-right text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">Decline</th>
-                <th className="pb-2 pl-2 text-right text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">Monthly loss</th>
+                <th className="pb-2 pr-3 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">Product</th>
+                <th className="pb-2 px-2 text-right text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">Orders 14d</th>
+                <th className="pb-2 px-2 text-right text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">Decline</th>
+                <th className="pb-2 pl-2 text-right text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">Monthly loss</th>
               </tr>
             </thead>
             <tbody>

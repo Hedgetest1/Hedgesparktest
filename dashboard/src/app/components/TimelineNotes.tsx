@@ -210,7 +210,7 @@ export function TimelineNotes({
                     className="flex-shrink-0 h-2 w-2 rounded-full"
                     style={{ background: color }}
                   />
-                  <span className="text-[11px] font-mono tabular-nums text-slate-500">{a.date}</span>
+                  <span className="text-[11px] font-mono tabular-nums text-slate-400">{a.date}</span>
                   <span className="truncate text-[12px] text-slate-200">{a.label}</span>
                   <span
                     className="flex-shrink-0 rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em]"
@@ -222,7 +222,7 @@ export function TimelineNotes({
                 <button
                   type="button"
                   onClick={() => handleDelete(a.id)}
-                  className="flex-shrink-0 text-[11px] text-slate-600 hover:text-rose-400"
+                  className="flex-shrink-0 text-[11px] text-slate-400 hover:text-rose-400"
                   title="Remove note"
                 >
                   ✕

@@ -335,7 +335,7 @@ export function LiteCassettoniGrid({
                 >
                   {c.number.value}
                 </div>
-                <div className="mt-1.5 text-[12px] text-slate-500">
+                <div className="mt-1.5 text-[12px] text-slate-400">
                   {c.meta}
                 </div>
               </div>
@@ -459,7 +459,7 @@ export function LiteCassettoniGrid({
                   premium instead of a wall of empty cells. */}
               {heroStat ? (
                 <div className="mb-6 rounded-xl border border-white/[0.06] bg-[#0b0b14]/70 p-5">
-                  <div className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+                  <div className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-400">
                     {heroStat.label}
                   </div>
                   <div
@@ -487,7 +487,7 @@ export function LiteCassettoniGrid({
                       <Donut segments={segments} hero={hero} />
                     </div>
                     <div className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-slate-400">
-                      <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
+                      <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
                         How to read it
                       </div>
                       <p>
@@ -507,7 +507,7 @@ export function LiteCassettoniGrid({
                   another list of "—" below would dilute the signal. */}
               {heroStat && keyMetrics.length > 0 && (
                 <div className="mb-6">
-                  <div className="mb-3 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+                  <div className="mb-3 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-400">
                     Key metrics
                   </div>
                   <div className="divide-y divide-white/[0.04] rounded-xl border border-white/[0.05] bg-[#0b0b14]/50">
@@ -534,7 +534,7 @@ export function LiteCassettoniGrid({
                   so a cold-start merchant still sees HOW the number is
                   computed — "premuroso" even when there's no data yet. */}
               <div>
-                <div className="mb-3 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+                <div className="mb-3 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-400">
                   How this is calculated
                 </div>
                 <div className="rounded-xl border border-white/[0.05] bg-[#0b0b14]/50 p-5">
@@ -555,7 +555,7 @@ export function LiteCassettoniGrid({
                     </ul>
                   )}
                   {panelConfig.methodology.note && (
-                    <p className="mt-4 text-[12.5px] leading-relaxed italic text-slate-500">
+                    <p className="mt-4 text-[12.5px] leading-relaxed italic text-slate-400">
                       {panelConfig.methodology.note}
                     </p>
                   )}
@@ -837,7 +837,7 @@ function EmptyPreview({
 }) {
   return (
     <div className="mb-6 rounded-xl border border-dashed border-white/[0.12] bg-[#0b0b14]/40 p-5 sm:p-6">
-      <div className="mb-3 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+      <div className="mb-3 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-400">
         <span
           className="inline-block h-1.5 w-1.5 animate-pulse rounded-full"
           style={{ background: accentHero }}
@@ -851,7 +851,7 @@ function EmptyPreview({
       {/* Sample hero stat — half opacity so it's visually marked as
           example data, never mistakable for real. */}
       <div className="pointer-events-none mb-4 rounded-xl border border-white/[0.05] bg-[#0b0b14]/60 p-5 opacity-50">
-        <div className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+        <div className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-400">
           {config.sampleHeroStat.label}
         </div>
         <div
@@ -2018,7 +2018,7 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
       if (ctx.loading) {
         return (
           <div className="mb-6">
-            <div className="mb-3 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+            <div className="mb-3 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-400">
               Top 3 products
             </div>
             <CardSkeleton label="Loading hot products" />
@@ -2028,7 +2028,7 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
       if (ctx.topProducts.length === 0) {
         return (
           <div className="mb-6">
-            <div className="mb-3 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+            <div className="mb-3 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-400">
               Top 3 products
             </div>
             <CardEmpty
@@ -2046,7 +2046,7 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
       }
       return (
         <div className="mb-6">
-          <div className="mb-3 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+          <div className="mb-3 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-400">
             Top 3 products
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -2069,19 +2069,19 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
                   </div>
                   <div className="grid grid-cols-3 gap-2 border-t border-white/[0.05] pt-3">
                     <div>
-                      <div className="text-[11px] font-medium uppercase text-slate-500">Views</div>
+                      <div className="text-[11px] font-medium uppercase text-slate-400">Views</div>
                       <div className="mt-1 text-[18px] font-bold tabular-nums text-white">
                         {(product.total_views ?? 0).toLocaleString()}
                       </div>
                     </div>
                     <div>
-                      <div className="text-[11px] font-medium uppercase text-slate-500">Visitors</div>
+                      <div className="text-[11px] font-medium uppercase text-slate-400">Visitors</div>
                       <div className="mt-1 text-[18px] font-bold tabular-nums text-white">
                         {(product.unique_visitors ?? 0).toLocaleString()}
                       </div>
                     </div>
                     <div>
-                      <div className="text-[11px] font-medium uppercase text-slate-500">Intent</div>
+                      <div className="text-[11px] font-medium uppercase text-slate-400">Intent</div>
                       <div className="mt-1 text-[18px] font-bold tabular-nums text-white">
                         {Math.round(product.avg_intent_score ?? 0)}
                       </div>

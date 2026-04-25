@@ -257,7 +257,7 @@ export function NudgeActionQueueCard({
                       >
                         {shortProduct(n.product_url)}
                       </span>
-                      <span className="shrink-0 text-[10px] text-slate-500">
+                      <span className="shrink-0 text-[10px] text-slate-400">
                         · {n.exposed_count.toLocaleString("en")} seen
                       </span>
                     </div>
@@ -277,7 +277,7 @@ export function NudgeActionQueueCard({
                   </div>
                 </div>
                 {n.recommendation_reason && (
-                  <div className="mt-1.5 text-[10px] text-slate-500">
+                  <div className="mt-1.5 text-[10px] text-slate-400">
                     {n.recommendation_reason}
                   </div>
                 )}
@@ -286,7 +286,7 @@ export function NudgeActionQueueCard({
           })}
         </div>
 
-        <div className="mt-3 text-[11px] font-semibold text-slate-500">
+        <div className="mt-3 text-[11px] font-semibold text-slate-400">
           Click to see the full queue · per-nudge methodology · callable
           recommendation endpoints →
         </div>
@@ -372,12 +372,12 @@ export function NudgeActionQueueCard({
                     >
                       {theme.label}
                     </div>
-                    <div className="mt-0.5 text-[10px] text-slate-500">
+                    <div className="mt-0.5 text-[10px] text-slate-400">
                       {n.recommendation_reason}
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1 text-right tabular-nums">
-                    <div className="text-[10px] text-slate-500">
+                    <div className="text-[10px] text-slate-400">
                       seen {n.exposed_count.toLocaleString("en")}
                       {n.clicked_count > 0 && ` · clicks ${n.clicked_count}`}
                     </div>
@@ -393,17 +393,17 @@ export function NudgeActionQueueCard({
                       </div>
                     )}
                     {pval != null && (
-                      <div className="text-[10px] text-slate-500">
+                      <div className="text-[10px] text-slate-400">
                         p = {pval.toFixed(3)}
                       </div>
                     )}
-                    <div className="text-[10px] text-slate-500">
+                    <div className="text-[10px] text-slate-400">
                       basis: {n.ranking_basis.replace(/_/g, " ")}
                     </div>
                   </div>
                 </div>
                 {n.agent_action.endpoint && (
-                  <div className="mt-2 border-t border-white/[0.06] pt-2 text-[10px] text-slate-500">
+                  <div className="mt-2 border-t border-white/[0.06] pt-2 text-[10px] text-slate-400">
                     <span className="font-mono text-slate-400">
                       {n.agent_action.method} {n.agent_action.endpoint}
                     </span>

@@ -154,7 +154,7 @@ export function PeerBenchmarksCard({
             You vs. Similar Shops
           </div>
           <h3 className="text-[15px] font-bold text-white">How you compare to peers</h3>
-          <p className="mt-1 text-[11px] text-slate-500">
+          <p className="mt-1 text-[11px] text-slate-400">
             {data.peer_count} shops in the <span className="font-semibold text-slate-300">{data.band}</span> revenue band
           </p>
         </div>
@@ -182,11 +182,11 @@ export function PeerBenchmarksCard({
                     <span className="text-[12px] font-semibold text-slate-200">
                       {METRIC_LABELS[metric] || metric}
                     </span>
-                    <span className="text-[10px] text-slate-500">
+                    <span className="text-[10px] text-slate-400">
                       you: <span className="font-mono tabular-nums text-slate-300">{fmtMetricValue(metric, m.value, data?.currency)}</span>
                     </span>
                   </div>
-                  <div className="mt-1 text-[10px] text-slate-500">
+                  <div className="mt-1 text-[10px] text-slate-400">
                     p25 {fmtMetricValue(metric, m.p25, data?.currency)} · p50 {fmtMetricValue(metric, m.p50, data?.currency)} · p75 {fmtMetricValue(metric, m.p75, data?.currency)}
                   </div>
                 </div>

@@ -225,7 +225,7 @@ export function AnomalyFusionCard({
                       {labelize(a.pattern)}
                     </span>
                     <span
-                      className="text-[10px] uppercase tracking-wider text-slate-500"
+                      className="text-[10px] uppercase tracking-wider text-slate-400"
                       style={{ color }}
                     >
                       {SEV_LABEL[a.severity]}
@@ -260,7 +260,7 @@ export function AnomalyFusionCard({
           })}
         </ul>
 
-        <div className="mt-4 text-[11px] font-semibold text-slate-500">
+        <div className="mt-4 text-[11px] font-semibold text-slate-400">
           Click for the full pattern breakdown and method →
         </div>
       </div>

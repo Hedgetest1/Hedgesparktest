@@ -162,7 +162,7 @@ export function AskHedgeSparkCard({
         <h3 id="ask-hedge-spark-heading" className="text-[15px] font-bold text-white">
           {t("ask.title")}
         </h3>
-        <p className="mt-1 text-[11px] text-slate-500">
+        <p className="mt-1 text-[11px] text-slate-400">
           {t("ask.sub")}
         </p>
         {kgStats && kgStats.nodes > 0 && (
@@ -255,7 +255,7 @@ export function AskHedgeSparkCard({
           </div>
           <p className="text-[13px] leading-relaxed text-slate-200">{answer.answer}</p>
           {answer.graph_stats && (
-            <div className="mt-3 border-t border-white/[0.05] pt-2 text-[10px] text-slate-500">
+            <div className="mt-3 border-t border-white/[0.05] pt-2 text-[10px] text-slate-400">
               graph: {answer.graph_stats.nodes} entities · {answer.graph_stats.edges} relationships
             </div>
           )}

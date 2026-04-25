@@ -85,7 +85,7 @@ export function BehavioralIntelligenceSection({
         <h4 className="mt-1 text-[13px] font-semibold text-white">{headline}</h4>
       </div>
       {rows.length === 0 ? (
-        <p className="text-[11px] text-slate-600">{emptyMsg}</p>
+        <p className="text-[11px] text-slate-400">{emptyMsg}</p>
       ) : (
         <div className="space-y-3">
           {rows.map((row, i) => {
@@ -273,7 +273,7 @@ export function BehavioralIntelligenceSection({
               </p>
             </div>
 
-            <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[10px] text-slate-500">
+            <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[10px] text-slate-400">
               <div className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.06] bg-white/[0.02] px-2.5 py-1">
                 <span className="h-1 w-1 rounded-full bg-[#d946ef]" />
                 <span>Measured from {coverage.segmentable_customers} identified customers</span>

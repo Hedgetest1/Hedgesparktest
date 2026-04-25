@@ -125,7 +125,7 @@ export function VisitorIntentCard({
 
       {/* Methodology footer — lives on the card so merchants never
           have to guess where the thresholds come from. */}
-      <p className="mt-4 text-[11px] leading-relaxed text-slate-500">
+      <p className="mt-4 text-[11px] leading-relaxed text-slate-400">
         Hot = conversion score above {data.hot_threshold}. Warm =
         above {data.warm_threshold}. Cold = at or below {data.warm_threshold}.
         Score combines dwell time, scroll depth, and click count per visitor.

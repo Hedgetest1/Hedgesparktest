@@ -193,7 +193,7 @@ export default function MarketplacePage() {
             ))}
           </div>
 
-          <div className="ml-auto text-[11px] text-slate-500">
+          <div className="ml-auto text-[11px] text-slate-400">
             {filtered.length} template{filtered.length === 1 ? "" : "s"}
           </div>
         </div>
@@ -220,7 +220,7 @@ export default function MarketplacePage() {
         ) : filtered.length === 0 ? (
           <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-10 text-center">
             <div className="mb-2 text-[14px] font-semibold text-slate-200">No templates match your filters.</div>
-            <p className="text-[12px] text-slate-500">Try a different sort, kind, or search term.</p>
+            <p className="text-[12px] text-slate-400">Try a different sort, kind, or search term.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -258,7 +258,7 @@ export default function MarketplacePage() {
                     <p className="mt-1.5 line-clamp-3 text-[12px] leading-relaxed text-slate-400">{t.description}</p>
                   )}
 
-                  <div className="mt-3 flex items-center gap-3 text-[10px] text-slate-500">
+                  <div className="mt-3 flex items-center gap-3 text-[10px] text-slate-400">
                     <span>by {t.author_label}</span>
                     <span>·</span>
                     <span>{t.vertical}</span>
@@ -284,7 +284,7 @@ export default function MarketplacePage() {
                       ▲ <span className="tabular-nums">{t.upvotes}</span>
                     </button>
                     <span
-                      className="inline-flex items-center gap-1 rounded-lg border border-white/5 bg-white/[0.02] px-2.5 py-2 text-[10px] text-slate-500"
+                      className="inline-flex items-center gap-1 rounded-lg border border-white/5 bg-white/[0.02] px-2.5 py-2 text-[10px] text-slate-400"
                       title="Clone count"
                     >
                       ⎘ <span className="tabular-nums">{t.clone_count}</span>

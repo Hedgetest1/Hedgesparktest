@@ -147,7 +147,7 @@ export default function StatusPage() {
                   <div className="mt-1 text-[28px] font-extrabold tabular-nums text-[#e8a04e]">
                     {data.self_heal_proof.autonomous_fixes_7d}
                   </div>
-                  <div className="text-[11px] text-slate-500">incidents auto-fixed</div>
+                  <div className="text-[11px] text-slate-400">incidents auto-fixed</div>
                 </div>
                 <div>
                   <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
@@ -156,7 +156,7 @@ export default function StatusPage() {
                   <div className="mt-1 text-[28px] font-extrabold tabular-nums text-slate-100">
                     {data.self_heal_proof.autonomous_fixes_30d}
                   </div>
-                  <div className="text-[11px] text-slate-500">incidents auto-fixed</div>
+                  <div className="text-[11px] text-slate-400">incidents auto-fixed</div>
                 </div>
                 <div>
                   <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
@@ -165,7 +165,7 @@ export default function StatusPage() {
                   <div className="mt-1 text-[18px] font-bold tabular-nums text-slate-200">
                     {relativeTime(data.self_heal_proof.last_fix_at)}
                   </div>
-                  <div className="text-[11px] text-slate-500">
+                  <div className="text-[11px] text-slate-400">
                     from the append-only audit log
                   </div>
                 </div>

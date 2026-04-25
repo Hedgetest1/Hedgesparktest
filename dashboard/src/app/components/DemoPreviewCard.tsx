@@ -134,11 +134,11 @@ export function DemoPreviewCard({ installUrl }: { installUrl: string }) {
 
           <div className="grid grid-cols-3 gap-3">
             <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 text-center">
-              <div className="text-[10px] uppercase tracking-wide text-slate-500">Avg price</div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-400">Avg price</div>
               <div className="mt-1 text-[18px] font-extrabold text-white">{fmtMoney(data.roi_estimate.avg_price_eur)}</div>
             </div>
             <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 text-center">
-              <div className="text-[10px] uppercase tracking-wide text-slate-500">Est. MRR</div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-400">Est. MRR</div>
               <div className="mt-1 text-[18px] font-extrabold text-white">{fmtMoney(data.roi_estimate.estimated_monthly_revenue_eur)}</div>
             </div>
             <div className="rounded-xl border border-amber-400/20 bg-amber-500/[0.06] p-3 text-center">

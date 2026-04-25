@@ -88,14 +88,12 @@ fi
 # text on dark composited backgrounds). Run `npm run e2e:a11y` for the
 # runtime axe baseline; this static check is the leading indicator.
 # ---------------------------------------------------------------------------
-step "Dashboard a11y pattern scan (audit_dashboard_a11y.py — info only)"
-if "$PY" scripts/audit_dashboard_a11y.py > /tmp/preflight_dash_a11y.log 2>&1; then
-    if grep -q "clean" /tmp/preflight_dash_a11y.log; then
-        ok "no a11y pattern findings"
-    else
-        head -1 /tmp/preflight_dash_a11y.log | sed 's/^/  ℹ /'
-        echo "  ℹ details: /tmp/preflight_dash_a11y.log"
-    fi
+step "Dashboard a11y pattern scan (audit_dashboard_a11y.py --strict)"
+if "$PY" scripts/audit_dashboard_a11y.py --strict > /tmp/preflight_dash_a11y.log 2>&1; then
+    ok "$(head -1 /tmp/preflight_dash_a11y.log)"
+else
+    bad "a11y pattern regression — see /tmp/preflight_dash_a11y.log"
+    head -20 /tmp/preflight_dash_a11y.log || true
 fi
 
 # ---------------------------------------------------------------------------
@@ -116,9 +114,13 @@ COMMIT_MSG=""
 if [[ -f "$COMMIT_MSG_FILE" ]]; then
     COMMIT_MSG="$(cat "$COMMIT_MSG_FILE")"
 fi
-SCAN_INPUT="$COMMIT_MSG
-$STAGED_DIFF"
-if "$PY" scripts/audit_unresolved_flags.py --text "$SCAN_INPUT" > /tmp/preflight_unresolved_flags.log 2>&1; then
+SCAN_INPUT_FILE="$(mktemp -t preflight_unresolved_input.XXXXXX)"
+trap 'rm -f "$SCAN_INPUT_FILE"' EXIT
+{
+    printf '%s\n' "$COMMIT_MSG"
+    printf '%s\n' "$STAGED_DIFF"
+} > "$SCAN_INPUT_FILE"
+if "$PY" scripts/audit_unresolved_flags.py --text-file "$SCAN_INPUT_FILE" > /tmp/preflight_unresolved_flags.log 2>&1; then
     ok "no unresolved flags in commit message — §20 law satisfied"
 else
     bad "unresolved flag(s) in commit — see /tmp/preflight_unresolved_flags.log"

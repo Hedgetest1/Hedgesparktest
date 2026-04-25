@@ -55,29 +55,29 @@ export function ProIntelligenceSection(p: ProIntelligenceSectionProps) {
           {forecastData.confidence ? (
             <div className="grid gap-4 sm:grid-cols-3">
               <div>
-                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">7-day forecast</div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">7-day forecast</div>
                 <div className="mt-1 text-2xl font-bold text-white">
                   {formatMoneyCompact(forecastData.forecast_7d?.revenue ?? 0, forecastData.currency)}
                 </div>
-                <div className="mt-0.5 text-[11px] text-slate-500">
+                <div className="mt-0.5 text-[11px] text-slate-400">
                   range {formatMoneyCompact(forecastData.forecast_7d?.revenue_low ?? 0, forecastData.currency)}
                   {" — "}
                   {formatMoneyCompact(forecastData.forecast_7d?.revenue_high ?? 0, forecastData.currency)}
                 </div>
               </div>
               <div>
-                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">30-day forecast</div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">30-day forecast</div>
                 <div className="mt-1 text-2xl font-bold text-white">
                   {formatMoneyCompact(forecastData.forecast_30d?.revenue ?? 0, forecastData.currency)}
                 </div>
-                <div className="mt-0.5 text-[11px] text-slate-500">
+                <div className="mt-0.5 text-[11px] text-slate-400">
                   range {formatMoneyCompact(forecastData.forecast_30d?.revenue_low ?? 0, forecastData.currency)}
                   {" — "}
                   {formatMoneyCompact(forecastData.forecast_30d?.revenue_high ?? 0, forecastData.currency)}
                 </div>
               </div>
               <div>
-                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Trend</div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Trend</div>
                 <div className={`mt-1 text-2xl font-bold ${
                   forecastData.trend?.direction === "up" ? "text-emerald-400" :
                   forecastData.trend?.direction === "down" ? "text-rose-400" :
@@ -87,14 +87,14 @@ export function ProIntelligenceSection(p: ProIntelligenceSectionProps) {
                    forecastData.trend?.direction === "down" ? "↓" : "→"}{" "}
                   {Math.abs(forecastData.trend?.weekly_change_pct ?? 0).toFixed(1)}% / week
                 </div>
-                <div className="mt-0.5 text-[11px] text-slate-500">
+                <div className="mt-0.5 text-[11px] text-slate-400">
                   Confidence: {forecastData.confidence}
                   {forecastData.seasonality_available ? " · seasonality detected" : ""}
                 </div>
               </div>
             </div>
           ) : (
-            <p className="text-[12px] text-slate-500">
+            <p className="text-[12px] text-slate-400">
               {forecastData.confidence_reason === "no_order_history"
                 ? "Revenue forecasting activates once you have order history. Keep selling — your forecast will build automatically."
                 : `Building forecast — need more order data. ${forecastData.confidence_reason || ""}`}
@@ -140,18 +140,18 @@ export function ProIntelligenceSection(p: ProIntelligenceSectionProps) {
 
                 <div className="mb-6 grid grid-cols-3 gap-3">
                   <div className="rounded-xl border px-4 py-3" style={{ borderColor: "rgba(196, 181, 253, 0.18)", backgroundColor: "rgba(196, 181, 253, 0.04)" }}>
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Orders tracked</div>
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Orders tracked</div>
                     <div className="mt-1 text-[22px] font-extrabold tabular-nums leading-none text-white">
                       {ordersTotal.toLocaleString()}
                     </div>
-                    <div className="mt-1 text-[10px] text-slate-500">last 30 days</div>
+                    <div className="mt-1 text-[10px] text-slate-400">last 30 days</div>
                   </div>
                   <div className="rounded-xl border px-4 py-3" style={{ borderColor: "rgba(52, 211, 153, 0.22)", backgroundColor: "rgba(52, 211, 153, 0.05)" }}>
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Attributed</div>
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Attributed</div>
                     <div className="mt-1 text-[22px] font-extrabold tabular-nums leading-none text-emerald-400">
                       {ordersAttributed.toLocaleString()}
                     </div>
-                    <div className="mt-1 text-[10px] text-slate-500">source identified</div>
+                    <div className="mt-1 text-[10px] text-slate-400">source identified</div>
                   </div>
                   <div
                     className="rounded-xl border px-4 py-3"
@@ -160,14 +160,14 @@ export function ProIntelligenceSection(p: ProIntelligenceSectionProps) {
                       backgroundColor: attrRate > 0.7 ? "rgba(52, 211, 153, 0.05)" : "rgba(232, 160, 78, 0.05)",
                     }}
                   >
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Coverage</div>
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Coverage</div>
                     <div
                       className="mt-1 text-[22px] font-extrabold tabular-nums leading-none"
                       style={{ color: attrRate > 0.7 ? "#34d399" : "#e8a04e" }}
                     >
                       {Math.round(attrRate * 100)}%
                     </div>
-                    <div className="mt-1 text-[10px] text-slate-500">
+                    <div className="mt-1 text-[10px] text-slate-400">
                       {attrRate > 0.7 ? "strong signal" : "improving"}
                     </div>
                   </div>
@@ -176,10 +176,10 @@ export function ProIntelligenceSection(p: ProIntelligenceSectionProps) {
                 {sources.length > 0 ? (
                   <div>
                     <div className="mb-2 flex items-center justify-between">
-                      <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                      <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
                         Top sources (first touch)
                       </div>
-                      <div className="text-[10px] text-slate-600">revenue per channel</div>
+                      <div className="text-[10px] text-slate-400">revenue per channel</div>
                     </div>
                     <div className="space-y-2">
                       {sources.slice(0, 5).map((s: any, i: number) => {
@@ -217,7 +217,7 @@ export function ProIntelligenceSection(p: ProIntelligenceSectionProps) {
                     </div>
                   </div>
                 ) : (
-                  <p className="text-[12px] text-slate-500">
+                  <p className="text-[12px] text-slate-400">
                     Attribution data builds as visitors convert. Keep the tracker active.
                   </p>
                 )}
@@ -299,21 +299,21 @@ export function ProIntelligenceSection(p: ProIntelligenceSectionProps) {
                     className="rounded-xl border px-4 py-3"
                     style={{ borderColor: "rgba(232, 160, 78, 0.18)", backgroundColor: "rgba(232, 160, 78, 0.04)" }}
                   >
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Customers</div>
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Customers</div>
                     <div className="mt-1 text-[26px] font-extrabold tabular-nums leading-none text-white">
                       {totalCustomers.toLocaleString()}
                     </div>
-                    <div className="mt-1 text-[10px] text-slate-500">identified</div>
+                    <div className="mt-1 text-[10px] text-slate-400">identified</div>
                   </div>
                   <div
                     className="rounded-xl border px-4 py-3"
                     style={{ borderColor: `${repeatColor}40`, backgroundColor: `${repeatColor}0f` }}
                   >
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Repeat rate</div>
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Repeat rate</div>
                     <div className="mt-1 text-[26px] font-extrabold tabular-nums leading-none" style={{ color: repeatColor }}>
                       {(repeatRate * 100).toFixed(0)}%
                     </div>
-                    <div className="mt-1 text-[10px] text-slate-500">
+                    <div className="mt-1 text-[10px] text-slate-400">
                       {avgOrders.toFixed(1)} orders / customer
                     </div>
                   </div>
@@ -321,21 +321,21 @@ export function ProIntelligenceSection(p: ProIntelligenceSectionProps) {
                     className="rounded-xl border px-4 py-3"
                     style={{ borderColor: "rgba(52, 211, 153, 0.22)", backgroundColor: "rgba(52, 211, 153, 0.06)" }}
                   >
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Avg customer value</div>
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Avg customer value</div>
                     <div className="mt-1 text-[26px] font-extrabold tabular-nums leading-none text-emerald-400">
                       {formatDisplayMoney(avgRevenue, "USD", displayCurrency)}
                     </div>
-                    <div className="mt-1 text-[10px] text-slate-500">lifetime revenue</div>
+                    <div className="mt-1 text-[10px] text-slate-400">lifetime revenue</div>
                   </div>
                 </div>
 
                 {cohorts.length > 0 ? (
                   <div>
                     <div className="mb-2 flex items-center justify-between">
-                      <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                      <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
                         Monthly cohorts
                       </div>
-                      <div className="text-[10px] text-slate-600">revenue by acquisition month</div>
+                      <div className="text-[10px] text-slate-400">revenue by acquisition month</div>
                     </div>
                     <div className="space-y-2">
                       {cohorts.slice(0, 6).map((c: any, i: number) => {
@@ -370,7 +370,7 @@ export function ProIntelligenceSection(p: ProIntelligenceSectionProps) {
                     </div>
                   </div>
                 ) : (
-                  <p className="text-[12px] text-slate-500">
+                  <p className="text-[12px] text-slate-400">
                     Cohort data builds from orders with customer identifiers.
                   </p>
                 )}
@@ -453,7 +453,7 @@ export function ProIntelligenceSection(p: ProIntelligenceSectionProps) {
                     </div>
                     <div className="truncate text-[14px] font-medium text-white">{item.product_name || "—"}</div>
                     {item.recommended_price_action && (
-                      <div className="mt-0.5 text-[13px] text-slate-500">{String(item.recommended_price_action)}</div>
+                      <div className="mt-0.5 text-[13px] text-slate-400">{String(item.recommended_price_action)}</div>
                     )}
                   </div>
                 ))}
@@ -479,7 +479,7 @@ export function ProIntelligenceSection(p: ProIntelligenceSectionProps) {
                     </div>
                     <div className="truncate text-[14px] font-medium text-white">{item.product_name || "—"}</div>
                     {item.recommended_next_step && (
-                      <div className="mt-0.5 text-[13px] text-slate-500">{prettyText(String(item.recommended_next_step))}</div>
+                      <div className="mt-0.5 text-[13px] text-slate-400">{prettyText(String(item.recommended_next_step))}</div>
                     )}
                   </div>
                 ))}

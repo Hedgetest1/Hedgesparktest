@@ -75,7 +75,7 @@ export function RevenueWindowPro({
           <div className="text-[28px] font-bold tabular-nums text-emerald-300">
             {formatDollars(total)}
           </div>
-          <p className="mt-0.5 text-[11px] text-slate-500">
+          <p className="mt-0.5 text-[11px] text-slate-400">
             Estimated conversion opportunity across live hot segments
           </p>
         </div>
@@ -86,7 +86,7 @@ export function RevenueWindowPro({
 
       {/* Per-product breakdown */}
       {opps.length === 0 ? (
-        <p className="text-[12px] text-slate-600">
+        <p className="text-[12px] text-slate-400">
           No active revenue windows right now. Segments update every 5 minutes.
         </p>
       ) : (
@@ -100,7 +100,7 @@ export function RevenueWindowPro({
                 <div className="truncate text-[12px] font-medium text-white">
                   {shortProductLabel(opp.product_url)}
                 </div>
-                <div className="mt-0.5 flex items-center gap-2 text-[10px] text-slate-500">
+                <div className="mt-0.5 flex items-center gap-2 text-[10px] text-slate-400">
                   <span>{actionTypeLabel(opp.action_type)}</span>
                   {opp.visitor_count != null && opp.visitor_count > 0 && (
                     <>
@@ -126,7 +126,7 @@ export function RevenueWindowPro({
         </div>
       )}
 
-      <p className="mt-3 text-[10px] text-slate-600">
+      <p className="mt-3 text-[10px] text-slate-400">
         Revenue window = hot visitors × empirical CVR × store AOV. Probabilistic estimate.
       </p>
     </div>
@@ -175,7 +175,7 @@ export function RevenueWindowLite({
               {formatDollars(amount)}
             </div>
           </div>
-          <p className="mt-1 text-[12px] text-slate-500">
+          <p className="mt-1 text-[12px] text-slate-400">
             {oppCount > 0
               ? `${oppCount} active opportunity${oppCount !== 1 ? "s" : ""} detected in your store`
               : "Revenue windows detected — see which products are at risk"}
@@ -188,7 +188,7 @@ export function RevenueWindowLite({
           Unlock
         </button>
       </div>
-      <p className="mt-3 text-[10px] text-slate-600">
+      <p className="mt-3 text-[10px] text-slate-400">
         Upgrade to Pro to see which products, how many visitors, and which actions to take.
       </p>
     </div>

@@ -238,13 +238,21 @@ def main() -> int:
                     help="commit sha to scan (default: HEAD)")
     ap.add_argument("--text", default=None,
                     help="scan arbitrary text instead of a commit")
+    ap.add_argument("--text-file", default=None,
+                    help="scan text from a file (avoids arg-list overflow on huge diffs)")
     ap.add_argument("--strict", action="store_true", default=True,
                     help="exit 1 on any unresolved flag (default)")
     ap.add_argument("--lenient", action="store_true",
                     help="print findings but exit 0")
     args = ap.parse_args()
 
-    text = args.text if args.text is not None else get_commit_text(args.commit)
+    if args.text_file is not None:
+        with open(args.text_file, "r", encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    elif args.text is not None:
+        text = args.text
+    else:
+        text = get_commit_text(args.commit)
     if not text.strip():
         print("audit_unresolved_flags: nothing to scan.")
         return 0

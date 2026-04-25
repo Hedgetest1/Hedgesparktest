@@ -2166,7 +2166,7 @@ function PageInner() {
 
               {/* Data freshness — subtle timestamp below header */}
               {lastUpdated && !sessionExpired && (
-                <div className="text-[10px] tracking-wide text-slate-600 -mt-5">
+                <div className="text-[10px] tracking-wide text-slate-400 -mt-5">
                   Updated {lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                 </div>
               )}
@@ -2353,7 +2353,7 @@ function PageInner() {
                           return `I found ${Math.min(3, sparkActions.length)} things worth your time ${when}.`;
                         })()}
                       </h1>
-                      <span className="mt-1 inline-flex flex-shrink-0 items-center gap-1.5 text-[11px] font-semibold text-slate-500">
+                      <span className="mt-1 inline-flex flex-shrink-0 items-center gap-1.5 text-[11px] font-semibold text-slate-400">
                         <span className="relative flex h-1.5 w-1.5" aria-hidden="true">
                           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/50" />
                           <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
@@ -3121,7 +3121,7 @@ function PageInner() {
                 {/* Phase 0-1: hide zero-wall KPI cards, show waiting message instead */}
                 {coldStartPhase <= 1 ? (
                   <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-5 py-6">
-                    <p className="text-[13px] text-slate-500">
+                    <p className="text-[13px] text-slate-400">
                       {coldStartPhase === 0
                         ? "Complete setup to see your metrics."
                         : "Tracker active — data appears with your next visitor."}
@@ -3184,7 +3184,7 @@ function PageInner() {
                       <span className="rounded-full bg-white/[0.04] px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] text-slate-500 ring-1 ring-white/[0.06]">Live</span>
                     </div>
                     <h3 className="text-[15px] font-semibold text-slate-200">Early findings</h3>
-                    <p className="mt-0.5 text-[13px] text-slate-500">Sharpen as traffic grows.</p>
+                    <p className="mt-0.5 text-[13px] text-slate-400">Sharpen as traffic grows.</p>
                   </div>
                   <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
                     {earlySignals.map((s, i) => (
@@ -3198,7 +3198,7 @@ function PageInner() {
               {earlySignals.length > 0 && strongSignals.length > 0 && (
                 <div className="rounded-xl border border-white/[0.04] bg-white/[0.01] p-4">
                   <div className="mb-2 flex items-center gap-2">
-                    <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Early findings</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Early findings</span>
                     <span className="rounded-full bg-white/[0.03] px-1.5 py-0.5 text-[9px] text-slate-600 ring-1 ring-white/[0.05]">{earlySignals.length}</span>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -3259,15 +3259,15 @@ function PageInner() {
                         </div>
                         <div className="mt-auto grid grid-cols-3 gap-2 border-t border-white/[0.05] pt-3">
                           <div>
-                            <div className="text-[12px] font-medium uppercase text-slate-500">Views</div>
+                            <div className="text-[12px] font-medium uppercase text-slate-400">Views</div>
                             <div className="mt-1 text-[18px] font-bold text-white">{formatNumber(product.total_views)}</div>
                           </div>
                           <div>
-                            <div className="text-[12px] font-medium uppercase text-slate-500">Visitors</div>
+                            <div className="text-[12px] font-medium uppercase text-slate-400">Visitors</div>
                             <div className="mt-1 text-[18px] font-bold text-white">{formatNumber(product.unique_visitors)}</div>
                           </div>
                           <div>
-                            <div className="text-[12px] font-medium uppercase text-slate-500">Intent</div>
+                            <div className="text-[12px] font-medium uppercase text-slate-400">Intent</div>
                             <div className="mt-1 text-[18px] font-bold text-white">{formatScore(product.avg_intent_score)}</div>
                           </div>
                         </div>
@@ -3396,7 +3396,7 @@ function PageInner() {
                         <div key={`${page.url || "page"}-${i}`} className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 transition-colors hover:bg-white/[0.04]">
                           <div className="mb-2 flex items-center justify-between gap-4">
                             <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-slate-200" title={page.url}>{page.url || "—"}</span>
-                            <span className="flex-shrink-0 text-[16px] font-bold tabular-nums text-white">{formatNumber(page.views)} <span className="text-[13px] font-normal text-slate-500">views</span></span>
+                            <span className="flex-shrink-0 text-[16px] font-bold tabular-nums text-white">{formatNumber(page.views)} <span className="text-[13px] font-normal text-slate-400">views</span></span>
                           </div>
                           <div className="mb-2 h-2.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
                             <div
@@ -3404,7 +3404,7 @@ function PageInner() {
                               style={{ width: `${barPct}%` }}
                             />
                           </div>
-                          <div className="flex items-center gap-4 text-[13px] text-slate-500">
+                          <div className="flex items-center gap-4 text-[13px] text-slate-400">
                             <span>{formatNumber(page.visitors)} visitors</span>
                             <span>{formatDecimal(page.avg_dwell, 1)}s avg dwell</span>
                           </div>
@@ -3427,7 +3427,7 @@ function PageInner() {
                 />
                 )}
                 {!isProUser ? null : funnelSteps.length === 0 ? (
-                  <p className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-3 text-[12px] text-slate-600">
+                  <p className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-3 text-[12px] text-slate-400">
                     No funnel data yet — events will appear once your tracker is active.
                   </p>
                 ) : (
@@ -3601,7 +3601,7 @@ function PageInner() {
                               {chapter.label}
                             </span>
                           </div>
-                          <div className="mt-1 text-[11px] italic text-slate-500">
+                          <div className="mt-1 text-[11px] italic text-slate-400">
                             {chapter.q}
                           </div>
                         </div>
@@ -3786,7 +3786,7 @@ function PageInner() {
 
             {/* What they keep */}
             <div className="mb-6 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
-              <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">
+              <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
                 What stays unlocked
               </div>
               <div className="space-y-2">
@@ -3821,7 +3821,7 @@ function PageInner() {
 
             <button
               onClick={() => setTrialExpiryModal(false)}
-              className="mt-3 w-full text-center text-[12px] text-slate-600 transition hover:text-slate-400"
+              className="mt-3 w-full text-center text-[12px] text-slate-400 transition hover:text-slate-400"
             >
               Decide later
             </button>

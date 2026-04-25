@@ -55,6 +55,13 @@ test.describe("A11y — authenticated dashboard", () => {
     { path: "/app", label: "dashboard-root" },
     { path: "/app?as=lite", label: "dashboard-lite-preview" },
     { path: "/app/pro", label: "dashboard-pro" },
+    { path: "/app/lite", label: "dashboard-lite-route" },
+    { path: "/app/intelligence", label: "dashboard-intelligence" },
+    { path: "/app/operations", label: "dashboard-operations" },
+    { path: "/app/scale", label: "dashboard-scale" },
+    { path: "/app/marketplace", label: "dashboard-marketplace" },
+    { path: "/app/groups", label: "dashboard-groups" },
+    { path: "/app/settings", label: "dashboard-settings" },
   ];
 
   for (const route of ROUTES) {

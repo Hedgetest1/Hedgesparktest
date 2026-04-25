@@ -134,7 +134,7 @@ export function ProductInsightPanel({
               </span>
             </div>
             <h2 className="text-[15px] font-semibold text-white">Revenue Potential</h2>
-            <p className="mt-0.5 truncate text-[11px] text-slate-500" title={productLabel}>
+            <p className="mt-0.5 truncate text-[11px] text-slate-400" title={productLabel}>
               {productLabel}
             </p>
           </div>
@@ -152,22 +152,22 @@ export function ProductInsightPanel({
         <div className="space-y-5 px-6 py-5">
 
           <div>
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
               Potential Impact
             </p>
             {isProUser ? (
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-xl border border-emerald-400/[0.15] bg-emerald-500/[0.06] px-4 py-3">
-                  <div className="text-[10px] text-slate-500">+1% conversion / day</div>
+                  <div className="text-[10px] text-slate-400">+1% conversion / day</div>
                   <div className="mt-1 text-[20px] font-semibold tabular-nums text-emerald-300">{currencySymbol(ccy)}{uplift1}</div>
-                  <div className="mt-0.5 text-[10px] text-slate-600">
+                  <div className="mt-0.5 text-[10px] text-slate-400">
                     {views24h} views × 1% × {ccy} {aov}{!aovIsReal && " (est.)"}
                   </div>
                 </div>
                 <div className="rounded-xl border border-emerald-400/[0.22] bg-emerald-500/[0.09] px-4 py-3">
-                  <div className="text-[10px] text-slate-500">+2% conversion / day</div>
+                  <div className="text-[10px] text-slate-400">+2% conversion / day</div>
                   <div className="mt-1 text-[20px] font-semibold tabular-nums text-emerald-300">{currencySymbol(ccy)}{uplift2}</div>
-                  <div className="mt-0.5 text-[10px] text-slate-600">
+                  <div className="mt-0.5 text-[10px] text-slate-400">
                     {views24h} views × 2% × {ccy} {aov}{!aovIsReal && " (est.)"}
                   </div>
                 </div>
@@ -177,7 +177,7 @@ export function ProductInsightPanel({
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[12px] text-slate-300">This product may be generating untapped revenue.</p>
-                    <p className="mt-1 text-[11px] text-slate-600">Upgrade to quantify the opportunity.</p>
+                    <p className="mt-1 text-[11px] text-slate-400">Upgrade to quantify the opportunity.</p>
                   </div>
                   <span className="flex-shrink-0 rounded-full border border-violet-400/25 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-400/70">
                     PRO
@@ -188,30 +188,30 @@ export function ProductInsightPanel({
           </div>
 
           <div>
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
               Why It Matters
             </p>
             <div className="grid grid-cols-2 gap-2">
               <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-3">
-                <div className="text-[10px] uppercase tracking-[0.1em] text-slate-600">Views 24h</div>
+                <div className="text-[10px] uppercase tracking-[0.1em] text-slate-400">Views 24h</div>
                 <div className="mt-1 text-[15px] font-semibold tabular-nums text-white">
                   {merged ? formatNumber(merged.views_24h) : formatNumber(product.total_views)}
                 </div>
               </div>
               <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-3">
-                <div className="text-[10px] uppercase tracking-[0.1em] text-slate-600">Avg Dwell</div>
+                <div className="text-[10px] uppercase tracking-[0.1em] text-slate-400">Avg Dwell</div>
                 <div className="mt-1 text-[15px] font-semibold tabular-nums text-white">
                   {merged?.avg_dwell_24h != null ? `${Math.round(merged.avg_dwell_24h)}s` : "—"}
                 </div>
               </div>
               <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-3">
-                <div className="text-[10px] uppercase tracking-[0.1em] text-slate-600">Avg Scroll</div>
+                <div className="text-[10px] uppercase tracking-[0.1em] text-slate-400">Avg Scroll</div>
                 <div className="mt-1 text-[15px] font-semibold tabular-nums text-white">
                   {merged?.avg_scroll_24h != null ? `${Math.round(merged.avg_scroll_24h)}%` : "—"}
                 </div>
               </div>
               <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-3">
-                <div className="text-[10px] uppercase tracking-[0.1em] text-slate-600">Cart Conv.</div>
+                <div className="text-[10px] uppercase tracking-[0.1em] text-slate-400">Cart Conv.</div>
                 <div className="mt-1 text-[15px] font-semibold tabular-nums text-white">
                   {merged?.cart_conversions_24h != null ? formatNumber(merged.cart_conversions_24h) : "—"}
                 </div>
@@ -223,7 +223,7 @@ export function ProductInsightPanel({
           </div>
 
           <div>
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
               Suggested Focus
             </p>
             {isProUser ? (

@@ -184,7 +184,7 @@ export function AbandonedIntentCard({
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[13px] font-semibold text-slate-200">{p.product_name}</div>
-                  <div className="mt-0.5 text-[11px] tabular-nums text-slate-500">
+                  <div className="mt-0.5 text-[11px] tabular-nums text-slate-400">
                     {p.views_7d} views · {p.carts_7d} carts · {p.purchases_7d} sales
                   </div>
                 </div>
@@ -232,7 +232,7 @@ export function AbandonedIntentCard({
           </div>
         )}
 
-        <div className="mt-4 text-[11px] font-semibold text-slate-500">
+        <div className="mt-4 text-[11px] font-semibold text-slate-400">
           Click for full breakdown and next action →
         </div>
       </div>

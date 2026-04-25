@@ -196,7 +196,7 @@ export function PriceSensitivityCard({
           </>
         )}
 
-        <div className="mt-4 text-[11px] font-semibold text-slate-500">
+        <div className="mt-4 text-[11px] font-semibold text-slate-400">
           Click for the full band breakdown and next action →
         </div>
       </div>

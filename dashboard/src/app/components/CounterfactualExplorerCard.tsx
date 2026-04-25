@@ -107,7 +107,7 @@ export function CounterfactualExplorerCard({
           <h3 id="cf-heading" className="text-[15px] font-bold leading-snug text-white">
             If you&apos;d acted sooner
           </h3>
-          <p className="mt-1 text-[11px] text-slate-500">
+          <p className="mt-1 text-[11px] text-slate-400">
             Based on your real AOV ({fmtMoney(data.aov_eur, data.currency)}{!data.aov_is_real && " est."}) and the signal detection timeline.
           </p>
         </div>
@@ -149,7 +149,7 @@ export function CounterfactualExplorerCard({
                     </span>
                   </div>
                   {entry.product_url && (
-                    <p className="mt-0.5 truncate text-[10px] text-slate-600" title={entry.product_url}>
+                    <p className="mt-0.5 truncate text-[10px] text-slate-400" title={entry.product_url}>
                       {entry.product_url.replace(/^\/products\//, "")}
                     </p>
                   )}
@@ -166,7 +166,7 @@ export function CounterfactualExplorerCard({
 
               {isExpanded && (
                 <div className="mt-3 border-t border-white/[0.05] pt-3">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
                     What-if scenarios
                   </div>
                   <div className="mt-2 grid grid-cols-4 gap-2">
@@ -182,7 +182,7 @@ export function CounterfactualExplorerCard({
                       </div>
                     ))}
                   </div>
-                  <p className="mt-2 text-[10px] leading-relaxed text-slate-500">
+                  <p className="mt-2 text-[10px] leading-relaxed text-slate-400">
                     {entry.headline}
                   </p>
                 </div>

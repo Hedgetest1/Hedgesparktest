@@ -211,7 +211,7 @@ export function AudienceSegments({
             <div className="mt-1.5 text-[26px] font-extrabold tabular-nums leading-none text-rose-300">
               {rollup.hot}
             </div>
-            <div className="mt-1 text-[10px] text-slate-500">ready to buy</div>
+            <div className="mt-1 text-[10px] text-slate-400">ready to buy</div>
           </div>
           <div className="rounded-xl border px-4 py-3" style={{ borderColor: "rgba(252, 211, 77, 0.25)", backgroundColor: "rgba(252, 211, 77, 0.06)" }}>
             <div className="flex items-center gap-1.5">
@@ -221,7 +221,7 @@ export function AudienceSegments({
             <div className="mt-1.5 text-[26px] font-extrabold tabular-nums leading-none text-amber-200">
               {rollup.warm}
             </div>
-            <div className="mt-1 text-[10px] text-slate-500">considering</div>
+            <div className="mt-1 text-[10px] text-slate-400">considering</div>
           </div>
           <div className="rounded-xl border px-4 py-3" style={{ borderColor: "rgba(148, 163, 184, 0.18)", backgroundColor: "rgba(148, 163, 184, 0.04)" }}>
             <div className="flex items-center gap-1.5">
@@ -231,14 +231,14 @@ export function AudienceSegments({
             <div className="mt-1.5 text-[26px] font-extrabold tabular-nums leading-none text-slate-300">
               {rollup.cold}
             </div>
-            <div className="mt-1 text-[10px] text-slate-500">browsing casually</div>
+            <div className="mt-1 text-[10px] text-slate-400">browsing casually</div>
           </div>
         </div>
       )}
 
       {/* Per-product breakdown */}
       <div className="space-y-3">
-        <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+        <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
           By product
         </div>
         {products.map((p) => (
@@ -252,7 +252,7 @@ export function AudienceSegments({
                 {shortProduct(p.product_url)}
               </span>
               {p.total_active > 0 && (
-                <span className="text-[11px] tabular-nums text-slate-500">
+                <span className="text-[11px] tabular-nums text-slate-400">
                   {p.total_active} visitor{p.total_active !== 1 ? "s" : ""}
                 </span>
               )}
@@ -261,9 +261,9 @@ export function AudienceSegments({
             {p.loading ? (
               <div className="h-12 animate-pulse rounded bg-white/[0.04]" />
             ) : p.error ? (
-              <div className="text-[12px] text-slate-600">Segment data unavailable</div>
+              <div className="text-[12px] text-slate-400">Segment data unavailable</div>
             ) : p.segments.length === 0 ? (
-              <div className="text-[12px] text-slate-600">No active visitors in the last 72 hours</div>
+              <div className="text-[12px] text-slate-400">No active visitors in the last 72 hours</div>
             ) : (
               <div className="space-y-2">
                 {p.segments.map((seg) => {
@@ -294,7 +294,7 @@ export function AudienceSegments({
                           </span>
                         </div>
                       </div>
-                      <span className="w-16 text-right text-[11px] tabular-nums text-slate-500">
+                      <span className="w-16 text-right text-[11px] tabular-nums text-slate-400">
                         {seg.revenue_window > 0
                           ? formatMoneyCompact(seg.revenue_window, p.currency || "USD")
                           : "—"}

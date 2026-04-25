@@ -47,8 +47,12 @@ export function FloorLayout({
 
   if (!session.resolved) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#07070f] text-slate-400">
-        <div className="animate-pulse text-[14px]">Loading your plan…</div>
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex h-screen items-center justify-center bg-[#07070f] text-slate-200"
+      >
+        <div className="text-[14px]">Loading your plan…</div>
       </div>
     );
   }

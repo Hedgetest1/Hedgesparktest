@@ -38,7 +38,7 @@ function CostDefaultsSurface({ session }: { session: SessionState }) {
   return (
     <>
       <div className="mb-8">
-        <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-500">
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-400">
           <Link
             href="/app"
             className="text-slate-400 hover:text-[#e8a04e]"
@@ -198,7 +198,7 @@ function LabeledInput({
         {label}
       </label>
       {hint && (
-        <div className="mt-0.5 text-[10.5px] text-slate-500">{hint}</div>
+        <div className="mt-0.5 text-[10.5px] text-slate-400">{hint}</div>
       )}
       <div className="mt-1.5 flex items-center rounded-lg border border-white/[0.08] bg-white/[0.03] focus-within:border-[#e8a04e]/60">
         <input
@@ -210,7 +210,7 @@ function LabeledInput({
           placeholder="—"
         />
         {suffix && (
-          <span className="px-3 text-[12px] text-slate-500">{suffix}</span>
+          <span className="px-3 text-[12px] text-slate-400">{suffix}</span>
         )}
       </div>
     </div>

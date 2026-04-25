@@ -198,7 +198,7 @@ export function RevenueAutopsyCard({
                         {CAUSE_LABELS[p.primary_cause] || p.primary_cause}
                       </span>
                     </div>
-                    <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{p.narrative}</p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-slate-400">{p.narrative}</p>
                   </div>
                   <div
                     className={`flex-shrink-0 text-[16px] font-extrabold tabular-nums ${
@@ -206,7 +206,7 @@ export function RevenueAutopsyCard({
                     }`}
                   >
                     {fmtEur(p.revenue_delta_eur, data?.currency)}
-                    <span className="ml-1 text-[10px] font-semibold text-slate-500">/wk</span>
+                    <span className="ml-1 text-[10px] font-semibold text-slate-400">/wk</span>
                   </div>
                 </div>
 
@@ -239,7 +239,7 @@ export function RevenueAutopsyCard({
           })}
         </div>
 
-        <div className="mt-4 text-[11px] font-semibold text-slate-500">
+        <div className="mt-4 text-[11px] font-semibold text-slate-400">
           Click for per-product breakdown and next action →
         </div>
       </div>

@@ -176,7 +176,7 @@ export function BriefHero({ brief, loading, tier, onUpgradeClick, emptyHint, spa
             <p className="text-[16px] leading-relaxed text-slate-400">
               {emptyHint || "Watching your store. Findings appear within minutes."}
             </p>
-            <p className="mt-2 text-[13px] text-slate-600">— <span className="hs-brand-gradient font-semibold">Spark</span></p>
+            <p className="mt-2 text-[13px] text-slate-400">— <span className="hs-brand-gradient font-semibold">Spark</span></p>
           </div>
         </div>
       </div>
@@ -239,7 +239,7 @@ export function BriefHero({ brief, loading, tier, onUpgradeClick, emptyHint, spa
         )}
 
         {/* Spark signature */}
-        <p className="mt-4 text-[12px] text-slate-600">— <span className="hs-brand-gradient font-semibold">Spark</span></p>
+        <p className="mt-4 text-[12px] text-slate-400">— <span className="hs-brand-gradient font-semibold">Spark</span></p>
       </div>
 
       {/* ── Action — Pro gated ── */}

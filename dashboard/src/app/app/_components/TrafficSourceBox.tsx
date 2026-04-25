@@ -85,16 +85,16 @@ export function TrafficSourceBox({
   return (
     <div className="hs-fade-up flex flex-col rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4">
       <div className="mb-3">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
           Where high-intent traffic comes from
         </div>
-        <p className="mt-0.5 truncate text-[11px] text-slate-600" title={productLabel}>
+        <p className="mt-0.5 truncate text-[11px] text-slate-400" title={productLabel}>
           {productLabel}
         </p>
       </div>
 
       {sources.length === 0 ? (
-        <p className="text-[12px] text-slate-600">
+        <p className="text-[12px] text-slate-400">
           Not enough traffic data yet to evaluate sources.
         </p>
       ) : (
@@ -124,9 +124,9 @@ export function TrafficSourceBox({
                       </span>
                     </div>
                     <div className="flex flex-shrink-0 items-center gap-2">
-                      <span className="text-[10px] tabular-nums text-slate-600">{src.quality_score}</span>
+                      <span className="text-[10px] tabular-nums text-slate-400">{src.quality_score}</span>
                       <span className={`text-[10px] font-medium ${color}`}>{src.quality_label}</span>
-                      <span className="w-7 text-right text-[11px] tabular-nums text-slate-500">{barPct}%</span>
+                      <span className="w-7 text-right text-[11px] tabular-nums text-slate-400">{barPct}%</span>
                     </div>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
@@ -144,13 +144,13 @@ export function TrafficSourceBox({
             })}
           </div>
 
-          <p className="mt-auto border-t border-white/[0.05] pt-3 text-[11px] leading-[1.55] text-slate-500">
+          <p className="mt-auto border-t border-white/[0.05] pt-3 text-[11px] leading-[1.55] text-slate-400">
             {sourceQuality!.insight}
           </p>
 
           {!isProUser && (
             <div className="mt-2 flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-              <span className="text-[11px] text-slate-600">
+              <span className="text-[11px] text-slate-400">
                 Historical trends &amp; advanced recommendations in Pro
               </span>
               <button

@@ -184,7 +184,7 @@ function RoiCounterBanner() {
                 Other tools dress landing pages with inflated &ldquo;recovered&rdquo; totals on day one.
                 Ours stays honest — the counter here goes live the moment real merchants recover real money.
                 {doc && (
-                  <span className="mt-2 block text-[11px] text-slate-500">
+                  <span className="mt-2 block text-[11px] text-slate-400">
                     Currently tracking {doc.shops_contributing} active merchant{doc.shops_contributing === 1 ? "" : "s"}.
                   </span>
                 )}
@@ -221,7 +221,7 @@ function RoiCounterBanner() {
             <div className="mt-2 font-mono text-[40px] font-extrabold tabular-nums leading-none text-white sm:text-[56px]">
               {formatted}
             </div>
-            <div className="mt-1 text-[10px] uppercase tracking-wide text-slate-500">
+            <div className="mt-1 text-[10px] uppercase tracking-wide text-slate-400">
               money recovered · merchant native currencies
             </div>
             <div className="mt-2 text-[13px] text-slate-400">
@@ -236,7 +236,7 @@ function RoiCounterBanner() {
               }`}
               aria-hidden={!hovering}
             >
-              <div className="text-center text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              <div className="text-center text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                 Breakdown by vertical
               </div>
               <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
@@ -255,7 +255,7 @@ function RoiCounterBanner() {
             </div>
           )}
 
-          <div className="mt-4 text-center text-[10px] text-slate-500">
+          <div className="mt-4 text-center text-[10px] text-slate-400">
             Hover for breakdown · counter reads real action executions from the network
           </div>
         </div>
@@ -733,7 +733,7 @@ function Features() {
 
             {/* Proof visual */}
             <div className="rounded-3xl border border-white/[0.06] bg-[#0e0e1a] p-6 shadow-[0_20px_80px_-20px_rgba(0,0,0,0.5)] sm:p-8">
-              <div className="mb-6 text-[13px] font-bold uppercase tracking-[0.15em] text-slate-600">Lift report</div>
+              <div className="mb-6 text-[13px] font-bold uppercase tracking-[0.15em] text-slate-400">Lift report</div>
 
               {/* Bar comparison */}
               <div className="space-y-5">
@@ -783,7 +783,7 @@ function Features() {
                 <div className="flex-1">
                   <div className="flex items-baseline gap-3 flex-wrap">
                     <h3 className="text-[17px] font-bold text-white">{p.title}</h3>
-                    <span className="text-[12px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    <span className="text-[12px] font-semibold uppercase tracking-[0.14em] text-slate-400">
                       {p.count}
                     </span>
                   </div>
@@ -801,7 +801,7 @@ function Features() {
             <div className="flex-1">
               <div className="flex items-baseline gap-3 flex-wrap">
                 <h3 className="text-[16px] font-bold text-slate-200">Operations</h3>
-                <span className="text-[12px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                <span className="text-[12px] font-semibold uppercase tracking-[0.14em] text-slate-400">
                   + 3 tools
                 </span>
               </div>
@@ -813,7 +813,7 @@ function Features() {
         </R>
 
         <R d={0.35}>
-          <p className="mt-8 text-center text-[13px] text-slate-500">
+          <p className="mt-8 text-center text-[13px] text-slate-400">
             Lite gets the foundation signals. Pro unlocks everything above. See{" "}
             <a href="#pricing" className="font-semibold text-slate-300 underline decoration-slate-600 underline-offset-4 transition-colors hover:text-white hover:decoration-slate-400">
               which plan includes what
@@ -981,7 +981,7 @@ function RealExample() {
                   </div>
                   <div>
                     <div className="text-[14px] font-bold text-rose-400">Monday</div>
-                    <div className="text-[13px] text-slate-500">Signal detected</div>
+                    <div className="text-[13px] text-slate-400">Signal detected</div>
                   </div>
                 </div>
                 <div className="mt-5 rounded-2xl border border-rose-500/10 bg-rose-500/[0.02] p-5">
@@ -1014,7 +1014,7 @@ function RealExample() {
                   </div>
                   <div>
                     <div className="text-[14px] font-bold text-[#d4893a]">Tuesday</div>
-                    <div className="text-[13px] text-slate-500">Nudge deployed</div>
+                    <div className="text-[13px] text-slate-400">Nudge deployed</div>
                   </div>
                 </div>
                 <div className="mt-5 rounded-2xl border border-[#d4893a]/10 bg-[#d4893a]/[0.02] p-5">
@@ -1045,7 +1045,7 @@ function RealExample() {
                   </div>
                   <div>
                     <div className="text-[14px] font-bold text-emerald-400">Next Monday</div>
-                    <div className="text-[13px] text-slate-500">Lift confirmed</div>
+                    <div className="text-[13px] text-slate-400">Lift confirmed</div>
                   </div>
                 </div>
                 <div className="mt-5 rounded-2xl border border-emerald-500/10 bg-emerald-500/[0.02] p-5">
@@ -1304,7 +1304,7 @@ function Trust() {
         <div className="mt-16">
           <R>
             <div className="mb-8 text-center">
-              <span className="text-[12px] font-bold uppercase tracking-[0.18em] text-slate-500">
+              <span className="text-[12px] font-bold uppercase tracking-[0.18em] text-slate-400">
                 The defendable moat · 5 things no competitor can copy
               </span>
             </div>
@@ -1583,7 +1583,7 @@ function Pricing() {
               <table className="w-full min-w-[640px] border-collapse">
                 <thead>
                   <tr className="border-b border-white/[0.06]">
-                    <th className="p-5 text-left text-[12px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                    <th className="p-5 text-left text-[12px] font-bold uppercase tracking-[0.14em] text-slate-400">
                       Capability
                     </th>
                     <th className="p-5 text-center text-[13px] font-bold uppercase tracking-[0.12em] text-slate-300">
@@ -1642,7 +1642,7 @@ function Pricing() {
                 </tbody>
               </table>
             </div>
-            <p className="mt-5 text-center text-[13px] text-slate-500">
+            <p className="mt-5 text-center text-[13px] text-slate-400">
               A shortlist of the 32 capabilities across all tiers. Every number in the dashboard is
               computed from real data in your store.
             </p>

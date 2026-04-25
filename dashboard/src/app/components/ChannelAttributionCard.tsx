@@ -114,7 +114,7 @@ export function ChannelAttributionCard({
           {/* Hero row — attribution rate */}
           <div className="mb-6 grid gap-3 sm:grid-cols-3">
             <div className="rounded-2xl border border-white/[0.06] bg-[#0e0e1a]/70 p-5">
-              <div className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-slate-500">
+              <div className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-slate-400">
                 Orders (30 days)
               </div>
               <div className="mt-2 text-[2.25rem] font-extrabold leading-none tabular-nums text-white">
@@ -156,7 +156,7 @@ export function ChannelAttributionCard({
               "assisted" insight unambiguous on our card. */}
           {firstTouch.length > 0 && lastTouch.length > 0 && (
             <div className="mb-6 rounded-2xl border border-white/[0.05] bg-[#0b0b14]/60 p-5">
-              <div className="mb-3 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+              <div className="mb-3 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-400">
                 Attribution flow · who acquires vs who closes
               </div>
               <p className="text-[13px] leading-relaxed text-slate-300">
@@ -193,12 +193,12 @@ export function ChannelAttributionCard({
                 <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-300">
                   First-touch — who acquires
                 </div>
-                <div className="text-[10px] text-slate-500">by revenue</div>
+                <div className="text-[10px] text-slate-400">by revenue</div>
               </div>
               {firstTouch.length > 0 ? (
                 <SourceList rows={firstTouch} ccy={displayCurrency} />
               ) : (
-                <div className="text-[13px] text-slate-500">No attributed orders yet.</div>
+                <div className="text-[13px] text-slate-400">No attributed orders yet.</div>
               )}
             </div>
             <div className="rounded-2xl border border-white/[0.06] bg-[#0e0e1a]/60 p-5">
@@ -206,12 +206,12 @@ export function ChannelAttributionCard({
                 <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-amber-300">
                   Last-touch — who closes
                 </div>
-                <div className="text-[10px] text-slate-500">by revenue</div>
+                <div className="text-[10px] text-slate-400">by revenue</div>
               </div>
               {lastTouch.length > 0 ? (
                 <SourceList rows={lastTouch} ccy={displayCurrency} />
               ) : (
-                <div className="text-[13px] text-slate-500">No attributed orders yet.</div>
+                <div className="text-[13px] text-slate-400">No attributed orders yet.</div>
               )}
             </div>
           </div>
@@ -219,7 +219,7 @@ export function ChannelAttributionCard({
           {/* Campaigns */}
           {campaigns.length > 0 && (
             <div className="rounded-2xl border border-white/[0.06] bg-[#0e0e1a]/60 p-5">
-              <div className="mb-4 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">
+              <div className="mb-4 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
                 Top campaigns · by revenue
               </div>
               <ul className="space-y-2">
@@ -232,7 +232,7 @@ export function ChannelAttributionCard({
                       <div className="truncate text-[13.5px] font-semibold text-white">
                         {c.campaign || "(unnamed)"}
                       </div>
-                      <div className="mt-0.5 text-[11.5px] text-slate-500 tabular-nums">
+                      <div className="mt-0.5 text-[11.5px] text-slate-400 tabular-nums">
                         {c.orders} order{c.orders !== 1 ? "s" : ""}
                       </div>
                     </div>
@@ -247,7 +247,7 @@ export function ChannelAttributionCard({
 
           {/* Methodology footer — the honest note about what we do NOT do */}
           <div className="mt-5 rounded-xl border border-white/[0.04] bg-[#0b0b14]/40 px-4 py-3">
-            <div className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+            <div className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-400">
               How this is measured
             </div>
             <p className="mt-1.5 text-[12.5px] leading-relaxed text-slate-400">
@@ -257,7 +257,7 @@ export function ChannelAttributionCard({
               correctly reported as unattributed rather than assigned to a
               default bucket.
             </p>
-            <p className="mt-2 text-[11.5px] leading-relaxed italic text-slate-500">
+            <p className="mt-2 text-[11.5px] leading-relaxed italic text-slate-400">
               Ad spend and ROAS require Meta/Google/TikTok Ads API
               integrations we don&apos;t ship at the Lite tier. This
               surface tells you WHERE your converting traffic comes from,
@@ -269,7 +269,7 @@ export function ChannelAttributionCard({
         // Cold-start — labeled preview + watching pulse (consistent
         // with LiteRarsHero / EmptyPreview aesthetic).
         <div className="rounded-2xl border border-dashed border-white/[0.12] bg-[#0b0b14]/40 p-6">
-          <div className="mb-3 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+          <div className="mb-3 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-400">
             <span
               className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-blue-300"
               aria-hidden="true"
@@ -284,7 +284,7 @@ export function ChannelAttributionCard({
           </p>
           <div className="pointer-events-none mb-5 grid gap-3 opacity-50 sm:grid-cols-3">
             <div className="rounded-2xl border border-white/[0.06] bg-[#0e0e1a]/70 p-5">
-              <div className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-slate-500">Orders (30d)</div>
+              <div className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-slate-400">Orders (30d)</div>
               <div className="mt-2 text-[2.25rem] font-extrabold leading-none tabular-nums text-white">142</div>
             </div>
             <div className="rounded-2xl border border-blue-400/[0.18] bg-blue-500/[0.05] p-5">

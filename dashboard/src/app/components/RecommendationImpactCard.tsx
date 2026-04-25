@@ -218,7 +218,7 @@ export function RecommendationImpactCard({
 
         {impacts.length > 0 && (
           <div className="mt-4 rounded-lg border border-white/[0.05] bg-white/[0.02] px-4 py-3">
-            <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+            <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
               Recent actions
             </div>
             <ul className="space-y-1.5">
@@ -249,7 +249,7 @@ export function RecommendationImpactCard({
           </div>
         )}
 
-        <div className="mt-3 text-[11px] font-semibold text-slate-500">
+        <div className="mt-3 text-[11px] font-semibold text-slate-400">
           Click for the full method and what to do next →
         </div>
       </div>

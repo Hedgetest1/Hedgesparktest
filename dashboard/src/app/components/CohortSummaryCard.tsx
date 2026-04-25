@@ -181,7 +181,7 @@ export function CohortSummaryCard({
             <div className="mt-1 text-[30px] font-extrabold tabular-nums text-slate-200">
               {total.toLocaleString("en")}
             </div>
-            <div className="mt-0.5 text-[10px] text-slate-500">
+            <div className="mt-0.5 text-[10px] text-slate-400">
               across {cohorts} cohorts
             </div>
           </div>
@@ -207,7 +207,7 @@ export function CohortSummaryCard({
             "do they stick around a quarter later" data points where
             Peel's depth used to beat ours. Now we match + simpler. */}
         <div className="mt-4 rounded-xl border border-white/[0.05] bg-[#0b0b14]/40 px-4 py-3">
-          <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+          <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
             Long-tail retention curve
           </div>
           <div className="grid grid-cols-5 gap-2 sm:gap-4">
@@ -243,12 +243,12 @@ export function CohortSummaryCard({
               );
             })}
           </div>
-          <p className="mt-3 text-[11.5px] leading-relaxed text-slate-500">
+          <p className="mt-3 text-[11.5px] leading-relaxed text-slate-400">
             The curve shape tells you the story: flat-and-high = compounding LTV; steep drop = one-and-done buyers.
           </p>
         </div>
 
-        <div className="mt-3 text-[11px] font-semibold text-slate-500">
+        <div className="mt-3 text-[11px] font-semibold text-slate-400">
           Click for the per-cohort curves and what drives the spread →
         </div>
       </div>

@@ -224,7 +224,7 @@ export function VerticalBenchmarksCard({
           {data?.note || "We need a minimum of 8 stores in your specific vertical and revenue band to compare you fairly. Below that, no fake numbers."}
         </p>
         {data?.fallback_baselines && (
-          <div className="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 text-[11px] text-slate-500">
+          <div className="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 text-[11px] text-slate-400">
             Industry medians (fallback):
             {" "}{data.fallback_baselines.cvr_baseline_pct && `CVR ${data.fallback_baselines.cvr_baseline_pct}% · `}
             {data.fallback_baselines.aov_baseline_eur && `AOV ${fmtMoney(data.fallback_baselines.aov_baseline_eur, data.currency)}`}
@@ -251,7 +251,7 @@ export function VerticalBenchmarksCard({
           <h3 id="vertical-bench-heading" className="text-[15px] font-bold text-white">
             You vs. {data.vertical_display}
           </h3>
-          <p className="mt-1 text-[11px] text-slate-500">
+          <p className="mt-1 text-[11px] text-slate-400">
             {data.peer_count} peers · {SCOPE_LABELS[data.scope] || data.scope}
             {lastLive && (
               <span
@@ -315,11 +315,11 @@ export function VerticalBenchmarksCard({
                     <span className="text-[12px] font-semibold text-slate-200">
                       {METRIC_LABELS[metric] || metric}
                     </span>
-                    <span className="text-[10px] text-slate-500">
+                    <span className="text-[10px] text-slate-400">
                       you: <span className="font-mono tabular-nums text-slate-300">{fmtMetric(metric, m.value, data?.currency)}</span>
                     </span>
                   </div>
-                  <div className="mt-1 text-[10px] text-slate-500">
+                  <div className="mt-1 text-[10px] text-slate-400">
                     p25 {fmtMetric(metric, m.p25, data?.currency)} · p50 {fmtMetric(metric, m.p50, data?.currency)} · p75 {fmtMetric(metric, m.p75, data?.currency)}
                   </div>
                 </div>

@@ -132,7 +132,7 @@ export function NotificationBell({
         <div className="absolute right-0 top-full z-50 mt-2 w-72 overflow-hidden rounded-xl border border-white/[0.08] bg-[#0d0d1e] shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-2.5">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
               Spark Alerts
             </span>
             <button
@@ -149,7 +149,7 @@ export function NotificationBell({
 
           {!settings.enabled ? (
             <div className="px-4 py-5 text-center">
-              <p className="text-[12px] text-slate-500">
+              <p className="text-[12px] text-slate-400">
                 Enable alerts to get notified when Spark detects something important.
               </p>
               <button
@@ -173,14 +173,14 @@ export function NotificationBell({
                       }`} />
                       <div className="min-w-0">
                         <p className="text-[11px] leading-[1.5] text-slate-300">{n.message}</p>
-                        {n.detail && <p className="text-[10px] text-slate-600">{n.detail}</p>}
+                        {n.detail && <p className="text-[10px] text-slate-400">{n.detail}</p>}
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
                 <div className="px-4 py-4 text-center">
-                  <p className="text-[11px] text-slate-600">No alerts yet. Spark will notify you when something important changes.</p>
+                  <p className="text-[11px] text-slate-400">No alerts yet. Spark will notify you when something important changes.</p>
                 </div>
               )}
 

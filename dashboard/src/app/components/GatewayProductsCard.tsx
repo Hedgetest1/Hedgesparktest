@@ -93,7 +93,7 @@ export function GatewayProductsCard({
   if (!hasData) {
     return (
       <div className="rounded-2xl border border-dashed border-white/[0.12] bg-[#0b0b14]/40 p-6">
-        <div className="mb-3 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+        <div className="mb-3 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-400">
           <span
             className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300"
             aria-hidden="true"
@@ -157,7 +157,7 @@ export function GatewayProductsCard({
                     </span>
                   )}
                 </div>
-                <div className="mt-0.5 text-[11.5px] text-slate-500">
+                <div className="mt-0.5 text-[11.5px] text-slate-400">
                   {p.buyer_count} buyer{p.buyer_count !== 1 ? "s" : ""} ·{" "}
                   {(p.buyer_repeat_rate * 100).toFixed(0)}% repeat · starts new{" "}
                   {(p.gateway_rate * 100).toFixed(0)}% of customers
@@ -183,7 +183,7 @@ export function GatewayProductsCard({
       </ul>
 
       <div className="mt-4 rounded-xl border border-white/[0.04] bg-[#0b0b14]/40 px-4 py-3">
-        <div className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-500">
+        <div className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-400">
           How to read this
         </div>
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-slate-400">

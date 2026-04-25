@@ -142,7 +142,7 @@ function BigNumber({
       >
         {value}
       </div>
-      {hint && <div className="text-[11px] text-slate-500">{hint}</div>}
+      {hint && <div className="text-[11px] text-slate-400">{hint}</div>}
     </div>
   );
 }
@@ -338,7 +338,7 @@ export default function TransparencyPage() {
                     }
                     accent={data.pii_guard.violations_7d === 0}
                   />
-                  <p className="mt-4 text-[11px] leading-relaxed text-slate-500">
+                  <p className="mt-4 text-[11px] leading-relaxed text-slate-400">
                     Every LLM call is gated by a deterministic PII
                     scanner: emails, phone numbers, tokens, IBANs, card
                     shapes, password assignments. A blocked call never
@@ -356,7 +356,7 @@ export default function TransparencyPage() {
                     hint={`${data.audit_integrity.chained_rows} chained rows checked`}
                     accent={data.audit_integrity.violations === 0}
                   />
-                  <p className="mt-4 text-[11px] leading-relaxed text-slate-500">
+                  <p className="mt-4 text-[11px] leading-relaxed text-slate-400">
                     Every audit_log row stores a hash of itself plus the
                     prior row. A tampered row breaks the chain and the
                     pipeline self-alerts. No silent deletion possible.
@@ -398,7 +398,7 @@ export default function TransparencyPage() {
             </Section>
 
             {/* Footer note */}
-            <p className="mt-12 text-[11px] leading-relaxed text-slate-500">
+            <p className="mt-12 text-[11px] leading-relaxed text-slate-400">
               Snapshot last checked {relativeTime(data.checked_at)}. Page
               refreshes every 60 seconds. Source endpoint:{" "}
               <code className="text-slate-400">/public/transparency</code>.

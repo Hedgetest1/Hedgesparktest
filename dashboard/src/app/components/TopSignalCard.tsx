@@ -124,7 +124,7 @@ export function TopSignalCard({ signal, isProUser, onUpgrade, onViewSignals, onA
         </span>
         <button
           onClick={() => setReminded(false)}
-          className="ml-auto flex-shrink-0 text-[11px] text-slate-600 hover:text-slate-400"
+          className="ml-auto flex-shrink-0 text-[11px] text-slate-400 hover:text-slate-400"
         >
           Show again
         </button>
@@ -164,7 +164,7 @@ export function TopSignalCard({ signal, isProUser, onUpgrade, onViewSignals, onA
               >
                 Fix this →
               </button>
-              <span className="text-[11px] text-slate-500 truncate">
+              <span className="text-[11px] text-slate-400 truncate">
                 {signal.human_action.slice(0, 60)}{signal.human_action.length > 60 ? "…" : ""}
               </span>
             </div>
@@ -257,7 +257,7 @@ export function TopSignalCard({ signal, isProUser, onUpgrade, onViewSignals, onA
             View all signals →
           </button>
           {signal.signal_strength != null && (
-            <span className="text-[11px] tabular-nums text-slate-600">
+            <span className="text-[11px] tabular-nums text-slate-400">
               {Math.round(signal.signal_strength * 100)}% strength
             </span>
           )}

@@ -196,7 +196,7 @@ export function YourTeamPanel({
                   <div className="truncate text-[12px] font-semibold text-slate-200">
                     {m.display_name || m.email}
                   </div>
-                  <div className="truncate text-[10px] text-slate-500">{m.email}</div>
+                  <div className="truncate text-[10px] text-slate-400">{m.email}</div>
                 </div>
                 <span
                   className="flex-shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold"
@@ -211,7 +211,7 @@ export function YourTeamPanel({
                 <button
                   type="button"
                   onClick={() => handleRemove(m.id)}
-                  className="flex-shrink-0 text-[11px] text-slate-600 hover:text-rose-400"
+                  className="flex-shrink-0 text-[11px] text-slate-400 hover:text-rose-400"
                   title="Remove member"
                 >
                   ✕

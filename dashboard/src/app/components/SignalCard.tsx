@@ -249,12 +249,12 @@ export function SignalCard({ signal, tier, onUpgradeClick }: Props) {
             {meta.label}
           </span>
           {isEarly && (
-            <span className="rounded-lg bg-white/[0.04] px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500 ring-1 ring-white/[0.06]">
+            <span className="rounded-lg bg-white/[0.04] px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.08em] text-slate-400 ring-1 ring-white/[0.06]">
               Early
             </span>
           )}
         </div>
-        <span className="flex-shrink-0 text-[13px] text-slate-500">
+        <span className="flex-shrink-0 text-[13px] text-slate-400">
           {relativeTime(signal.detected_at)}
         </span>
       </div>
@@ -264,12 +264,12 @@ export function SignalCard({ signal, tier, onUpgradeClick }: Props) {
         {signal.human_label || signal.product_url || "—"}
       </div>
       {isEarly && (
-        <div className="mb-2 text-[13px] text-slate-500">Based on limited data</div>
+        <div className="mb-2 text-[13px] text-slate-400">Based on limited data</div>
       )}
 
       {/* Product URL as secondary meta when human_label is present */}
       {signal.human_label && signal.product_url && (
-        <div className="mb-2.5 truncate text-[13px] text-slate-500">
+        <div className="mb-2.5 truncate text-[13px] text-slate-400">
           {signal.product_url}
         </div>
       )}

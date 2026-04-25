@@ -149,7 +149,7 @@ export function ProofHeroCard({
                 {cvrPctPoints.toFixed(1)}
                 <span className="ml-1 text-[14px] font-semibold text-slate-400">points</span>
               </div>
-              <div className="mt-1 text-[12px] font-semibold uppercase tracking-wider text-slate-500">
+              <div className="mt-1 text-[12px] font-semibold uppercase tracking-wider text-slate-400">
                 Conversion lift
               </div>
             </div>
