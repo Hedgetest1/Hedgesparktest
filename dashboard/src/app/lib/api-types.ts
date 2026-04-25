@@ -1335,6 +1335,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/today-snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Today Snapshot
+         * @description Six base KPIs for today + yesterday + delta — the day-1 retrospective
+         *     pulse every cheap Shopify SaaS shows. Cached 60s, keyed by date so it
+         *     auto-rotates at midnight and survives worker restarts.
+         */
+        get: operations["get_today_snapshot_analytics_today_snapshot_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/analytics/clicks": {
         parameters: {
             query?: never;
@@ -7395,6 +7417,23 @@ export interface components {
             /** Days */
             days: number;
         };
+        /** DayMetrics */
+        DayMetrics: {
+            /** Revenue */
+            revenue: number;
+            /** Orders */
+            orders: number;
+            /** Aov */
+            aov: number;
+            /** Sessions */
+            sessions: number;
+            /** Conversion Rate Pct */
+            conversion_rate_pct: number | null;
+            /** New Customers */
+            new_customers: number;
+            /** Returning Customers */
+            returning_customers: number;
+        };
         /** DeactivateNudgeResponse */
         DeactivateNudgeResponse: {
             /** Deactivated */
@@ -7431,6 +7470,19 @@ export interface components {
             delivered_at?: string | null;
             /** Created At */
             created_at?: string | null;
+        };
+        /** Deltas */
+        Deltas: {
+            /** Revenue Pct */
+            revenue_pct: number | null;
+            /** Orders Pct */
+            orders_pct: number | null;
+            /** Aov Pct */
+            aov_pct: number | null;
+            /** Sessions Pct */
+            sessions_pct: number | null;
+            /** Conversion Rate Pct Delta */
+            conversion_rate_pct_delta: number | null;
         };
         /** DeviceSplit */
         DeviceSplit: {
@@ -10928,6 +10980,22 @@ export interface components {
             /** Avg Positive Lift Pct */
             avg_positive_lift_pct?: number | null;
         };
+        /** TodaySnapshotResponse */
+        TodaySnapshotResponse: {
+            /** Currency */
+            currency: string;
+            /** Timezone */
+            timezone: string;
+            /** Today Iso */
+            today_iso: string;
+            /** Has Data */
+            has_data: boolean;
+            today: components["schemas"]["DayMetrics"];
+            yesterday: components["schemas"]["DayMetrics"];
+            deltas: components["schemas"]["Deltas"];
+            /** Top Sellers Today */
+            top_sellers_today: components["schemas"]["TopSeller"][];
+        };
         /**
          * TopPageRow
          * @description One page in the top-pages ranking.
@@ -10966,6 +11034,15 @@ export interface components {
          * @description One row inside top_products_by_revenue.
          */
         TopProductByRevenue: {
+            /** Product Title */
+            product_title: string;
+            /** Revenue */
+            revenue: number;
+            /** Units Sold */
+            units_sold: number;
+        };
+        /** TopSeller */
+        TopSeller: {
             /** Product Title */
             product_title: string;
             /** Revenue */
@@ -12982,6 +13059,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FunnelResponse"];
+                };
+            };
+        };
+    };
+    get_today_snapshot_analytics_today_snapshot_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodaySnapshotResponse"];
                 };
             };
         };

@@ -102,6 +102,7 @@ import { NudgeDnaCard } from "../components/NudgeDnaCard";
 // Lite-floor — cassettoni grid with click-to-expand (v3 spec)
 import { LiteCassettoniGrid, type CassettoneId } from "../components/LiteCassettoniGrid";
 import { LiteRarsHero } from "../components/LiteRarsHero";
+import { LiteTodaySection } from "../components/LiteTodaySection";
 import { PnlReport } from "../components/PnlReport";
 import { MarginDragCard } from "../components/MarginDragCard";
 import { ChannelAttributionCard } from "../components/ChannelAttributionCard";
@@ -2530,6 +2531,28 @@ function PageInner() {
                     }}
                   />
                 </section>
+              )}
+
+              {/* Today snapshot — base-analytics pulse closing the
+                  2026-04-25 audit gap. Every cheap Shopify analytics
+                  tool (Lifetimely Free, OrderMetrics, Better Reports,
+                  Shopify native) shows revenue today / orders / AOV /
+                  sessions / conversion / new-vs-returning as the day-1
+                  retrospective hero. Lite previously jumped straight
+                  from the RARS hero into peers / P&L / cassettoni —
+                  the intelligence layer — without grounding the
+                  merchant in "where you stand right now". Slot is
+                  between RARS (the differentiator stays #1) and "You
+                  vs peers" (peers compare to YOU — first show what
+                  YOU did, then compare). All six KPIs sourced from
+                  /analytics/today-snapshot — real DB rows, deltas
+                  null when yesterday is zero (no fabricated +∞%). */}
+              {isLiteFloor && (
+                <LiteTodaySection
+                  apiBase={API_BASE}
+                  shop={shop}
+                  displayCurrency={displayCurrency}
+                />
               )}
 
               {/* Peer benchmarks — "you vs peers" surface between the

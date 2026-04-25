@@ -67,6 +67,21 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2b-ter. Lite-orphan endpoint sweep — informational, never blocking.
+# Catches Lite-accessible backends with no Lite-floor render path (the
+# 2026-04-25 audit class). Prints findings; exit 0 always so a deliberate
+# Pro-only render doesn't break commits.
+# ---------------------------------------------------------------------------
+step "Lite orphan endpoint sweep (audit_lite_orphan_endpoints.py — info only)"
+if "$PY" scripts/audit_lite_orphan_endpoints.py > /tmp/preflight_lite_orphans.log 2>&1; then
+    if grep -q "No Lite-orphan endpoints" /tmp/preflight_lite_orphans.log; then
+        ok "no Lite-orphan endpoints"
+    else
+        echo "  ℹ candidates flagged — see /tmp/preflight_lite_orphans.log"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # 2b-bis. Data-truth audit — catches currency drift (hardcoded €/$, SUM
 # without currency filter), DST-unsafe timezone SQL, hardcoded DB creds.
 # Baseline 0-findings reached on 2026-04-17 after centralizing
