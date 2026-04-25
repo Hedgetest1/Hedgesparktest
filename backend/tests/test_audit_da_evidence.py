@@ -204,3 +204,35 @@ def test_run_main_clean_exits_zero(tmp_path, audit):
     )
     rc = audit.main(["--text-file", str(fp)])
     assert rc == 0
+
+
+def test_lens_outside_formal_DA_section_is_caught(tmp_path, audit):
+    """REGRESSION: my own commit 124ecbd had 3 Lens refs under a
+    "Verification:" subsection without a "Devil's advocate" header.
+    The original audit skipped because no header → 0 findings claimed
+    while 0 lens had evidence in the prose-only writeup. Audit now
+    triggers on Lens references anywhere in the message."""
+    fp = tmp_path / "msg.txt"
+    fp.write_text(
+        "feat(x): a thing\n\n"
+        "Verification:\n"
+        "Lens 1: prose claim about X.\n"
+        "Lens 2: prose claim about Y.\n",
+        encoding="utf-8",
+    )
+    rc = audit.main(["--text-file", str(fp)])
+    assert rc == 1
+
+
+def test_lens_outside_DA_section_with_evidence_passes(tmp_path, audit):
+    fp = tmp_path / "msg.txt"
+    fp.write_text(
+        "feat(x): a thing\n\n"
+        "Verification (no formal DA header):\n"
+        "Lens 1: SQLite refs?\n"
+        "Evidence: `grep -rE sqlite app/` → 0 hits.\n"
+        "Verdict: clean.\n",
+        encoding="utf-8",
+    )
+    rc = audit.main(["--text-file", str(fp)])
+    assert rc == 0

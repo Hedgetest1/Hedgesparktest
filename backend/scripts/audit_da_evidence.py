@@ -176,18 +176,31 @@ def main(argv: list[str]) -> int:
         return 2
 
     message = _strip_git_comments(message)
-    extracted = extract_da_section(message)
-    if extracted is None:
-        # No DA section — nothing to audit. Note: this audit does NOT
-        # enforce the *presence* of a DA section; that's
-        # `audit_commit_devils_advocate.py`'s job. Together they
-        # enforce: DA exists AND each lens has evidence.
+    # The audit triggers whenever Lens references appear ANYWHERE in
+    # the message — the DA section header is sufficient but not
+    # necessary. This catches the "Verification:" / "Lens N — ..."
+    # variant where the prose dropped the formal DA header but
+    # still claimed lens-by-lens analysis. The original DA-section
+    # extractor stays as a way to scope future stricter checks.
+    full_lines = message.splitlines()
+    lens_line_indices = [i for i, line in enumerate(full_lines) if _LENS_REF.search(line)]
+
+    if not lens_line_indices:
         emit("audit_da_evidence", findings=0, severity=None)
-        print("audit_da_evidence: no devil's-advocate section to audit (skipped)")
+        print("audit_da_evidence: no Lens references to audit (skipped)")
         return 0
 
-    section, start = extracted
-    findings = find_unevidenced_lenses(section)
+    findings: list[tuple[int, str]] = []
+    for i in lens_line_indices:
+        lo = max(0, i - _EVIDENCE_WINDOW_LINES)
+        hi = min(len(full_lines), i + _EVIDENCE_WINDOW_LINES + 1)
+        window_text = "\n".join(full_lines[lo:hi])
+        if any(tok.search(window_text) for tok in _EVIDENCE_TOKENS):
+            continue
+        m = _LENS_REF.search(full_lines[i])
+        label = f"Lens {m.group(1)}" if m else "Lens"
+        findings.append((i, label))
+    start = 0  # absolute line numbers since we scan whole message
     emit(
         "audit_da_evidence",
         findings=len(findings),
@@ -200,8 +213,8 @@ def main(argv: list[str]) -> int:
 
     print(f"⚠ audit_da_evidence: {len(findings)} lens(es) without evidence:")
     for line_idx, label in findings:
-        absolute_line = start + line_idx + 1
-        snippet = section[line_idx].strip()[:120]
+        absolute_line = line_idx + 1
+        snippet = full_lines[line_idx].strip()[:120]
         print(f"  L{absolute_line}: {label} — «{snippet}»")
     print()
     print("Per CLAUDE.md §19 Axis 5, every devil's-advocate lens MUST cite")
