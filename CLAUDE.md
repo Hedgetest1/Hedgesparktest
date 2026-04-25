@@ -937,3 +937,143 @@ improvement is a failed turn *even if the commit is correct*.
 **Escape valve:** if the founder writes "skip ritual" / "just ship" /
 "fast path", honor it for that turn — but resume §19 on the next
 non-trivial turn without being reminded.
+
+---
+
+## 20. Flag-resolution invariant — the brutal-honesty law
+
+> **Born 2026-04-25 after a 9.775/10 claim was followed minutes
+> later by the discovery of TWO latent theater bugs the prior turn's
+> anemic DA had missed.** The pattern of "ship → claim near-10 →
+> founder catches → emergency fix" is structural failure. This
+> section makes the pattern *mechanically forbidden*.
+
+A "flag" is **any** statement during a turn that defers, demotes, or
+postpones a concern surfaced by Axis 2/3/devil's-advocate. Every
+flag is a debt against the score. Unresolved flags compound until
+they ship as bugs.
+
+### 20.1 The invariant
+
+**No turn may close with a rubric score ≥ 9.0 if any flag remains
+unresolved.** A flag is "resolved" only when one of the following
+is true *in the same turn*:
+
+- **(R-fix)** The flag's underlying concern is fixed in the same
+  turn, with code shipped and verified.
+- **(R-disprove)** The flag was investigated and the concern is
+  proven non-real, with explicit evidence (grep result, test, run
+  output) cited in the turn-close.
+- **(R-blocker)** The flag is held by a HARD blocker, *named*
+  explicitly. Allowed blockers:
+    - founder-domain decision (taste, copy, pricing, brand voice,
+      strategic direction)
+    - TIER_2 fresh approval required (see §10)
+    - external dependency (third-party DPA signature, real-world
+      action by a human, paid SaaS quota)
+    - work scope > 1 day that must legitimately become its own
+      sprint, with a memory file capturing the deferral and a
+      one-line rationale that survives audit
+
+Any "Cat-A logged", "follow-up sprint", "minor improvement", "next
+session", "future enhancement", "logged for later", "TODO for
+v2", "deferred to follow-up" without an R-blocker label is **not
+resolved**. It's a flag pretending to be closure. The score MUST
+drop below 9.0 until the flag is either (R-fix), (R-disprove), or
+(R-blocker)-with-explicit-blocker-named.
+
+### 20.2 Forbidden phrases at turn-close
+
+The following phrases at turn-close, when not paired with an
+explicit R-blocker label, **automatically force the score below
+9.0**:
+
+> "Cat-A logged" · "Cat-A follow-up" · "follow-up sprint" · "minor
+> improvement" · "minor follow-up" · "next session" · "future
+> enhancement" · "logged for later" · "TODO" · "for v2" · "later
+> sprint" · "deferred" (without blocker) · "loggable" · "non-
+> blocker" · "small polish later" · "we can revisit" · "soon-ish"
+
+Use the script `backend/scripts/audit_unresolved_flags.py` to scan
+the most recent commit message + diff for these phrases before
+declaring score. If the script returns non-zero, the turn is NOT
+closed.
+
+### 20.3 The multidimensional check
+
+Per `feedback_scrupulous_multidim_audit.md` ("single-dimension
+audit = MAX 7/10 coverage"), every flag investigation MUST sweep
+all orthogonal dimensions where the bug class could exist. For a
+fetch/render bug, the dimensions are at minimum:
+
+1. tier-gate (require_pro_session vs require_merchant_session vs
+   `tier === "pro"` frontend gate)
+2. consumer placement (rendered Lite/Pro/both, prop-driven vs
+   self-fetch)
+3. cold-start / empty-state coverage
+4. currency invariant (shop currency vs display currency vs
+   hardcoded "USD"/"EUR")
+5. timezone invariant ("today" boundary FE vs BE)
+6. tenant isolation (shop_domain in every query path)
+7. race conditions (fetch order vs tier resolution vs auth load)
+8. auth-401/403 handling (preview-mode, session expiration)
+9. SSR safety (does the component render server-side cleanly?)
+10. mobile / responsive
+11. a11y (aria-labels, keyboard nav)
+12. test coverage (unit + integration)
+13. observability (error reporting, frontend telemetry)
+
+When ANY flag concerns one of these dimensions, the investigation
+must cover ALL of them for the same call site / same data path —
+not just the one that triggered the original audit. Single-dim
+sweep = automatic 7/10 cap.
+
+### 20.4 The pre-close gate
+
+Before writing the rubric, run this checklist out loud in the
+reply:
+
+1. **List every flag** surfaced this turn (Axis 2, Axis 3,
+   devil's-advocate, sibling hunt, multidim sweep). Number them.
+2. **For each flag**, label one of: (R-fix) (R-disprove)
+   (R-blocker:<name>). No flag may be unlabeled.
+3. **For each (R-blocker)**, name the specific blocker class from
+   §20.1. "It would be nice to do later" is NOT a blocker.
+4. **For each (R-fix)**, the fix code MUST already be staged or
+   committed in the same turn.
+5. **For each (R-disprove)**, the evidence MUST be cited in the
+   reply (not "I checked and it's fine" — show the grep / test).
+6. **Run `audit_unresolved_flags.py`** and paste the output.
+7. **Only then** compute the rubric. If any flag was (R-blocker)
+   without an explicit blocker class, force the score below 9.0
+   regardless of the weighted math.
+
+### 20.5 The honesty test
+
+Before claiming any score ≥ 9, ask:
+
+> "If the founder ran `git log --grep` for a forbidden phrase from
+> §20.2 and found one in MY commit message of this turn, would the
+> match prove I left a flag unresolved?"
+
+If yes, the score is wrong. Either fix the flag or label the
+blocker.
+
+A turn that ships work but leaves an honest 8.4/10 is **better**
+than a turn that ships work and rounds up to 9.5/10 with hidden
+flags. The bar is "top-1 in the world devoted to driving
+competitors out of the market" — those competitors don't have
+"Cat-A logged" backlogs that quietly ship as bugs to merchants.
+
+### 20.6 Self-enforcement
+
+This section is auto-loaded every session via CLAUDE.md. The
+preventer scripts (`audit_unresolved_flags.py`,
+`audit_lite_orphan_endpoints.py`) are wired into `preflight.sh`
+so commits with unresolved flags or theater-class bugs get
+caught at commit time.
+
+If THIS section is violated in a future turn, the founder may
+quote §20 verbatim and demand the gate be re-run on the offending
+turn. There is no "skip this once" — the law applies to every
+non-trivial turn.

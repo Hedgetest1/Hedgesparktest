@@ -158,6 +158,18 @@ export function useCardFetch<T>({
     setState("loading");
     fetch(url, { credentials: "include" })
       .then(async (r) => {
+        // 401/403 = session-expired. Dispatch the global event the
+        // page-level fetchers also fire so the user gets the unified
+        // re-auth flow instead of an isolated "Couldn't load" card.
+        // Born from §20.3 multi-dim sweep on 2026-04-25 — useCardFetch
+        // was the only fetcher in the dashboard NOT participating in
+        // the session-expired flow.
+        if (r.status === 401 || r.status === 403) {
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new Event("hedgespark:session-expired"));
+          }
+          throw new Error(`HTTP ${r.status}`);
+        }
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })

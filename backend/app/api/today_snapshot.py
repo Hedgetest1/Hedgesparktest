@@ -32,7 +32,6 @@ Auth: require_merchant_session — Lite-accessible.
 from __future__ import annotations
 
 import logging
-from datetime import date
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -279,7 +278,18 @@ def get_today_snapshot(
     """
     currency = get_shop_currency(db, shop) or "USD"
     tz = get_shop_timezone(db, shop) or "UTC"
-    today_iso = date.today().isoformat()
+    # today_iso MUST come from the same tz boundary used by the SQL
+    # queries below — using server-local UTC (date.today()) would
+    # mis-align the cache key with the query bucket whenever the
+    # merchant's tz differs from UTC at the date boundary, returning
+    # stale data across midnight in their local time. Source the date
+    # from the same `CURRENT_TIMESTAMP AT TIME ZONE :tz` expression
+    # the query layer uses.
+    today_iso_row = db.execute(
+        text("SELECT (CURRENT_TIMESTAMP AT TIME ZONE :tz)::date AS d"),
+        {"tz": tz},
+    ).fetchone()
+    today_iso = str(today_iso_row[0]) if today_iso_row else ""
 
     cache_key = f"hs:today_snapshot:v1:{shop}:{today_iso}"
     cached = cache_get(cache_key)

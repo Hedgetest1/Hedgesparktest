@@ -203,6 +203,26 @@ def test_today_snapshot_delta_null_when_yesterday_zero(client, merchant_a, auth_
     assert j["deltas"]["orders_pct"] is None
 
 
+def test_today_snapshot_today_iso_matches_query_tz(client, merchant_a, auth_a, db):
+    """today_iso in the response MUST come from the same tz boundary the
+    SQL queries use. Otherwise a non-UTC merchant crossing midnight gets
+    a cache key keyed to the WRONG date and stale snapshots leak across
+    the day boundary in their local time. Born 2026-04-25 from §20.3
+    multi-dim sweep that found `today_iso = date.today()` (server-UTC)
+    misaligned with `(CURRENT_TIMESTAMP AT TIME ZONE :tz)::date`."""
+    r = client.get("/analytics/today-snapshot", cookies=auth_a)
+    j = r.json()
+    # The response's today_iso MUST exactly match what the SQL query
+    # would return for the shop's tz. With merchant_a unset, the tz
+    # falls back to "UTC" so the iso must equal today's UTC date.
+    from datetime import datetime, timezone
+    expected_utc = datetime.now(timezone.utc).date().isoformat()
+    assert j["today_iso"] == expected_utc, (
+        f"today_iso ({j['today_iso']}) must match shop-tz query date "
+        f"({expected_utc}); cache key drift across midnight risk."
+    )
+
+
 def test_today_snapshot_currency_isolation(client, merchant_eur, auth_eur, db):
     """EUR-currency shop: orders in USD must be ignored. Currency-correctness
     smoke — guards the cross-currency drift class."""

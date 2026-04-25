@@ -82,6 +82,33 @@ if "$PY" scripts/audit_lite_orphan_endpoints.py > /tmp/preflight_lite_orphans.lo
 fi
 
 # ---------------------------------------------------------------------------
+# 2b-quater. §20 brutal-honesty law — block commits that ship with
+# unresolved-flag phrases ("Cat-A logged", "minor improvement",
+# "deferred", etc.) unless paired with an explicit R-blocker label.
+# Born 2026-04-25 after a near-10/10 score claim was followed by
+# the founder catching two latent theater bugs the prior turn's
+# anemic Devil's-Advocate had missed. See CLAUDE.md §20.
+# ---------------------------------------------------------------------------
+step "Unresolved-flag scan (audit_unresolved_flags.py — §20 law)"
+# We scan the staged commit message and diff, NOT HEAD, because at
+# preflight time the new commit hasn't been recorded yet. Pull the
+# message from the COMMIT_EDITMSG file written by git pre-commit.
+COMMIT_MSG_FILE="$BACKEND/../.git/COMMIT_EDITMSG"
+STAGED_DIFF="$(git -C "$BACKEND/.." diff --cached 2>/dev/null || true)"
+COMMIT_MSG=""
+if [[ -f "$COMMIT_MSG_FILE" ]]; then
+    COMMIT_MSG="$(cat "$COMMIT_MSG_FILE")"
+fi
+SCAN_INPUT="$COMMIT_MSG
+$STAGED_DIFF"
+if "$PY" scripts/audit_unresolved_flags.py --text "$SCAN_INPUT" > /tmp/preflight_unresolved_flags.log 2>&1; then
+    ok "no unresolved flags in commit message — §20 law satisfied"
+else
+    bad "unresolved flag(s) in commit — see /tmp/preflight_unresolved_flags.log"
+    tail -25 /tmp/preflight_unresolved_flags.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2b-bis. Data-truth audit — catches currency drift (hardcoded €/$, SUM
 # without currency filter), DST-unsafe timezone SQL, hardcoded DB creds.
 # Baseline 0-findings reached on 2026-04-17 after centralizing
