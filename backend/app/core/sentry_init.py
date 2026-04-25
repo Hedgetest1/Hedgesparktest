@@ -185,6 +185,17 @@ def init_sentry(component: str = "backend") -> bool:
     if not dsn:
         return False
 
+    # Tests load backend/.env via conftest so they get DB credentials etc.
+    # That same .env carries SENTRY_DSN for prod, and without this gate every
+    # pytest run would emit thousands of events to the production project
+    # (warnings logged by sqlalchemy SingletonThreadPool when the test SQLite
+    # connection is finalized cross-thread, exception-caught HTTPException
+    # paths exercised by test cases, etc.). APP_ENV=test is set
+    # unconditionally by conftest before any app import; trust it as the
+    # gate.
+    if os.getenv("APP_ENV", "").strip().lower() == "test":
+        return False
+
     try:
         import sentry_sdk
         from sentry_sdk.integrations.fastapi import FastApiIntegration

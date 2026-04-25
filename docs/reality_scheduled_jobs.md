@@ -82,6 +82,7 @@ Listed here in execution order with the actual gate.
 | `_run_email_orchestrator_flush` | no gate | every cycle |
 | `_run_billing_sync` | no gate | every cycle |
 | `_run_scoring_self_eval` | **Sunday only** (`weekday() == 6`) | weekly |
+| `_run_sentry_poller` | Redis cooldown `hs:sentry_poller:cooldown` (TTL 180s) | ≥3 min between polls; called inline before sentry_triage so the pipeline gets fresh issues without waiting on email forwarding |
 | `_run_sentry_triage` | in-process cooldown | ~5-15min effective |
 | `_run_on_alert_responder` | **env `ON_ALERT_RESPONDER_ENABLED=0` default OFF** — framework only until founder approves LLM spend | polls unresolved critical ops_alerts last 24h; framework mode builds context packets without calling LLM |
 | `_run_stale_alert_cleanup` | `worker_state` dedup | hourly |

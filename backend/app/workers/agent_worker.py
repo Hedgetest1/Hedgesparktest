@@ -1553,8 +1553,47 @@ def _run_on_alert_responder():
         db.close()
 
 
+def _run_sentry_poller():
+    """Pull active Sentry issues into the triage pipeline.
+
+    The Sentry alert-rules YAML emails the founder on bursts/regressions
+    but does NOT forward to /webhooks/sentry/inbound. Without this poll,
+    those events stay in Sentry and never reach SentryIncident →
+    consume_triage_queue → BugFixCandidate. Polling closes the loop with
+    one path that doesn't depend on Gmail forwarding or per-rule webhook
+    actions. Cooldown + dedup are handled inside the poller.
+    """
+    db = SessionLocal()
+    try:
+        from app.services.sentry_poller import poll_recent_issues
+        result = poll_recent_issues(db)
+        db.commit()
+        if result.get("forwarded", 0) > 0 or result.get("parse_errors", 0) > 0:
+            log(
+                f"sentry_poller: status={result.get('status')} "
+                f"polled={result.get('polled', 0)} "
+                f"forwarded={result.get('forwarded', 0)} "
+                f"stale={result.get('skipped_stale', 0)} "
+                f"low_volume={result.get('skipped_low_volume', 0)} "
+                f"parse_errors={result.get('parse_errors', 0)}"
+            )
+    except Exception as exc:
+        log(f"sentry_poller error (non-fatal): {exc}")
+        try:
+            db.rollback()
+        except Exception:
+            pass  # SILENT-EXCEPT-OK: rollback after a poll error is best-effort
+    finally:
+        db.close()
+
+
 def _run_sentry_triage():
     """Generate AI triage packets, consume into candidates, re-evaluate skipped."""
+    # Phase 0: Pull fresh Sentry issues into SentryIncident before
+    # generation runs — closes the gap where the founder receives an
+    # alert email for an issue the pipeline has never seen.
+    _run_sentry_poller()
+
     # Phase A: Generate triage packets for newly parsed incidents
     db = SessionLocal()
     try:

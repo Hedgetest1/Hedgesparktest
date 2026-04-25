@@ -256,8 +256,8 @@ analytics.subscribe("checkout_completed", function (event) {{
 
     return {
         "pixel_active": pixel_active or has_purchase_events,
-        "orders_from_pixel": row[0] or 0,
-        "purchase_events": event_row[0] or 0,
+        "orders_from_pixel": combined[0] or 0,
+        "purchase_events": combined[1] or 0,
         "pixel_code": pixel_code,
         "instructions": [
             "Go to Shopify Admin → Settings → Customer events",

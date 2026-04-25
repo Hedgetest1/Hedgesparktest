@@ -37,6 +37,8 @@ def top_pages(
             AVG(COALESCE(dwell_seconds,0)) FILTER (WHERE event_type='page_leave') AS avg_dwell
         FROM events
         WHERE shop_domain = :shop_domain
+          AND url IS NOT NULL
+          AND url <> ''
         GROUP BY url
         ORDER BY views DESC
         LIMIT 10
