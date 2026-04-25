@@ -157,7 +157,7 @@ export function CompetitorPlaybookCard({
                     <div className="text-[14px] font-bold tabular-nums text-violet-300">
                       {winRate}%
                     </div>
-                    <div className="text-[9px] text-slate-600">win rate</div>
+                    <div className="text-[9px] text-slate-400">win rate</div>
                   </div>
                 </div>
               </li>

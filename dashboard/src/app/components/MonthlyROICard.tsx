@@ -79,7 +79,7 @@ export function MonthlyROICard({
       {/* The 3 numbers that matter */}
       <div className="grid grid-cols-3 gap-2">
         <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-          <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">
+          <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-400">
             You pay
           </div>
           <div className="mt-1 text-[18px] font-extrabold tabular-nums text-slate-300">
@@ -87,7 +87,7 @@ export function MonthlyROICard({
           </div>
         </div>
         <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-          <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">
+          <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-400">
             Detected at risk
           </div>
           <div className="mt-1 text-[18px] font-extrabold tabular-nums text-amber-300">

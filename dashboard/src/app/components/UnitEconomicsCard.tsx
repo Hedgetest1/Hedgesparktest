@@ -47,7 +47,7 @@ const STATUS_META: Record<string, { color: string; icon: string; label: string }
   healthy: { color: "#10b981", icon: "🟢", label: "Healthy" },
   ok: { color: "#e8a04e", icon: "🟡", label: "Tight" },
   unprofitable: { color: "#f43f5e", icon: "🔴", label: "Losing money" },
-  no_data: { color: "#64748b", icon: "⚪", label: "Not yet" },
+  no_data: { color: "#94a3b8", icon: "⚪", label: "Not yet" },
 };
 
 export function UnitEconomicsCard({ apiBase, isProUser }: { apiBase: string; isProUser: boolean }) {
@@ -182,7 +182,7 @@ export function UnitEconomicsCard({ apiBase, isProUser }: { apiBase: string; isP
               display: "flex",
               gap: "16px",
               fontSize: "12px",
-              color: "#64748b",
+              color: "#94a3b8",
               position: "relative",
             }}
           >

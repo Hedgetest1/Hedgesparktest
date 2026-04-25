@@ -81,7 +81,7 @@ const REC_THEMES: Record<string, RecTheme> = {
   },
   monitor: {
     label: "Monitor — performing normally",
-    color: "#64748b",
+    color: "#94a3b8",
     urgency: 0,
     verb: "Monitor",
   },

@@ -271,7 +271,7 @@ export function ProofHeroCard({
                     >
                       {i + 1}. {shortProduct(imp.product_url)}
                     </div>
-                    <div style={{ color: "#64748b", fontSize: "11px", marginTop: "2px" }}>
+                    <div style={{ color: "#94a3b8", fontSize: "11px", marginTop: "2px" }}>
                       {imp.action_type}
                       {imp.measured_at && ` · ${new Date(imp.measured_at).toLocaleDateString()}`}
                     </div>

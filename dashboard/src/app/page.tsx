@@ -355,7 +355,7 @@ function Hero() {
               Shopify App
             </span>
             <span className="h-2 w-px bg-white/15" />
-            <span className="text-[9.5px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+            <span className="text-[9.5px] font-semibold uppercase tracking-[0.18em] text-slate-400">
               AI Revenue Intelligence
             </span>
           </div>

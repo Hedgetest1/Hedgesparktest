@@ -197,7 +197,7 @@ export function RevenueForecastCard({ apiBase, isProUser }: { apiBase: string; i
             paddingTop: "12px",
             borderTop: "1px solid rgba(148,163,184,0.08)",
             fontSize: "11px",
-            color: "#64748b",
+            color: "#94a3b8",
             position: "relative",
           }}
         >

@@ -123,12 +123,15 @@ def find_icon_only_buttons(file: Path) -> list[tuple[int, str]]:
 # backtick className values are all in scope.
 
 _LOW_CONTRAST_SLATE = re.compile(r"(?<!\S)text-slate-(?:500|600)(?!\S)")
+# Match any small-font token: text-xs, OR text-[N(.5)?px] for any
+# integer N <= 13. Matters because axe samples contrast at the actual
+# rendered font size; <14px is "regular text" requiring 4.5:1, while
+# >=14px bold or >=18px regular drops to 3:1. Earlier regex hard-coded
+# 10/11/12/13 + half-step variants and missed unusual values like
+# `text-[9.5px]`, leaving page.tsx:358 a false-negative gap.
 _SMALL_FONT_SIZE = re.compile(
-    r"(?<!\S)text-(?:xs"                     # text-xs ≡ 12px
-    r"|\[10(?:\.5)?px\]"                     # text-[10px] / text-[10.5px]
-    r"|\[11(?:\.5)?px\]"
-    r"|\[12(?:\.5)?px\]"
-    r"|\[13(?:\.5)?px\])(?!\S)"
+    r"(?<!\S)text-(?:xs"                                 # text-xs ≡ 12px
+    r"|\[(?:[1-9]|1[0-3])(?:\.\d+)?px\])(?!\S)"          # text-[Npx], N=1..13
 )
 _CLASSNAME_VALUE = re.compile(
     r'className\s*=\s*(?:'
@@ -155,6 +158,32 @@ def find_low_contrast_small_text(file: Path) -> list[tuple[int, str]]:
 
 
 # ----------------------------------------------------------------------------
+# Pattern 3 — inline-style low-contrast hex (#64748b slate-500, #45556c slate-600)
+# ----------------------------------------------------------------------------
+# className-based palette tokens are the dominant pattern, but a handful
+# of cards use inline `style={{ color: "#64748b" }}` — those bypass the
+# Tailwind class scan above and were the silent gap caught by the
+# 2026-04-25 night devil's-advocate run. Match the literal hex strings
+# directly. The 4-byte short forms (`#64f` etc.) are not in scope; we
+# match the canonical 6-hex form Tailwind v4 emits.
+
+_INLINE_LOW_HEX = re.compile(
+    r'color\s*:\s*["\'](?:#64748b|#45556c)["\']',
+    re.IGNORECASE,
+)
+
+
+def find_inline_low_contrast(file: Path) -> list[tuple[int, str]]:
+    """Yield (line_no, snippet) for inline-style slate-500/600 hex usage."""
+    text = file.read_text(encoding="utf-8", errors="ignore")
+    findings: list[tuple[int, str]] = []
+    for m in _INLINE_LOW_HEX.finditer(text):
+        line_no = text[: m.start()].count("\n") + 1
+        findings.append((line_no, m.group(0)))
+    return findings
+
+
+# ----------------------------------------------------------------------------
 # Allowlist — known intentional sites where the pattern is benign.
 # Each entry: relative path from REPO_ROOT + ":" + line.
 # ----------------------------------------------------------------------------
@@ -177,6 +206,7 @@ def main(argv: list[str]) -> int:
     files = sorted(DASHBOARD_SRC.rglob("*.tsx"))
     icon_button_findings: list[tuple[Path, int, str]] = []
     low_contrast_findings: list[tuple[Path, int, str]] = []
+    inline_findings: list[tuple[Path, int, str]] = []
 
     for f in files:
         rel = f.relative_to(REPO_ROOT).as_posix()
@@ -188,8 +218,12 @@ def main(argv: list[str]) -> int:
             if f"{rel}:{line}" in EXPLICIT_ALLOWLIST:
                 continue
             low_contrast_findings.append((f, line, classes))
+        for line, snip in find_inline_low_contrast(f):
+            if f"{rel}:{line}" in EXPLICIT_ALLOWLIST:
+                continue
+            inline_findings.append((f, line, snip))
 
-    total = len(icon_button_findings) + len(low_contrast_findings)
+    total = len(icon_button_findings) + len(low_contrast_findings) + len(inline_findings)
     severity = "warn" if total > 0 else None
     emit(
         "audit_dashboard_a11y",
@@ -198,10 +232,18 @@ def main(argv: list[str]) -> int:
     )
 
     if total == 0:
-        print("audit_dashboard_a11y: clean — 0 icon-only buttons missing names, 0 low-contrast small-text sites")
+        print(
+            "audit_dashboard_a11y: clean — 0 icon-only buttons missing names, "
+            "0 low-contrast small-text classNames, 0 inline-style low-contrast hex"
+        )
         return 0
 
-    print(f"audit_dashboard_a11y: {total} findings ({len(icon_button_findings)} icon-only buttons, {len(low_contrast_findings)} low-contrast small text)")
+    print(
+        f"audit_dashboard_a11y: {total} findings "
+        f"({len(icon_button_findings)} icon-only buttons, "
+        f"{len(low_contrast_findings)} low-contrast small text, "
+        f"{len(inline_findings)} inline-style low-contrast hex)"
+    )
     print()
 
     if icon_button_findings:
@@ -211,6 +253,15 @@ def main(argv: list[str]) -> int:
             print(f"  {rel}:{line} — {snip}")
         if len(icon_button_findings) > 25:
             print(f"  ... and {len(icon_button_findings) - 25} more")
+        print()
+
+    if inline_findings:
+        print(f"=== inline-style low-contrast hex (color:#64748b / #45556c) ({len(inline_findings)}) ===")
+        for f, line, snip in inline_findings[:25]:
+            rel = f.relative_to(REPO_ROOT).as_posix()
+            print(f"  {rel}:{line} — {snip}")
+        if len(inline_findings) > 25:
+            print(f"  ... and {len(inline_findings) - 25} more")
         print()
 
     if low_contrast_findings:

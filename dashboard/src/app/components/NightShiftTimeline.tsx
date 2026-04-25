@@ -419,7 +419,7 @@ export function NightShiftTimeline({
                     >
                       {humanAction(action.action_type, action.nudge_type)}
                     </div>
-                    <div style={{ color: "#64748b", fontSize: "11px", marginTop: "2px" }}>
+                    <div style={{ color: "#94a3b8", fontSize: "11px", marginTop: "2px" }}>
                       {shortProduct(action.product_url)} · {relativeTime(action.at)}
                     </div>
                   </div>

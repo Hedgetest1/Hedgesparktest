@@ -232,7 +232,7 @@ export function PeerBenchmarksCard({
               <div className="text-[22px] font-extrabold tabular-nums text-amber-300">
                 {data.product_concentration.concentration_ratio.toFixed(0)}%
               </div>
-              <div className="text-[9.5px] uppercase tracking-wider text-slate-500">
+              <div className="text-[9.5px] uppercase tracking-wider text-slate-400">
                 of catalog
               </div>
             </div>

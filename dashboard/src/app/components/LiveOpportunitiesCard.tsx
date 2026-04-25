@@ -64,7 +64,7 @@ const SIGNAL_META: Record<
   },
   LOW_SIGNAL: {
     label: "Low signal",
-    color: "#64748b",
+    color: "#94a3b8",
     bg: "rgba(100,116,139,0.03)",
     border: "rgba(100,116,139,0.12)",
   },

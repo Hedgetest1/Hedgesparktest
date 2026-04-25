@@ -256,7 +256,7 @@ export function VisitorJourneyTimeline({
                     <div
                       style={{
                         fontSize: "9px",
-                        color: "#64748b",
+                        color: "#94a3b8",
                         fontVariantNumeric: "tabular-nums",
                         marginTop: "1px",
                       }}
@@ -330,7 +330,7 @@ export function VisitorJourneyTimeline({
         style={{
           padding: "10px 14px",
           fontSize: "11px",
-          color: "#64748b",
+          color: "#94a3b8",
           fontStyle: "italic",
           lineHeight: 1.5,
         }}

@@ -339,7 +339,7 @@ export function RevenueAutopsyCard({
                     </div>
                     <div
                       style={{
-                        color: "#64748b",
+                        color: "#94a3b8",
                         fontSize: "11px",
                         marginTop: "2px",
                         lineHeight: 1.5,

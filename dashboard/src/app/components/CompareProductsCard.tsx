@@ -156,7 +156,7 @@ export function CompareProductsCard({
                   <div className="mt-2 text-[18px] font-extrabold tabular-nums text-white">
                     {fmtMoney(snap.estimated_revenue_window, data.currency)}
                   </div>
-                  <div className="mt-0.5 text-[9px] text-slate-500">
+                  <div className="mt-0.5 text-[9px] text-slate-400">
                     {snap.hot_visitors} hot · {snap.warm_visitors} warm · {snap.cold_visitors} cold
                   </div>
                 </div>

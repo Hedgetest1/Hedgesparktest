@@ -244,7 +244,7 @@ export function RuleBuilderCard({ apiBase, isProUser }: { apiBase: string; isPro
                   <div style={{ color: "#e2e8f0", fontSize: "14px", fontWeight: 600 }}>
                     {rule.name}
                   </div>
-                  <div style={{ color: "#64748b", fontSize: "11px", marginTop: "2px" }}>
+                  <div style={{ color: "#94a3b8", fontSize: "11px", marginTop: "2px" }}>
                     When: {triggerLabel} ·{" "}
                     {rule.conditions.length > 0
                       ? `${rule.conditions.length} condition${rule.conditions.length > 1 ? "s" : ""}`

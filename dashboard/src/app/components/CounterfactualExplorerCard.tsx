@@ -158,7 +158,7 @@ export function CounterfactualExplorerCard({
                   <div className="text-[13px] font-bold tabular-nums text-amber-300">
                     {fmtMoney(entry.max_save_eur, data.currency)}
                   </div>
-                  <div className="text-[9px] text-slate-600">
+                  <div className="text-[9px] text-slate-400">
                     ~{fmtMoney(entry.per_day_loss_eur, data.currency)}/day
                   </div>
                 </div>
@@ -175,7 +175,7 @@ export function CounterfactualExplorerCard({
                         key={s.days_ago}
                         className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-2 py-1.5 text-center"
                       >
-                        <div className="text-[9px] text-slate-600">{s.label}</div>
+                        <div className="text-[9px] text-slate-400">{s.label}</div>
                         <div className="text-[12px] font-bold tabular-nums text-amber-300">
                           {fmtMoney(s.saved_eur, data.currency)}
                         </div>

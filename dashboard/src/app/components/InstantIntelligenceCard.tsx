@@ -273,7 +273,7 @@ export function InstantIntelligenceCard({ apiBase }: { apiBase: string }) {
               <div>
                 <div
                   style={{
-                    color: "#64748b",
+                    color: "#94a3b8",
                     fontSize: "11px",
                     fontWeight: 700,
                     textTransform: "uppercase",
@@ -315,7 +315,7 @@ export function InstantIntelligenceCard({ apiBase }: { apiBase: string }) {
                         />
                         <div
                           style={{
-                            color: "#64748b",
+                            color: "#94a3b8",
                             fontSize: "12px",
                             fontWeight: 700,
                             position: "relative",
@@ -335,7 +335,7 @@ export function InstantIntelligenceCard({ apiBase }: { apiBase: string }) {
                           }}
                         >
                           {p.title}
-                          <span style={{ color: "#64748b", fontWeight: 400, marginLeft: "6px" }}>
+                          <span style={{ color: "#94a3b8", fontWeight: 400, marginLeft: "6px" }}>
                             · {p.units} sold
                           </span>
                         </div>
@@ -374,7 +374,7 @@ function Kpi({ label, value, color }: { label: string; value: string; color: str
     >
       <div
         style={{
-          color: "#64748b",
+          color: "#94a3b8",
           fontSize: "10px",
           fontWeight: 700,
           textTransform: "uppercase",

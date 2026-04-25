@@ -209,7 +209,7 @@ export function MarginHealthCard({ apiBase, isProUser }: { apiBase: string; isPr
             display: "flex",
             gap: "16px",
             fontSize: "12px",
-            color: "#64748b",
+            color: "#94a3b8",
             position: "relative",
           }}
         >
@@ -290,7 +290,7 @@ export function MarginHealthCard({ apiBase, isProUser }: { apiBase: string; isPr
               justifyContent: "space-between",
               marginTop: "6px",
               fontSize: "11px",
-              color: "#64748b",
+              color: "#94a3b8",
             }}
           >
             <span>-50%</span>

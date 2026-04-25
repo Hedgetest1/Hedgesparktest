@@ -590,7 +590,7 @@ export function TrustControlCenter({ apiBase, isProUser }: { apiBase: string; is
                         <span style={{ color: "#94a3b8", fontWeight: 400 }}> · {x.target_url.slice(0, 40)}</span>
                       )}
                     </div>
-                    <div style={{ color: "#64748b", fontSize: "12px", marginTop: "2px" }}>
+                    <div style={{ color: "#94a3b8", fontSize: "12px", marginTop: "2px" }}>
                       {fmtTime(x.executed_at)}
                       {x.confidence != null && ` · ${fmtPct(x.confidence * 100)} confidence`}
                     </div>
@@ -730,7 +730,7 @@ function StatPill({ label, value, sub, color }: { label: string; value: string; 
         border: "1px solid rgba(148,163,184,0.1)",
       }}
     >
-      <div style={{ color: "#64748b", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+      <div style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
         {label}
       </div>
       <div style={{ color, fontSize: "26px", fontWeight: 800, marginTop: "6px", fontVariantNumeric: "tabular-nums" }}>
@@ -840,7 +840,7 @@ function ContractCard({ contract, onRevoke }: { contract: Contract; onRevoke: ()
 function RowStat({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div style={{ color: "#64748b", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+      <div style={{ color: "#94a3b8", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.04em" }}>
         {label}
       </div>
       <div style={{ color: "#e2e8f0", fontWeight: 600, fontSize: "13px" }}>{value}</div>
@@ -1008,7 +1008,7 @@ function GrantTrustModal({
         <Field label={`Discount range: ${discountFloor}% to ${discountCeiling}%`}>
           <div style={{ display: "flex", gap: "12px" }}>
             <div style={{ flex: 1 }}>
-              <div style={{ color: "#64748b", fontSize: "11px", marginBottom: "4px" }}>Floor (most aggressive cut)</div>
+              <div style={{ color: "#94a3b8", fontSize: "11px", marginBottom: "4px" }}>Floor (most aggressive cut)</div>
               <input
                 type="range"
                 min={-30}
@@ -1019,7 +1019,7 @@ function GrantTrustModal({
               />
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ color: "#64748b", fontSize: "11px", marginBottom: "4px" }}>Ceiling (max markup)</div>
+              <div style={{ color: "#94a3b8", fontSize: "11px", marginBottom: "4px" }}>Ceiling (max markup)</div>
               <input
                 type="range"
                 min={-30}

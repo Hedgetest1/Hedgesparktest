@@ -214,7 +214,7 @@ export function ROIHeroBanner({ apiBase, isProUser }: { apiBase: string; isProUs
         <div style={{ flex: "1 1 340px" }}>
           <div
             style={{
-              color: "#64748b",
+              color: "#94a3b8",
               fontSize: "11px",
               fontWeight: 700,
               letterSpacing: "0.1em",
@@ -392,7 +392,7 @@ export function ROIHeroBanner({ apiBase, isProUser }: { apiBase: string; isProUs
           paddingTop: "16px",
           borderTop: "1px solid rgba(148,163,184,0.1)",
           fontSize: "12px",
-          color: "#64748b",
+          color: "#94a3b8",
           flexWrap: "wrap",
         }}
       >

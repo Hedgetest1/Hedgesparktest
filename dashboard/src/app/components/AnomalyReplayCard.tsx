@@ -177,7 +177,7 @@ export function AnomalyReplayCard({
                 );
               })}
             </div>
-            <div className="mt-1 flex items-center justify-between text-[9px] text-slate-600">
+            <div className="mt-1 flex items-center justify-between text-[9px] text-slate-400">
               <span>{fmtTime(data.window.start_ms)}</span>
               <span>now</span>
             </div>
@@ -186,7 +186,7 @@ export function AnomalyReplayCard({
           {/* 3-column summary */}
           <div className="grid grid-cols-3 gap-2">
             <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5">
-              <div className="text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-600">By source</div>
+              <div className="text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-400">By source</div>
               <ul className="mt-1 space-y-0.5">
                 {data.summary.by_source.slice(0, 4).map((s) => (
                   <li key={s.source} className="flex justify-between text-[11px]">
@@ -197,7 +197,7 @@ export function AnomalyReplayCard({
               </ul>
             </div>
             <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5">
-              <div className="text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-600">By device</div>
+              <div className="text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-400">By device</div>
               <ul className="mt-1 space-y-0.5">
                 {data.summary.by_device.slice(0, 4).map((d) => (
                   <li key={d.device} className="flex justify-between text-[11px]">
@@ -208,7 +208,7 @@ export function AnomalyReplayCard({
               </ul>
             </div>
             <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5">
-              <div className="text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-600">By event type</div>
+              <div className="text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-400">By event type</div>
               <ul className="mt-1 space-y-0.5">
                 {data.summary.by_type.slice(0, 4).map((t) => (
                   <li key={t.type} className="flex justify-between text-[11px]">

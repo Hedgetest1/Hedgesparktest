@@ -198,7 +198,7 @@ export function MtaCompareCard({ apiBase, isProUser }: { apiBase: string; isProU
           }}
         >
           <thead>
-            <tr style={{ textAlign: "left", color: "#64748b", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+            <tr style={{ textAlign: "left", color: "#94a3b8", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>
               <th style={{ padding: "8px 10px" }}>Source</th>
               {MODELS.map((m) => (
                 <th key={m.key} style={{ padding: "8px 10px", textAlign: "right", color: m.color }}>
@@ -270,7 +270,7 @@ export function MtaCompareCard({ apiBase, isProUser }: { apiBase: string; isProU
           paddingTop: "12px",
           borderTop: "1px solid rgba(148,163,184,0.08)",
           fontSize: "11px",
-          color: "#64748b",
+          color: "#94a3b8",
           fontStyle: "italic",
         }}
       >
@@ -326,7 +326,7 @@ export function MtaCompareCard({ apiBase, isProUser }: { apiBase: string; isProU
         {data.matrix.length > 0 ? (
           <div>Sample journeys extracted from your real orders:</div>
         ) : (
-          <div style={{ color: "#64748b" }}>No journeys yet — come back after a few orders.</div>
+          <div style={{ color: "#94a3b8" }}>No journeys yet — come back after a few orders.</div>
         )}
       </div>
     </DetailDrawer>

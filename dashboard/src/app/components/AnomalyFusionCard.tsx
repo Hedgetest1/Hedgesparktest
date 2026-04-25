@@ -406,7 +406,7 @@ export function AnomalyFusionCard({
                 <div
                   style={{
                     marginTop: "8px",
-                    color: "#64748b",
+                    color: "#94a3b8",
                     fontSize: "10px",
                   }}
                 >

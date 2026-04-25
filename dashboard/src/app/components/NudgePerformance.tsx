@@ -412,7 +412,7 @@ export function NudgePerformance({
                     }`}>
                       {liftValue > 0 ? "+" : ""}{liftValue.toFixed(0)}%
                     </div>
-                    <div className="mt-0.5 text-[9px] text-slate-500">lift</div>
+                    <div className="mt-0.5 text-[9px] text-slate-400">lift</div>
                   </div>
                 )}
               </div>

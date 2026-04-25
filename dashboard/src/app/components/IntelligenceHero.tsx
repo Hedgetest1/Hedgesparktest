@@ -249,7 +249,7 @@ export function IntelligenceHero({
                 <div className="mt-1.5 space-y-1">
                   <div className="flex items-center gap-1.5">
                     <div className="h-[5px] rounded-full bg-slate-700/80" style={{ width: `${wLast}%` }} />
-                    <span className="text-[9px] tabular-nums text-slate-600">{d.orders_last_week}</span>
+                    <span className="text-[9px] tabular-nums text-slate-400">{d.orders_last_week}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <div className={`h-[5px] rounded-full ${growing ? "bg-emerald-500/70" : "bg-rose-500/70"}`} style={{ width: `${wThis}%` }} />

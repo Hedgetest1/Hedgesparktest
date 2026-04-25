@@ -3181,7 +3181,7 @@ function PageInner() {
                   <div className="mb-3">
                     <div className="mb-1 flex items-center gap-2">
                       <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-300/50">Early Findings</span>
-                      <span className="rounded-full bg-white/[0.04] px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] text-slate-500 ring-1 ring-white/[0.06]">Live</span>
+                      <span className="rounded-full bg-white/[0.04] px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] text-slate-400 ring-1 ring-white/[0.06]">Live</span>
                     </div>
                     <h3 className="text-[15px] font-semibold text-slate-200">Early findings</h3>
                     <p className="mt-0.5 text-[13px] text-slate-400">Sharpen as traffic grows.</p>
@@ -3199,7 +3199,7 @@ function PageInner() {
                 <div className="rounded-xl border border-white/[0.04] bg-white/[0.01] p-4">
                   <div className="mb-2 flex items-center gap-2">
                     <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Early findings</span>
-                    <span className="rounded-full bg-white/[0.03] px-1.5 py-0.5 text-[9px] text-slate-600 ring-1 ring-white/[0.05]">{earlySignals.length}</span>
+                    <span className="rounded-full bg-white/[0.03] px-1.5 py-0.5 text-[9px] text-slate-400 ring-1 ring-white/[0.05]">{earlySignals.length}</span>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     {earlySignals.slice(0, 3).map((s, i) => (

@@ -267,7 +267,7 @@ export function CustomerChurnCard({ apiBase, isProUser }: { apiBase: string; isP
                   <div style={{ color: "#e2e8f0", fontSize: "13px", fontWeight: 600 }}>
                     {c.customer_email_hash}
                   </div>
-                  <div style={{ color: "#64748b", fontSize: "11px", marginTop: "2px" }}>
+                  <div style={{ color: "#94a3b8", fontSize: "11px", marginTop: "2px" }}>
                     {c.total_orders} total orders · last seen {fmtDays(c.factors.recency_days)} ago
                   </div>
                 </div>
@@ -311,7 +311,7 @@ export function CustomerChurnCard({ apiBase, isProUser }: { apiBase: string; isP
             paddingTop: "12px",
             borderTop: "1px solid rgba(148,163,184,0.08)",
             fontSize: "11px",
-            color: "#64748b",
+            color: "#94a3b8",
             fontStyle: "italic",
           }}
         >

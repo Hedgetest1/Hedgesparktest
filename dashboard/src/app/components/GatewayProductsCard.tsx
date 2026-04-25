@@ -165,13 +165,13 @@ export function GatewayProductsCard({
               </div>
               <div className="flex flex-shrink-0 items-baseline gap-5 text-right">
                 <div>
-                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">Avg buyer LTV</div>
+                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-400">Avg buyer LTV</div>
                   <div className="text-[14px] font-bold tabular-nums" style={{ color }}>
                     {formatMoneyCompact(p.avg_buyer_ltv, displayCurrency)}
                   </div>
                 </div>
                 <div>
-                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">Avg orders</div>
+                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-400">Avg orders</div>
                   <div className="text-[14px] font-bold tabular-nums text-white">
                     {p.avg_buyer_orders.toFixed(1)}
                   </div>

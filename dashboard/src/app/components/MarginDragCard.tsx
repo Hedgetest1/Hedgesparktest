@@ -158,7 +158,7 @@ export function MarginDragCard({
                 </div>
                 <div className="flex flex-shrink-0 items-baseline gap-5 text-right">
                   <div>
-                    <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">Margin</div>
+                    <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-400">Margin</div>
                     <div
                       className="text-[16px] font-extrabold tabular-nums leading-none"
                       style={{ color }}
@@ -167,7 +167,7 @@ export function MarginDragCard({
                     </div>
                   </div>
                   <div>
-                    <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">Kept</div>
+                    <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-400">Kept</div>
                     <div className="text-[14px] font-bold tabular-nums text-slate-200">
                       {formatMoneyCompact(p.margin_eur, currency)}
                     </div>

@@ -364,7 +364,7 @@ export function AbandonedIntentCard({
                   >
                     {p.product_name}
                   </div>
-                  <div style={{ color: "#64748b", fontSize: "11px", marginTop: "2px" }}>
+                  <div style={{ color: "#94a3b8", fontSize: "11px", marginTop: "2px" }}>
                     {p.views_7d} views · {p.carts_7d} carts · {p.purchases_7d} sales
                   </div>
                 </div>

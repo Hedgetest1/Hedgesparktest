@@ -958,7 +958,7 @@ function Donut({
             {hero.value}
           </div>
           {hero.label && (
-            <div className="mt-1.5 max-w-[60%] text-center text-[9.5px] font-medium uppercase tracking-[0.12em] leading-tight text-slate-500">
+            <div className="mt-1.5 max-w-[60%] text-center text-[9.5px] font-medium uppercase tracking-[0.12em] leading-tight text-slate-400">
               {hero.label}
             </div>
           )}

@@ -478,7 +478,7 @@ export function NudgeDnaCard({ apiBase, isProUser }: { apiBase: string; isProUse
                     display: "flex",
                     gap: "14px",
                     fontSize: "11px",
-                    color: "#64748b",
+                    color: "#94a3b8",
                     fontVariantNumeric: "tabular-nums",
                   }}
                 >
@@ -536,7 +536,7 @@ export function NudgeDnaCard({ apiBase, isProUser }: { apiBase: string; isProUse
                     >
                       #{i + 1} winner · {(v.conversion_rate * 100).toFixed(1)}% buy rate
                     </div>
-                    <div style={{ color: "#64748b", fontSize: "10px" }}>
+                    <div style={{ color: "#94a3b8", fontSize: "10px" }}>
                       {v.impressions.toLocaleString("en")} views · {v.conversions} sales
                     </div>
                   </div>

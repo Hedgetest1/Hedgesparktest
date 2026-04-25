@@ -47,7 +47,7 @@ const BUCKET_COLORS = [
 function ScrollDepthBars({ buckets }: { buckets: ScrollBucket[] }) {
   if (!buckets || buckets.length === 0) {
     return (
-      <p style={{ color: "#64748b", fontSize: "12px" }}>
+      <p style={{ color: "#94a3b8", fontSize: "12px" }}>
         No scroll data yet for this product.
       </p>
     );
@@ -77,7 +77,7 @@ function ScrollDepthBars({ buckets }: { buckets: ScrollBucket[] }) {
                 }}
               >
                 {pct.toFixed(0)}%
-                <span style={{ color: "#64748b", fontWeight: 400, marginLeft: "6px" }}>
+                <span style={{ color: "#94a3b8", fontWeight: 400, marginLeft: "6px" }}>
                   ({b.visitor_count?.toLocaleString()} visitors)
                 </span>
               </span>

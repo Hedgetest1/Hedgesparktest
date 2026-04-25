@@ -201,7 +201,7 @@ export function RevenueGenomeCard({
               <span className="text-[28px] font-extrabold tabular-nums" style={{ color: sc }}>
                 {data.overall_score}
               </span>
-              <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">/ 100</span>
+              <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">/ 100</span>
             </div>
           </div>
 
@@ -501,7 +501,7 @@ export function RevenueGenomeCard({
                     >
                       {i + 1}. {a.cluster}
                     </span>
-                    <span style={{ color: "#64748b", fontSize: "11px" }}>·</span>
+                    <span style={{ color: "#94a3b8", fontSize: "11px" }}>·</span>
                     <span style={{ color: "#cbd5e1", fontSize: "11px" }}>{a.gene}</span>
                     <span
                       style={{

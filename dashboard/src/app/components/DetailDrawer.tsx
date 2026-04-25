@@ -325,7 +325,7 @@ export function DrawerBigStat({
     >
       <div
         style={{
-          color: "#64748b",
+          color: "#94a3b8",
           fontSize: "11px",
           fontWeight: 700,
           textTransform: "uppercase",
@@ -388,7 +388,7 @@ export function DrawerBarChart({
               <span>
                 {p.label}
                 {p.subLabel && (
-                  <span style={{ color: "#64748b", marginLeft: "6px" }}>
+                  <span style={{ color: "#94a3b8", marginLeft: "6px" }}>
                     · {p.subLabel}
                   </span>
                 )}
@@ -526,7 +526,7 @@ export function DrawerSectionHeading({ children }: { children: React.ReactNode }
   return (
     <div
       style={{
-        color: "#64748b",
+        color: "#94a3b8",
         fontSize: "11px",
         fontWeight: 700,
         textTransform: "uppercase",
@@ -599,7 +599,7 @@ export function DrawerHowCalculated({
                 fontSize: "12px",
               }}
             >
-              <span style={{ color: "#64748b" }}>{input.label}</span>
+              <span style={{ color: "#94a3b8" }}>{input.label}</span>
               <span
                 style={{
                   color: "#cbd5e1",
@@ -887,7 +887,7 @@ export function DrawerPeerComparison({
         <div
           style={{
             marginTop: "10px",
-            color: "#64748b",
+            color: "#94a3b8",
             fontSize: "11px",
           }}
         >

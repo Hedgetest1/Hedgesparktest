@@ -221,7 +221,7 @@ export function CohortSummaryCard({
               const theme = retentionTheme(pt.rate);
               return (
                 <div key={pt.label} className="text-center">
-                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-400">
                     {pt.label}
                   </div>
                   <div

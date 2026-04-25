@@ -196,11 +196,11 @@ export function MonthlyCohortsCard({
               </div>
               <div className="flex flex-shrink-0 items-baseline gap-4 text-right">
                 <div>
-                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">ARPC</div>
+                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-400">ARPC</div>
                   <div className="text-[13.5px] font-bold tabular-nums text-white">€{s.rpc}</div>
                 </div>
                 <div>
-                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">Repeat</div>
+                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-400">Repeat</div>
                   <div
                     className="text-[13.5px] font-bold tabular-nums"
                     style={{ color: repeatRateColor(s.rr) }}
@@ -319,19 +319,19 @@ export function MonthlyCohortsCard({
               )}
               <div className="flex flex-shrink-0 items-baseline gap-5 text-right">
                 <div>
-                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">ARPC</div>
+                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-400">ARPC</div>
                   <div className="text-[13.5px] font-bold tabular-nums text-white">
                     {formatMoneyCompact(c.revenue_per_customer, displayCurrency)}
                   </div>
                 </div>
                 <div>
-                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">Orders</div>
+                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-400">Orders</div>
                   <div className="text-[13.5px] font-bold tabular-nums text-white">
                     {c.orders_per_customer.toFixed(1)}
                   </div>
                 </div>
                 <div>
-                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">Repeat</div>
+                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-400">Repeat</div>
                   <div className="text-[13.5px] font-bold tabular-nums" style={{ color }}>
                     {(c.repeat_rate * 100).toFixed(0)}%
                   </div>

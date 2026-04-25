@@ -315,7 +315,7 @@ function PixelSetupHero({
               Paste this code, click <span className="font-medium text-white">Save</span>, then click <span className="font-medium text-white">Connect</span>
             </div>
             <div className="relative rounded-lg border border-white/[0.08] bg-black/50 p-3">
-              <pre className="max-h-20 overflow-auto text-[9px] leading-relaxed text-slate-500 font-mono whitespace-pre-wrap">
+              <pre className="max-h-20 overflow-auto text-[9px] leading-relaxed text-slate-400 font-mono whitespace-pre-wrap">
                 {pixelStatus.pixel_code.slice(0, 400)}
                 {pixelStatus.pixel_code.length > 400 ? "\n..." : ""}
               </pre>
