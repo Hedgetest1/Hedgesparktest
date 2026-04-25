@@ -82,6 +82,23 @@ if "$PY" scripts/audit_lite_orphan_endpoints.py > /tmp/preflight_lite_orphans.lo
 fi
 
 # ---------------------------------------------------------------------------
+# 2b-quinquies. Dashboard a11y pattern scan — informational, never blocking.
+# Catches the two violation classes axe flagged on /app routes during F6
+# (icon-only buttons missing aria-label, low-contrast slate-500/600 small
+# text on dark composited backgrounds). Run `npm run e2e:a11y` for the
+# runtime axe baseline; this static check is the leading indicator.
+# ---------------------------------------------------------------------------
+step "Dashboard a11y pattern scan (audit_dashboard_a11y.py — info only)"
+if "$PY" scripts/audit_dashboard_a11y.py > /tmp/preflight_dash_a11y.log 2>&1; then
+    if grep -q "clean" /tmp/preflight_dash_a11y.log; then
+        ok "no a11y pattern findings"
+    else
+        head -1 /tmp/preflight_dash_a11y.log | sed 's/^/  ℹ /'
+        echo "  ℹ details: /tmp/preflight_dash_a11y.log"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # 2b-quater. §20 brutal-honesty law — block commits that ship with
 # unresolved-flag phrases ("Cat-A logged", "minor improvement",
 # "deferred", etc.) unless paired with an explicit R-blocker label.

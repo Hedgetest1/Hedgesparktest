@@ -63,7 +63,7 @@ export function TopBar({
           </div>
         )}
         {dateStr && (
-          <span className="hidden text-[14px] text-slate-500 sm:block">{dateStr}</span>
+          <span className="hidden text-[14px] text-slate-400 sm:block">{dateStr}</span>
         )}
       </div>
 
@@ -75,7 +75,7 @@ export function TopBar({
             <span className={`h-1 w-1 rounded-full ${
               reputation.accuracy >= 70 ? "bg-emerald-400" : reputation.accuracy >= 50 ? "bg-amber-400" : "bg-slate-500"
             }`} />
-            <span className="text-[10px] tabular-nums text-slate-500">
+            <span className="text-[10px] tabular-nums text-slate-400">
               Spark: {reputation.accuracy}% accurate
             </span>
           </div>
@@ -131,7 +131,7 @@ export function TopBar({
             />
             <span
               className={`text-[11px] ${
-                trialUrgent ? "font-medium text-amber-300" : "text-slate-500"
+                trialUrgent ? "font-medium text-amber-300" : "text-slate-400"
               }`}
             >
               {trial!.daysRemaining! <= 0

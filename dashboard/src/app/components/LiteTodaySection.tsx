@@ -101,7 +101,7 @@ function KpiTile({
   return (
     <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-4 transition-colors hover:border-white/[0.10]">
       <div
-        className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.16em] text-slate-500"
+        className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.16em] text-slate-400"
         title={hint}
       >
         <span>{label}</span>
@@ -134,7 +134,7 @@ function KpiTile({
             : formatPct(delta)}
         </span>
         {yesterday && (
-          <span className="text-[10.5px] tabular-nums text-slate-500">
+          <span className="text-[10.5px] tabular-nums text-slate-400">
             yest. {yesterday}
           </span>
         )}

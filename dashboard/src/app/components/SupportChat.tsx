@@ -362,13 +362,15 @@ export function SupportChat({ connected = true, onboardingHint }: { connected?: 
         />
         <div className="flex-1">
           <p className="text-[14px] font-semibold text-white">{headerTitle}</p>
-          <p className="text-[10px] text-slate-500">{headerSub}</p>
+          <p className="text-[10px] text-slate-400">{headerSub}</p>
         </div>
         <button
+          type="button"
           onClick={() => setOpen(false)}
+          aria-label="Close chat"
           className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-white/[0.05] hover:text-slate-300"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <line x1="18" y1="6" x2="6" y2="18" />
             <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
@@ -383,7 +385,7 @@ export function SupportChat({ connected = true, onboardingHint }: { connected?: 
             className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
           >
             {msg.subtle ? (
-              <p className="px-1 text-[11px] italic text-slate-600">{msg.text}</p>
+              <p className="px-1 text-[11px] italic text-slate-400">{msg.text}</p>
             ) : (
               <div
                 className={`max-w-[85%] rounded-xl px-3 py-2 text-[13px] leading-[1.5] ${
@@ -435,11 +437,13 @@ export function SupportChat({ connected = true, onboardingHint }: { connected?: 
             className="flex-1 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-[13px] text-white placeholder-slate-600 outline-none transition-colors focus:border-violet-500/30 disabled:opacity-50"
           />
           <button
+            type="button"
             onClick={handleSend}
             disabled={!input.trim() || loading}
+            aria-label="Send message"
             className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-violet-600/80 text-white transition-all hover:bg-violet-500 disabled:opacity-30"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <line x1="22" y1="2" x2="11" y2="13" />
               <polygon points="22 2 15 22 11 13 2 9 22 2" />
             </svg>

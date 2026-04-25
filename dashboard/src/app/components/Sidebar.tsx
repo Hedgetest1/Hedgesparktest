@@ -391,7 +391,7 @@ export function Sidebar({
                   ? "bg-[#e8a04e]/15 text-[#e8a04e] shadow-[inset_0_0_0_1px_rgba(232,160,78,0.22)]"
                   : accessible
                   ? "text-slate-300 hover:bg-white/[0.05] hover:text-white"
-                  : "text-slate-600 hover:bg-white/[0.03] hover:text-slate-500"
+                  : "text-slate-400 hover:bg-white/[0.03] hover:text-slate-200"
               } ${collapsed ? "justify-center" : ""}`}
             >
               <span className="flex-shrink-0">{floor.icon}</span>
@@ -436,7 +436,7 @@ export function Sidebar({
                 isActive
                   ? "bg-[#d4893a]/15 text-[#e8a04e] shadow-[inset_0_0_0_1px_rgba(212,137,58,0.18)]"
                   : isLocked
-                  ? "text-slate-600 hover:bg-white/[0.03] hover:text-slate-500"
+                  ? "text-slate-400 hover:bg-white/[0.03] hover:text-slate-200"
                   : "text-slate-400 hover:bg-white/[0.05] hover:text-slate-200"
               } ${collapsed ? "justify-center" : ""}`}
             >
@@ -445,7 +445,7 @@ export function Sidebar({
                 <span className="flex min-w-0 flex-1 items-center gap-2 truncate">
                   {item.label}
                   {isLocked && (
-                    <span className="rounded border border-[#d4893a]/20 bg-[#d4893a]/10 px-1.5 py-px text-[9px] font-bold uppercase tracking-[0.08em] text-[#d4893a]/60">
+                    <span className="rounded border border-[#d4893a]/30 bg-[#d4893a]/10 px-1.5 py-px text-[9px] font-bold uppercase tracking-[0.08em] text-[#e8a04e]">
                       Pro
                     </span>
                   )}
@@ -463,7 +463,7 @@ export function Sidebar({
       <div className="border-t border-white/[0.06] p-2">
         <button
           onClick={onToggle}
-          className="flex w-full items-center justify-center rounded-lg p-2 text-slate-600 transition-colors hover:bg-white/[0.04] hover:text-slate-400"
+          className="flex w-full items-center justify-center rounded-lg p-2 text-slate-400 transition-colors hover:bg-white/[0.04] hover:text-slate-200"
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? (
