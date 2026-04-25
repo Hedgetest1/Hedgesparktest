@@ -894,6 +894,23 @@ decision), walk through the axes *visibly in the reply*. If a step
 returns nothing *after an actual attempt*, say so explicitly
 ("sibling grep came up empty" ≠ silently skipped).
 
+**AXIS 0 — Risk-weight + scope confirmation (turn OPENING, not
+close).** Before any code is written on a non-trivial turn, declare
+in one or two lines:
+   - **Risk-weight:** cosmetic / feature / cross-file / architectural
+     / TIER_2. Determines sweep depth. (cosmetic = grep-and-ship;
+     architectural = full multidim §20.3; TIER_2 = full multidim +
+     pre-mortem + post-mortem + founder approval before commit.)
+   - **Scope confirmation:** the work I'm about to do is X; if the
+     audit reveals out-of-scope findings, I will STOP and ask
+     before expanding scope.
+
+   Born 2026-04-25 from `feedback_top1_cto_discipline_gaps.md` Gap
+   1 + Gap 5 + Gap 6: applying cosmetic-level sweep depth to an
+   architectural change ships latent bugs; not declaring scope
+   means the founder can't tell if my closure is honest. The
+   one-line opener prevents both failure modes mechanically.
+
 1. **AXIS 1 — Thing itself.** Commit hash + test count + one-line
    summary of what changed. Boring but mandatory.
 2. **AXIS 2 — Sibling hunt.** Distill the bug's pattern signature into
@@ -913,12 +930,39 @@ returns nothing *after an actual attempt*, say so explicitly
    ("degraded overall_status → top_issues must be non-empty"), audit
    script (scan for €5 hardcoded defaults next to LLM budget calls),
    pre-commit pattern (block `is_active` references on Merchant).
-5. **Devil's advocate.** One paragraph minimum: why THIS fix might be
-   subtly wrong — new noise mode, ordering bug, interaction with
-   another pipeline, broken assumption at scale, wrong timezone
-   boundary. If nothing found after actively looking, say
-   "audit came up empty", never "perfect" or "complete".
-6. **Brutal rubric score.** Per `project_brutal_scoring_rubric.md`,
+5. **Devil's advocate (every lens cites executable verification).**
+   One paragraph minimum per lens: why THIS fix might be subtly
+   wrong — new noise mode, ordering bug, interaction with another
+   pipeline, broken assumption at scale, wrong timezone boundary.
+
+   **Hard rule:** every lens MUST cite at least one executable
+   verification — `grep -n`, a `pytest` run, a `curl`, a `psql`
+   query — and report the output. A DA paragraph without
+   verification is rhetoric, not analysis. The strict form per
+   lens is *"Lens N — challenge: X. Evidence: `<command>` →
+   `<output snippet>`. Verdict: Y"*. If nothing found after
+   actively looking, say "audit came up empty", never "perfect"
+   or "complete".
+
+   Born 2026-04-25 from `feedback_top1_cto_discipline_gaps.md`
+   Gap 4 + Gap 7: my anemic Gate 2 on `ad0d6a9` had thin lenses
+   without grep — 5 minutes of grep on retro found 2 latent
+   bugs. Lenses without verification are how theater bugs ship.
+
+6. **AXIS 6 — Pre-mortem (1 paragraph).** Before computing the
+   rubric, write 1 paragraph imagining the work has shipped to
+   production and a paying merchant has just reported it broken.
+   What would the bug be? Where would I look first? Have I
+   actively disproven that bug class?
+
+   The pre-mortem is in the reply, not in private thought. It
+   forces "I think this is fine" to become "I have actively
+   tried to find the bug and failed". The two are not the same.
+
+   Born 2026-04-25 from `feedback_top1_cto_discipline_gaps.md`
+   Gap 3: I run post-mortems after the founder catches issues.
+   Top-1 CTO runs pre-mortems before claiming closure.
+7. **Brutal rubric score.** Per `project_brutal_scoring_rubric.md`,
    domain-by-domain, weighted math, no rounding. A 7.3 is a 7.3. If
    the reply claims 9+ / "11/10" / "elite" / "killer" on any domain,
    the rubric audit MUST appear in the same reply
@@ -926,8 +970,8 @@ returns nothing *after an actual attempt*, say so explicitly
    score goes in SESSION_STATE.
 
 **Trivial turns** (single typo fix, formatting cleanup, memory-file
-write, question-answer with no commit) may skip axes 2–4 but still
-close with a short 5–6.
+write, question-answer with no commit) may skip axes 0 and 2–4 and
+6 but still close with a short 5 + 7.
 
 **Anti-pattern to refuse:** ending a turn with *"shipped X, tests
 pass, ready for next step"* and nothing else. That is the pre-§19
@@ -1033,8 +1077,17 @@ sweep = automatic 7/10 cap.
 Before writing the rubric, run this checklist out loud in the
 reply:
 
+0. **Risk-weight retrospective.** Confirm the risk-weight
+   declared at turn-opening (§19 Axis 0) actually matched the
+   work delivered. If the work turned out to be more
+   architectural than the opening declared, re-state it
+   explicitly: *"opening declared X, actual work was Y; expanding
+   sweep scope retroactively"*. Mismatch without re-statement is
+   a §20 violation: it means I closed cosmetic-level sweep
+   on an architectural change.
 1. **List every flag** surfaced this turn (Axis 2, Axis 3,
-   devil's-advocate, sibling hunt, multidim sweep). Number them.
+   devil's-advocate, sibling hunt, multidim sweep, pre-mortem).
+   Number them.
 2. **For each flag**, label one of: (R-fix) (R-disprove)
    (R-blocker:<name>). No flag may be unlabeled.
 3. **For each (R-blocker)**, name the specific blocker class from
