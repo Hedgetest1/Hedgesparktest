@@ -194,3 +194,75 @@ export function generateNotifications(
 
   return toShow;
 }
+
+
+// ---------------------------------------------------------------------------
+// Backend-alerts → SparkNotification mapper (born 2026-04-26)
+//
+// Lite-tier UX rule (CLAUDE.md §3.1 + feedback_ceo_product_strategy_*):
+// alerts MUST NOT render as a duplicate Findings card on the Lite floor.
+// The RARS hero already carries the monthly-loss frame and SparkChat can
+// answer "ecco qui rischi" on demand. The remaining gap is push-style
+// notification of fresh high-priority signals — solved by feeding backend
+// alerts into the existing top-right NotificationBell + a pulse animation
+// when something deserves attention.
+//
+// LOW-priority alerts are filtered out (warm Lite = no noise). MEDIUM maps
+// to "pattern" (violet, ambient). HIGH/CRITICAL map to "critical" (rose,
+// triggers the bell pulse via shouldPulseFromAlerts below).
+//
+// Stable IDs hash on type+message so re-fetching the same alert every 30s
+// (the loadAnalytics polling cadence) does not re-trigger the pulse on
+// the same content.
+// ---------------------------------------------------------------------------
+
+export type BackendAlertLike = {
+  type?: string | null;
+  priority?: string | null;
+  message?: string | null;
+  // Pro-only field — present for /analytics/alerts/pro responses.
+  action?: string | null;
+};
+
+function alertStableId(a: BackendAlertLike): string {
+  // djb2-ish — fast, deterministic, stays under 32 chars.
+  const seed = `${a.type ?? ""}|${a.message ?? ""}`;
+  let h = 5381;
+  for (let i = 0; i < seed.length; i++) {
+    h = ((h << 5) + h + seed.charCodeAt(i)) | 0;
+  }
+  return `bk-${(h >>> 0).toString(36)}`;
+}
+
+export function notificationsFromBackendAlerts(
+  alerts: BackendAlertLike[],
+  // Where the bell-click should scroll on Lite. Defaults to the RARS hero
+  // since that's the loss-prevention surface most alerts are commentary on.
+  target: string = "rars",
+): SparkNotification[] {
+  const now = Date.now();
+  const out: SparkNotification[] = [];
+  for (const a of alerts) {
+    const prio = (a.priority ?? "").toUpperCase();
+    if (prio === "LOW" || prio === "INFO") continue; // warm Lite — silent
+    const isHigh = prio === "CRITICAL" || prio === "HIGH";
+    out.push({
+      id: alertStableId(a),
+      type: isHigh ? "critical" : "pattern",
+      message: a.message ?? "Spark spotted something worth a look.",
+      detail: a.action ? a.action : undefined,
+      target,
+      timestamp: now,
+    });
+  }
+  return out;
+}
+
+/** True iff at least one backend alert deserves a bell pulse (HIGH/CRITICAL). */
+export function shouldPulseFromAlerts(alerts: BackendAlertLike[]): boolean {
+  for (const a of alerts) {
+    const prio = (a.priority ?? "").toUpperCase();
+    if (prio === "CRITICAL" || prio === "HIGH") return true;
+  }
+  return false;
+}

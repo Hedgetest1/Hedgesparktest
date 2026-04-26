@@ -28,7 +28,13 @@ import { ProofHeroCard } from "../components/ProofHeroCard";
 import { SystemStatusBar } from "../components/SystemStatusBar";
 import { computeActions, type SparkAction } from "../lib/actionEngine";
 import { updateReputation } from "../lib/sparkReputation";
-import { generateNotifications, loadSettings, type SparkNotification } from "../lib/sparkNotifications";
+import {
+  generateNotifications,
+  loadSettings,
+  notificationsFromBackendAlerts,
+  shouldPulseFromAlerts,
+  type SparkNotification,
+} from "../lib/sparkNotifications";
 import { SparkToast } from "../components/NotificationBell";
 import { SupportChat } from "../components/SupportChat";
 import { IntelligenceHero } from "../components/IntelligenceHero";
@@ -1953,6 +1959,33 @@ function PageInner() {
     if (notifs.length > 0) setActiveToasts(notifs);
   }, [sparkActions]);
 
+  // ---------------------------------------------------------------------------
+  // Bell stream — merged client-toast notifications + backend alerts.
+  // Founder directive 2026-04-26 (CLAUDE.md §3.1): Lite cannot show alerts
+  // as a duplicate Findings card. Backend `alerts` already fire for Lite
+  // via the loadAnalytics ternary fetch but its only consumer (SignalsSection)
+  // is wrapped in {!isLiteFloor}. Surface them through the existing
+  // top-right NotificationBell + a soft pulse animation when something
+  // HIGH/CRITICAL is live. Click → bell dropdown shows Spark-styled rows
+  // with the alert content. Warm Lite, no spam, no extra email.
+  // ---------------------------------------------------------------------------
+  const bellNotifications = useMemo<SparkNotification[]>(() => {
+    const fromAlerts = notificationsFromBackendAlerts(alerts, "rars");
+    // Toast stream is intentionally throttled (max 2 per session); the bell
+    // is the persistent surface for backend alerts. Toasts go first so the
+    // user sees the freshest "moment" notification at the top.
+    const seen = new Set<string>();
+    const merged: SparkNotification[] = [];
+    for (const n of [...activeToasts, ...fromAlerts]) {
+      if (seen.has(n.id)) continue;
+      seen.add(n.id);
+      merged.push(n);
+    }
+    return merged;
+  }, [activeToasts, alerts]);
+
+  const bellPulse = useMemo(() => shouldPulseFromAlerts(alerts), [alerts]);
+
   // sparkContext, executeCandidate, dismissTask were used by the
   // deleted action-candidates panel and the SparkInline companion
   // message. None of them are referenced by the current rendering
@@ -2013,7 +2046,7 @@ function PageInner() {
       />
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <TopBar shop={shop} tier={tier} onTierToggle={handleTierToggle} trial={trialInfo} notifications={activeToasts} reputation={sparkReputation} />
+        <TopBar shop={shop} tier={tier} onTierToggle={handleTierToggle} trial={trialInfo} notifications={bellNotifications} bellPulse={bellPulse} reputation={sparkReputation} />
 
         <main ref={mainRef} className="flex-1 overflow-y-auto hs-scroll-smooth">
           {!sessionResolved ? (

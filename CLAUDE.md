@@ -246,6 +246,39 @@ Folder name is still `/opt/wishspark/` (internal only; do not rename).
 **Landing page source of truth:** `dashboard/src/app/page.tsx`. Major
 overhaul shipped 2026-04-09 (Live Radar, Pro/Lite zones, Natural Earth map).
 
+### 3.1 Feature-decision protocol — parity with originality
+
+Born 2026-04-26 from founder directive: every Lite-vs-competitor gap and
+every "should we add X?" question is decided by reasoning as
+**HedgeSpark CEO dialoguing with the Product Strategy lead** before
+asking the founder anything. Detail in
+`feedback_ceo_product_strategy_feature_protocol.md`.
+
+**The criterion (CEO frame):** if competitors from free up to $60/mo
+ship a feature, we ship it. Parity is non-negotiable on the checklist
+battle.
+
+**The originality constraint (Product Strategy frame):** never as a
+duplicate, never as a me-too card. Lite is a **warm experience** — no
+spam, no extra emails outside the existing digest cadence. Pro can be a
+notification firehose; Lite cannot. Originality moves to prefer:
+
+- Vibrating bell icon (top-right) → click → Spark mascot speaks the
+  content in a friendly tile
+- Folded into the existing daily/weekly digest (no new email channel)
+- Surfaced inside an already-existing relevant card (e.g., risks under
+  RARS hero, retention slips under Customer Retention)
+- Available via SparkChat ("ecco qui rischi") on demand
+
+**Anti-pattern killed:** "I'll defer this to founder-domain decision"
+when competitor parity criterion + originality constraint are both
+already established. Reason it through; surface to founder only the
+genuine taste/strategy residual (Spark mascot copy, accent color, etc.).
+
+**Bespoke skills:** when the answer touches UX/visual, invoke
+`hedgespark-design`; for novel component design, `frontend-design`. The
+founder's words: *"utilizza skill su misura se serve"*.
+
 ---
 
 ## 4. Visual language

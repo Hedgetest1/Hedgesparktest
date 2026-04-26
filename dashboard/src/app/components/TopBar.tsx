@@ -18,6 +18,7 @@ export function TopBar({
   onTierToggle,
   trial,
   notifications,
+  bellPulse = false,
   reputation,
 }: {
   shop: string;
@@ -25,6 +26,8 @@ export function TopBar({
   onTierToggle: () => void;
   trial?: TrialInfo;
   notifications?: SparkNotification[];
+  /** True when at least one HIGH/CRITICAL backend alert is live — bell shakes. */
+  bellPulse?: boolean;
   reputation?: ReputationScore | null;
 }) {
   const [dateStr, setDateStr] = useState("");
@@ -85,6 +88,7 @@ export function TopBar({
         <NotificationBell
           notifications={notifications ?? []}
           isProUser={isProUser}
+          pulse={bellPulse}
         />
 
         {/* Settings gear — routes to the dedicated settings surface.

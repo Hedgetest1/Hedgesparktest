@@ -69,6 +69,20 @@ body {
 .hs-sparkle { animation: hs-sparkle 2.5s ease-in-out infinite; }
 .hs-pulse   { animation: hs-pulse-dot 1.6s ease-in-out infinite; }
 
+/* Bell shake — Spark notification attention. Warm, not aggressive: a soft
+   3-degree wobble repeating every ~3.2s with a long quiet phase, so the
+   bell breathes attention rather than flailing. Drives only when the
+   parent passes pulse=true (HIGH/CRITICAL backend alerts live). */
+@keyframes hs-bell-shake {
+  0%, 88%, 100% { transform: rotate(0deg); }
+  90%           { transform: rotate(-7deg); }
+  92%           { transform: rotate(6deg); }
+  94%           { transform: rotate(-4deg); }
+  96%           { transform: rotate(3deg); }
+  98%           { transform: rotate(-1deg); }
+}
+.hs-bell-shake { animation: hs-bell-shake 3.2s ease-in-out infinite; transform-origin: 50% 20%; }
+
 /* ── Spark ── */
 
 /* Float: gentle vertical drift */

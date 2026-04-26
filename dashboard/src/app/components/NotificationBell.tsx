@@ -74,14 +74,36 @@ export function SparkToast({
 }
 
 // ---------------------------------------------------------------------------
+// Spark greeting copy — kept short, warm, idiot-proof per CLAUDE.md §5.
+// Founder territory (§1.5) — these strings are drafts, not final taste.
+// Founder can refine the voice without touching pulse/render plumbing.
+// ---------------------------------------------------------------------------
+function sparkGreeting(count: number, pulse: boolean): string {
+  if (pulse) {
+    return count === 1
+      ? "Hey — I spotted something that needs your eyes today."
+      : `Hey — ${count} things worth a look right now. The top one is urgent.`;
+  }
+  return count === 1
+    ? "Heads up — small thing I noticed for you."
+    : `Heads up — ${count} small things I noticed for you.`;
+}
+
+// ---------------------------------------------------------------------------
 // Bell + dropdown
 // ---------------------------------------------------------------------------
 export function NotificationBell({
   notifications,
   isProUser,
+  pulse = false,
 }: {
   notifications: SparkNotification[];
   isProUser: boolean;
+  /** When true, the bell icon performs the warm hs-bell-shake animation
+   *  (HIGH/CRITICAL backend alert is live). Founder directive 2026-04-26:
+   *  Lite must surface backend alerts via this bell + a Spark-styled
+   *  dropdown — never as a duplicate Findings card. */
+  pulse?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState<NotificationSettings>(loadSettings);
@@ -114,17 +136,36 @@ export function NotificationBell({
       <button
         onClick={() => setOpen(o => !o)}
         className={`relative flex items-center justify-center rounded-full p-2 transition-colors ${
-          settings.enabled
-            ? "text-slate-300 hover:bg-white/[0.05]"
-            : "text-slate-600 hover:bg-white/[0.03] hover:text-slate-500"
+          pulse
+            ? "text-rose-300 hover:bg-white/[0.05]"
+            : settings.enabled || hasUnread
+              ? "text-slate-300 hover:bg-white/[0.05]"
+              : "text-slate-600 hover:bg-white/[0.03] hover:text-slate-500"
         }`}
-        aria-label="Notifications"
+        aria-label={pulse ? "Notifications — Spark spotted something urgent" : "Notifications"}
       >
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 24 24"
+          strokeWidth={1.5}
+          stroke="currentColor"
+          className={`h-4 w-4 ${pulse ? "hs-bell-shake" : ""}`}
+        >
           <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
         </svg>
-        {hasUnread && settings.enabled && (
-          <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-violet-400" />
+        {/* The unread dot lights up whenever there's something to read,
+            regardless of the client-toast `enabled` toggle. Backend alerts
+            are ground-truth signal — the warm-Lite filter already
+            strips LOW/INFO upstream — so they must surface here even when
+            the merchant has not opted into client-side toast spawning.
+            Founder directive 2026-04-26: "fai vibrare il campanellino". */}
+        {hasUnread && (
+          <span
+            className={`absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full ${
+              pulse ? "bg-rose-400 shadow-[0_0_6px_rgba(251,113,133,0.7)]" : "bg-violet-400"
+            }`}
+          />
         )}
       </button>
 
@@ -147,7 +188,13 @@ export function NotificationBell({
             </button>
           </div>
 
-          {!settings.enabled ? (
+          {/* Empty state ONLY when there's nothing to show AND the user
+              has not enabled toast spawning — so a Lite merchant who
+              just installed sees the enable CTA. The moment a backend
+              alert arrives we always render it, regardless of the toggle:
+              the toggle controls the auto-popup toast cadence, not
+              whether the dropdown is allowed to surface real alerts. */}
+          {!settings.enabled && notifications.length === 0 ? (
             <div className="px-4 py-5 text-center">
               <p className="text-[12px] text-slate-400">
                 Enable alerts to get notified when Spark detects something important.
@@ -161,6 +208,27 @@ export function NotificationBell({
             </div>
           ) : (
             <>
+              {/* Spark mascot greeting — only when there's something worth
+                  saying. Born 2026-04-26: founder directive on Lite UX
+                  ("quando lo clicca appare Spark che dice qualcosa
+                  sull'alert"). Stays out of the way when notifications
+                  is empty so the dropdown still degrades cleanly. */}
+              {notifications.length > 0 && (
+                <div className="flex items-start gap-3 border-b border-white/[0.06] bg-gradient-to-br from-violet-500/[0.05] to-transparent px-4 py-3">
+                  <Image
+                    src="/branding/hedgespark/spark.png"
+                    alt=""
+                    width={32}
+                    height={32}
+                    className="hs-float-gentle mt-0.5 flex-shrink-0"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-[12px] font-medium leading-[1.4] text-slate-200">
+                      {sparkGreeting(notifications.length, pulse)}
+                    </p>
+                  </div>
+                </div>
+              )}
               {/* Recent notifications */}
               {notifications.length > 0 ? (
                 <div className="max-h-48 overflow-y-auto">
