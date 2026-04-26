@@ -31,7 +31,15 @@
 //   timestamp:    <epoch_ms>,
 //   order_id:     "<shopify_order_id>",
 //   order_total:  <float>,
-//   currency:     "EUR"
+//   currency:     "EUR",
+//   // Class D base-analytics enrichment (v14, 2026-04-26).
+//   // All optional — backend falls back to NULL columns.
+//   discount_amount:    <float|null>,         // sum of discounts applied
+//   discount_codes:     ["SUMMER10", ...],    // codes used (best-effort)
+//   tax_amount:         <float|null>,         // total tax
+//   payment_method:     "shopify_payments",   // gateway name when known
+//   financial_status:   "paid",               // pixel-time default
+//   fulfillment_status: "unfulfilled"         // pixel-time default
 // }
 // ---------------------------------------------------------------------------
 
@@ -52,7 +60,7 @@ function _hsReportErr(source, err) {
       message: String((err && err.message) || err).slice(0, 1500),
       stack: String((err && err.stack) || "").slice(0, 3500),
       url: "",  // pixel sandbox doesn't reliably expose window.location
-      tracker_version: 13,
+      tracker_version: 14,
       user_agent: "",
     });
     if (typeof fetch !== "undefined") {
@@ -120,6 +128,66 @@ analytics.subscribe("checkout_completed", function (event) {
 
     if (isNaN(orderTotal) || orderTotal <= 0) return;
 
+    // -- Class D enrichment (best-effort, all fields optional) ---------------
+    // Shopify exposes total discounts + tax + transactions on checkout.
+    // Each block is wrapped so a missing field never breaks the pixel
+    // (the order still posts with these as null). Common shapes covered:
+    //   { totalTax: { amount, currencyCode } }   MoneyV2
+    //   { totalTax: "1.23" }                     plain string
+    //   { discountApplications: [{ value }] }    discount payload variant
+    //   { discountCodes: [{ code }] }            checkout v2 codes
+    //   { transactions: [{ gateway }] }          payment provider hint
+
+    function _moneyV2OrString(v) {
+      if (!v) return null;
+      if (typeof v === "object" && v.amount != null) {
+        var n = parseFloat(v.amount);
+        return isNaN(n) ? null : n;
+      }
+      var n = parseFloat(v);
+      return isNaN(n) ? null : n;
+    }
+
+    var discountAmount = null;
+    try {
+      discountAmount = _moneyV2OrString(checkout.totalDiscounts) || _moneyV2OrString(checkout.totalDiscount);
+    } catch (_) {}
+
+    var discountCodes = null;
+    try {
+      var rawCodes = checkout.discountCodes || checkout.discount_codes || [];
+      if (Array.isArray(rawCodes) && rawCodes.length > 0) {
+        discountCodes = rawCodes.map(function (c) {
+          if (typeof c === "string") return c;
+          return c && (c.code || c.title || c.name) || null;
+        }).filter(function (c) { return c && typeof c === "string"; }).slice(0, 10);
+        if (discountCodes.length === 0) discountCodes = null;
+      }
+    } catch (_) {}
+
+    var taxAmount = null;
+    try {
+      taxAmount = _moneyV2OrString(checkout.totalTax) || _moneyV2OrString(checkout.taxAmount);
+    } catch (_) {}
+
+    var paymentMethod = null;
+    try {
+      // Try direct paymentMethod field, then transactions[0].gateway, then
+      // checkout.transactions which some SDK versions expose.
+      if (checkout.paymentMethod && typeof checkout.paymentMethod === "string") {
+        paymentMethod = checkout.paymentMethod;
+      } else if (checkout.payment && checkout.payment.gateway) {
+        paymentMethod = String(checkout.payment.gateway);
+      } else {
+        var txns = checkout.transactions || (event.data && event.data.transactions) || [];
+        if (Array.isArray(txns) && txns.length > 0) {
+          var first = txns[0];
+          if (first && first.gateway) paymentMethod = String(first.gateway);
+        }
+      }
+      if (paymentMethod) paymentMethod = paymentMethod.slice(0, 64);
+    } catch (_) {}
+
     // -- Dedup (pixel-scoped localStorage) ----------------------------------
     var dedupKey = "hs_purchase_" + orderId;
     try {
@@ -173,7 +241,15 @@ analytics.subscribe("checkout_completed", function (event) {
       order_total:         orderTotal,
       currency:            currency,
       tracker_visitor_id:  trackerVisitorId || undefined,
-      pixel_secret:        PIXEL_SECRET
+      pixel_secret:        PIXEL_SECRET,
+      // Class D enrichment (v14, 2026-04-26). Each is OPTIONAL — sent as
+      // null when Shopify checkout context didn't expose it.
+      discount_amount:     discountAmount,
+      discount_codes:      discountCodes,
+      tax_amount:          taxAmount,
+      payment_method:      paymentMethod,
+      financial_status:    "paid",          // pixel-time default
+      fulfillment_status:  "unfulfilled"    // pixel-time default
     });
 
     fetch(API_URL, {

@@ -93,6 +93,17 @@ class ShopOrder(Base):
     # Webhook rows (when available) carry full order data.
     source = Column(String(16), nullable=False, server_default="pixel")
 
+    # Class D base-analytics columns (2026-04-26 — competitor parity vs $0-70).
+    # All NULLABLE: enrichment is forward-looking, populated by spark-pixel.js v14+
+    # from Shopify checkout context. Old orders stay NULL; endpoints surface
+    # has_data=false until enriched orders accumulate.
+    discount_amount    = Column(Numeric(12, 2), nullable=True)
+    discount_codes     = Column(JSONB,           nullable=True)  # ["SUMMER10", "FREESHIP"]
+    tax_amount         = Column(Numeric(12, 2), nullable=True)
+    payment_method     = Column(String(64),      nullable=True)
+    financial_status   = Column(String(32),      nullable=True)  # paid / pending / authorized / refunded
+    fulfillment_status = Column(String(32),      nullable=True)  # fulfilled / unfulfilled / partial
+
     __table_args__ = (
         # Idempotency: duplicate webhook deliveries are caught at DB level
         UniqueConstraint("shopify_order_id", name="uq_shop_orders_shopify_order_id"),

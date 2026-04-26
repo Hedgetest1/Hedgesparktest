@@ -174,6 +174,65 @@ class TopProductsResponse(BaseModel):
     products: list[TopProduct]
 
 
+# ── Class D response models ──
+
+class DiscountCodeBucket(BaseModel):
+    code: str
+    orders: int
+    total_discount: float
+    total_revenue: float
+
+
+class DiscountCodesResponse(BaseModel):
+    currency: str
+    days: int
+    has_data: bool
+    enriched_orders: int          # how many orders had discount data
+    total_orders_window: int      # all orders in window (for coverage %)
+    codes: list[DiscountCodeBucket]
+
+
+class StatusBucket(BaseModel):
+    label: str            # "paid" / "pending" / "fulfilled" / "unfulfilled" / etc.
+    orders: int
+    pct: float
+
+
+class OrderStatusResponse(BaseModel):
+    days: int
+    has_data: bool
+    enriched_orders: int
+    financial: list[StatusBucket]
+    fulfillment: list[StatusBucket]
+
+
+class TaxBreakdownResponse(BaseModel):
+    currency: str
+    days: int
+    has_data: bool
+    enriched_orders: int
+    total_orders_window: int
+    total_revenue: float          # only enriched orders
+    total_tax: float
+    tax_rate_pct: float | None    # total_tax / (revenue - tax) * 100
+
+
+class PaymentMethodBucket(BaseModel):
+    method: str
+    orders: int
+    revenue: float
+    pct: float
+
+
+class PaymentMethodsResponse(BaseModel):
+    currency: str
+    days: int
+    has_data: bool
+    enriched_orders: int
+    total_orders_window: int
+    methods: list[PaymentMethodBucket]
+
+
 # ---------------------------------------------------------------------------
 # 1. Device breakdown
 # ---------------------------------------------------------------------------
@@ -751,6 +810,275 @@ def get_top_products(
     response = TopProductsResponse(
         currency=currency, days=days,
         has_data=len(products) > 0, products=products,
+    )
+    cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
+    return response
+
+
+# ---------------------------------------------------------------------------
+# Class D — schema-enriched analytics (populated by spark-pixel.js v14+)
+# ---------------------------------------------------------------------------
+#
+# Each endpoint follows the same shape: report `enriched_orders` +
+# `total_orders_window` so the dashboard can show coverage ("47/120
+# orders carry discount data — older orders pre-pixel-v14 stay
+# uncounted"). has_data=true only when at least 1 enriched order
+# exists in the window.
+
+@router.get("/discount-codes", response_model=DiscountCodesResponse)
+def get_discount_codes(
+    days: int = Query(30, ge=7, le=180),
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+) -> DiscountCodesResponse:
+    """Top discount codes by usage in last N days. Computes total
+    discount + total revenue per code so the merchant sees ROI per code."""
+    currency = get_shop_currency(db, shop) or "USD"
+    cache_key = f"hs:disc:v1:{shop}:{currency}:{days}"
+    cached = cache_get(cache_key)
+    if cached:
+        return DiscountCodesResponse(**cached)
+
+    total_window = db.execute(
+        text("""
+            SELECT COUNT(*) FROM shop_orders
+            WHERE shop_domain = :shop AND currency = :currency
+              AND created_at >= NOW() - (:days || ' days')::interval
+        """),
+        {"shop": shop, "currency": currency, "days": days},
+    ).scalar() or 0
+
+    rows = db.execute(
+        text("""
+            SELECT
+                code,
+                COUNT(*) AS orders,
+                COALESCE(SUM(discount_amount), 0) AS total_discount,
+                COALESCE(SUM(total_price),     0) AS total_revenue
+            FROM shop_orders so,
+                 LATERAL jsonb_array_elements_text(so.discount_codes) AS code
+            WHERE so.shop_domain = :shop
+              AND so.currency = :currency
+              AND so.created_at >= NOW() - (:days || ' days')::interval
+              AND so.discount_codes IS NOT NULL
+              AND jsonb_array_length(so.discount_codes) > 0
+            GROUP BY code
+            ORDER BY orders DESC
+            LIMIT 20
+        """),
+        {"shop": shop, "currency": currency, "days": days},
+    ).mappings().all()
+
+    enriched = db.execute(
+        text("""
+            SELECT COUNT(*) FROM shop_orders
+            WHERE shop_domain = :shop AND currency = :currency
+              AND created_at >= NOW() - (:days || ' days')::interval
+              AND discount_codes IS NOT NULL
+              AND jsonb_array_length(discount_codes) > 0
+        """),
+        {"shop": shop, "currency": currency, "days": days},
+    ).scalar() or 0
+
+    codes = [
+        DiscountCodeBucket(
+            code=str(r["code"])[:64],
+            orders=int(r["orders"] or 0),
+            total_discount=round(float(r["total_discount"] or 0), 2),
+            total_revenue=round(float(r["total_revenue"] or 0), 2),
+        )
+        for r in rows
+    ]
+    response = DiscountCodesResponse(
+        currency=currency, days=days,
+        has_data=enriched > 0,
+        enriched_orders=int(enriched),
+        total_orders_window=int(total_window),
+        codes=codes,
+    )
+    cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
+    return response
+
+
+@router.get("/order-status", response_model=OrderStatusResponse)
+def get_order_status(
+    days: int = Query(30, ge=7, le=180),
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+) -> OrderStatusResponse:
+    """Financial + fulfillment status breakdown for last N days.
+
+    NB: pixel-time defaults are 'paid' + 'unfulfilled' — without
+    Protected-Customer-Data webhook approval, status post-purchase
+    transitions (refunds, fulfillment) aren't reflected. The Lite
+    tile copy makes this explicit so the merchant doesn't read it
+    as full lifecycle truth."""
+    cache_key = f"hs:status:v1:{shop}:{days}"
+    cached = cache_get(cache_key)
+    if cached:
+        return OrderStatusResponse(**cached)
+
+    fin_rows = db.execute(
+        text("""
+            SELECT COALESCE(financial_status, 'unknown') AS label, COUNT(*) AS orders
+            FROM shop_orders
+            WHERE shop_domain = :shop
+              AND created_at >= NOW() - (:days || ' days')::interval
+              AND financial_status IS NOT NULL
+            GROUP BY 1
+            ORDER BY 2 DESC
+        """),
+        {"shop": shop, "days": days},
+    ).mappings().all()
+
+    ful_rows = db.execute(
+        text("""
+            SELECT COALESCE(fulfillment_status, 'unknown') AS label, COUNT(*) AS orders
+            FROM shop_orders
+            WHERE shop_domain = :shop
+              AND created_at >= NOW() - (:days || ' days')::interval
+              AND fulfillment_status IS NOT NULL
+            GROUP BY 1
+            ORDER BY 2 DESC
+        """),
+        {"shop": shop, "days": days},
+    ).mappings().all()
+
+    enriched = sum(int(r["orders"] or 0) for r in fin_rows) or sum(int(r["orders"] or 0) for r in ful_rows)
+
+    def _to_buckets(rows):
+        total = sum(int(r["orders"] or 0) for r in rows)
+        return [
+            StatusBucket(
+                label=str(r["label"]),
+                orders=int(r["orders"] or 0),
+                pct=round((int(r["orders"] or 0) / total) * 100.0, 1) if total else 0.0,
+            )
+            for r in rows
+        ]
+
+    response = OrderStatusResponse(
+        days=days, has_data=enriched > 0,
+        enriched_orders=enriched,
+        financial=_to_buckets(fin_rows),
+        fulfillment=_to_buckets(ful_rows),
+    )
+    cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
+    return response
+
+
+@router.get("/tax-breakdown", response_model=TaxBreakdownResponse)
+def get_tax_breakdown(
+    days: int = Query(30, ge=7, le=180),
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+) -> TaxBreakdownResponse:
+    """Total tax + effective rate over enriched orders in window."""
+    currency = get_shop_currency(db, shop) or "USD"
+    cache_key = f"hs:tax:v1:{shop}:{currency}:{days}"
+    cached = cache_get(cache_key)
+    if cached:
+        return TaxBreakdownResponse(**cached)
+
+    total_window = db.execute(
+        text("""
+            SELECT COUNT(*) FROM shop_orders
+            WHERE shop_domain = :shop AND currency = :currency
+              AND created_at >= NOW() - (:days || ' days')::interval
+        """),
+        {"shop": shop, "currency": currency, "days": days},
+    ).scalar() or 0
+
+    row = db.execute(
+        text("""
+            SELECT
+                COUNT(*)                                     AS enriched,
+                COALESCE(SUM(total_price), 0)                AS revenue,
+                COALESCE(SUM(tax_amount),  0)                AS tax
+            FROM shop_orders
+            WHERE shop_domain = :shop AND currency = :currency
+              AND created_at >= NOW() - (:days || ' days')::interval
+              AND tax_amount IS NOT NULL
+        """),
+        {"shop": shop, "currency": currency, "days": days},
+    ).fetchone()
+
+    enriched = int(row[0] or 0)
+    revenue  = float(row[1] or 0)
+    tax      = float(row[2] or 0)
+    tax_rate = None
+    pre_tax_rev = revenue - tax
+    if pre_tax_rev > 0 and tax > 0:
+        tax_rate = round((tax / pre_tax_rev) * 100.0, 2)
+
+    response = TaxBreakdownResponse(
+        currency=currency, days=days,
+        has_data=enriched > 0,
+        enriched_orders=enriched,
+        total_orders_window=int(total_window),
+        total_revenue=round(revenue, 2),
+        total_tax=round(tax, 2),
+        tax_rate_pct=tax_rate,
+    )
+    cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
+    return response
+
+
+@router.get("/payment-methods", response_model=PaymentMethodsResponse)
+def get_payment_methods(
+    days: int = Query(30, ge=7, le=180),
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+) -> PaymentMethodsResponse:
+    """Order count + revenue split by payment_method (gateway)."""
+    currency = get_shop_currency(db, shop) or "USD"
+    cache_key = f"hs:pmnt:v1:{shop}:{currency}:{days}"
+    cached = cache_get(cache_key)
+    if cached:
+        return PaymentMethodsResponse(**cached)
+
+    total_window = db.execute(
+        text("""
+            SELECT COUNT(*) FROM shop_orders
+            WHERE shop_domain = :shop AND currency = :currency
+              AND created_at >= NOW() - (:days || ' days')::interval
+        """),
+        {"shop": shop, "currency": currency, "days": days},
+    ).scalar() or 0
+
+    rows = db.execute(
+        text("""
+            SELECT
+                COALESCE(payment_method, 'unknown') AS method,
+                COUNT(*)                            AS orders,
+                COALESCE(SUM(total_price), 0)       AS revenue
+            FROM shop_orders
+            WHERE shop_domain = :shop AND currency = :currency
+              AND created_at >= NOW() - (:days || ' days')::interval
+              AND payment_method IS NOT NULL
+            GROUP BY 1
+            ORDER BY 2 DESC
+        """),
+        {"shop": shop, "currency": currency, "days": days},
+    ).mappings().all()
+
+    enriched = sum(int(r["orders"] or 0) for r in rows)
+    methods = [
+        PaymentMethodBucket(
+            method=str(r["method"])[:64],
+            orders=int(r["orders"] or 0),
+            revenue=round(float(r["revenue"] or 0), 2),
+            pct=round((int(r["orders"] or 0) / enriched) * 100.0, 1) if enriched else 0.0,
+        )
+        for r in rows
+    ]
+
+    response = PaymentMethodsResponse(
+        currency=currency, days=days,
+        has_data=enriched > 0,
+        enriched_orders=enriched,
+        total_orders_window=int(total_window),
+        methods=methods,
     )
     cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
     return response

@@ -1552,6 +1552,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/discount-codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Discount Codes
+         * @description Top discount codes by usage in last N days. Computes total
+         *     discount + total revenue per code so the merchant sees ROI per code.
+         */
+        get: operations["get_discount_codes_analytics_discount_codes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analytics/order-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Order Status
+         * @description Financial + fulfillment status breakdown for last N days.
+         *
+         *     NB: pixel-time defaults are 'paid' + 'unfulfilled' — without
+         *     Protected-Customer-Data webhook approval, status post-purchase
+         *     transitions (refunds, fulfillment) aren't reflected. The Lite
+         *     tile copy makes this explicit so the merchant doesn't read it
+         *     as full lifecycle truth.
+         */
+        get: operations["get_order_status_analytics_order_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analytics/tax-breakdown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Tax Breakdown
+         * @description Total tax + effective rate over enriched orders in window.
+         */
+        get: operations["get_tax_breakdown_analytics_tax_breakdown_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analytics/payment-methods": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Payment Methods
+         * @description Order count + revenue split by payment_method (gateway).
+         */
+        get: operations["get_payment_methods_analytics_payment_methods_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/analytics/clicks": {
         parameters: {
             query?: never;
@@ -7919,6 +8006,32 @@ export interface components {
              */
             mobile_conversion_gap: boolean;
         };
+        /** DiscountCodeBucket */
+        DiscountCodeBucket: {
+            /** Code */
+            code: string;
+            /** Orders */
+            orders: number;
+            /** Total Discount */
+            total_discount: number;
+            /** Total Revenue */
+            total_revenue: number;
+        };
+        /** DiscountCodesResponse */
+        DiscountCodesResponse: {
+            /** Currency */
+            currency: string;
+            /** Days */
+            days: number;
+            /** Has Data */
+            has_data: boolean;
+            /** Enriched Orders */
+            enriched_orders: number;
+            /** Total Orders Window */
+            total_orders_window: number;
+            /** Codes */
+            codes: components["schemas"]["DiscountCodeBucket"][];
+        };
         /** DiscountRequest */
         DiscountRequest: {
             /** Title */
@@ -9649,6 +9762,19 @@ export interface components {
             /** Peak Dow */
             peak_dow: number | null;
         };
+        /** OrderStatusResponse */
+        OrderStatusResponse: {
+            /** Days */
+            days: number;
+            /** Has Data */
+            has_data: boolean;
+            /** Enriched Orders */
+            enriched_orders: number;
+            /** Financial */
+            financial: components["schemas"]["StatusBucket"][];
+            /** Fulfillment */
+            fulfillment: components["schemas"]["StatusBucket"][];
+        };
         /** OrdersByCountryResponse */
         OrdersByCountryResponse: {
             /** Currency */
@@ -9694,6 +9820,32 @@ export interface components {
         PanicResponse: {
             /** Revoked Count */
             revoked_count: number;
+        };
+        /** PaymentMethodBucket */
+        PaymentMethodBucket: {
+            /** Method */
+            method: string;
+            /** Orders */
+            orders: number;
+            /** Revenue */
+            revenue: number;
+            /** Pct */
+            pct: number;
+        };
+        /** PaymentMethodsResponse */
+        PaymentMethodsResponse: {
+            /** Currency */
+            currency: string;
+            /** Days */
+            days: number;
+            /** Has Data */
+            has_data: boolean;
+            /** Enriched Orders */
+            enriched_orders: number;
+            /** Total Orders Window */
+            total_orders_window: number;
+            /** Methods */
+            methods: components["schemas"]["PaymentMethodBucket"][];
         };
         /** PerMetricAccuracy */
         PerMetricAccuracy: {
@@ -11304,6 +11456,15 @@ export interface components {
              */
             paid_revenue_gap: boolean;
         };
+        /** StatusBucket */
+        StatusBucket: {
+            /** Label */
+            label: string;
+            /** Orders */
+            orders: number;
+            /** Pct */
+            pct: number;
+        };
         /** StatusUpdateRequest */
         StatusUpdateRequest: {
             /** Status */
@@ -11408,6 +11569,25 @@ export interface components {
             status?: ("active" | "paused") | null;
             /** Description */
             description?: string | null;
+        };
+        /** TaxBreakdownResponse */
+        TaxBreakdownResponse: {
+            /** Currency */
+            currency: string;
+            /** Days */
+            days: number;
+            /** Has Data */
+            has_data: boolean;
+            /** Enriched Orders */
+            enriched_orders: number;
+            /** Total Orders Window */
+            total_orders_window: number;
+            /** Total Revenue */
+            total_revenue: number;
+            /** Total Tax */
+            total_tax: number;
+            /** Tax Rate Pct */
+            tax_rate_pct: number | null;
         };
         /** TimelineEntry */
         TimelineEntry: {
@@ -11607,6 +11787,18 @@ export interface components {
             order_total?: number | null;
             /** Currency */
             currency?: string | null;
+            /** Discount Amount */
+            discount_amount?: number | null;
+            /** Discount Codes */
+            discount_codes?: string[] | null;
+            /** Tax Amount */
+            tax_amount?: number | null;
+            /** Payment Method */
+            payment_method?: string | null;
+            /** Financial Status */
+            financial_status?: string | null;
+            /** Fulfillment Status */
+            fulfillment_status?: string | null;
             /** Shopify Y */
             shopify_y?: string | null;
             /** Tracker Visitor Id */
@@ -13852,6 +14044,130 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TopProductsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_discount_codes_analytics_discount_codes_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiscountCodesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_order_status_analytics_order_status_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_tax_breakdown_analytics_tax_breakdown_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxBreakdownResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_payment_methods_analytics_payment_methods_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentMethodsResponse"];
                 };
             };
             /** @description Validation Error */

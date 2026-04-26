@@ -162,6 +162,15 @@ class TrackPayload(BaseModel):
     order_id: Optional[str] = Field(None, max_length=64)
     order_total: Optional[float] = None  # total_price as float
     currency: Optional[str] = Field(None, max_length=16)
+    # Class D enrichment (2026-04-26 — populated by spark-pixel.js v14+).
+    # All optional — old pixel versions still post without these and the
+    # order persists fine (columns NULL, base analytics still work).
+    discount_amount: Optional[float] = None
+    discount_codes: Optional[list[str]] = None
+    tax_amount: Optional[float] = None
+    payment_method: Optional[str] = Field(None, max_length=64)
+    financial_status: Optional[str] = Field(None, max_length=32)
+    fulfillment_status: Optional[str] = Field(None, max_length=32)
 
     # Shopify _shopify_y cookie value — Shopify's persistent visitor ID.
     # Sent by spark-tracker.js from the storefront. Also available as event.clientId
@@ -396,6 +405,15 @@ def _persist_purchase(db: Session, payload: TrackPayload) -> None:
         return
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    # Class D enrichment fields — only persist when the new pixel sent
+    # them. Empty/None stays NULL in DB so base analytics continue to
+    # work for orders ingested before pixel v14.
+    discount_codes_clean: Optional[list[str]] = None
+    if payload.discount_codes:
+        discount_codes_clean = [
+            str(c)[:64] for c in payload.discount_codes if c
+        ][:10]  # cap at 10 codes per order (Shopify max is rare > 5)
+
     order = ShopOrder(
         shop_domain=payload.shop_domain,
         shopify_order_id=str(payload.order_id),
@@ -407,6 +425,13 @@ def _persist_purchase(db: Session, payload: TrackPayload) -> None:
         created_at=now,
         ingested_at=now,
         source="pixel",
+        # Class D — populated when pixel v14+ supplies them
+        discount_amount=payload.discount_amount,
+        discount_codes=discount_codes_clean,
+        tax_amount=payload.tax_amount,
+        payment_method=(payload.payment_method or None),
+        financial_status=(payload.financial_status or "paid"),
+        fulfillment_status=(payload.fulfillment_status or "unfulfilled"),
     )
     try:
         nested = db.begin_nested()  # SAVEPOINT — won't kill the outer transaction

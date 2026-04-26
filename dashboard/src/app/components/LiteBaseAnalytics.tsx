@@ -543,6 +543,279 @@ export function TopProductsTile({ displayCurrency }: { displayCurrency: DisplayC
 }
 
 // ─────────────────────────────────────────────────────────────────
+// 8-11. Class D — schema-enriched analytics (pixel v14+)
+// ─────────────────────────────────────────────────────────────────
+
+function CoverageBanner({ enriched, total }: { enriched: number; total: number }) {
+  if (total === 0) return null;
+  const pct = Math.round((enriched / total) * 100);
+  return (
+    <div className="mt-2 text-[10px] text-slate-300">
+      Based on {enriched.toLocaleString("en-US")} of {total.toLocaleString("en-US")} orders ({pct}%) — older orders pre-pixel-v14 stay uncounted.
+    </div>
+  );
+}
+
+type DiscountData = {
+  currency: string; days: number; has_data: boolean;
+  enriched_orders: number; total_orders_window: number;
+  codes: { code: string; orders: number; total_discount: number; total_revenue: number }[];
+};
+
+export function DiscountCodesTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
+  const [data, setData] = useState<DiscountData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let active = true; setLoading(true); setError(false);
+    apiClient.GET("/analytics/discount-codes")
+      .then(({ data: j, error: err }) => {
+        if (!active) return;
+        if (err || !j) setError(true); else setData(j as unknown as DiscountData);
+      })
+      .catch(() => { if (active) setError(true); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [tick]);
+  const ccy = data?.currency ?? displayCurrency;
+  if (loading) return <TileSkeleton height={180} />;
+  if (error) return <TileError retry={() => setTick(t => t + 1)} />;
+  if (!data || !data.has_data) {
+    return (
+      <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/40 p-4 text-center">
+        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">Discount codes</div>
+        <div className="mt-2 text-[12px] text-slate-300">Once orders flow with discount codes attached, the top performers rank here.</div>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 p-4">
+      <div className="flex items-baseline justify-between mb-3">
+        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">
+          Discount codes · last {data.days} days
+        </div>
+      </div>
+      <ul className="divide-y divide-white/[0.04]">
+        {data.codes.slice(0, 5).map(c => (
+          <li key={c.code} className="flex items-center gap-3 py-2">
+            <div className="flex-1 min-w-0">
+              <div className="text-[12px] font-mono font-bold text-amber-300 truncate">{c.code}</div>
+              <div className="text-[10px] text-slate-300">
+                {c.orders} order{c.orders !== 1 ? "s" : ""} · {formatMoneyCompact(c.total_discount, ccy)} discount given
+              </div>
+            </div>
+            <div className="text-[13px] font-bold tabular-nums text-emerald-300">
+              {formatMoneyCompact(c.total_revenue, ccy)}
+            </div>
+          </li>
+        ))}
+      </ul>
+      <CoverageBanner enriched={data.enriched_orders} total={data.total_orders_window} />
+    </div>
+  );
+}
+
+type StatusData = {
+  days: number; has_data: boolean; enriched_orders: number;
+  financial: { label: string; orders: number; pct: number }[];
+  fulfillment: { label: string; orders: number; pct: number }[];
+};
+
+const STATUS_COLOR: Record<string, string> = {
+  paid: "#34d399", pending: "#fbbf24", authorized: "#a78bfa", refunded: "#fb7185",
+  fulfilled: "#34d399", unfulfilled: "#fbbf24", partial: "#a78bfa",
+  unknown: "#94a3b8",
+};
+
+export function OrderStatusTile() {
+  const [data, setData] = useState<StatusData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let active = true; setLoading(true); setError(false);
+    apiClient.GET("/analytics/order-status")
+      .then(({ data: j, error: err }) => {
+        if (!active) return;
+        if (err || !j) setError(true); else setData(j as unknown as StatusData);
+      })
+      .catch(() => { if (active) setError(true); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [tick]);
+  if (loading) return <TileSkeleton height={180} />;
+  if (error) return <TileError retry={() => setTick(t => t + 1)} />;
+  if (!data || !data.has_data) {
+    return (
+      <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/40 p-4 text-center">
+        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">Order status breakdown</div>
+        <div className="mt-2 text-[12px] text-slate-300">New orders post pixel-v14 carry status; the breakdown surfaces here.</div>
+      </div>
+    );
+  }
+  const renderBar = (b: { label: string; orders: number; pct: number }) => (
+    <div key={b.label} className="flex items-center gap-3">
+      <div className="w-24 flex-shrink-0 text-[12px] capitalize text-slate-300">{b.label}</div>
+      <div className="flex-1 h-2 rounded-full bg-white/[0.04] overflow-hidden">
+        <div className="h-full rounded-full"
+             style={{ width: `${b.pct}%`, background: STATUS_COLOR[b.label] ?? "#94a3b8" }} />
+      </div>
+      <div className="w-20 text-right text-[12px] font-semibold tabular-nums text-slate-300">
+        {b.orders} · {b.pct.toFixed(0)}%
+      </div>
+    </div>
+  );
+  return (
+    <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 p-4">
+      <div className="flex items-baseline justify-between mb-3">
+        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">
+          Order status · last {data.days} days
+        </div>
+      </div>
+      <div className="mb-3">
+        <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-300">Financial</div>
+        <div className="space-y-1.5">{data.financial.map(renderBar)}</div>
+      </div>
+      <div>
+        <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-300">Fulfillment</div>
+        <div className="space-y-1.5">{data.fulfillment.map(renderBar)}</div>
+      </div>
+      <div className="mt-2 text-[10px] text-slate-300">
+        Pixel-time snapshot — refunds + fulfillment transitions need PCD-approved webhooks (next milestone).
+      </div>
+    </div>
+  );
+}
+
+type TaxData = {
+  currency: string; days: number; has_data: boolean;
+  enriched_orders: number; total_orders_window: number;
+  total_revenue: number; total_tax: number; tax_rate_pct: number | null;
+};
+
+export function TaxBreakdownTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
+  const [data, setData] = useState<TaxData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let active = true; setLoading(true); setError(false);
+    apiClient.GET("/analytics/tax-breakdown")
+      .then(({ data: j, error: err }) => {
+        if (!active) return;
+        if (err || !j) setError(true); else setData(j as unknown as TaxData);
+      })
+      .catch(() => { if (active) setError(true); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [tick]);
+  const ccy = data?.currency ?? displayCurrency;
+  if (loading) return <TileSkeleton height={140} />;
+  if (error) return <TileError retry={() => setTick(t => t + 1)} />;
+  if (!data || !data.has_data) {
+    return (
+      <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/40 p-4 text-center">
+        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">Tax · paid by customers</div>
+        <div className="mt-2 text-[12px] text-slate-300">New orders post pixel-v14 carry tax; the total + effective rate surface here.</div>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 p-4">
+      <div className="flex items-baseline justify-between mb-3">
+        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">
+          Tax collected · last {data.days} days
+        </div>
+        {data.tax_rate_pct != null && (
+          <div className="text-[11px] text-slate-300">
+            Effective rate: <span className="font-bold text-amber-300">{data.tax_rate_pct}%</span>
+          </div>
+        )}
+      </div>
+      <div className="flex items-end gap-3">
+        <div>
+          <div className="text-[2.25rem] font-extrabold leading-none tabular-nums text-amber-300">
+            {formatMoneyCompact(data.total_tax, ccy)}
+          </div>
+          <div className="text-[11px] text-slate-300">total tax</div>
+        </div>
+        <div className="ml-auto text-right">
+          <div className="text-[11px] text-slate-300">on revenue of</div>
+          <div className="text-[14px] font-semibold text-slate-300">
+            {formatMoneyCompact(data.total_revenue, ccy)}
+          </div>
+        </div>
+      </div>
+      <CoverageBanner enriched={data.enriched_orders} total={data.total_orders_window} />
+    </div>
+  );
+}
+
+type PaymentData = {
+  currency: string; days: number; has_data: boolean;
+  enriched_orders: number; total_orders_window: number;
+  methods: { method: string; orders: number; revenue: number; pct: number }[];
+};
+
+export function PaymentMethodsTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
+  const [data, setData] = useState<PaymentData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let active = true; setLoading(true); setError(false);
+    apiClient.GET("/analytics/payment-methods")
+      .then(({ data: j, error: err }) => {
+        if (!active) return;
+        if (err || !j) setError(true); else setData(j as unknown as PaymentData);
+      })
+      .catch(() => { if (active) setError(true); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [tick]);
+  const ccy = data?.currency ?? displayCurrency;
+  if (loading) return <TileSkeleton height={180} />;
+  if (error) return <TileError retry={() => setTick(t => t + 1)} />;
+  if (!data || !data.has_data) {
+    return (
+      <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/40 p-4 text-center">
+        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">Payment methods</div>
+        <div className="mt-2 text-[12px] text-slate-300">Once gateway data flows in, the split surfaces here.</div>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 p-4">
+      <div className="flex items-baseline justify-between mb-3">
+        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">
+          Payment methods · last {data.days} days
+        </div>
+      </div>
+      <ul className="space-y-2">
+        {data.methods.slice(0, 6).map(m => (
+          <li key={m.method} className="flex items-center gap-3">
+            <div className="w-32 flex-shrink-0 text-[12px] capitalize text-slate-300 truncate">
+              {m.method.replace(/_/g, " ")}
+            </div>
+            <div className="flex-1 h-2 rounded-full bg-white/[0.04] overflow-hidden">
+              <div className="h-full rounded-full bg-emerald-400/70" style={{ width: `${m.pct}%` }} />
+            </div>
+            <div className="w-20 text-right text-[12px] font-semibold tabular-nums text-slate-300">
+              {m.pct.toFixed(0)}%
+            </div>
+            <div className="w-20 text-right text-[12px] tabular-nums text-emerald-300">
+              {formatMoneyCompact(m.revenue, ccy)}
+            </div>
+          </li>
+        ))}
+      </ul>
+      <CoverageBanner enriched={data.enriched_orders} total={data.total_orders_window} />
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
 // 4. First-vs-repeat AOV — tile fits inside section-lite-retention
 // ─────────────────────────────────────────────────────────────────
 

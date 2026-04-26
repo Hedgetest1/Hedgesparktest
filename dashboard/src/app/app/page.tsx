@@ -119,6 +119,10 @@ import {
   OrderRhythmTile,
   RepeatCadenceTile,
   TopProductsTile,
+  DiscountCodesTile,
+  OrderStatusTile,
+  TaxBreakdownTile,
+  PaymentMethodsTile,
 } from "../components/LiteBaseAnalytics";
 import { PnlReport } from "../components/PnlReport";
 import { MarginDragCard } from "../components/MarginDragCard";
@@ -2745,6 +2749,29 @@ function PageInner() {
               {isLiteFloor && (
                 <div className="mb-8">
                   <OrderRhythmTile />
+                </div>
+              )}
+
+              {/* Class D base-analytics — schema-enriched fields populated
+                  by spark-pixel.js v14+. 4 tiles in a 2-col grid sized for
+                  the operational lens (status, tax, discounts, payment).
+                  All carry coverage banners ("based on N of M orders").
+                  Founder directive 2026-04-26 — competitor parity vs
+                  Shopify Free / Better Reports / OrderMetrics. */}
+              {isLiteFloor && (
+                <div className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  <SectionErrorBoundary name="Order status">
+                    <OrderStatusTile />
+                  </SectionErrorBoundary>
+                  <SectionErrorBoundary name="Tax breakdown">
+                    <TaxBreakdownTile displayCurrency={displayCurrency} />
+                  </SectionErrorBoundary>
+                  <SectionErrorBoundary name="Discount codes">
+                    <DiscountCodesTile displayCurrency={displayCurrency} />
+                  </SectionErrorBoundary>
+                  <SectionErrorBoundary name="Payment methods">
+                    <PaymentMethodsTile displayCurrency={displayCurrency} />
+                  </SectionErrorBoundary>
                 </div>
               )}
 
