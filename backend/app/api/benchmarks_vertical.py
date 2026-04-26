@@ -74,12 +74,7 @@ def get_vertical_benchmarks_lite(
     return get_vertical_benchmark_report(db, shop)
 
 
-@router.get("/pro/vertical", response_model=VerticalSelfResponse)
-def get_my_vertical(
-    shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
-):
-    """Return the merchant's classified vertical + confidence."""
+def _build_vertical_response(db: Session, shop: str) -> VerticalSelfResponse:
     from app.services.vertical_classifier import classify_shop
     c = classify_shop(db, shop)
     return VerticalSelfResponse(
@@ -91,6 +86,32 @@ def get_my_vertical(
         sample_size=c.sample_size,
         classified_at=c.classified_at,
     )
+
+
+@router.get("/pro/vertical", response_model=VerticalSelfResponse)
+def get_my_vertical(
+    shop: str = Depends(require_pro_session),
+    db: Session = Depends(get_db),
+):
+    """Return the merchant's classified vertical + confidence (Pro)."""
+    return _build_vertical_response(db, shop)
+
+
+@router.get("/analytics/vertical", response_model=VerticalSelfResponse)
+def get_my_vertical_lite(
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+):
+    """Lite-accessible classification — sibling of `/pro/vertical`.
+
+    Tier-gate fix 2026-04-26: VerticalBenchmarksCard renders on the
+    Lite floor (commit 2af2cd6 opened the benchmark endpoint to Lite
+    via `/analytics/benchmarks/vertical`) but the classification
+    fetch stayed on `/pro/vertical`. Lite-tier merchants got 403,
+    surfaced by `verify_lite_dashboard_e2e.js` axis-2 test cell.
+    Same handler as the Pro sibling — classification is per-merchant
+    metadata, not competitive intel."""
+    return _build_vertical_response(db, shop)
 
 
 @router.get("/ops/benchmarks/pool")

@@ -36,7 +36,16 @@ try { AxeBuilder = require('@axe-core/playwright').default; } catch {}
 const ORIGIN = 'http://127.0.0.1:3000';
 const API_BACKEND = 'http://127.0.0.1:8000';
 const API_REMOTE = 'https://api.hedgesparkhq.com';
-const TEST_SHOP = 'hedgespark-dev.myshopify.com';
+// Two test shops:
+//   - hedgespark-dev: plan="pro" → backend 200s for /pro/* (cells 1-4)
+//   - verify-e2e:     plan="starter", billing_active=false →
+//                     backend 403s for /pro/* (cells 5-6).
+//                     This is the ONLY way to surface tier-gate
+//                     leakage at the runtime layer: Pro JWT can't
+//                     trigger 403 on Pro-only endpoints. Cells
+//                     5-6 are the explicit axis-2 (tier-gate) test.
+const PRO_SHOP = 'hedgespark-dev.myshopify.com';
+const LITE_SHOP = 'verify-e2e.myshopify.com';
 const OUT = '/tmp/lite_dashboard_e2e';
 
 // Sections we expect on the Lite floor (matches NAV_ITEMS_LITE in
@@ -69,20 +78,27 @@ const ACCEPTABLE_CONSOLE_NOISE = [
   /Loading the script.*tracker\.js.*Content Security Policy/,
   /Failed to fetch RSC payload/,  // Next.js dev-only
   /streaming.*disconnected/i,
+  // Browser-emitted echo of network resource failures. The actual URL
+  // and status are captured by the page.on('response') handler which
+  // applies ACCEPTABLE_NETWORK_ERRORS filtering. Counting these in
+  // console errors too would double-count and create false positives
+  // when a network failure is already deemed acceptable (e.g. SSE
+  // 403 on /pro/stream/* for Lite-tier merchants).
+  /^Failed to load resource: the server responded with a status of/,
 ];
 
-function forgeSessionToken() {
+function forgeSessionToken(shop) {
   const py = '/opt/wishspark/backend/venv/bin/python';
   const cmd = `set -a && source /opt/wishspark/backend/.env 2>/dev/null && set +a && ${py} -c "
 import sys
 sys.path.insert(0, '/opt/wishspark/backend')
 from app.core.merchant_session import create_session_token
-print(create_session_token('${TEST_SHOP}'))
+print(create_session_token('${shop}'))
 "`;
   try {
     return execSync(cmd, { shell: '/bin/bash', encoding: 'utf8' }).trim();
   } catch (e) {
-    console.error('Failed to forge session token:', e.message);
+    console.error('Failed to forge session token for', shop, ':', e.message);
     process.exit(2);
   }
 }
@@ -96,7 +112,7 @@ function shouldIgnoreConsole(text) {
   return ACCEPTABLE_CONSOLE_NOISE.some(re => re.test(text));
 }
 
-async function runOneCell({ label, viewport, urlSuffix, sessionToken }) {
+async function runOneCell({ label, viewport, urlSuffix, sessionToken, shop }) {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport });
   await ctx.addCookies([{
@@ -328,22 +344,33 @@ async function runOneCell({ label, viewport, urlSuffix, sessionToken }) {
 }
 
 (async () => {
-  const sessionToken = forgeSessionToken();
+  const proToken = forgeSessionToken(PRO_SHOP);
+  const liteToken = forgeSessionToken(LITE_SHOP);
   fs.mkdirSync(OUT, { recursive: true });
 
-  // 4-cell matrix: 2 viewports × 2 tier flows
+  // 6-cell matrix:
+  //   2 viewports × 3 tier scenarios
+  //     - pro-merchant viewing /app/lite (default Lite UI for Pro user)
+  //     - pro-merchant in ?as=lite preview (frontend tier override)
+  //     - REAL lite-tier merchant viewing /app/lite (axis-2 tier-gate test)
+  // Cells 5-6 are the explicit tier-gate-leakage check: any /pro/* call
+  // from a Lite consumer returns 403 for this JWT, surfacing in the
+  // network errors track. Cells 1-4 cannot detect leaks because the
+  // backend sees Pro JWT and returns 200 regardless of consumer.
   const cells = [
-    { label: 'desktop_pro_viewing_lite', viewport: { width: 1440, height: 900 }, urlSuffix: '' },
-    { label: 'desktop_pro_lite_preview', viewport: { width: 1440, height: 900 }, urlSuffix: '?as=lite' },
-    { label: 'mobile_pro_viewing_lite',  viewport: { width: 390,  height: 844 }, urlSuffix: '' },
-    { label: 'mobile_pro_lite_preview',  viewport: { width: 390,  height: 844 }, urlSuffix: '?as=lite' },
+    { label: 'desktop_pro_viewing_lite', viewport: { width: 1440, height: 900 }, urlSuffix: '',          sessionToken: proToken,  shop: PRO_SHOP  },
+    { label: 'desktop_pro_lite_preview', viewport: { width: 1440, height: 900 }, urlSuffix: '?as=lite',  sessionToken: proToken,  shop: PRO_SHOP  },
+    { label: 'mobile_pro_viewing_lite',  viewport: { width: 390,  height: 844 }, urlSuffix: '',          sessionToken: proToken,  shop: PRO_SHOP  },
+    { label: 'mobile_pro_lite_preview',  viewport: { width: 390,  height: 844 }, urlSuffix: '?as=lite',  sessionToken: proToken,  shop: PRO_SHOP  },
+    { label: 'desktop_real_lite_tier',   viewport: { width: 1440, height: 900 }, urlSuffix: '',          sessionToken: liteToken, shop: LITE_SHOP },
+    { label: 'mobile_real_lite_tier',    viewport: { width: 390,  height: 844 }, urlSuffix: '',          sessionToken: liteToken, shop: LITE_SHOP },
   ];
 
   const results = [];
   for (const cell of cells) {
     process.stdout.write(`Running ${cell.label}... `);
     try {
-      const r = await runOneCell({ ...cell, sessionToken });
+      const r = await runOneCell(cell);
       results.push(r);
       process.stdout.write(`${r.verdict} (${r.sectionsWithContent}/${LITE_SECTIONS.length} content, ${r.consoleErrors.length} console, ${r.networkErrors.length} network)\n`);
     } catch (e) {

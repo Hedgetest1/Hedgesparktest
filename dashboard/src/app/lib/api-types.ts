@@ -4912,9 +4912,37 @@ export interface paths {
         };
         /**
          * Get My Vertical
-         * @description Return the merchant's classified vertical + confidence.
+         * @description Return the merchant's classified vertical + confidence (Pro).
          */
         get: operations["get_my_vertical_pro_vertical_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analytics/vertical": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get My Vertical Lite
+         * @description Lite-accessible classification — sibling of `/pro/vertical`.
+         *
+         *     Tier-gate fix 2026-04-26: VerticalBenchmarksCard renders on the
+         *     Lite floor (commit 2af2cd6 opened the benchmark endpoint to Lite
+         *     via `/analytics/benchmarks/vertical`) but the classification
+         *     fetch stayed on `/pro/vertical`. Lite-tier merchants got 403,
+         *     surfaced by `verify_lite_dashboard_e2e.js` axis-2 test cell.
+         *     Same handler as the Pro sibling — classification is per-merchant
+         *     metadata, not competitive intel.
+         */
+        get: operations["get_my_vertical_lite_analytics_vertical_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -17383,6 +17411,26 @@ export interface operations {
         };
     };
     get_my_vertical_pro_vertical_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerticalSelfResponse"];
+                };
+            };
+        };
+    };
+    get_my_vertical_lite_analytics_vertical_get: {
         parameters: {
             query?: never;
             header?: never;

@@ -147,7 +147,14 @@ export function VerticalBenchmarksCard({
     };
 
     const fetchClassification = async () => {
-      const { data: j, error: err } = await apiClient.GET("/pro/vertical");
+      // Tier-gate aware: /pro/vertical for Pro merchants, /analytics/vertical
+      // for Lite. Both endpoints return the same shape (VerticalSelfResponse).
+      // The `isProUser` prop drives the choice — when this card renders on
+      // the Lite floor (commit 2af2cd6), isProUser is false and we call the
+      // Lite-accessible sibling. Mismatching this produces a silent 403
+      // surfaced by `verify_lite_dashboard_e2e.js` axis-2 cell.
+      const endpoint = isProUser ? "/pro/vertical" : "/analytics/vertical";
+      const { data: j, error: err } = await apiClient.GET(endpoint);
       if (err || !j || !active) return;
       setClassification(j as unknown as VerticalSelf);
     };
