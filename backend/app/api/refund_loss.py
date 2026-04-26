@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_pro_session
+from app.core.deps import require_merchant_session, require_pro_session
 
 router = APIRouter(tags=["refund_loss"])
 
@@ -63,5 +63,23 @@ def get_refund_losses(
     v2 (memory: F2 note) will switch to direct Shopify refund webhook
     ingestion without changing this API.
     """
+    from app.services.refund_loss import get_refund_loss_report
+    return get_refund_loss_report(db, shop)
+
+
+@router.get(
+    "/analytics/refund-losses",
+    response_model=RefundLossResponse,
+    response_model_exclude_none=False,
+)
+def get_refund_losses_lite(
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+):
+    """Lite-accessible refund-loss report (founder directive 2026-04-26).
+    Same service + response shape as /pro/refund-losses. Better Reports,
+    OrderMetrics, Profit Bee all surface refund analytics in their
+    $14-40/mo tiers — keeping ours Pro-only meant we lost the checklist
+    comparison. Same backing service, same 3h cache, same loss framing."""
     from app.services.refund_loss import get_refund_loss_report
     return get_refund_loss_report(db, shop)

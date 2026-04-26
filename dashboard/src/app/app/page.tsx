@@ -15,6 +15,7 @@ import { RevenueWindowPro, RevenueWindowLite } from "../components/RevenueWindow
 import { LiftReport } from "../components/LiftReport";
 import { HeatmapCard } from "../components/HeatmapCard";
 import { CohortTable } from "../components/CohortTable";
+import { PredictedLtv } from "../components/PredictedLtv";
 import { OnboardingHub } from "../components/OnboardingHub";
 import { NudgePerformance } from "../components/NudgePerformance";
 import { AudienceSegments } from "../components/AudienceSegments";
@@ -1456,6 +1457,32 @@ function PageInner() {
   }, [shop]);
 
   // ---------------------------------------------------------------------------
+  // Predicted LTV (Lite-accessible after 2026-04-26 founder unlock).
+  // The Pro intelligence bundle above sets predictedLtvData when tier
+  // === "pro". For Lite, fire the dedicated /analytics/cohorts/ltv/customers
+  // route so the unlocked PredictedLtv tile on the Lite floor receives
+  // its `data` prop. Skipped when Pro to avoid a duplicate fetch.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!shop || tier === "pro") return;
+    let active = true;
+    apiClient
+      .GET("/analytics/cohorts/ltv/customers", {
+        params: { query: { limit: 10 } },
+        headers: getHeaders(apiHeaders),
+      })
+      .then((res) => {
+        if (active && res.data != null) {
+          // Same shape as /pro/cohorts/ltv/customers (PredictedLtvResponse).
+          setPredictedLtvData(res.data as PredictedLtvData);
+        }
+      })
+      .catch(() => { /* PredictedLtv degrades to its own empty state */ });
+    return () => { active = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shop, tier]);
+
+  // ---------------------------------------------------------------------------
   // Analytics: alerts, weekly trend, top pages (every 30s)
   //
   // Lite users  → /analytics/alerts        (type, priority, message only;
@@ -2848,6 +2875,120 @@ function PageInner() {
                         displayCurrency={displayCurrency}
                       />
                     </div>
+
+                    {/* Weekly cohort matrix — full Lifetimely-Free parity.
+                        Founder directive 2026-04-26: every base analytic
+                        competitors ship at $0–$70 must be Lite-accessible.
+                        Backend route: /analytics/cohorts/weekly. */}
+                    <div className="mt-5">
+                      <SectionErrorBoundary name="Cohort matrix">
+                        <CohortTable
+                          apiBase={API_BASE}
+                          shop={shop}
+                          apiHeaders={apiHeaders}
+                          displayCurrency={displayCurrency}
+                          isPro={false}
+                        />
+                      </SectionErrorBoundary>
+                    </div>
+
+                    {/* Predicted LTV — top customers ranked by next-12-month
+                        predicted lifetime value. Lite-unlocked via
+                        /analytics/cohorts/ltv/customers (founder directive
+                        2026-04-26). predictedLtvData is fetched by the
+                        Lite-tier effect above when tier !== "pro". */}
+                    <div className="mt-5">
+                      <SectionErrorBoundary name="Predicted LTV">
+                        <PredictedLtv
+                          data={predictedLtvData}
+                          displayCurrency={displayCurrency}
+                        />
+                      </SectionErrorBoundary>
+                    </div>
+                  </div>
+                </section>
+              )}
+
+              {/* Recover lost revenue — Lite refund-loss section
+                  (founder directive 2026-04-26). Better Reports /
+                  OrderMetrics / Profit Bee all surface this in their
+                  $14–$40 tier; we refuse to be the only competitor
+                  hiding it behind Pro. Backed by /analytics/refund-losses. */}
+              {isLiteFloor && (
+                <section
+                  id="section-lite-refunds"
+                  aria-labelledby="lite-refunds-heading"
+                  className="relative mb-8 overflow-hidden rounded-3xl border border-rose-400/[0.15] bg-gradient-to-br from-[#1a0a0d] via-[#0a0a14] to-[#0b0c18] p-7 sm:p-9"
+                >
+                  <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#fb7185] to-transparent opacity-50" />
+                  <div className="pointer-events-none absolute -right-32 -top-32 h-[340px] w-[340px] rounded-full bg-[#fb7185]/[0.05] blur-[150px]" />
+                  <div className="relative">
+                    <div className="mb-5">
+                      <h2
+                        id="lite-refunds-heading"
+                        className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-[#C4B5FD] sm:text-[2.5rem]"
+                      >
+                        Recover lost revenue
+                      </h2>
+                      <div className="mt-1 text-[16px] font-medium leading-snug text-slate-200 sm:text-[17px]">
+                        Products whose order momentum is slipping
+                      </div>
+                      <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
+                        Last 14 days vs. the prior 14 days, ranked by the
+                        monthly € you would recover by stopping the decline.
+                        v1 uses Shopify order frequency as a refund proxy; v2
+                        switches to direct refund webhook ingestion.
+                      </p>
+                    </div>
+                    <SectionErrorBoundary name="Refund losses">
+                      <ProductsInDecline
+                        apiBase={API_BASE}
+                        shop={shop}
+                        isProUser={false}
+                      />
+                    </SectionErrorBoundary>
+                  </div>
+                </section>
+              )}
+
+              {/* Live audience — Lite audience segmentation
+                  (founder directive 2026-04-26). Lifetimely / Peel ship
+                  the equivalent visitor hot/warm/cold view at $0–$79;
+                  ours now matches via /analytics/segments. */}
+              {isLiteFloor && (
+                <section
+                  id="section-lite-audience"
+                  aria-labelledby="lite-audience-heading"
+                  className="relative mb-8 overflow-hidden rounded-3xl border border-amber-400/[0.15] bg-gradient-to-br from-[#1a140a] via-[#0a0a14] to-[#0b0c18] p-7 sm:p-9"
+                >
+                  <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#fbbf24] to-transparent opacity-50" />
+                  <div className="pointer-events-none absolute -right-32 -top-32 h-[340px] w-[340px] rounded-full bg-[#fbbf24]/[0.05] blur-[150px]" />
+                  <div className="relative">
+                    <div className="mb-5">
+                      <h2
+                        id="lite-audience-heading"
+                        className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-[#C4B5FD] sm:text-[2.5rem]"
+                      >
+                        Who&apos;s ready to buy
+                      </h2>
+                      <div className="mt-1 text-[16px] font-medium leading-snug text-slate-200 sm:text-[17px]">
+                        Hot, warm, cold visitors per top product
+                      </div>
+                      <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
+                        Live behavioral segmentation across your top
+                        products, with per-segment conversion estimates and
+                        revenue-window projections. Updated every page view.
+                      </p>
+                    </div>
+                    <SectionErrorBoundary name="Audience segments">
+                      <AudienceSegments
+                        apiBase={API_BASE}
+                        shop={shop}
+                        apiHeaders={apiHeaders}
+                        topProducts={topProducts}
+                        isPro={false}
+                      />
+                    </SectionErrorBoundary>
                   </div>
                 </section>
               )}

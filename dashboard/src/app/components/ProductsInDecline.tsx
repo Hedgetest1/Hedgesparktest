@@ -7,7 +7,10 @@
  * projected monthly € loss if the decline continues. v1 uses the
  * order-frequency proxy (see refund_loss service).
  *
- * Data source: GET /pro/refund-losses
+ * Tier-aware data source (founder directive 2026-04-26 — Lifetimely-parity unlock):
+ *   - Pro merchants: GET /pro/refund-losses
+ *   - Lite merchants: GET /analytics/refund-losses
+ * Both endpoints back onto the same `get_refund_loss_report` service.
  */
 
 import { useEffect, useState } from "react";
@@ -58,11 +61,13 @@ export function ProductsInDecline({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!apiBase || !shop || !isProUser) { setLoading(false); return; }
+    if (!apiBase || !shop) { setLoading(false); return; }
     let active = true;
     setLoading(true);
-    apiClient
-      .GET("/pro/refund-losses")
+    const req = isProUser
+      ? apiClient.GET("/pro/refund-losses")
+      : apiClient.GET("/analytics/refund-losses");
+    req
       .then(({ data: j, error: err }) => {
         if (!active) return;
         if (err || !j) setData(null);
@@ -71,8 +76,6 @@ export function ProductsInDecline({
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [apiBase, shop, isProUser]);
-
-  if (!isProUser) return null;
 
   if (loading) {
     return (

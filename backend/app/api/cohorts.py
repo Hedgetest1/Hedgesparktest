@@ -232,12 +232,17 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/pro/cohorts", tags=["cohorts"])
 
-# Lite-accessible sibling router for the subset of cohort endpoints
-# that are part of the €39 tier (Strada 2, 2026-04-20). Only the
-# top-level retention summary is exposed — the full matrix, monthly
-# cohorts, per-customer LTV, and behavioral cohorts remain Pro-gated
-# because their depth + volume is the Pro moat. Lite gets the "how
-# are we doing overall at retaining customers?" glance.
+# Lite-accessible sibling router for cohort endpoints in the €39 tier.
+# Original split (Strada 2, 2026-04-20) reserved the full matrix and
+# per-customer LTV for Pro on positioning grounds. Founder directive
+# 2026-04-26 reversed that: every analytic competitors offer in their
+# $0-$70 tier (Lifetimely Free, Shopify free, Profit Bee, OrderMetrics,
+# Better Reports, Peel) must be Lite-accessible. The Pro moat lives in
+# RARS + behavioral cohorts + holdout-measured nudges, NOT in retention
+# math the merchant can read on Lifetimely Free for free. So Lite now
+# also gets the full weekly matrix and the predicted-LTV customer list.
+# Behavioral cohorts (`/pro/cohorts/behavioral`) stay Pro — they are a
+# real differentiator built on first-party event data competitors lack.
 lite_router = APIRouter(prefix="/analytics/cohorts", tags=["cohorts"])
 
 
@@ -292,6 +297,44 @@ def get_product_ltv_lite(
     existing paths type import."""
     from app.services.ltv_engine import get_product_ltv_contribution
     return get_product_ltv_contribution(db, shop, limit=20)
+
+
+@lite_router.get(
+    "/weekly",
+    response_model=WeeklyCohortsResponse,
+    response_model_exclude_none=False,
+)
+def get_weekly_cohorts_lite(
+    weeks: int = 12,
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+):
+    """Lite-accessible weekly cohort matrix (founder directive 2026-04-26).
+    Same service + response shape as the Pro-gated /pro/cohorts (no path
+    component). Lifetimely Free shows the equivalent matrix for $0; we
+    refuse to be the only competitor that hides it behind Pro. The Pro
+    moat sits on behavioral cohorts + nudge holdouts, not on retention
+    arithmetic any analyst can read for free elsewhere."""
+    weeks = max(4, min(weeks, 26))
+    return get_cohort_retention(db, shop, weeks=weeks)
+
+
+@lite_router.get(
+    "/ltv/customers",
+    response_model=PredictedLtvResponse,
+    response_model_exclude_none=False,
+)
+def get_predicted_ltv_lite(
+    limit: int = 50,
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+):
+    """Lite-accessible predicted LTV customer ranking (founder directive
+    2026-04-26). Same service + response shape as /pro/cohorts/ltv/customers.
+    Top customers ranked by 12-month predicted LTV with repeat probability.
+    Lifetimely Free ships the equivalent ranked list — keeping ours Pro-only
+    let competitor pitches frame us as 'less complete than free'. Closed."""
+    return get_predicted_ltv(db, shop, limit=min(limit, 100))
 
 
 

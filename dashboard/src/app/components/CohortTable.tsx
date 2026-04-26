@@ -9,7 +9,12 @@ import { apiClient, getHeaders, type paths } from "../lib/api-client";
 // The feature that attacks Lifetimely/Peel on their core territory.
 // Shows weekly cohort retention rates from real Shopify order data.
 //
-// Source of truth: GET /pro/cohorts → WeeklyCohortsResponse (fully typed).
+// Tier-aware source of truth:
+//   - Pro merchants: GET /pro/cohorts → WeeklyCohortsResponse
+//   - Lite merchants: GET /analytics/cohorts/weekly → WeeklyCohortsResponse
+// Both endpoints back onto the same `get_cohort_retention` service and
+// emit the same shape; the split exists only because Lite uses
+// require_merchant_session and Pro uses require_pro_session.
 //
 // HedgeSpark's future advantage: linking behavioral engagement in week 0
 // to retention outcomes in week 8 — Lifetimely structurally cannot do this.
@@ -43,11 +48,13 @@ export function CohortTable({
   shop,
   apiHeaders,
   displayCurrency = "USD",
+  isPro = true,
 }: {
   apiBase: string;
   shop: string;
   apiHeaders: () => HeadersInit;
   displayCurrency?: DisplayCurrency;
+  isPro?: boolean;
 }) {
   const formatDollars = createMoneyFormatter(displayCurrency, "USD");
   const [data, setData] = useState<CohortData | null>(null);
@@ -60,11 +67,17 @@ export function CohortTable({
     async function load() {
       try {
         setLoading(true);
-        const res = await apiClient.GET("/pro/cohorts", {
-          params: { query: { weeks: 8 } },
-          headers: getHeaders(apiHeaders),
-        });
-        if (active && res.data != null) setData(res.data);
+        const headers = getHeaders(apiHeaders);
+        const res = isPro
+          ? await apiClient.GET("/pro/cohorts", {
+              params: { query: { weeks: 8 } },
+              headers,
+            })
+          : await apiClient.GET("/analytics/cohorts/weekly", {
+              params: { query: { weeks: 8 } },
+              headers,
+            });
+        if (active && res.data != null) setData(res.data as CohortData);
       } catch { /* silent */ }
       finally { if (active) setLoading(false); }
     }
@@ -72,7 +85,7 @@ export function CohortTable({
     load();
     return () => { active = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shop]);
+  }, [shop, isPro]);
 
   if (loading) {
     return (

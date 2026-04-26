@@ -82,13 +82,20 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_pro_session
+from app.core.deps import require_merchant_session, require_pro_session
 from app.core.url_utils import normalize_product_url
 from app.services.audience_segments import segment_product_visitors
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/pro", tags=["segments"])
+
+# Lite-accessible sibling router (founder directive 2026-04-26).
+# Lifetimely / Peel ship the equivalent visitor-segmentation read at
+# the $0-$70 tier; we refuse to be the only Shopify intelligence app
+# that hides behavioral hot/warm/cold visibility behind Pro. Same
+# service, same shape, swap auth dependency only.
+lite_router = APIRouter(prefix="/analytics", tags=["segments"])
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +215,60 @@ def get_audience_segments(
     # Inject shop currency so the dashboard can render each segment's
     # estimated_revenue_window in the merchant's native symbol. Falls
     # back to USD when the lookup returns None.
+    try:
+        from app.services.revenue_metrics import get_shop_currency
+        result["currency"] = get_shop_currency(db, shop) or "USD"
+    except Exception:
+        result["currency"] = "USD"
+    return result
+
+
+@lite_router.get(
+    "/segments",
+    response_model=SegmentsResponse,
+    response_model_exclude_none=False,
+)
+def get_audience_segments_lite(
+    shop: str = Depends(require_merchant_session),
+    product_url: str = Query(..., description="Canonical product path, e.g. /products/handle"),
+    hours: int = Query(
+        default=72,
+        ge=1,
+        le=168,
+        description="Active visitor window in hours. Default 72 (3 days). Max 168 (7 days).",
+    ),
+    db: Session = Depends(get_db),
+):
+    """Lite-accessible audience segmentation (founder directive 2026-04-26).
+    Same service + response shape as /pro/segments. Lifetimely Free + Peel
+    ship the equivalent hot/warm/cold visitor view at $0; we refuse to
+    cede the comparison. The Pro moat sits on holdout-measured nudges
+    that ACT on this segmentation, not on hiding the segmentation itself."""
+    canonical = normalize_product_url(product_url)
+    if not canonical:
+        log.warning(
+            "segments_lite: invalid product_url=%r for shop=%s — rejected",
+            product_url, shop,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Invalid product_url. Must be a canonical Shopify product path: "
+                "/products/{handle}. Query strings and variant params are stripped automatically."
+            ),
+        )
+
+    log.info(
+        "segments_lite: GET /analytics/segments shop=%s product=%s hours=%d",
+        shop, canonical, hours,
+    )
+
+    result = segment_product_visitors(
+        db=db,
+        shop_domain=shop,
+        product_url=canonical,
+        hours=hours,
+    )
     try:
         from app.services.revenue_metrics import get_shop_currency
         result["currency"] = get_shop_currency(db, shop) or "USD"

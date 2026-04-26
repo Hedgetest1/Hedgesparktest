@@ -55,11 +55,13 @@ export function AudienceSegments({
   shop,
   apiHeaders,
   topProducts,
+  isPro = true,
 }: {
   apiBase: string;
   shop: string;
   apiHeaders: () => HeadersInit;
   topProducts: { product_url?: string; product_name?: string }[];
+  isPro?: boolean;
 }) {
   const [products, setProducts] = useState<ProductSegments[]>([]);
   const [loading, setLoading] = useState(true);
@@ -94,11 +96,17 @@ export function AudienceSegments({
     Promise.all(
       urls.map(async (productUrl) => {
         try {
-          const res = await apiClient.GET("/pro/segments", {
-            params: { query: { product_url: productUrl, hours: 72 } },
-            headers: getHeaders(apiHeaders),
-          });
-          const json: SegmentsResponse | undefined = res.data;
+          const headers = getHeaders(apiHeaders);
+          const res = isPro
+            ? await apiClient.GET("/pro/segments", {
+                params: { query: { product_url: productUrl, hours: 72 } },
+                headers,
+              })
+            : await apiClient.GET("/analytics/segments", {
+                params: { query: { product_url: productUrl, hours: 72 } },
+                headers,
+              });
+          const json: SegmentsResponse | undefined = res.data as SegmentsResponse | undefined;
           if (json == null) {
             return { product_url: productUrl, segments: [], total_active: 0, error: true };
           }
@@ -137,7 +145,7 @@ export function AudienceSegments({
     });
 
     return () => { active = false; };
-  }, [shop, apiBase, topProducts.length]);
+  }, [shop, apiBase, topProducts.length, isPro]);
 
   if (loading) {
     return (

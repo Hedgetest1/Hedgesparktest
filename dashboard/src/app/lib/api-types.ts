@@ -1892,6 +1892,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/segments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Audience Segments Lite
+         * @description Lite-accessible audience segmentation (founder directive 2026-04-26).
+         *     Same service + response shape as /pro/segments. Lifetimely Free + Peel
+         *     ship the equivalent hot/warm/cold visitor view at $0; we refuse to
+         *     cede the comparison. The Pro moat sits on holdout-measured nudges
+         *     that ACT on this segmentation, not on hiding the segmentation itself.
+         */
+        get: operations["get_audience_segments_lite_analytics_segments_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/nudges/active": {
         parameters: {
             query?: never;
@@ -2945,6 +2969,55 @@ export interface paths {
          *     existing paths type import.
          */
         get: operations["get_product_ltv_lite_analytics_cohorts_ltv_products_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analytics/cohorts/weekly": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Weekly Cohorts Lite
+         * @description Lite-accessible weekly cohort matrix (founder directive 2026-04-26).
+         *     Same service + response shape as the Pro-gated /pro/cohorts (no path
+         *     component). Lifetimely Free shows the equivalent matrix for $0; we
+         *     refuse to be the only competitor that hides it behind Pro. The Pro
+         *     moat sits on behavioral cohorts + nudge holdouts, not on retention
+         *     arithmetic any analyst can read for free elsewhere.
+         */
+        get: operations["get_weekly_cohorts_lite_analytics_cohorts_weekly_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analytics/cohorts/ltv/customers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Predicted Ltv Lite
+         * @description Lite-accessible predicted LTV customer ranking (founder directive
+         *     2026-04-26). Same service + response shape as /pro/cohorts/ltv/customers.
+         *     Top customers ranked by 12-month predicted LTV with repeat probability.
+         *     Lifetimely Free ships the equivalent ranked list — keeping ours Pro-only
+         *     let competitor pitches frame us as 'less complete than free'. Closed.
+         */
+        get: operations["get_predicted_ltv_lite_analytics_cohorts_ltv_customers_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5703,6 +5776,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/refund-losses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Refund Losses Lite
+         * @description Lite-accessible refund-loss report (founder directive 2026-04-26).
+         *     Same service + response shape as /pro/refund-losses. Better Reports,
+         *     OrderMetrics, Profit Bee all surface refund analytics in their
+         *     $14-40/mo tiers — keeping ours Pro-only meant we lost the checklist
+         *     comparison. Same backing service, same 3h cache, same loss framing.
+         */
+        get: operations["get_refund_losses_lite_analytics_refund_losses_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pro/goals": {
         parameters: {
             query?: never;
@@ -5870,6 +5967,29 @@ export interface paths {
          *     explicitly named.
          */
         get: operations["compare_segments_pro_segments_compare_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analytics/segments/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Compare Segments Lite
+         * @description Lite-accessible product comparison (founder directive 2026-04-26).
+         *     Same service + response shape as /pro/segments/compare. Pairs with the
+         *     Lite-opened /analytics/segments so the merchant can do the full
+         *     "compare two products' audiences" workflow without a Pro upsell wall.
+         */
+        get: operations["compare_segments_lite_analytics_segments_compare_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -13717,6 +13837,40 @@ export interface operations {
             };
         };
     };
+    get_audience_segments_lite_analytics_segments_get: {
+        parameters: {
+            query: {
+                /** @description Canonical product path, e.g. /products/handle */
+                product_url: string;
+                /** @description Active visitor window in hours. Default 72 (3 days). Max 168 (7 days). */
+                hours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SegmentsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_active_nudge_public_nudges_active_get: {
         parameters: {
             query: {
@@ -14860,6 +15014,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GatewayProductsResponse"];
+                };
+            };
+        };
+    };
+    get_weekly_cohorts_lite_analytics_cohorts_weekly_get: {
+        parameters: {
+            query?: {
+                weeks?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeeklyCohortsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_predicted_ltv_lite_analytics_cohorts_ltv_customers_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PredictedLtvResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -18579,6 +18795,26 @@ export interface operations {
             };
         };
     };
+    get_refund_losses_lite_analytics_refund_losses_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RefundLossResponse"];
+                };
+            };
+        };
+    };
     list_goals_pro_goals_get: {
         parameters: {
             query?: never;
@@ -18820,6 +19056,41 @@ export interface operations {
         };
     };
     compare_segments_pro_segments_compare_get: {
+        parameters: {
+            query: {
+                /** @description First product URL (canonical /products/handle) */
+                product_a: string;
+                /** @description Second product URL */
+                product_b: string;
+                hours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SegmentCompareResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compare_segments_lite_analytics_segments_compare_get: {
         parameters: {
             query: {
                 /** @description First product URL (canonical /products/handle) */

@@ -79,7 +79,7 @@ from app.api.webhooks import router as webhooks_router
 from app.api.shopify_refunds import router as shopify_refunds_router
 from app.api.shopify_flow_schema import router as shopify_flow_schema_router
 from app.api.track_purchase import router as track_purchase_router
-from app.api.segments import router as segments_router
+from app.api.segments import router as segments_router, lite_router as segments_lite_router
 from app.models.shop_order import ShopOrder  # noqa: F401 — ensures table is created
 from app.models.visitor_purchase_session import VisitorPurchaseSession  # noqa: F401 — ensures table is created
 from app.models.shop_conversion_calibration import ShopConversionCalibration  # noqa: F401 — ensures table is created
@@ -528,6 +528,7 @@ app.include_router(shopify_refunds_router)
 app.include_router(shopify_flow_schema_router)
 app.include_router(track_purchase_router)
 app.include_router(segments_router)
+app.include_router(segments_lite_router)
 app.include_router(nudges_router)
 app.include_router(nudge_script_router)
 app.include_router(nudge_events_router)

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_pro_session
+from app.core.deps import require_merchant_session, require_pro_session
 
 router = APIRouter(tags=["segment_compare"])
 
@@ -59,5 +59,25 @@ def compare_segments(
     Loss-framed: the loser's gap in € is quantified and the winner is
     explicitly named.
     """
+    from app.services.segment_compare import compare_two_products
+    return compare_two_products(db, shop, product_a, product_b, hours=hours)
+
+
+@router.get(
+    "/analytics/segments/compare",
+    response_model=SegmentCompareResponse,
+    response_model_exclude_none=False,
+)
+def compare_segments_lite(
+    product_a: str = Query(..., description="First product URL (canonical /products/handle)"),
+    product_b: str = Query(..., description="Second product URL"),
+    hours: int = Query(default=72, ge=1, le=168),
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+):
+    """Lite-accessible product comparison (founder directive 2026-04-26).
+    Same service + response shape as /pro/segments/compare. Pairs with the
+    Lite-opened /analytics/segments so the merchant can do the full
+    "compare two products' audiences" workflow without a Pro upsell wall."""
     from app.services.segment_compare import compare_two_products
     return compare_two_products(db, shop, product_a, product_b, hours=hours)
