@@ -155,4 +155,268 @@ describe("LiteBaseAnalytics real-data renders", () => {
       expect(screen.getByText("Ceramic Mug")).toBeInTheDocument();
     });
   });
+
+  it("DeviceSplitTile renders bar per device with pct", async () => {
+    (apiClient.GET as any).mockResolvedValue({
+      data: {
+        days: 14, total_sessions: 1000, has_data: true,
+        slices: [
+          { device: "mobile", sessions: 600, pct: 60.0 },
+          { device: "desktop", sessions: 350, pct: 35.0 },
+          { device: "tablet", sessions: 50, pct: 5.0 },
+        ],
+      },
+      error: null,
+    });
+    render(<DeviceSplitTile />);
+    await waitFor(() => {
+      expect(screen.getByText("Mobile")).toBeInTheDocument();
+      expect(screen.getByText("Desktop")).toBeInTheDocument();
+      expect(screen.getByText("60%")).toBeInTheDocument();
+      expect(screen.getByText("1,000 sessions")).toBeInTheDocument();
+    });
+  });
+
+  it("FirstVsRepeatAovTile shows AOV uplift pct", async () => {
+    (apiClient.GET as any).mockResolvedValue({
+      data: {
+        currency: "USD", has_data: true,
+        first: { customers: 100, orders: 100, revenue: 10000, aov: 100 },
+        repeat: { customers: 30, orders: 30, revenue: 4500, aov: 150 },
+        aov_uplift_pct: 50.0,
+      },
+      error: null,
+    });
+    render(<FirstVsRepeatAovTile displayCurrency="USD" />);
+    await waitFor(() => {
+      expect(screen.getByText(/First-time \(100 customers\)/i)).toBeInTheDocument();
+      expect(screen.getByText(/Repeat \(30 customers\)/i)).toBeInTheDocument();
+      expect(screen.getByText(/\+50% uplift/i)).toBeInTheDocument();
+    });
+  });
+
+  it("RepeatCadenceTile renders median + percentile range", async () => {
+    (apiClient.GET as any).mockResolvedValue({
+      data: {
+        has_data: true,
+        customers_with_2plus: 36,
+        intervals_count: 36,
+        median_days: 80.0,
+        p25_days: 60.0,
+        p75_days: 96.0,
+        mean_days: 77.4,
+      },
+      error: null,
+    });
+    render(<RepeatCadenceTile />);
+    await waitFor(() => {
+      expect(screen.getByText("80")).toBeInTheDocument();
+      expect(screen.getByText(/days median/i)).toBeInTheDocument();
+      expect(screen.getByText(/36 repeat customers/i)).toBeInTheDocument();
+      expect(screen.getByText(/60 — 96 days/i)).toBeInTheDocument();
+    });
+  });
+
+  it("OrderRhythmTile renders peak hour + day", async () => {
+    const by_hour = Array.from({ length: 24 }, (_, h) => ({
+      hour: h, orders: h === 14 ? 50 : 5, revenue: h === 14 ? 5000 : 500,
+    }));
+    const by_dow = [
+      { dow: 0, label: "Sun", orders: 10, revenue: 1000 },
+      { dow: 1, label: "Mon", orders: 20, revenue: 2000 },
+      { dow: 2, label: "Tue", orders: 30, revenue: 3000 },
+      { dow: 3, label: "Wed", orders: 60, revenue: 6000 },
+      { dow: 4, label: "Thu", orders: 25, revenue: 2500 },
+      { dow: 5, label: "Fri", orders: 35, revenue: 3500 },
+      { dow: 6, label: "Sat", orders: 15, revenue: 1500 },
+    ];
+    (apiClient.GET as any).mockResolvedValue({
+      data: {
+        currency: "USD", timezone: "Europe/Rome", days: 30, has_data: true,
+        by_hour, by_dow, peak_hour: 14, peak_dow: 3,
+      },
+      error: null,
+    });
+    render(<OrderRhythmTile />);
+    await waitFor(() => {
+      expect(screen.getByText(/Peak:/i)).toBeInTheDocument();
+      expect(screen.getByText(/Wed 14:00/)).toBeInTheDocument();
+    });
+  });
+
+  it("AbandonmentTrendTile renders avg pct + day series", async () => {
+    const series = Array.from({ length: 7 }, (_, i) => ({
+      day: `2026-04-${20 + i}`,
+      cart_adds: 100,
+      purchases: 70,
+      abandonment_pct: 30,
+    }));
+    (apiClient.GET as any).mockResolvedValue({
+      data: {
+        days: 7, timezone: "UTC", has_data: true,
+        series, avg_abandonment_pct: 30,
+      },
+      error: null,
+    });
+    render(<AbandonmentTrendTile />);
+    await waitFor(() => {
+      expect(screen.getByText(/30% avg/i)).toBeInTheDocument();
+    });
+  });
+
+  it("TopVariantsTile renders variant badge + SKU + units", async () => {
+    (apiClient.GET as any).mockResolvedValue({
+      data: {
+        currency: "USD", days: 30, has_data: true,
+        enriched_orders: 50, total_orders_window: 100,
+        variants: [
+          { variant_id: "42001", product_title: "Silk Pillowcase",
+            variant_title: "Ivory / Standard", sku: "SP-IV-STD",
+            units: 25, revenue: 4150.5 },
+          { variant_id: "42002", product_title: "Silk Pillowcase",
+            variant_title: "Charcoal / King", sku: "SP-CH-KNG",
+            units: 12, revenue: 2400.0 },
+        ],
+      },
+      error: null,
+    });
+    render(<TopVariantsTile displayCurrency="USD" />);
+    await waitFor(() => {
+      expect(screen.getByText("Ivory / Standard")).toBeInTheDocument();
+      expect(screen.getByText("Charcoal / King")).toBeInTheDocument();
+      expect(screen.getByText(/SKU: SP-IV-STD/i)).toBeInTheDocument();
+      expect(screen.getByText(/25 units/i)).toBeInTheDocument();
+    });
+  });
+});
+
+// ─── Class D real-data render tests ────────────────────────────────
+
+import {
+  DiscountCodesTile,
+  OrderStatusTile,
+  TaxBreakdownTile,
+  PaymentMethodsTile,
+} from "./LiteBaseAnalytics";
+
+describe("LiteBaseAnalytics Class D real-data", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("DiscountCodesTile lists codes + coverage banner", async () => {
+    (apiClient.GET as any).mockResolvedValue({
+      data: {
+        currency: "USD", days: 30, has_data: true,
+        enriched_orders: 25, total_orders_window: 100,
+        codes: [
+          { code: "SUMMER10", orders: 15, total_discount: 150.0, total_revenue: 2250.0 },
+          { code: "FREESHIP", orders: 10, total_discount: 50.0, total_revenue: 1500.0 },
+        ],
+      },
+      error: null,
+    });
+    render(<DiscountCodesTile displayCurrency="USD" />);
+    await waitFor(() => {
+      expect(screen.getByText("SUMMER10")).toBeInTheDocument();
+      expect(screen.getByText("FREESHIP")).toBeInTheDocument();
+      expect(screen.getByText(/Based on 25 of 100 orders/i)).toBeInTheDocument();
+    });
+  });
+
+  it("OrderStatusTile renders financial + fulfillment splits with live-update copy", async () => {
+    (apiClient.GET as any).mockResolvedValue({
+      data: {
+        days: 30, has_data: true, enriched_orders: 100,
+        financial: [
+          { label: "paid", orders: 80, pct: 80 },
+          { label: "refunded", orders: 20, pct: 20 },
+        ],
+        fulfillment: [
+          { label: "fulfilled", orders: 70, pct: 70 },
+          { label: "unfulfilled", orders: 30, pct: 30 },
+        ],
+      },
+      error: null,
+    });
+    render(<OrderStatusTile />);
+    await waitFor(() => {
+      expect(screen.getByText("paid")).toBeInTheDocument();
+      expect(screen.getByText("fulfilled")).toBeInTheDocument();
+      // Verify Note-2 closure copy: live-update language, NOT pixel-time-snapshot
+      expect(screen.getByText(/Updates live as refunds \+ fulfillments fire/i)).toBeInTheDocument();
+    });
+  });
+
+  it("TaxBreakdownTile shows total + effective rate", async () => {
+    (apiClient.GET as any).mockResolvedValue({
+      data: {
+        currency: "USD", days: 30, has_data: true,
+        enriched_orders: 100, total_orders_window: 150,
+        total_revenue: 50000, total_tax: 3700, tax_rate_pct: 8.0,
+      },
+      error: null,
+    });
+    render(<TaxBreakdownTile displayCurrency="USD" />);
+    await waitFor(() => {
+      expect(screen.getByText(/Tax collected/i)).toBeInTheDocument();
+      expect(screen.getByText(/8%/)).toBeInTheDocument();
+      expect(screen.getByText(/Based on 100 of 150/i)).toBeInTheDocument();
+    });
+  });
+
+  it("PaymentMethodsTile lists gateways", async () => {
+    (apiClient.GET as any).mockResolvedValue({
+      data: {
+        currency: "USD", days: 30, has_data: true,
+        enriched_orders: 100, total_orders_window: 100,
+        methods: [
+          { method: "shopify_payments", orders: 60, revenue: 12000, pct: 60 },
+          { method: "paypal", orders: 30, revenue: 6000, pct: 30 },
+          { method: "stripe", orders: 10, revenue: 2000, pct: 10 },
+        ],
+      },
+      error: null,
+    });
+    render(<PaymentMethodsTile displayCurrency="USD" />);
+    await waitFor(() => {
+      expect(screen.getByText("shopify payments")).toBeInTheDocument();
+      expect(screen.getByText("paypal")).toBeInTheDocument();
+      expect(screen.getByText("stripe")).toBeInTheDocument();
+    });
+  });
+});
+
+// ─── Interaction test: retry button re-fetches ────────────────────────
+
+describe("LiteBaseAnalytics interaction", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("Retry button re-calls apiClient on click", async () => {
+    const { fireEvent } = await import("@testing-library/react");
+    let callCount = 0;
+    (apiClient.GET as any).mockImplementation(() => {
+      callCount += 1;
+      if (callCount === 1) return Promise.resolve({ data: null, error: { detail: "transient" } });
+      return Promise.resolve({
+        data: {
+          days: 14, total_sessions: 100, has_data: true,
+          slices: [{ device: "mobile", sessions: 100, pct: 100.0 }],
+        },
+        error: null,
+      });
+    });
+
+    render(<DeviceSplitTile />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Try again/i })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Try again/i }));
+    await waitFor(() => {
+      expect(screen.getByText("Mobile")).toBeInTheDocument();
+    });
+    expect(callCount).toBeGreaterThanOrEqual(2);
+  });
 });
