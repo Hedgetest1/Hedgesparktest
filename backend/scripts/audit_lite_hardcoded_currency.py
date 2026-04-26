@@ -52,6 +52,7 @@ Otherwise, fix by:
 """
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 from pathlib import Path
@@ -158,8 +159,94 @@ def scan_file(path: Path) -> list[tuple[int, str]]:
     return findings
 
 
+# Auto-fix patterns — deterministic mechanical rewrites ONLY in files
+# that declare the safe consumer contract. The contract signature is
+# `value: string | number` in a type alias — that means the renderer
+# accepts both raw numbers (which it formats via formatMoneyCompact +
+# displayCurrency) and pre-formatted strings.
+#
+# Files WITHOUT the contract (e.g. LiteRarsHero where `value` is
+# rendered inline as `{s.value}` without wrapping) are NOT auto-fixed
+# even when the regex would match — converting `value: "€680"` to
+# `value: 680` there would produce a renderer output of "680" without
+# any currency symbol, which is worse than the original mismatch.
+# Those hits are flagged as human-needed.
+SAFE_CONSUMER_CONTRACT_RE = re.compile(r'value:\s*string\s*\|\s*number')
+
+VALUE_LITERAL_RE = re.compile(
+    r'value:\s*"([€£¥₩₹$])\s*([\d,]+(?:\.\d+)?)"'
+)
+
+
+def autofix_file(path: Path) -> tuple[int, list[tuple[int, str]]]:
+    """Returns (auto_fixed_count, human_needed_list).
+    Auto-fix is gated by the safe-consumer-contract check: only files
+    that declare `value: string | number` in a type alias are eligible
+    for the value-literal rewrite. Other patterns + non-eligible files
+    surface as human-needed.
+    """
+    content = path.read_text()
+    auto_fixed = 0
+    is_safe_to_autofix = bool(SAFE_CONSUMER_CONTRACT_RE.search(content))
+
+    if is_safe_to_autofix:
+        def replace(m: re.Match) -> str:
+            nonlocal auto_fixed
+            amount = m.group(2).replace(",", "")
+            try:
+                num = int(amount) if "." not in amount else float(amount)
+            except ValueError:
+                return m.group(0)
+            auto_fixed += 1
+            return f"value: {num}"
+
+        new_content = VALUE_LITERAL_RE.sub(replace, content)
+
+        if auto_fixed > 0:
+            path.write_text(new_content)
+            content = new_content
+
+    # Re-scan: anything still flagged is human-needed
+    human_needed: list[tuple[int, str]] = []
+    for idx, line in iter_user_visible_lines(content):
+        hit_symbol = SYMBOL_RE.search(line)
+        hit_dollar = DOLLAR_DIGIT_RE.search(line)
+        if not (hit_symbol or hit_dollar):
+            continue
+        if any(tok in line for tok in SAFE_TOKENS):
+            continue
+        human_needed.append((idx, line.strip()[:140]))
+
+    return auto_fixed, human_needed
+
+
 def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--fix", action="store_true", help="Auto-rewrite mechanical patterns; flag rest as human-needed")
+    args = parser.parse_args()
+
     files = in_scope_files()
+
+    if args.fix:
+        total_fixed = 0
+        all_human_needed: dict[str, list[tuple[int, str]]] = {}
+        for f in files:
+            fixed, human = autofix_file(f)
+            total_fixed += fixed
+            if human:
+                all_human_needed[str(f.relative_to(DASHBOARD.parent.parent))] = human
+        print(f"auto-fix: {total_fixed} mechanical rewrite(s) applied (value: \"€N\" → value: N pattern)")
+        if all_human_needed:
+            total_human = sum(len(h) for h in all_human_needed.values())
+            print(f"auto-fix: {total_human} hit(s) require human review (text descriptions, sublabels)")
+            for path, hits in all_human_needed.items():
+                print(f"  {path}:")
+                for lineno, snippet in hits[:8]:
+                    print(f"    line {lineno}: {snippet}")
+                    print(f"      → text rewrite needed (e.g. 'monthly €' → 'monthly revenue')")
+            return 1
+        return 0
+
     flagged: dict[str, list[tuple[int, str]]] = {}
     for f in files:
         hits = scan_file(f)
@@ -180,10 +267,10 @@ def main() -> int:
             print(f"    ...and {len(hits) - 8} more")
     print()
     print("How to fix:")
-    print("  - Switch to formatMoneyCompact(amount, displayCurrency)")
-    print("    [import from dashboard/src/app/app/_lib/formatters.ts]")
-    print("  - Or use currency-neutral phrasing (e.g. 'monthly revenue'")
-    print("    instead of 'monthly €')")
+    print("  - Run `python scripts/audit_lite_hardcoded_currency.py --fix`")
+    print("    for mechanical rewrites (value: \"€N\" → value: N)")
+    print("  - For text descriptions, switch to currency-neutral phrasing")
+    print("    (e.g. 'monthly revenue' instead of 'monthly €')")
     print("  - If the symbol is intentional, add inline exemption:")
     print("    `{/* audit:hardcoded-currency-ok */}`")
     return 1
