@@ -82,6 +82,22 @@ if "$PY" scripts/audit_lite_orphan_endpoints.py > /tmp/preflight_lite_orphans.lo
 fi
 
 # ---------------------------------------------------------------------------
+# 2b-bis. Lite nav ↔ section parity — block when a `section-lite-*`
+# anchor exists without matching NAV_ITEMS_LITE entry + SECTION_TO_NAV
+# key. Born 2026-04-26 after founder caught the sidebar "going back to
+# LITE" while scrolling past `lite-refunds` and `lite-audience`. See
+# audit_lite_nav_section_parity.py header.
+# ---------------------------------------------------------------------------
+step "Lite nav ↔ section parity (audit_lite_nav_section_parity.py)"
+if "$PY" scripts/audit_lite_nav_section_parity.py > /tmp/preflight_lite_nav.log 2>&1; then
+    ok "$(head -1 /tmp/preflight_lite_nav.log)"
+else
+    bad "Lite nav parity broken — see /tmp/preflight_lite_nav.log"
+    head -30 /tmp/preflight_lite_nav.log || true
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
 # 2b-quinquies. Dashboard a11y pattern scan — informational, never blocking.
 # Catches the two violation classes axe flagged on /app routes during F6
 # (icon-only buttons missing aria-label, low-contrast slate-500/600 small
