@@ -2025,7 +2025,15 @@ function PageInner() {
   // ---------------------------------------------------------------------------
   return (
     <div
-      className="flex h-screen overflow-hidden bg-[#07070f] text-white"
+      // `fixed inset-0` instead of `h-screen overflow-hidden` so the
+      // dashboard is taken out of the document flow entirely. Two-bar
+      // bug fix (founder report 2026-04-26): with `h-screen` the body
+      // could still scroll a few pixels in some browsers/zoom levels
+      // — producing a second scrollbar in addition to <main>'s. The
+      // dashboard now perfectly overlays the viewport regardless of
+      // any rounding / dynamic-viewport quirks; only the inner <main>
+      // (overflow-y-auto) ever scrolls.
+      className="fixed inset-0 flex bg-[#07070f] text-white"
       // Stable data-attributes for the session-durability E2E suite
       // (S10). Expose the RESOLVED tier and whether preview mode is
       // active so tests can assert that ?as=starter on a Pro merchant
