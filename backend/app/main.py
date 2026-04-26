@@ -71,6 +71,7 @@ from app.api.product_trend import router as product_trend_router
 from app.api.session_replay import router as session_replay_router
 from app.api.funnel import router as funnel_router
 from app.api.today_snapshot import router as today_snapshot_router
+from app.api.lite_extras import router as lite_extras_router
 from app.api.click_insights import router as click_insights_router
 from app.api.source_quality import router as source_quality_router
 from app.api.actions import router as actions_router
@@ -519,6 +520,7 @@ app.include_router(product_trend_router)
 app.include_router(session_replay_router)
 app.include_router(funnel_router)
 app.include_router(today_snapshot_router)
+app.include_router(lite_extras_router)
 app.include_router(click_insights_router)
 app.include_router(source_quality_router)
 app.include_router(actions_router)

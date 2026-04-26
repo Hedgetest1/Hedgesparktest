@@ -1357,6 +1357,101 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/device-breakdown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Device Breakdown
+         * @description Visitor sessions split by device_type over the last `days` days.
+         *
+         *     Counts DISTINCT visitor_id per device — a visitor switching devices
+         *     counts in each, but sessions on same device dedupe. This matches
+         *     Shopify Analytics' "Sessions by device" semantics.
+         */
+        get: operations["get_device_breakdown_analytics_device_breakdown_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analytics/top-customers-ltv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Top Customers Ltv
+         * @description Top customers ranked by lifetime total spend.
+         *
+         *     PII-safe: emails are SHA-256 hashed in the response. The dashboard
+         *     UI shows the hash truncated as "cust_a3b8f1" so the merchant can
+         *     correlate without us echoing raw email addresses across the wire.
+         */
+        get: operations["get_top_customers_ltv_analytics_top_customers_ltv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analytics/abandonment-trend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Abandonment Trend
+         * @description Daily cart-abandonment % over the last `days` days.
+         *
+         *     abandonment_pct = (cart_adds - purchases) / cart_adds  (per day)
+         *     None when cart_adds is zero — never fabricate against empty days.
+         */
+        get: operations["get_abandonment_trend_analytics_abandonment_trend_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analytics/first-vs-repeat-aov": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get First Vs Repeat Aov
+         * @description AOV comparison: customers' first purchase vs repeat purchases.
+         *
+         *     Window: last `days` days of orders. For each customer in window,
+         *     we partition their orders by "is this their first-ever order?"
+         *     (computed via window function over their full history).
+         */
+        get: operations["get_first_vs_repeat_aov_analytics_first_vs_repeat_aov_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/analytics/clicks": {
         parameters: {
             query?: never;
@@ -6393,6 +6488,30 @@ export interface components {
             /** Generated At */
             generated_at: string;
         };
+        /** AbandonmentDay */
+        AbandonmentDay: {
+            /** Day */
+            day: string;
+            /** Cart Adds */
+            cart_adds: number;
+            /** Purchases */
+            purchases: number;
+            /** Abandonment Pct */
+            abandonment_pct: number | null;
+        };
+        /** AbandonmentTrendResponse */
+        AbandonmentTrendResponse: {
+            /** Days */
+            days: number;
+            /** Timezone */
+            timezone: string;
+            /** Has Data */
+            has_data: boolean;
+            /** Series */
+            series: components["schemas"]["AbandonmentDay"][];
+            /** Avg Abandonment Pct */
+            avg_abandonment_pct: number | null;
+        };
         /**
          * ActionImprovementRow
          * @description One before/after action snapshot marked 'improved'.
@@ -7494,6 +7613,17 @@ export interface components {
             /** Customers Active */
             customers_active: number;
         };
+        /** CustomerCohortAov */
+        CustomerCohortAov: {
+            /** Customers */
+            customers: number;
+            /** Orders */
+            orders: number;
+            /** Revenue */
+            revenue: number;
+            /** Aov */
+            aov: number;
+        };
         /**
          * CustomerCoverageBlock
          * @description Customer identifiability coverage for the monthly cohort window.
@@ -7631,6 +7761,26 @@ export interface components {
             sessions_pct: number | null;
             /** Conversion Rate Pct Delta */
             conversion_rate_pct_delta: number | null;
+        };
+        /** DeviceBreakdownResponse */
+        DeviceBreakdownResponse: {
+            /** Days */
+            days: number;
+            /** Total Sessions */
+            total_sessions: number;
+            /** Has Data */
+            has_data: boolean;
+            /** Slices */
+            slices: components["schemas"]["DeviceSlice"][];
+        };
+        /** DeviceSlice */
+        DeviceSlice: {
+            /** Device */
+            device: string;
+            /** Sessions */
+            sessions: number;
+            /** Pct */
+            pct: number;
         };
         /** DeviceSplit */
         DeviceSplit: {
@@ -7828,6 +7978,17 @@ export interface components {
              * @default unknown
              */
             enforcement_mode: string;
+        };
+        /** FirstVsRepeatResponse */
+        FirstVsRepeatResponse: {
+            /** Currency */
+            currency: string;
+            /** Has Data */
+            has_data: boolean;
+            first: components["schemas"]["CustomerCohortAov"];
+            repeat: components["schemas"]["CustomerCohortAov"];
+            /** Aov Uplift Pct */
+            aov_uplift_pct: number | null;
         };
         /**
          * ForecastDailyPoint
@@ -11144,6 +11305,28 @@ export interface components {
             /** Top Sellers Today */
             top_sellers_today: components["schemas"]["TopSeller"][];
         };
+        /** TopCustomer */
+        TopCustomer: {
+            /** Customer Email Hash */
+            customer_email_hash: string;
+            /** Total Spent */
+            total_spent: number;
+            /** Order Count */
+            order_count: number;
+            /** First Order At */
+            first_order_at: string | null;
+            /** Last Order At */
+            last_order_at: string | null;
+        };
+        /** TopCustomersResponse */
+        TopCustomersResponse: {
+            /** Currency */
+            currency: string;
+            /** Has Data */
+            has_data: boolean;
+            /** Customers */
+            customers: components["schemas"]["TopCustomer"][];
+        };
         /**
          * TopPageRow
          * @description One page in the top-pages ranking.
@@ -13227,6 +13410,130 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TodaySnapshotResponse"];
+                };
+            };
+        };
+    };
+    get_device_breakdown_analytics_device_breakdown_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceBreakdownResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_top_customers_ltv_analytics_top_customers_ltv_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopCustomersResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_abandonment_trend_analytics_abandonment_trend_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AbandonmentTrendResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_first_vs_repeat_aov_analytics_first_vs_repeat_aov_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FirstVsRepeatResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

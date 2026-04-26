@@ -111,6 +111,12 @@ import { LiteCassettoniGrid, type CassettoneId } from "../components/LiteCassett
 import { LiteRarsHero } from "../components/LiteRarsHero";
 import { LiteTodaySection } from "../components/LiteTodaySection";
 import { LiteLast7DaysSection } from "../components/LiteLast7DaysSection";
+import {
+  DeviceSplitTile,
+  TopCustomersLtvTile,
+  AbandonmentTrendTile,
+  FirstVsRepeatAovTile,
+} from "../components/LiteBaseAnalytics";
 import { PnlReport } from "../components/PnlReport";
 import { MarginDragCard } from "../components/MarginDragCard";
 import { ChannelAttributionCard } from "../components/ChannelAttributionCard";
@@ -2666,6 +2672,15 @@ function PageInner() {
                 />
               )}
 
+              {/* Device split — sub-tile under Today (B-super F1, 2026-04-26).
+                  Closes Shopify Free baseline expectation: every merchant
+                  expects to see mobile/desktop/tablet split somewhere. */}
+              {isLiteFloor && (
+                <div className="mb-8">
+                  <DeviceSplitTile />
+                </div>
+              )}
+
               {/* Last 7 days — operational trend section closing the
                   Cat-A follow-up from the 2026-04-25 audit. Reuses the
                   existing RevenueTrendChart (Pro-only previously) +
@@ -2684,6 +2699,14 @@ function PageInner() {
                   displayCurrency={displayCurrency}
                   funnelSteps={funnelSteps}
                 />
+              )}
+
+              {/* Cart-abandonment trend — sub-tile under Last 7 days
+                  (B-super F3, 2026-04-26). Closes Shopify Free trend tile. */}
+              {isLiteFloor && (
+                <div className="mb-8">
+                  <AbandonmentTrendTile />
+                </div>
               )}
 
               {/* Peer benchmarks — "you vs peers" surface between the
@@ -2957,6 +2980,24 @@ function PageInner() {
                           data={predictedLtvData}
                           displayCurrency={displayCurrency}
                         />
+                      </SectionErrorBoundary>
+                    </div>
+
+                    {/* Top customers by lifetime spend — Lifetimely-Free
+                        parity tile (B-super F2, 2026-04-26). Email PII
+                        is hashed server-side; UI shows cust_<8hex>. */}
+                    <div className="mt-5">
+                      <SectionErrorBoundary name="Top customers">
+                        <TopCustomersLtvTile displayCurrency={displayCurrency} />
+                      </SectionErrorBoundary>
+                    </div>
+
+                    {/* First-time vs repeat AOV — Lifetimely-Free parity
+                        (B-super F4, 2026-04-26). Shows the AOV uplift
+                        repeat customers deliver vs first-time buyers. */}
+                    <div className="mt-5">
+                      <SectionErrorBoundary name="First vs repeat AOV">
+                        <FirstVsRepeatAovTile displayCurrency={displayCurrency} />
                       </SectionErrorBoundary>
                     </div>
                   </div>
