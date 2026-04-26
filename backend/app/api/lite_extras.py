@@ -109,6 +109,21 @@ class FirstVsRepeatResponse(BaseModel):
     aov_uplift_pct: float | None       # (repeat.aov - first.aov) / first.aov
 
 
+class CountryAggregate(BaseModel):
+    country_code: str         # ISO-3166-1 alpha-2 (US, IT, GB, ...)
+    orders: int
+    revenue: float
+
+
+class OrdersByCountryResponse(BaseModel):
+    currency: str
+    days: int
+    has_data: bool
+    total_orders: int
+    total_revenue: float
+    countries: list[CountryAggregate]
+
+
 # ---------------------------------------------------------------------------
 # 1. Device breakdown
 # ---------------------------------------------------------------------------
@@ -191,7 +206,7 @@ def get_top_customers_ltv(
         text("""
             SELECT
                 customer_email,
-                SUM(total_price)::float       AS total_spent,
+                SUM(total_price)              AS total_spent,
                 COUNT(*)                      AS order_count,
                 MIN(created_at)               AS first_order_at,
                 MAX(created_at)               AS last_order_at
@@ -342,8 +357,8 @@ def get_first_vs_repeat_aov(
                 COUNT(*) FILTER (WHERE rn > 1)                            AS repeat_orders,
                 COUNT(DISTINCT customer_email) FILTER (WHERE rn = 1)      AS first_customers,
                 COUNT(DISTINCT customer_email) FILTER (WHERE rn > 1)      AS repeat_customers,
-                COALESCE(SUM(total_price) FILTER (WHERE rn = 1), 0)::float AS first_revenue,
-                COALESCE(SUM(total_price) FILTER (WHERE rn > 1), 0)::float AS repeat_revenue
+                COALESCE(SUM(total_price) FILTER (WHERE rn = 1), 0) AS first_revenue,
+                COALESCE(SUM(total_price) FILTER (WHERE rn > 1), 0) AS repeat_revenue
             FROM windowed
         """),
         {"shop": shop, "currency": currency, "days": days},
@@ -367,6 +382,108 @@ def get_first_vs_repeat_aov(
 
     response = FirstVsRepeatResponse(
         currency=currency, has_data=fo + ro > 0, first=first, repeat=repeat, aov_uplift_pct=uplift,
+    )
+    cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
+    return response
+
+
+# ---------------------------------------------------------------------------
+# 5. Orders by country (B-super F5 — extends the Live Radar map)
+# ---------------------------------------------------------------------------
+
+@router.get("/orders-by-country", response_model=OrdersByCountryResponse)
+def get_orders_by_country(
+    days: int = Query(30, ge=7, le=90),
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+) -> OrdersByCountryResponse:
+    """Aggregate orders + revenue by country over last `days` days.
+
+    Reads the per-shop hash `hs:order_geo:{shop_domain}` populated at
+    purchase time by `app/core/geo.record_order_geo`. Field shape:
+        "{CC}:{YYYY-MM-DD}:count"          -> int
+        "{CC}:{YYYY-MM-DD}:revenue_{CCY}"  -> float
+
+    No schema migration on shop_orders — geo data comes from the same
+    Redis cache that powers the live-visitor map. Founder directive
+    2026-04-26: "abbiamo già dati che dovrebbero entrare nel radar+map,
+    è la map la nostra geo".
+
+    Currency-aware: only sums revenue fields matching the shop's
+    currency. Cross-currency edge cases (multi-store under one shop)
+    aggregate the count but skip foreign-currency revenue."""
+    from datetime import datetime, timezone, timedelta
+
+    currency = get_shop_currency(db, shop) or "USD"
+    cache_key = f"hs:obc:v1:{shop}:{currency}:{days}"
+    cached = cache_get(cache_key)
+    if cached:
+        return OrdersByCountryResponse(**cached)
+
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("lite_extras.orders_by_country.no_redis")
+            return OrdersByCountryResponse(
+                currency=currency, days=days, has_data=False,
+                total_orders=0, total_revenue=0.0, countries=[],
+            )
+        key = f"hs:order_geo:{shop}"
+        raw = rc.hgetall(key) or {}
+    except Exception as exc:
+        log.warning("orders-by-country: redis read failed: %s", exc)
+        try:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("lite_extras.orders_by_country")
+        except Exception:
+            pass
+        return OrdersByCountryResponse(
+            currency=currency, days=days, has_data=False,
+            total_orders=0, total_revenue=0.0, countries=[],
+        )
+
+    today = datetime.now(timezone.utc).date()
+    valid_dates = {(today - timedelta(days=i)).isoformat() for i in range(days)}
+
+    by_cc: dict[str, dict[str, float]] = {}
+    for raw_field, raw_value in raw.items():
+        field = raw_field.decode() if isinstance(raw_field, bytes) else raw_field
+        value = raw_value.decode() if isinstance(raw_value, bytes) else raw_value
+        parts = field.split(":")
+        if len(parts) < 3:
+            continue
+        cc, date, metric = parts[0], parts[1], parts[2]
+        if date not in valid_dates:
+            continue
+        bucket = by_cc.setdefault(cc, {"count": 0, "revenue": 0.0})
+        if metric == "count":
+            try: bucket["count"] += int(value)
+            except (TypeError, ValueError): pass
+        elif metric.startswith("revenue_"):
+            metric_ccy = metric.split("_", 1)[1]
+            if metric_ccy == currency:
+                try: bucket["revenue"] += float(value)
+                except (TypeError, ValueError): pass
+
+    countries = [
+        CountryAggregate(
+            country_code=cc, orders=int(b["count"]), revenue=round(b["revenue"], 2),
+        )
+        for cc, b in by_cc.items() if b["count"] > 0
+    ]
+    countries.sort(key=lambda c: (-c.revenue, -c.orders))
+
+    total_orders = sum(c.orders for c in countries)
+    total_revenue = round(sum(c.revenue for c in countries), 2)
+
+    response = OrdersByCountryResponse(
+        currency=currency, days=days,
+        has_data=total_orders > 0,
+        total_orders=total_orders,
+        total_revenue=total_revenue,
+        countries=countries,
     )
     cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
     return response

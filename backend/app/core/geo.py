@@ -113,3 +113,67 @@ def capture_visitor_geo_sync(request, shop_domain: str, visitor_id: str) -> None
 def get_visitor_geo(shop_domain: str, visitor_id: str) -> dict | None:
     """Retrieve cached geo for a visitor. Used by live visitors endpoint."""
     return cache_get(f"hs:geo:{shop_domain}:{visitor_id}")
+
+
+# ───────────────────────────────────────────────────────────────────
+# Order geo aggregation
+# ───────────────────────────────────────────────────────────────────
+#
+# At purchase time we look up the visitor's cached geo (1h TTL — fresh
+# at moment of purchase, since the page-view that fired purchase ALSO
+# capture'd geo) and write a per-shop, per-country, per-day counter to
+# Redis. The aggregate survives 90 days; the live-visitor cache stays
+# 1h-bounded.
+#
+# Storage shape — single hash per shop, multi-field:
+#   HSET hs:order_geo:{shop_domain}
+#        "{country_code}:{YYYY-MM-DD}:count"           {N}
+#        "{country_code}:{YYYY-MM-DD}:revenue_{CCY}"   {sum}
+#
+# Reuses the existing visitor_geo path — no schema migration needed.
+# Fail-closed and silent: if Redis is down or geo is missing, the
+# order still lands in shop_orders; we just lose this analytic.
+# ───────────────────────────────────────────────────────────────────
+
+_ORDER_GEO_TTL_S = 90 * 86400  # 90 days
+
+
+def record_order_geo(
+    shop_domain: str, visitor_id: str, revenue: float, currency: str
+) -> None:
+    """Record an order's country contribution to the per-shop aggregate.
+
+    Best-effort. Called from track._persist_purchase after the order
+    has been persisted to shop_orders. Never raises — geo enrichment
+    is auxiliary."""
+    if not visitor_id or not shop_domain or revenue <= 0:
+        return
+    geo = get_visitor_geo(shop_domain, visitor_id)
+    if not geo:
+        return
+    cc = (geo.get("country_code") or "").upper()
+    if not cc or len(cc) != 2:
+        return
+
+    try:
+        from .redis_client import _client
+        from app.core.silent_fallback import record_silent_return
+        rc = _client()
+        if rc is None:
+            record_silent_return("geo.record_order_geo.no_redis")
+            return
+        from datetime import datetime, timezone
+        today = datetime.now(timezone.utc).date().isoformat()
+        ccy = (currency or "USD").upper()
+
+        key = f"hs:order_geo:{shop_domain}"
+        rc.hincrby(key, f"{cc}:{today}:count", 1)
+        rc.hincrbyfloat(key, f"{cc}:{today}:revenue_{ccy}", float(revenue))
+        rc.expire(key, _ORDER_GEO_TTL_S)
+    except Exception as exc:
+        log.warning("record_order_geo: %s", exc)
+        try:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("geo.record_order_geo")
+        except Exception:
+            pass

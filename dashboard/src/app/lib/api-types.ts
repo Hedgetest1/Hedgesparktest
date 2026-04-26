@@ -1452,6 +1452,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/orders-by-country": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Orders By Country
+         * @description Aggregate orders + revenue by country over last `days` days.
+         *
+         *     Reads the per-shop hash `hs:order_geo:{shop_domain}` populated at
+         *     purchase time by `app/core/geo.record_order_geo`. Field shape:
+         *         "{CC}:{YYYY-MM-DD}:count"          -> int
+         *         "{CC}:{YYYY-MM-DD}:revenue_{CCY}"  -> float
+         *
+         *     No schema migration on shop_orders — geo data comes from the same
+         *     Redis cache that powers the live-visitor map. Founder directive
+         *     2026-04-26: "abbiamo già dati che dovrebbero entrare nel radar+map,
+         *     è la map la nostra geo".
+         *
+         *     Currency-aware: only sums revenue fields matching the shop's
+         *     currency. Cross-currency edge cases (multi-store under one shop)
+         *     aggregate the count but skip foreign-currency revenue.
+         */
+        get: operations["get_orders_by_country_analytics_orders_by_country_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/analytics/clicks": {
         parameters: {
             query?: never;
@@ -7570,6 +7604,15 @@ export interface components {
             /** Label */
             label: string;
         };
+        /** CountryAggregate */
+        CountryAggregate: {
+            /** Country Code */
+            country_code: string;
+            /** Orders */
+            orders: number;
+            /** Revenue */
+            revenue: number;
+        };
         /** CreateSharePayload */
         CreateSharePayload: {
             /** Nudge Id */
@@ -9500,6 +9543,21 @@ export interface components {
             context?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /** OrdersByCountryResponse */
+        OrdersByCountryResponse: {
+            /** Currency */
+            currency: string;
+            /** Days */
+            days: number;
+            /** Has Data */
+            has_data: boolean;
+            /** Total Orders */
+            total_orders: number;
+            /** Total Revenue */
+            total_revenue: number;
+            /** Countries */
+            countries: components["schemas"]["CountryAggregate"][];
         };
         /**
          * OrdersSummaryResponse
@@ -13525,6 +13583,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FirstVsRepeatResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_orders_by_country_analytics_orders_by_country_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrdersByCountryResponse"];
                 };
             };
             /** @description Validation Error */

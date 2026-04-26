@@ -437,6 +437,23 @@ def _persist_purchase(db: Session, payload: TrackPayload) -> None:
     #   events (tracker visitor_id) → visitor_purchase_sessions → shop_orders
     _persist_visitor_bridge(db, payload)
 
+    # --- Geo aggregate: count this order in the per-shop country hash ---
+    # Reuses the visitor_geo Redis cache that capture_visitor_geo_sync
+    # populated during the same session's earlier page_view events.
+    # Best-effort + auxiliary: if no geo cached, the order still ships,
+    # we just don't enrich the orders-by-country map for this shop+date.
+    # See app/core/geo.py:record_order_geo for storage shape.
+    try:
+        from app.core.geo import record_order_geo
+        record_order_geo(
+            payload.shop_domain,
+            payload.visitor_id,
+            float(payload.order_total),
+            order.currency,
+        )
+    except Exception as exc:
+        log.warning("track/purchase: geo aggregate failed: %s", exc)
+
 
 def _persist_visitor_bridge(db: Session, payload: TrackPayload) -> None:
     """

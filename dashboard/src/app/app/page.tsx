@@ -646,6 +646,15 @@ function PageInner() {
   // Live visitors
   const [liveVisitors, setLiveVisitors] = useState<LiveVisitor[]>([]);
 
+  // Orders by country (B-super F5 — extends the Live Radar map).
+  // Optional aggregate; the map gracefully renders visitors-only when
+  // empty. Polled at the same cadence as live visitors so the toggle
+  // stays in sync as orders land.
+  const [orderGeoAggregates, setOrderGeoAggregates] = useState<
+    { country_code: string; orders: number; revenue: number }[]
+  >([]);
+  const [orderGeoCurrency, setOrderGeoCurrency] = useState<string>("USD");
+
   // Opportunity signals
   const [signals, setSignals] = useState<OpportunitySignal[]>([]);
   const [heroRevenue, setHeroRevenue] = useState<{ revenue: number; orders: number; aov: number; currency: string } | null>(null);
@@ -1267,7 +1276,26 @@ function PageInner() {
 
     loadLive();
     const id = setInterval(loadLive, 15_000);  // 15s — matches backend 15-min recency + 10s cache
-    return () => { active = false; clearInterval(id); };
+
+    // Orders-by-country aggregate (B-super F5). Refreshes every 60s
+    // since order rate is much lower than live-visitor activity.
+    let geoActive = true;
+    async function loadOrderGeo() {
+      try {
+        const { data, error } = await apiClient.GET("/analytics/orders-by-country");
+        if (!geoActive || error || !data) return;
+        const d = data as unknown as { currency: string; countries: { country_code: string; orders: number; revenue: number }[] };
+        setOrderGeoAggregates(d.countries || []);
+        setOrderGeoCurrency(d.currency || "USD");
+      } catch { /* silent — map gracefully degrades to visitors-only */ }
+    }
+    loadOrderGeo();
+    const geoId = setInterval(loadOrderGeo, 60_000);
+
+    return () => {
+      active = false; geoActive = false;
+      clearInterval(id); clearInterval(geoId);
+    };
   }, [shop]);
 
   // ---------------------------------------------------------------------------
@@ -3696,6 +3724,9 @@ function PageInner() {
                   visitors={liveVisitors}
                   radarPositions={RADAR_POSITIONS}
                   coldStartPhase={coldStartPhase}
+                  orderAggregates={orderGeoAggregates}
+                  ordersCurrency={orderGeoCurrency}
+                  ordersWindowDays={30}
                 />
               </section>
               </SectionErrorBoundary>
