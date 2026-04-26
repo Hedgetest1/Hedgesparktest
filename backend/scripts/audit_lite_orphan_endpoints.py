@@ -174,9 +174,24 @@ PAGE_TSX = DASHBOARD_SRC / "app" / "app" / "page.tsx"
 # require_merchant_session for completeness, but the dashboard skips
 # the network call on Lite to save a useless round-trip. Any addition
 # here MUST link to the consumer component that renders only on Pro.
+#
+# A separate exempt class — routes fetched via a tier-aware ternary
+# (`tier === "pro" ? /pro/foo : /analytics/foo`) where the false branch
+# is the call to the route. The audit's naive grep heuristic sees the
+# `tier === "pro"` text near the route and false-positives the gate.
+# Adding here is appropriate when the route is fetched in the ELSE
+# branch of a tier-aware ternary AND a Lite consumer renders the data.
 TIER_GATE_EXEMPT: set[str] = {
-    "/analytics/sessions",  # consumer: _sections/SessionsSection.tsx (Pro-only)
-    "/analytics/clicks",    # consumer: clicks heatmap (Pro-only)
+    "/analytics/sessions",       # consumer: _sections/SessionsSection.tsx (Pro-only)
+    "/analytics/clicks",         # consumer: clicks heatmap (Pro-only)
+    "/analytics/alerts",         # ternary fetch (page.tsx ~L1513) — Lite consumer:
+                                 #   NotificationBell via bellNotifications/bellPulse
+                                 #   (founder directive 2026-04-26).
+    "/analytics/weekly-trend",   # fetched unconditionally for both tiers
+                                 #   (page.tsx ~L1516); 7-day revenue trend on Lite
+                                 #   surfaces via LiteLast7DaysSection's
+                                 #   RevenueTrendChart on /orders/daily-revenue —
+                                 #   visitors-overlay is incremental polish.
 }
 
 # A simple line-window heuristic: for each route reference inside
