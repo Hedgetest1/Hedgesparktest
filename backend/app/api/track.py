@@ -171,6 +171,10 @@ class TrackPayload(BaseModel):
     payment_method: Optional[str] = Field(None, max_length=64)
     financial_status: Optional[str] = Field(None, max_length=32)
     fulfillment_status: Optional[str] = Field(None, max_length=32)
+    # v15 (2026-04-26): line_items with variant info — closes the
+    # "Variants performance" audit gap. Cap at 50 items/order on
+    # the pixel side; we re-cap server-side for defense in depth.
+    line_items: Optional[list[dict]] = None
 
     # Shopify _shopify_y cookie value — Shopify's persistent visitor ID.
     # Sent by spark-tracker.js from the storefront. Also available as event.clientId
@@ -414,6 +418,22 @@ def _persist_purchase(db: Session, payload: TrackPayload) -> None:
             str(c)[:64] for c in payload.discount_codes if c
         ][:10]  # cap at 10 codes per order (Shopify max is rare > 5)
 
+    # Sanitize incoming line_items: cap quantity, length, fields.
+    # Drop unknown keys to keep the JSONB stable + small.
+    sanitized_line_items: list[dict] = []
+    if payload.line_items:
+        for raw in payload.line_items[:50]:
+            if not isinstance(raw, dict):
+                continue
+            sanitized_line_items.append({
+                "variant_id":    str(raw.get("variant_id"))[:64] if raw.get("variant_id") else None,
+                "variant_title": str(raw.get("variant_title"))[:200] if raw.get("variant_title") else None,
+                "product_title": str(raw.get("product_title"))[:200] if raw.get("product_title") else None,
+                "sku":           str(raw.get("sku"))[:80] if raw.get("sku") else None,
+                "quantity":      int(raw["quantity"]) if isinstance(raw.get("quantity"), (int, float)) else None,
+                "price":         float(raw["price"]) if isinstance(raw.get("price"), (int, float)) else None,
+            })
+
     order = ShopOrder(
         shop_domain=payload.shop_domain,
         shopify_order_id=str(payload.order_id),
@@ -421,7 +441,7 @@ def _persist_purchase(db: Session, payload: TrackPayload) -> None:
         currency=(payload.currency or "EUR").upper(),
         customer_id=None,       # not available client-side
         customer_email=None,    # not available client-side
-        line_items=[],          # not available client-side
+        line_items=sanitized_line_items,
         created_at=now,
         ingested_at=now,
         source="pixel",

@@ -1639,6 +1639,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/top-variants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Top Variants
+         * @description Top-selling variants over last `days` days. Joins each
+         *     line_items[] element to its parent order via LATERAL, groups
+         *     by (product_title, variant_title) so different colors of the
+         *     same product surface separately.
+         */
+        get: operations["get_top_variants_analytics_top_variants_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/analytics/clicks": {
         parameters: {
             query?: never;
@@ -11741,6 +11764,36 @@ export interface components {
             /** Units Sold */
             units_sold: number;
         };
+        /** TopVariant */
+        TopVariant: {
+            /** Variant Id */
+            variant_id: string | null;
+            /** Product Title */
+            product_title: string;
+            /** Variant Title */
+            variant_title: string | null;
+            /** Sku */
+            sku: string | null;
+            /** Units */
+            units: number;
+            /** Revenue */
+            revenue: number;
+        };
+        /** TopVariantsResponse */
+        TopVariantsResponse: {
+            /** Currency */
+            currency: string;
+            /** Days */
+            days: number;
+            /** Has Data */
+            has_data: boolean;
+            /** Enriched Orders */
+            enriched_orders: number;
+            /** Total Orders Window */
+            total_orders_window: number;
+            /** Variants */
+            variants: components["schemas"]["TopVariant"][];
+        };
         /** TrackPayload */
         TrackPayload: {
             /** Shop Domain */
@@ -11799,6 +11852,10 @@ export interface components {
             financial_status?: string | null;
             /** Fulfillment Status */
             fulfillment_status?: string | null;
+            /** Line Items */
+            line_items?: {
+                [key: string]: unknown;
+            }[] | null;
             /** Shopify Y */
             shopify_y?: string | null;
             /** Tracker Visitor Id */
@@ -14168,6 +14225,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PaymentMethodsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_top_variants_analytics_top_variants_get: {
+        parameters: {
+            query?: {
+                days?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopVariantsResponse"];
                 };
             };
             /** @description Validation Error */

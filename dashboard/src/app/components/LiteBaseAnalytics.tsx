@@ -815,6 +815,85 @@ export function PaymentMethodsTile({ displayCurrency }: { displayCurrency: Displ
   );
 }
 
+type TopVariantsData = {
+  currency: string; days: number; has_data: boolean;
+  enriched_orders: number; total_orders_window: number;
+  variants: { variant_id: string | null; product_title: string;
+    variant_title: string | null; sku: string | null;
+    units: number; revenue: number }[];
+};
+
+export function TopVariantsTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
+  const [data, setData] = useState<TopVariantsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let active = true; setLoading(true); setError(false);
+    apiClient.GET("/analytics/top-variants")
+      .then(({ data: j, error: err }) => {
+        if (!active) return;
+        if (err || !j) setError(true); else setData(j as unknown as TopVariantsData);
+      })
+      .catch(() => { if (active) setError(true); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [tick]);
+  const ccy = data?.currency ?? displayCurrency;
+  if (loading) return <TileSkeleton height={240} />;
+  if (error) return <TileError retry={() => setTick(t => t + 1)} />;
+  if (!data || !data.has_data) {
+    return (
+      <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/40 p-4 text-center">
+        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">Top variants · revenue</div>
+        <div className="mt-2 text-[12px] text-slate-300">New orders post pixel-v15 carry variant data; the top-sellers surface here.</div>
+      </div>
+    );
+  }
+  const maxRev = Math.max(1, ...data.variants.map(v => v.revenue));
+  return (
+    <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 p-4">
+      <div className="flex items-baseline justify-between mb-3">
+        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">
+          Top variants · last {data.days} days
+        </div>
+      </div>
+      <ul className="space-y-2">
+        {data.variants.map((v, i) => (
+          <li key={(v.variant_id ?? "") + i} className="flex items-center gap-3">
+            <div className="w-6 text-right text-[12px] font-bold tabular-nums text-[#e8a04e]">
+              {i + 1}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-semibold text-slate-200 truncate">
+                {v.product_title}
+                {v.variant_title && (
+                  <span className="ml-1.5 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.06em] text-amber-300">
+                    {v.variant_title}
+                  </span>
+                )}
+              </div>
+              <div className="h-1.5 mt-1 rounded-full bg-white/[0.04] overflow-hidden">
+                <div className="h-full bg-emerald-400/70" style={{ width: `${(v.revenue / maxRev) * 100}%` }} />
+              </div>
+              {v.sku && <div className="mt-1 text-[10px] font-mono text-slate-300">SKU: {v.sku}</div>}
+            </div>
+            <div className="text-right">
+              <div className="text-[13px] font-bold tabular-nums text-emerald-300">
+                {formatMoneyCompact(v.revenue, ccy)}
+              </div>
+              <div className="text-[10px] text-slate-300 tabular-nums">
+                {v.units} unit{v.units !== 1 ? "s" : ""}
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <CoverageBanner enriched={data.enriched_orders} total={data.total_orders_window} />
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────
 // 4. First-vs-repeat AOV — tile fits inside section-lite-retention
 // ─────────────────────────────────────────────────────────────────

@@ -60,7 +60,7 @@ function _hsReportErr(source, err) {
       message: String((err && err.message) || err).slice(0, 1500),
       stack: String((err && err.stack) || "").slice(0, 3500),
       url: "",  // pixel sandbox doesn't reliably expose window.location
-      tracker_version: 14,
+      tracker_version: 15,
       user_agent: "",
     });
     if (typeof fetch !== "undefined") {
@@ -170,6 +170,36 @@ analytics.subscribe("checkout_completed", function (event) {
       taxAmount = _moneyV2OrString(checkout.totalTax) || _moneyV2OrString(checkout.taxAmount);
     } catch (_) {}
 
+    // Line items with variant info (Class D follow-up — variant
+    // performance was the last R-blocker on the audit). Shopify
+    // checkout.lineItems exposes variant.id / variant.title /
+    // variant.product.title / quantity / finalLinePrice. Each item
+    // wrapped — partial data is preferable to no data.
+    var lineItems = null;
+    try {
+      var rawItems = checkout.lineItems || [];
+      if (Array.isArray(rawItems) && rawItems.length > 0) {
+        lineItems = rawItems.map(function (it) {
+          if (!it) return null;
+          var variant = it.variant || {};
+          var product = variant.product || {};
+          var price = _moneyV2OrString(it.finalLinePrice) ||
+                      _moneyV2OrString(variant.price) ||
+                      _moneyV2OrString(it.price);
+          return {
+            variant_id:    variant.id ? String(variant.id).slice(0, 64) : null,
+            variant_title: variant.title ? String(variant.title).slice(0, 200) : null,
+            product_title: product.title ? String(product.title).slice(0, 200) :
+                           (it.title ? String(it.title).slice(0, 200) : null),
+            sku:           variant.sku ? String(variant.sku).slice(0, 80) : null,
+            quantity:      typeof it.quantity === "number" ? it.quantity : null,
+            price:         price,
+          };
+        }).filter(function (it) { return it !== null; }).slice(0, 50);
+        if (lineItems.length === 0) lineItems = null;
+      }
+    } catch (_) {}
+
     var paymentMethod = null;
     try {
       // Try direct paymentMethod field, then transactions[0].gateway, then
@@ -249,7 +279,12 @@ analytics.subscribe("checkout_completed", function (event) {
       tax_amount:          taxAmount,
       payment_method:      paymentMethod,
       financial_status:    "paid",          // pixel-time default
-      fulfillment_status:  "unfulfilled"    // pixel-time default
+      fulfillment_status:  "unfulfilled",   // pixel-time default
+      // v15 (2026-04-26 Note-3 closure): line items with variant info.
+      // Closes the "Variants performance" audit gap that previously
+      // sat behind R-blocker:tier_2-approval. Capped at 50 items per
+      // order (Shopify default cart cap is 100; 50 covers 99%+).
+      line_items:          lineItems
     });
 
     fetch(API_URL, {

@@ -123,6 +123,7 @@ import {
   OrderStatusTile,
   TaxBreakdownTile,
   PaymentMethodsTile,
+  TopVariantsTile,
 } from "../components/LiteBaseAnalytics";
 import { PnlReport } from "../components/PnlReport";
 import { MarginDragCard } from "../components/MarginDragCard";
@@ -3126,6 +3127,17 @@ function PageInner() {
                     <div className="mt-5">
                       <SectionErrorBoundary name="Top products">
                         <TopProductsTile displayCurrency={displayCurrency} />
+                      </SectionErrorBoundary>
+                    </div>
+
+                    {/* Top variants — size/color granularity. Closes the
+                        last R-blocker on the audit list (was tier_2-
+                        approval; now closed via pixel v15 line_items
+                        extraction with variant info). Better Reports /
+                        Lifetimely show this at $20-60. */}
+                    <div className="mt-5">
+                      <SectionErrorBoundary name="Top variants">
+                        <TopVariantsTile displayCurrency={displayCurrency} />
                       </SectionErrorBoundary>
                     </div>
                   </div>

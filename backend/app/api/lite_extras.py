@@ -233,6 +233,24 @@ class PaymentMethodsResponse(BaseModel):
     methods: list[PaymentMethodBucket]
 
 
+class TopVariant(BaseModel):
+    variant_id: str | None
+    product_title: str
+    variant_title: str | None
+    sku: str | None
+    units: int
+    revenue: float
+
+
+class TopVariantsResponse(BaseModel):
+    currency: str
+    days: int
+    has_data: bool
+    enriched_orders: int
+    total_orders_window: int
+    variants: list[TopVariant]
+
+
 # ---------------------------------------------------------------------------
 # 1. Device breakdown
 # ---------------------------------------------------------------------------
@@ -1079,6 +1097,105 @@ def get_payment_methods(
         enriched_orders=enriched,
         total_orders_window=int(total_window),
         methods=methods,
+    )
+    cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
+    return response
+
+
+# ---------------------------------------------------------------------------
+# Top variants — closes the original Class D "Variants performance" gap
+# ---------------------------------------------------------------------------
+#
+# Pixel v15 (2026-04-26) sends line_items with variant_id/variant_title/
+# sku/quantity/price extracted from Shopify checkout context. This
+# endpoint groups by variant_id and ranks by revenue.
+#
+# Variants without an explicit variant_id (older pixel + cases where
+# Shopify didn't expose it) collapse into "(no variant)" bucket so
+# 100% of revenue surfaces somewhere.
+
+@router.get("/top-variants", response_model=TopVariantsResponse)
+def get_top_variants(
+    days: int = Query(30, ge=7, le=180),
+    limit: int = Query(10, ge=1, le=50),
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+) -> TopVariantsResponse:
+    """Top-selling variants over last `days` days. Joins each
+    line_items[] element to its parent order via LATERAL, groups
+    by (product_title, variant_title) so different colors of the
+    same product surface separately."""
+    currency = get_shop_currency(db, shop) or "USD"
+    cache_key = f"hs:topvar:v1:{shop}:{currency}:{days}:{limit}"
+    cached = cache_get(cache_key)
+    if cached:
+        return TopVariantsResponse(**cached)
+
+    total_window = db.execute(
+        text("""
+            SELECT COUNT(*) FROM shop_orders
+            WHERE shop_domain = :shop AND currency = :currency
+              AND created_at >= NOW() - (:days || ' days')::interval
+        """),
+        {"shop": shop, "currency": currency, "days": days},
+    ).scalar() or 0
+
+    enriched = db.execute(
+        text("""
+            SELECT COUNT(*) FROM shop_orders
+            WHERE shop_domain = :shop AND currency = :currency
+              AND created_at >= NOW() - (:days || ' days')::interval
+              AND line_items IS NOT NULL
+              AND jsonb_array_length(line_items) > 0
+              AND EXISTS (
+                  SELECT 1 FROM jsonb_array_elements(line_items) li
+                  WHERE li ? 'variant_id'
+              )
+        """),
+        {"shop": shop, "currency": currency, "days": days},
+    ).scalar() or 0
+
+    rows = db.execute(
+        text("""
+            SELECT
+                li->>'variant_id'    AS variant_id,
+                COALESCE(NULLIF(li->>'product_title', ''), 'Untitled product') AS product_title,
+                NULLIF(li->>'variant_title', '')  AS variant_title,
+                NULLIF(li->>'sku', '')             AS sku,
+                COALESCE(SUM((li->>'quantity')::int), 0) AS units,
+                COALESCE(SUM(
+                    (li->>'quantity')::numeric * (li->>'price')::numeric
+                ), 0) AS revenue
+            FROM shop_orders so,
+                 LATERAL jsonb_array_elements(so.line_items) li
+            WHERE so.shop_domain = :shop
+              AND so.currency = :currency
+              AND so.created_at >= NOW() - (:days || ' days')::interval
+              AND li ? 'variant_id'
+            GROUP BY 1, 2, 3, 4
+            ORDER BY revenue DESC, units DESC
+            LIMIT :limit
+        """),
+        {"shop": shop, "currency": currency, "days": days, "limit": limit},
+    ).mappings().all()
+
+    variants = [
+        TopVariant(
+            variant_id=r["variant_id"],
+            product_title=str(r["product_title"]),
+            variant_title=r["variant_title"],
+            sku=r["sku"],
+            units=int(r["units"] or 0),
+            revenue=round(float(r["revenue"] or 0), 2),
+        )
+        for r in rows
+    ]
+    response = TopVariantsResponse(
+        currency=currency, days=days,
+        has_data=len(variants) > 0,
+        enriched_orders=int(enriched),
+        total_orders_window=int(total_window),
+        variants=variants,
     )
     cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
     return response
