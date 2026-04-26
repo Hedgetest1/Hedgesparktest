@@ -52,7 +52,7 @@ export function TopBar({
   const isProUser = tier === "pro";
 
   return (
-    <header className="flex h-16 flex-shrink-0 items-center justify-between border-b border-white/[0.06] bg-[#07070f]/90 px-6 backdrop-blur-sm">
+    <header className="relative z-[60] flex h-16 flex-shrink-0 items-center justify-between border-b border-white/[0.06] bg-[#07070f]/90 px-6 backdrop-blur-sm">
       {/* Left: shop pill + date */}
       <div className="flex items-center gap-3">
         {shop ? (

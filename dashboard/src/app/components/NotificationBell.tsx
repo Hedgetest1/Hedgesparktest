@@ -154,23 +154,27 @@ export function NotificationBell({
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
         </svg>
-        {/* The unread dot lights up whenever there's something to read,
-            regardless of the client-toast `enabled` toggle. Backend alerts
-            are ground-truth signal — the warm-Lite filter already
-            strips LOW/INFO upstream — so they must surface here even when
-            the merchant has not opted into client-side toast spawning.
-            Founder directive 2026-04-26: "fai vibrare il campanellino". */}
+        {/* Unread badge — small red exclamation, never violet (founder
+            directive 2026-04-26 follow-up). Surfaces whenever there's
+            anything to read, regardless of the client-toast `enabled`
+            toggle. Backend alerts are ground-truth signal — warm-Lite
+            filter already strips LOW/INFO — so they must surface here
+            even before the merchant opts into auto-toasts.
+            Pulse adds a soft glow on the same red badge. */}
         {hasUnread && (
           <span
-            className={`absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full ${
-              pulse ? "bg-rose-400 shadow-[0_0_6px_rgba(251,113,133,0.7)]" : "bg-violet-400"
+            aria-hidden="true"
+            className={`absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-rose-500 text-[9px] font-extrabold leading-none text-white ring-2 ring-[#07070f] ${
+              pulse ? "shadow-[0_0_8px_rgba(244,63,94,0.7)]" : ""
             }`}
-          />
+          >
+            !
+          </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-72 overflow-hidden rounded-xl border border-white/[0.08] bg-[#0d0d1e] shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+        <div className="absolute right-0 top-full z-[60] mt-2 w-72 overflow-hidden rounded-xl border border-white/[0.08] bg-[#0d0d1e] shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-2.5">
             <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
