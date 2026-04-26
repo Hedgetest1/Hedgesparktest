@@ -108,7 +108,15 @@ def audit_file(path: pathlib.Path) -> list[Finding]:
                 and isinstance(func.value, ast.Name)
                 and func.value.id in dt_names
             ):
-                if not node.args:
+                # Aware = positional tz arg OR `tz=` kwarg.
+                # Naive = no positional AND no tz/timezone kwarg.
+                # Pre-2026-04-26 the audit only checked positional args
+                # which false-positive-flagged every `datetime.now(tz=...)`
+                # site as naive. Fixed by including kwarg detection.
+                tz_kwarg_present = any(
+                    k.arg in ("tz", "timezone") for k in node.keywords
+                )
+                if not node.args and not tz_kwarg_present:
                     has_naive_now = True
                 else:
                     has_aware_now = True
