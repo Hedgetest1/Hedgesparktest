@@ -319,14 +319,14 @@ export function LiteRarsHero({
               </div>
               <p className="mb-4 text-[13px] leading-relaxed text-slate-400">
                 Once signals arrive, the three biggest leak sources rank
-                here with a € amount, a share %, and a direct drill-down
+                here with a money amount, a share %, and a direct drill-down
                 to fix each one. Example layout with sample numbers below.
               </p>
               <ul className="pointer-events-none space-y-3 opacity-50">
                 {[
-                  { label: "Abandoned high-intent carts", pct: 55, value: "€680", color: "#f87171" },
-                  { label: "Products losing traction", pct: 26, value: "€320", color: "#fbbf24" },
-                  { label: "Your monthly targets", pct: 19, value: "€240", color: "#e8a04e" },
+                  { label: "Abandoned high-intent carts", pct: 55, value: formatMoneyCompact(680, displayCurrency), color: "#f87171" },
+                  { label: "Products losing traction", pct: 26, value: formatMoneyCompact(320, displayCurrency), color: "#fbbf24" },
+                  { label: "Your monthly targets", pct: 19, value: formatMoneyCompact(240, displayCurrency), color: "#e8a04e" },
                 ].map((s, i) => (
                   <li
                     key={s.label}

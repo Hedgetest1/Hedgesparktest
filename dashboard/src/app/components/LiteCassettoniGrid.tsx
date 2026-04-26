@@ -473,7 +473,7 @@ export function LiteCassettoniGrid({
                   </div>
                 </div>
               ) : (
-                <EmptyPreview config={panelConfig.empty} accentHero={accent.hero} />
+                <EmptyPreview config={panelConfig.empty} accentHero={accent.hero} displayCurrency={displayCurrency} />
               )}
 
               {/* Donut — real-data only, renders when segments non-null. */}
@@ -750,14 +750,19 @@ type DonutSegment = { label: string; value: number; color: string };
 
 type HeroStat = {
   label: string;
-  value: string;
+  /** Either a pre-formatted display string (e.g. "42%", "3 sources")
+   *  or a raw number — when number, the renderer formats it as
+   *  currency using the merchant's `displayCurrency`. Empty-state
+   *  sample values use the number form so a USD merchant doesn't
+   *  see a hardcoded €-symbol that mismatches their store currency. */
+  value: string | number;
   sublabel: string;
   color: string;
 };
 
 type KeyMetric = {
   label: string;
-  value: string;
+  value: string | number;
   color?: string;
 };
 
@@ -831,10 +836,17 @@ type PanelConfig = {
 function EmptyPreview({
   config,
   accentHero,
+  displayCurrency,
 }: {
   config: PanelConfig["empty"];
   accentHero: string;
+  displayCurrency: "USD" | "EUR";
 }) {
+  // Number values get formatted with the merchant's currency so a
+  // USD merchant never sees a hardcoded €-symbol on the empty-state
+  // preview. String values pass through (e.g. "42%", "3 sources").
+  const fmt = (v: string | number) =>
+    typeof v === "number" ? formatMoneyCompact(v, displayCurrency) : v;
   return (
     <div className="mb-6 rounded-xl border border-dashed border-white/[0.12] bg-[#0b0b14]/40 p-5 sm:p-6">
       <div className="mb-3 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.18em] text-slate-400">
@@ -858,7 +870,7 @@ function EmptyPreview({
           className="mt-2 text-[2.25rem] font-extrabold leading-none tabular-nums"
           style={{ color: config.sampleHeroStat.color }}
         >
-          {config.sampleHeroStat.value}
+          {fmt(config.sampleHeroStat.value)}
         </div>
         <div className="mt-2.5 text-[12.5px] leading-relaxed text-slate-400">
           {config.sampleHeroStat.sublabel}
@@ -872,7 +884,7 @@ function EmptyPreview({
               className="text-[14px] font-bold tabular-nums"
               style={{ color: m.color ?? "#e2e8f0" }}
             >
-              {m.value}
+              {fmt(m.value)}
             </span>
           </div>
         ))}
@@ -1136,13 +1148,13 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
         "The moment any of the five loss signals crosses threshold, the biggest leak + prioritized fixes land here. Until then, a clean slate means your store isn't bleeding money this month.",
       sampleHeroStat: {
         label: "Biggest leak right now",
-        value: "€420",
+        value: 420,
         sublabel: "From abandoned high-intent carts — 42% of your total at-risk amount.",
         color: "#fbbf24",
       },
       sampleKeyMetrics: [
-        { label: "Total at risk this month", value: "€1,020", color: "#fbbf24" },
-        { label: "Already prevented this month", value: "€280", color: "#34d399" },
+        { label: "Total at risk this month", value: 1020, color: "#fbbf24" },
+        { label: "Already prevented this month", value: 280, color: "#34d399" },
         { label: "Active leak sources", value: "3" },
         { label: "Top leak share", value: "42%" },
       ],
@@ -1305,7 +1317,7 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
       sampleHeroStat: {
         label: "Lead story today",
         value: "Silk Pillowcase",
-        sublabel: "Action suggested: price-test a €5 drop to match the engaged-visitor willingness-to-pay band.",
+        sublabel: "Action suggested: price-test a small drop to match the engaged-visitor willingness-to-pay band.",
         color: "#a78bfa",
       },
       sampleKeyMetrics: [

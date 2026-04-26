@@ -2976,9 +2976,9 @@ function PageInner() {
                       </div>
                       <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
                         Last 14 days vs. the prior 14 days, ranked by the
-                        monthly € you would recover by stopping the decline.
-                        v1 uses Shopify order frequency as a refund proxy; v2
-                        switches to direct refund webhook ingestion.
+                        monthly revenue you would recover by stopping the
+                        decline. v1 uses Shopify order frequency as a refund
+                        proxy; v2 switches to direct refund webhook ingestion.
                       </p>
                     </div>
                     <SectionErrorBoundary name="Refund losses">
