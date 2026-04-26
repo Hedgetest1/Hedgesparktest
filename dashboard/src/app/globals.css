@@ -83,6 +83,20 @@ body {
 }
 .hs-bell-shake { animation: hs-bell-shake 3.2s ease-in-out infinite; transform-origin: 50% 20%; }
 
+/* Respect user motion preference — vestibular safety + a11y. Any merchant
+   with prefers-reduced-motion: reduce sees the rose dot + color change but
+   no animation. The signal still gets through; the motion does not. */
+@media (prefers-reduced-motion: reduce) {
+  .hs-bell-shake,
+  .hs-bob,
+  .hs-float,
+  .hs-float-gentle,
+  .hs-sparkle,
+  .hs-pulse,
+  .hs-shimmer,
+  .hs-fade-up { animation: none; }
+}
+
 /* ── Spark ── */
 
 /* Float: gentle vertical drift */
