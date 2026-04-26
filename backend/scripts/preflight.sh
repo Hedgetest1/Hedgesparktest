@@ -30,6 +30,91 @@ fail=0
 step() { printf "\n%bpreflight › %s%b\n" "$YEL" "$1" "$NC"; }
 ok()   { printf "%b  ✓ %s%b\n"            "$GREEN" "$1" "$NC"; }
 bad()  { printf "%b  ✗ %s%b\n"            "$RED"   "$1" "$NC"; fail=1; }
+info() { printf "%b  ℹ %s%b\n"            "$YEL"   "$1" "$NC"; }
+
+# ──────────────────────────────────────────────────────────────────────
+# Autonomous self-fix wrapper.
+#
+# Founder directive 2026-04-26: "il sistema deve essere autonomo. Solo
+# billing richiede approvazione." For deterministic audit failures
+# (those whose --fix mode produces a complete repair), preflight
+# auto-runs --fix, re-stages modified files, retries the audit, and
+# only blocks the commit if --fix doesn't resolve it.
+#
+# Usage:
+#   run_with_autofix <audit_name> <audit_script> [--fix-supported]
+#
+# When --fix-supported is passed, preflight runs --fix on first failure
+# and re-stages all tracked files modified during --fix (`git add -u`).
+# The audit re-runs; if clean, commit proceeds. If the audit still
+# fails after --fix (e.g. semantic cases need human / LLM), preflight
+# blocks with the remaining output for human review.
+# ──────────────────────────────────────────────────────────────────────
+run_with_autofix() {
+    local audit_name="$1"
+    local audit_script="$2"
+    local fix_supported="${3:-}"
+    local logfile="/tmp/preflight_${audit_name}.log"
+    local fixlog="/tmp/preflight_${audit_name}.fixlog"
+
+    step "$audit_name (${audit_script})"
+    if "$PY" "scripts/$audit_script" > "$logfile" 2>&1; then
+        ok "$(head -1 "$logfile")"
+        return 0
+    fi
+
+    if [ "$fix_supported" = "--fix-supported" ]; then
+        info "audit failed — attempting deterministic --fix self-repair"
+        # Snapshot files-with-tree-changes BEFORE --fix so we can identify
+        # exactly which files --fix touched (vs sweeping unrelated WIP).
+        local before_diff="/tmp/preflight_${audit_name}.before"
+        git -C "$REPO_ROOT" diff --name-only > "$before_diff" 2>/dev/null || true
+
+        if "$PY" "scripts/$audit_script" --fix > "$fixlog" 2>&1; then
+            # Files with tree changes AFTER --fix
+            local after_diff="/tmp/preflight_${audit_name}.after"
+            git -C "$REPO_ROOT" diff --name-only > "$after_diff" 2>/dev/null || true
+
+            # Files NEW in tree-changes since --fix ran = files --fix mutated.
+            # Stage only those (not unrelated WIP).
+            local fix_modified
+            fix_modified=$(comm -13 <(sort "$before_diff") <(sort "$after_diff"))
+            if [ -n "$fix_modified" ]; then
+                echo "$fix_modified" | while read -r file; do
+                    [ -n "$file" ] && git -C "$REPO_ROOT" add "$file" 2>/dev/null || true
+                done
+            fi
+            # Also re-stage files that were already staged AND modified by --fix
+            # (i.e. they changed in working tree since being staged)
+            git -C "$REPO_ROOT" diff --cached --name-only 2>/dev/null | while read -r file; do
+                if [ -n "$file" ] && ! git -C "$REPO_ROOT" diff --quiet -- "$file" 2>/dev/null; then
+                    git -C "$REPO_ROOT" add "$file" 2>/dev/null || true
+                fi
+            done
+
+            if "$PY" "scripts/$audit_script" > "$logfile" 2>&1; then
+                ok "$(head -1 "$logfile") [auto-repaired]"
+                grep "^auto-fix:" "$fixlog" | head -3 | while read -r line; do
+                    info "$line"
+                done
+                if [ -n "$fix_modified" ]; then
+                    info "auto-staged: $(echo "$fix_modified" | tr '\n' ' ')"
+                fi
+                return 0
+            fi
+        fi
+        bad "$audit_name auto-fix did not fully resolve — manual review needed"
+        echo "  --- audit output ---"
+        head -20 "$logfile" || true
+        echo "  --- --fix output ---"
+        head -20 "$fixlog" || true
+        exit 1
+    fi
+
+    bad "$audit_name failed — see $logfile"
+    head -30 "$logfile" || true
+    exit 1
+}
 
 cd "$BACKEND"
 
@@ -88,32 +173,17 @@ fi
 # LITE" while scrolling past `lite-refunds` and `lite-audience`. See
 # audit_lite_nav_section_parity.py header.
 # ---------------------------------------------------------------------------
-step "Lite nav ↔ section parity (audit_lite_nav_section_parity.py)"
-if "$PY" scripts/audit_lite_nav_section_parity.py > /tmp/preflight_lite_nav.log 2>&1; then
-    ok "$(head -1 /tmp/preflight_lite_nav.log)"
-else
-    bad "Lite nav parity broken — see /tmp/preflight_lite_nav.log"
-    head -30 /tmp/preflight_lite_nav.log || true
-    exit 1
-fi
+run_with_autofix "Lite nav ↔ section parity" "audit_lite_nav_section_parity.py" --fix-supported
 
 # ---------------------------------------------------------------------------
 # 2b-ter. Lite hardcoded currency — block when a Lite-floor JSX file
 # embeds €/$/£/¥/₩/₹ in user-visible text (description, sample value,
 # sublabel) instead of formatting via formatMoneyCompact with the
-# merchant's displayCurrency. Born 2026-04-26 after the comprehensive
-# Lite E2E surfaced 5 hardcoded € → 9 total post-extension. The runtime
-# E2E catches the class but only on manual run; this audit moves it to
-# commit-time. See audit_lite_hardcoded_currency.py header for fixes.
+# merchant's displayCurrency. --fix-supported: deterministic value-
+# literal rewrites (`value: "€N"` → `value: N`) auto-applied; semantic
+# text rewrites (description/sublabel) flagged for human review.
 # ---------------------------------------------------------------------------
-step "Lite hardcoded currency (audit_lite_hardcoded_currency.py)"
-if "$PY" scripts/audit_lite_hardcoded_currency.py > /tmp/preflight_lite_currency.log 2>&1; then
-    ok "$(head -1 /tmp/preflight_lite_currency.log)"
-else
-    bad "Lite hardcoded currency — see /tmp/preflight_lite_currency.log"
-    head -30 /tmp/preflight_lite_currency.log || true
-    exit 1
-fi
+run_with_autofix "Lite hardcoded currency" "audit_lite_hardcoded_currency.py" --fix-supported
 
 # ---------------------------------------------------------------------------
 # 2b-quinquies. Dashboard a11y pattern scan — informational, never blocking.
@@ -648,13 +718,7 @@ fi
 # Skips gracefully when backend is unreachable (local dev without
 # a backend process).
 # ---------------------------------------------------------------------------
-step "OpenAPI types freshness (audit_openapi_types_fresh.py)"
-if "$PY" "$BACKEND/scripts/audit_openapi_types_fresh.py" > /tmp/preflight_openapi_types.log 2>&1; then
-    ok "api-types.ts matches live /openapi.json"
-else
-    bad "api-types.ts is stale — see /tmp/preflight_openapi_types.log"
-    tail -20 /tmp/preflight_openapi_types.log || true
-fi
+run_with_autofix "OpenAPI types freshness" "audit_openapi_types_fresh.py" --fix-supported
 
 # ---------------------------------------------------------------------------
 # 2o-bis. Dashboard env-var drift audit. Enforces the single canonical

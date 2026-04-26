@@ -98,8 +98,35 @@ def extract_types_paths(types_text: str) -> set[str]:
     return set(m.group(1) for m in pattern.finditer(types_text))
 
 
+def _run_codegen() -> int:
+    """Deterministic auto-fix: regenerate api-types.ts from live openapi.json.
+    Invoked when --fix is passed and drift is detected. Returns subprocess
+    exit code; 0 = success."""
+    import subprocess
+    cmd = ["npm", "run", "api:types"]
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd="/opt/wishspark/dashboard",
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode == 0:
+            print("auto-fix: api-types.ts regenerated via `npm run api:types`")
+            return 0
+        print(f"auto-fix: codegen failed exit={result.returncode}")
+        print(result.stdout[-500:])
+        print(result.stderr[-500:], file=sys.stderr)
+        return result.returncode
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        print(f"auto-fix: codegen failed — {e}", file=sys.stderr)
+        return 1
+
+
 @telemetered("audit_openapi_types_fresh")
 def main(argv: list[str]) -> int:
+    fix_mode = "--fix" in argv
     openapi_paths, skip_reason = fetch_openapi_paths()
     if openapi_paths is None:
         # Graceful skip ONLY when backend is genuinely unreachable.
@@ -137,6 +164,21 @@ def main(argv: list[str]) -> int:
     orphan = types_paths - openapi_paths
 
     if missing:
+        if fix_mode:
+            rc = _run_codegen()
+            if rc != 0:
+                return rc
+            # Re-extract after regen
+            new_text = TYPES_PATH.read_text()
+            new_types_paths = extract_types_paths(new_text)
+            still_missing = openapi_paths - new_types_paths
+            if still_missing:
+                print(f"auto-fix: {len(still_missing)} path(s) STILL missing after codegen — manual review needed")
+                for p in sorted(still_missing):
+                    print(f"  {p}")
+                return 1
+            print(f"auto-fix: api-types.ts now in sync — {len(openapi_paths)} backend paths covered")
+            return 0
         print(
             f"audit_openapi_types_fresh: {len(missing)} backend path(s) "
             "missing from dashboard/src/app/lib/api-types.ts"
@@ -146,6 +188,7 @@ def main(argv: list[str]) -> int:
         print("api-client doesn't know about them. Run:")
         print()
         print("    cd dashboard && npm run api:types")
+        print("    OR run this audit with --fix")
         print()
         print("Missing paths:")
         for p in sorted(missing):
