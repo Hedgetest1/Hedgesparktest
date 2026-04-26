@@ -98,6 +98,24 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2b-ter. Lite hardcoded currency — block when a Lite-floor JSX file
+# embeds €/$/£/¥/₩/₹ in user-visible text (description, sample value,
+# sublabel) instead of formatting via formatMoneyCompact with the
+# merchant's displayCurrency. Born 2026-04-26 after the comprehensive
+# Lite E2E surfaced 5 hardcoded € → 9 total post-extension. The runtime
+# E2E catches the class but only on manual run; this audit moves it to
+# commit-time. See audit_lite_hardcoded_currency.py header for fixes.
+# ---------------------------------------------------------------------------
+step "Lite hardcoded currency (audit_lite_hardcoded_currency.py)"
+if "$PY" scripts/audit_lite_hardcoded_currency.py > /tmp/preflight_lite_currency.log 2>&1; then
+    ok "$(head -1 /tmp/preflight_lite_currency.log)"
+else
+    bad "Lite hardcoded currency — see /tmp/preflight_lite_currency.log"
+    head -30 /tmp/preflight_lite_currency.log || true
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
 # 2b-quinquies. Dashboard a11y pattern scan — informational, never blocking.
 # Catches the two violation classes axe flagged on /app routes during F6
 # (icon-only buttons missing aria-label, low-contrast slate-500/600 small
