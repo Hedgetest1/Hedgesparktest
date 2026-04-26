@@ -1486,6 +1486,72 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/order-rhythm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Order Rhythm
+         * @description Order rhythm — when (hour-of-day + day-of-week) the merchant's
+         *     customers buy. Both buckets in shop's local timezone so "Tuesday
+         *     9am" means 9am for the merchant, not UTC.
+         */
+        get: operations["get_order_rhythm_analytics_order_rhythm_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analytics/repeat-cadence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Repeat Cadence
+         * @description For each customer with 2+ orders in the last `days` days,
+         *     compute days between consecutive orders. Return percentile stats.
+         */
+        get: operations["get_repeat_cadence_analytics_repeat_cadence_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analytics/top-products": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Top Products
+         * @description Top products by revenue over last `days` days. Joins each
+         *     line_items JSONB element to its parent order so we sum across
+         *     every line in every matching order. NULL/blank titles roll up
+         *     into 'Untitled product' rather than dropping them.
+         */
+        get: operations["get_top_products_analytics_top_products_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/analytics/clicks": {
         parameters: {
             query?: never;
@@ -7869,6 +7935,17 @@ export interface components {
              */
             usage_limit: number;
         };
+        /** DowBucket */
+        DowBucket: {
+            /** Dow */
+            dow: number;
+            /** Label */
+            label: string;
+            /** Orders */
+            orders: number;
+            /** Revenue */
+            revenue: number;
+        };
         /** EligibilityItem */
         EligibilityItem: {
             /** Execution Id */
@@ -8415,6 +8492,15 @@ export interface components {
             /** Note */
             note: string;
         };
+        /** HourBucket */
+        HourBucket: {
+            /** Hour */
+            hour: number;
+            /** Orders */
+            orders: number;
+            /** Revenue */
+            revenue: number;
+        };
         /** InstantIntelligenceResponse */
         InstantIntelligenceResponse: {
             /** Shop Domain */
@@ -8442,7 +8528,7 @@ export interface components {
             /** Refund Rate Pct */
             refund_rate_pct?: number | null;
             /** Top Products */
-            top_products?: components["schemas"]["TopProduct"][] | null;
+            top_products?: components["schemas"]["app__api__instant_intelligence__TopProduct"][] | null;
             /** Preview Rars Monthly */
             preview_rars_monthly?: number | null;
             /** Narrative */
@@ -9544,6 +9630,25 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /** OrderRhythmResponse */
+        OrderRhythmResponse: {
+            /** Currency */
+            currency: string;
+            /** Timezone */
+            timezone: string;
+            /** Days */
+            days: number;
+            /** Has Data */
+            has_data: boolean;
+            /** By Hour */
+            by_hour: components["schemas"]["HourBucket"][];
+            /** By Dow */
+            by_dow: components["schemas"]["DowBucket"][];
+            /** Peak Hour */
+            peak_hour: number | null;
+            /** Peak Dow */
+            peak_dow: number | null;
+        };
         /** OrdersByCountryResponse */
         OrdersByCountryResponse: {
             /** Currency */
@@ -10577,6 +10682,23 @@ export interface components {
             /** Reason */
             reason?: string | null;
         };
+        /** RepeatCadenceResponse */
+        RepeatCadenceResponse: {
+            /** Has Data */
+            has_data: boolean;
+            /** Customers With 2Plus */
+            customers_with_2plus: number;
+            /** Intervals Count */
+            intervals_count: number;
+            /** Median Days */
+            median_days: number | null;
+            /** P25 Days */
+            p25_days: number | null;
+            /** P75 Days */
+            p75_days: number | null;
+            /** Mean Days */
+            mean_days: number | null;
+        };
         /** ReplayResponse */
         ReplayResponse: {
             /** Id */
@@ -11407,17 +11529,6 @@ export interface components {
             /** Pages */
             pages: components["schemas"]["TopPageRow"][];
         };
-        /** TopProduct */
-        TopProduct: {
-            /** Id */
-            id: string;
-            /** Title */
-            title: string;
-            /** Revenue */
-            revenue: number;
-            /** Units */
-            units: number;
-        };
         /**
          * TopProductByRevenue
          * @description One row inside top_products_by_revenue.
@@ -11429,6 +11540,17 @@ export interface components {
             revenue: number;
             /** Units Sold */
             units_sold: number;
+        };
+        /** TopProductsResponse */
+        TopProductsResponse: {
+            /** Currency */
+            currency: string;
+            /** Days */
+            days: number;
+            /** Has Data */
+            has_data: boolean;
+            /** Products */
+            products: components["schemas"]["app__api__lite_extras__TopProduct"][];
         };
         /** TopSeller */
         TopSeller: {
@@ -11960,6 +12082,28 @@ export interface components {
         WeeklyTrendResponse: {
             /** Trend */
             trend: components["schemas"]["WeeklyTrendDay"][];
+        };
+        /** TopProduct */
+        app__api__instant_intelligence__TopProduct: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Revenue */
+            revenue: number;
+            /** Units */
+            units: number;
+        };
+        /** TopProduct */
+        app__api__lite_extras__TopProduct: {
+            /** Title */
+            title: string;
+            /** Orders */
+            orders: number;
+            /** Units */
+            units: number;
+            /** Revenue */
+            revenue: number;
         };
     };
     responses: never;
@@ -13614,6 +13758,100 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OrdersByCountryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_order_rhythm_analytics_order_rhythm_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderRhythmResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_repeat_cadence_analytics_repeat_cadence_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepeatCadenceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_top_products_analytics_top_products_get: {
+        parameters: {
+            query?: {
+                days?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopProductsResponse"];
                 };
             };
             /** @description Validation Error */

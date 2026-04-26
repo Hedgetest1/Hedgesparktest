@@ -124,6 +124,56 @@ class OrdersByCountryResponse(BaseModel):
     countries: list[CountryAggregate]
 
 
+# ── Class C response models ──
+
+class HourBucket(BaseModel):
+    hour: int        # 0..23
+    orders: int
+    revenue: float
+
+
+class DowBucket(BaseModel):
+    dow: int         # 0=Sunday … 6=Saturday (Postgres EXTRACT(DOW))
+    label: str       # "Sun".."Sat"
+    orders: int
+    revenue: float
+
+
+class OrderRhythmResponse(BaseModel):
+    currency: str
+    timezone: str
+    days: int
+    has_data: bool
+    by_hour: list[HourBucket]
+    by_dow: list[DowBucket]
+    peak_hour: int | None
+    peak_dow: int | None
+
+
+class RepeatCadenceResponse(BaseModel):
+    has_data: bool
+    customers_with_2plus: int
+    intervals_count: int           # number of (next-prev) intervals computed
+    median_days: float | None
+    p25_days: float | None
+    p75_days: float | None
+    mean_days: float | None
+
+
+class TopProduct(BaseModel):
+    title: str
+    orders: int
+    units: int
+    revenue: float
+
+
+class TopProductsResponse(BaseModel):
+    currency: str
+    days: int
+    has_data: bool
+    products: list[TopProduct]
+
+
 # ---------------------------------------------------------------------------
 # 1. Device breakdown
 # ---------------------------------------------------------------------------
@@ -434,11 +484,8 @@ def get_orders_by_country(
         raw = rc.hgetall(key) or {}
     except Exception as exc:
         log.warning("orders-by-country: redis read failed: %s", exc)
-        try:
-            from app.core.silent_fallback import record_silent_return
-            record_silent_return("lite_extras.orders_by_country")
-        except Exception:
-            pass
+        from app.core.silent_fallback import record_silent_return
+        record_silent_return("lite_extras.orders_by_country")
         return OrdersByCountryResponse(
             currency=currency, days=days, has_data=False,
             total_orders=0, total_revenue=0.0, countries=[],
@@ -484,6 +531,226 @@ def get_orders_by_country(
         total_orders=total_orders,
         total_revenue=total_revenue,
         countries=countries,
+    )
+    cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
+    return response
+
+
+# ---------------------------------------------------------------------------
+# 6. Order rhythm — hour-of-day + day-of-week patterns (Class C1)
+# ---------------------------------------------------------------------------
+
+_DOW_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+
+@router.get("/order-rhythm", response_model=OrderRhythmResponse)
+def get_order_rhythm(
+    days: int = Query(30, ge=7, le=365),
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+) -> OrderRhythmResponse:
+    """Order rhythm — when (hour-of-day + day-of-week) the merchant's
+    customers buy. Both buckets in shop's local timezone so "Tuesday
+    9am" means 9am for the merchant, not UTC."""
+    currency = get_shop_currency(db, shop) or "USD"
+    tz = get_shop_timezone(db, shop) or "UTC"
+    cache_key = f"hs:rhythm:v1:{shop}:{currency}:{tz}:{days}"
+    cached = cache_get(cache_key)
+    if cached:
+        return OrderRhythmResponse(**cached)
+
+    rows = db.execute(
+        text("""
+            SELECT
+                EXTRACT(HOUR FROM (created_at AT TIME ZONE :tz))::int  AS hour,
+                EXTRACT(DOW  FROM (created_at AT TIME ZONE :tz))::int  AS dow,
+                COUNT(*)                                                AS orders,
+                COALESCE(SUM(total_price), 0)                           AS revenue
+            FROM shop_orders
+            WHERE shop_domain = :shop
+              AND currency = :currency
+              AND total_price > 0
+              AND created_at >= NOW() - (:days || ' days')::interval
+            GROUP BY 1, 2
+        """),
+        {"shop": shop, "currency": currency, "tz": tz, "days": days},
+    ).mappings().all()
+
+    hour_acc = {h: {"orders": 0, "revenue": 0.0} for h in range(24)}
+    dow_acc  = {d: {"orders": 0, "revenue": 0.0} for d in range(7)}
+    for r in rows:
+        h = int(r["hour"]); d = int(r["dow"])
+        n = int(r["orders"]); rev = float(r["revenue"])
+        hour_acc[h]["orders"] += n; hour_acc[h]["revenue"] += rev
+        dow_acc[d]["orders"]  += n; dow_acc[d]["revenue"]  += rev
+
+    by_hour = [
+        HourBucket(hour=h, orders=hour_acc[h]["orders"], revenue=round(hour_acc[h]["revenue"], 2))
+        for h in range(24)
+    ]
+    by_dow = [
+        DowBucket(dow=d, label=_DOW_LABELS[d],
+                  orders=dow_acc[d]["orders"], revenue=round(dow_acc[d]["revenue"], 2))
+        for d in range(7)
+    ]
+    total = sum(b.orders for b in by_hour)
+    peak_hour = max(by_hour, key=lambda b: b.orders).hour if total > 0 else None
+    peak_dow  = max(by_dow,  key=lambda b: b.orders).dow  if total > 0 else None
+
+    response = OrderRhythmResponse(
+        currency=currency, timezone=tz, days=days, has_data=total > 0,
+        by_hour=by_hour, by_dow=by_dow,
+        peak_hour=peak_hour, peak_dow=peak_dow,
+    )
+    cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
+    return response
+
+
+# ---------------------------------------------------------------------------
+# 7. Repeat cadence — time between consecutive orders per customer (Class C2)
+# ---------------------------------------------------------------------------
+
+@router.get("/repeat-cadence", response_model=RepeatCadenceResponse)
+def get_repeat_cadence(
+    days: int = Query(180, ge=30, le=730),
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+) -> RepeatCadenceResponse:
+    """For each customer with 2+ orders in the last `days` days,
+    compute days between consecutive orders. Return percentile stats."""
+    cache_key = f"hs:repcad:v1:{shop}:{days}"
+    cached = cache_get(cache_key)
+    if cached:
+        return RepeatCadenceResponse(**cached)
+
+    rows = db.execute(
+        text("""
+            WITH ranked AS (
+                SELECT
+                    customer_email,
+                    created_at,
+                    LAG(created_at) OVER (
+                        PARTITION BY customer_email ORDER BY created_at
+                    ) AS prev_at
+                FROM shop_orders
+                WHERE shop_domain = :shop
+                  AND customer_email IS NOT NULL
+                  AND customer_email <> ''
+                  AND created_at >= NOW() - (:days || ' days')::interval
+            )
+            SELECT
+                EXTRACT(EPOCH FROM (created_at - prev_at)) / 86400.0 AS gap_days
+            FROM ranked
+            WHERE prev_at IS NOT NULL
+        """),
+        {"shop": shop, "days": days},
+    ).fetchall()
+
+    gaps = sorted(float(r[0]) for r in rows if r[0] is not None and float(r[0]) >= 0)
+    if not gaps:
+        response = RepeatCadenceResponse(
+            has_data=False, customers_with_2plus=0, intervals_count=0,
+            median_days=None, p25_days=None, p75_days=None, mean_days=None,
+        )
+        cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
+        return response
+
+    def _pct(p: float) -> float:
+        idx = max(0, min(len(gaps) - 1, int(round(p * (len(gaps) - 1)))))
+        return round(gaps[idx], 1)
+
+    customer_count = db.execute(
+        text("""
+            SELECT COUNT(*) FROM (
+                SELECT customer_email
+                FROM shop_orders
+                WHERE shop_domain = :shop
+                  AND customer_email IS NOT NULL
+                  AND customer_email <> ''
+                  AND created_at >= NOW() - (:days || ' days')::interval
+                GROUP BY customer_email
+                HAVING COUNT(*) >= 2
+            ) t
+        """),
+        {"shop": shop, "days": days},
+    ).scalar() or 0
+
+    response = RepeatCadenceResponse(
+        has_data=True,
+        customers_with_2plus=int(customer_count),
+        intervals_count=len(gaps),
+        median_days=_pct(0.50),
+        p25_days=_pct(0.25),
+        p75_days=_pct(0.75),
+        mean_days=round(sum(gaps) / len(gaps), 1),
+    )
+    cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
+    return response
+
+
+# ---------------------------------------------------------------------------
+# 8. Top products — most-bought items by revenue (Class C3)
+# ---------------------------------------------------------------------------
+#
+# Original audit asked for "Variants performance (size/color)". Empirical
+# check on shop_orders.line_items JSONB shows the schema today doesn't
+# carry variant_id — items have {price, title, handle, quantity,
+# product_url}. Variant-level requires either webhook expansion OR a
+# pixel-side payload change. Both are TIER_2-adjacent.
+#
+# Pragmatic delivery: ship "top products over last N days" instead.
+# Same competitive pitch (Shopify Free / Better Reports show this),
+# zero schema risk. Variants stay R-blocker:tier_2-approval.
+
+@router.get("/top-products", response_model=TopProductsResponse)
+def get_top_products(
+    days: int = Query(30, ge=7, le=180),
+    limit: int = Query(10, ge=1, le=50),
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+) -> TopProductsResponse:
+    """Top products by revenue over last `days` days. Joins each
+    line_items JSONB element to its parent order so we sum across
+    every line in every matching order. NULL/blank titles roll up
+    into 'Untitled product' rather than dropping them."""
+    currency = get_shop_currency(db, shop) or "USD"
+    cache_key = f"hs:topprod:v1:{shop}:{currency}:{days}:{limit}"
+    cached = cache_get(cache_key)
+    if cached:
+        return TopProductsResponse(**cached)
+
+    rows = db.execute(
+        text("""
+            SELECT
+                COALESCE(NULLIF(li->>'title', ''), 'Untitled product') AS title,
+                COUNT(DISTINCT so.id)                                   AS orders,
+                COALESCE(SUM((li->>'quantity')::int), 0)                AS units,
+                COALESCE(SUM(
+                    (li->>'quantity')::numeric * (li->>'price')::numeric
+                ), 0)                                                   AS revenue
+            FROM shop_orders so,
+                 LATERAL jsonb_array_elements(so.line_items) li
+            WHERE so.shop_domain = :shop
+              AND so.currency = :currency
+              AND so.created_at >= NOW() - (:days || ' days')::interval
+              AND li->>'title' IS NOT NULL
+            GROUP BY 1
+            ORDER BY revenue DESC, orders DESC
+            LIMIT :limit
+        """),
+        {"shop": shop, "currency": currency, "days": days, "limit": limit},
+    ).mappings().all()
+
+    products = [
+        TopProduct(
+            title=r["title"], orders=int(r["orders"] or 0),
+            units=int(r["units"] or 0), revenue=round(float(r["revenue"] or 0), 2),
+        )
+        for r in rows
+    ]
+    response = TopProductsResponse(
+        currency=currency, days=days,
+        has_data=len(products) > 0, products=products,
     )
     cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
     return response

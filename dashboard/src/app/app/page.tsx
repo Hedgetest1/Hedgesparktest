@@ -116,6 +116,9 @@ import {
   TopCustomersLtvTile,
   AbandonmentTrendTile,
   FirstVsRepeatAovTile,
+  OrderRhythmTile,
+  RepeatCadenceTile,
+  TopProductsTile,
 } from "../components/LiteBaseAnalytics";
 import { PnlReport } from "../components/PnlReport";
 import { MarginDragCard } from "../components/MarginDragCard";
@@ -2737,6 +2740,14 @@ function PageInner() {
                 </div>
               )}
 
+              {/* Order rhythm — hour-of-day + day-of-week (Class C1).
+                  Closes Lifetimely's "When customers buy" view. */}
+              {isLiteFloor && (
+                <div className="mb-8">
+                  <OrderRhythmTile />
+                </div>
+              )}
+
               {/* Peer benchmarks — "you vs peers" surface between the
                   RARS hero and the cassettoni. Closes the Varos-shaped
                   gap per strada 2 / founder directive 2026-04-20.
@@ -3028,6 +3039,15 @@ function PageInner() {
                         <FirstVsRepeatAovTile displayCurrency={displayCurrency} />
                       </SectionErrorBoundary>
                     </div>
+
+                    {/* Repeat cadence — time between consecutive orders
+                        (Class C2, 2026-04-26). Closes Lifetimely/Peel
+                        "Time between orders" view. */}
+                    <div className="mt-5">
+                      <SectionErrorBoundary name="Repeat cadence">
+                        <RepeatCadenceTile />
+                      </SectionErrorBoundary>
+                    </div>
                   </div>
                 </section>
               )}
@@ -3070,6 +3090,17 @@ function PageInner() {
                         isProUser={false}
                       />
                     </SectionErrorBoundary>
+
+                    {/* Top products — most-bought items by revenue
+                        (Class C3, 2026-04-26). Closes Shopify Free /
+                        Better Reports "Top products" view. Co-located
+                        with refunds/products section so the merchant
+                        sees winners + losers side-by-side. */}
+                    <div className="mt-5">
+                      <SectionErrorBoundary name="Top products">
+                        <TopProductsTile displayCurrency={displayCurrency} />
+                      </SectionErrorBoundary>
+                    </div>
                   </div>
                 </section>
               )}

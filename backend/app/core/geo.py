@@ -172,8 +172,5 @@ def record_order_geo(
         rc.expire(key, _ORDER_GEO_TTL_S)
     except Exception as exc:
         log.warning("record_order_geo: %s", exc)
-        try:
-            from app.core.silent_fallback import record_silent_return
-            record_silent_return("geo.record_order_geo")
-        except Exception:
-            pass
+        from app.core.silent_fallback import record_silent_return
+        record_silent_return("geo.record_order_geo")
