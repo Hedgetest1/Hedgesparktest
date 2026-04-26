@@ -287,6 +287,52 @@ def parse_shopify_order(payload: dict, shop_domain: str) -> dict | None:
     # Optional: Shopify-side created_at for time-scoped analytics
     created_at = _parse_created_at(payload.get("created_at"))
 
+    # Class D fields — extracted from orders/updated webhook payload.
+    # Shopify fires this webhook on EVERY order state change including
+    # refund creation + fulfillment status update, so the columns track
+    # the full lifecycle (closes Note-2 from the 2026-04-26 audit:
+    # the prior claim "PCD-blocked" was wrong — orders/updated is the
+    # active webhook, not an orders/refunded sub-topic).
+    discount_amount = _safe_float(payload.get("total_discounts"))
+    tax_amount      = _safe_float(payload.get("total_tax"))
+    discount_codes_raw = payload.get("discount_codes") or []
+    discount_codes = None
+    if isinstance(discount_codes_raw, list) and discount_codes_raw:
+        codes: list[str] = []
+        for entry in discount_codes_raw[:10]:
+            if isinstance(entry, str):
+                codes.append(entry[:64])
+            elif isinstance(entry, dict):
+                code = entry.get("code") or entry.get("title") or entry.get("name")
+                if code:
+                    codes.append(str(code)[:64])
+        discount_codes = codes or None
+
+    # Payment method: Shopify provides `payment_gateway_names` (list)
+    # OR the first transaction's `gateway`. Take primary gateway.
+    payment_method = None
+    pg_names = payload.get("payment_gateway_names")
+    if isinstance(pg_names, list) and pg_names:
+        payment_method = _safe_str(pg_names[0])
+    if not payment_method:
+        txns = payload.get("transactions") or []
+        if isinstance(txns, list) and txns:
+            first = txns[0]
+            if isinstance(first, dict):
+                payment_method = _safe_str(first.get("gateway"))
+    if payment_method:
+        payment_method = payment_method[:64]
+
+    financial_status = _safe_str(payload.get("financial_status"))
+    if financial_status:
+        financial_status = financial_status.lower()[:32]
+    fulfillment_status = _safe_str(payload.get("fulfillment_status"))
+    if fulfillment_status:
+        fulfillment_status = fulfillment_status.lower()[:32]
+    elif fulfillment_status is None and "fulfillment_status" in payload:
+        # Shopify uses null for "unfulfilled" — preserve the semantic
+        fulfillment_status = "unfulfilled"
+
     return {
         "shop_domain":       shop_domain,
         "shopify_order_id":  shopify_order_id,
@@ -296,6 +342,12 @@ def parse_shopify_order(payload: dict, shop_domain: str) -> dict | None:
         "customer_email":    customer_email,
         "line_items":        line_items,
         "created_at":        created_at,
+        "discount_amount":   discount_amount,
+        "discount_codes":    discount_codes,
+        "tax_amount":        tax_amount,
+        "payment_method":    payment_method,
+        "financial_status":  financial_status,
+        "fulfillment_status": fulfillment_status,
     }
 
 
@@ -334,6 +386,20 @@ def upsert_order(db: Session, order_data: dict) -> tuple[ShopOrder, bool]:
         # Pixel rows have source="pixel" and line_items=[].  When a webhook
         # delivers the same order with full line_items and customer data,
         # update the row rather than skipping it.
+        # Decide if we need to update lifecycle fields (Class D — financial /
+        # fulfillment status transitions). Shopify orders/updated fires on
+        # refunds + fulfillment changes, so even when the order already
+        # exists we MUST refresh those columns to reflect the new state.
+        # Class D fields update unconditionally; line_items/customer
+        # block follows the original pixel→webhook upgrade rule.
+        lifecycle_changed = False
+        for fld in ("discount_amount", "tax_amount", "payment_method",
+                    "discount_codes", "financial_status", "fulfillment_status"):
+            new_val = order_data.get(fld)
+            if new_val is not None and getattr(existing, fld, None) != new_val:
+                setattr(existing, fld, new_val)
+                lifecycle_changed = True
+
         if getattr(existing, "source", "pixel") == "pixel" and order_data.get("line_items"):
             raw_line_items = order_data.get("line_items", [])
             enriched = _enrich_line_items_with_product_url(db, shop_domain, raw_line_items)
@@ -343,16 +409,19 @@ def upsert_order(db: Session, order_data: dict) -> tuple[ShopOrder, bool]:
             existing.total_price    = order_data["total_price"]
             existing.currency       = order_data["currency"]
             existing.source         = "webhook"
+            lifecycle_changed = True
+
+        if lifecycle_changed:
             try:
                 db.commit()
                 log.info(
-                    "order_ingestion: upgraded pixel→webhook shopify_order_id=%s shop=%s",
-                    shopify_order_id, shop_domain,
+                    "order_ingestion: updated shopify_order_id=%s shop=%s "
+                    "(lifecycle/upgrade)", shopify_order_id, shop_domain,
                 )
             except Exception as exc:
                 db.rollback()
                 log.error(
-                    "order_ingestion: upgrade failed shopify_order_id=%s: %s",
+                    "order_ingestion: update failed shopify_order_id=%s: %s",
                     shopify_order_id, exc,
                 )
             return existing, False
@@ -371,16 +440,23 @@ def upsert_order(db: Session, order_data: dict) -> tuple[ShopOrder, bool]:
     enriched_line_items = _enrich_line_items_with_product_url(db, shop_domain, raw_line_items)
 
     order = ShopOrder(
-        shop_domain      = shop_domain,
-        shopify_order_id = shopify_order_id,
-        total_price      = order_data["total_price"],
-        currency         = order_data["currency"],
-        customer_id      = order_data.get("customer_id"),
-        customer_email   = order_data.get("customer_email"),
-        line_items       = enriched_line_items,
-        created_at       = order_data["created_at"],
-        ingested_at      = datetime.now(timezone.utc).replace(tzinfo=None),
-        source           = "webhook",
+        shop_domain        = shop_domain,
+        shopify_order_id   = shopify_order_id,
+        total_price        = order_data["total_price"],
+        currency           = order_data["currency"],
+        customer_id        = order_data.get("customer_id"),
+        customer_email     = order_data.get("customer_email"),
+        line_items         = enriched_line_items,
+        created_at         = order_data["created_at"],
+        ingested_at        = datetime.now(timezone.utc).replace(tzinfo=None),
+        source             = "webhook",
+        # Class D fields — Note-2 closure 2026-04-26.
+        discount_amount    = order_data.get("discount_amount"),
+        discount_codes     = order_data.get("discount_codes"),
+        tax_amount         = order_data.get("tax_amount"),
+        payment_method     = order_data.get("payment_method"),
+        financial_status   = order_data.get("financial_status"),
+        fulfillment_status = order_data.get("fulfillment_status"),
     )
 
     try:

@@ -682,7 +682,7 @@ export function OrderStatusTile() {
         <div className="space-y-1.5">{data.fulfillment.map(renderBar)}</div>
       </div>
       <div className="mt-2 text-[10px] text-slate-300">
-        Pixel-time snapshot — refunds + fulfillment transitions need PCD-approved webhooks (next milestone).
+        Updates live as refunds + fulfillments fire — orders/updated webhook ingests every state change.
       </div>
     </div>
   );
