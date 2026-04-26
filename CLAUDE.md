@@ -1015,6 +1015,65 @@ improvement is a failed turn *even if the commit is correct*.
 "fast path", honor it for that turn — but resume §19 on the next
 non-trivial turn without being reminded.
 
+### 19.1 The bug-fix reproduction law
+
+Born 2026-04-26 after I claimed a layout fix "verified" via a headless
+test that loaded the page WITH ZERO DATA (CORS blocked the API), saw
+no scroll because there was no content, and declared victory while
+asking the founder to "refresh and tell me". Detail in
+`feedback_bug_fix_reproduction_law.md`.
+
+**The law:** verifying the EMPTY / cold-start version of a surface
+proves nothing about a bug that manifests under specific conditions
+(loaded data, scrolled state, modal open, viewport size, tier). For
+any bug-fix turn the verification MUST reproduce the bug's trigger
+conditions IN THE SAME TURN.
+
+**Binding protocol (every bug-fix turn):**
+
+1. **State trigger conditions out loud.** Data state (which merchant,
+   populated vs cold), interaction state (scrolled/clicked/modal),
+   viewport, tier. Can't enumerate them → don't know the bug → go
+   reproduce before fixing.
+
+2. **Reproduce the bug in this turn** with pre-fix evidence:
+   - **Visual / layout / UX:** headless playwright (already installed
+     at `dashboard/node_modules/.bin/playwright`). Forge `hs_session`
+     via local backend's `create_session_token`, intercept
+     `api.hedgesparkhq.com/*` and reroute to `127.0.0.1:8000` for real
+     merchant data. Use `hedgespark-dev.myshopify.com` (Pro merchant
+     with populated state) when data needed. Save screenshot + DOM
+     metrics under `/tmp/<bug>_before.{png,json}`. Template exists at
+     `/tmp/verify_scroll_v2.js`.
+   - **Backend / data:** write the failing test FIRST (TDD), see it
+     fail, then fix.
+   - **Performance:** capture the slow timing first, then fix.
+
+3. **Apply the fix.**
+
+4. **Re-run the same reproduction**, save `/tmp/<bug>_after.{png,json}`,
+   prove the bug-state is gone.
+
+5. **Genuinely impossible to reproduce locally?** Say so explicitly,
+   then run a *synthetic* test that forces the structural mechanism
+   (inject 5000px tall element, simulate offline, etc.). Synthetic
+   covers the *mechanism*, not necessarily the exact sighting.
+
+6. **Never end a fix turn** with *"refresh and tell me"* / *"reload
+   to see"* / *"hard-refresh"* without point 5 having demonstrably
+   failed first. Burden of proof stays with Claude.
+
+**Forbidden phrases at fix-close** (auto-force score below 9.0 per
+§20 honesty test):
+
+> "structure looks correct" (without DOM proof) · "verified with
+> headless without data" · "build green so runtime is fine" ·
+> "preflight clean = bug fixed" · "type-check passed = layout fixed"
+> · "should work now" · "refresh and let me know" · "test on cold-start"
+
+Build, type-check, preflight prove the code COMPILES. They do NOT
+prove the bug is gone. Conflating them is a §19.1 / §20 violation.
+
 ---
 
 ## 20. Flag-resolution invariant — the brutal-honesty law

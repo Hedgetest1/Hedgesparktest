@@ -69,6 +69,21 @@ FORBIDDEN_PHRASES: list[str] = [
     r"address\s+later",
     r"come\s+back\s+to",
     r"out\s+of\s+scope\s+for\s+now",
+    # § 19.1 bug-fix reproduction law (born 2026-04-26). These phrases
+    # at fix-close indicate verification was performed on cold-start /
+    # empty / type-check level instead of reproducing the bug-trigger
+    # conditions. Compiling ≠ fix verified. Build green ≠ runtime fixed.
+    r"refresh\s+(?:and|to)\s+(?:tell|let)\s+me",
+    r"refresh\s+to\s+see",
+    r"hard[- ]refresh",
+    r"reload\s+to\s+see",
+    r"should\s+work\s+now",
+    r"build\s+green\s+so\s+(?:the\s+)?runtime",
+    r"preflight\s+clean\s*=\s*bug\s+fixed",
+    r"type[- ]?check\s+passed\s*=\s*layout",
+    r"structure\s+looks\s+correct",
+    r"verified\s+(?:via|with)\s+headless\s+without\s+data",
+    r"tested\s+on\s+cold[- ]start",
 ]
 
 # R-blocker labels that legitimize a deferred flag per §20.1. When
@@ -190,8 +205,11 @@ def _is_in_audit_definition(text: str, match_start: int) -> bool:
     window = text[window_start:window_end]
     if re.search(
         r"FORBIDDEN_PHRASES|R_BLOCKER_LABELS|RETROSPECTIVE_MARKERS|"
-        r"Forbidden\s+phrases|§20|R-blocker|R-fix|R-disprove",
+        r"Forbidden\s+phrases|§\s*(?:19\.1|20)|R-blocker|R-fix|R-disprove|"
+        r"reproduction\s+law|how\s+this\s+rule\s+was\s+born|"
+        r"bug-fix\s+reproduction",
         window,
+        re.IGNORECASE,
     ):
         return True
 
