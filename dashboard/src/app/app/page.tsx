@@ -730,7 +730,14 @@ function PageInner() {
       if (billingResult === "activated") setBillingJustActivated(true);
       params.delete("billing");
       const clean = params.toString();
-      window.history.replaceState({}, "", `/app${clean ? `?${clean}` : ""}`);
+      // Preserve floor segment (/app/lite, /app/pro, /app/scale) so the
+      // URL doesn't collapse to /app (which 308-redirects to /app/lite,
+      // hiding the user's actual floor). Bug surfaced 2026-04-26 by
+      // verify_floor_dashboard_e2e.js — Pro merchants on /app/pro were
+      // bouncing back to /app/lite after sessionResolved.
+      const floorMatch = window.location.pathname.match(/^\/app\/(lite|pro|scale)\b/);
+      const basePath = floorMatch ? `/app/${floorMatch[1]}` : "/app";
+      window.history.replaceState({}, "", `${basePath}${clean ? `?${clean}` : ""}`);
       setTimeout(() => setBillingToast((prev) => prev ? { ...prev, visible: false } : null), 8000);
     }
 
@@ -848,7 +855,10 @@ function PageInner() {
           params.delete("webhook");
           params.delete("tracker");
           const cleaned = params.toString();
-          window.history.replaceState({}, "", `/app${cleaned ? `?${cleaned}` : ""}`);
+          // Preserve floor segment — see same comment at billing-toast block.
+          const floorMatch = window.location.pathname.match(/^\/app\/(lite|pro|scale)\b/);
+          const basePath = floorMatch ? `/app/${floorMatch[1]}` : "/app";
+          window.history.replaceState({}, "", `${basePath}${cleaned ? `?${cleaned}` : ""}`);
         }
         setSessionResolved(true);
         return;
@@ -949,9 +959,12 @@ function PageInner() {
       params.delete("upgrade");
     }
 
-    // Clean URL
+    // Clean URL — preserve floor segment so /app/pro and /app/scale don't
+    // collapse to /app (which 308-redirects to /app/lite).
     const clean = params.toString();
-    window.history.replaceState({}, "", `/app${clean ? `?${clean}` : ""}`);
+    const floorMatch = window.location.pathname.match(/^\/app\/(lite|pro|scale)\b/);
+    const basePath = floorMatch ? `/app/${floorMatch[1]}` : "/app";
+    window.history.replaceState({}, "", `${basePath}${clean ? `?${clean}` : ""}`);
 
     // Load recent actions from localStorage
     setRecentActions(loadRecentActions());
