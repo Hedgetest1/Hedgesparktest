@@ -431,7 +431,7 @@ async function runOneCell({ label, viewport, urlSuffix, sessionToken, shop }) {
 
   const allPass = results.every(r => r.verdict === 'PASS');
   console.log('');
-  console.log(allPass ? 'PASS — entire Lite dashboard 10/10 across desktop+mobile×2 tier flows' :
+  console.log(allPass ? `PASS — entire Lite dashboard 10/10 across ${results.length} matrix cells (desktop+mobile × Pro-on-Lite + ?as=lite + real-Lite-tier)` :
                         'FAIL — at least one matrix cell flagged. See ' + OUT + '/results.json');
   process.exit(allPass ? 0 : 1);
 })();

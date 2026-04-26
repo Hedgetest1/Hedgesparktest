@@ -144,9 +144,40 @@ def _resolve_head_via_alembic() -> str | None:
         return None
 
 
+def _autofix_test_db(test_url: str) -> int:
+    """Deterministic auto-fix: run `alembic upgrade head` against the
+    test DB. Safe scope: only operates on wishspark_test (never prod).
+    Returns subprocess exit code (0 = success).
+    """
+    import subprocess
+    backend_dir = "/opt/wishspark/backend"
+    cmd = [f"{backend_dir}/venv/bin/alembic", "upgrade", "head"]
+    env = {"DATABASE_URL": test_url, "PATH": "/usr/bin:/bin:/usr/local/bin"}
+    # Inherit minimal env to keep secrets from leaking into subprocess
+    import os
+    for k in ("MERCHANT_SESSION_SECRET", "TOKEN_ENCRYPTION_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
+        if v := os.environ.get(k):
+            env[k] = v
+    try:
+        result = subprocess.run(
+            cmd, cwd=backend_dir, env=env, capture_output=True, text=True, timeout=60
+        )
+        if result.returncode == 0:
+            print("auto-fix: alembic upgrade head succeeded on wishspark_test")
+            return 0
+        print(f"auto-fix: alembic upgrade failed exit={result.returncode}")
+        print(result.stdout[-300:])
+        print(result.stderr[-300:], file=sys.stderr)
+        return result.returncode
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        print(f"auto-fix: alembic invocation failed — {e}", file=sys.stderr)
+        return 1
+
+
 @telemetered("audit_alembic_test_db_parity")
 def main() -> int:
     strict = "--strict" in sys.argv
+    fix_mode = "--fix" in sys.argv
 
     _load_env()
     try:
@@ -215,12 +246,33 @@ def main() -> int:
             )
 
     if failures:
+        # Auto-fix: ONLY for the test-DB-behind-head case (deterministic
+        # alembic upgrade). Schema fingerprint drift requires human
+        # judgment (delete column? add migration?) and is NOT auto-fixed.
+        version_only_drift = (
+            file_head and test_ver and test_ver != file_head
+            and not any("schema drift" in f for f in failures)
+        )
+        if fix_mode and version_only_drift:
+            rc = _autofix_test_db(test_url)
+            if rc != 0:
+                return rc
+            # Re-check after upgrade
+            new_test_ver = _db_version(test_url)
+            if new_test_ver == file_head:
+                print(f"auto-fix: wishspark_test now at head {file_head}")
+                return 0
+            print(f"auto-fix: upgrade ran but version still {new_test_ver} (expected {file_head})")
+            return 1
+        if fix_mode:
+            print("auto-fix: not applied — schema fingerprint drift requires manual DDL review")
         print("✗ alembic test-DB parity violated:")
         for f in failures:
             print(f"  - {f}")
         print()
         print("Remediation:")
         print(f"  DATABASE_URL={test_url} ./venv/bin/alembic upgrade head")
+        print("  OR run this audit with --fix (deterministic version-drift only)")
         print("  For schema-drift: if the drift is from manual DDL, drop the")
         print("  extra columns OR create an alembic migration that brings")
         print("  both DBs to the same fingerprint.")

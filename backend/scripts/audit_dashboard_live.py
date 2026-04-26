@@ -173,11 +173,33 @@ def _probe_assets() -> List[str]:
     return failures
 
 
+def _autofix_deploy() -> int:
+    """Deterministic auto-fix: invoke deploy.sh which rebuilds + restarts +
+    verifies. Slow (~30-60s) so callers should expect that latency.
+    """
+    import subprocess
+    cmd = ["/opt/wishspark/dashboard/scripts/deploy.sh"]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        if result.returncode == 0:
+            print("auto-fix: deploy.sh succeeded — dashboard rebuilt + restarted + verified")
+            return 0
+        print(f"auto-fix: deploy.sh failed exit={result.returncode}")
+        print(result.stdout[-500:])
+        print(result.stderr[-500:], file=sys.stderr)
+        return result.returncode
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        print(f"auto-fix: deploy.sh invocation failed — {e}", file=sys.stderr)
+        return 1
+
+
 @telemetered("audit_dashboard_live")
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--strict", action="store_true",
                    help="exit 1 on any finding (preflight mode)")
+    p.add_argument("--fix", action="store_true",
+                   help="auto-repair via deploy.sh (rebuild + restart + verify)")
     args = p.parse_args()
 
     if not _dashboard_reachable():
@@ -208,13 +230,25 @@ def main() -> int:
               "referenced chunks resolve 200")
         return 0
 
+    if args.fix:
+        rc = _autofix_deploy()
+        if rc != 0:
+            return rc
+        # Re-probe after deploy
+        post_failures = _probe_assets()
+        if not post_failures:
+            print("auto-fix: dashboard now serving fresh, all chunks 200")
+            return 0
+        print("auto-fix: deploy ran but probe still flagged:")
+        for f in post_failures:
+            print(f"  ✗ {f}")
+        return 1
     print("audit_dashboard_live: ISSUES DETECTED")
     for issue in issues:
         print(f"  ✗ {issue}")
     print()
-    print("Fix: cd /opt/wishspark && ./dashboard/scripts/deploy.sh")
-    print("(or manually: cd dashboard && npx next build && "
-          "pm2 restart wishspark-dashboard)")
+    print("Fix: run this audit with --fix (invokes deploy.sh)")
+    print("OR manually: /opt/wishspark/dashboard/scripts/deploy.sh")
     return 1 if args.strict else 0
 
 

@@ -54,11 +54,15 @@ run_with_autofix() {
     local audit_name="$1"
     local audit_script="$2"
     local fix_supported="${3:-}"
+    # Optional extra args to pass to the audit (e.g. --strict). Pass via
+    # AUDIT_EXTRA_ARGS env var; supports multi-arg via space-separated.
+    local extra_args="${AUDIT_EXTRA_ARGS:-}"
     local logfile="/tmp/preflight_${audit_name}.log"
     local fixlog="/tmp/preflight_${audit_name}.fixlog"
 
     step "$audit_name (${audit_script})"
-    if "$PY" "scripts/$audit_script" > "$logfile" 2>&1; then
+    # shellcheck disable=SC2086
+    if "$PY" "scripts/$audit_script" $extra_args > "$logfile" 2>&1; then
         ok "$(head -1 "$logfile")"
         return 0
     fi
@@ -70,7 +74,8 @@ run_with_autofix() {
         local before_diff="/tmp/preflight_${audit_name}.before"
         git -C "$REPO_ROOT" diff --name-only > "$before_diff" 2>/dev/null || true
 
-        if "$PY" "scripts/$audit_script" --fix > "$fixlog" 2>&1; then
+        # shellcheck disable=SC2086
+        if "$PY" "scripts/$audit_script" $extra_args --fix > "$fixlog" 2>&1; then
             # Files with tree changes AFTER --fix
             local after_diff="/tmp/preflight_${audit_name}.after"
             git -C "$REPO_ROOT" diff --name-only > "$after_diff" 2>/dev/null || true
@@ -92,7 +97,8 @@ run_with_autofix() {
                 fi
             done
 
-            if "$PY" "scripts/$audit_script" > "$logfile" 2>&1; then
+            # shellcheck disable=SC2086
+            if "$PY" "scripts/$audit_script" $extra_args > "$logfile" 2>&1; then
                 ok "$(head -1 "$logfile") [auto-repaired]"
                 grep "^auto-fix:" "$fixlog" | head -3 | while read -r line; do
                     info "$line"
@@ -292,13 +298,7 @@ fi
 # Catches the class where a new migration was applied to prod but
 # forgotten on test (or vice-versa). Root-caused + fixed 2026-04-23 in
 # migrations/env.py; this audit is the belt + suspenders.
-step "Alembic test-DB parity (audit_alembic_test_db_parity.py)"
-if "$BACKEND/venv/bin/python" "$BACKEND/scripts/audit_alembic_test_db_parity.py" --strict > /tmp/preflight_alembic_parity.log 2>&1; then
-    ok "wishspark + wishspark_test both at head"
-else
-    bad "alembic test-DB parity violated — see /tmp/preflight_alembic_parity.log"
-    tail -20 /tmp/preflight_alembic_parity.log || true
-fi
+AUDIT_EXTRA_ARGS="--strict" run_with_autofix "Alembic test-DB parity" "audit_alembic_test_db_parity.py" --fix-supported
 
 # ---------------------------------------------------------------------------
 # 2e. Silent-fallback observability gate (Tier 2.1). Every `if rc is None`
@@ -1008,6 +1008,44 @@ fi
 # ---------------------------------------------------------------------------
 # 3. Python AST parse check — any syntax error blocks commit
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Orphan-audit backfill — runs the 6 audits classified as "wire-as-info"
+# in Phase B (2026-04-26). They report findings but DON'T block commits;
+# the operator sees the surface and triages over time. Documented as
+# Phase B in `project_autonomous_system_state_2026_04_26.md`.
+#
+# Why info-only: most have many existing findings (173 Redis prefixes,
+# 14 empty-path fields, 11 N+1 candidates). Wiring blocking would freeze
+# every commit until the backlog drains, which isn't pragmatic.
+# Wiring info surfaces the live count so it can be driven down.
+# ---------------------------------------------------------------------------
+step "Orphan-audit backfill (info-only — see /tmp/preflight_orphans.log for detail)"
+# Wire 6 previously-orphan scripts. Listed with .py extension so the
+# meta-audit (audit_autonomy_coverage.py) can detect they're wired.
+# Audits referenced: audit_dev_flag_leaks.py, audit_timezone.py,
+# audit_claude_md_redis_keys.py, audit_empty_path_fields.py,
+# audit_n_plus_one.py, audit_dead_endpoints.py.
+{
+    for orphan in audit_dev_flag_leaks.py audit_timezone.py audit_claude_md_redis_keys.py \
+                  audit_empty_path_fields.py audit_n_plus_one.py audit_dead_endpoints.py; do
+        echo "=== $orphan ==="
+        "$PY" "scripts/${orphan}" 2>&1 | head -5 || true
+        echo ""
+    done
+} > /tmp/preflight_orphans.log 2>&1
+# Surface a single-line summary
+clean_count=0
+flagged_count=0
+for orphan in audit_dev_flag_leaks.py audit_timezone.py audit_claude_md_redis_keys.py \
+              audit_empty_path_fields.py audit_n_plus_one.py audit_dead_endpoints.py; do
+    if "$PY" "scripts/${orphan}" 2>/dev/null | head -1 | grep -qE "clean|OK|0 (findings|hits|drift)|^✓"; then
+        clean_count=$((clean_count + 1))
+    else
+        flagged_count=$((flagged_count + 1))
+    fi
+done
+ok "orphan-audit: ${clean_count} clean, ${flagged_count} report findings (info)"
+
 step "Python AST parse (staged .py files)"
 cd "$REPO_ROOT"
 STAGED_PY="$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.py$' || true)"
