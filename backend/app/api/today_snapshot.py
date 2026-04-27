@@ -236,7 +236,7 @@ def _query_top_sellers_today(db: Session, shop: str, tz: str, limit: int = 5) ->
                 SUM((item->>'price')::numeric * (item->>'quantity')::int) AS revenue,
                 SUM((item->>'quantity')::int)                             AS units_sold
             FROM shop_orders so,
-                 jsonb_array_elements(so.line_items) AS item
+                 jsonb_array_elements(CASE WHEN jsonb_typeof(so.line_items) = 'array' THEN so.line_items ELSE '[]'::jsonb END) AS item
             WHERE so.shop_domain = :shop
               AND (so.created_at AT TIME ZONE :tz)::date = (CURRENT_TIMESTAMP AT TIME ZONE :tz)::date
               AND item->>'title' IS NOT NULL

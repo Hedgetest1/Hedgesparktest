@@ -36,41 +36,99 @@ EXCLUDE_DIRS = {".venv", "venv", "__pycache__"}
 _JSONB_ARRAY_LEN_RE = re.compile(
     r"jsonb_array_length\s*\(\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\)"
 )
+# Pattern: jsonb_array_elements(<EXPR>) and jsonb_array_elements_text(<EXPR>).
+# Same scalar-panic vulnerability — PostgreSQL can evaluate LATERAL
+# expansion before WHERE filters.
+_JSONB_ARRAY_ELEMS_RE = re.compile(
+    r"jsonb_array_elements(?:_text)?\s*\(\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\)"
+)
 # Accepts both positive guard (`= 'array'`) and negative guard
 # (`<> 'array'` which short-circuits on non-array via CASE/WHEN)
 _JSONB_TYPEOF_RE = re.compile(
     r"jsonb_typeof\s*\(\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\)\s*(?:=|<>|!=)\s*'array'"
 )
+# Inline CASE WHEN jsonb_typeof = 'array' THEN <col> ELSE '[]'::jsonb END
+# is the SAFE inline pattern that wraps the column to nullify scalars.
+# Detect via the surrounding text: the elements call should be within
+# 2 lines of a "CASE WHEN jsonb_typeof" or the column should be a CTE
+# alias.
+_INLINE_CASE_RE = re.compile(
+    r"CASE\s+WHEN\s+jsonb_typeof\s*\(\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\)\s*=\s*'array'",
+    re.IGNORECASE,
+)
 
 
 def _scan_file(path: Path) -> list[str]:
-    """Return list of finding strings for unguarded jsonb_array_length calls."""
+    """Return list of finding strings for unguarded jsonb calls."""
     findings: list[str] = []
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except Exception:
         return findings
 
+    full_text = "\n".join(lines)
+
     for idx, line in enumerate(lines):
+        # Skip comments / explanatory docstrings
+        stripped = line.lstrip()
+        if stripped.startswith("#") or stripped.startswith("--"):
+            continue
+
+        # Class 1: jsonb_array_length() needs typeof guard within 4 lines
         for m in _JSONB_ARRAY_LEN_RE.finditer(line):
             expr = m.group(1)
-            # Look back up to 4 lines for jsonb_typeof(expr) = 'array'
             window_start = max(0, idx - 4)
             window = "\n".join(lines[window_start:idx + 1])
             guarded = any(
                 tm.group(1) == expr
                 for tm in _JSONB_TYPEOF_RE.finditer(window)
             )
-            # Also: comments and explanatory docstrings are exempt
-            stripped = line.lstrip()
-            if stripped.startswith("#") or stripped.startswith("--"):
-                continue
             if guarded:
                 continue
             findings.append(
                 f"{path.relative_to(BACKEND)}:{idx + 1}: "
                 f"jsonb_array_length({expr}) without preceding "
                 f"jsonb_typeof({expr}) = 'array' guard within 4 lines"
+            )
+
+        # Class 2: jsonb_array_elements() / jsonb_array_elements_text()
+        # in LATERAL or FROM — needs either:
+        #  (a) inline CASE WHEN jsonb_typeof(<expr>) = 'array' wrapper
+        #      around the column (within 4 lines back)
+        #  (b) the source <expr> references a CTE alias that filtered
+        #      by jsonb_typeof = 'array' (heuristic: alias starts with
+        #      "vo." / "valid_orders." / "valid_" prefix)
+        for m in _JSONB_ARRAY_ELEMS_RE.finditer(line):
+            expr = m.group(1)
+            window_start = max(0, idx - 4)
+            window = "\n".join(lines[window_start:idx + 1])
+            # Inline CASE-WHEN guard with same expr column tail
+            expr_tail = expr.split(".")[-1]  # strip alias prefix
+            inline_guarded = any(
+                cm.group(1).split(".")[-1] == expr_tail
+                for cm in _INLINE_CASE_RE.finditer(window)
+            )
+            # CTE alias heuristic: column source uses CTE-like alias
+            cte_alias_safe = any(
+                expr.startswith(prefix)
+                for prefix in ("vo.", "valid_orders.", "valid_")
+            )
+            # Whole-file CTE pre-filter: file has WITH valid... AS (
+            # ... jsonb_typeof = 'array' ...) before this line
+            file_has_cte_filter = (
+                "WITH valid" in full_text and
+                "jsonb_typeof" in full_text and
+                "= 'array'" in full_text and
+                cte_alias_safe
+            )
+            if inline_guarded or file_has_cte_filter:
+                continue
+            findings.append(
+                f"{path.relative_to(BACKEND)}:{idx + 1}: "
+                f"jsonb_array_elements({expr}) without inline CASE-WHEN "
+                f"typeof guard or CTE pre-filter — vulnerable to "
+                f"'cannot extract elements from a scalar' panic on "
+                f"JSON-null rows"
             )
     return findings
 

@@ -356,7 +356,7 @@ def get_product_ltv_contribution(
                         COALESCE(li->>'product_url', li->>'handle') AS product_key,
                         so.created_at AS order_date
                     FROM shop_orders so,
-                         jsonb_array_elements(so.line_items) li
+                         jsonb_array_elements(CASE WHEN jsonb_typeof(so.line_items) = 'array' THEN so.line_items ELSE '[]'::jsonb END) li
                     WHERE so.shop_domain = :shop
                       AND (so.customer_id IS NOT NULL OR so.customer_email IS NOT NULL)
                       AND (:currency IS NULL OR so.currency = :currency)

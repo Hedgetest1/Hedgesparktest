@@ -462,7 +462,7 @@ def _compute_real_cogs(
                         (item->>'price')::numeric         AS unit_price,
                         (item->>'quantity')::int          AS quantity
                     FROM shop_orders so,
-                         jsonb_array_elements(so.line_items) AS item
+                         jsonb_array_elements(CASE WHEN jsonb_typeof(so.line_items) = 'array' THEN so.line_items ELSE '[]'::jsonb END) AS item
                     WHERE so.shop_domain = :shop
                       AND so.created_at >= NOW() - make_interval(days => :days)
                       AND item->>'product_id' IS NOT NULL
@@ -552,7 +552,7 @@ def get_product_margin_drag(
                         (item->>'price')::numeric  AS unit_price,
                         (item->>'quantity')::int   AS quantity
                     FROM shop_orders so,
-                         jsonb_array_elements(so.line_items) AS item
+                         jsonb_array_elements(CASE WHEN jsonb_typeof(so.line_items) = 'array' THEN so.line_items ELSE '[]'::jsonb END) AS item
                     WHERE so.shop_domain = :shop
                       AND so.created_at >= NOW() - make_interval(days => :days)
                       AND item->>'price'    IS NOT NULL
@@ -832,7 +832,7 @@ def _profit_by_variant(db, shop_domain, currency, window_days, limit, now):
                         (item->>'price')::numeric  AS unit_price,
                         (item->>'quantity')::int   AS quantity
                     FROM shop_orders so,
-                         jsonb_array_elements(so.line_items) AS item
+                         jsonb_array_elements(CASE WHEN jsonb_typeof(so.line_items) = 'array' THEN so.line_items ELSE '[]'::jsonb END) AS item
                     WHERE so.shop_domain = :shop
                       AND so.created_at >= NOW() - make_interval(days => :days)
                       AND item->>'price'    IS NOT NULL

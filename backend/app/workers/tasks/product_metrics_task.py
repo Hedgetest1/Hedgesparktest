@@ -517,7 +517,7 @@ def compute_purchase_metrics(
                             SUM((li->>'price')::numeric * GREATEST((li->>'quantity')::int, 1)),
                             0
                         )
-                        FROM jsonb_array_elements(so.line_items) AS li
+                        FROM jsonb_array_elements(CASE WHEN jsonb_typeof(so.line_items) = 'array' THEN so.line_items ELSE '[]'::jsonb END) AS li
                         WHERE li->>'product_url' = :product_url
                            OR (li->>'product_url' IS NULL AND li->>'product_id' = ANY(:product_ids))
                     ) AS line_revenue
@@ -530,12 +530,12 @@ def compute_purchase_metrics(
                   AND (
                       EXISTS (
                           SELECT 1
-                          FROM jsonb_array_elements(so.line_items) AS item
+                          FROM jsonb_array_elements(CASE WHEN jsonb_typeof(so.line_items) = 'array' THEN so.line_items ELSE '[]'::jsonb END) AS item
                           WHERE item->>'product_url' = :product_url
                       )
                       OR EXISTS (
                           SELECT 1
-                          FROM jsonb_array_elements(so.line_items) AS item
+                          FROM jsonb_array_elements(CASE WHEN jsonb_typeof(so.line_items) = 'array' THEN so.line_items ELSE '[]'::jsonb END) AS item
                           WHERE item->>'product_url' IS NULL
                             AND item->>'product_id' = ANY(:product_ids)
                       )

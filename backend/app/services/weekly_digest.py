@@ -388,7 +388,7 @@ def _top_performing_product(db: Session, shop: str, days: int, currency: str) ->
                            COUNT(DISTINCT so.shopify_order_id) AS orders,
                            SUM((item->>'price')::numeric * (item->>'quantity')::int) AS revenue
                     FROM shop_orders so,
-                         jsonb_array_elements(so.line_items) AS item
+                         jsonb_array_elements(CASE WHEN jsonb_typeof(so.line_items) = 'array' THEN so.line_items ELSE '[]'::jsonb END) AS item
                     WHERE so.shop_domain = :shop
                       AND so.created_at >= NOW() - make_interval(days => :days)
                       AND item->>'title' IS NOT NULL
@@ -594,7 +594,7 @@ def _top_products(db: Session, shop: str, days: int) -> list[dict]:
                        SUM((item->>'price')::numeric * (item->>'quantity')::int) AS rev,
                        SUM((item->>'quantity')::int)                         AS units
                 FROM shop_orders,
-                     jsonb_array_elements(line_items) AS item
+                     jsonb_array_elements(CASE WHEN jsonb_typeof(line_items) = 'array' THEN line_items ELSE '[]'::jsonb END) AS item
                 WHERE shop_domain = :shop
                   AND created_at >= NOW() - make_interval(days => :days)
                   AND item->>'title' IS NOT NULL

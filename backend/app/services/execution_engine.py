@@ -544,7 +544,7 @@ def _get_audience(conn, shop_domain: str, bought_url: str, target_url: str) -> l
                     WHERE vps.shop_domain = :shop AND so.shop_domain = :shop
                       AND so.created_at >= NOW() - INTERVAL '30 days'
                       AND EXISTS (
-                          SELECT 1 FROM jsonb_array_elements(so.line_items) AS item
+                          SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(so.line_items) = 'array' THEN so.line_items ELSE '[]'::jsonb END) AS item
                           WHERE item->>'product_url' = :bought_url
                       )
                 ),
@@ -652,7 +652,7 @@ def _update_tracking_outcomes(conn, shop_domain: str) -> int:
                               AND vps.visitor_id = et.visitor_id
                               AND so.created_at > et.exposed_at
                               AND EXISTS (
-                                  SELECT 1 FROM jsonb_array_elements(so.line_items) AS item
+                                  SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(so.line_items) = 'array' THEN so.line_items ELSE '[]'::jsonb END) AS item
                                   WHERE item->>'product_url' = eo.product_b
                               )
                             LIMIT 1

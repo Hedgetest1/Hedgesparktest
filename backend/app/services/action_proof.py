@@ -50,7 +50,7 @@ def _product_metrics_now(db: Session, shop: str, product_url: str, days: int = 7
                 SELECT COUNT(DISTINCT so.shopify_order_id)::int AS orders,
                        COALESCE(SUM((item->>'price')::numeric * (item->>'quantity')::int), 0) AS revenue
                 FROM shop_orders so,
-                     jsonb_array_elements(so.line_items) AS item
+                     jsonb_array_elements(CASE WHEN jsonb_typeof(so.line_items) = 'array' THEN so.line_items ELSE '[]'::jsonb END) AS item
                 WHERE so.shop_domain = :shop
                   AND so.created_at >= NOW() - make_interval(days => :days)
                   AND item->>'product_id' IN (

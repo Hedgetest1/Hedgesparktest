@@ -222,7 +222,7 @@ def _top_products_by_revenue(db: Session, shop: str, days: int, limit: int = 5) 
                     SUM((item->>'price')::numeric * (item->>'quantity')::int) AS revenue,
                     SUM((item->>'quantity')::int)                 AS units_sold
                 FROM shop_orders,
-                     jsonb_array_elements(line_items) AS item
+                     jsonb_array_elements(CASE WHEN jsonb_typeof(line_items) = 'array' THEN line_items ELSE '[]'::jsonb END) AS item
                 WHERE shop_domain = :shop
                   AND created_at >= NOW() - make_interval(days => :days)
                   AND item->>'title' IS NOT NULL
@@ -417,7 +417,7 @@ def get_product_conversions(
                             * (item->>'quantity')::int)                  AS revenue,
                         COUNT(DISTINCT so.shopify_order_id)              AS order_count
                     FROM shop_orders so, cutoff_dt,
-                         jsonb_array_elements(so.line_items) AS item
+                         jsonb_array_elements(CASE WHEN jsonb_typeof(so.line_items) = 'array' THEN so.line_items ELSE '[]'::jsonb END) AS item
                     WHERE so.shop_domain = :shop
                       AND so.created_at >= cutoff_dt.dt
                       AND item->>'product_id' IS NOT NULL
@@ -463,7 +463,7 @@ def get_product_conversions(
                       AND e.timestamp    > (SELECT ts FROM cutoff_ms)
                       AND vps.confirmed_at >= (SELECT dt FROM cutoff_dt)
                       AND EXISTS (
-                          SELECT 1 FROM jsonb_array_elements(so.line_items) AS item
+                          SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(so.line_items) = 'array' THEN so.line_items ELSE '[]'::jsonb END) AS item
                           WHERE item->>'product_id' = pu.product_id
                       )
                     GROUP BY e.product_url

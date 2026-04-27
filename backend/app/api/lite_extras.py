@@ -1127,7 +1127,7 @@ def get_top_products(
                     (li->>'quantity')::numeric * (li->>'price')::numeric
                 ), 0)                                                   AS revenue
             FROM shop_orders so,
-                 LATERAL jsonb_array_elements(so.line_items) li
+                 LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(so.line_items) = 'array' THEN so.line_items ELSE '[]'::jsonb END) li
             WHERE so.shop_domain = :shop
               AND so.currency = :currency
               AND so.created_at >= :start_dt
@@ -1166,7 +1166,7 @@ def get_top_products(
                         COALESCE(NULLIF(li->>'title', ''), 'Untitled product') AS title,
                         SUM((li->>'quantity')::numeric * (li->>'price')::numeric) AS revenue
                     FROM shop_orders so,
-                         LATERAL jsonb_array_elements(so.line_items) li
+                         LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(so.line_items) = 'array' THEN so.line_items ELSE '[]'::jsonb END) li
                     WHERE so.shop_domain = :shop
                       AND so.currency = :currency
                       AND so.created_at >= :start_dt
@@ -1249,7 +1249,7 @@ def get_discount_codes(
                 COALESCE(SUM(discount_amount), 0) AS total_discount,
                 COALESCE(SUM(total_price),     0) AS total_revenue
             FROM shop_orders so,
-                 LATERAL jsonb_array_elements_text(so.discount_codes) AS code
+                 LATERAL jsonb_array_elements_text(CASE WHEN jsonb_typeof(so.discount_codes) = 'array' THEN so.discount_codes ELSE '[]'::jsonb END) AS code
             WHERE so.shop_domain = :shop
               AND so.currency = :currency
               AND so.created_at >= :start_dt
@@ -1655,7 +1655,7 @@ def get_top_variants(
               AND jsonb_typeof(line_items) = 'array'
               AND jsonb_array_length(line_items) > 0
               AND EXISTS (
-                  SELECT 1 FROM jsonb_array_elements(line_items) li
+                  SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(line_items) = 'array' THEN line_items ELSE '[]'::jsonb END) li
                   WHERE li ? 'variant_id'
               )
         """),
@@ -1674,7 +1674,7 @@ def get_top_variants(
                     (li->>'quantity')::numeric * (li->>'price')::numeric
                 ), 0) AS revenue
             FROM shop_orders so,
-                 LATERAL jsonb_array_elements(so.line_items) li
+                 LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(so.line_items) = 'array' THEN so.line_items ELSE '[]'::jsonb END) li
             WHERE so.shop_domain = :shop
               AND so.currency = :currency
               AND so.created_at >= :start_dt
@@ -1712,7 +1712,7 @@ def get_top_variants(
                         li->>'variant_id' AS variant_id,
                         SUM((li->>'quantity')::numeric * (li->>'price')::numeric) AS revenue
                     FROM shop_orders so,
-                         LATERAL jsonb_array_elements(so.line_items) li
+                         LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(so.line_items) = 'array' THEN so.line_items ELSE '[]'::jsonb END) li
                     WHERE so.shop_domain = :shop
                       AND so.currency = :currency
                       AND so.created_at >= :start_dt
@@ -1733,7 +1733,7 @@ def get_top_variants(
                   AND jsonb_typeof(line_items) = 'array'
                   AND jsonb_array_length(line_items) > 0
                   AND EXISTS (
-                      SELECT 1 FROM jsonb_array_elements(line_items) li
+                      SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(line_items) = 'array' THEN line_items ELSE '[]'::jsonb END) li
                       WHERE li ? 'variant_id'
                   )
             """),
