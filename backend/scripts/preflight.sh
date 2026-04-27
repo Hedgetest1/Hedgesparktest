@@ -205,6 +205,17 @@ run_with_autofix "Lite hardcoded currency" "audit_lite_hardcoded_currency.py" --
 AUDIT_EXTRA_ARGS=--strict run_with_autofix "Backend currency drift" "audit_backend_currency_drift.py"
 
 # ---------------------------------------------------------------------------
+# 2b-quater-ter. Lite/Cassettone state-primitive enforcement.
+# Born 2026-04-27 after Phase 1 found LiteBaseAnalytics had rolled its own
+# TileSkeleton/TileError without a11y attrs. Forces every new Lite or
+# Cassettone component that fetches data to use the canonical primitives
+# from _CardStates.tsx OR the compact tile variants from
+# LiteBaseAnalytics.tsx. One-off heroes (LiteRarsHero) carry an explicit
+# `// audit:card-states-ok` marker with a verbal reason.
+# ---------------------------------------------------------------------------
+AUDIT_EXTRA_ARGS=--strict run_with_autofix "Lite card-states usage" "audit_lite_card_states_usage.py"
+
+# ---------------------------------------------------------------------------
 # 2b-quinquies. Dashboard a11y pattern scan — informational, never blocking.
 # Catches the two violation classes axe flagged on /app routes during F6
 # (icon-only buttons missing aria-label, low-contrast slate-500/600 small

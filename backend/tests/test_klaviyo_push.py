@@ -148,3 +148,55 @@ def test_no_key_returns_skipped(db, merchant_a):
     assert result.get("skipped") == "no_key"
     assert result["pushed"] == 0
     assert result["errors"] == 0
+
+
+def test_forward_event_uses_shop_currency_not_hardcoded_eur(db, merchant_a):
+    """Regression-pin for cosmetic(currency) commit f91dfe7.
+
+    Before fix, forward_event_sync hardcoded `value_currency="EUR"` in
+    every Klaviyo event payload, regardless of merchant currency.
+    USD/GBP/JPY merchants saw their LTV math + segment thresholds
+    corrupted in their Klaviyo accounts. This test seeds a USD shop
+    and verifies the payload tags `value_currency: "USD"`."""
+    m = _setup_connected_merchant(db)
+    m.primary_currency = "USD"
+    db.flush()
+    db.commit()
+
+    from app.services.klaviyo_events import forward_event_sync
+
+    captured: dict = {}
+
+    class FakeResponse:
+        status_code = 202
+        text = ""
+
+        def raise_for_status(self):
+            pass
+
+    def fake_post(url, headers=None, content=None, timeout=None):
+        captured["url"] = url
+        captured["body"] = content
+        return FakeResponse()
+
+    with patch("app.services.klaviyo_events.httpx.post", side_effect=fake_post):
+        ok, reason = forward_event_sync(
+            db,
+            shop_domain=SHOP_A,
+            event_name="goal_at_risk",
+            email="merchant@test.com",
+            properties={"goal": "monthly_revenue"},
+            revenue=199.99,
+        )
+
+    assert ok, f"forward_event_sync failed: {reason}"
+    assert captured.get("body"), "no payload sent to Klaviyo"
+
+    import json as _json
+    payload = _json.loads(captured["body"])
+    attrs = payload["data"]["attributes"]
+    assert attrs.get("value") == 199.99
+    assert attrs.get("value_currency") == "USD", (
+        f"value_currency must be USD for USD merchant, got "
+        f"{attrs.get('value_currency')!r}"
+    )

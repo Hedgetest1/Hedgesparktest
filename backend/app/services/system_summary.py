@@ -28,11 +28,15 @@ log = logging.getLogger("system_summary")
 # Cost configuration (EUR/month estimates — update as needed)
 # ---------------------------------------------------------------------------
 
+# Founder-facing infrastructure costs (NOT merchant currency).
+# The "_EUR" suffix is part of the env-var name, not a user-facing
+# currency tag — these values display in /ops dashboards only, never
+# leak to a merchant response. Exempt from currency-drift audit.
 FIXED_COSTS = {
-    "server_vps": float(os.getenv("COST_SERVER_EUR", "25.0")),
-    "domain_ssl": float(os.getenv("COST_DOMAIN_EUR", "2.0")),
-    "redis": float(os.getenv("COST_REDIS_EUR", "0.0")),   # included in VPS
-    "resend_email": float(os.getenv("COST_RESEND_EUR", "0.0")),
+    "server_vps": float(os.getenv("COST_SERVER_EUR", "25.0")),    # audit:eur-default-ok (founder-cost)
+    "domain_ssl": float(os.getenv("COST_DOMAIN_EUR", "2.0")),     # audit:eur-default-ok (founder-cost)
+    "redis": float(os.getenv("COST_REDIS_EUR", "0.0")),           # audit:eur-default-ok (founder-cost, included in VPS)
+    "resend_email": float(os.getenv("COST_RESEND_EUR", "0.0")),   # audit:eur-default-ok (founder-cost)
 }
 
 # LLM cost per 1K tokens (approximate, input+output blended).

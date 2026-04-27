@@ -19,6 +19,11 @@
  * a labeled preview with a "watching" pulse — never fake numbers.
  */
 
+// audit:card-states-ok (reason: hero one-off — uses inline "…" / "—"
+// in the hero number itself per founder design "no skeleton boxes
+// behind the headline number, no fake placeholder digits". Not a
+// tile, not a card — a single hero glyph that the eye reads as
+// loading/empty without an extra skeleton chrome.)
 import { useEffect, useState } from "react";
 import { apiClient } from "@/app/lib/api-client";
 import { formatMoneyCompact } from "../app/_lib/formatters";

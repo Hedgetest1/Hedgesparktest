@@ -87,14 +87,18 @@ SKIP_FILES = {
 # assignment, typed defaults, and dict literals with one regex.
 EUR_LITERAL = re.compile(r'["\']EUR["\']')
 
-# Lines we never flag — explicit allowlist of legitimate EUR uses
+# Lines we never flag — explicit allowlist of legitimate EUR uses.
+# Tightened 2026-04-27 after DA-loop on commit d87f986 — the previous
+# `getenv|environ.get` blanket was too broad and would have masked a
+# future `os.getenv("MERCHANT_DEFAULT_CCY", "EUR")` regression. Now
+# the only path to escape is an explicit `# audit:eur-default-ok`
+# inline marker + a verbal reason next to it.
 EXEMPT_PATTERNS = [
-    re.compile(r'\bdefault\s*=\s*["\']EUR["\']'),       # SQLAlchemy default
+    re.compile(r'\bdefault\s*=\s*["\']EUR["\']'),         # SQLAlchemy default
     re.compile(r'\bserver_default\s*=\s*["\']EUR["\']'),  # SQLAlchemy server_default
-    re.compile(r'#\s*audit:eur-default-ok'),             # explicit exemption
+    re.compile(r'#\s*audit:eur-default-ok'),              # explicit per-line exemption
     re.compile(r'COALESCE\(currency,\s*["\']EUR["\']\)'),  # SQL fallback (DB-level)
-    re.compile(r'getenv|environ\.get'),                  # env var defaults
-    re.compile(r'["\'](?:USD|EUR|GBP)["\'].*["\'](?:USD|EUR|GBP)["\']'),  # multi-currency map/enum
+    re.compile(r'["\'](?:USD|EUR|GBP|JPY|CNY|AUD)["\'].*["\'](?:USD|EUR|GBP|JPY|CNY|AUD)["\']'),  # multi-currency map/enum
     re.compile(r'\.get\(currency,'),                      # symbol-map .get() with currency key
     re.compile(r'\bcurrency\s*==\s*["\']EUR["\']'),       # equality check, not assignment
 ]
