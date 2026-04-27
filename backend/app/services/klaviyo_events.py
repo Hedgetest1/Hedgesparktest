@@ -29,10 +29,13 @@ Event schema (Klaviyo custom events):
 
 Public API
 ----------
-    forward_event_async(shop, event_name, email, properties, revenue_eur=None)
+    forward_event_async(shop, event_name, email, properties, revenue=None, currency=None)
         Non-blocking. Spawns a thread that does the Klaviyo API call.
+        Currency defaults to the shop's currency (from get_shop_currency)
+        when omitted — never hardcoded EUR. Legacy `revenue_eur` kwarg
+        still accepted as an alias for `revenue`.
 
-    forward_event_sync(db, shop, event_name, email, properties, revenue_eur=None)
+    forward_event_sync(db, shop, event_name, email, properties, revenue=None, currency=None)
         Blocking. Used internally; also exposed for testing.
 
     is_shop_connected(db, shop) -> bool
@@ -192,9 +195,18 @@ def forward_event_sync(
     event_name: str,
     email: str | None,
     properties: dict[str, Any] | None = None,
+    revenue: float | None = None,
+    currency: str | None = None,
+    # Backward-compat shim: legacy callers pass revenue_eur. We accept it
+    # but resolve currency from the shop instead of hardcoding "EUR".
     revenue_eur: float | None = None,
 ) -> tuple[bool, str]:
-    """Send a single event to Klaviyo synchronously. Returns (ok, reason)."""
+    """Send a single event to Klaviyo synchronously. Returns (ok, reason).
+
+    Currency: if `currency` is omitted, it is resolved from the shop
+    (`get_shop_currency`). The legacy `revenue_eur` kwarg is accepted as
+    a synonym for `revenue` — the value is the merchant's number, NOT
+    EUR-converted, so the tag must reflect the shop's actual currency."""
     if event_name not in ALLOWED_EVENTS:
         return False, "event_not_allowed"
 
@@ -232,9 +244,19 @@ def forward_event_sync(
             }
         },
     }
-    if revenue_eur is not None:
-        attrs["value"] = round(float(revenue_eur), 2)
-        attrs["value_currency"] = "EUR"
+    revenue_value = revenue if revenue is not None else revenue_eur
+    if revenue_value is not None:
+        # Resolve currency: explicit kwarg > shop-resolved > USD safe default.
+        # Hardcoding "EUR" would corrupt every non-EUR merchant's Klaviyo
+        # data (LTV / segment math downstream).
+        if not currency:
+            try:
+                from app.services.revenue_metrics import get_shop_currency
+                currency = get_shop_currency(db, shop_domain) or "USD"
+            except Exception:
+                currency = "USD"
+        attrs["value"] = round(float(revenue_value), 2)
+        attrs["value_currency"] = currency.upper()
 
     body = {"data": {"type": "event", "attributes": attrs}}
 
@@ -272,9 +294,14 @@ def forward_event_async(
     event_name: str,
     email: str | None,
     properties: dict[str, Any] | None = None,
+    revenue: float | None = None,
+    currency: str | None = None,
     revenue_eur: float | None = None,
 ) -> None:
-    """Fire-and-forget. Spawns a daemon thread with its own DB session."""
+    """Fire-and-forget. Spawns a daemon thread with its own DB session.
+
+    Currency: if `currency` is omitted, the sync handler resolves it
+    from the shop. `revenue_eur` accepted as legacy alias for `revenue`."""
     def _run():
         from app.core.database import SessionLocal
         db = SessionLocal()
@@ -285,6 +312,8 @@ def forward_event_async(
                 event_name=event_name,
                 email=email,
                 properties=properties,
+                revenue=revenue,
+                currency=currency,
                 revenue_eur=revenue_eur,
             )
             if not ok and reason not in ("not_connected", "no_email", "rate_limited"):
