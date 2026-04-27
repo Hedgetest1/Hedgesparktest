@@ -3354,6 +3354,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/cohorts/by-dimension": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Cohorts By Dimension Lite
+         * @description Cohort retention sliced by acquisition dimension.
+         *
+         *     Closes Gap #8 of brutal $0-70 audit (2026-04-27). Lifetimely $39
+         *     ships cohort-by-dimension at entry tier; we match it.
+         *
+         *     `dim` values:
+         *       - **first_channel**  — utm last_source on customer's FIRST order
+         *       - **first_product**  — title of first line-item on FIRST order
+         *       - **first_discount** — first discount code applied on FIRST order
+         *         (or "(none)")
+         *
+         *     Built-on-top differentiator (parity doctrine §3): `best_vs_worst`
+         *     field surfaces a plain-language insight ("Customers acquired via X
+         *     have N% higher repeat rate than Y") — single-line reading-grade
+         *     takeaway no $0-60 competitor ships at this surface. Cold-start
+         *     guard: requires >=2 dim buckets with >=5 customers each before
+         *     quantifying lift; otherwise returns honest "need more data" copy.
+         */
+        get: operations["get_cohorts_by_dimension_lite_analytics_cohorts_by_dimension_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/install": {
         parameters: {
             query?: never;
@@ -7701,6 +7737,77 @@ export interface components {
              * @default 0
              */
             b_views: number;
+        };
+        /** CohortByDimensionResponse */
+        CohortByDimensionResponse: {
+            /** Dim */
+            dim: string;
+            /** Window Months */
+            window_months: number;
+            /** Generated At */
+            generated_at: string;
+            customer_coverage: components["schemas"]["CohortDimCoverage"];
+            /**
+             * Buckets
+             * @default []
+             */
+            buckets: components["schemas"]["CohortDimBucket"][];
+            best_vs_worst: components["schemas"]["CohortDimBestVsWorst"];
+        };
+        /** CohortDimBestVsWorst */
+        CohortDimBestVsWorst: {
+            /** Best Dim Value */
+            best_dim_value: string | null;
+            /** Worst Dim Value */
+            worst_dim_value: string | null;
+            /** Best Repeat Rate */
+            best_repeat_rate: number | null;
+            /** Worst Repeat Rate */
+            worst_repeat_rate: number | null;
+            /** Lift Pct */
+            lift_pct: number | null;
+            /** Insight */
+            insight: string;
+        };
+        /** CohortDimBucket */
+        CohortDimBucket: {
+            /** Dim Value */
+            dim_value: string;
+            /** Size */
+            size: number;
+            /** Repeat Rate */
+            repeat_rate: number;
+            /** Revenue Per Customer */
+            revenue_per_customer: number;
+            /** Orders Per Customer */
+            orders_per_customer: number;
+            /**
+             * Cohort Months
+             * @default []
+             */
+            cohort_months: components["schemas"]["CohortDimMonth"][];
+        };
+        /** CohortDimCoverage */
+        CohortDimCoverage: {
+            /** Total Orders */
+            total_orders: number;
+            /** Identifiable Orders */
+            identifiable_orders: number;
+            /** Unidentifiable Orders */
+            unidentifiable_orders: number;
+            /** Coverage Rate */
+            coverage_rate: number;
+        };
+        /** CohortDimMonth */
+        CohortDimMonth: {
+            /** Cohort Month */
+            cohort_month: string;
+            /** Size */
+            size: number;
+            /** Revenue Total */
+            revenue_total: number;
+            /** Repeat Rate */
+            repeat_rate: number;
         };
         /** CohortSnapshot */
         CohortSnapshot: {
@@ -16483,6 +16590,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PredictedLtvResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_cohorts_by_dimension_lite_analytics_cohorts_by_dimension_get: {
+        parameters: {
+            query: {
+                dim: string;
+                months?: number;
+                limit_dim_values?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CohortByDimensionResponse"];
                 };
             };
             /** @description Validation Error */

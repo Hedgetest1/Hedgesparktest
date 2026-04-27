@@ -133,6 +133,7 @@ import { MarginDragCard } from "../components/MarginDragCard";
 import { ProfitSliceTile } from "../components/ProfitSliceTile";
 import { ChannelAttributionCard } from "../components/ChannelAttributionCard";
 import { MonthlyCohortsCard } from "../components/MonthlyCohortsCard";
+import { CohortByDimensionCard } from "../components/CohortByDimensionCard";
 import { GatewayProductsCard } from "../components/GatewayProductsCard";
 import { ExportButton } from "../components/ExportButton";
 import { AnalyticsAssistant } from "../components/AnalyticsAssistant";
@@ -3036,6 +3037,15 @@ function PageInner() {
                         shop={shop}
                         displayCurrency={displayCurrency}
                       />
+                    </div>
+
+                    {/* Cohort by dimension — Gap #8 close from brutal
+                        $0-70 audit (2026-04-27) + parity doctrine.
+                        Lifetimely $39 ships cohort-by-dimension at
+                        entry tier; we match + add the plain-language
+                        best-vs-worst insight panel as differentiator. */}
+                    <div className="mt-5">
+                      <CohortByDimensionCard displayCurrency={displayCurrency} />
                     </div>
 
                     {/* Gateway products — Strada 4 dominance. Peel/

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -335,6 +335,87 @@ def get_predicted_ltv_lite(
     Lifetimely Free ships the equivalent ranked list — keeping ours Pro-only
     let competitor pitches frame us as 'less complete than free'. Closed."""
     return get_predicted_ltv(db, shop, limit=min(limit, 100))
+
+
+# ---------------------------------------------------------------------------
+# Cohort by dimension — Gap #8 close (brutal $0-70 audit + parity doctrine)
+# ---------------------------------------------------------------------------
+
+class CohortDimMonth(BaseModel):
+    cohort_month: str
+    size: int
+    revenue_total: float
+    repeat_rate: float
+
+
+class CohortDimBucket(BaseModel):
+    dim_value: str
+    size: int
+    repeat_rate: float
+    revenue_per_customer: float
+    orders_per_customer: float
+    cohort_months: list[CohortDimMonth] = []
+
+
+class CohortDimBestVsWorst(BaseModel):
+    best_dim_value: str | None
+    worst_dim_value: str | None
+    best_repeat_rate: float | None
+    worst_repeat_rate: float | None
+    lift_pct: float | None
+    insight: str
+
+
+class CohortDimCoverage(BaseModel):
+    total_orders: int
+    identifiable_orders: int
+    unidentifiable_orders: int
+    coverage_rate: float
+
+
+class CohortByDimensionResponse(BaseModel):
+    dim: str
+    window_months: int
+    generated_at: str
+    customer_coverage: CohortDimCoverage
+    buckets: list[CohortDimBucket] = []
+    best_vs_worst: CohortDimBestVsWorst
+
+
+@lite_router.get(
+    "/by-dimension",
+    response_model=CohortByDimensionResponse,
+    response_model_exclude_none=False,
+)
+def get_cohorts_by_dimension_lite(
+    dim: str = Query(..., pattern="^(first_channel|first_product|first_discount)$"),
+    months: int = Query(default=6, ge=1, le=12),
+    limit_dim_values: int = Query(default=8, ge=1, le=20),
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+):
+    """Cohort retention sliced by acquisition dimension.
+
+    Closes Gap #8 of brutal $0-70 audit (2026-04-27). Lifetimely $39
+    ships cohort-by-dimension at entry tier; we match it.
+
+    `dim` values:
+      - **first_channel**  — utm last_source on customer's FIRST order
+      - **first_product**  — title of first line-item on FIRST order
+      - **first_discount** — first discount code applied on FIRST order
+        (or "(none)")
+
+    Built-on-top differentiator (parity doctrine §3): `best_vs_worst`
+    field surfaces a plain-language insight ("Customers acquired via X
+    have N% higher repeat rate than Y") — single-line reading-grade
+    takeaway no $0-60 competitor ships at this surface. Cold-start
+    guard: requires >=2 dim buckets with >=5 customers each before
+    quantifying lift; otherwise returns honest "need more data" copy.
+    """
+    from app.services.ltv_engine import get_cohorts_by_dimension
+    return get_cohorts_by_dimension(
+        db, shop, dim=dim, months=months, limit_dim_values=limit_dim_values,
+    )
 
 
 
