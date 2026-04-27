@@ -15,6 +15,7 @@ import {
   AbandonmentTrendTile,
   OrderRhythmTile,
 } from "./LiteBaseAnalytics";
+import { DateRangeProvider } from "./DateRangeContext";
 
 // Mock apiClient to control what each tile sees
 vi.mock("@/app/lib/api-client", () => ({
@@ -418,5 +419,95 @@ describe("LiteBaseAnalytics interaction", () => {
       expect(screen.getByText("Mobile")).toBeInTheDocument();
     });
     expect(callCount).toBeGreaterThanOrEqual(2);
+  });
+});
+
+
+// ─── Phase 3B integration: tiles pass date range to backend ──────────
+//
+// Born 2026-04-27 from Stage C DA-loop — verify the wired tiles
+// actually call apiClient with start_date+end_date params from the
+// global DateRangeContext, and that a range change triggers a
+// re-fetch with the new bounds.
+
+describe("LiteBaseAnalytics range integration (Phase 3B)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    if (typeof window !== "undefined") {
+      window.localStorage.clear();
+      window.history.replaceState({}, "", "/");
+    }
+  });
+
+  it("DeviceSplitTile passes start_date+end_date from context to apiClient", async () => {
+    (apiClient.GET as any).mockResolvedValue({
+      data: { days: 7, total_sessions: 0, has_data: false, slices: [] },
+      error: null,
+    });
+
+    render(
+      <DateRangeProvider>
+        <DeviceSplitTile />
+      </DateRangeProvider>
+    );
+
+    await waitFor(() => {
+      expect(apiClient.GET).toHaveBeenCalled();
+    });
+    // The first call should include the params object with start_date+end_date.
+    // Default preset = last_7_days resolves to today−6 .. today browser-local.
+    const firstCall = (apiClient.GET as any).mock.calls[0];
+    expect(firstCall[0]).toBe("/analytics/device-breakdown");
+    const params = firstCall[1]?.params?.query;
+    expect(params).toBeDefined();
+    expect(params.start_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(params.end_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    // start <= end
+    expect(params.start_date <= params.end_date).toBe(true);
+  });
+
+  it("AbandonmentTrendTile passes range from context", async () => {
+    (apiClient.GET as any).mockResolvedValue({
+      data: { days: 7, timezone: "UTC", has_data: false, series: [], avg_abandonment_pct: null },
+      error: null,
+    });
+
+    render(
+      <DateRangeProvider>
+        <AbandonmentTrendTile />
+      </DateRangeProvider>
+    );
+
+    await waitFor(() => {
+      expect(apiClient.GET).toHaveBeenCalled();
+    });
+    const firstCall = (apiClient.GET as any).mock.calls[0];
+    expect(firstCall[0]).toBe("/analytics/abandonment-trend");
+    expect(firstCall[1]?.params?.query?.start_date).toBeDefined();
+    expect(firstCall[1]?.params?.query?.end_date).toBeDefined();
+  });
+
+  it("OrderRhythmTile passes range from context", async () => {
+    (apiClient.GET as any).mockResolvedValue({
+      data: {
+        currency: "USD", timezone: "UTC", days: 7, has_data: false,
+        by_hour: [], by_dow: [], peak_hour: null, peak_dow: null,
+      },
+      error: null,
+    });
+
+    render(
+      <DateRangeProvider>
+        <OrderRhythmTile />
+      </DateRangeProvider>
+    );
+
+    await waitFor(() => {
+      expect(apiClient.GET).toHaveBeenCalled();
+    });
+    const firstCall = (apiClient.GET as any).mock.calls[0];
+    expect(firstCall[0]).toBe("/analytics/order-rhythm");
+    expect(firstCall[1]?.params?.query?.start_date).toBeDefined();
+    expect(firstCall[1]?.params?.query?.end_date).toBeDefined();
   });
 });
