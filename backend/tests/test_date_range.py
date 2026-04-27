@@ -351,3 +351,73 @@ class TestEndpointHonorsRange:
         # Different days reported (cache wasn't aliased)
         assert resp1.json()["days"] == 7
         assert resp2.json()["days"] == 30
+
+
+class TestStageCEndpointsAcceptRange:
+    """Phase 3B Stage C: smoke-verify every newly-wired endpoint accepts
+    explicit start_date+end_date and reports the correct effective span.
+
+    This is the parametrized "all 8 endpoints" test that proves the
+    pattern rolled out cleanly. Each endpoint must:
+      - Return 200 (not 500) on a 7-day explicit range
+      - Report `days` field = 7 (or appropriate equivalent) when wired
+      - Reject end<start with 400
+    """
+
+    @pytest.mark.parametrize("endpoint,extra_params", [
+        ("/analytics/device-breakdown", ""),
+        ("/analytics/first-vs-repeat-aov", ""),
+        ("/analytics/order-rhythm", ""),
+        ("/analytics/order-status", ""),
+        ("/analytics/tax-breakdown", ""),
+        ("/analytics/payment-methods", ""),
+        ("/analytics/discount-codes", ""),
+        ("/analytics/top-variants", ""),
+        ("/analytics/orders-by-country", ""),
+    ])
+    def test_endpoint_accepts_explicit_range(
+        self, endpoint, extra_params, client, db, merchant_a
+    ):
+        """Smoke: 200 on a 7-day range, days field reflects span."""
+        cookies = auth_cookies(SHOP_A)
+        end = _now().date()
+        start = end - timedelta(days=6)
+        url = f"{endpoint}?start_date={start}&end_date={end}"
+        if extra_params:
+            url += f"&{extra_params}"
+        resp = client.get(url, cookies=cookies)
+        assert resp.status_code == 200, (
+            f"{endpoint} returned {resp.status_code}: {resp.text[:200]}"
+        )
+        body = resp.json()
+        # `days` field on response reflects the effective span (7 days
+        # inclusive). first-vs-repeat-aov doesn't surface `days` —
+        # skip that assertion for that endpoint.
+        if "days" in body:
+            assert body["days"] == 7, (
+                f"{endpoint} expected days=7, got {body.get('days')}"
+            )
+
+    @pytest.mark.parametrize("endpoint", [
+        "/analytics/device-breakdown",
+        "/analytics/first-vs-repeat-aov",
+        "/analytics/order-rhythm",
+        "/analytics/order-status",
+        "/analytics/tax-breakdown",
+        "/analytics/payment-methods",
+        "/analytics/discount-codes",
+        "/analytics/top-variants",
+        "/analytics/orders-by-country",
+    ])
+    def test_endpoint_rejects_invalid_range(
+        self, endpoint, client, merchant_a
+    ):
+        """Smoke: end<start returns 400 (validation reaches each endpoint)."""
+        cookies = auth_cookies(SHOP_A)
+        resp = client.get(
+            f"{endpoint}?start_date=2026-04-10&end_date=2026-04-01",
+            cookies=cookies,
+        )
+        assert resp.status_code == 400, (
+            f"{endpoint} should reject end<start, got {resp.status_code}"
+        )

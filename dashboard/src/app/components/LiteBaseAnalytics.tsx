@@ -99,6 +99,7 @@ const DEVICE_LABEL: Record<string, string> = {
 };
 
 export function DeviceSplitTile() {
+  const { range } = useDateRange();
   const [data, setData] = useState<DeviceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -107,7 +108,9 @@ export function DeviceSplitTile() {
   useEffect(() => {
     let active = true;
     setLoading(true); setError(false);
-    apiClient.GET("/analytics/device-breakdown")
+    apiClient.GET("/analytics/device-breakdown", {
+      params: { query: { start_date: range.start, end_date: range.end } },
+    })
       .then(({ data: j, error: err }) => {
         if (!active) return;
         if (err || !j) setError(true);
@@ -116,7 +119,7 @@ export function DeviceSplitTile() {
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tick]);
+  }, [tick, range.start, range.end]);
 
   if (loading) return <TileSkeleton height={120} />;
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
@@ -314,6 +317,7 @@ type RhythmData = {
 };
 
 export function OrderRhythmTile() {
+  const { range } = useDateRange();
   const [data, setData] = useState<RhythmData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -322,7 +326,9 @@ export function OrderRhythmTile() {
   useEffect(() => {
     let active = true;
     setLoading(true); setError(false);
-    apiClient.GET("/analytics/order-rhythm")
+    apiClient.GET("/analytics/order-rhythm", {
+      params: { query: { start_date: range.start, end_date: range.end } },
+    })
       .then(({ data: j, error: err }) => {
         if (!active) return;
         if (err || !j) setError(true);
@@ -331,7 +337,7 @@ export function OrderRhythmTile() {
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tick]);
+  }, [tick, range.start, range.end]);
 
   if (loading) return <TileSkeleton height={180} />;
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
@@ -589,13 +595,16 @@ type DiscountData = {
 };
 
 export function DiscountCodesTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
+  const { range } = useDateRange();
   const [data, setData] = useState<DiscountData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [tick, setTick] = useState(0);
   useEffect(() => {
     let active = true; setLoading(true); setError(false);
-    apiClient.GET("/analytics/discount-codes")
+    apiClient.GET("/analytics/discount-codes", {
+      params: { query: { start_date: range.start, end_date: range.end } },
+    })
       .then(({ data: j, error: err }) => {
         if (!active) return;
         if (err || !j) setError(true); else setData(j as unknown as DiscountData);
@@ -603,7 +612,7 @@ export function DiscountCodesTile({ displayCurrency }: { displayCurrency: Displa
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tick]);
+  }, [tick, range.start, range.end]);
   const ccy = data?.currency ?? displayCurrency;
   if (loading) return <TileSkeleton height={180} />;
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
@@ -652,13 +661,16 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 export function OrderStatusTile() {
+  const { range } = useDateRange();
   const [data, setData] = useState<StatusData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [tick, setTick] = useState(0);
   useEffect(() => {
     let active = true; setLoading(true); setError(false);
-    apiClient.GET("/analytics/order-status")
+    apiClient.GET("/analytics/order-status", {
+      params: { query: { start_date: range.start, end_date: range.end } },
+    })
       .then(({ data: j, error: err }) => {
         if (!active) return;
         if (err || !j) setError(true); else setData(j as unknown as StatusData);
@@ -666,7 +678,7 @@ export function OrderStatusTile() {
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tick]);
+  }, [tick, range.start, range.end]);
   if (loading) return <TileSkeleton height={180} />;
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
   if (!data || !data.has_data) {
@@ -715,13 +727,16 @@ type TaxData = {
 };
 
 export function TaxBreakdownTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
+  const { range } = useDateRange();
   const [data, setData] = useState<TaxData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [tick, setTick] = useState(0);
   useEffect(() => {
     let active = true; setLoading(true); setError(false);
-    apiClient.GET("/analytics/tax-breakdown")
+    apiClient.GET("/analytics/tax-breakdown", {
+      params: { query: { start_date: range.start, end_date: range.end } },
+    })
       .then(({ data: j, error: err }) => {
         if (!active) return;
         if (err || !j) setError(true); else setData(j as unknown as TaxData);
@@ -729,7 +744,7 @@ export function TaxBreakdownTile({ displayCurrency }: { displayCurrency: Display
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tick]);
+  }, [tick, range.start, range.end]);
   const ccy = data?.currency ?? displayCurrency;
   if (loading) return <TileSkeleton height={140} />;
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
@@ -776,13 +791,16 @@ type PaymentData = {
 };
 
 export function PaymentMethodsTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
+  const { range } = useDateRange();
   const [data, setData] = useState<PaymentData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [tick, setTick] = useState(0);
   useEffect(() => {
     let active = true; setLoading(true); setError(false);
-    apiClient.GET("/analytics/payment-methods")
+    apiClient.GET("/analytics/payment-methods", {
+      params: { query: { start_date: range.start, end_date: range.end } },
+    })
       .then(({ data: j, error: err }) => {
         if (!active) return;
         if (err || !j) setError(true); else setData(j as unknown as PaymentData);
@@ -790,7 +808,7 @@ export function PaymentMethodsTile({ displayCurrency }: { displayCurrency: Displ
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tick]);
+  }, [tick, range.start, range.end]);
   const ccy = data?.currency ?? displayCurrency;
   if (loading) return <TileSkeleton height={180} />;
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
@@ -838,13 +856,16 @@ type TopVariantsData = {
 };
 
 export function TopVariantsTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
+  const { range } = useDateRange();
   const [data, setData] = useState<TopVariantsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [tick, setTick] = useState(0);
   useEffect(() => {
     let active = true; setLoading(true); setError(false);
-    apiClient.GET("/analytics/top-variants")
+    apiClient.GET("/analytics/top-variants", {
+      params: { query: { start_date: range.start, end_date: range.end } },
+    })
       .then(({ data: j, error: err }) => {
         if (!active) return;
         if (err || !j) setError(true); else setData(j as unknown as TopVariantsData);
@@ -852,7 +873,7 @@ export function TopVariantsTile({ displayCurrency }: { displayCurrency: DisplayC
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tick]);
+  }, [tick, range.start, range.end]);
   const ccy = data?.currency ?? displayCurrency;
   if (loading) return <TileSkeleton height={240} />;
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
@@ -917,6 +938,7 @@ type FirstVsRepeatData = {
 };
 
 export function FirstVsRepeatAovTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
+  const { range } = useDateRange();
   const [data, setData] = useState<FirstVsRepeatData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -925,7 +947,9 @@ export function FirstVsRepeatAovTile({ displayCurrency }: { displayCurrency: Dis
   useEffect(() => {
     let active = true;
     setLoading(true); setError(false);
-    apiClient.GET("/analytics/first-vs-repeat-aov")
+    apiClient.GET("/analytics/first-vs-repeat-aov", {
+      params: { query: { start_date: range.start, end_date: range.end } },
+    })
       .then(({ data: j, error: err }) => {
         if (!active) return;
         if (err || !j) setError(true);
@@ -934,7 +958,7 @@ export function FirstVsRepeatAovTile({ displayCurrency }: { displayCurrency: Dis
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tick]);
+  }, [tick, range.start, range.end]);
 
   const ccy = data?.currency ?? displayCurrency;
 

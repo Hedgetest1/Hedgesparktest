@@ -292,21 +292,23 @@ class CustomerChurnForecastResponse(BaseModel):
 @router.get("/device-breakdown", response_model=DeviceBreakdownResponse)
 def get_device_breakdown(
     days: int = Query(14, ge=1, le=90),
+    range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ) -> DeviceBreakdownResponse:
-    """Visitor sessions split by device_type over the last `days` days.
-
-    Counts DISTINCT visitor_id per device — a visitor switching devices
-    counts in each, but sessions on same device dedupe. This matches
-    Shopify Analytics' "Sessions by device" semantics."""
-    cache_key = f"hs:dev_brk:v1:{shop}:{days}"
+    """Visitor sessions split by device_type over the explicit range
+    (or last `days` days). Range interpreted in shop tz."""
+    shop_tz = get_shop_timezone(db, shop) or "UTC"
+    start_dt, end_dt_excl, effective_days, _, _ = resolve_utc_bounds(
+        range_q, fallback_days=days, shop_tz=shop_tz
+    )
+    cache_key = f"hs:dev_brk:v1:{shop}:{shop_tz}:{effective_days}{range_q.cache_key_segment()}"
     cached = cache_get(cache_key)
     if cached:
         return DeviceBreakdownResponse(**cached)
 
-    # events.timestamp is BIGINT epoch milliseconds — convert to seconds
-    # threshold to compare. (CURRENT epoch — days*86400) * 1000.
+    # events.timestamp is BIGINT epoch milliseconds — bound the range
+    # via UTC timestamp boundaries (already shop-tz-correct).
     rows = db.execute(
         text("""
             SELECT
@@ -315,11 +317,12 @@ def get_device_breakdown(
             FROM events
             WHERE shop_domain = :shop
               AND event_type = 'page_view'
-              AND timestamp >= (EXTRACT(EPOCH FROM NOW() - (:days || ' days')::interval) * 1000)
+              AND timestamp >= (EXTRACT(EPOCH FROM CAST(:start_dt AS timestamp)) * 1000)
+              AND timestamp <  (EXTRACT(EPOCH FROM CAST(:end_dt_excl AS timestamp)) * 1000)
             GROUP BY 1
             ORDER BY sessions DESC
         """),
-        {"shop": shop, "days": days},
+        {"shop": shop, "start_dt": start_dt, "end_dt_excl": end_dt_excl},
     ).mappings().all()
 
     total = sum(r["sessions"] for r in rows)
@@ -333,7 +336,7 @@ def get_device_breakdown(
     ]
 
     response = DeviceBreakdownResponse(
-        days=days, total_sessions=total, has_data=total > 0, slices=slices,
+        days=effective_days, total_sessions=total, has_data=total > 0, slices=slices,
     )
     cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
     return response
@@ -493,16 +496,22 @@ def get_abandonment_trend(
 @router.get("/first-vs-repeat-aov", response_model=FirstVsRepeatResponse)
 def get_first_vs_repeat_aov(
     days: int = Query(90, ge=14, le=365),
+    range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ) -> FirstVsRepeatResponse:
     """AOV comparison: customers' first purchase vs repeat purchases.
 
-    Window: last `days` days of orders. For each customer in window,
-    we partition their orders by "is this their first-ever order?"
-    (computed via window function over their full history)."""
+    Window: explicit range (or last `days` days). For each customer in
+    window, we partition their orders by "is this their first-ever
+    order?" (computed via window function over their full history —
+    the rn=1 partition can pre-date the window). Range in shop tz."""
     currency = get_shop_currency(db, shop) or "USD"
-    cache_key = f"hs:fvr:v1:{shop}:{currency}:{days}"
+    shop_tz = get_shop_timezone(db, shop) or "UTC"
+    start_dt, end_dt_excl, effective_days, _, _ = resolve_utc_bounds(
+        range_q, fallback_days=days, shop_tz=shop_tz
+    )
+    cache_key = f"hs:fvr:v1:{shop}:{currency}:{shop_tz}:{effective_days}{range_q.cache_key_segment()}"
     cached = cache_get(cache_key)
     if cached:
         return FirstVsRepeatResponse(**cached)
@@ -524,7 +533,8 @@ def get_first_vs_repeat_aov(
             ),
             windowed AS (
                 SELECT * FROM ranked
-                WHERE created_at >= NOW() - (:days || ' days')::interval
+                WHERE created_at >= :start_dt
+                  AND created_at < :end_dt_excl
             )
             SELECT
                 COUNT(*) FILTER (WHERE rn = 1)                            AS first_orders,
@@ -535,7 +545,8 @@ def get_first_vs_repeat_aov(
                 COALESCE(SUM(total_price) FILTER (WHERE rn > 1), 0) AS repeat_revenue
             FROM windowed
         """),
-        {"shop": shop, "currency": currency, "days": days},
+        {"shop": shop, "currency": currency,
+         "start_dt": start_dt, "end_dt_excl": end_dt_excl},
     ).fetchone()
 
     fo = int(rows[0] or 0); ro = int(rows[1] or 0)
@@ -568,28 +579,32 @@ def get_first_vs_repeat_aov(
 @router.get("/orders-by-country", response_model=OrdersByCountryResponse)
 def get_orders_by_country(
     days: int = Query(30, ge=7, le=90),
+    range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ) -> OrdersByCountryResponse:
-    """Aggregate orders + revenue by country over last `days` days.
+    """Aggregate orders + revenue by country over the explicit range
+    (or last `days` days).
 
     Reads the per-shop hash `hs:order_geo:{shop_domain}` populated at
     purchase time by `app/core/geo.record_order_geo`. Field shape:
         "{CC}:{YYYY-MM-DD}:count"          -> int
         "{CC}:{YYYY-MM-DD}:revenue_{CCY}"  -> float
 
-    No schema migration on shop_orders — geo data comes from the same
-    Redis cache that powers the live-visitor map. Founder directive
-    2026-04-26: "abbiamo già dati che dovrebbero entrare nel radar+map,
-    è la map la nostra geo".
-
-    Currency-aware: only sums revenue fields matching the shop's
-    currency. Cross-currency edge cases (multi-store under one shop)
-    aggregate the count but skip foreign-currency revenue."""
-    from datetime import datetime, timezone, timedelta
+    The Redis hash key uses date strings; we compute the set of valid
+    YYYY-MM-DD strings from the range (in shop tz) and filter the
+    hash fields accordingly. Currency-aware: only sums revenue fields
+    matching the shop's currency. Cross-currency edge cases (multi-
+    store under one shop) aggregate the count but skip foreign-currency
+    revenue."""
+    from datetime import timedelta
 
     currency = get_shop_currency(db, shop) or "USD"
-    cache_key = f"hs:obc:v1:{shop}:{currency}:{days}"
+    shop_tz = get_shop_timezone(db, shop) or "UTC"
+    _, _, effective_days, start_local, end_local = resolve_utc_bounds(
+        range_q, fallback_days=days, shop_tz=shop_tz
+    )
+    cache_key = f"hs:obc:v1:{shop}:{currency}:{shop_tz}:{effective_days}{range_q.cache_key_segment()}"
     cached = cache_get(cache_key)
     if cached:
         return OrdersByCountryResponse(**cached)
@@ -601,7 +616,7 @@ def get_orders_by_country(
             from app.core.silent_fallback import record_silent_return
             record_silent_return("lite_extras.orders_by_country.no_redis")
             return OrdersByCountryResponse(
-                currency=currency, days=days, has_data=False,
+                currency=currency, days=effective_days, has_data=False,
                 total_orders=0, total_revenue=0.0, countries=[],
             )
         key = f"hs:order_geo:{shop}"
@@ -611,12 +626,16 @@ def get_orders_by_country(
         from app.core.silent_fallback import record_silent_return
         record_silent_return("lite_extras.orders_by_country")
         return OrdersByCountryResponse(
-            currency=currency, days=days, has_data=False,
+            currency=currency, days=effective_days, has_data=False,
             total_orders=0, total_revenue=0.0, countries=[],
         )
 
-    today = datetime.now(timezone.utc).date()
-    valid_dates = {(today - timedelta(days=i)).isoformat() for i in range(days)}
+    # Build the valid-date set from the explicit range (start..end inclusive)
+    valid_dates: set[str] = set()
+    cursor = start_local
+    while cursor <= end_local:
+        valid_dates.add(cursor.isoformat())
+        cursor += timedelta(days=1)
 
     by_cc: dict[str, dict[str, float]] = {}
     for raw_field, raw_value in raw.items():
@@ -650,7 +669,7 @@ def get_orders_by_country(
     total_revenue = round(sum(c.revenue for c in countries), 2)
 
     response = OrdersByCountryResponse(
-        currency=currency, days=days,
+        currency=currency, days=effective_days,
         has_data=total_orders > 0,
         total_orders=total_orders,
         total_revenue=total_revenue,
@@ -670,15 +689,19 @@ _DOW_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 @router.get("/order-rhythm", response_model=OrderRhythmResponse)
 def get_order_rhythm(
     days: int = Query(30, ge=7, le=365),
+    range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ) -> OrderRhythmResponse:
     """Order rhythm — when (hour-of-day + day-of-week) the merchant's
     customers buy. Both buckets in shop's local timezone so "Tuesday
-    9am" means 9am for the merchant, not UTC."""
+    9am" means 9am for the merchant, not UTC. Range in shop tz."""
     currency = get_shop_currency(db, shop) or "USD"
     tz = get_shop_timezone(db, shop) or "UTC"
-    cache_key = f"hs:rhythm:v1:{shop}:{currency}:{tz}:{days}"
+    start_dt, end_dt_excl, effective_days, _, _ = resolve_utc_bounds(
+        range_q, fallback_days=days, shop_tz=tz
+    )
+    cache_key = f"hs:rhythm:v1:{shop}:{currency}:{tz}:{effective_days}{range_q.cache_key_segment()}"
     cached = cache_get(cache_key)
     if cached:
         return OrderRhythmResponse(**cached)
@@ -694,10 +717,12 @@ def get_order_rhythm(
             WHERE shop_domain = :shop
               AND currency = :currency
               AND total_price > 0
-              AND created_at >= NOW() - (:days || ' days')::interval
+              AND created_at >= :start_dt
+              AND created_at < :end_dt_excl
             GROUP BY 1, 2
         """),
-        {"shop": shop, "currency": currency, "tz": tz, "days": days},
+        {"shop": shop, "currency": currency, "tz": tz,
+         "start_dt": start_dt, "end_dt_excl": end_dt_excl},
     ).mappings().all()
 
     hour_acc = {h: {"orders": 0, "revenue": 0.0} for h in range(24)}
@@ -722,7 +747,7 @@ def get_order_rhythm(
     peak_dow  = max(by_dow,  key=lambda b: b.orders).dow  if total > 0 else None
 
     response = OrderRhythmResponse(
-        currency=currency, timezone=tz, days=days, has_data=total > 0,
+        currency=currency, timezone=tz, days=effective_days, has_data=total > 0,
         by_hour=by_hour, by_dow=by_dow,
         peak_hour=peak_hour, peak_dow=peak_dow,
     )
@@ -912,24 +937,33 @@ def get_top_products(
 @router.get("/discount-codes", response_model=DiscountCodesResponse)
 def get_discount_codes(
     days: int = Query(30, ge=7, le=180),
+    range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ) -> DiscountCodesResponse:
-    """Top discount codes by usage in last N days. Computes total
-    discount + total revenue per code so the merchant sees ROI per code."""
+    """Top discount codes by usage in the explicit range (or last N
+    days). Computes total discount + total revenue per code so the
+    merchant sees ROI per code. Range in shop tz."""
     currency = get_shop_currency(db, shop) or "USD"
-    cache_key = f"hs:disc:v1:{shop}:{currency}:{days}"
+    shop_tz = get_shop_timezone(db, shop) or "UTC"
+    start_dt, end_dt_excl, effective_days, _, _ = resolve_utc_bounds(
+        range_q, fallback_days=days, shop_tz=shop_tz
+    )
+    cache_key = f"hs:disc:v1:{shop}:{currency}:{shop_tz}:{effective_days}{range_q.cache_key_segment()}"
     cached = cache_get(cache_key)
     if cached:
         return DiscountCodesResponse(**cached)
+
+    bind = {"shop": shop, "currency": currency,
+            "start_dt": start_dt, "end_dt_excl": end_dt_excl}
 
     total_window = db.execute(
         text("""
             SELECT COUNT(*) FROM shop_orders
             WHERE shop_domain = :shop AND currency = :currency
-              AND created_at >= NOW() - (:days || ' days')::interval
+              AND created_at >= :start_dt AND created_at < :end_dt_excl
         """),
-        {"shop": shop, "currency": currency, "days": days},
+        bind,
     ).scalar() or 0
 
     rows = db.execute(
@@ -943,25 +977,26 @@ def get_discount_codes(
                  LATERAL jsonb_array_elements_text(so.discount_codes) AS code
             WHERE so.shop_domain = :shop
               AND so.currency = :currency
-              AND so.created_at >= NOW() - (:days || ' days')::interval
+              AND so.created_at >= :start_dt
+              AND so.created_at < :end_dt_excl
               AND so.discount_codes IS NOT NULL
               AND jsonb_array_length(so.discount_codes) > 0
             GROUP BY code
             ORDER BY orders DESC
             LIMIT 20
         """),
-        {"shop": shop, "currency": currency, "days": days},
+        bind,
     ).mappings().all()
 
     enriched = db.execute(
         text("""
             SELECT COUNT(*) FROM shop_orders
             WHERE shop_domain = :shop AND currency = :currency
-              AND created_at >= NOW() - (:days || ' days')::interval
+              AND created_at >= :start_dt AND created_at < :end_dt_excl
               AND discount_codes IS NOT NULL
               AND jsonb_array_length(discount_codes) > 0
         """),
-        {"shop": shop, "currency": currency, "days": days},
+        bind,
     ).scalar() or 0
 
     codes = [
@@ -974,7 +1009,7 @@ def get_discount_codes(
         for r in rows
     ]
     response = DiscountCodesResponse(
-        currency=currency, days=days,
+        currency=currency, days=effective_days,
         has_data=enriched > 0,
         enriched_orders=int(enriched),
         total_orders_window=int(total_window),
@@ -987,32 +1022,34 @@ def get_discount_codes(
 @router.get("/order-status", response_model=OrderStatusResponse)
 def get_order_status(
     days: int = Query(30, ge=7, le=180),
+    range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ) -> OrderStatusResponse:
-    """Financial + fulfillment status breakdown for last N days.
-
-    NB: pixel-time defaults are 'paid' + 'unfulfilled' — without
-    Protected-Customer-Data webhook approval, status post-purchase
-    transitions (refunds, fulfillment) aren't reflected. The Lite
-    tile copy makes this explicit so the merchant doesn't read it
-    as full lifecycle truth."""
-    cache_key = f"hs:status:v1:{shop}:{days}"
+    """Financial + fulfillment status breakdown for the explicit range
+    (or last N days). Range in shop tz."""
+    shop_tz = get_shop_timezone(db, shop) or "UTC"
+    start_dt, end_dt_excl, effective_days, _, _ = resolve_utc_bounds(
+        range_q, fallback_days=days, shop_tz=shop_tz
+    )
+    cache_key = f"hs:status:v1:{shop}:{shop_tz}:{effective_days}{range_q.cache_key_segment()}"
     cached = cache_get(cache_key)
     if cached:
         return OrderStatusResponse(**cached)
+
+    bind = {"shop": shop, "start_dt": start_dt, "end_dt_excl": end_dt_excl}
 
     fin_rows = db.execute(
         text("""
             SELECT COALESCE(financial_status, 'unknown') AS label, COUNT(*) AS orders
             FROM shop_orders
             WHERE shop_domain = :shop
-              AND created_at >= NOW() - (:days || ' days')::interval
+              AND created_at >= :start_dt AND created_at < :end_dt_excl
               AND financial_status IS NOT NULL
             GROUP BY 1
             ORDER BY 2 DESC
         """),
-        {"shop": shop, "days": days},
+        bind,
     ).mappings().all()
 
     ful_rows = db.execute(
@@ -1020,12 +1057,12 @@ def get_order_status(
             SELECT COALESCE(fulfillment_status, 'unknown') AS label, COUNT(*) AS orders
             FROM shop_orders
             WHERE shop_domain = :shop
-              AND created_at >= NOW() - (:days || ' days')::interval
+              AND created_at >= :start_dt AND created_at < :end_dt_excl
               AND fulfillment_status IS NOT NULL
             GROUP BY 1
             ORDER BY 2 DESC
         """),
-        {"shop": shop, "days": days},
+        bind,
     ).mappings().all()
 
     enriched = sum(int(r["orders"] or 0) for r in fin_rows) or sum(int(r["orders"] or 0) for r in ful_rows)
@@ -1042,7 +1079,7 @@ def get_order_status(
         ]
 
     response = OrderStatusResponse(
-        days=days, has_data=enriched > 0,
+        days=effective_days, has_data=enriched > 0,
         enriched_orders=enriched,
         financial=_to_buckets(fin_rows),
         fulfillment=_to_buckets(ful_rows),
@@ -1054,23 +1091,32 @@ def get_order_status(
 @router.get("/tax-breakdown", response_model=TaxBreakdownResponse)
 def get_tax_breakdown(
     days: int = Query(30, ge=7, le=180),
+    range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ) -> TaxBreakdownResponse:
-    """Total tax + effective rate over enriched orders in window."""
+    """Total tax + effective rate over enriched orders in the explicit
+    range (or last N days). Range in shop tz."""
     currency = get_shop_currency(db, shop) or "USD"
-    cache_key = f"hs:tax:v1:{shop}:{currency}:{days}"
+    shop_tz = get_shop_timezone(db, shop) or "UTC"
+    start_dt, end_dt_excl, effective_days, _, _ = resolve_utc_bounds(
+        range_q, fallback_days=days, shop_tz=shop_tz
+    )
+    cache_key = f"hs:tax:v1:{shop}:{currency}:{shop_tz}:{effective_days}{range_q.cache_key_segment()}"
     cached = cache_get(cache_key)
     if cached:
         return TaxBreakdownResponse(**cached)
+
+    bind = {"shop": shop, "currency": currency,
+            "start_dt": start_dt, "end_dt_excl": end_dt_excl}
 
     total_window = db.execute(
         text("""
             SELECT COUNT(*) FROM shop_orders
             WHERE shop_domain = :shop AND currency = :currency
-              AND created_at >= NOW() - (:days || ' days')::interval
+              AND created_at >= :start_dt AND created_at < :end_dt_excl
         """),
-        {"shop": shop, "currency": currency, "days": days},
+        bind,
     ).scalar() or 0
 
     row = db.execute(
@@ -1081,10 +1127,10 @@ def get_tax_breakdown(
                 COALESCE(SUM(tax_amount),  0)                AS tax
             FROM shop_orders
             WHERE shop_domain = :shop AND currency = :currency
-              AND created_at >= NOW() - (:days || ' days')::interval
+              AND created_at >= :start_dt AND created_at < :end_dt_excl
               AND tax_amount IS NOT NULL
         """),
-        {"shop": shop, "currency": currency, "days": days},
+        bind,
     ).fetchone()
 
     enriched = int(row[0] or 0)
@@ -1096,7 +1142,7 @@ def get_tax_breakdown(
         tax_rate = round((tax / pre_tax_rev) * 100.0, 2)
 
     response = TaxBreakdownResponse(
-        currency=currency, days=days,
+        currency=currency, days=effective_days,
         has_data=enriched > 0,
         enriched_orders=enriched,
         total_orders_window=int(total_window),
@@ -1111,23 +1157,32 @@ def get_tax_breakdown(
 @router.get("/payment-methods", response_model=PaymentMethodsResponse)
 def get_payment_methods(
     days: int = Query(30, ge=7, le=180),
+    range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ) -> PaymentMethodsResponse:
-    """Order count + revenue split by payment_method (gateway)."""
+    """Order count + revenue split by payment_method (gateway).
+    Range in shop tz."""
     currency = get_shop_currency(db, shop) or "USD"
-    cache_key = f"hs:pmnt:v1:{shop}:{currency}:{days}"
+    shop_tz = get_shop_timezone(db, shop) or "UTC"
+    start_dt, end_dt_excl, effective_days, _, _ = resolve_utc_bounds(
+        range_q, fallback_days=days, shop_tz=shop_tz
+    )
+    cache_key = f"hs:pmnt:v1:{shop}:{currency}:{shop_tz}:{effective_days}{range_q.cache_key_segment()}"
     cached = cache_get(cache_key)
     if cached:
         return PaymentMethodsResponse(**cached)
+
+    bind = {"shop": shop, "currency": currency,
+            "start_dt": start_dt, "end_dt_excl": end_dt_excl}
 
     total_window = db.execute(
         text("""
             SELECT COUNT(*) FROM shop_orders
             WHERE shop_domain = :shop AND currency = :currency
-              AND created_at >= NOW() - (:days || ' days')::interval
+              AND created_at >= :start_dt AND created_at < :end_dt_excl
         """),
-        {"shop": shop, "currency": currency, "days": days},
+        bind,
     ).scalar() or 0
 
     rows = db.execute(
@@ -1138,12 +1193,12 @@ def get_payment_methods(
                 COALESCE(SUM(total_price), 0)       AS revenue
             FROM shop_orders
             WHERE shop_domain = :shop AND currency = :currency
-              AND created_at >= NOW() - (:days || ' days')::interval
+              AND created_at >= :start_dt AND created_at < :end_dt_excl
               AND payment_method IS NOT NULL
             GROUP BY 1
             ORDER BY 2 DESC
         """),
-        {"shop": shop, "currency": currency, "days": days},
+        bind,
     ).mappings().all()
 
     enriched = sum(int(r["orders"] or 0) for r in rows)
@@ -1158,7 +1213,7 @@ def get_payment_methods(
     ]
 
     response = PaymentMethodsResponse(
-        currency=currency, days=days,
+        currency=currency, days=effective_days,
         has_data=enriched > 0,
         enriched_orders=enriched,
         total_orders_window=int(total_window),
@@ -1184,33 +1239,42 @@ def get_payment_methods(
 def get_top_variants(
     days: int = Query(30, ge=7, le=180),
     limit: int = Query(10, ge=1, le=50),
+    range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ) -> TopVariantsResponse:
-    """Top-selling variants over last `days` days. Joins each
-    line_items[] element to its parent order via LATERAL, groups
-    by (product_title, variant_title) so different colors of the
-    same product surface separately."""
+    """Top-selling variants over the explicit range (or last `days`
+    days). Joins each line_items[] element to its parent order via
+    LATERAL, groups by (product_title, variant_title) so different
+    colors of the same product surface separately. Range in shop tz."""
     currency = get_shop_currency(db, shop) or "USD"
-    cache_key = f"hs:topvar:v1:{shop}:{currency}:{days}:{limit}"
+    shop_tz = get_shop_timezone(db, shop) or "UTC"
+    start_dt, end_dt_excl, effective_days, _, _ = resolve_utc_bounds(
+        range_q, fallback_days=days, shop_tz=shop_tz
+    )
+    cache_key = f"hs:topvar:v1:{shop}:{currency}:{shop_tz}:{effective_days}:{limit}{range_q.cache_key_segment()}"
     cached = cache_get(cache_key)
     if cached:
         return TopVariantsResponse(**cached)
+
+    bind_no_limit = {"shop": shop, "currency": currency,
+                     "start_dt": start_dt, "end_dt_excl": end_dt_excl}
+    bind = {**bind_no_limit, "limit": limit}
 
     total_window = db.execute(
         text("""
             SELECT COUNT(*) FROM shop_orders
             WHERE shop_domain = :shop AND currency = :currency
-              AND created_at >= NOW() - (:days || ' days')::interval
+              AND created_at >= :start_dt AND created_at < :end_dt_excl
         """),
-        {"shop": shop, "currency": currency, "days": days},
+        bind_no_limit,
     ).scalar() or 0
 
     enriched = db.execute(
         text("""
             SELECT COUNT(*) FROM shop_orders
             WHERE shop_domain = :shop AND currency = :currency
-              AND created_at >= NOW() - (:days || ' days')::interval
+              AND created_at >= :start_dt AND created_at < :end_dt_excl
               AND line_items IS NOT NULL
               AND jsonb_array_length(line_items) > 0
               AND EXISTS (
@@ -1218,7 +1282,7 @@ def get_top_variants(
                   WHERE li ? 'variant_id'
               )
         """),
-        {"shop": shop, "currency": currency, "days": days},
+        bind_no_limit,
     ).scalar() or 0
 
     rows = db.execute(
@@ -1236,13 +1300,14 @@ def get_top_variants(
                  LATERAL jsonb_array_elements(so.line_items) li
             WHERE so.shop_domain = :shop
               AND so.currency = :currency
-              AND so.created_at >= NOW() - (:days || ' days')::interval
+              AND so.created_at >= :start_dt
+              AND so.created_at < :end_dt_excl
               AND li ? 'variant_id'
             GROUP BY 1, 2, 3, 4
             ORDER BY revenue DESC, units DESC
             LIMIT :limit
         """),
-        {"shop": shop, "currency": currency, "days": days, "limit": limit},
+        bind,
     ).mappings().all()
 
     variants = [
@@ -1257,7 +1322,7 @@ def get_top_variants(
         for r in rows
     ]
     response = TopVariantsResponse(
-        currency=currency, days=days,
+        currency=currency, days=effective_days,
         has_data=len(variants) > 0,
         enriched_orders=int(enriched),
         total_orders_window=int(total_window),

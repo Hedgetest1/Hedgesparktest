@@ -216,6 +216,17 @@ AUDIT_EXTRA_ARGS=--strict run_with_autofix "Backend currency drift" "audit_backe
 AUDIT_EXTRA_ARGS=--strict run_with_autofix "Lite card-states usage" "audit_lite_card_states_usage.py"
 
 # ---------------------------------------------------------------------------
+# 2b-quater-quater. Analytics date-range coverage — Phase 3B Stage C
+# preventer. Born 2026-04-27 to ensure every Lite analytics endpoint
+# with a `days` window also accepts the shared DateRangeQuery
+# dependency. Without this, a new endpoint added with `days` but
+# without `range_q` silently no-ops the global picker on its tile.
+# Exemption list maintained in the script itself for intentional
+# non-range-aware surfaces (lifetime aggregate, today-relative model).
+# ---------------------------------------------------------------------------
+AUDIT_EXTRA_ARGS=--strict run_with_autofix "Analytics date-range coverage" "audit_analytics_date_range_coverage.py"
+
+# ---------------------------------------------------------------------------
 # 2b-quinquies. Dashboard a11y pattern scan — informational, never blocking.
 # Catches the two violation classes axe flagged on /app routes during F6
 # (icon-only buttons missing aria-label, low-contrast slate-500/600 small

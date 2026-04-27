@@ -1366,11 +1366,8 @@ export interface paths {
         };
         /**
          * Get Device Breakdown
-         * @description Visitor sessions split by device_type over the last `days` days.
-         *
-         *     Counts DISTINCT visitor_id per device — a visitor switching devices
-         *     counts in each, but sessions on same device dedupe. This matches
-         *     Shopify Analytics' "Sessions by device" semantics.
+         * @description Visitor sessions split by device_type over the explicit range
+         *     (or last `days` days). Range interpreted in shop tz.
          */
         get: operations["get_device_breakdown_analytics_device_breakdown_get"];
         put?: never;
@@ -1440,9 +1437,10 @@ export interface paths {
          * Get First Vs Repeat Aov
          * @description AOV comparison: customers' first purchase vs repeat purchases.
          *
-         *     Window: last `days` days of orders. For each customer in window,
-         *     we partition their orders by "is this their first-ever order?"
-         *     (computed via window function over their full history).
+         *     Window: explicit range (or last `days` days). For each customer in
+         *     window, we partition their orders by "is this their first-ever
+         *     order?" (computed via window function over their full history —
+         *     the rn=1 partition can pre-date the window). Range in shop tz.
          */
         get: operations["get_first_vs_repeat_aov_analytics_first_vs_repeat_aov_get"];
         put?: never;
@@ -1462,21 +1460,20 @@ export interface paths {
         };
         /**
          * Get Orders By Country
-         * @description Aggregate orders + revenue by country over last `days` days.
+         * @description Aggregate orders + revenue by country over the explicit range
+         *     (or last `days` days).
          *
          *     Reads the per-shop hash `hs:order_geo:{shop_domain}` populated at
          *     purchase time by `app/core/geo.record_order_geo`. Field shape:
          *         "{CC}:{YYYY-MM-DD}:count"          -> int
          *         "{CC}:{YYYY-MM-DD}:revenue_{CCY}"  -> float
          *
-         *     No schema migration on shop_orders — geo data comes from the same
-         *     Redis cache that powers the live-visitor map. Founder directive
-         *     2026-04-26: "abbiamo già dati che dovrebbero entrare nel radar+map,
-         *     è la map la nostra geo".
-         *
-         *     Currency-aware: only sums revenue fields matching the shop's
-         *     currency. Cross-currency edge cases (multi-store under one shop)
-         *     aggregate the count but skip foreign-currency revenue.
+         *     The Redis hash key uses date strings; we compute the set of valid
+         *     YYYY-MM-DD strings from the range (in shop tz) and filter the
+         *     hash fields accordingly. Currency-aware: only sums revenue fields
+         *     matching the shop's currency. Cross-currency edge cases (multi-
+         *     store under one shop) aggregate the count but skip foreign-currency
+         *     revenue.
          */
         get: operations["get_orders_by_country_analytics_orders_by_country_get"];
         put?: never;
@@ -1498,7 +1495,7 @@ export interface paths {
          * Get Order Rhythm
          * @description Order rhythm — when (hour-of-day + day-of-week) the merchant's
          *     customers buy. Both buckets in shop's local timezone so "Tuesday
-         *     9am" means 9am for the merchant, not UTC.
+         *     9am" means 9am for the merchant, not UTC. Range in shop tz.
          */
         get: operations["get_order_rhythm_analytics_order_rhythm_get"];
         put?: never;
@@ -1521,6 +1518,10 @@ export interface paths {
          * @description For each customer with 2+ orders in the explicit range (or last
          *     `days` days when range not provided), compute days between
          *     consecutive orders. Return percentile stats.
+         *
+         *     Range is interpreted in the SHOP's timezone (not browser-local nor
+         *     UTC) so the merchant's "today" matches their calendar regardless of
+         *     where they admin from.
          */
         get: operations["get_repeat_cadence_analytics_repeat_cadence_get"];
         put?: never;
@@ -1541,10 +1542,7 @@ export interface paths {
         /**
          * Get Top Products
          * @description Top products by revenue over the explicit range (or last `days`
-         *     days when range not provided). Joins each line_items JSONB element
-         *     to its parent order so we sum across every line in every matching
-         *     order. NULL/blank titles roll up into 'Untitled product' rather
-         *     than dropping them.
+         *     days when range not provided). Range interpreted in shop tz.
          */
         get: operations["get_top_products_analytics_top_products_get"];
         put?: never;
@@ -1564,8 +1562,9 @@ export interface paths {
         };
         /**
          * Get Discount Codes
-         * @description Top discount codes by usage in last N days. Computes total
-         *     discount + total revenue per code so the merchant sees ROI per code.
+         * @description Top discount codes by usage in the explicit range (or last N
+         *     days). Computes total discount + total revenue per code so the
+         *     merchant sees ROI per code. Range in shop tz.
          */
         get: operations["get_discount_codes_analytics_discount_codes_get"];
         put?: never;
@@ -1585,13 +1584,8 @@ export interface paths {
         };
         /**
          * Get Order Status
-         * @description Financial + fulfillment status breakdown for last N days.
-         *
-         *     NB: pixel-time defaults are 'paid' + 'unfulfilled' — without
-         *     Protected-Customer-Data webhook approval, status post-purchase
-         *     transitions (refunds, fulfillment) aren't reflected. The Lite
-         *     tile copy makes this explicit so the merchant doesn't read it
-         *     as full lifecycle truth.
+         * @description Financial + fulfillment status breakdown for the explicit range
+         *     (or last N days). Range in shop tz.
          */
         get: operations["get_order_status_analytics_order_status_get"];
         put?: never;
@@ -1611,7 +1605,8 @@ export interface paths {
         };
         /**
          * Get Tax Breakdown
-         * @description Total tax + effective rate over enriched orders in window.
+         * @description Total tax + effective rate over enriched orders in the explicit
+         *     range (or last N days). Range in shop tz.
          */
         get: operations["get_tax_breakdown_analytics_tax_breakdown_get"];
         put?: never;
@@ -1632,6 +1627,7 @@ export interface paths {
         /**
          * Get Payment Methods
          * @description Order count + revenue split by payment_method (gateway).
+         *     Range in shop tz.
          */
         get: operations["get_payment_methods_analytics_payment_methods_get"];
         put?: never;
@@ -1651,10 +1647,10 @@ export interface paths {
         };
         /**
          * Get Top Variants
-         * @description Top-selling variants over last `days` days. Joins each
-         *     line_items[] element to its parent order via LATERAL, groups
-         *     by (product_title, variant_title) so different colors of the
-         *     same product surface separately.
+         * @description Top-selling variants over the explicit range (or last `days`
+         *     days). Joins each line_items[] element to its parent order via
+         *     LATERAL, groups by (product_title, variant_title) so different
+         *     colors of the same product surface separately. Range in shop tz.
          */
         get: operations["get_top_variants_analytics_top_variants_get"];
         put?: never;
@@ -13961,6 +13957,14 @@ export interface operations {
         parameters: {
             query?: {
                 days?: number;
+                /** @description Inclusive start date (YYYY-MM-DD). Both start + end required for explicit range. */
+                start_date?: string | null;
+                /** @description Inclusive end date (YYYY-MM-DD). Both start + end required for explicit range. */
+                end_date?: string | null;
+                /** @description Comparison range start (optional). Both compare bounds required if used. */
+                compare_start?: string | null;
+                /** @description Comparison range end (optional). Both compare bounds required if used. */
+                compare_end?: string | null;
             };
             header?: never;
             path?: never;
@@ -14062,6 +14066,14 @@ export interface operations {
         parameters: {
             query?: {
                 days?: number;
+                /** @description Inclusive start date (YYYY-MM-DD). Both start + end required for explicit range. */
+                start_date?: string | null;
+                /** @description Inclusive end date (YYYY-MM-DD). Both start + end required for explicit range. */
+                end_date?: string | null;
+                /** @description Comparison range start (optional). Both compare bounds required if used. */
+                compare_start?: string | null;
+                /** @description Comparison range end (optional). Both compare bounds required if used. */
+                compare_end?: string | null;
             };
             header?: never;
             path?: never;
@@ -14093,6 +14105,14 @@ export interface operations {
         parameters: {
             query?: {
                 days?: number;
+                /** @description Inclusive start date (YYYY-MM-DD). Both start + end required for explicit range. */
+                start_date?: string | null;
+                /** @description Inclusive end date (YYYY-MM-DD). Both start + end required for explicit range. */
+                end_date?: string | null;
+                /** @description Comparison range start (optional). Both compare bounds required if used. */
+                compare_start?: string | null;
+                /** @description Comparison range end (optional). Both compare bounds required if used. */
+                compare_end?: string | null;
             };
             header?: never;
             path?: never;
@@ -14124,6 +14144,14 @@ export interface operations {
         parameters: {
             query?: {
                 days?: number;
+                /** @description Inclusive start date (YYYY-MM-DD). Both start + end required for explicit range. */
+                start_date?: string | null;
+                /** @description Inclusive end date (YYYY-MM-DD). Both start + end required for explicit range. */
+                end_date?: string | null;
+                /** @description Comparison range start (optional). Both compare bounds required if used. */
+                compare_start?: string | null;
+                /** @description Comparison range end (optional). Both compare bounds required if used. */
+                compare_end?: string | null;
             };
             header?: never;
             path?: never;
@@ -14234,6 +14262,14 @@ export interface operations {
         parameters: {
             query?: {
                 days?: number;
+                /** @description Inclusive start date (YYYY-MM-DD). Both start + end required for explicit range. */
+                start_date?: string | null;
+                /** @description Inclusive end date (YYYY-MM-DD). Both start + end required for explicit range. */
+                end_date?: string | null;
+                /** @description Comparison range start (optional). Both compare bounds required if used. */
+                compare_start?: string | null;
+                /** @description Comparison range end (optional). Both compare bounds required if used. */
+                compare_end?: string | null;
             };
             header?: never;
             path?: never;
@@ -14265,6 +14301,14 @@ export interface operations {
         parameters: {
             query?: {
                 days?: number;
+                /** @description Inclusive start date (YYYY-MM-DD). Both start + end required for explicit range. */
+                start_date?: string | null;
+                /** @description Inclusive end date (YYYY-MM-DD). Both start + end required for explicit range. */
+                end_date?: string | null;
+                /** @description Comparison range start (optional). Both compare bounds required if used. */
+                compare_start?: string | null;
+                /** @description Comparison range end (optional). Both compare bounds required if used. */
+                compare_end?: string | null;
             };
             header?: never;
             path?: never;
@@ -14296,6 +14340,14 @@ export interface operations {
         parameters: {
             query?: {
                 days?: number;
+                /** @description Inclusive start date (YYYY-MM-DD). Both start + end required for explicit range. */
+                start_date?: string | null;
+                /** @description Inclusive end date (YYYY-MM-DD). Both start + end required for explicit range. */
+                end_date?: string | null;
+                /** @description Comparison range start (optional). Both compare bounds required if used. */
+                compare_start?: string | null;
+                /** @description Comparison range end (optional). Both compare bounds required if used. */
+                compare_end?: string | null;
             };
             header?: never;
             path?: never;
@@ -14327,6 +14379,14 @@ export interface operations {
         parameters: {
             query?: {
                 days?: number;
+                /** @description Inclusive start date (YYYY-MM-DD). Both start + end required for explicit range. */
+                start_date?: string | null;
+                /** @description Inclusive end date (YYYY-MM-DD). Both start + end required for explicit range. */
+                end_date?: string | null;
+                /** @description Comparison range start (optional). Both compare bounds required if used. */
+                compare_start?: string | null;
+                /** @description Comparison range end (optional). Both compare bounds required if used. */
+                compare_end?: string | null;
             };
             header?: never;
             path?: never;
@@ -14359,6 +14419,14 @@ export interface operations {
             query?: {
                 days?: number;
                 limit?: number;
+                /** @description Inclusive start date (YYYY-MM-DD). Both start + end required for explicit range. */
+                start_date?: string | null;
+                /** @description Inclusive end date (YYYY-MM-DD). Both start + end required for explicit range. */
+                end_date?: string | null;
+                /** @description Comparison range start (optional). Both compare bounds required if used. */
+                compare_start?: string | null;
+                /** @description Comparison range end (optional). Both compare bounds required if used. */
+                compare_end?: string | null;
             };
             header?: never;
             path?: never;
