@@ -266,6 +266,79 @@ def get_audit_telemetry(
     }
 
 
+@router.get("/compare-toggle-usage")
+def get_compare_toggle_usage(
+    _auth: bool = Depends(require_operator),
+    days: int = 30,
+):
+    """Daily count of "compare to previous period" toggle usage.
+
+    Backed by Redis HASH `hs:compare_toggle_usage:v1` populated at the
+    `resolve_compare_utc_bounds` chokepoint — every compare-window
+    request increments today's bucket. TTL 90d.
+
+    Operator view: adoption trend for the comparison toggle. Pairs
+    with the brutal Lite-vs-competitor audit hypothesis ("merchants
+    expect compare deltas") — surfaces real usage so the hypothesis
+    is data-backed, not vibes.
+
+    `days` is clamped to [1, 90] to match the Redis TTL envelope.
+    Response shape:
+      - window_days: int
+      - total_compare_requests: int (sum across window)
+      - active_days: int (distinct YYYY-MM-DD buckets seen)
+      - daily: list[{day: "YYYY-MM-DD", count: int}] — most recent first
+    """
+    from datetime import datetime, timedelta, timezone as _tzc
+    from app.core.redis_client import _client
+
+    from app.core.silent_fallback import record_silent_return
+
+    days_clamped = max(1, min(int(days), 90))
+    rc = _client()
+    if rc is None:
+        record_silent_return("ops.compare_toggle_usage.no_redis")
+        return {
+            "window_days": days_clamped,
+            "total_compare_requests": 0,
+            "active_days": 0,
+            "daily": [],
+            "redis_available": False,
+        }
+
+    raw = rc.hgetall("hs:compare_toggle_usage:v1") or {}
+    today = datetime.now(_tzc.utc).date()
+    cutoff = today - timedelta(days=days_clamped - 1)
+
+    daily: list[dict] = []
+    total = 0
+    for raw_field, raw_value in raw.items():
+        field = raw_field.decode() if isinstance(raw_field, bytes) else raw_field
+        value = raw_value.decode() if isinstance(raw_value, bytes) else raw_value
+        try:
+            day_date = datetime.strptime(field, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if day_date < cutoff:
+            continue
+        try:
+            count = int(value)
+        except (TypeError, ValueError):
+            continue
+        daily.append({"day": field, "count": count})
+        total += count
+
+    daily.sort(key=lambda r: r["day"], reverse=True)
+
+    return {
+        "window_days": days_clamped,
+        "total_compare_requests": total,
+        "active_days": len(daily),
+        "daily": daily,
+        "redis_available": True,
+    }
+
+
 @router.get("/dashboard-health")
 def get_dashboard_health(
     _auth: bool = Depends(require_operator),

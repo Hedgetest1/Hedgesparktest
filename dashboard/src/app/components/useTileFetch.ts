@@ -34,20 +34,23 @@ export type TileFetchQuery = {
   compare_end?: string;
 };
 
-export type TileFetchResult<T> = {
+export type AsyncResourceResult<T> = {
   data: T | null;
   loading: boolean;
   error: boolean;
   retry: () => void;
-  /** The current resolved range — exposed so tiles don't need a second
-   *  useDateRange() call just to read the start/end for headers. */
-  range: { preset: string; start: string; end: string };
 };
 
-export function useTileFetch<T>(
-  fetcher: (query: TileFetchQuery) => Promise<{ data?: T; error?: unknown }>,
-): TileFetchResult<T> {
-  const { range, compareStart, compareEnd } = useDateRange();
+/**
+ * Generic async-resource hook — no range subscription. Use for tiles
+ * whose data is range-independent (lifetime aggregates, configuration,
+ * static lookups). For range-aware tiles, use `useTileFetch` which
+ * composes this with DateRangeContext.
+ */
+export function useAsyncResource<T>(
+  fetcher: () => Promise<{ data?: T; error?: unknown }>,
+  deps: ReadonlyArray<unknown> = [],
+): AsyncResourceResult<T> {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -56,12 +59,7 @@ export function useTileFetch<T>(
   useEffect(() => {
     let active = true;
     setLoading(true); setError(false);
-    fetcher({
-      start_date: range.start,
-      end_date: range.end,
-      compare_start: compareStart ?? undefined,
-      compare_end: compareEnd ?? undefined,
-    })
+    fetcher()
       .then(({ data: j, error: err }) => {
         if (!active) return;
         if (err || !j) setError(true);
@@ -71,13 +69,35 @@ export function useTileFetch<T>(
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tick, range.start, range.end, compareStart, compareEnd]);
+  }, [tick, ...deps]);
 
-  return {
-    data,
-    loading,
-    error,
-    retry: () => setTick(t => t + 1),
-    range,
-  };
+  return { data, loading, error, retry: () => setTick(t => t + 1) };
+}
+
+export type TileFetchResult<T> = AsyncResourceResult<T> & {
+  /** The current resolved range — exposed so tiles don't need a second
+   *  useDateRange() call just to read the start/end for headers. */
+  range: { preset: string; start: string; end: string };
+};
+
+/**
+ * Range-aware tile-fetch hook — composes `useAsyncResource` with
+ * `useDateRange`. Re-fetches on range change AND compare-toggle change,
+ * threading start_date/end_date/compare_start/compare_end into the
+ * query params object the fetcher receives.
+ */
+export function useTileFetch<T>(
+  fetcher: (query: TileFetchQuery) => Promise<{ data?: T; error?: unknown }>,
+): TileFetchResult<T> {
+  const { range, compareStart, compareEnd } = useDateRange();
+  const result = useAsyncResource<T>(
+    () => fetcher({
+      start_date: range.start,
+      end_date: range.end,
+      compare_start: compareStart ?? undefined,
+      compare_end: compareEnd ?? undefined,
+    }),
+    [range.start, range.end, compareStart, compareEnd],
+  );
+  return { ...result, range };
 }

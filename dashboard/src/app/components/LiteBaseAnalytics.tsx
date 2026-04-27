@@ -17,11 +17,10 @@
  * skeleton states inline (no SectionErrorBoundary swallow).
  */
 
-import { useEffect, useState } from "react";
 import { apiClient } from "@/app/lib/api-client";
 import { formatMoneyCompact } from "../app/_lib/formatters";
 import { DeltaIndicator } from "./DeltaIndicator";
-import { useTileFetch } from "./useTileFetch";
+import { useAsyncResource, useTileFetch } from "./useTileFetch";
 
 type DisplayCurrency = "USD" | "EUR" | string;
 
@@ -165,29 +164,13 @@ type TopCustomersData = {
 };
 
 export function TopCustomersLtvTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
-  const [data, setData] = useState<TopCustomersData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true); setError(false);
-    apiClient.GET("/analytics/top-customers-ltv")
-      .then(({ data: j, error: err }) => {
-        if (!active) return;
-        if (err || !j) setError(true);
-        else setData(j as unknown as TopCustomersData);
-      })
-      .catch(() => { if (active) setError(true); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [tick]);
-
+  const { data, loading, error, retry } = useAsyncResource<TopCustomersData>(
+    () => apiClient.GET("/analytics/top-customers-ltv")
+      .then(r => ({ data: r.data as unknown as TopCustomersData, error: r.error })),
+  );
   const ccy = data?.currency ?? displayCurrency;
-
   if (loading) return <TileSkeleton height={280} />;
-  if (error) return <TileError retry={() => setTick(t => t + 1)} />;
+  if (error) return <TileError retry={retry} />;
   if (!data || !data.has_data) {
     return (
       <TileEmpty title="Top customers · all-time" hint="Once orders flow, your highest-LTV buyers rank here." />
