@@ -37,6 +37,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.date_range import DateRangeQuery, get_date_range, resolve_window_days
 from app.core.deps import require_merchant_session
 from app.core.redis_client import cache_get, cache_set
 from app.services.revenue_metrics import get_shop_currency, get_shop_timezone
@@ -406,28 +407,34 @@ def get_top_customers_ltv(
 @router.get("/abandonment-trend", response_model=AbandonmentTrendResponse)
 def get_abandonment_trend(
     days: int = Query(14, ge=7, le=90),
+    range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ) -> AbandonmentTrendResponse:
-    """Daily cart-abandonment % over the last `days` days.
+    """Daily cart-abandonment % over the explicit range (or last `days`
+    days when range not provided).
 
     abandonment_pct = (cart_adds - purchases) / cart_adds  (per day)
     None when cart_adds is zero — never fabricate against empty days.
     """
     tz = get_shop_timezone(db, shop) or "UTC"
-    cache_key = f"hs:abndntrnd:v1:{shop}:{tz}:{days}"
+    start, end, effective_days = resolve_window_days(range_q, fallback_days=days)
+    cache_key = f"hs:abndntrnd:v1:{shop}:{tz}:{effective_days}{range_q.cache_key_segment()}"
     cached = cache_get(cache_key)
     if cached:
         return AbandonmentTrendResponse(**cached)
 
     # events.timestamp is BIGINT epoch milliseconds. Convert to TIMESTAMPTZ
     # via to_timestamp(ms/1000), then bucket by shop's local-tz date.
+    # Inclusive on both ends: bucket dates within [start, end].
+    from datetime import timedelta
+    end_dt_excl = end + timedelta(days=1)
     rows = db.execute(
         text("""
             WITH days AS (
                 SELECT generate_series(
-                    (CURRENT_TIMESTAMP AT TIME ZONE :tz)::date - (:days - 1),
-                    (CURRENT_TIMESTAMP AT TIME ZONE :tz)::date,
+                    CAST(:start_dt AS date),
+                    CAST(:end_dt AS date),
                     INTERVAL '1 day'
                 )::date AS d
             ),
@@ -438,7 +445,8 @@ def get_abandonment_trend(
                     COUNT(*) FILTER (WHERE event_type = 'purchase')   AS purchases
                 FROM events
                 WHERE shop_domain = :shop
-                  AND timestamp >= (EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP AT TIME ZONE :tz)::date - (:days - 1)) * 1000)
+                  AND timestamp >= (EXTRACT(EPOCH FROM CAST(:start_dt AS timestamp)) * 1000)
+                  AND timestamp <  (EXTRACT(EPOCH FROM CAST(:end_dt_excl AS timestamp)) * 1000)
                   AND event_type IN ('cart_added', 'purchase')
                 GROUP BY 1
             )
@@ -448,7 +456,10 @@ def get_abandonment_trend(
             FROM days LEFT JOIN agg USING (d)
             ORDER BY days.d
         """),
-        {"shop": shop, "tz": tz, "days": days},
+        {
+            "shop": shop, "tz": tz,
+            "start_dt": start, "end_dt": end, "end_dt_excl": end_dt_excl,
+        },
     ).mappings().all()
 
     series = []
@@ -466,7 +477,8 @@ def get_abandonment_trend(
     avg_pct = round(sum(pct_values) / len(pct_values), 1) if pct_values else None
     has_data = any(s.cart_adds > 0 for s in series)
     response = AbandonmentTrendResponse(
-        days=days, timezone=tz, has_data=has_data, series=series, avg_abandonment_pct=avg_pct,
+        days=effective_days, timezone=tz,
+        has_data=has_data, series=series, avg_abandonment_pct=avg_pct,
     )
     cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
     return response
@@ -723,15 +735,22 @@ def get_order_rhythm(
 @router.get("/repeat-cadence", response_model=RepeatCadenceResponse)
 def get_repeat_cadence(
     days: int = Query(180, ge=30, le=730),
+    range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ) -> RepeatCadenceResponse:
-    """For each customer with 2+ orders in the last `days` days,
-    compute days between consecutive orders. Return percentile stats."""
-    cache_key = f"hs:repcad:v1:{shop}:{days}"
+    """For each customer with 2+ orders in the explicit range (or last
+    `days` days when range not provided), compute days between
+    consecutive orders. Return percentile stats."""
+    start, end, effective_days = resolve_window_days(range_q, fallback_days=days)
+    cache_key = f"hs:repcad:v1:{shop}:{effective_days}{range_q.cache_key_segment()}"
     cached = cache_get(cache_key)
     if cached:
         return RepeatCadenceResponse(**cached)
+
+    # Both ends inclusive: end_dt_excl = end + 1 day, then `< end_dt_excl`.
+    from datetime import timedelta
+    end_dt_excl = end + timedelta(days=1)
 
     rows = db.execute(
         text("""
@@ -746,14 +765,15 @@ def get_repeat_cadence(
                 WHERE shop_domain = :shop
                   AND customer_email IS NOT NULL
                   AND customer_email <> ''
-                  AND created_at >= NOW() - (:days || ' days')::interval
+                  AND created_at >= :start_dt
+                  AND created_at < :end_dt_excl
             )
             SELECT
                 EXTRACT(EPOCH FROM (created_at - prev_at)) / 86400.0 AS gap_days
             FROM ranked
             WHERE prev_at IS NOT NULL
         """),
-        {"shop": shop, "days": days},
+        {"shop": shop, "start_dt": start, "end_dt_excl": end_dt_excl},
     ).fetchall()
 
     gaps = sorted(float(r[0]) for r in rows if r[0] is not None and float(r[0]) >= 0)
@@ -777,12 +797,13 @@ def get_repeat_cadence(
                 WHERE shop_domain = :shop
                   AND customer_email IS NOT NULL
                   AND customer_email <> ''
-                  AND created_at >= NOW() - (:days || ' days')::interval
+                  AND created_at >= :start_dt
+                  AND created_at < :end_dt_excl
                 GROUP BY customer_email
                 HAVING COUNT(*) >= 2
             ) t
         """),
-        {"shop": shop, "days": days},
+        {"shop": shop, "start_dt": start, "end_dt_excl": end_dt_excl},
     ).scalar() or 0
 
     response = RepeatCadenceResponse(
@@ -816,15 +837,20 @@ def get_repeat_cadence(
 def get_top_products(
     days: int = Query(30, ge=7, le=180),
     limit: int = Query(10, ge=1, le=50),
+    range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ) -> TopProductsResponse:
-    """Top products by revenue over last `days` days. Joins each
-    line_items JSONB element to its parent order so we sum across
-    every line in every matching order. NULL/blank titles roll up
-    into 'Untitled product' rather than dropping them."""
+    """Top products by revenue over the explicit range (or last `days`
+    days when range not provided). Joins each line_items JSONB element
+    to its parent order so we sum across every line in every matching
+    order. NULL/blank titles roll up into 'Untitled product' rather
+    than dropping them."""
+    from datetime import timedelta
     currency = get_shop_currency(db, shop) or "USD"
-    cache_key = f"hs:topprod:v1:{shop}:{currency}:{days}:{limit}"
+    start, end, effective_days = resolve_window_days(range_q, fallback_days=days)
+    end_dt_excl = end + timedelta(days=1)
+    cache_key = f"hs:topprod:v1:{shop}:{currency}:{effective_days}:{limit}{range_q.cache_key_segment()}"
     cached = cache_get(cache_key)
     if cached:
         return TopProductsResponse(**cached)
@@ -842,13 +868,17 @@ def get_top_products(
                  LATERAL jsonb_array_elements(so.line_items) li
             WHERE so.shop_domain = :shop
               AND so.currency = :currency
-              AND so.created_at >= NOW() - (:days || ' days')::interval
+              AND so.created_at >= :start_dt
+              AND so.created_at < :end_dt_excl
               AND li->>'title' IS NOT NULL
             GROUP BY 1
             ORDER BY revenue DESC, orders DESC
             LIMIT :limit
         """),
-        {"shop": shop, "currency": currency, "days": days, "limit": limit},
+        {
+            "shop": shop, "currency": currency,
+            "start_dt": start, "end_dt_excl": end_dt_excl, "limit": limit,
+        },
     ).mappings().all()
 
     products = [
@@ -859,7 +889,7 @@ def get_top_products(
         for r in rows
     ]
     response = TopProductsResponse(
-        currency=currency, days=days,
+        currency=currency, days=effective_days,
         has_data=len(products) > 0, products=products,
     )
     cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
