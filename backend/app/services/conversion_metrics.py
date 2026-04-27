@@ -169,6 +169,7 @@ def get_real_product_conversion_map(
                 SELECT line_items
                 FROM shop_orders
                 WHERE shop_domain = :shop
+                  AND jsonb_typeof(line_items) = 'array'
                   AND jsonb_array_length(line_items) > 0
                 """
             ),

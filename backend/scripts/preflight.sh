@@ -227,6 +227,16 @@ AUDIT_EXTRA_ARGS=--strict run_with_autofix "Lite card-states usage" "audit_lite_
 AUDIT_EXTRA_ARGS=--strict run_with_autofix "Analytics date-range coverage" "audit_analytics_date_range_coverage.py"
 
 # ---------------------------------------------------------------------------
+# 2b-quater. JSONB array-length guard — caught 2026-04-27 in Gap #8 close.
+# psycopg2 may convert Python None to JSON null literal (a JSONB scalar)
+# instead of SQL NULL; SQL `IS NULL` doesn't catch JSON null, then
+# jsonb_array_length(<scalar>) panics. This static audit asserts every
+# jsonb_array_length() call is preceded by a jsonb_typeof = 'array' guard
+# within 4 lines (same SQL block).
+# ---------------------------------------------------------------------------
+AUDIT_EXTRA_ARGS=--strict run_with_autofix "JSONB array-length guard" "audit_jsonb_array_length_guard.py"
+
+# ---------------------------------------------------------------------------
 # 2b-quinquies. Dashboard a11y pattern scan — informational, never blocking.
 # Catches the two violation classes axe flagged on /app routes during F6
 # (icon-only buttons missing aria-label, low-contrast slate-500/600 small

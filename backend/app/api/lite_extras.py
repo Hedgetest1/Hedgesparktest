@@ -1255,6 +1255,7 @@ def get_discount_codes(
               AND so.created_at >= :start_dt
               AND so.created_at < :end_dt_excl
               AND so.discount_codes IS NOT NULL
+              AND jsonb_typeof(so.discount_codes) = 'array'
               AND jsonb_array_length(so.discount_codes) > 0
             GROUP BY code
             ORDER BY orders DESC
@@ -1269,6 +1270,7 @@ def get_discount_codes(
             WHERE shop_domain = :shop AND currency = :currency
               AND created_at >= :start_dt AND created_at < :end_dt_excl
               AND discount_codes IS NOT NULL
+              AND jsonb_typeof(discount_codes) = 'array'
               AND jsonb_array_length(discount_codes) > 0
         """),
         bind,
@@ -1294,10 +1296,12 @@ def get_discount_codes(
                 SELECT
                     COUNT(*) FILTER (
                         WHERE discount_codes IS NOT NULL
+                          AND jsonb_typeof(discount_codes) = 'array'
                           AND jsonb_array_length(discount_codes) > 0
                     ) AS enriched_orders,
                     COALESCE(SUM(
                         CASE WHEN discount_codes IS NOT NULL
+                             AND jsonb_typeof(discount_codes) = 'array'
                              AND jsonb_array_length(discount_codes) > 0
                         THEN discount_amount ELSE 0 END
                     ), 0) AS total_discount
@@ -1648,6 +1652,7 @@ def get_top_variants(
             WHERE shop_domain = :shop AND currency = :currency
               AND created_at >= :start_dt AND created_at < :end_dt_excl
               AND line_items IS NOT NULL
+              AND jsonb_typeof(line_items) = 'array'
               AND jsonb_array_length(line_items) > 0
               AND EXISTS (
                   SELECT 1 FROM jsonb_array_elements(line_items) li
@@ -1725,6 +1730,7 @@ def get_top_variants(
                 WHERE shop_domain = :shop AND currency = :currency
                   AND created_at >= :start_dt AND created_at < :end_dt_excl
                   AND line_items IS NOT NULL
+                  AND jsonb_typeof(line_items) = 'array'
                   AND jsonb_array_length(line_items) > 0
                   AND EXISTS (
                       SELECT 1 FROM jsonb_array_elements(line_items) li
