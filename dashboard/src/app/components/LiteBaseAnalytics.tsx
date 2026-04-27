@@ -24,25 +24,59 @@ import { formatMoneyCompact } from "../app/_lib/formatters";
 type DisplayCurrency = "USD" | "EUR" | string;
 
 // ── Shared skeleton + error primitives ────────────────────────────
-function TileSkeleton({ height = 80 }: { height?: number }) {
+//
+// These are intentionally compact variants of the canonical primitives
+// in `_CardStates.tsx` — same a11y posture (role + aria-live), same
+// retry semantics, but tighter padding and a height-prop for tiles
+// that nest INSIDE larger Lite sections (instead of standing alone as
+// full-width Pro cards). The a11y attributes match _CardStates exactly
+// so screen readers behave identically across the dashboard.
+function TileSkeleton({ height = 80, label }: { height?: number; label?: string }) {
   return (
     <div
       className="animate-pulse rounded-xl border border-white/[0.05] bg-[#0e0e1a]/40"
       style={{ height: `${height}px` }}
-    />
+      role="status"
+      aria-live="polite"
+      aria-label={label || "Loading"}
+    >
+      <span className="sr-only">{label || "Loading content"}</span>
+    </div>
   );
 }
 
-function TileError({ retry }: { retry: () => void }) {
+function TileError({ retry, message, label }: { retry: () => void; message?: string; label?: string }) {
   return (
-    <div className="rounded-xl border border-rose-400/20 bg-rose-500/[0.06] p-4 text-center">
-      <div className="text-[12px] text-rose-300">Couldn't load data right now.</div>
+    <div
+      className="rounded-xl border border-rose-400/20 bg-rose-500/[0.06] p-4 text-center"
+      role="alert"
+      aria-label={label || "Tile failed to load"}
+    >
+      <div className="text-[12px] text-rose-300">
+        {message || "Couldn't load this tile. Your other metrics are unaffected."}
+      </div>
       <button
+        type="button"
         onClick={retry}
-        className="mt-2 rounded-md border border-rose-400/30 bg-rose-500/10 px-3 py-1 text-[11px] font-semibold text-rose-200 hover:bg-rose-500/20"
+        className="mt-2 rounded-md border border-rose-400/30 bg-rose-500/10 px-3 py-1 text-[11px] font-semibold text-rose-200 transition hover:bg-rose-500/20 focus:outline-none focus:ring-2 focus:ring-rose-300/50"
       >
         Try again
       </button>
+    </div>
+  );
+}
+
+function TileEmpty({ title, hint }: { title: string; hint: string }) {
+  return (
+    <div
+      className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/40 p-4 text-center"
+      role="status"
+      aria-label={`${title}: ${hint}`}
+    >
+      <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+        {title}
+      </div>
+      <div className="mt-2 text-[12px] text-slate-300">{hint}</div>
     </div>
   );
 }
@@ -87,10 +121,7 @@ export function DeviceSplitTile() {
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
   if (!data || !data.has_data) {
     return (
-      <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/40 p-4 text-center">
-        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Device split</div>
-        <div className="mt-2 text-[12px] text-slate-300">No traffic in the last {data?.days ?? 14} days yet.</div>
-      </div>
+      <TileEmpty title="Device split" hint={`No traffic in the last ${data?.days ?? 14} days yet.`} />
     );
   }
 
@@ -162,10 +193,7 @@ export function TopCustomersLtvTile({ displayCurrency }: { displayCurrency: Disp
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
   if (!data || !data.has_data) {
     return (
-      <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/40 p-4 text-center">
-        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Top customers · all-time</div>
-        <div className="mt-2 text-[12px] text-slate-300">Once orders flow, your highest-LTV buyers rank here.</div>
-      </div>
+      <TileEmpty title="Top customers · all-time" hint="Once orders flow, your highest-LTV buyers rank here." />
     );
   }
 
@@ -233,10 +261,7 @@ export function AbandonmentTrendTile() {
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
   if (!data || !data.has_data) {
     return (
-      <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/40 p-4 text-center">
-        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Cart abandonment trend</div>
-        <div className="mt-2 text-[12px] text-slate-300">No cart events in the last {data?.days ?? 14} days yet.</div>
-      </div>
+      <TileEmpty title="Cart abandonment trend" hint={`No cart events in the last ${data?.days ?? 14} days yet.`} />
     );
   }
 
@@ -308,10 +333,7 @@ export function OrderRhythmTile() {
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
   if (!data || !data.has_data) {
     return (
-      <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/40 p-4 text-center">
-        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">When customers buy</div>
-        <div className="mt-2 text-[12px] text-slate-300">Once orders flow, peak hour + day surface here.</div>
-      </div>
+      <TileEmpty title="When customers buy" hint="Once orders flow, peak hour + day surface here." />
     );
   }
 
@@ -426,10 +448,7 @@ export function RepeatCadenceTile() {
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
   if (!data || !data.has_data) {
     return (
-      <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/40 p-4 text-center">
-        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">Time between orders</div>
-        <div className="mt-2 text-[12px] text-slate-300">Once 2+ customers come back, the median cadence shows here.</div>
-      </div>
+      <TileEmpty title="Time between orders" hint="Once 2+ customers come back, the median cadence shows here." />
     );
   }
 
@@ -496,10 +515,7 @@ export function TopProductsTile({ displayCurrency }: { displayCurrency: DisplayC
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
   if (!data || !data.has_data) {
     return (
-      <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/40 p-4 text-center">
-        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">Top products · revenue</div>
-        <div className="mt-2 text-[12px] text-slate-300">Once line-items flow, your best sellers rank here.</div>
-      </div>
+      <TileEmpty title="Top products · revenue" hint="Once line-items flow, your best sellers rank here." />
     );
   }
 
@@ -583,10 +599,7 @@ export function DiscountCodesTile({ displayCurrency }: { displayCurrency: Displa
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
   if (!data || !data.has_data) {
     return (
-      <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/40 p-4 text-center">
-        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">Discount codes</div>
-        <div className="mt-2 text-[12px] text-slate-300">Once orders flow with discount codes attached, the top performers rank here.</div>
-      </div>
+      <TileEmpty title="Discount codes" hint="Once orders flow with discount codes attached, the top performers rank here." />
     );
   }
   return (
@@ -648,10 +661,7 @@ export function OrderStatusTile() {
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
   if (!data || !data.has_data) {
     return (
-      <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/40 p-4 text-center">
-        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">Order status breakdown</div>
-        <div className="mt-2 text-[12px] text-slate-300">New orders post pixel-v14 carry status; the breakdown surfaces here.</div>
-      </div>
+      <TileEmpty title="Order status breakdown" hint="New orders post pixel-v14 carry status; the breakdown surfaces here." />
     );
   }
   const renderBar = (b: { label: string; orders: number; pct: number }) => (
@@ -715,10 +725,7 @@ export function TaxBreakdownTile({ displayCurrency }: { displayCurrency: Display
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
   if (!data || !data.has_data) {
     return (
-      <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/40 p-4 text-center">
-        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">Tax · paid by customers</div>
-        <div className="mt-2 text-[12px] text-slate-300">New orders post pixel-v14 carry tax; the total + effective rate surface here.</div>
-      </div>
+      <TileEmpty title="Tax · paid by customers" hint="New orders post pixel-v14 carry tax; the total + effective rate surface here." />
     );
   }
   return (
@@ -779,10 +786,7 @@ export function PaymentMethodsTile({ displayCurrency }: { displayCurrency: Displ
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
   if (!data || !data.has_data) {
     return (
-      <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/40 p-4 text-center">
-        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">Payment methods</div>
-        <div className="mt-2 text-[12px] text-slate-300">Once gateway data flows in, the split surfaces here.</div>
-      </div>
+      <TileEmpty title="Payment methods" hint="Once gateway data flows in, the split surfaces here." />
     );
   }
   return (
@@ -844,10 +848,7 @@ export function TopVariantsTile({ displayCurrency }: { displayCurrency: DisplayC
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
   if (!data || !data.has_data) {
     return (
-      <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/40 p-4 text-center">
-        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">Top variants · revenue</div>
-        <div className="mt-2 text-[12px] text-slate-300">New orders post pixel-v15 carry variant data; the top-sellers surface here.</div>
-      </div>
+      <TileEmpty title="Top variants · revenue" hint="New orders post pixel-v15 carry variant data; the top-sellers surface here." />
     );
   }
   const maxRev = Math.max(1, ...data.variants.map(v => v.revenue));
@@ -931,10 +932,7 @@ export function FirstVsRepeatAovTile({ displayCurrency }: { displayCurrency: Dis
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
   if (!data || !data.has_data) {
     return (
-      <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/40 p-4 text-center">
-        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">First-time vs repeat AOV</div>
-        <div className="mt-2 text-[12px] text-slate-300">Once you have repeat customers, the AOV uplift shows here.</div>
-      </div>
+      <TileEmpty title="First-time vs repeat AOV" hint="Once you have repeat customers, the AOV uplift shows here." />
     );
   }
 

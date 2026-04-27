@@ -103,7 +103,7 @@ describe("LiteBaseAnalytics error states", () => {
   ])("%s renders retry button on apiClient error", async (_, factory) => {
     render(factory());
     await waitFor(() => {
-      expect(screen.getByText(/Couldn't load data/i)).toBeInTheDocument();
+      expect(screen.getByText(/Couldn't load this tile/i)).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /Try again/i })).toBeInTheDocument();
     });
   });
