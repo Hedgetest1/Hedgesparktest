@@ -254,6 +254,13 @@ class TopVariantsResponse(BaseModel):
 class ChurnRiskCustomer(BaseModel):
     # Hashed identifier — never raw email per PII contract
     customer_email_hash: str
+    # Shopify customer_id when present, used to construct a deep-link to
+    # the merchant's own Shopify admin customer detail page. NOT PII to
+    # the merchant (it's their own customer in their own admin), but it
+    # only ever gets sent if the merchant's own session is authenticated
+    # for this shop (require_merchant_session). None for legacy / pixel-
+    # only orders without Shopify customer_id populated.
+    customer_id_shopify: str | None = None
     risk_score: int                     # 0-95
     risk_band: str                      # "slipping" | "at_risk" | "lapsed"
     days_since_last_order: int
@@ -1318,6 +1325,7 @@ def get_customer_churn_forecast(
     matching the existing `top-customers-ltv` pattern. No raw email
     crosses the wire."""
     import hashlib
+    import time
 
     # Currency is reported in the response (for top_spent display + UI
     # labels) but does NOT filter the query: a customer who buys in USD
@@ -1330,6 +1338,31 @@ def get_customer_churn_forecast(
     cached = cache_get(cache_key)
     if cached:
         return CustomerChurnForecastResponse(**cached)
+
+    # Cache stampede protection: this CTE is heavy (PERCENTILE_CONT +
+    # LAG window over 730d of orders). Without serialization, N
+    # concurrent requests on a cold cache trigger N parallel queries
+    # for the same merchant — at scale, a single dashboard refresh by
+    # multiple users could pin a Postgres connection per user. SETNX
+    # lock with 30s TTL: only one worker computes; the rest wait up
+    # to 10s for the cache fill before falling through to compute on
+    # their own (lock holder slow / dead).
+    from app.core.redis_client import _client as _redis_client
+    lock_key = f"hs:churn:lock:v1:{shop}:{top_n}"
+    rc = _redis_client()
+    if rc is not None:
+        try:
+            lock_acquired = rc.set(lock_key, "1", nx=True, ex=30)
+        except Exception:
+            lock_acquired = True  # fail-open: better to compute than block
+        if not lock_acquired:
+            # Another worker is filling — poll cache for up to 10s
+            for _ in range(20):  # 20 × 0.5s = 10s budget
+                time.sleep(0.5)
+                cached2 = cache_get(cache_key)
+                if cached2:
+                    return CustomerChurnForecastResponse(**cached2)
+            # Lock holder slow/dead — fall through and compute ourselves
 
     # Statement timeout: this CTE walks every order in the last 730d
     # for the shop. At 10k merchants × 100k orders/shop the worst-case
@@ -1352,15 +1385,25 @@ def get_customer_churn_forecast(
     #   currency shops legitimately have customers buying in different
     #   currencies; the churn signal is order frequency, not amount, so
     #   currency mismatch is irrelevant to "are they still buying?"
+    # Identity key: prefer customer_id (Shopify's stable cross-email ID
+    # populated by orders/create webhook) over customer_email. A customer
+    # who changes email between orders OR has typos gets correctly
+    # collapsed into ONE identity. Falls back to email when customer_id
+    # is null (legacy / pixel-only orders that lack the customer_id).
+    # The SHA-256 hash for PII output runs on the identity value, so
+    # the hash is stable per Shopify customer regardless of email churn.
     rows = db.execute(
         text("""
             WITH customer_orders AS (
                 SELECT
+                    COALESCE(NULLIF(customer_id, ''), customer_email) AS identity,
                     customer_email,
+                    customer_id,
                     created_at,
                     total_price,
                     LAG(created_at) OVER (
-                        PARTITION BY customer_email ORDER BY created_at
+                        PARTITION BY COALESCE(NULLIF(customer_id, ''), customer_email)
+                        ORDER BY created_at
                     ) AS prev_at
                 FROM shop_orders
                 WHERE shop_domain = :shop
@@ -1374,33 +1417,44 @@ def get_customer_churn_forecast(
             ),
             customer_stats AS (
                 SELECT
-                    customer_email,
+                    identity,
+                    -- Surface the most-recent email under this identity for
+                    -- display (in case the same customer used multiple
+                    -- emails — the latest one is what they recognize).
+                    (ARRAY_AGG(customer_email ORDER BY created_at DESC))[1] AS display_email,
+                    -- Shopify customer_id (when populated) for deep-linking
+                    -- to the merchant's Shopify admin customer page. Picks
+                    -- the most-recent non-null value associated with this
+                    -- identity. Null when all orders are pixel-only.
+                    (ARRAY_AGG(customer_id ORDER BY created_at DESC) FILTER (WHERE customer_id IS NOT NULL AND customer_id <> ''))[1] AS shopify_customer_id,
                     COUNT(*)               AS order_count,
                     SUM(total_price)       AS total_spent,
                     MAX(created_at)        AS last_order_at
                 FROM customer_orders
-                GROUP BY customer_email
+                GROUP BY identity
                 HAVING COUNT(*) >= 2
             ),
             customer_gaps AS (
                 SELECT
-                    customer_email,
+                    identity,
                     PERCENTILE_CONT(0.5) WITHIN GROUP (
                         ORDER BY EXTRACT(EPOCH FROM (created_at - prev_at)) / 86400.0
                     ) AS median_gap_days
                 FROM customer_orders
                 WHERE prev_at IS NOT NULL
-                GROUP BY customer_email
+                GROUP BY identity
             )
             SELECT
-                cs.customer_email,
+                cs.identity,
+                cs.display_email,
+                cs.shopify_customer_id,
                 cs.order_count,
                 cs.total_spent,
                 cs.last_order_at,
                 EXTRACT(EPOCH FROM (NOW() - cs.last_order_at)) / 86400.0 AS days_since_last,
                 cg.median_gap_days
             FROM customer_stats cs
-            JOIN customer_gaps cg USING (customer_email)
+            JOIN customer_gaps cg USING (identity)
         """),
         {"shop": shop},
     ).mappings().all()
@@ -1439,10 +1493,17 @@ def get_customer_churn_forecast(
             predicted_lapse = predicted_lapse_dt.isoformat()
         spent = round(float(r["total_spent"] or 0), 2)
         revenue_at_risk += spent
+        # Hash the IDENTITY (customer_id when present, else email) so the
+        # hash is stable across email changes for the same Shopify customer.
+        # The customer_email_hash response field name is preserved for
+        # backward compatibility with the existing frontend consumer.
+        identity_value = str(r["identity"] or r["display_email"] or "")
+        shopify_cid = r.get("shopify_customer_id")
         at_risk.append(ChurnRiskCustomer(
             customer_email_hash=(
-                "cust_" + hashlib.sha256(r["customer_email"].encode()).hexdigest()[:8]
+                "cust_" + hashlib.sha256(identity_value.encode()).hexdigest()[:8]
             ),
+            customer_id_shopify=str(shopify_cid) if shopify_cid else None,
             risk_score=score,
             risk_band=band,
             days_since_last_order=int(r["days_since_last"] or 0),
@@ -1467,11 +1528,12 @@ def get_customer_churn_forecast(
         revenue_at_risk=round(revenue_at_risk, 2),
         customers=top,
     )
-    # Cache stampede note: 5min TTL with no SETNX lock. At 1-3 concurrent
-    # dashboard users per merchant (typical pre-scale), worst case is 3×
-    # parallel fills on cold cache — measured cost <1s × 3 = acceptable.
-    # Re-evaluate at >100 concurrent users per merchant (not a current
-    # state). DA-disproved at Phase 2 close: stampede is real at scale
-    # but currently not biting — 5-line SETNX fix when needed.
     cache_set(cache_key, response.model_dump(), 300)  # 5min cache (heavier query)
+    # Release the SETNX compute lock — other waiters return from cache
+    # immediately on their next poll instead of burning the full 10s budget.
+    if rc is not None:
+        try:
+            rc.delete(lock_key)
+        except Exception as exc:  # SILENT-EXCEPT-OK: lock TTLs in 30s, non-critical
+            log.debug("churn lock release failed: %s", exc)
     return response

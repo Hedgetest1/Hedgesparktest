@@ -7570,6 +7570,8 @@ export interface components {
         ChurnRiskCustomer: {
             /** Customer Email Hash */
             customer_email_hash: string;
+            /** Customer Id Shopify */
+            customer_id_shopify?: string | null;
             /** Risk Score */
             risk_score: number;
             /** Risk Band */

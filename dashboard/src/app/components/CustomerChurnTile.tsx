@@ -23,6 +23,7 @@ import { formatMoneyCompact } from "../app/_lib/formatters";
 
 type ChurnRiskCustomer = {
   customer_email_hash: string;
+  customer_id_shopify?: string | null;
   risk_score: number;
   risk_band: "slipping" | "at_risk" | "lapsed" | string;
   days_since_last_order: number;
@@ -92,6 +93,19 @@ function formatPredictedLapse(iso: string | null): string {
   if (daysFromNow < 7) return `next ${daysFromNow}d`;
   if (daysFromNow < 60) return `in ~${Math.floor(daysFromNow / 7)}wk`;
   return "long-term";
+}
+
+// Drill-down strategy: rather than building a duplicate per-customer
+// detail UI inside the dashboard, deep-link to the merchant's own
+// Shopify admin customer page. Shopify is the single source of truth
+// for order history, contact info, customer notes, etc — re-implementing
+// it would create maintenance debt + visual divergence. The merchant
+// already has their Shopify admin authenticated; one click takes them
+// to the canonical record. Only enabled when Shopify customer_id is
+// known (orders/create webhook populates it).
+function shopifyCustomerUrl(shop: string, customerId: string): string {
+  // Shop format: "{name}.myshopify.com" — admin URL is admin/customers/{id}
+  return `https://${shop}/admin/customers/${customerId}`;
 }
 
 export function CustomerChurnTile({
@@ -173,9 +187,22 @@ export function CustomerChurnTile({
               {/* Customer + pacing */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-[12px] font-mono text-slate-300 truncate">
-                    {c.customer_email_hash}
-                  </span>
+                  {c.customer_id_shopify && shop ? (
+                    <a
+                      href={shopifyCustomerUrl(shop, c.customer_id_shopify)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[12px] font-mono text-slate-300 truncate underline decoration-slate-500/40 underline-offset-2 hover:text-slate-100 hover:decoration-slate-300 focus:outline-none focus:ring-2 focus:ring-rose-300/50 rounded"
+                      aria-label={`Open ${c.customer_email_hash} in Shopify admin`}
+                    >
+                      {c.customer_email_hash}
+                      <span aria-hidden className="ml-1 text-[10px] text-slate-300">↗</span>
+                    </a>
+                  ) : (
+                    <span className="text-[12px] font-mono text-slate-300 truncate">
+                      {c.customer_email_hash}
+                    </span>
+                  )}
                   <span
                     className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${visual.pillBg} ${visual.pillText}`}
                   >

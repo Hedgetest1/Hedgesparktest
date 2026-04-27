@@ -157,6 +157,147 @@ class TestChurnRefundedOrdersExcluded:
         )
 
 
+class TestChurnIdentityGrouping:
+    """customer_id (Shopify's stable cross-email ID) is preferred over
+    customer_email for grouping. A customer who changes email between
+    orders gets correctly collapsed into ONE identity.
+
+    Industry-wide email-only matching is the default — we beat it when
+    the merchant has customer_id populated (orders/create webhook).
+    """
+
+    def test_same_customer_id_different_emails_collapses_to_one(self, client, db, merchant_a):
+        # 30 baseline customers (cohort threshold)
+        _seed_repeat_customers(
+            db, SHOP_A,
+            count=30,
+            days_between_orders=20,
+            days_since_last=60,
+        )
+        # Same customer_id, different emails (typo or email change scenario):
+        # pre-fix this would count as 2 separate customers and BOTH would
+        # have order_count=1 → fail the "≥2 orders" gate → invisible.
+        # Post-fix: collapsed into 1 identity with order_count=2 → visible.
+        from datetime import datetime, timedelta, timezone
+        from app.models.shop_order import ShopOrder
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        for i, email in enumerate(["original@test.com", "renamed@test.com"]):
+            db.add(ShopOrder(
+                shop_domain=SHOP_A,
+                shopify_order_id=f"renamer-{i}",
+                total_price=300.00,
+                currency="USD",
+                customer_id="42",  # same Shopify customer
+                customer_email=email,
+                financial_status="paid",
+                line_items=[{"title": "Widget", "price": "300", "quantity": 1}],
+                created_at=now - timedelta(days=80 + (20 * (1 - i))),
+                source="webhook",
+            ))
+        db.commit()
+        cookies = auth_cookies(SHOP_A)
+
+        resp = client.get("/analytics/customer-churn-forecast?top_n=50", cookies=cookies)
+        body = resp.json()
+        # Hash of identity "42" (customer_id) should appear, hash of either
+        # email alone should NOT (each email separately had only 1 order).
+        import hashlib
+        identity_hash = "cust_" + hashlib.sha256(b"42").hexdigest()[:8]
+        original_email_hash = "cust_" + hashlib.sha256(b"original@test.com").hexdigest()[:8]
+        renamed_email_hash = "cust_" + hashlib.sha256(b"renamed@test.com").hexdigest()[:8]
+        hashes = [c["customer_email_hash"] for c in body["customers"]]
+        assert identity_hash in hashes, (
+            f"Customer collapsed under customer_id should appear; hashes: {hashes}"
+        )
+        assert original_email_hash not in hashes
+        assert renamed_email_hash not in hashes
+
+    def test_customer_id_shopify_surfaced_for_drill_link(
+        self, client, db, merchant_a
+    ):
+        """customer_id_shopify must be in the response so the frontend
+        can deep-link to the merchant's Shopify admin customer page."""
+        _seed_repeat_customers(
+            db, SHOP_A, count=30, days_between_orders=20, days_since_last=60,
+        )
+        from datetime import datetime, timedelta, timezone
+        from app.models.shop_order import ShopOrder
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        for i in range(2):
+            db.add(ShopOrder(
+                shop_domain=SHOP_A,
+                shopify_order_id=f"linkcid-{i}",
+                total_price=400.00,
+                currency="USD",
+                customer_id="9988",
+                customer_email="link@test.com",
+                financial_status="paid",
+                line_items=[{"title": "Widget", "price": "400", "quantity": 1}],
+                created_at=now - timedelta(days=60 + (20 * (1 - i))),
+                source="webhook",
+            ))
+        db.commit()
+        cookies = auth_cookies(SHOP_A)
+
+        resp = client.get("/analytics/customer-churn-forecast?top_n=50", cookies=cookies)
+        body = resp.json()
+        # Find the customer with customer_id="9988"
+        target = next(
+            (c for c in body["customers"] if c.get("customer_id_shopify") == "9988"),
+            None,
+        )
+        assert target is not None, (
+            f"Customer with Shopify customer_id 9988 must surface customer_id_shopify; "
+            f"customers: {body['customers']}"
+        )
+
+    def test_legacy_orders_without_customer_id_fall_back_to_email(
+        self, client, db, merchant_a
+    ):
+        """When customer_id is null (pixel-only or pre-webhook orders),
+        the GROUP BY falls back to customer_email AND customer_id_shopify
+        is null (no drill-link)."""
+        _seed_repeat_customers(
+            db, SHOP_A,
+            count=30,
+            days_between_orders=20,
+            days_since_last=60,
+        )
+        from datetime import datetime, timedelta, timezone
+        from app.models.shop_order import ShopOrder
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        for i in range(2):
+            db.add(ShopOrder(
+                shop_domain=SHOP_A,
+                shopify_order_id=f"legacy-{i}",
+                total_price=200.00,
+                currency="USD",
+                customer_id=None,  # legacy: no customer_id
+                customer_email="legacy@test.com",
+                financial_status="paid",
+                line_items=[{"title": "Widget", "price": "200", "quantity": 1}],
+                created_at=now - timedelta(days=60 + (20 * (1 - i))),
+                source="webhook",
+            ))
+        db.commit()
+        cookies = auth_cookies(SHOP_A)
+
+        resp = client.get("/analytics/customer-churn-forecast?top_n=50", cookies=cookies)
+        body = resp.json()
+        import hashlib
+        legacy_hash = "cust_" + hashlib.sha256(b"legacy@test.com").hexdigest()[:8]
+        legacy = next(
+            (c for c in body["customers"] if c["customer_email_hash"] == legacy_hash),
+            None,
+        )
+        assert legacy is not None, (
+            f"Legacy customer (no customer_id) should fall back to email grouping"
+        )
+        assert legacy.get("customer_id_shopify") is None, (
+            "Legacy customer must have customer_id_shopify=None (no drill-link)"
+        )
+
+
 class TestChurnMultiCurrencyCustomers:
     """Multi-currency shops: a customer who bought in USD AND EUR is still
     ONE customer for churn purposes. Pre-fix the query filtered by shop

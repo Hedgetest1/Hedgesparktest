@@ -1096,12 +1096,23 @@ unresolved.** A flag is "resolved" only when one of the following
 is true *in the same turn*:
 
 - **(R-fix)** The flag's underlying concern is fixed in the same
-  turn, with code shipped and verified.
+  turn, with code shipped and verified. **DEFAULT label** —
+  every flag should be R-fix unless something genuinely external
+  blocks the work. See `feedback_no_park_until_attempted_fix.md`.
 - **(R-disprove)** The flag was investigated and the concern is
-  proven non-real, with explicit evidence (grep result, test, run
-  output) cited in the turn-close.
+  proven non-real with **empirical evidence** — grep + 0 hits,
+  test that proves the safety, measurement that quantifies the
+  risk to acceptable. **A hand-wavy "this is fine at scale" is
+  NOT R-disprove** — it's a park with no fix attempted.
 - **(R-blocker)** The flag is held by a HARD blocker, *named*
-  explicitly. Allowed blockers:
+  explicitly, AND the parking note documents:
+    - the specific blocker class (one of those listed below)
+    - the **minimum viable fix path** that was considered
+      (so the work is recoverable later)
+    - the **trigger condition** for un-parking (specific scale,
+      specific signal, founder action)
+
+  Allowed blocker classes:
     - founder-domain decision (taste, copy, pricing, brand voice,
       strategic direction)
     - TIER_2 fresh approval required (see §10)
@@ -1110,6 +1121,13 @@ is true *in the same turn*:
     - work scope > 1 day that must legitimately become its own
       sprint, with a memory file capturing the deferral and a
       one-line rationale that survives audit
+
+**The default action on every flag is FIX, not PARK** (born
+2026-04-27 from `feedback_no_park_until_attempted_fix.md`). 5-line
+fix? ship. 50-line fix? ship. 500-line fix? decompose to the
+minimum-viable 10/10 close. Park ONLY when the attempted-fix
+work surfaces a hard external blocker AND the minimum-viable
+path is documented for resumption.
 
 Any "Cat-A logged", "follow-up sprint", "minor improvement", "next
 session", "future enhancement", "logged for later", "TODO for
