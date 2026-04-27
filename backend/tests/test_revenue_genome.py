@@ -212,6 +212,60 @@ class TestComputeRevenueGenome:
         assert result["strong_genes"] == len([s for s in all_scores if s >= 70])
         assert result["weak_genes"] == len([s for s in all_scores if s < 40])
 
+    def test_customer_genes_use_shop_currency_not_hardcoded_eur(
+        self, _redis, db, merchant_a
+    ):
+        """Regression-pin for cosmetic(currency) commit f91dfe7.
+
+        Before fix, AOV + revenue_per_customer genes hardcoded "EUR" in
+        the unit + narrative string. Non-EUR merchants saw "EUR 80." in
+        their dashboard regardless of shop currency. Fix: pull from
+        get_shop_currency. This test seeds a USD shop and verifies the
+        narrative mentions USD, never EUR."""
+        from app.models.merchant import Merchant
+        # Force the shop to USD (overrides whatever fixture set up)
+        m = db.query(Merchant).filter(Merchant.shop_domain == SHOP_A).first()
+        if m:
+            m.primary_currency = "USD"
+            db.flush()
+
+        # Seed orders explicitly in USD to match the merchant currency
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        for i in range(20):
+            db.execute(text("""
+                INSERT INTO shop_orders
+                  (shop_domain, shopify_order_id, customer_email, total_price, currency, created_at)
+                VALUES (:shop, :oid, :email, :price, :ccy, :created)
+            """), {
+                "shop": SHOP_A,
+                "oid": str(20000 + i),
+                "email": f"u{i % 5}@test.com",
+                "price": 50 + (i * 7 % 30),
+                "ccy": "USD",
+                "created": now - timedelta(days=i * 3),
+            })
+        db.flush()
+
+        result = compute_revenue_genome(db, SHOP_A)
+        customer = result["gene_clusters"]["customer"]
+        genes = {g["name"]: g for g in customer.get("genes", [])}
+
+        # AOV gene + revenue_per_customer gene must reflect USD
+        if "aov" in genes:
+            assert genes["aov"]["unit"] == "USD", (
+                f"aov gene unit must be USD, got {genes['aov']['unit']!r}"
+            )
+            assert "EUR" not in genes["aov"]["insight"], (
+                f"aov insight must not mention EUR for USD shop: "
+                f"{genes['aov']['insight']!r}"
+            )
+        if "revenue_per_customer" in genes:
+            assert "EUR" not in genes["revenue_per_customer"]["insight"], (
+                f"rpc insight must not mention EUR for USD shop: "
+                f"{genes['revenue_per_customer']['insight']!r}"
+            )
+
 
 # ═══════════════════════════════════════════════════════════════════
 # Caching tests
