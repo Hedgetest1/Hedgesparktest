@@ -197,3 +197,72 @@ def get_pnl_lite_endpoint(
     table-stakes at the €39 band. Opens 2026-04-20 per founder
     directive "strada 2 — completista"."""
     return get_pnl_report(db, shop, window_days=window_days)
+
+
+# ---------------------------------------------------------------------------
+# Profit by dimension — Gap #3 close (brutal $0-70 audit 2026-04-27)
+# ---------------------------------------------------------------------------
+
+class ProfitDimensionRow(BaseModel):
+    key: str
+    label: str
+    revenue: float
+    cogs: float
+    margin: float
+    margin_pct: float | None
+    units_or_orders: int
+    cogs_source: str
+
+
+class ProfitByDimensionResponse(BaseModel):
+    dim: str
+    window_days: int
+    currency: str
+    generated_at: str
+    total_revenue: float
+    total_margin: float
+    avg_margin_pct: float | None
+    rows: list[ProfitDimensionRow] = []
+    methodology: str
+    error: str | None = None
+
+
+@lite_router.get(
+    "/profit-by-dimension",
+    response_model=ProfitByDimensionResponse,
+    response_model_exclude_none=False,
+)
+def get_profit_by_dimension_lite(
+    dim: str = Query(..., pattern="^(variant|country|channel)$"),
+    window_days: int = Query(default=30, ge=1, le=365),
+    limit: int = Query(default=10, ge=1, le=50),
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+):
+    """Gross profit (revenue − COGS) sliced by dimension.
+
+    Closes Gap #3 of the brutal $0-70 audit (2026-04-27): every
+    profit-tracker competitor at $20-49 (TrueProfit, BeProfit,
+    Lifetimely, Profit Calc, OrderMetrics, Putler) ships profit
+    slicing across multiple dimensions; we had product (margin-drag).
+    This adds variant, country, channel.
+
+    `dim` values:
+      - **variant**  — group by line_items.variant_id (pixel v15+)
+      - **country**  — JOIN with Redis hash hs:order_geo:{shop} from
+        purchase-time geo capture
+      - **channel**  — JOIN with visitor_purchase_session.last_source
+        (UTM-deterministic at purchase)
+
+    COGS uses product_costs when available, else 40% revenue fallback
+    (`cogs_source = "default_40pct"` — UI must surface as estimated).
+
+    NOTE: ad-spend is intentionally NOT a dim option — that's blocked
+    by the legal-entity gate (no P.IVA → no Meta/Google Ads API).
+    Once unblocked, channel dim will subtract per-channel ad-spend
+    to render true ROAS.
+    """
+    from app.services.pnl_engine import get_profit_by_dimension
+    return get_profit_by_dimension(
+        db, shop, dim=dim, window_days=window_days, limit=limit,
+    )

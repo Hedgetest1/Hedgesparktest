@@ -708,3 +708,414 @@ def _empty_report(window_days: int, currency: str = "USD") -> dict:
         "verdict":          "Profit intelligence activates once your first orders are received.",
         "generated_at":     datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
     }
+
+
+# ============================================================================
+# Profit slicing by dimension — Gap #3 close (brutal $0-70 audit 2026-04-27)
+# ============================================================================
+#
+# Every profit-tracker competitor at $20-49 (TrueProfit, BeProfit, Lifetimely,
+# Profit Calc, OrderMetrics, Putler) ships profit slicing across multiple
+# dimensions. We had product (margin-drag); this adds variant, country,
+# channel.
+#
+# Math contract — same as margin-drag:
+#   revenue   = SUM(price × quantity) for line items in dimension bucket
+#   cogs      = SUM(cogs_per_unit × quantity) when product_costs available;
+#               else revenue × _DEFAULT_COGS_PCT (40%) fallback
+#   margin    = revenue − cogs (gross profit, before payment fees / shipping
+#               which apply at order level — not aggregated here so the
+#               dimension comparison stays apples-to-apples)
+#   margin_pct = margin / revenue when revenue > 0, else None
+#
+# Privacy: dimension keys (country code, channel name, variant title) are
+# already merchant-visible via Shopify admin. No new PII surfaces here.
+#
+# COGS fallback: 40% default is the same convention as the rest of pnl_engine.
+# When `cogs_source = "default_40pct"` the UI must surface the estimated flag
+# so the merchant knows to upload product_costs for real precision.
+
+from datetime import datetime as _dt_pbd, timezone as _tz_pbd
+
+_VALID_DIMS = ("variant", "country", "channel")
+
+
+def get_profit_by_dimension(
+    db: Session,
+    shop_domain: str,
+    *,
+    dim: str,
+    window_days: int = 30,
+    limit: int = 10,
+) -> dict:
+    """Profit slicing by dimension.
+
+    Args:
+        dim: one of "variant", "country", "channel"
+        window_days: rolling window (1-365)
+        limit: max rows returned (1-50)
+
+    Returns dict with shape:
+        {
+            dim: str,
+            window_days: int,
+            currency: str,
+            generated_at: str,
+            total_revenue: float,
+            total_margin: float,
+            avg_margin_pct: float | None,
+            rows: [
+                {key: str, label: str, revenue: float, cogs: float,
+                 margin: float, margin_pct: float | None,
+                 units_or_orders: int, cogs_source: str},
+                ...
+            ],
+            methodology: str,
+            error: str | None,
+        }
+
+    For dim=country: joins with Redis hash hs:order_geo:{shop} populated by
+    app/core/geo.record_order_geo. Cross-tenant impossible (key shop-scoped).
+
+    For dim=channel: joins shop_orders with visitor_purchase_session on
+    shopify_order_id, groups by last_source ("organic", "google_ads",
+    "facebook", direct, etc). Orders without attribution session collapse
+    into "(direct/unknown)" bucket.
+    """
+    from app.services.revenue_metrics import get_shop_currency
+    currency = get_shop_currency(db, shop_domain) or "USD"
+    now = _dt_pbd.now(_tz_pbd.utc).replace(tzinfo=None)
+
+    if dim not in _VALID_DIMS:
+        return {
+            "dim": dim,
+            "window_days": window_days,
+            "currency": currency,
+            "generated_at": now.isoformat() + "Z",
+            "total_revenue": 0.0,
+            "total_margin": 0.0,
+            "avg_margin_pct": None,
+            "rows": [],
+            "methodology": f"Invalid dim: {dim}. Must be one of {_VALID_DIMS}.",
+            "error": f"invalid_dim:{dim}",
+        }
+
+    if dim == "variant":
+        return _profit_by_variant(db, shop_domain, currency, window_days, limit, now)
+    if dim == "country":
+        return _profit_by_country(db, shop_domain, currency, window_days, limit, now)
+    return _profit_by_channel(db, shop_domain, currency, window_days, limit, now)
+
+
+def _empty_dim_response(dim, window_days, currency, now, methodology):
+    return {
+        "dim": dim, "window_days": window_days, "currency": currency,
+        "generated_at": now.isoformat() + "Z",
+        "total_revenue": 0.0, "total_margin": 0.0, "avg_margin_pct": None,
+        "rows": [], "methodology": methodology,
+    }
+
+
+def _profit_by_variant(db, shop_domain, currency, window_days, limit, now):
+    """Group line_items by (product_id, variant_id, variant_title). Variant-
+    level COGS not stored — fall back to product-level COGS allocated by
+    quantity within variant."""
+    try:
+        rows = db.execute(
+            text("""
+                WITH expanded AS (
+                    SELECT
+                        COALESCE(item->>'product_id', item->>'product_url') AS product_key,
+                        item->>'variant_id' AS variant_id,
+                        COALESCE(NULLIF(item->>'variant_title', ''), '(no variant)') AS variant_title,
+                        COALESCE(NULLIF(item->>'title', ''), '(untitled)') AS product_title,
+                        (item->>'price')::numeric  AS unit_price,
+                        (item->>'quantity')::int   AS quantity
+                    FROM shop_orders so,
+                         jsonb_array_elements(so.line_items) AS item
+                    WHERE so.shop_domain = :shop
+                      AND so.created_at >= NOW() - make_interval(days => :days)
+                      AND item->>'price'    IS NOT NULL
+                      AND item->>'quantity' IS NOT NULL
+                      AND item ? 'variant_id'
+                      AND COALESCE(item->>'product_id', item->>'product_url') IS NOT NULL
+                ),
+                variant_rollup AS (
+                    SELECT
+                        product_key,
+                        variant_id,
+                        MAX(variant_title) AS variant_title,
+                        MAX(product_title) AS product_title,
+                        SUM(unit_price * quantity) AS revenue,
+                        SUM(quantity)              AS units_sold
+                    FROM expanded
+                    GROUP BY product_key, variant_id
+                )
+                SELECT
+                    vr.product_key,
+                    vr.variant_id,
+                    vr.variant_title,
+                    vr.product_title,
+                    vr.revenue,
+                    vr.units_sold,
+                    pc.cogs_per_unit,
+                    pc.source
+                FROM variant_rollup vr
+                LEFT JOIN product_costs pc
+                  ON pc.shop_domain = :shop
+                 AND pc.product_key = vr.product_key
+                ORDER BY vr.revenue DESC
+                LIMIT :limit
+            """),
+            {"shop": shop_domain, "days": window_days, "limit": limit},
+        ).fetchall()
+    except Exception as exc:
+        log.warning("pnl_engine.profit_by_variant: query failed for %s: %s", shop_domain, exc)
+        out = _empty_dim_response("variant", window_days, currency, now,
+                                  f"Query failed: {type(exc).__name__}")
+        out["error"] = str(exc)[:200]
+        return out
+
+    if not rows:
+        return _empty_dim_response(
+            "variant", window_days, currency, now,
+            "No line-item variants in window. Pixel v15+ ingests variant_id; "
+            "older orders pre-v15 lack variant data and stay uncounted."
+        )
+
+    out_rows = []
+    total_revenue = 0.0
+    total_margin = 0.0
+    pct_values: list[float] = []
+    for r in rows:
+        rev = float(r[4] or 0)
+        units = int(r[5] or 0)
+        cogs_per_unit = float(r[6]) if r[6] is not None else None
+        source = r[7] or "default_40pct"
+        if cogs_per_unit is not None:
+            cogs = round(cogs_per_unit * units, 2)
+        else:
+            cogs = round(rev * _DEFAULT_COGS_PCT, 2)
+            source = "default_40pct"
+        margin = round(rev - cogs, 2)
+        margin_pct = round((margin / rev) * 100.0, 2) if rev > 0 else None
+        label = f"{r[3]} — {r[2]}" if r[2] != "(no variant)" else str(r[3])
+        out_rows.append({
+            "key": str(r[1]),
+            "label": label,
+            "revenue": round(rev, 2),
+            "cogs": cogs,
+            "margin": margin,
+            "margin_pct": margin_pct,
+            "units_or_orders": units,
+            "cogs_source": source,
+        })
+        total_revenue += rev
+        total_margin += margin
+        if margin_pct is not None:
+            pct_values.append(margin_pct)
+
+    avg = round(sum(pct_values) / len(pct_values), 2) if pct_values else None
+    return {
+        "dim": "variant",
+        "window_days": window_days,
+        "currency": currency,
+        "generated_at": now.isoformat() + "Z",
+        "total_revenue": round(total_revenue, 2),
+        "total_margin": round(total_margin, 2),
+        "avg_margin_pct": avg,
+        "rows": out_rows,
+        "methodology": (
+            "Per-variant gross profit (revenue − COGS). Variant-level COGS not "
+            "stored; fallback to product-level COGS × quantity, else 40% default. "
+            "Sorted by revenue desc, top {limit}.".format(limit=limit)
+        ),
+    }
+
+
+def _profit_by_country(db, shop_domain, currency, window_days, limit, now):
+    """Aggregate per-country profit by joining shop_orders with the
+    Redis geo hash populated at purchase time."""
+    from datetime import timedelta
+    from app.core.redis_client import _client
+    from app.core.silent_fallback import record_silent_return
+
+    rc = _client()
+    if rc is None:
+        record_silent_return("pnl_engine.profit_by_country.no_redis")
+        return _empty_dim_response(
+            "country", window_days, currency, now,
+            "Country breakdown unavailable: Redis client offline."
+        )
+
+    # Window of valid YYYY-MM-DD dates (UTC). Geo hash uses UTC date keys.
+    today = now.date()
+    valid_dates = {
+        (today - timedelta(days=d)).isoformat() for d in range(window_days)
+    }
+
+    try:
+        raw = rc.hgetall(f"hs:order_geo:{shop_domain}") or {}
+    except Exception as exc:
+        log.warning("pnl_engine.profit_by_country: redis read failed: %s", exc)
+        out = _empty_dim_response("country", window_days, currency, now,
+                                  f"Redis read failed: {type(exc).__name__}")
+        out["error"] = str(exc)[:200]
+        return out
+
+    by_cc: dict[str, dict[str, float]] = {}
+    for raw_field, raw_value in raw.items():
+        field = raw_field.decode() if isinstance(raw_field, bytes) else raw_field
+        value = raw_value.decode() if isinstance(raw_value, bytes) else raw_value
+        parts = field.split(":")
+        if len(parts) < 3:
+            continue
+        cc, day, metric = parts[0], parts[1], parts[2]
+        if day not in valid_dates:
+            continue
+        bucket = by_cc.setdefault(cc, {"orders": 0, "revenue": 0.0})
+        if metric == "count":
+            try: bucket["orders"] += int(value)
+            except (TypeError, ValueError): continue
+        elif metric.startswith("revenue_"):
+            metric_ccy = metric.split("_", 1)[1]
+            if metric_ccy == currency:
+                try: bucket["revenue"] += float(value)
+                except (TypeError, ValueError): continue
+
+    if not by_cc:
+        return _empty_dim_response(
+            "country", window_days, currency, now,
+            "No geo-tagged orders in window. Pixel records country at "
+            "purchase time; older orders pre-pixel-v14 stay uncounted."
+        )
+
+    out_rows = []
+    total_revenue = 0.0
+    total_margin = 0.0
+    pct_values: list[float] = []
+    for cc, agg in sorted(by_cc.items(), key=lambda x: -x[1]["revenue"])[:limit]:
+        rev = agg["revenue"]
+        # Country-level COGS not separately tracked — apply default 40%.
+        # When per-country COGS becomes a thing (rare for SMB), wire here.
+        cogs = round(rev * _DEFAULT_COGS_PCT, 2)
+        margin = round(rev - cogs, 2)
+        margin_pct = round((margin / rev) * 100.0, 2) if rev > 0 else None
+        out_rows.append({
+            "key": cc,
+            "label": cc,  # ISO-3166 alpha-2; UI can map to flag/name
+            "revenue": round(rev, 2),
+            "cogs": cogs,
+            "margin": margin,
+            "margin_pct": margin_pct,
+            "units_or_orders": int(agg["orders"]),
+            "cogs_source": "default_40pct",
+        })
+        total_revenue += rev
+        total_margin += margin
+        if margin_pct is not None:
+            pct_values.append(margin_pct)
+
+    avg = round(sum(pct_values) / len(pct_values), 2) if pct_values else None
+    return {
+        "dim": "country",
+        "window_days": window_days,
+        "currency": currency,
+        "generated_at": now.isoformat() + "Z",
+        "total_revenue": round(total_revenue, 2),
+        "total_margin": round(total_margin, 2),
+        "avg_margin_pct": avg,
+        "rows": out_rows,
+        "methodology": (
+            "Per-country gross profit. Revenue from Redis geo hash "
+            "(populated at purchase). COGS at default 40% fallback "
+            "(country-specific COGS not tracked). Top {limit} by "
+            "revenue.".format(limit=limit)
+        ),
+    }
+
+
+def _profit_by_channel(db, shop_domain, currency, window_days, limit, now):
+    """Aggregate per-channel profit by joining shop_orders with
+    visitor_purchase_session on shopify_order_id; group by last_source."""
+    try:
+        rows = db.execute(
+            text("""
+                SELECT
+                    COALESCE(NULLIF(vps.last_source, ''), '(direct/unknown)') AS channel,
+                    COUNT(DISTINCT so.id) AS orders,
+                    COALESCE(SUM(so.total_price), 0) AS revenue
+                FROM shop_orders so
+                LEFT JOIN visitor_purchase_sessions vps
+                  ON vps.shop_domain = so.shop_domain
+                 AND vps.shopify_order_id = so.shopify_order_id
+                WHERE so.shop_domain = :shop
+                  AND so.created_at >= NOW() - make_interval(days => :days)
+                  AND so.total_price > 0
+                  AND so.currency = :currency
+                GROUP BY 1
+                ORDER BY revenue DESC
+                LIMIT :limit
+            """),
+            {"shop": shop_domain, "days": window_days,
+             "currency": currency, "limit": limit},
+        ).fetchall()
+    except Exception as exc:
+        log.warning("pnl_engine.profit_by_channel: query failed for %s: %s", shop_domain, exc)
+        out = _empty_dim_response("channel", window_days, currency, now,
+                                  f"Query failed: {type(exc).__name__}")
+        out["error"] = str(exc)[:200]
+        return out
+
+    if not rows:
+        return _empty_dim_response(
+            "channel", window_days, currency, now,
+            "No orders in window. Channel attribution requires visitor "
+            "session continuity (pixel + identity bridge)."
+        )
+
+    out_rows = []
+    total_revenue = 0.0
+    total_margin = 0.0
+    pct_values: list[float] = []
+    for r in rows:
+        rev = float(r[2] or 0)
+        orders_count = int(r[1] or 0)
+        # Channel-level COGS: same 40% fallback as country. When ad_spend
+        # integration unblocks (post-P.IVA), THIS is where ROAS gets wired
+        # in by subtracting ad_spend per channel from margin.
+        cogs = round(rev * _DEFAULT_COGS_PCT, 2)
+        margin = round(rev - cogs, 2)
+        margin_pct = round((margin / rev) * 100.0, 2) if rev > 0 else None
+        out_rows.append({
+            "key": str(r[0]),
+            "label": str(r[0]),
+            "revenue": round(rev, 2),
+            "cogs": cogs,
+            "margin": margin,
+            "margin_pct": margin_pct,
+            "units_or_orders": orders_count,
+            "cogs_source": "default_40pct",
+        })
+        total_revenue += rev
+        total_margin += margin
+        if margin_pct is not None:
+            pct_values.append(margin_pct)
+
+    avg = round(sum(pct_values) / len(pct_values), 2) if pct_values else None
+    return {
+        "dim": "channel",
+        "window_days": window_days,
+        "currency": currency,
+        "generated_at": now.isoformat() + "Z",
+        "total_revenue": round(total_revenue, 2),
+        "total_margin": round(total_margin, 2),
+        "avg_margin_pct": avg,
+        "rows": out_rows,
+        "methodology": (
+            "Per-channel gross profit. Channel from visitor_purchase_"
+            "session.last_source (UTM-deterministic at purchase). COGS "
+            "at default 40% fallback. Orders without attribution session "
+            "collapse into '(direct/unknown)'. Top {limit}.".format(limit=limit)
+        ),
+    }

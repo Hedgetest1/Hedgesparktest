@@ -130,6 +130,7 @@ import { DateRangeProvider } from "../components/DateRangeContext";
 import { DateRangePicker } from "../components/DateRangePicker";
 import { PnlReport } from "../components/PnlReport";
 import { MarginDragCard } from "../components/MarginDragCard";
+import { ProfitSliceTile } from "../components/ProfitSliceTile";
 import { ChannelAttributionCard } from "../components/ChannelAttributionCard";
 import { MonthlyCohortsCard } from "../components/MonthlyCohortsCard";
 import { GatewayProductsCard } from "../components/GatewayProductsCard";
@@ -2912,6 +2913,16 @@ function PageInner() {
                         shop={shop}
                         displayCurrency={displayCurrency}
                       />
+                    </div>
+
+                    {/* Profit slicing by dimension — Gap #3 close from
+                        brutal $0-70 audit (2026-04-27). Variant /
+                        country / channel breakdown of gross profit.
+                        Closes the parity gap with TrueProfit / BeProfit
+                        / Lifetimely / Profit Calc / OrderMetrics /
+                        Putler at €20-49 entry tiers. */}
+                    <div className="mt-5">
+                      <ProfitSliceTile displayCurrency={displayCurrency} />
                     </div>
                   </div>
                 </section>

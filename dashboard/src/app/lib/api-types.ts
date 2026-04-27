@@ -3941,6 +3941,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/pnl/profit-by-dimension": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Profit By Dimension Lite
+         * @description Gross profit (revenue − COGS) sliced by dimension.
+         *
+         *     Closes Gap #3 of the brutal $0-70 audit (2026-04-27): every
+         *     profit-tracker competitor at $20-49 (TrueProfit, BeProfit,
+         *     Lifetimely, Profit Calc, OrderMetrics, Putler) ships profit
+         *     slicing across multiple dimensions; we had product (margin-drag).
+         *     This adds variant, country, channel.
+         *
+         *     `dim` values:
+         *       - **variant**  — group by line_items.variant_id (pixel v15+)
+         *       - **country**  — JOIN with Redis hash hs:order_geo:{shop} from
+         *         purchase-time geo capture
+         *       - **channel**  — JOIN with visitor_purchase_session.last_source
+         *         (UTM-deterministic at purchase)
+         *
+         *     COGS uses product_costs when available, else 40% revenue fallback
+         *     (`cogs_source = "default_40pct"` — UI must surface as estimated).
+         *
+         *     NOTE: ad-spend is intentionally NOT a dim option — that's blocked
+         *     by the legal-entity gate (no P.IVA → no Meta/Google Ads API).
+         *     Once unblocked, channel dim will subtract per-channel ad-spend
+         *     to render true ROAS.
+         */
+        get: operations["get_profit_by_dimension_lite_analytics_pnl_profit_by_dimension_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/merchant/slack/status": {
         parameters: {
             query?: never;
@@ -10647,6 +10688,51 @@ export interface components {
             /** Total Views */
             total_views: number;
         };
+        /** ProfitByDimensionResponse */
+        ProfitByDimensionResponse: {
+            /** Dim */
+            dim: string;
+            /** Window Days */
+            window_days: number;
+            /** Currency */
+            currency: string;
+            /** Generated At */
+            generated_at: string;
+            /** Total Revenue */
+            total_revenue: number;
+            /** Total Margin */
+            total_margin: number;
+            /** Avg Margin Pct */
+            avg_margin_pct: number | null;
+            /**
+             * Rows
+             * @default []
+             */
+            rows: components["schemas"]["ProfitDimensionRow"][];
+            /** Methodology */
+            methodology: string;
+            /** Error */
+            error?: string | null;
+        };
+        /** ProfitDimensionRow */
+        ProfitDimensionRow: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Revenue */
+            revenue: number;
+            /** Cogs */
+            cogs: number;
+            /** Margin */
+            margin: number;
+            /** Margin Pct */
+            margin_pct: number | null;
+            /** Units Or Orders */
+            units_or_orders: number;
+            /** Cogs Source */
+            cogs_source: string;
+        };
         /**
          * ProofConfidenceBlock
          * @description Graduated confidence assessment (strong / moderate / early / insufficient).
@@ -16995,6 +17081,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PnlReportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_profit_by_dimension_lite_analytics_pnl_profit_by_dimension_get: {
+        parameters: {
+            query: {
+                dim: string;
+                window_days?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfitByDimensionResponse"];
                 };
             };
             /** @description Validation Error */
