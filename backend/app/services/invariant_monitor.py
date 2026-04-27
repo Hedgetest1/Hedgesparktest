@@ -118,6 +118,20 @@ _AUDITS: list[tuple[str, str, str]] = [
         "invariant_regression",
         "invariant:dashboard_a11y",
     ),
+    # JSONB array-length guard: added 2026-04-27 evening (Gap #8 close
+    # sibling-hunt). Runtime recognition for the class where psycopg2
+    # converts Python None to JSON null literal (a JSONB scalar)
+    # instead of SQL NULL on JSONB column inserts; SQL `IS NULL`
+    # doesn't catch JSON null, so unguarded jsonb_array_length(scalar)
+    # panics. Preflight blocks at commit; this catches the same class
+    # within 15min of any --no-verify bypass + any merge that
+    # resurrects unguarded calls. See audit_jsonb_array_length_guard.py
+    # for the regex + 4-line proximity rule.
+    (
+        "audit_jsonb_array_length_guard.py",
+        "invariant_regression",
+        "invariant:jsonb_array_length_guard",
+    ),
 ]
 
 _TIMEOUT_SECONDS = 30
