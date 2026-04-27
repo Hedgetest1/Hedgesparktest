@@ -214,11 +214,11 @@ class TestProEndpointSmoke:
         assert resp.status_code in (401, 403)
 
     # ------------------------------------------------------------------
-    # 11. GET /pro/revenue-at-risk — RARS score
+    # 11. GET /analytics/revenue-at-risk — RARS score
     # ------------------------------------------------------------------
 
     def test_revenue_at_risk_200(self, client, merchant_a, auth_a):
-        resp = client.get("/pro/revenue-at-risk", cookies=auth_a)
+        resp = client.get("/analytics/revenue-at-risk", cookies=auth_a)
         data = _assert_shape(
             resp, "shop_domain", "total_at_risk_eur",
             "prevented_eur_this_month", "components",
@@ -226,8 +226,17 @@ class TestProEndpointSmoke:
         assert isinstance(data["components"], list)
 
     def test_revenue_at_risk_unauth(self, client):
-        resp = client.get("/pro/revenue-at-risk")
+        resp = client.get("/analytics/revenue-at-risk")
         assert resp.status_code in (401, 403)
+
+    def test_revenue_at_risk_legacy_alias_200(self, client, merchant_a, auth_a):
+        """The deprecated /pro/revenue-at-risk path still resolves to the
+        same handler for any client still on the old URL."""
+        resp = client.get("/pro/revenue-at-risk", cookies=auth_a)
+        _assert_shape(
+            resp, "shop_domain", "total_at_risk_eur",
+            "prevented_eur_this_month", "components",
+        )
 
     # ------------------------------------------------------------------
     # 12. GET /pro/refund-losses — refund analytics

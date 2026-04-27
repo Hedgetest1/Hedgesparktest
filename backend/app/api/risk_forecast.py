@@ -1,7 +1,7 @@
 """
 risk_forecast.py — GET /pro/risk-forecast API endpoint.
 
-Forward-looking companion to /pro/revenue-at-risk. Returns a 7-day
+Forward-looking companion to /analytics/revenue-at-risk. Returns a 7-day
 projection of the Revenue-at-Risk Score computed from the rolling
 history we accumulate each time RARS is computed.
 """

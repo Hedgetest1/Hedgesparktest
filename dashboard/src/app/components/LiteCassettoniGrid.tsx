@@ -2195,7 +2195,7 @@ function useRarsData(
     if (!apiBase || !shop) return;
     let active = true;
     apiClient
-      .GET("/pro/revenue-at-risk")
+      .GET("/analytics/revenue-at-risk")
       .then(({ data: raw }) => {
         if (!active) return;
         const payload = raw as RarsPayload;

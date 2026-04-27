@@ -78,7 +78,7 @@ CURRENCY_GUARDED_ENDPOINTS = [
     ("GET", "/pro/mta",                      "currency"),
     ("GET", "/pro/mta/compare",              "currency"),
     ("GET", "/pro/cac-ltv",                  "currency"),
-    ("GET", "/pro/revenue-at-risk",          "currency"),
+    ("GET", "/analytics/revenue-at-risk",    "currency"),
     ("GET", "/pro/forecast/revenue",         "currency"),
     ("GET", "/pro/refund-losses",            "currency"),
     ("GET", "/pro/abandoned-intent",         "currency"),

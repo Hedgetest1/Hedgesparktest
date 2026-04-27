@@ -7,7 +7,7 @@
  * (abandoned carts, refund trend, nudge gap, peer underperformance,
  * goal gap) plus the counter-punch: "HedgeSpark already prevented €Y".
  *
- * Data source: GET /pro/revenue-at-risk (cached 5 min server-side).
+ * Data source: GET /analytics/revenue-at-risk (cached 5 min server-side).
  * No LLM, no fancy interactions — just a clean hero with drill-down.
  */
 
@@ -83,7 +83,7 @@ export function RevenueAtRiskHero({
     // Both Lite and Pro fetch the same endpoint. Backend filters
     // components array to [] for non-Pro — we reflect that in the UI.
     apiClient
-      .GET("/pro/revenue-at-risk")
+      .GET("/analytics/revenue-at-risk")
       .then(({ data: json, error: err }) => {
         if (!active) return;
         if (err || !json) setError(true);

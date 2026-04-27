@@ -14,7 +14,7 @@
  * it to the permanent top slot with three ranked components visible
  * BEFORE any click, each linking to the drill-down that explains it.
  *
- * Real-data contract: every number comes from /pro/revenue-at-risk
+ * Real-data contract: every number comes from /analytics/revenue-at-risk
  * (same endpoint the cassettone drill-down fetches). Cold-start shows
  * a labeled preview with a "watching" pulse — never fake numbers.
  */
@@ -91,7 +91,7 @@ export function LiteRarsHero({
     if (!apiBase || !shop) return;
     let active = true;
     apiClient
-      .GET("/pro/revenue-at-risk")
+      .GET("/analytics/revenue-at-risk")
       .then(({ data: raw }) => {
         if (!active) return;
         setData((raw as RarsPayload) ?? null);

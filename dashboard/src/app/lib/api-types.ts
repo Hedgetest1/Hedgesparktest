@@ -6198,7 +6198,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/pro/revenue-at-risk": {
+    "/analytics/revenue-at-risk": {
         parameters: {
             query?: never;
             header?: never;
@@ -6220,7 +6220,30 @@ export interface paths {
          *     - Starter/Lite merchants: total + prevented + net_roi + headline,
          *       `components` returned as empty list (upgrade prompt lives in UI)
          */
-        get: operations["get_rars_pro_revenue_at_risk_get"];
+        get: operations["get_rars_analytics_revenue_at_risk_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pro/revenue-at-risk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Rars Legacy
+         * @deprecated
+         * @description Legacy alias of /analytics/revenue-at-risk. Kept for backward
+         *     compatibility with dashboard builds on the old path. Same handler,
+         *     same auth, same response. Will be removed once all clients migrate.
+         */
+        get: operations["get_rars_legacy_pro_revenue_at_risk_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -20006,7 +20029,27 @@ export interface operations {
             };
         };
     };
-    get_rars_pro_revenue_at_risk_get: {
+    get_rars_analytics_revenue_at_risk_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RARSResponse"];
+                };
+            };
+        };
+    };
+    get_rars_legacy_pro_revenue_at_risk_get: {
         parameters: {
             query?: never;
             header?: never;

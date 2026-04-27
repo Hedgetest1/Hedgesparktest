@@ -29,7 +29,7 @@ Self-healing pipeline integration
 * data_integrity_probe watches for RARS volatility (sudden spikes =
   data corruption upstream)
 * Cached 5 min per shop — cheap enough for live updates
-* Exposed via /pro/revenue-at-risk with full breakdown for drill-down
+* Exposed via /analytics/revenue-at-risk with full breakdown for drill-down
 """
 from __future__ import annotations
 
