@@ -450,6 +450,44 @@ class TestResolveCompareUtcBounds:
         assert start_local == date(2026, 3, 25)
         assert end_local == date(2026, 3, 31)
 
+    def test_compare_increments_observability_counter(self):
+        """Successful compare resolution MUST increment Redis HASH
+        `hs:compare_toggle_usage:v1` field=today, value=count. Counter
+        is the canonical adoption-tracking surface."""
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            pytest.skip("Redis unavailable in this test environment")
+        # Pre-state: capture current count for today (any prior runs)
+        from datetime import datetime as _dt, timezone as _tzc
+        today_iso = _dt.now(_tzc.utc).strftime("%Y-%m-%d")
+        before = int(rc.hget("hs:compare_toggle_usage:v1", today_iso) or 0)
+        # Trigger
+        q = DateRangeQuery(
+            start_date=date(2026, 4, 1), end_date=date(2026, 4, 7),
+            compare_start=date(2026, 3, 25), compare_end=date(2026, 3, 31),
+        )
+        result = resolve_compare_utc_bounds(q, shop_tz="UTC")
+        assert result is not None
+        # Post-state: counter advanced by exactly 1
+        after = int(rc.hget("hs:compare_toggle_usage:v1", today_iso) or 0)
+        assert after == before + 1
+
+    def test_no_compare_does_not_increment_counter(self):
+        """Toggle off → counter must NOT increment."""
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            pytest.skip("Redis unavailable in this test environment")
+        from datetime import datetime as _dt, timezone as _tzc
+        today_iso = _dt.now(_tzc.utc).strftime("%Y-%m-%d")
+        before = int(rc.hget("hs:compare_toggle_usage:v1", today_iso) or 0)
+        q = DateRangeQuery(start_date=date(2026, 4, 1), end_date=date(2026, 4, 7))
+        result = resolve_compare_utc_bounds(q, shop_tz="UTC")
+        assert result is None
+        after = int(rc.hget("hs:compare_toggle_usage:v1", today_iso) or 0)
+        assert after == before
+
     def test_compare_shop_tz_correct(self):
         """Compare bounds are interpreted in shop tz, NOT UTC."""
         q = DateRangeQuery(

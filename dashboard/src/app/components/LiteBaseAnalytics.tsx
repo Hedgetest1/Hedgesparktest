@@ -20,8 +20,8 @@
 import { useEffect, useState } from "react";
 import { apiClient } from "@/app/lib/api-client";
 import { formatMoneyCompact } from "../app/_lib/formatters";
-import { useDateRange } from "./DateRangeContext";
 import { DeltaIndicator } from "./DeltaIndicator";
+import { useTileFetch } from "./useTileFetch";
 
 type DisplayCurrency = "USD" | "EUR" | string;
 
@@ -101,34 +101,12 @@ const DEVICE_LABEL: Record<string, string> = {
 };
 
 export function DeviceSplitTile() {
-  const { range, compareStart, compareEnd } = useDateRange();
-  const [data, setData] = useState<DeviceData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true); setError(false);
-    apiClient.GET("/analytics/device-breakdown", {
-      params: { query: {
-        start_date: range.start, end_date: range.end,
-        compare_start: compareStart ?? undefined,
-        compare_end: compareEnd ?? undefined,
-      } },
-    })
-      .then(({ data: j, error: err }) => {
-        if (!active) return;
-        if (err || !j) setError(true);
-        else setData(j as unknown as DeviceData);
-      })
-      .catch(() => { if (active) setError(true); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [tick, range.start, range.end, compareStart, compareEnd]);
-
+  const { data, loading, error, retry } = useTileFetch<DeviceData>(
+    (query) => apiClient.GET("/analytics/device-breakdown", { params: { query } })
+      .then(r => ({ data: r.data as unknown as DeviceData, error: r.error })),
+  );
   if (loading) return <TileSkeleton height={120} />;
-  if (error) return <TileError retry={() => setTick(t => t + 1)} />;
+  if (error) return <TileError retry={retry} />;
   if (!data || !data.has_data) {
     return (
       <TileEmpty title="Device split" hint={`No traffic in the last ${data?.days ?? 14} days yet.`} />
@@ -258,34 +236,12 @@ type AbandonmentTrendData = {
 };
 
 export function AbandonmentTrendTile() {
-  const { range, compareStart, compareEnd } = useDateRange();
-  const [data, setData] = useState<AbandonmentTrendData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true); setError(false);
-    apiClient.GET("/analytics/abandonment-trend", {
-      params: { query: {
-        start_date: range.start, end_date: range.end,
-        compare_start: compareStart ?? undefined,
-        compare_end: compareEnd ?? undefined,
-      } },
-    })
-      .then(({ data: j, error: err }) => {
-        if (!active) return;
-        if (err || !j) setError(true);
-        else setData(j as unknown as AbandonmentTrendData);
-      })
-      .catch(() => { if (active) setError(true); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [tick, range.start, range.end, compareStart, compareEnd]);
-
+  const { data, loading, error, retry } = useTileFetch<AbandonmentTrendData>(
+    (query) => apiClient.GET("/analytics/abandonment-trend", { params: { query } })
+      .then(r => ({ data: r.data as unknown as AbandonmentTrendData, error: r.error })),
+  );
   if (loading) return <TileSkeleton height={140} />;
-  if (error) return <TileError retry={() => setTick(t => t + 1)} />;
+  if (error) return <TileError retry={retry} />;
   if (!data || !data.has_data) {
     return (
       <TileEmpty title="Cart abandonment trend" hint={`No cart events in the last ${data?.days ?? 14} days yet.`} />
@@ -348,34 +304,12 @@ type RhythmData = {
 };
 
 export function OrderRhythmTile() {
-  const { range, compareStart, compareEnd } = useDateRange();
-  const [data, setData] = useState<RhythmData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true); setError(false);
-    apiClient.GET("/analytics/order-rhythm", {
-      params: { query: {
-        start_date: range.start, end_date: range.end,
-        compare_start: compareStart ?? undefined,
-        compare_end: compareEnd ?? undefined,
-      } },
-    })
-      .then(({ data: j, error: err }) => {
-        if (!active) return;
-        if (err || !j) setError(true);
-        else setData(j as unknown as RhythmData);
-      })
-      .catch(() => { if (active) setError(true); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [tick, range.start, range.end, compareStart, compareEnd]);
-
+  const { data, loading, error, retry } = useTileFetch<RhythmData>(
+    (query) => apiClient.GET("/analytics/order-rhythm", { params: { query } })
+      .then(r => ({ data: r.data as unknown as RhythmData, error: r.error })),
+  );
   if (loading) return <TileSkeleton height={180} />;
-  if (error) return <TileError retry={() => setTick(t => t + 1)} />;
+  if (error) return <TileError retry={retry} />;
   if (!data || !data.has_data) {
     return (
       <TileEmpty title="When customers buy" hint="Once orders flow, peak hour + day surface here." />
@@ -480,34 +414,12 @@ type CadenceData = {
 };
 
 export function RepeatCadenceTile() {
-  const { range, compareStart, compareEnd } = useDateRange();
-  const [data, setData] = useState<CadenceData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true); setError(false);
-    apiClient.GET("/analytics/repeat-cadence", {
-      params: { query: {
-        start_date: range.start, end_date: range.end,
-        compare_start: compareStart ?? undefined,
-        compare_end: compareEnd ?? undefined,
-      } },
-    })
-      .then(({ data: j, error: err }) => {
-        if (!active) return;
-        if (err || !j) setError(true);
-        else setData(j as unknown as CadenceData);
-      })
-      .catch(() => { if (active) setError(true); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [tick, range.start, range.end, compareStart, compareEnd]);
-
+  const { data, loading, error, retry } = useTileFetch<CadenceData>(
+    (query) => apiClient.GET("/analytics/repeat-cadence", { params: { query } })
+      .then(r => ({ data: r.data as unknown as CadenceData, error: r.error })),
+  );
   if (loading) return <TileSkeleton height={120} />;
-  if (error) return <TileError retry={() => setTick(t => t + 1)} />;
+  if (error) return <TileError retry={retry} />;
   if (!data || !data.has_data) {
     return (
       <TileEmpty title="Time between orders" hint="Once 2+ customers come back, the median cadence shows here." />
@@ -561,36 +473,13 @@ type TopProductsData = {
 };
 
 export function TopProductsTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
-  const { range, compareStart, compareEnd } = useDateRange();
-  const [data, setData] = useState<TopProductsData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true); setError(false);
-    apiClient.GET("/analytics/top-products", {
-      params: { query: {
-        start_date: range.start, end_date: range.end,
-        compare_start: compareStart ?? undefined,
-        compare_end: compareEnd ?? undefined,
-      } },
-    })
-      .then(({ data: j, error: err }) => {
-        if (!active) return;
-        if (err || !j) setError(true);
-        else setData(j as unknown as TopProductsData);
-      })
-      .catch(() => { if (active) setError(true); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [tick, range.start, range.end, compareStart, compareEnd]);
-
+  const { data, loading, error, retry } = useTileFetch<TopProductsData>(
+    (query) => apiClient.GET("/analytics/top-products", { params: { query } })
+      .then(r => ({ data: r.data as unknown as TopProductsData, error: r.error })),
+  );
   const ccy = data?.currency ?? displayCurrency;
-
   if (loading) return <TileSkeleton height={220} />;
-  if (error) return <TileError retry={() => setTick(t => t + 1)} />;
+  if (error) return <TileError retry={retry} />;
   if (!data || !data.has_data) {
     return (
       <TileEmpty title="Top products · revenue" hint="Once line-items flow, your best sellers rank here." />
@@ -667,31 +556,13 @@ type DiscountData = {
 };
 
 export function DiscountCodesTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
-  const { range, compareStart, compareEnd } = useDateRange();
-  const [data, setData] = useState<DiscountData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    let active = true; setLoading(true); setError(false);
-    apiClient.GET("/analytics/discount-codes", {
-      params: { query: {
-        start_date: range.start, end_date: range.end,
-        compare_start: compareStart ?? undefined,
-        compare_end: compareEnd ?? undefined,
-      } },
-    })
-      .then(({ data: j, error: err }) => {
-        if (!active) return;
-        if (err || !j) setError(true); else setData(j as unknown as DiscountData);
-      })
-      .catch(() => { if (active) setError(true); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [tick, range.start, range.end, compareStart, compareEnd]);
+  const { data, loading, error, retry } = useTileFetch<DiscountData>(
+    (query) => apiClient.GET("/analytics/discount-codes", { params: { query } })
+      .then(r => ({ data: r.data as unknown as DiscountData, error: r.error })),
+  );
   const ccy = data?.currency ?? displayCurrency;
   if (loading) return <TileSkeleton height={180} />;
-  if (error) return <TileError retry={() => setTick(t => t + 1)} />;
+  if (error) return <TileError retry={retry} />;
   if (!data || !data.has_data) {
     return (
       <TileEmpty title="Discount codes" hint="Once orders flow with discount codes attached, the top performers rank here." />
@@ -745,30 +616,12 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 export function OrderStatusTile() {
-  const { range, compareStart, compareEnd } = useDateRange();
-  const [data, setData] = useState<StatusData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    let active = true; setLoading(true); setError(false);
-    apiClient.GET("/analytics/order-status", {
-      params: { query: {
-        start_date: range.start, end_date: range.end,
-        compare_start: compareStart ?? undefined,
-        compare_end: compareEnd ?? undefined,
-      } },
-    })
-      .then(({ data: j, error: err }) => {
-        if (!active) return;
-        if (err || !j) setError(true); else setData(j as unknown as StatusData);
-      })
-      .catch(() => { if (active) setError(true); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [tick, range.start, range.end, compareStart, compareEnd]);
+  const { data, loading, error, retry } = useTileFetch<StatusData>(
+    (query) => apiClient.GET("/analytics/order-status", { params: { query } })
+      .then(r => ({ data: r.data as unknown as StatusData, error: r.error })),
+  );
   if (loading) return <TileSkeleton height={180} />;
-  if (error) return <TileError retry={() => setTick(t => t + 1)} />;
+  if (error) return <TileError retry={retry} />;
   if (!data || !data.has_data) {
     return (
       <TileEmpty title="Order status breakdown" hint="New orders post pixel-v14 carry status; the breakdown surfaces here." />
@@ -823,31 +676,13 @@ type TaxData = {
 };
 
 export function TaxBreakdownTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
-  const { range, compareStart, compareEnd } = useDateRange();
-  const [data, setData] = useState<TaxData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    let active = true; setLoading(true); setError(false);
-    apiClient.GET("/analytics/tax-breakdown", {
-      params: { query: {
-        start_date: range.start, end_date: range.end,
-        compare_start: compareStart ?? undefined,
-        compare_end: compareEnd ?? undefined,
-      } },
-    })
-      .then(({ data: j, error: err }) => {
-        if (!active) return;
-        if (err || !j) setError(true); else setData(j as unknown as TaxData);
-      })
-      .catch(() => { if (active) setError(true); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [tick, range.start, range.end, compareStart, compareEnd]);
+  const { data, loading, error, retry } = useTileFetch<TaxData>(
+    (query) => apiClient.GET("/analytics/tax-breakdown", { params: { query } })
+      .then(r => ({ data: r.data as unknown as TaxData, error: r.error })),
+  );
   const ccy = data?.currency ?? displayCurrency;
   if (loading) return <TileSkeleton height={140} />;
-  if (error) return <TileError retry={() => setTick(t => t + 1)} />;
+  if (error) return <TileError retry={retry} />;
   if (!data || !data.has_data) {
     return (
       <TileEmpty title="Tax · paid by customers" hint="New orders post pixel-v14 carry tax; the total + effective rate surface here." />
@@ -901,31 +736,13 @@ type PaymentData = {
 };
 
 export function PaymentMethodsTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
-  const { range, compareStart, compareEnd } = useDateRange();
-  const [data, setData] = useState<PaymentData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    let active = true; setLoading(true); setError(false);
-    apiClient.GET("/analytics/payment-methods", {
-      params: { query: {
-        start_date: range.start, end_date: range.end,
-        compare_start: compareStart ?? undefined,
-        compare_end: compareEnd ?? undefined,
-      } },
-    })
-      .then(({ data: j, error: err }) => {
-        if (!active) return;
-        if (err || !j) setError(true); else setData(j as unknown as PaymentData);
-      })
-      .catch(() => { if (active) setError(true); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [tick, range.start, range.end, compareStart, compareEnd]);
+  const { data, loading, error, retry } = useTileFetch<PaymentData>(
+    (query) => apiClient.GET("/analytics/payment-methods", { params: { query } })
+      .then(r => ({ data: r.data as unknown as PaymentData, error: r.error })),
+  );
   const ccy = data?.currency ?? displayCurrency;
   if (loading) return <TileSkeleton height={180} />;
-  if (error) return <TileError retry={() => setTick(t => t + 1)} />;
+  if (error) return <TileError retry={retry} />;
   if (!data || !data.has_data) {
     return (
       <TileEmpty title="Payment methods" hint="Once gateway data flows in, the split surfaces here." />
@@ -978,31 +795,13 @@ type TopVariantsData = {
 };
 
 export function TopVariantsTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
-  const { range, compareStart, compareEnd } = useDateRange();
-  const [data, setData] = useState<TopVariantsData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    let active = true; setLoading(true); setError(false);
-    apiClient.GET("/analytics/top-variants", {
-      params: { query: {
-        start_date: range.start, end_date: range.end,
-        compare_start: compareStart ?? undefined,
-        compare_end: compareEnd ?? undefined,
-      } },
-    })
-      .then(({ data: j, error: err }) => {
-        if (!active) return;
-        if (err || !j) setError(true); else setData(j as unknown as TopVariantsData);
-      })
-      .catch(() => { if (active) setError(true); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [tick, range.start, range.end, compareStart, compareEnd]);
+  const { data, loading, error, retry } = useTileFetch<TopVariantsData>(
+    (query) => apiClient.GET("/analytics/top-variants", { params: { query } })
+      .then(r => ({ data: r.data as unknown as TopVariantsData, error: r.error })),
+  );
   const ccy = data?.currency ?? displayCurrency;
   if (loading) return <TileSkeleton height={240} />;
-  if (error) return <TileError retry={() => setTick(t => t + 1)} />;
+  if (error) return <TileError retry={retry} />;
   if (!data || !data.has_data) {
     return (
       <TileEmpty title="Top variants · revenue" hint="New orders post pixel-v15 carry variant data; the top-sellers surface here." />
@@ -1076,36 +875,13 @@ type FirstVsRepeatData = {
 };
 
 export function FirstVsRepeatAovTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
-  const { range, compareStart, compareEnd } = useDateRange();
-  const [data, setData] = useState<FirstVsRepeatData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true); setError(false);
-    apiClient.GET("/analytics/first-vs-repeat-aov", {
-      params: { query: {
-        start_date: range.start, end_date: range.end,
-        compare_start: compareStart ?? undefined,
-        compare_end: compareEnd ?? undefined,
-      } },
-    })
-      .then(({ data: j, error: err }) => {
-        if (!active) return;
-        if (err || !j) setError(true);
-        else setData(j as unknown as FirstVsRepeatData);
-      })
-      .catch(() => { if (active) setError(true); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [tick, range.start, range.end, compareStart, compareEnd]);
-
+  const { data, loading, error, retry } = useTileFetch<FirstVsRepeatData>(
+    (query) => apiClient.GET("/analytics/first-vs-repeat-aov", { params: { query } })
+      .then(r => ({ data: r.data as unknown as FirstVsRepeatData, error: r.error })),
+  );
   const ccy = data?.currency ?? displayCurrency;
-
   if (loading) return <TileSkeleton height={150} />;
-  if (error) return <TileError retry={() => setTick(t => t + 1)} />;
+  if (error) return <TileError retry={retry} />;
   if (!data || !data.has_data) {
     return (
       <TileEmpty title="First-time vs repeat AOV" hint="Once you have repeat customers, the AOV uplift shows here." />

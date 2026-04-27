@@ -747,6 +747,7 @@ must satisfy:
 | `hs:email:domain_status:v1` | Resend domain verification state cache (deliverability preventer) | 10min |
 | `hs:email:last_verified:v1` | Sticky last-known verified state for flip detection | 30d |
 | `hs:audit_telemetry:{audit_name}` | Per-audit fire-rate + findings HASH (field=YYYY-MM-DD, value=`runs|findings|severity`); surfaced via `/ops/audit-telemetry` | 90d |
+| `hs:compare_toggle_usage:v1` | Compare-toggle adoption counter (HASH, field=YYYY-MM-DD, value=count) — incremented at the `resolve_compare_utc_bounds` chokepoint, captures every compare request | 90d |
 
 **Note (2026-04-18):** This table is the CURATED list. The backend
 currently uses ~150 Redis prefixes total; the rest are tracked

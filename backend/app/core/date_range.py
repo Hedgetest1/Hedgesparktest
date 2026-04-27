@@ -187,9 +187,27 @@ def resolve_compare_utc_bounds(
     shop tz → UTC, exclusive upper bound on +1 day). Returns
     (start_utc, end_utc_excl, start_local, end_local) so callers can
     use start_utc/end_utc_excl directly as SQL binds.
+
+    Observability: every successful resolve increments a Redis HASH
+    `hs:compare_toggle_usage:v1` field=YYYY-MM-DD value=count, TTL 90d.
+    This is the canonical chokepoint — every compare request flows
+    through here, so the counter cannot drift from real usage. Read via
+    `HGETALL hs:compare_toggle_usage:v1` for adoption trends.
     """
     if not range_q.has_compare():
         return None
+
+    # Observability counter — non-fatal, never breaks the request path
+    try:
+        from app.core.redis_client import _client
+        from datetime import datetime as _dt, timezone as _tzc
+        rc = _client()
+        if rc is not None:
+            today_iso = _dt.now(_tzc.utc).strftime("%Y-%m-%d")
+            rc.hincrby("hs:compare_toggle_usage:v1", today_iso, 1)
+            rc.expire("hs:compare_toggle_usage:v1", 90 * 86400)
+    except Exception:
+        pass  # SILENT-EXCEPT-OK: observability must not break compare logic
 
     from datetime import datetime, time, timezone as _tz
 
