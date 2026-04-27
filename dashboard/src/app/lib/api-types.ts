@@ -4527,6 +4527,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/forecast/by-sku": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Forecast By Sku Lite
+         * @description Per-SKU revenue forecast for top-N products by window revenue.
+         *
+         *     Closes Gap #6 of brutal $0-70 audit (2026-04-27). Lebesgue $59 +
+         *     Forthcast $19.99 ship per-product forecasts at entry tier; we
+         *     match per parity doctrine, with built-on-top differentiator.
+         *
+         *     Each product gets:
+         *       - Holt double-exp smoothed point forecast
+         *       - 80/95% prediction intervals (residual-std-based)
+         *       - Confidence label (high/medium/low/insufficient by n_days + r²)
+         *       - Backtest accuracy_pct = 100 - mean(|residual|/observed) — single
+         *         scalar honesty surface, no $0-60 competitor ships this
+         *
+         *     Differentiator (parity doctrine §3 unique-feature axis):
+         *       `biggest_riser` + `biggest_faller` plain-language insight panel —
+         *       single-line reading-grade takeaway ("Stock the riser, investigate
+         *       the faller before inventory builds up").
+         *
+         *     Cold-start: products with < 7 days of revenue history get
+         *     confidence="insufficient" and forecast_point=0 (honest, not
+         *     fabricated).
+         */
+        get: operations["get_forecast_by_sku_lite_analytics_forecast_by_sku_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ops/compliance/soc2": {
         parameters: {
             query?: never;
@@ -11735,6 +11775,68 @@ export interface components {
              */
             duration_ms: number;
         };
+        /** SkuForecastBigMover */
+        SkuForecastBigMover: {
+            /** Product Key */
+            product_key: string;
+            /** Title */
+            title: string;
+            /** Delta Pct */
+            delta_pct: number;
+        };
+        /** SkuForecastResponse */
+        SkuForecastResponse: {
+            /** Shop Domain */
+            shop_domain: string;
+            /** Horizon Days */
+            horizon_days: number;
+            /** Window Days */
+            window_days: number;
+            /** Currency */
+            currency: string;
+            /** Generated At */
+            generated_at: string;
+            /**
+             * Products
+             * @default []
+             */
+            products: components["schemas"]["SkuForecastRow"][];
+            biggest_riser?: components["schemas"]["SkuForecastBigMover"] | null;
+            biggest_faller?: components["schemas"]["SkuForecastBigMover"] | null;
+            /** Insight */
+            insight: string;
+        };
+        /** SkuForecastRow */
+        SkuForecastRow: {
+            /** Product Key */
+            product_key: string;
+            /** Title */
+            title: string;
+            /** Observed Revenue */
+            observed_revenue: number;
+            /** Forecast Point */
+            forecast_point: number;
+            /** Forecast Lower 80 */
+            forecast_lower_80: number;
+            /** Forecast Upper 80 */
+            forecast_upper_80: number;
+            /** Forecast Lower 95 */
+            forecast_lower_95: number;
+            /** Forecast Upper 95 */
+            forecast_upper_95: number;
+            /** Delta Pct */
+            delta_pct: number;
+            /** Direction */
+            direction: string;
+            /** Confidence */
+            confidence: string;
+            /** Accuracy Pct */
+            accuracy_pct?: number | null;
+            /** N Days */
+            n_days: number;
+            /** R2 */
+            r2: number;
+        };
         /** SlackConnectRequest */
         SlackConnectRequest: {
             /** Webhook Url */
@@ -18052,6 +18154,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChurnForecastResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_forecast_by_sku_lite_analytics_forecast_by_sku_get: {
+        parameters: {
+            query?: {
+                horizon_days?: number;
+                window_days?: number;
+                top_n?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkuForecastResponse"];
                 };
             };
             /** @description Validation Error */

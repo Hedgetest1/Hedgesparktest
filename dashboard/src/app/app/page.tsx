@@ -134,6 +134,7 @@ import { ProfitSliceTile } from "../components/ProfitSliceTile";
 import { ChannelAttributionCard } from "../components/ChannelAttributionCard";
 import { MonthlyCohortsCard } from "../components/MonthlyCohortsCard";
 import { CohortByDimensionCard } from "../components/CohortByDimensionCard";
+import { SkuForecastCard } from "../components/SkuForecastCard";
 import { GatewayProductsCard } from "../components/GatewayProductsCard";
 import { ExportButton } from "../components/ExportButton";
 import { AnalyticsAssistant } from "../components/AnalyticsAssistant";
@@ -2924,6 +2925,15 @@ function PageInner() {
                         Putler at €20-49 entry tiers. */}
                     <div className="mt-5">
                       <ProfitSliceTile displayCurrency={displayCurrency} />
+                    </div>
+
+                    {/* Per-SKU revenue forecast — Gap #6 close from
+                        brutal $0-70 audit + parity doctrine.
+                        Lebesgue $59 + Forthcast $19.99 ship per-product
+                        forecasts; we match + add biggest_riser/faller
+                        insight + accuracy_pct backtest as differentiators. */}
+                    <div className="mt-5">
+                      <SkuForecastCard displayCurrency={displayCurrency} />
                     </div>
                   </div>
                 </section>

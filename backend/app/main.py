@@ -190,7 +190,7 @@ from app.api.cac_ltv import router as cac_ltv_router
 from app.api.mta import router as mta_router
 from app.api.margin_guard_api import router as margin_guard_router
 from app.api.visitor_journeys import router as visitor_journeys_router
-from app.api.forecasts import router as forecasts_router
+from app.api.forecasts import router as forecasts_router, lite_router as forecasts_lite_router
 from app.api.compliance_evidence import router as compliance_evidence_router
 from app.api.merchant_rules import router as merchant_rules_router
 from app.api.public_events import router as public_events_router
@@ -565,6 +565,7 @@ app.include_router(mta_router)
 app.include_router(margin_guard_router)
 app.include_router(visitor_journeys_router)
 app.include_router(forecasts_router)
+app.include_router(forecasts_lite_router)
 app.include_router(compliance_evidence_router)
 app.include_router(merchant_rules_router)
 app.include_router(public_events_router)
