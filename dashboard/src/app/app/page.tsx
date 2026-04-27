@@ -125,6 +125,7 @@ import {
   PaymentMethodsTile,
   TopVariantsTile,
 } from "../components/LiteBaseAnalytics";
+import { CustomerChurnTile } from "../components/CustomerChurnTile";
 import { PnlReport } from "../components/PnlReport";
 import { MarginDragCard } from "../components/MarginDragCard";
 import { ChannelAttributionCard } from "../components/ChannelAttributionCard";
@@ -3074,6 +3075,25 @@ function PageInner() {
                     <div className="mt-5">
                       <SectionErrorBoundary name="Repeat cadence">
                         <RepeatCadenceTile />
+                      </SectionErrorBoundary>
+                    </div>
+
+                    {/* Customer-level churn forecast — Phase 2, 5th open
+                        lane in the brutal Lite vs $0-70 audit. None of
+                        the 12 competitors ship per-customer churn risk
+                        in this band. Lifetimely does cohort retention,
+                        Datadrew adds RFM at $99, BeProfit only at $149.
+                        Deterministic personal-cadence model
+                        (days_since_last / personal median gap), PII-safe
+                        (cust_<8hex>), cold-start gated at ≥30 repeat
+                        customers. */}
+                    <div className="mt-5">
+                      <SectionErrorBoundary name="Customer churn forecast">
+                        <CustomerChurnTile
+                          apiBase={API_BASE}
+                          shop={shop}
+                          displayCurrency={displayCurrency}
+                        />
                       </SectionErrorBoundary>
                     </div>
                   </div>

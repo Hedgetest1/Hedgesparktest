@@ -18,6 +18,13 @@ Scope
 Files matching:
   - dashboard/src/app/components/Lite*.tsx
   - dashboard/src/app/components/Cassettone*.tsx
+  - dashboard/src/app/components/*Tile.tsx       (e.g. CustomerChurnTile)
+
+*Card.tsx components are intentionally NOT in this audit's scope
+(R-blocker:sprint>1d) — ~21 Pro-tier legacy cards predate _CardStates
+and roll their own loading/error UI. Migrating each requires per-card
+visual + a11y review (~3-4d total). Tracked separately; this audit
+keeps a tight scope so it stays trustworthy + green at preflight.
 
 Detection rule
 ==============
@@ -62,13 +69,17 @@ from pathlib import Path
 DASHBOARD = Path("/opt/wishspark/dashboard/src")
 COMPONENTS_DIR = DASHBOARD / "app" / "components"
 
-# Files in scope: Lite* + Cassettone*
+# Files in scope: Lite* + Cassettone* + *Tile (covers CustomerChurnTile + future tiles)
 def in_scope_files() -> list[Path]:
     files: list[Path] = []
     if not COMPONENTS_DIR.exists():
         return files
-    for pattern in ("Lite*.tsx", "Cassettone*.tsx"):
-        files.extend(sorted(COMPONENTS_DIR.glob(pattern)))
+    seen: set[Path] = set()
+    for pattern in ("Lite*.tsx", "Cassettone*.tsx", "*Tile.tsx"):
+        for f in sorted(COMPONENTS_DIR.glob(pattern)):
+            if f not in seen:
+                seen.add(f)
+                files.append(f)
     # Skip test files
     return [f for f in files if not f.name.endswith(".test.tsx")]
 

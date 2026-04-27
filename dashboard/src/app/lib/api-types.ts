@@ -1662,6 +1662,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/customer-churn-forecast": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Customer Churn Forecast
+         * @description Per-customer churn risk based on personal-cadence overdue factor.
+         *
+         *     PII contract: emails are SHA-256 hashed in the response (cust_<8hex>),
+         *     matching the existing `top-customers-ltv` pattern. No raw email
+         *     crosses the wire.
+         */
+        get: operations["get_customer_churn_forecast_analytics_customer_churn_forecast_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/analytics/clicks": {
         parameters: {
             query?: never;
@@ -7542,6 +7566,31 @@ export interface components {
             /** Reason */
             reason?: string | null;
         };
+        /** ChurnRiskCustomer */
+        ChurnRiskCustomer: {
+            /** Customer Email Hash */
+            customer_email_hash: string;
+            /** Risk Score */
+            risk_score: number;
+            /** Risk Band */
+            risk_band: string;
+            /** Days Since Last Order */
+            days_since_last_order: number;
+            /** Median Days Between Orders */
+            median_days_between_orders: number;
+            /** Overdue Factor */
+            overdue_factor: number;
+            /** Last Order At */
+            last_order_at: string | null;
+            /** Predicted Lapse At */
+            predicted_lapse_at: string | null;
+            /** Order Count */
+            order_count: number;
+            /** Total Spent */
+            total_spent: number;
+            /** Suggested Action */
+            suggested_action: string;
+        };
         /**
          * ClickInsightRow
          * @description One URL in the click ranking.
@@ -7854,6 +7903,21 @@ export interface components {
             month_revenue: number;
             /** Customers Active */
             customers_active: number;
+        };
+        /** CustomerChurnForecastResponse */
+        CustomerChurnForecastResponse: {
+            /** Currency */
+            currency: string;
+            /** Has Data */
+            has_data: boolean;
+            /** Customers With 2Plus */
+            customers_with_2plus: number;
+            /** Customers At Risk Count */
+            customers_at_risk_count: number;
+            /** Revenue At Risk */
+            revenue_at_risk: number;
+            /** Customers */
+            customers: components["schemas"]["ChurnRiskCustomer"][];
         };
         /** CustomerCohortAov */
         CustomerCohortAov: {
@@ -14280,6 +14344,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TopVariantsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_customer_churn_forecast_analytics_customer_churn_forecast_get: {
+        parameters: {
+            query?: {
+                top_n?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerChurnForecastResponse"];
                 };
             };
             /** @description Validation Error */

@@ -251,6 +251,32 @@ class TopVariantsResponse(BaseModel):
     variants: list[TopVariant]
 
 
+class ChurnRiskCustomer(BaseModel):
+    # Hashed identifier — never raw email per PII contract
+    customer_email_hash: str
+    risk_score: int                     # 0-95
+    risk_band: str                      # "slipping" | "at_risk" | "lapsed"
+    days_since_last_order: int
+    median_days_between_orders: float   # this customer's personal cadence
+    overdue_factor: float               # days_since_last / median_gap
+    last_order_at: str | None
+    predicted_lapse_at: str | None      # last_order + 2.5×median_gap
+    order_count: int
+    total_spent: float                  # lifetime revenue from this customer
+    suggested_action: str               # plain-English next step
+
+
+class CustomerChurnForecastResponse(BaseModel):
+    currency: str
+    has_data: bool
+    # Cold-start gate: minimum 30 customers with 2+ orders required for
+    # the personal-cadence model to surface meaningful predictions.
+    customers_with_2plus: int
+    customers_at_risk_count: int        # customers with risk_score >= 30
+    revenue_at_risk: float              # SUM of total_spent over at-risk customers
+    customers: list[ChurnRiskCustomer]  # top_n ranked by (risk DESC, spend DESC)
+
+
 # ---------------------------------------------------------------------------
 # 1. Device breakdown
 # ---------------------------------------------------------------------------
@@ -1198,4 +1224,221 @@ def get_top_variants(
         variants=variants,
     )
     cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
+    return response
+
+
+# ---------------------------------------------------------------------------
+# 12. Customer-level Churn Forecast — 5th open-lane competitor moat
+# ---------------------------------------------------------------------------
+# Born 2026-04-27 from the brutal Lite vs $0-70 audit. None of the 12
+# competitors ship per-customer churn risk in the price band: Lifetimely
+# does cohort-level retention, Datadrew does RFM tags at $99, BeProfit
+# only at $149. We close this lane at the entry tier with a deterministic,
+# explainable, per-customer model.
+#
+# Why deterministic (not LLM):
+#   * 10k merchants × 1k customers each = 10M rows. LLM is intractable.
+#   * Score must be reproducible — merchant audit-grade, not "ai magic".
+#   * Per CLAUDE.md §2 rule 9: deterministic first, LLM only when
+#     indispensable. This is NOT indispensable.
+#
+# Model:
+#   For each customer with ≥2 orders in the last 730 days, compute their
+#   personal cadence (median days between consecutive orders). Then:
+#       overdue_factor = days_since_last_order / personal_median_gap
+#       factor < 1.0  → not at risk (still within typical window)
+#       factor 1.0-1.5 → "slipping"  (score 30-50)
+#       factor 1.5-2.5 → "at_risk"   (score 50-80)
+#       factor >= 2.5  → "lapsed"    (score 80-95, capped — no certainty)
+#   Predicted lapse date = last_order + (median_gap × 2.5).
+#
+# Cold-start: requires ≥ 30 customers with 2+ orders. Below threshold,
+# returns has_data=false with the cohort count so the UI can explain
+# the wait clearly.
+#
+# Ranking: top-N by (risk_score DESC, total_spent DESC) — the most
+# valuable at-risk customers come first (where saving has the highest
+# revenue lift).
+# ---------------------------------------------------------------------------
+
+# Cold-start threshold — below this many customers with 2+ orders the
+# personal-cadence model has too few signals to be trustworthy. Set
+# conservatively at 30 (3× the typical Top-N display) so the threshold
+# itself isn't a red herring.
+_CHURN_MIN_CUSTOMERS = 30
+
+
+def _churn_score_and_band(
+    days_since_last: float | None, median_gap: float | None
+) -> tuple[int, str, float]:
+    """Deterministic scoring. Returns (risk_score 0-95, band label, overdue_factor).
+
+    Band labels match the loss-prevention narrative (CLAUDE.md §5):
+    - "not_at_risk": still within personal cadence (skipped from response)
+    - "slipping":    overdue_factor 1.0–1.5 → score 30–50
+    - "at_risk":     overdue_factor 1.5–2.5 → score 50–80
+    - "lapsed":      overdue_factor >= 2.5  → score 80–95 (cap = no false certainty)
+    """
+    if not days_since_last or not median_gap or median_gap <= 0:
+        return 0, "not_at_risk", 0.0
+    factor = float(days_since_last) / float(median_gap)
+    if factor < 1.0:
+        return 0, "not_at_risk", factor
+    if factor < 1.5:
+        return int(round(30 + (factor - 1.0) * 40)), "slipping", factor
+    if factor < 2.5:
+        return int(round(50 + (factor - 1.5) * 30)), "at_risk", factor
+    # Cap at 95 — we never claim certainty
+    return min(int(round(80 + (factor - 2.5) * 5)), 95), "lapsed", factor
+
+
+def _churn_action(band: str) -> str:
+    """Plain-English next step. Idiot-proof copy per CLAUDE.md §5 filter 2."""
+    if band == "slipping":
+        return "Light touch: send a personal note before the gap widens."
+    if band == "at_risk":
+        return "Win-back sequence: 'we miss you' email with a soft incentive."
+    if band == "lapsed":
+        return "Last-chance offer: time-bound discount on their favorite category."
+    return "Monitor."
+
+
+@router.get(
+    "/customer-churn-forecast",
+    response_model=CustomerChurnForecastResponse,
+)
+def get_customer_churn_forecast(
+    top_n: int = Query(10, ge=1, le=50),
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+) -> CustomerChurnForecastResponse:
+    """Per-customer churn risk based on personal-cadence overdue factor.
+
+    PII contract: emails are SHA-256 hashed in the response (cust_<8hex>),
+    matching the existing `top-customers-ltv` pattern. No raw email
+    crosses the wire."""
+    import hashlib
+
+    currency = get_shop_currency(db, shop) or "USD"
+    cache_key = f"hs:churn:v1:{shop}:{currency}:{top_n}"
+    cached = cache_get(cache_key)
+    if cached:
+        return CustomerChurnForecastResponse(**cached)
+
+    # Single SQL pass: customer aggregates + median gap via percentile_cont
+    # + days_since_last via NOW() arithmetic. Postgres-native, no Python
+    # loop over per-customer queries.
+    rows = db.execute(
+        text("""
+            WITH customer_orders AS (
+                SELECT
+                    customer_email,
+                    created_at,
+                    total_price,
+                    LAG(created_at) OVER (
+                        PARTITION BY customer_email ORDER BY created_at
+                    ) AS prev_at
+                FROM shop_orders
+                WHERE shop_domain = :shop
+                  AND currency = :currency
+                  AND customer_email IS NOT NULL
+                  AND customer_email <> ''
+                  AND created_at >= NOW() - INTERVAL '730 days'
+            ),
+            customer_stats AS (
+                SELECT
+                    customer_email,
+                    COUNT(*)               AS order_count,
+                    SUM(total_price)       AS total_spent,
+                    MAX(created_at)        AS last_order_at
+                FROM customer_orders
+                GROUP BY customer_email
+                HAVING COUNT(*) >= 2
+            ),
+            customer_gaps AS (
+                SELECT
+                    customer_email,
+                    PERCENTILE_CONT(0.5) WITHIN GROUP (
+                        ORDER BY EXTRACT(EPOCH FROM (created_at - prev_at)) / 86400.0
+                    ) AS median_gap_days
+                FROM customer_orders
+                WHERE prev_at IS NOT NULL
+                GROUP BY customer_email
+            )
+            SELECT
+                cs.customer_email,
+                cs.order_count,
+                cs.total_spent,
+                cs.last_order_at,
+                EXTRACT(EPOCH FROM (NOW() - cs.last_order_at)) / 86400.0 AS days_since_last,
+                cg.median_gap_days
+            FROM customer_stats cs
+            JOIN customer_gaps cg USING (customer_email)
+        """),
+        {"shop": shop, "currency": currency},
+    ).mappings().all()
+
+    customers_with_2plus = len(rows)
+
+    # Cold-start gate: not enough cohort to surface meaningful predictions
+    if customers_with_2plus < _CHURN_MIN_CUSTOMERS:
+        response = CustomerChurnForecastResponse(
+            currency=currency,
+            has_data=False,
+            customers_with_2plus=customers_with_2plus,
+            customers_at_risk_count=0,
+            revenue_at_risk=0.0,
+            customers=[],
+        )
+        cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
+        return response
+
+    # Score every customer; collect at-risk only
+    at_risk: list[ChurnRiskCustomer] = []
+    revenue_at_risk = 0.0
+    for r in rows:
+        score, band, factor = _churn_score_and_band(
+            float(r["days_since_last"] or 0),
+            float(r["median_gap_days"] or 0),
+        )
+        if score < 30:
+            continue  # not_at_risk — skip
+        last = r["last_order_at"]
+        median_gap = float(r["median_gap_days"] or 0)
+        predicted_lapse = None
+        if last and median_gap > 0:
+            from datetime import timedelta
+            predicted_lapse_dt = last + timedelta(days=median_gap * 2.5)
+            predicted_lapse = predicted_lapse_dt.isoformat()
+        spent = round(float(r["total_spent"] or 0), 2)
+        revenue_at_risk += spent
+        at_risk.append(ChurnRiskCustomer(
+            customer_email_hash=(
+                "cust_" + hashlib.sha256(r["customer_email"].encode()).hexdigest()[:8]
+            ),
+            risk_score=score,
+            risk_band=band,
+            days_since_last_order=int(r["days_since_last"] or 0),
+            median_days_between_orders=round(median_gap, 1),
+            overdue_factor=round(factor, 2),
+            last_order_at=last.isoformat() if last else None,
+            predicted_lapse_at=predicted_lapse,
+            order_count=int(r["order_count"] or 0),
+            total_spent=spent,
+            suggested_action=_churn_action(band),
+        ))
+
+    # Rank by (risk_score DESC, total_spent DESC) — most valuable at-risk first
+    at_risk.sort(key=lambda c: (-c.risk_score, -c.total_spent))
+    top = at_risk[:top_n]
+
+    response = CustomerChurnForecastResponse(
+        currency=currency,
+        has_data=len(at_risk) > 0,
+        customers_with_2plus=customers_with_2plus,
+        customers_at_risk_count=len(at_risk),
+        revenue_at_risk=round(revenue_at_risk, 2),
+        customers=top,
+    )
+    cache_set(cache_key, response.model_dump(), 300)  # 5min cache (heavier query)
     return response
