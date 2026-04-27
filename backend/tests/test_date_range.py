@@ -20,7 +20,8 @@ import pytest
 from fastapi import HTTPException
 
 from app.core.date_range import (
-    DateRangeQuery, get_date_range, resolve_utc_bounds, resolve_window_days,
+    DateRangeQuery, get_date_range, resolve_compare_utc_bounds,
+    resolve_utc_bounds, resolve_window_days,
 )
 from app.models.shop_order import ShopOrder
 from tests.conftest import SHOP_A, auth_cookies
@@ -421,3 +422,141 @@ class TestStageCEndpointsAcceptRange:
         assert resp.status_code == 400, (
             f"{endpoint} should reject end<start, got {resp.status_code}"
         )
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Comparison-toggle wiring — Phase 3B residual close
+# ════════════════════════════════════════════════════════════════════════
+
+
+class TestResolveCompareUtcBounds:
+    """resolve_compare_utc_bounds returns None unless has_compare()."""
+
+    def test_no_compare_returns_none(self):
+        q = DateRangeQuery(start_date=date(2026, 4, 1), end_date=date(2026, 4, 7))
+        assert resolve_compare_utc_bounds(q, shop_tz="UTC") is None
+
+    def test_compare_returns_utc_bounds(self):
+        q = DateRangeQuery(
+            start_date=date(2026, 4, 1), end_date=date(2026, 4, 7),
+            compare_start=date(2026, 3, 25), compare_end=date(2026, 3, 31),
+        )
+        result = resolve_compare_utc_bounds(q, shop_tz="UTC")
+        assert result is not None
+        start_utc, end_utc_excl, start_local, end_local = result
+        assert start_utc == datetime(2026, 3, 25, 0, 0, 0)
+        # Exclusive upper bound = compare_end + 1 day
+        assert end_utc_excl == datetime(2026, 4, 1, 0, 0, 0)
+        assert start_local == date(2026, 3, 25)
+        assert end_local == date(2026, 3, 31)
+
+    def test_compare_shop_tz_correct(self):
+        """Compare bounds are interpreted in shop tz, NOT UTC."""
+        q = DateRangeQuery(
+            start_date=date(2026, 4, 1), end_date=date(2026, 4, 7),
+            compare_start=date(2026, 3, 25), compare_end=date(2026, 3, 25),
+        )
+        # PST = UTC-8 (no DST in March is wrong; PST is UTC-7 with DST.
+        # Use Europe/Rome = UTC+2 in summer. March 25 2026 is post-DST so +2.
+        result = resolve_compare_utc_bounds(q, shop_tz="Europe/Rome")
+        assert result is not None
+        start_utc, end_utc_excl, _, _ = result
+        # March 25 midnight Rome = March 24 22:00 UTC (CET=UTC+1 pre-DST,
+        # CEST=UTC+2 post-DST. DST 2026 starts March 29.) March 25 still CET.
+        assert start_utc == datetime(2026, 3, 24, 23, 0, 0)
+        assert end_utc_excl == datetime(2026, 3, 25, 23, 0, 0)
+
+
+class TestEndpointReturnsCompareWhenRequested:
+    """Every range-aware endpoint MUST return a `compare` field when the
+    caller passes both compare_start + compare_end, and MUST return
+    compare=None (or absent) otherwise."""
+
+    @pytest.mark.parametrize("endpoint", [
+        "/analytics/device-breakdown",
+        "/analytics/abandonment-trend",
+        "/analytics/first-vs-repeat-aov",
+        "/analytics/orders-by-country",
+        "/analytics/order-rhythm",
+        "/analytics/repeat-cadence",
+        "/analytics/top-products",
+        "/analytics/discount-codes",
+        "/analytics/order-status",
+        "/analytics/tax-breakdown",
+        "/analytics/payment-methods",
+        "/analytics/top-variants",
+    ])
+    def test_endpoint_emits_compare_field_when_params_provided(
+        self, endpoint, client, merchant_a
+    ):
+        cookies = auth_cookies(SHOP_A)
+        end = _now().date()
+        start = end - timedelta(days=6)
+        compare_end = start - timedelta(days=1)
+        compare_start = compare_end - timedelta(days=6)
+        url = (
+            f"{endpoint}?start_date={start}&end_date={end}"
+            f"&compare_start={compare_start}&compare_end={compare_end}"
+        )
+        resp = client.get(url, cookies=cookies)
+        assert resp.status_code == 200, (
+            f"{endpoint} returned {resp.status_code}: {resp.text[:200]}"
+        )
+        body = resp.json()
+        # Compare field must be present (key may be present with value None
+        # or with a dict — both acceptable as long as the key exists in the
+        # response shape, proving wiring).
+        assert "compare" in body, (
+            f"{endpoint} response missing `compare` field — wiring gap"
+        )
+        # When compare params provided, compare must NOT be None
+        assert body["compare"] is not None, (
+            f"{endpoint} returned compare=None despite compare params provided"
+        )
+        # Compare payload is a dict (per Pydantic schema)
+        assert isinstance(body["compare"], dict)
+
+    @pytest.mark.parametrize("endpoint", [
+        "/analytics/device-breakdown",
+        "/analytics/abandonment-trend",
+        "/analytics/first-vs-repeat-aov",
+        "/analytics/orders-by-country",
+        "/analytics/order-rhythm",
+        "/analytics/repeat-cadence",
+        "/analytics/top-products",
+        "/analytics/discount-codes",
+        "/analytics/order-status",
+        "/analytics/tax-breakdown",
+        "/analytics/payment-methods",
+        "/analytics/top-variants",
+    ])
+    def test_endpoint_returns_compare_none_when_params_omitted(
+        self, endpoint, client, merchant_a
+    ):
+        """Without compare params, compare must be None (or absent). This
+        guards against accidentally always-on compare logic that would
+        surface stale data when the toggle is off."""
+        cookies = auth_cookies(SHOP_A)
+        end = _now().date()
+        start = end - timedelta(days=6)
+        url = f"{endpoint}?start_date={start}&end_date={end}"
+        resp = client.get(url, cookies=cookies)
+        assert resp.status_code == 200
+        body = resp.json()
+        # Either key absent OR present with None value
+        assert body.get("compare") is None, (
+            f"{endpoint} returned compare={body.get('compare')!r} despite no compare params"
+        )
+
+    def test_compare_cache_key_isolation(self):
+        """Same primary range with vs without compare params produces
+        DIFFERENT cache keys, so toggle-on doesn't return cached toggle-off
+        data and vice versa."""
+        q_no_compare = DateRangeQuery(
+            start_date=date(2026, 4, 1), end_date=date(2026, 4, 7)
+        )
+        q_with_compare = DateRangeQuery(
+            start_date=date(2026, 4, 1), end_date=date(2026, 4, 7),
+            compare_start=date(2026, 3, 25), compare_end=date(2026, 3, 31),
+        )
+        assert q_no_compare.cache_key_segment() != q_with_compare.cache_key_segment()

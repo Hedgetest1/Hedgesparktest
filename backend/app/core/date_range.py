@@ -175,6 +175,46 @@ def resolve_window_days(
     return start, end, fallback_days
 
 
+def resolve_compare_utc_bounds(
+    range_q: DateRangeQuery,
+    *,
+    shop_tz: str = "UTC",
+):
+    """Resolve the compare-window UTC bounds when range_q.has_compare()
+    is True; returns None otherwise.
+
+    Same shop-tz-correct semantics as resolve_utc_bounds (midnight in
+    shop tz → UTC, exclusive upper bound on +1 day). Returns
+    (start_utc, end_utc_excl, start_local, end_local) so callers can
+    use start_utc/end_utc_excl directly as SQL binds.
+    """
+    if not range_q.has_compare():
+        return None
+
+    from datetime import datetime, time, timezone as _tz
+
+    assert range_q.compare_start is not None and range_q.compare_end is not None
+    start_local = range_q.compare_start
+    end_local = range_q.compare_end
+
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(shop_tz or "UTC")
+    except Exception:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("UTC")
+
+    start_local_dt = datetime.combine(start_local, time.min, tzinfo=tz)
+    end_local_dt = datetime.combine(
+        end_local + timedelta(days=1), time.min, tzinfo=tz
+    )
+
+    start_utc = start_local_dt.astimezone(_tz.utc).replace(tzinfo=None)
+    end_utc_excl = end_local_dt.astimezone(_tz.utc).replace(tzinfo=None)
+
+    return start_utc, end_utc_excl, start_local, end_local
+
+
 def resolve_utc_bounds(
     range_q: DateRangeQuery,
     *,

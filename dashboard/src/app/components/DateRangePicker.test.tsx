@@ -11,7 +11,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import {
-  DateRangeProvider, rangeFromPreset, useDateRange,
+  DateRangeProvider, deriveCompareBounds, rangeFromPreset, useDateRange,
 } from "./DateRangeContext";
 import { DateRangePicker } from "./DateRangePicker";
 
@@ -89,13 +89,18 @@ describe("rangeFromPreset", () => {
 
 // Helper consumer to inspect context value in tests
 function ContextProbe() {
-  const { range, queryString } = useDateRange();
+  const {
+    range, queryString, compareEnabled, compareStart, compareEnd,
+  } = useDateRange();
   return (
     <div>
       <span data-testid="preset">{range.preset}</span>
       <span data-testid="start">{range.start}</span>
       <span data-testid="end">{range.end}</span>
       <span data-testid="qs">{queryString}</span>
+      <span data-testid="cmp-enabled">{String(compareEnabled)}</span>
+      <span data-testid="cmp-start">{compareStart ?? ""}</span>
+      <span data-testid="cmp-end">{compareEnd ?? ""}</span>
     </div>
   );
 }
@@ -228,5 +233,118 @@ describe("DateRangePicker UI", () => {
     expect(options[3]).toHaveFocus();
     fireEvent.keyDown(document, { key: "ArrowUp" });
     expect(options[2]).toHaveFocus();
+  });
+});
+
+
+// ════════════════════════════════════════════════════════════════════════
+// Comparison toggle — Phase 3B residual close
+// ════════════════════════════════════════════════════════════════════════
+
+describe("deriveCompareBounds", () => {
+  it("derives prior 7 days for a 7-day window", () => {
+    const r = deriveCompareBounds("2026-04-09", "2026-04-15");
+    expect(r).not.toBeNull();
+    expect(r!.compareStart).toBe("2026-04-02");
+    expect(r!.compareEnd).toBe("2026-04-08");
+  });
+
+  it("derives prior single day for a single-day range", () => {
+    const r = deriveCompareBounds("2026-04-15", "2026-04-15");
+    expect(r).not.toBeNull();
+    expect(r!.compareStart).toBe("2026-04-14");
+    expect(r!.compareEnd).toBe("2026-04-14");
+  });
+
+  it("returns null for malformed input", () => {
+    const r = deriveCompareBounds("not-a-date", "2026-04-15");
+    // parsing produces NaN start, span < 1 → null
+    expect(r).toBeNull();
+  });
+});
+
+describe("DateRangeProvider compareEnabled", () => {
+  it("compareEnabled defaults to false", async () => {
+    render(<DateRangeProvider><ContextProbe /></DateRangeProvider>);
+    await act(async () => {});
+    expect(screen.getByTestId("cmp-enabled").textContent).toBe("false");
+    expect(screen.getByTestId("cmp-start").textContent).toBe("");
+    expect(screen.getByTestId("cmp-end").textContent).toBe("");
+  });
+
+  it("compareEnabled=true reads from URL ?compare=1", async () => {
+    window.history.replaceState({}, "", "/?compare=1");
+    render(<DateRangeProvider><ContextProbe /></DateRangeProvider>);
+    await act(async () => {});
+    expect(screen.getByTestId("cmp-enabled").textContent).toBe("true");
+    // Default last_7_days (Apr 9–15) → compare = Apr 2–8
+    expect(screen.getByTestId("cmp-start").textContent).toBe("2026-04-02");
+    expect(screen.getByTestId("cmp-end").textContent).toBe("2026-04-08");
+  });
+
+  it("compareEnabled=true persists to localStorage", async () => {
+    window.localStorage.setItem("hs_date_range_compare", "1");
+    render(<DateRangeProvider><ContextProbe /></DateRangeProvider>);
+    await act(async () => {});
+    expect(screen.getByTestId("cmp-enabled").textContent).toBe("true");
+  });
+
+  it("queryString includes compare params when enabled", async () => {
+    window.history.replaceState({}, "", "/?compare=1");
+    render(<DateRangeProvider><ContextProbe /></DateRangeProvider>);
+    await act(async () => {});
+    expect(screen.getByTestId("qs").textContent).toBe(
+      "start_date=2026-04-09&end_date=2026-04-15"
+      + "&compare_start=2026-04-02&compare_end=2026-04-08"
+    );
+  });
+
+  it("queryString omits compare params when disabled", async () => {
+    render(<DateRangeProvider><ContextProbe /></DateRangeProvider>);
+    await act(async () => {});
+    expect(screen.getByTestId("qs").textContent).toBe(
+      "start_date=2026-04-09&end_date=2026-04-15"
+    );
+  });
+});
+
+describe("DateRangePicker compare checkbox", () => {
+  it("renders 'Compare to previous period' label", async () => {
+    render(<DateRangeProvider><DateRangePicker /></DateRangeProvider>);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("combobox"));
+    expect(
+      screen.getByText(/Compare to previous period/i)
+    ).toBeInTheDocument();
+  });
+
+  it("checking the box toggles compareEnabled in context", async () => {
+    render(
+      <DateRangeProvider>
+        <DateRangePicker />
+        <ContextProbe />
+      </DateRangeProvider>
+    );
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("combobox"));
+    const checkbox = screen.getByRole("checkbox", {
+      name: /Compare to previous period/i,
+    });
+    expect(checkbox).not.toBeChecked();
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+    expect(screen.getByTestId("cmp-enabled").textContent).toBe("true");
+    // Compare bounds populated by auto-derive
+    expect(screen.getByTestId("cmp-start").textContent).toBe("2026-04-02");
+  });
+
+  it("helper text shows derived compare range when on", async () => {
+    window.history.replaceState({}, "", "/?compare=1");
+    render(<DateRangeProvider><DateRangePicker /></DateRangeProvider>);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("combobox"));
+    expect(
+      screen.getByText(/vs 2026-04-02 → 2026-04-08/)
+    ).toBeInTheDocument();
   });
 });

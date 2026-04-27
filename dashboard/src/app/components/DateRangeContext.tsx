@@ -47,10 +47,26 @@ export type DateRangeContextValue = {
   range: DateRange;
   setRange: (next: DateRange) => void;
   /**
+   * Whether the "compare to previous period" toggle is on. Auto-derives
+   * a comparison range of equal length immediately preceding the primary
+   * range — the industry-standard semantic (Lifetimely, Northbeam,
+   * Triple Whale all do the same).
+   */
+  compareEnabled: boolean;
+  setCompareEnabled: (next: boolean) => void;
+  /**
+   * Auto-derived comparison bounds. Null when compareEnabled is false.
+   * Tile consumers read these to decide whether to render a delta.
+   */
+  compareStart: string | null;
+  compareEnd: string | null;
+  /**
    * Query-string fragment to append to backend analytics URLs, e.g.
-   * "start_date=2026-04-01&end_date=2026-04-07". Empty string when
-   * the merchant hasn't set anything yet (provider is uninitialised
-   * before client mount). Tiles use this to key their useCardFetch.
+   * "start_date=2026-04-01&end_date=2026-04-07". When compareEnabled
+   * is true, also includes "&compare_start=...&compare_end=...".
+   * Empty string when the merchant hasn't set anything yet (provider
+   * is uninitialised before client mount). Tiles use this to key their
+   * useCardFetch — toggling compare invalidates cache automatically.
    */
   queryString: string;
 };
@@ -58,6 +74,7 @@ export type DateRangeContextValue = {
 const DateRangeContext = createContext<DateRangeContextValue | null>(null);
 
 const STORAGE_KEY = "hs_date_range";
+const COMPARE_STORAGE_KEY = "hs_date_range_compare";
 const DEFAULT_PRESET: DateRangePreset = "last_7_days";
 
 // ---------------------------------------------------------------------------
@@ -87,6 +104,33 @@ function addDays(d: Date, n: number): Date {
   const out = new Date(d);
   out.setDate(out.getDate() + n);
   return out;
+}
+
+function parseLocalDate(yyyymmdd: string): Date {
+  const [y, m, d] = yyyymmdd.split("-").map(Number);
+  return new Date(y, (m ?? 1) - 1, d ?? 1);
+}
+
+/**
+ * Auto-derive comparison bounds = primary range shifted back by its own
+ * span. For "last 7 days" (Apr 21–27) the comparison is Apr 14–20.
+ * Returns null when bounds are malformed.
+ */
+export function deriveCompareBounds(
+  start: string, end: string
+): { compareStart: string; compareEnd: string } | null {
+  try {
+    const s = parseLocalDate(start);
+    const e = parseLocalDate(end);
+    if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return null;
+    const spanDays = Math.round((e.getTime() - s.getTime()) / 86_400_000) + 1;
+    if (!Number.isFinite(spanDays) || spanDays < 1) return null;
+    const compareEnd = addDays(s, -1);
+    const compareStart = addDays(compareEnd, -(spanDays - 1));
+    return { compareStart: fmtDate(compareStart), compareEnd: fmtDate(compareEnd) };
+  } catch {
+    return null;
+  }
 }
 
 export function rangeFromPreset(
@@ -173,6 +217,40 @@ function readInitialRange(): DateRange {
   return rangeFromPreset(DEFAULT_PRESET);
 }
 
+function readInitialCompareEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  const params = new URLSearchParams(window.location.search);
+  const compareParam = params.get("compare");
+  if (compareParam === "1") return true;
+  if (compareParam === "0") return false;
+  try {
+    const stored = window.localStorage.getItem(COMPARE_STORAGE_KEY);
+    return stored === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writePersistedCompare(enabled: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(COMPARE_STORAGE_KEY, enabled ? "1" : "0");
+  } catch {
+    // quota exceeded / private mode — silent fail
+  }
+  try {
+    const url = new URL(window.location.href);
+    if (enabled) {
+      url.searchParams.set("compare", "1");
+    } else {
+      url.searchParams.delete("compare");
+    }
+    window.history.replaceState({}, "", url.toString());
+  } catch {
+    // history API unavailable — silent fail
+  }
+}
+
 function writePersistedRange(range: DateRange) {
   if (typeof window === "undefined") return;
   // localStorage mirror
@@ -210,9 +288,11 @@ export function DateRangeProvider({ children }: { children: React.ReactNode }) {
   const [range, setRangeState] = useState<DateRange>(() =>
     rangeFromPreset(DEFAULT_PRESET)
   );
+  const [compareEnabled, setCompareEnabledState] = useState<boolean>(false);
 
   useEffect(() => {
     setRangeState(readInitialRange());
+    setCompareEnabledState(readInitialCompareEnabled());
   }, []);
 
   const setRange = useCallback((next: DateRange) => {
@@ -220,14 +300,31 @@ export function DateRangeProvider({ children }: { children: React.ReactNode }) {
     writePersistedRange(next);
   }, []);
 
-  const queryString = useMemo(
-    () => `start_date=${range.start}&end_date=${range.end}`,
-    [range.start, range.end],
+  const setCompareEnabled = useCallback((next: boolean) => {
+    setCompareEnabledState(next);
+    writePersistedCompare(next);
+  }, []);
+
+  const compareBounds = useMemo(
+    () => (compareEnabled ? deriveCompareBounds(range.start, range.end) : null),
+    [compareEnabled, range.start, range.end],
   );
+
+  const queryString = useMemo(() => {
+    const base = `start_date=${range.start}&end_date=${range.end}`;
+    if (compareBounds) {
+      return `${base}&compare_start=${compareBounds.compareStart}&compare_end=${compareBounds.compareEnd}`;
+    }
+    return base;
+  }, [range.start, range.end, compareBounds]);
 
   const value: DateRangeContextValue = {
     range,
     setRange,
+    compareEnabled,
+    setCompareEnabled,
+    compareStart: compareBounds?.compareStart ?? null,
+    compareEnd: compareBounds?.compareEnd ?? null,
     queryString,
   };
 
@@ -247,6 +344,10 @@ export function useDateRange(): DateRangeContextValue {
     return {
       range: rangeFromPreset(DEFAULT_PRESET),
       setRange: () => {},
+      compareEnabled: false,
+      setCompareEnabled: () => {},
+      compareStart: null,
+      compareEnd: null,
       queryString: "",
     };
   }

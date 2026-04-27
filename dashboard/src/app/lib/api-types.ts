@@ -6767,6 +6767,10 @@ export interface components {
             series: components["schemas"]["AbandonmentDay"][];
             /** Avg Abandonment Pct */
             avg_abandonment_pct: number | null;
+            /** Compare */
+            compare?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * ActionImprovementRow
@@ -8079,6 +8083,10 @@ export interface components {
             has_data: boolean;
             /** Slices */
             slices: components["schemas"]["DeviceSlice"][];
+            /** Compare */
+            compare?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** DeviceSlice */
         DeviceSlice: {
@@ -8142,6 +8150,10 @@ export interface components {
             total_orders_window: number;
             /** Codes */
             codes: components["schemas"]["DiscountCodeBucket"][];
+            /** Compare */
+            compare?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** DiscountRequest */
         DiscountRequest: {
@@ -8333,6 +8345,10 @@ export interface components {
             repeat: components["schemas"]["CustomerCohortAov"];
             /** Aov Uplift Pct */
             aov_uplift_pct: number | null;
+            /** Compare */
+            compare?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * ForecastDailyPoint
@@ -9872,6 +9888,10 @@ export interface components {
             peak_hour: number | null;
             /** Peak Dow */
             peak_dow: number | null;
+            /** Compare */
+            compare?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** OrderStatusResponse */
         OrderStatusResponse: {
@@ -9885,6 +9905,10 @@ export interface components {
             financial: components["schemas"]["StatusBucket"][];
             /** Fulfillment */
             fulfillment: components["schemas"]["StatusBucket"][];
+            /** Compare */
+            compare?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** OrdersByCountryResponse */
         OrdersByCountryResponse: {
@@ -9900,6 +9924,10 @@ export interface components {
             total_revenue: number;
             /** Countries */
             countries: components["schemas"]["CountryAggregate"][];
+            /** Compare */
+            compare?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * OrdersSummaryResponse
@@ -9957,6 +9985,10 @@ export interface components {
             total_orders_window: number;
             /** Methods */
             methods: components["schemas"]["PaymentMethodBucket"][];
+            /** Compare */
+            compare?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** PerMetricAccuracy */
         PerMetricAccuracy: {
@@ -10961,6 +10993,10 @@ export interface components {
             p75_days: number | null;
             /** Mean Days */
             mean_days: number | null;
+            /** Compare */
+            compare?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** ReplayResponse */
         ReplayResponse: {
@@ -11699,6 +11735,10 @@ export interface components {
             total_tax: number;
             /** Tax Rate Pct */
             tax_rate_pct: number | null;
+            /** Compare */
+            compare?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** TimelineEntry */
         TimelineEntry: {
@@ -11842,6 +11882,10 @@ export interface components {
             has_data: boolean;
             /** Products */
             products: components["schemas"]["app__api__lite_extras__TopProduct"][];
+            /** Compare */
+            compare?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** TopSeller */
         TopSeller: {
@@ -11881,6 +11925,10 @@ export interface components {
             total_orders_window: number;
             /** Variants */
             variants: components["schemas"]["TopVariant"][];
+            /** Compare */
+            compare?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** TrackPayload */
         TrackPayload: {

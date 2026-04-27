@@ -55,7 +55,10 @@ function formatRangeLabel(range: DateRange): string {
 }
 
 export function DateRangePicker() {
-  const { range, setRange } = useDateRange();
+  const {
+    range, setRange, compareEnabled, setCompareEnabled,
+    compareStart, compareEnd,
+  } = useDateRange();
   const [open, setOpen] = useState(false);
   const [customStart, setCustomStart] = useState(range.start);
   const [customEnd, setCustomEnd] = useState(range.end);
@@ -249,6 +252,34 @@ export function DateRangePicker() {
                 </button>
               );
             })}
+          </div>
+
+          {/* Compare to previous period — auto-derives comparison range
+              of equal length immediately preceding the primary range.
+              Industry-standard semantic. Toggling re-fetches all tiles. */}
+          <div className="mt-2 border-t border-white/[0.05] pt-2 px-1">
+            <label className="flex items-start gap-2.5 cursor-pointer rounded-lg px-2 py-1.5 hover:bg-white/[0.04]">
+              <input
+                type="checkbox"
+                checked={compareEnabled}
+                onChange={(e) => setCompareEnabled(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-white/[0.16] bg-slate-900/60 text-[#e8a04e] accent-[#e8a04e] focus:ring-2 focus:ring-[#e8a04e]/50 focus:ring-offset-0"
+                aria-describedby="compare-helper"
+              />
+              <span className="flex flex-col gap-0.5">
+                <span className="text-[13px] font-medium text-slate-200">
+                  Compare to previous period
+                </span>
+                <span
+                  id="compare-helper"
+                  className="text-[11px] text-slate-400 tabular-nums"
+                >
+                  {compareEnabled && compareStart && compareEnd
+                    ? `vs ${compareStart} → ${compareEnd}`
+                    : "Show delta vs the prior equal-length window"}
+                </span>
+              </span>
+            </label>
           </div>
 
           {/* Custom range inputs — visible when "Custom range" preset

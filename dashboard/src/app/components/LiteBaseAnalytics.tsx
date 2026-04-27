@@ -21,6 +21,7 @@ import { useEffect, useState } from "react";
 import { apiClient } from "@/app/lib/api-client";
 import { formatMoneyCompact } from "../app/_lib/formatters";
 import { useDateRange } from "./DateRangeContext";
+import { DeltaIndicator } from "./DeltaIndicator";
 
 type DisplayCurrency = "USD" | "EUR" | string;
 
@@ -89,6 +90,7 @@ function TileEmpty({ title, hint }: { title: string; hint: string }) {
 type DeviceData = {
   days: number; total_sessions: number; has_data: boolean;
   slices: { device: string; sessions: number; pct: number }[];
+  compare?: { total_sessions: number } | null;
 };
 
 const DEVICE_COLOR: Record<string, string> = {
@@ -99,7 +101,7 @@ const DEVICE_LABEL: Record<string, string> = {
 };
 
 export function DeviceSplitTile() {
-  const { range } = useDateRange();
+  const { range, compareStart, compareEnd } = useDateRange();
   const [data, setData] = useState<DeviceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -109,7 +111,11 @@ export function DeviceSplitTile() {
     let active = true;
     setLoading(true); setError(false);
     apiClient.GET("/analytics/device-breakdown", {
-      params: { query: { start_date: range.start, end_date: range.end } },
+      params: { query: {
+        start_date: range.start, end_date: range.end,
+        compare_start: compareStart ?? undefined,
+        compare_end: compareEnd ?? undefined,
+      } },
     })
       .then(({ data: j, error: err }) => {
         if (!active) return;
@@ -119,7 +125,7 @@ export function DeviceSplitTile() {
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tick, range.start, range.end]);
+  }, [tick, range.start, range.end, compareStart, compareEnd]);
 
   if (loading) return <TileSkeleton height={120} />;
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
@@ -131,12 +137,21 @@ export function DeviceSplitTile() {
 
   return (
     <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 p-4">
-      <div className="flex items-baseline justify-between mb-3">
+      <div className="flex items-baseline justify-between mb-3 gap-2">
         <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
           Device split · last {data.days} days
         </div>
-        <div className="text-[11px] tabular-nums text-slate-300">
-          {data.total_sessions.toLocaleString("en-US")} sessions
+        <div className="flex items-center gap-2">
+          <div className="text-[11px] tabular-nums text-slate-300">
+            {data.total_sessions.toLocaleString("en-US")} sessions
+          </div>
+          {data.compare != null && (
+            <DeltaIndicator
+              value={data.total_sessions}
+              prevValue={data.compare.total_sessions}
+              format="count"
+            />
+          )}
         </div>
       </div>
       <div className="space-y-2">
@@ -239,10 +254,11 @@ type AbandonmentTrendData = {
   days: number; timezone: string; has_data: boolean;
   series: { day: string; cart_adds: number; purchases: number; abandonment_pct: number | null }[];
   avg_abandonment_pct: number | null;
+  compare?: { avg_abandonment_pct: number | null } | null;
 };
 
 export function AbandonmentTrendTile() {
-  const { range } = useDateRange();
+  const { range, compareStart, compareEnd } = useDateRange();
   const [data, setData] = useState<AbandonmentTrendData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -252,7 +268,11 @@ export function AbandonmentTrendTile() {
     let active = true;
     setLoading(true); setError(false);
     apiClient.GET("/analytics/abandonment-trend", {
-      params: { query: { start_date: range.start, end_date: range.end } },
+      params: { query: {
+        start_date: range.start, end_date: range.end,
+        compare_start: compareStart ?? undefined,
+        compare_end: compareEnd ?? undefined,
+      } },
     })
       .then(({ data: j, error: err }) => {
         if (!active) return;
@@ -262,7 +282,7 @@ export function AbandonmentTrendTile() {
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tick, range.start, range.end]);
+  }, [tick, range.start, range.end, compareStart, compareEnd]);
 
   if (loading) return <TileSkeleton height={140} />;
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
@@ -276,12 +296,22 @@ export function AbandonmentTrendTile() {
   const maxPct = Math.max(...data.series.map(s => s.abandonment_pct ?? 0), 1);
   return (
     <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 p-4">
-      <div className="flex items-baseline justify-between mb-3">
+      <div className="flex items-baseline justify-between mb-3 gap-2">
         <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
           Cart abandonment · last {data.days} days
         </div>
-        <div className="text-[14px] font-bold tabular-nums text-rose-300">
-          {data.avg_abandonment_pct != null ? `${data.avg_abandonment_pct}% avg` : "—"}
+        <div className="flex items-center gap-2">
+          <div className="text-[14px] font-bold tabular-nums text-rose-300">
+            {data.avg_abandonment_pct != null ? `${data.avg_abandonment_pct}% avg` : "—"}
+          </div>
+          {data.compare != null && data.avg_abandonment_pct != null && data.compare.avg_abandonment_pct != null && (
+            <DeltaIndicator
+              value={data.avg_abandonment_pct}
+              prevValue={data.compare.avg_abandonment_pct}
+              format="pct"
+              inverse={true}
+            />
+          )}
         </div>
       </div>
       <div className="flex items-end gap-1 h-20">
@@ -314,10 +344,11 @@ type RhythmData = {
   by_hour: { hour: number; orders: number; revenue: number }[];
   by_dow: { dow: number; label: string; orders: number; revenue: number }[];
   peak_hour: number | null; peak_dow: number | null;
+  compare?: { total_orders: number; total_revenue: number } | null;
 };
 
 export function OrderRhythmTile() {
-  const { range } = useDateRange();
+  const { range, compareStart, compareEnd } = useDateRange();
   const [data, setData] = useState<RhythmData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -327,7 +358,11 @@ export function OrderRhythmTile() {
     let active = true;
     setLoading(true); setError(false);
     apiClient.GET("/analytics/order-rhythm", {
-      params: { query: { start_date: range.start, end_date: range.end } },
+      params: { query: {
+        start_date: range.start, end_date: range.end,
+        compare_start: compareStart ?? undefined,
+        compare_end: compareEnd ?? undefined,
+      } },
     })
       .then(({ data: j, error: err }) => {
         if (!active) return;
@@ -337,7 +372,7 @@ export function OrderRhythmTile() {
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tick, range.start, range.end]);
+  }, [tick, range.start, range.end, compareStart, compareEnd]);
 
   if (loading) return <TileSkeleton height={180} />;
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
@@ -357,12 +392,21 @@ export function OrderRhythmTile() {
 
   return (
     <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 p-4">
-      <div className="flex items-baseline justify-between mb-3">
+      <div className="flex items-baseline justify-between mb-3 gap-2 flex-wrap">
         <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">
           When customers buy · last {data.days} days
         </div>
-        <div className="text-[11px] text-slate-300">
-          Peak: <span className="font-bold text-amber-300">{peakDowLabel} {peakHourLabel}</span>
+        <div className="flex items-center gap-2">
+          <div className="text-[11px] text-slate-300">
+            Peak: <span className="font-bold text-amber-300">{peakDowLabel} {peakHourLabel}</span>
+          </div>
+          {data.compare != null && (
+            <DeltaIndicator
+              value={data.by_hour.reduce((s, h) => s + h.revenue, 0)}
+              prevValue={data.compare.total_revenue}
+              format="currency"
+            />
+          )}
         </div>
       </div>
 
@@ -432,10 +476,11 @@ type CadenceData = {
   p25_days: number | null;
   p75_days: number | null;
   mean_days: number | null;
+  compare?: { median_days: number | null; customers_with_2plus: number } | null;
 };
 
 export function RepeatCadenceTile() {
-  const { range } = useDateRange();
+  const { range, compareStart, compareEnd } = useDateRange();
   const [data, setData] = useState<CadenceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -445,7 +490,11 @@ export function RepeatCadenceTile() {
     let active = true;
     setLoading(true); setError(false);
     apiClient.GET("/analytics/repeat-cadence", {
-      params: { query: { start_date: range.start, end_date: range.end } },
+      params: { query: {
+        start_date: range.start, end_date: range.end,
+        compare_start: compareStart ?? undefined,
+        compare_end: compareEnd ?? undefined,
+      } },
     })
       .then(({ data: j, error: err }) => {
         if (!active) return;
@@ -455,7 +504,7 @@ export function RepeatCadenceTile() {
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tick, range.start, range.end]);
+  }, [tick, range.start, range.end, compareStart, compareEnd]);
 
   if (loading) return <TileSkeleton height={120} />;
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
@@ -467,10 +516,18 @@ export function RepeatCadenceTile() {
 
   return (
     <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 p-4">
-      <div className="flex items-baseline justify-between mb-3">
+      <div className="flex items-baseline justify-between mb-3 gap-2 flex-wrap">
         <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">
           Time between orders · {data.customers_with_2plus} repeat customers
         </div>
+        {data.compare != null && data.median_days != null && data.compare.median_days != null && (
+          <DeltaIndicator
+            value={data.median_days}
+            prevValue={data.compare.median_days}
+            format="count"
+            inverse={true}
+          />
+        )}
       </div>
       <div className="flex items-end gap-3">
         <div>
@@ -500,10 +557,11 @@ export function RepeatCadenceTile() {
 type TopProductsData = {
   currency: string; days: number; has_data: boolean;
   products: { title: string; orders: number; units: number; revenue: number }[];
+  compare?: { top_revenue: number; total_orders: number } | null;
 };
 
 export function TopProductsTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
-  const { range } = useDateRange();
+  const { range, compareStart, compareEnd } = useDateRange();
   const [data, setData] = useState<TopProductsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -513,7 +571,11 @@ export function TopProductsTile({ displayCurrency }: { displayCurrency: DisplayC
     let active = true;
     setLoading(true); setError(false);
     apiClient.GET("/analytics/top-products", {
-      params: { query: { start_date: range.start, end_date: range.end } },
+      params: { query: {
+        start_date: range.start, end_date: range.end,
+        compare_start: compareStart ?? undefined,
+        compare_end: compareEnd ?? undefined,
+      } },
     })
       .then(({ data: j, error: err }) => {
         if (!active) return;
@@ -523,7 +585,7 @@ export function TopProductsTile({ displayCurrency }: { displayCurrency: DisplayC
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tick, range.start, range.end]);
+  }, [tick, range.start, range.end, compareStart, compareEnd]);
 
   const ccy = data?.currency ?? displayCurrency;
 
@@ -539,12 +601,21 @@ export function TopProductsTile({ displayCurrency }: { displayCurrency: DisplayC
 
   return (
     <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 p-4">
-      <div className="flex items-baseline justify-between mb-3">
+      <div className="flex items-baseline justify-between mb-3 gap-2">
         <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">
           Top products · last {data.days} days
         </div>
-        <div className="text-[11px] text-slate-300">
-          {data.products.length} ranked
+        <div className="flex items-center gap-2">
+          <div className="text-[11px] text-slate-300">
+            {data.products.length} ranked
+          </div>
+          {data.compare != null && data.products[0] != null && (
+            <DeltaIndicator
+              value={data.products[0].revenue}
+              prevValue={data.compare.top_revenue}
+              format="currency"
+            />
+          )}
         </div>
       </div>
       <ul className="space-y-2">
@@ -592,10 +663,11 @@ type DiscountData = {
   currency: string; days: number; has_data: boolean;
   enriched_orders: number; total_orders_window: number;
   codes: { code: string; orders: number; total_discount: number; total_revenue: number }[];
+  compare?: { enriched_orders: number; total_discount: number } | null;
 };
 
 export function DiscountCodesTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
-  const { range } = useDateRange();
+  const { range, compareStart, compareEnd } = useDateRange();
   const [data, setData] = useState<DiscountData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -603,7 +675,11 @@ export function DiscountCodesTile({ displayCurrency }: { displayCurrency: Displa
   useEffect(() => {
     let active = true; setLoading(true); setError(false);
     apiClient.GET("/analytics/discount-codes", {
-      params: { query: { start_date: range.start, end_date: range.end } },
+      params: { query: {
+        start_date: range.start, end_date: range.end,
+        compare_start: compareStart ?? undefined,
+        compare_end: compareEnd ?? undefined,
+      } },
     })
       .then(({ data: j, error: err }) => {
         if (!active) return;
@@ -612,7 +688,7 @@ export function DiscountCodesTile({ displayCurrency }: { displayCurrency: Displa
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tick, range.start, range.end]);
+  }, [tick, range.start, range.end, compareStart, compareEnd]);
   const ccy = data?.currency ?? displayCurrency;
   if (loading) return <TileSkeleton height={180} />;
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
@@ -623,10 +699,17 @@ export function DiscountCodesTile({ displayCurrency }: { displayCurrency: Displa
   }
   return (
     <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 p-4">
-      <div className="flex items-baseline justify-between mb-3">
+      <div className="flex items-baseline justify-between mb-3 gap-2">
         <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">
           Discount codes · last {data.days} days
         </div>
+        {data.compare != null && (
+          <DeltaIndicator
+            value={data.enriched_orders}
+            prevValue={data.compare.enriched_orders}
+            format="count"
+          />
+        )}
       </div>
       <ul className="divide-y divide-white/[0.04]">
         {data.codes.slice(0, 5).map(c => (
@@ -652,6 +735,7 @@ type StatusData = {
   days: number; has_data: boolean; enriched_orders: number;
   financial: { label: string; orders: number; pct: number }[];
   fulfillment: { label: string; orders: number; pct: number }[];
+  compare?: { enriched_orders: number } | null;
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -661,7 +745,7 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 export function OrderStatusTile() {
-  const { range } = useDateRange();
+  const { range, compareStart, compareEnd } = useDateRange();
   const [data, setData] = useState<StatusData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -669,7 +753,11 @@ export function OrderStatusTile() {
   useEffect(() => {
     let active = true; setLoading(true); setError(false);
     apiClient.GET("/analytics/order-status", {
-      params: { query: { start_date: range.start, end_date: range.end } },
+      params: { query: {
+        start_date: range.start, end_date: range.end,
+        compare_start: compareStart ?? undefined,
+        compare_end: compareEnd ?? undefined,
+      } },
     })
       .then(({ data: j, error: err }) => {
         if (!active) return;
@@ -678,7 +766,7 @@ export function OrderStatusTile() {
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tick, range.start, range.end]);
+  }, [tick, range.start, range.end, compareStart, compareEnd]);
   if (loading) return <TileSkeleton height={180} />;
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
   if (!data || !data.has_data) {
@@ -700,10 +788,17 @@ export function OrderStatusTile() {
   );
   return (
     <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 p-4">
-      <div className="flex items-baseline justify-between mb-3">
+      <div className="flex items-baseline justify-between mb-3 gap-2">
         <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">
           Order status · last {data.days} days
         </div>
+        {data.compare != null && (
+          <DeltaIndicator
+            value={data.enriched_orders}
+            prevValue={data.compare.enriched_orders}
+            format="count"
+          />
+        )}
       </div>
       <div className="mb-3">
         <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-300">Financial</div>
@@ -724,10 +819,11 @@ type TaxData = {
   currency: string; days: number; has_data: boolean;
   enriched_orders: number; total_orders_window: number;
   total_revenue: number; total_tax: number; tax_rate_pct: number | null;
+  compare?: { total_tax: number; total_revenue: number } | null;
 };
 
 export function TaxBreakdownTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
-  const { range } = useDateRange();
+  const { range, compareStart, compareEnd } = useDateRange();
   const [data, setData] = useState<TaxData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -735,7 +831,11 @@ export function TaxBreakdownTile({ displayCurrency }: { displayCurrency: Display
   useEffect(() => {
     let active = true; setLoading(true); setError(false);
     apiClient.GET("/analytics/tax-breakdown", {
-      params: { query: { start_date: range.start, end_date: range.end } },
+      params: { query: {
+        start_date: range.start, end_date: range.end,
+        compare_start: compareStart ?? undefined,
+        compare_end: compareEnd ?? undefined,
+      } },
     })
       .then(({ data: j, error: err }) => {
         if (!active) return;
@@ -744,7 +844,7 @@ export function TaxBreakdownTile({ displayCurrency }: { displayCurrency: Display
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tick, range.start, range.end]);
+  }, [tick, range.start, range.end, compareStart, compareEnd]);
   const ccy = data?.currency ?? displayCurrency;
   if (loading) return <TileSkeleton height={140} />;
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
@@ -755,15 +855,24 @@ export function TaxBreakdownTile({ displayCurrency }: { displayCurrency: Display
   }
   return (
     <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 p-4">
-      <div className="flex items-baseline justify-between mb-3">
+      <div className="flex items-baseline justify-between mb-3 gap-2 flex-wrap">
         <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">
           Tax collected · last {data.days} days
         </div>
-        {data.tax_rate_pct != null && (
-          <div className="text-[11px] text-slate-300">
-            Effective rate: <span className="font-bold text-amber-300">{data.tax_rate_pct}%</span>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {data.tax_rate_pct != null && (
+            <div className="text-[11px] text-slate-300">
+              Effective rate: <span className="font-bold text-amber-300">{data.tax_rate_pct}%</span>
+            </div>
+          )}
+          {data.compare != null && (
+            <DeltaIndicator
+              value={data.total_tax}
+              prevValue={data.compare.total_tax}
+              format="currency"
+            />
+          )}
+        </div>
       </div>
       <div className="flex items-end gap-3">
         <div>
@@ -788,10 +897,11 @@ type PaymentData = {
   currency: string; days: number; has_data: boolean;
   enriched_orders: number; total_orders_window: number;
   methods: { method: string; orders: number; revenue: number; pct: number }[];
+  compare?: { enriched_orders: number; total_revenue: number } | null;
 };
 
 export function PaymentMethodsTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
-  const { range } = useDateRange();
+  const { range, compareStart, compareEnd } = useDateRange();
   const [data, setData] = useState<PaymentData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -799,7 +909,11 @@ export function PaymentMethodsTile({ displayCurrency }: { displayCurrency: Displ
   useEffect(() => {
     let active = true; setLoading(true); setError(false);
     apiClient.GET("/analytics/payment-methods", {
-      params: { query: { start_date: range.start, end_date: range.end } },
+      params: { query: {
+        start_date: range.start, end_date: range.end,
+        compare_start: compareStart ?? undefined,
+        compare_end: compareEnd ?? undefined,
+      } },
     })
       .then(({ data: j, error: err }) => {
         if (!active) return;
@@ -808,7 +922,7 @@ export function PaymentMethodsTile({ displayCurrency }: { displayCurrency: Displ
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tick, range.start, range.end]);
+  }, [tick, range.start, range.end, compareStart, compareEnd]);
   const ccy = data?.currency ?? displayCurrency;
   if (loading) return <TileSkeleton height={180} />;
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
@@ -819,10 +933,17 @@ export function PaymentMethodsTile({ displayCurrency }: { displayCurrency: Displ
   }
   return (
     <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 p-4">
-      <div className="flex items-baseline justify-between mb-3">
+      <div className="flex items-baseline justify-between mb-3 gap-2">
         <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">
           Payment methods · last {data.days} days
         </div>
+        {data.compare != null && (
+          <DeltaIndicator
+            value={data.methods.reduce((s, m) => s + m.revenue, 0)}
+            prevValue={data.compare.total_revenue}
+            format="currency"
+          />
+        )}
       </div>
       <ul className="space-y-2">
         {data.methods.slice(0, 6).map(m => (
@@ -853,10 +974,11 @@ type TopVariantsData = {
   variants: { variant_id: string | null; product_title: string;
     variant_title: string | null; sku: string | null;
     units: number; revenue: number }[];
+  compare?: { top_revenue: number; enriched_orders: number } | null;
 };
 
 export function TopVariantsTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
-  const { range } = useDateRange();
+  const { range, compareStart, compareEnd } = useDateRange();
   const [data, setData] = useState<TopVariantsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -864,7 +986,11 @@ export function TopVariantsTile({ displayCurrency }: { displayCurrency: DisplayC
   useEffect(() => {
     let active = true; setLoading(true); setError(false);
     apiClient.GET("/analytics/top-variants", {
-      params: { query: { start_date: range.start, end_date: range.end } },
+      params: { query: {
+        start_date: range.start, end_date: range.end,
+        compare_start: compareStart ?? undefined,
+        compare_end: compareEnd ?? undefined,
+      } },
     })
       .then(({ data: j, error: err }) => {
         if (!active) return;
@@ -873,7 +999,7 @@ export function TopVariantsTile({ displayCurrency }: { displayCurrency: DisplayC
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tick, range.start, range.end]);
+  }, [tick, range.start, range.end, compareStart, compareEnd]);
   const ccy = data?.currency ?? displayCurrency;
   if (loading) return <TileSkeleton height={240} />;
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
@@ -885,10 +1011,17 @@ export function TopVariantsTile({ displayCurrency }: { displayCurrency: DisplayC
   const maxRev = Math.max(1, ...data.variants.map(v => v.revenue));
   return (
     <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 p-4">
-      <div className="flex items-baseline justify-between mb-3">
+      <div className="flex items-baseline justify-between mb-3 gap-2">
         <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-300">
           Top variants · last {data.days} days
         </div>
+        {data.compare != null && data.variants[0] != null && (
+          <DeltaIndicator
+            value={data.variants[0].revenue}
+            prevValue={data.compare.top_revenue}
+            format="currency"
+          />
+        )}
       </div>
       <ul className="space-y-2">
         {data.variants.map((v, i) => (
@@ -935,10 +1068,15 @@ type FirstVsRepeatData = {
   first: { customers: number; orders: number; revenue: number; aov: number };
   repeat: { customers: number; orders: number; revenue: number; aov: number };
   aov_uplift_pct: number | null;
+  compare?: {
+    aov_uplift_pct: number | null;
+    first_revenue: number;
+    repeat_revenue: number;
+  } | null;
 };
 
 export function FirstVsRepeatAovTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
-  const { range } = useDateRange();
+  const { range, compareStart, compareEnd } = useDateRange();
   const [data, setData] = useState<FirstVsRepeatData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -948,7 +1086,11 @@ export function FirstVsRepeatAovTile({ displayCurrency }: { displayCurrency: Dis
     let active = true;
     setLoading(true); setError(false);
     apiClient.GET("/analytics/first-vs-repeat-aov", {
-      params: { query: { start_date: range.start, end_date: range.end } },
+      params: { query: {
+        start_date: range.start, end_date: range.end,
+        compare_start: compareStart ?? undefined,
+        compare_end: compareEnd ?? undefined,
+      } },
     })
       .then(({ data: j, error: err }) => {
         if (!active) return;
@@ -958,7 +1100,7 @@ export function FirstVsRepeatAovTile({ displayCurrency }: { displayCurrency: Dis
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tick, range.start, range.end]);
+  }, [tick, range.start, range.end, compareStart, compareEnd]);
 
   const ccy = data?.currency ?? displayCurrency;
 
@@ -973,17 +1115,26 @@ export function FirstVsRepeatAovTile({ displayCurrency }: { displayCurrency: Dis
   const maxAov = Math.max(data.first.aov, data.repeat.aov, 1);
   return (
     <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 p-4">
-      <div className="flex items-baseline justify-between mb-4">
+      <div className="flex items-baseline justify-between mb-4 gap-2 flex-wrap">
         <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
           First-time vs repeat · AOV
         </div>
-        {data.aov_uplift_pct != null && (
-          <div className="text-[12px] font-bold tabular-nums" style={{
-            color: data.aov_uplift_pct >= 0 ? "#34d399" : "#fb7185",
-          }}>
-            {data.aov_uplift_pct >= 0 ? "+" : ""}{data.aov_uplift_pct}% uplift
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {data.aov_uplift_pct != null && (
+            <div className="text-[12px] font-bold tabular-nums" style={{
+              color: data.aov_uplift_pct >= 0 ? "#34d399" : "#fb7185",
+            }}>
+              {data.aov_uplift_pct >= 0 ? "+" : ""}{data.aov_uplift_pct}% uplift
+            </div>
+          )}
+          {data.compare != null && data.aov_uplift_pct != null && data.compare.aov_uplift_pct != null && (
+            <DeltaIndicator
+              value={data.aov_uplift_pct}
+              prevValue={data.compare.aov_uplift_pct}
+              format="pct"
+            />
+          )}
+        </div>
       </div>
       <div className="space-y-3">
         <div>

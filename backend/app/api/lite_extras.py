@@ -37,7 +37,10 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.date_range import DateRangeQuery, get_date_range, resolve_utc_bounds, resolve_window_days
+from app.core.date_range import (
+    DateRangeQuery, get_date_range, resolve_compare_utc_bounds,
+    resolve_utc_bounds, resolve_window_days,
+)
 from app.core.deps import require_merchant_session
 from app.core.redis_client import cache_get, cache_set
 from app.services.revenue_metrics import get_shop_currency, get_shop_timezone
@@ -64,6 +67,9 @@ class DeviceBreakdownResponse(BaseModel):
     total_sessions: int
     has_data: bool
     slices: list[DeviceSlice]
+    # Comparison-window aggregate when ?compare_start/?compare_end set.
+    # Shape: {"total_sessions": int}. None when toggle off.
+    compare: dict | None = None
 
 
 class TopCustomer(BaseModel):
@@ -93,6 +99,8 @@ class AbandonmentTrendResponse(BaseModel):
     has_data: bool
     series: list[AbandonmentDay]
     avg_abandonment_pct: float | None
+    # Compare-window aggregate. Shape: {"avg_abandonment_pct": float | None}.
+    compare: dict | None = None
 
 
 class CustomerCohortAov(BaseModel):
@@ -108,6 +116,9 @@ class FirstVsRepeatResponse(BaseModel):
     first: CustomerCohortAov          # customers buying for the first time in window
     repeat: CustomerCohortAov         # customers with prior order
     aov_uplift_pct: float | None       # (repeat.aov - first.aov) / first.aov
+    # Compare-window aggregate. Shape: {"aov_uplift_pct": float | None,
+    # "first_revenue": float, "repeat_revenue": float}.
+    compare: dict | None = None
 
 
 class CountryAggregate(BaseModel):
@@ -123,6 +134,8 @@ class OrdersByCountryResponse(BaseModel):
     total_orders: int
     total_revenue: float
     countries: list[CountryAggregate]
+    # Compare-window aggregate. Shape: {"total_orders": int, "total_revenue": float}.
+    compare: dict | None = None
 
 
 # ── Class C response models ──
@@ -149,6 +162,8 @@ class OrderRhythmResponse(BaseModel):
     by_dow: list[DowBucket]
     peak_hour: int | None
     peak_dow: int | None
+    # Compare-window aggregate. Shape: {"total_revenue": float, "total_orders": int}.
+    compare: dict | None = None
 
 
 class RepeatCadenceResponse(BaseModel):
@@ -159,6 +174,8 @@ class RepeatCadenceResponse(BaseModel):
     p25_days: float | None
     p75_days: float | None
     mean_days: float | None
+    # Compare-window aggregate. Shape: {"median_days": float | None, "customers_with_2plus": int}.
+    compare: dict | None = None
 
 
 class TopProduct(BaseModel):
@@ -173,6 +190,8 @@ class TopProductsResponse(BaseModel):
     days: int
     has_data: bool
     products: list[TopProduct]
+    # Compare-window aggregate. Shape: {"top_revenue": float, "total_orders": int}.
+    compare: dict | None = None
 
 
 # ── Class D response models ──
@@ -191,6 +210,8 @@ class DiscountCodesResponse(BaseModel):
     enriched_orders: int          # how many orders had discount data
     total_orders_window: int      # all orders in window (for coverage %)
     codes: list[DiscountCodeBucket]
+    # Compare-window aggregate. Shape: {"enriched_orders": int, "total_discount": float}.
+    compare: dict | None = None
 
 
 class StatusBucket(BaseModel):
@@ -205,6 +226,8 @@ class OrderStatusResponse(BaseModel):
     enriched_orders: int
     financial: list[StatusBucket]
     fulfillment: list[StatusBucket]
+    # Compare-window aggregate. Shape: {"enriched_orders": int}.
+    compare: dict | None = None
 
 
 class TaxBreakdownResponse(BaseModel):
@@ -216,6 +239,8 @@ class TaxBreakdownResponse(BaseModel):
     total_revenue: float          # only enriched orders
     total_tax: float
     tax_rate_pct: float | None    # total_tax / (revenue - tax) * 100
+    # Compare-window aggregate. Shape: {"total_tax": float, "total_revenue": float}.
+    compare: dict | None = None
 
 
 class PaymentMethodBucket(BaseModel):
@@ -232,6 +257,8 @@ class PaymentMethodsResponse(BaseModel):
     enriched_orders: int
     total_orders_window: int
     methods: list[PaymentMethodBucket]
+    # Compare-window aggregate. Shape: {"enriched_orders": int, "total_revenue": float}.
+    compare: dict | None = None
 
 
 class TopVariant(BaseModel):
@@ -250,6 +277,8 @@ class TopVariantsResponse(BaseModel):
     enriched_orders: int
     total_orders_window: int
     variants: list[TopVariant]
+    # Compare-window aggregate. Shape: {"top_revenue": float, "enriched_orders": int}.
+    compare: dict | None = None
 
 
 class ChurnRiskCustomer(BaseModel):
@@ -335,8 +364,27 @@ def get_device_breakdown(
         for r in rows
     ]
 
+    # ── Compare-window aggregate (only the hero scalar — total_sessions). ──
+    compare_payload: dict | None = None
+    cmp_b = resolve_compare_utc_bounds(range_q, shop_tz=shop_tz)
+    if cmp_b is not None:
+        cmp_start_dt, cmp_end_dt_excl, _, _ = cmp_b
+        cmp_total = db.execute(
+            text("""
+                SELECT COUNT(DISTINCT visitor_id) AS sessions
+                FROM events
+                WHERE shop_domain = :shop
+                  AND event_type = 'page_view'
+                  AND timestamp >= (EXTRACT(EPOCH FROM CAST(:start_dt AS timestamp)) * 1000)
+                  AND timestamp <  (EXTRACT(EPOCH FROM CAST(:end_dt_excl AS timestamp)) * 1000)
+            """),
+            {"shop": shop, "start_dt": cmp_start_dt, "end_dt_excl": cmp_end_dt_excl},
+        ).scalar() or 0
+        compare_payload = {"total_sessions": int(cmp_total)}
+
     response = DeviceBreakdownResponse(
-        days=effective_days, total_sessions=total, has_data=total > 0, slices=slices,
+        days=effective_days, total_sessions=total, has_data=total > 0,
+        slices=slices, compare=compare_payload,
     )
     cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
     return response
@@ -481,9 +529,34 @@ def get_abandonment_trend(
 
     avg_pct = round(sum(pct_values) / len(pct_values), 1) if pct_values else None
     has_data = any(s.cart_adds > 0 for s in series)
+
+    # ── Compare-window aggregate (only avg_abandonment_pct scalar). ──
+    compare_payload: dict | None = None
+    cmp_b = resolve_compare_utc_bounds(range_q, shop_tz=tz)
+    if cmp_b is not None:
+        cmp_start_dt, cmp_end_dt_excl, _, _ = cmp_b
+        cmp_row = db.execute(
+            text("""
+                SELECT
+                    COUNT(*) FILTER (WHERE event_type = 'cart_added') AS cart_adds,
+                    COUNT(*) FILTER (WHERE event_type = 'purchase')   AS purchases
+                FROM events
+                WHERE shop_domain = :shop
+                  AND timestamp >= (EXTRACT(EPOCH FROM CAST(:start_dt AS timestamp)) * 1000)
+                  AND timestamp <  (EXTRACT(EPOCH FROM CAST(:end_dt_excl AS timestamp)) * 1000)
+                  AND event_type IN ('cart_added', 'purchase')
+            """),
+            {"shop": shop, "start_dt": cmp_start_dt, "end_dt_excl": cmp_end_dt_excl},
+        ).mappings().first()
+        cmp_ca = int((cmp_row or {}).get("cart_adds", 0) or 0)
+        cmp_pu = int((cmp_row or {}).get("purchases", 0) or 0)
+        cmp_avg = round(max(0.0, (cmp_ca - cmp_pu) / cmp_ca) * 100.0, 1) if cmp_ca > 0 else None
+        compare_payload = {"avg_abandonment_pct": cmp_avg}
+
     response = AbandonmentTrendResponse(
         days=effective_days, timezone=tz,
         has_data=has_data, series=series, avg_abandonment_pct=avg_pct,
+        compare=compare_payload,
     )
     cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
     return response
@@ -565,8 +638,59 @@ def get_first_vs_repeat_aov(
     if first.aov > 0:
         uplift = round(((repeat.aov - first.aov) / first.aov) * 100.0, 1)
 
+    # ── Compare-window aggregate (uplift_pct + first/repeat revenue scalars). ──
+    compare_payload: dict | None = None
+    cmp_b = resolve_compare_utc_bounds(range_q, shop_tz=shop_tz)
+    if cmp_b is not None:
+        cmp_start_dt, cmp_end_dt_excl, _, _ = cmp_b
+        cmp_rows = db.execute(
+            text("""
+                WITH ranked AS (
+                    SELECT
+                        customer_email,
+                        total_price,
+                        created_at,
+                        ROW_NUMBER() OVER (PARTITION BY customer_email ORDER BY created_at) AS rn
+                    FROM shop_orders
+                    WHERE shop_domain = :shop
+                      AND currency = :currency
+                      AND customer_email IS NOT NULL
+                      AND customer_email <> ''
+                      AND total_price > 0
+                ),
+                windowed AS (
+                    SELECT * FROM ranked
+                    WHERE created_at >= :start_dt
+                      AND created_at < :end_dt_excl
+                )
+                SELECT
+                    COUNT(*) FILTER (WHERE rn = 1) AS first_orders,
+                    COUNT(*) FILTER (WHERE rn > 1) AS repeat_orders,
+                    COALESCE(SUM(total_price) FILTER (WHERE rn = 1), 0) AS first_revenue,
+                    COALESCE(SUM(total_price) FILTER (WHERE rn > 1), 0) AS repeat_revenue
+                FROM windowed
+            """),
+            {"shop": shop, "currency": currency,
+             "start_dt": cmp_start_dt, "end_dt_excl": cmp_end_dt_excl},
+        ).fetchone()
+        cmp_fo = int((cmp_rows or [0])[0] or 0)
+        cmp_ro = int((cmp_rows or [0, 0])[1] or 0)
+        cmp_fr = float((cmp_rows or [0, 0, 0])[2] or 0)
+        cmp_rr = float((cmp_rows or [0, 0, 0, 0])[3] or 0)
+        cmp_first_aov = (cmp_fr / cmp_fo) if cmp_fo > 0 else 0.0
+        cmp_repeat_aov = (cmp_rr / cmp_ro) if cmp_ro > 0 else 0.0
+        cmp_uplift = None
+        if cmp_first_aov > 0:
+            cmp_uplift = round(((cmp_repeat_aov - cmp_first_aov) / cmp_first_aov) * 100.0, 1)
+        compare_payload = {
+            "aov_uplift_pct": cmp_uplift,
+            "first_revenue": round(cmp_fr, 2),
+            "repeat_revenue": round(cmp_rr, 2),
+        }
+
     response = FirstVsRepeatResponse(
-        currency=currency, has_data=fo + ro > 0, first=first, repeat=repeat, aov_uplift_pct=uplift,
+        currency=currency, has_data=fo + ro > 0, first=first, repeat=repeat,
+        aov_uplift_pct=uplift, compare=compare_payload,
     )
     cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
     return response
@@ -668,12 +792,48 @@ def get_orders_by_country(
     total_orders = sum(c.orders for c in countries)
     total_revenue = round(sum(c.revenue for c in countries), 2)
 
+    # ── Compare-window aggregate (totals only — globe map is the
+    # primary visual; delta scalars surfaced if a tile pivots later). ──
+    compare_payload: dict | None = None
+    cmp_b = resolve_compare_utc_bounds(range_q, shop_tz=shop_tz)
+    if cmp_b is not None:
+        _, _, cmp_start_local, cmp_end_local = cmp_b
+        cmp_valid_dates: set[str] = set()
+        cmp_cursor = cmp_start_local
+        while cmp_cursor <= cmp_end_local:
+            cmp_valid_dates.add(cmp_cursor.isoformat())
+            cmp_cursor += timedelta(days=1)
+        cmp_total_orders = 0
+        cmp_total_revenue = 0.0
+        for raw_field, raw_value in raw.items():
+            field = raw_field.decode() if isinstance(raw_field, bytes) else raw_field
+            value = raw_value.decode() if isinstance(raw_value, bytes) else raw_value
+            parts = field.split(":")
+            if len(parts) < 3:
+                continue
+            _cc, date, metric = parts[0], parts[1], parts[2]
+            if date not in cmp_valid_dates:
+                continue
+            if metric == "count":
+                try: cmp_total_orders += int(value)
+                except (TypeError, ValueError): pass
+            elif metric.startswith("revenue_"):
+                metric_ccy = metric.split("_", 1)[1]
+                if metric_ccy == currency:
+                    try: cmp_total_revenue += float(value)
+                    except (TypeError, ValueError): pass
+        compare_payload = {
+            "total_orders": int(cmp_total_orders),
+            "total_revenue": round(cmp_total_revenue, 2),
+        }
+
     response = OrdersByCountryResponse(
         currency=currency, days=effective_days,
         has_data=total_orders > 0,
         total_orders=total_orders,
         total_revenue=total_revenue,
         countries=countries,
+        compare=compare_payload,
     )
     cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
     return response
@@ -745,11 +905,39 @@ def get_order_rhythm(
     total = sum(b.orders for b in by_hour)
     peak_hour = max(by_hour, key=lambda b: b.orders).hour if total > 0 else None
     peak_dow  = max(by_dow,  key=lambda b: b.orders).dow  if total > 0 else None
+    total_revenue = round(sum(b.revenue for b in by_hour), 2)
+
+    # ── Compare-window aggregate (totals only — by_hour/by_dow shapes
+    # don't translate to delta visuals; consumer compares aggregates). ──
+    compare_payload: dict | None = None
+    cmp_b = resolve_compare_utc_bounds(range_q, shop_tz=tz)
+    if cmp_b is not None:
+        cmp_start_dt, cmp_end_dt_excl, _, _ = cmp_b
+        cmp_row = db.execute(
+            text("""
+                SELECT
+                    COUNT(*) AS orders,
+                    COALESCE(SUM(total_price), 0) AS revenue
+                FROM shop_orders
+                WHERE shop_domain = :shop
+                  AND currency = :currency
+                  AND total_price > 0
+                  AND created_at >= :start_dt
+                  AND created_at < :end_dt_excl
+            """),
+            {"shop": shop, "currency": currency,
+             "start_dt": cmp_start_dt, "end_dt_excl": cmp_end_dt_excl},
+        ).mappings().first()
+        compare_payload = {
+            "total_orders": int((cmp_row or {}).get("orders", 0) or 0),
+            "total_revenue": round(float((cmp_row or {}).get("revenue", 0) or 0), 2),
+        }
 
     response = OrderRhythmResponse(
         currency=currency, timezone=tz, days=effective_days, has_data=total > 0,
         by_hour=by_hour, by_dow=by_dow,
         peak_hour=peak_hour, peak_dow=peak_dow,
+        compare=compare_payload,
     )
     cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
     return response
@@ -807,10 +995,55 @@ def get_repeat_cadence(
     ).fetchall()
 
     gaps = sorted(float(r[0]) for r in rows if r[0] is not None and float(r[0]) >= 0)
+
+    # ── Compare-window aggregate (median_days + customers_with_2plus). ──
+    def _compute_compare(cmp_start_dt, cmp_end_dt_excl) -> dict:
+        cmp_rows = db.execute(
+            text("""
+                WITH ranked AS (
+                    SELECT customer_email, created_at,
+                        LAG(created_at) OVER (PARTITION BY customer_email ORDER BY created_at) AS prev_at
+                    FROM shop_orders
+                    WHERE shop_domain = :shop
+                      AND customer_email IS NOT NULL
+                      AND customer_email <> ''
+                      AND created_at >= :start_dt
+                      AND created_at < :end_dt_excl
+                )
+                SELECT EXTRACT(EPOCH FROM (created_at - prev_at)) / 86400.0 AS gap_days
+                FROM ranked WHERE prev_at IS NOT NULL
+            """),
+            {"shop": shop, "start_dt": cmp_start_dt, "end_dt_excl": cmp_end_dt_excl},
+        ).fetchall()
+        cmp_gaps = sorted(float(r[0]) for r in cmp_rows if r[0] is not None and float(r[0]) >= 0)
+        cmp_customers = db.execute(
+            text("""
+                SELECT COUNT(*) FROM (
+                    SELECT customer_email FROM shop_orders
+                    WHERE shop_domain = :shop AND customer_email IS NOT NULL AND customer_email <> ''
+                      AND created_at >= :start_dt AND created_at < :end_dt_excl
+                    GROUP BY customer_email HAVING COUNT(*) >= 2
+                ) t
+            """),
+            {"shop": shop, "start_dt": cmp_start_dt, "end_dt_excl": cmp_end_dt_excl},
+        ).scalar() or 0
+        cmp_median = None
+        if cmp_gaps:
+            idx = max(0, min(len(cmp_gaps) - 1, int(round(0.50 * (len(cmp_gaps) - 1)))))
+            cmp_median = round(cmp_gaps[idx], 1)
+        return {"median_days": cmp_median, "customers_with_2plus": int(cmp_customers)}
+
+    compare_payload: dict | None = None
+    cmp_b = resolve_compare_utc_bounds(range_q, shop_tz=shop_tz)
+    if cmp_b is not None:
+        cmp_start_dt, cmp_end_dt_excl, _, _ = cmp_b
+        compare_payload = _compute_compare(cmp_start_dt, cmp_end_dt_excl)
+
     if not gaps:
         response = RepeatCadenceResponse(
             has_data=False, customers_with_2plus=0, intervals_count=0,
             median_days=None, p25_days=None, p75_days=None, mean_days=None,
+            compare=compare_payload,
         )
         cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
         return response
@@ -844,6 +1077,7 @@ def get_repeat_cadence(
         p25_days=_pct(0.25),
         p75_days=_pct(0.75),
         mean_days=round(sum(gaps) / len(gaps), 1),
+        compare=compare_payload,
     )
     cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
     return response
@@ -916,9 +1150,50 @@ def get_top_products(
         )
         for r in rows
     ]
+
+    # ── Compare-window aggregate (top product revenue + total orders). ──
+    compare_payload: dict | None = None
+    cmp_b = resolve_compare_utc_bounds(range_q, shop_tz=shop_tz)
+    if cmp_b is not None:
+        cmp_start_dt, cmp_end_dt_excl, _, _ = cmp_b
+        cmp_bind = {"shop": shop, "currency": currency,
+                    "start_dt": cmp_start_dt, "end_dt_excl": cmp_end_dt_excl}
+        cmp_top = db.execute(
+            text("""
+                SELECT COALESCE(MAX(per_title.revenue), 0) AS top_revenue
+                FROM (
+                    SELECT
+                        COALESCE(NULLIF(li->>'title', ''), 'Untitled product') AS title,
+                        SUM((li->>'quantity')::numeric * (li->>'price')::numeric) AS revenue
+                    FROM shop_orders so,
+                         LATERAL jsonb_array_elements(so.line_items) li
+                    WHERE so.shop_domain = :shop
+                      AND so.currency = :currency
+                      AND so.created_at >= :start_dt
+                      AND so.created_at < :end_dt_excl
+                      AND li->>'title' IS NOT NULL
+                    GROUP BY 1
+                ) per_title
+            """),
+            cmp_bind,
+        ).scalar() or 0
+        cmp_total_orders = db.execute(
+            text("""
+                SELECT COUNT(*) FROM shop_orders
+                WHERE shop_domain = :shop AND currency = :currency
+                  AND created_at >= :start_dt AND created_at < :end_dt_excl
+            """),
+            cmp_bind,
+        ).scalar() or 0
+        compare_payload = {
+            "top_revenue": round(float(cmp_top), 2),
+            "total_orders": int(cmp_total_orders),
+        }
+
     response = TopProductsResponse(
         currency=currency, days=effective_days,
         has_data=len(products) > 0, products=products,
+        compare=compare_payload,
     )
     cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
     return response
@@ -1008,12 +1283,45 @@ def get_discount_codes(
         )
         for r in rows
     ]
+
+    # ── Compare-window aggregate (enriched_orders + total_discount). ──
+    compare_payload: dict | None = None
+    cmp_b = resolve_compare_utc_bounds(range_q, shop_tz=shop_tz)
+    if cmp_b is not None:
+        cmp_start_dt, cmp_end_dt_excl, _, _ = cmp_b
+        cmp_row = db.execute(
+            text("""
+                SELECT
+                    COUNT(*) FILTER (
+                        WHERE discount_codes IS NOT NULL
+                          AND jsonb_array_length(discount_codes) > 0
+                    ) AS enriched_orders,
+                    COALESCE(SUM(
+                        CASE WHEN discount_codes IS NOT NULL
+                             AND jsonb_array_length(discount_codes) > 0
+                        THEN discount_amount ELSE 0 END
+                    ), 0) AS total_discount
+                FROM shop_orders
+                WHERE shop_domain = :shop
+                  AND currency = :currency
+                  AND created_at >= :start_dt
+                  AND created_at < :end_dt_excl
+            """),
+            {"shop": shop, "currency": currency,
+             "start_dt": cmp_start_dt, "end_dt_excl": cmp_end_dt_excl},
+        ).mappings().first()
+        compare_payload = {
+            "enriched_orders": int((cmp_row or {}).get("enriched_orders", 0) or 0),
+            "total_discount": round(float((cmp_row or {}).get("total_discount", 0) or 0), 2),
+        }
+
     response = DiscountCodesResponse(
         currency=currency, days=effective_days,
         has_data=enriched > 0,
         enriched_orders=int(enriched),
         total_orders_window=int(total_window),
         codes=codes,
+        compare=compare_payload,
     )
     cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
     return response
@@ -1078,11 +1386,28 @@ def get_order_status(
             for r in rows
         ]
 
+    # ── Compare-window aggregate (enriched_orders only). ──
+    compare_payload: dict | None = None
+    cmp_b = resolve_compare_utc_bounds(range_q, shop_tz=shop_tz)
+    if cmp_b is not None:
+        cmp_start_dt, cmp_end_dt_excl, _, _ = cmp_b
+        cmp_enriched = db.execute(
+            text("""
+                SELECT COUNT(*) FROM shop_orders
+                WHERE shop_domain = :shop
+                  AND created_at >= :start_dt AND created_at < :end_dt_excl
+                  AND (financial_status IS NOT NULL OR fulfillment_status IS NOT NULL)
+            """),
+            {"shop": shop, "start_dt": cmp_start_dt, "end_dt_excl": cmp_end_dt_excl},
+        ).scalar() or 0
+        compare_payload = {"enriched_orders": int(cmp_enriched)}
+
     response = OrderStatusResponse(
         days=effective_days, has_data=enriched > 0,
         enriched_orders=enriched,
         financial=_to_buckets(fin_rows),
         fulfillment=_to_buckets(ful_rows),
+        compare=compare_payload,
     )
     cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
     return response
@@ -1141,6 +1466,29 @@ def get_tax_breakdown(
     if pre_tax_rev > 0 and tax > 0:
         tax_rate = round((tax / pre_tax_rev) * 100.0, 2)
 
+    # ── Compare-window aggregate (total_tax + total_revenue). ──
+    compare_payload: dict | None = None
+    cmp_b = resolve_compare_utc_bounds(range_q, shop_tz=shop_tz)
+    if cmp_b is not None:
+        cmp_start_dt, cmp_end_dt_excl, _, _ = cmp_b
+        cmp_row = db.execute(
+            text("""
+                SELECT
+                    COALESCE(SUM(total_price), 0) AS revenue,
+                    COALESCE(SUM(tax_amount),  0) AS tax
+                FROM shop_orders
+                WHERE shop_domain = :shop AND currency = :currency
+                  AND created_at >= :start_dt AND created_at < :end_dt_excl
+                  AND tax_amount IS NOT NULL
+            """),
+            {"shop": shop, "currency": currency,
+             "start_dt": cmp_start_dt, "end_dt_excl": cmp_end_dt_excl},
+        ).fetchone()
+        compare_payload = {
+            "total_tax": round(float((cmp_row or [0, 0])[1] or 0), 2),
+            "total_revenue": round(float((cmp_row or [0, 0])[0] or 0), 2),
+        }
+
     response = TaxBreakdownResponse(
         currency=currency, days=effective_days,
         has_data=enriched > 0,
@@ -1149,6 +1497,7 @@ def get_tax_breakdown(
         total_revenue=round(revenue, 2),
         total_tax=round(tax, 2),
         tax_rate_pct=tax_rate,
+        compare=compare_payload,
     )
     cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
     return response
@@ -1212,12 +1561,35 @@ def get_payment_methods(
         for r in rows
     ]
 
+    # ── Compare-window aggregate (enriched_orders + total_revenue). ──
+    compare_payload: dict | None = None
+    cmp_b = resolve_compare_utc_bounds(range_q, shop_tz=shop_tz)
+    if cmp_b is not None:
+        cmp_start_dt, cmp_end_dt_excl, _, _ = cmp_b
+        cmp_row = db.execute(
+            text("""
+                SELECT
+                    COUNT(*) FILTER (WHERE payment_method IS NOT NULL) AS enriched,
+                    COALESCE(SUM(total_price) FILTER (WHERE payment_method IS NOT NULL), 0) AS revenue
+                FROM shop_orders
+                WHERE shop_domain = :shop AND currency = :currency
+                  AND created_at >= :start_dt AND created_at < :end_dt_excl
+            """),
+            {"shop": shop, "currency": currency,
+             "start_dt": cmp_start_dt, "end_dt_excl": cmp_end_dt_excl},
+        ).mappings().first()
+        compare_payload = {
+            "enriched_orders": int((cmp_row or {}).get("enriched", 0) or 0),
+            "total_revenue": round(float((cmp_row or {}).get("revenue", 0) or 0), 2),
+        }
+
     response = PaymentMethodsResponse(
         currency=currency, days=effective_days,
         has_data=enriched > 0,
         enriched_orders=enriched,
         total_orders_window=int(total_window),
         methods=methods,
+        compare=compare_payload,
     )
     cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
     return response
@@ -1321,12 +1693,59 @@ def get_top_variants(
         )
         for r in rows
     ]
+
+    # ── Compare-window aggregate (top variant revenue + enriched_orders). ──
+    compare_payload: dict | None = None
+    cmp_b = resolve_compare_utc_bounds(range_q, shop_tz=shop_tz)
+    if cmp_b is not None:
+        cmp_start_dt, cmp_end_dt_excl, _, _ = cmp_b
+        cmp_top = db.execute(
+            text("""
+                SELECT COALESCE(MAX(revenue), 0) AS top_revenue
+                FROM (
+                    SELECT
+                        li->>'variant_id' AS variant_id,
+                        SUM((li->>'quantity')::numeric * (li->>'price')::numeric) AS revenue
+                    FROM shop_orders so,
+                         LATERAL jsonb_array_elements(so.line_items) li
+                    WHERE so.shop_domain = :shop
+                      AND so.currency = :currency
+                      AND so.created_at >= :start_dt
+                      AND so.created_at < :end_dt_excl
+                      AND li ? 'variant_id'
+                    GROUP BY 1
+                ) per_variant
+            """),
+            {"shop": shop, "currency": currency,
+             "start_dt": cmp_start_dt, "end_dt_excl": cmp_end_dt_excl},
+        ).scalar() or 0
+        cmp_enriched = db.execute(
+            text("""
+                SELECT COUNT(*) FROM shop_orders
+                WHERE shop_domain = :shop AND currency = :currency
+                  AND created_at >= :start_dt AND created_at < :end_dt_excl
+                  AND line_items IS NOT NULL
+                  AND jsonb_array_length(line_items) > 0
+                  AND EXISTS (
+                      SELECT 1 FROM jsonb_array_elements(line_items) li
+                      WHERE li ? 'variant_id'
+                  )
+            """),
+            {"shop": shop, "currency": currency,
+             "start_dt": cmp_start_dt, "end_dt_excl": cmp_end_dt_excl},
+        ).scalar() or 0
+        compare_payload = {
+            "top_revenue": round(float(cmp_top or 0), 2),
+            "enriched_orders": int(cmp_enriched),
+        }
+
     response = TopVariantsResponse(
         currency=currency, days=effective_days,
         has_data=len(variants) > 0,
         enriched_orders=int(enriched),
         total_orders_window=int(total_window),
         variants=variants,
+        compare=compare_payload,
     )
     cache_set(cache_key, response.model_dump(), CACHE_TTL_S)
     return response
