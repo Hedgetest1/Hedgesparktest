@@ -82,6 +82,124 @@ class TestChurnScoringMath:
             assert "RFM" not in action
             assert "CVR" not in action
 
+    def test_boundary_factor_exactly_one(self):
+        """Factor exactly 1.0 must fall into 'slipping', not 'not_at_risk'.
+        Born after Phase 2 close DA-loop — prior tests verified bands at
+        factor 0.67 / 1.17 / 2.0 / 3.0 but not exact transition points.
+        This pins the < vs <= choice in _churn_score_and_band."""
+        score, band, factor = _churn_score_and_band(30, 30)  # exactly 1.0
+        assert factor == 1.0
+        assert band == "slipping"
+        assert score == 30  # 30 + (1.0 - 1.0) * 40 = 30
+
+    def test_boundary_factor_exactly_one_point_five(self):
+        score, band, factor = _churn_score_and_band(45, 30)  # exactly 1.5
+        assert factor == 1.5
+        assert band == "at_risk"
+        assert score == 50  # 50 + (1.5 - 1.5) * 30 = 50
+
+    def test_boundary_factor_exactly_two_point_five(self):
+        score, band, factor = _churn_score_and_band(75, 30)  # exactly 2.5
+        assert factor == 2.5
+        assert band == "lapsed"
+        assert score == 80  # 80 + (2.5 - 2.5) * 5 = 80
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Endpoint hardening tests — born from Phase 2 DA-loop
+# ════════════════════════════════════════════════════════════════════════
+
+
+class TestChurnRefundedOrdersExcluded:
+    """A customer who refunded all their orders is NOT 'still buying'.
+
+    Pre-fix the query counted refunded/voided orders the same as paid
+    ones — corrupting the churn signal. A customer who refunded
+    everything looked identical to one about to re-order.
+    """
+
+    def test_fully_refunded_customer_not_counted(self, client, db, merchant_a):
+        # 35 normal customers (cohort threshold met)
+        _seed_repeat_customers(
+            db, SHOP_A,
+            count=35,
+            days_between_orders=20,
+            days_since_last=60,
+        )
+        # 1 customer with 3 orders ALL refunded — must NOT appear in
+        # churn forecast (their refund means relationship ended differently)
+        from datetime import datetime, timedelta, timezone
+        from app.models.shop_order import ShopOrder
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        for i in range(3):
+            db.add(ShopOrder(
+                shop_domain=SHOP_A,
+                shopify_order_id=f"refund-{i}",
+                total_price=100.00,
+                currency="USD",
+                customer_email="refunder@test.com",
+                financial_status="refunded",
+                line_items=[{"title": "Widget", "price": "100", "quantity": 1}],
+                created_at=now - timedelta(days=60 + (20 * (2 - i))),
+                source="webhook",
+            ))
+        db.commit()
+        cookies = auth_cookies(SHOP_A)
+
+        resp = client.get("/analytics/customer-churn-forecast?top_n=50", cookies=cookies)
+        body = resp.json()
+        # The fully-refunded customer's hash must NOT be in the at-risk list
+        import hashlib
+        refunder_hash = "cust_" + hashlib.sha256(b"refunder@test.com").hexdigest()[:8]
+        hashes = [c["customer_email_hash"] for c in body["customers"]]
+        assert refunder_hash not in hashes, (
+            f"Fully-refunded customer must be excluded from churn forecast, but found in {hashes}"
+        )
+
+
+class TestChurnMultiCurrencyCustomers:
+    """Multi-currency shops: a customer who bought in USD AND EUR is still
+    ONE customer for churn purposes. Pre-fix the query filtered by shop
+    currency — invisible-data-loss for any cross-currency customer."""
+
+    def test_customer_with_mixed_currencies_appears(self, client, db, merchant_a):
+        # 30 baseline customers in USD (threshold)
+        _seed_repeat_customers(
+            db, SHOP_A,
+            count=30,
+            days_between_orders=20,
+            days_since_last=60,
+            currency="USD",
+        )
+        # 1 customer with mixed-currency history (USD + EUR), latest order
+        # in EUR: pre-fix this customer was invisible to USD-shop churn.
+        from datetime import datetime, timedelta, timezone
+        from app.models.shop_order import ShopOrder
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        for i, ccy in enumerate(["USD", "USD", "EUR"]):
+            db.add(ShopOrder(
+                shop_domain=SHOP_A,
+                shopify_order_id=f"mixccy-{i}",
+                total_price=200.00,
+                currency=ccy,
+                customer_email="mixed@test.com",
+                financial_status="paid",
+                line_items=[{"title": "Widget", "price": "200", "quantity": 1}],
+                created_at=now - timedelta(days=60 + (20 * (2 - i))),
+                source="webhook",
+            ))
+        db.commit()
+        cookies = auth_cookies(SHOP_A)
+
+        resp = client.get("/analytics/customer-churn-forecast?top_n=50", cookies=cookies)
+        body = resp.json()
+        import hashlib
+        mixed_hash = "cust_" + hashlib.sha256(b"mixed@test.com").hexdigest()[:8]
+        hashes = [c["customer_email_hash"] for c in body["customers"]]
+        assert mixed_hash in hashes, (
+            f"Multi-currency customer must be visible in churn forecast, hashes: {hashes}"
+        )
+
 
 # ════════════════════════════════════════════════════════════════════════
 # Endpoint integration tests — exercise SQL + scoring + ranking

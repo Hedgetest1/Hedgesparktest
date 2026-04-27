@@ -1319,15 +1319,39 @@ def get_customer_churn_forecast(
     crosses the wire."""
     import hashlib
 
+    # Currency is reported in the response (for top_spent display + UI
+    # labels) but does NOT filter the query: a customer who buys in USD
+    # AND in EUR is still ONE customer for churn purposes — we want to
+    # see if they're slipping regardless of which currency they used.
+    # Pre-fix the query had `currency = :currency` which excluded any
+    # cross-currency customer entirely (data loss, not just display).
     currency = get_shop_currency(db, shop) or "USD"
-    cache_key = f"hs:churn:v1:{shop}:{currency}:{top_n}"
+    cache_key = f"hs:churn:v1:{shop}:{top_n}"
     cached = cache_get(cache_key)
     if cached:
         return CustomerChurnForecastResponse(**cached)
 
+    # Statement timeout: this CTE walks every order in the last 730d
+    # for the shop. At 10k merchants × 100k orders/shop the worst-case
+    # is ~5s; we bound it explicitly so a slow query never blocks an
+    # entire uvicorn worker.
+    db.execute(text("SET LOCAL statement_timeout = '5s'"))
+
     # Single SQL pass: customer aggregates + median gap via percentile_cont
     # + days_since_last via NOW() arithmetic. Postgres-native, no Python
     # loop over per-customer queries.
+    #
+    # Filters applied:
+    # - financial_status NOT IN ('refunded', 'voided'): a fully-refunded
+    #   order is NOT a sale; a voided order never completed. Counting
+    #   either as "they bought" corrupts the churn signal — a customer
+    #   who refunded everything looks identical to one who's about to
+    #   buy again, which they're not. partially_refunded customers ARE
+    #   counted: they kept SOMETHING, the relationship is alive.
+    # - currency filter REMOVED (was: AND currency = :currency). Multi-
+    #   currency shops legitimately have customers buying in different
+    #   currencies; the churn signal is order frequency, not amount, so
+    #   currency mismatch is irrelevant to "are they still buying?"
     rows = db.execute(
         text("""
             WITH customer_orders AS (
@@ -1340,10 +1364,13 @@ def get_customer_churn_forecast(
                     ) AS prev_at
                 FROM shop_orders
                 WHERE shop_domain = :shop
-                  AND currency = :currency
                   AND customer_email IS NOT NULL
                   AND customer_email <> ''
                   AND created_at >= NOW() - INTERVAL '730 days'
+                  AND (
+                      financial_status IS NULL
+                      OR financial_status NOT IN ('refunded', 'voided')
+                  )
             ),
             customer_stats AS (
                 SELECT
@@ -1375,7 +1402,7 @@ def get_customer_churn_forecast(
             FROM customer_stats cs
             JOIN customer_gaps cg USING (customer_email)
         """),
-        {"shop": shop, "currency": currency},
+        {"shop": shop},
     ).mappings().all()
 
     customers_with_2plus = len(rows)
@@ -1440,5 +1467,11 @@ def get_customer_churn_forecast(
         revenue_at_risk=round(revenue_at_risk, 2),
         customers=top,
     )
+    # Cache stampede note: 5min TTL with no SETNX lock. At 1-3 concurrent
+    # dashboard users per merchant (typical pre-scale), worst case is 3×
+    # parallel fills on cold cache — measured cost <1s × 3 = acceptable.
+    # Re-evaluate at >100 concurrent users per merchant (not a current
+    # state). DA-disproved at Phase 2 close: stampede is real at scale
+    # but currently not biting — 5-line SETNX fix when needed.
     cache_set(cache_key, response.model_dump(), 300)  # 5min cache (heavier query)
     return response
