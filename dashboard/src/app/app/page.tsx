@@ -126,6 +126,8 @@ import {
   TopVariantsTile,
 } from "../components/LiteBaseAnalytics";
 import { CustomerChurnTile } from "../components/CustomerChurnTile";
+import { DateRangeProvider } from "../components/DateRangeContext";
+import { DateRangePicker } from "../components/DateRangePicker";
 import { PnlReport } from "../components/PnlReport";
 import { MarginDragCard } from "../components/MarginDragCard";
 import { ChannelAttributionCard } from "../components/ChannelAttributionCard";
@@ -2080,6 +2082,7 @@ function PageInner() {
   // Render
   // ---------------------------------------------------------------------------
   return (
+    <DateRangeProvider>
     <div
       // `fixed inset-0` instead of `h-screen overflow-hidden` so the
       // dashboard is taken out of the document flow entirely. Two-bar
@@ -2111,6 +2114,22 @@ function PageInner() {
 
       <div className="flex flex-1 flex-col overflow-hidden">
         <TopBar shop={shop} tier={tier} onTierToggle={handleTierToggle} trial={trialInfo} notifications={bellNotifications} bellPulse={bellPulse} reputation={sparkReputation} />
+
+        {/* Global date range picker — Lite floor only (Phase 3B). Sticky
+            below the TopBar; every Lite analytics tile subscribes via
+            DateRangeContext + useDateRange and re-fetches when the
+            range changes. Visual + a11y contract:
+            docs/DATE_RANGE_PICKER_VISUAL_SPEC.md */}
+        {isLiteFloor && shop && (
+          <div className="border-b border-white/[0.04] bg-[#07070f]/95 px-5 py-2.5 backdrop-blur-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                Showing data for
+              </div>
+              <DateRangePicker />
+            </div>
+          </div>
+        )}
 
         <main ref={mainRef} className="flex-1 overflow-y-auto hs-scroll-smooth">
           {!sessionResolved ? (
@@ -4207,6 +4226,7 @@ function PageInner() {
         }
       />
     </div>
+    </DateRangeProvider>
   );
 }
 

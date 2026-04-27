@@ -20,6 +20,7 @@
 import { useEffect, useState } from "react";
 import { apiClient } from "@/app/lib/api-client";
 import { formatMoneyCompact } from "../app/_lib/formatters";
+import { useDateRange } from "./DateRangeContext";
 
 type DisplayCurrency = "USD" | "EUR" | string;
 
@@ -238,6 +239,7 @@ type AbandonmentTrendData = {
 };
 
 export function AbandonmentTrendTile() {
+  const { range } = useDateRange();
   const [data, setData] = useState<AbandonmentTrendData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -246,7 +248,9 @@ export function AbandonmentTrendTile() {
   useEffect(() => {
     let active = true;
     setLoading(true); setError(false);
-    apiClient.GET("/analytics/abandonment-trend")
+    apiClient.GET("/analytics/abandonment-trend", {
+      params: { query: { start_date: range.start, end_date: range.end } },
+    })
       .then(({ data: j, error: err }) => {
         if (!active) return;
         if (err || !j) setError(true);
@@ -255,7 +259,7 @@ export function AbandonmentTrendTile() {
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tick]);
+  }, [tick, range.start, range.end]);
 
   if (loading) return <TileSkeleton height={140} />;
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
@@ -425,6 +429,7 @@ type CadenceData = {
 };
 
 export function RepeatCadenceTile() {
+  const { range } = useDateRange();
   const [data, setData] = useState<CadenceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -433,7 +438,9 @@ export function RepeatCadenceTile() {
   useEffect(() => {
     let active = true;
     setLoading(true); setError(false);
-    apiClient.GET("/analytics/repeat-cadence")
+    apiClient.GET("/analytics/repeat-cadence", {
+      params: { query: { start_date: range.start, end_date: range.end } },
+    })
       .then(({ data: j, error: err }) => {
         if (!active) return;
         if (err || !j) setError(true);
@@ -442,7 +449,7 @@ export function RepeatCadenceTile() {
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tick]);
+  }, [tick, range.start, range.end]);
 
   if (loading) return <TileSkeleton height={120} />;
   if (error) return <TileError retry={() => setTick(t => t + 1)} />;
@@ -490,6 +497,7 @@ type TopProductsData = {
 };
 
 export function TopProductsTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
+  const { range } = useDateRange();
   const [data, setData] = useState<TopProductsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -498,7 +506,9 @@ export function TopProductsTile({ displayCurrency }: { displayCurrency: DisplayC
   useEffect(() => {
     let active = true;
     setLoading(true); setError(false);
-    apiClient.GET("/analytics/top-products")
+    apiClient.GET("/analytics/top-products", {
+      params: { query: { start_date: range.start, end_date: range.end } },
+    })
       .then(({ data: j, error: err }) => {
         if (!active) return;
         if (err || !j) setError(true);
@@ -507,7 +517,7 @@ export function TopProductsTile({ displayCurrency }: { displayCurrency: DisplayC
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tick]);
+  }, [tick, range.start, range.end]);
 
   const ccy = data?.currency ?? displayCurrency;
 

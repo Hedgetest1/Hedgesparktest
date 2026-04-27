@@ -1414,7 +1414,8 @@ export interface paths {
         };
         /**
          * Get Abandonment Trend
-         * @description Daily cart-abandonment % over the last `days` days.
+         * @description Daily cart-abandonment % over the explicit range (or last `days`
+         *     days when range not provided).
          *
          *     abandonment_pct = (cart_adds - purchases) / cart_adds  (per day)
          *     None when cart_adds is zero — never fabricate against empty days.
@@ -1517,8 +1518,9 @@ export interface paths {
         };
         /**
          * Get Repeat Cadence
-         * @description For each customer with 2+ orders in the last `days` days,
-         *     compute days between consecutive orders. Return percentile stats.
+         * @description For each customer with 2+ orders in the explicit range (or last
+         *     `days` days when range not provided), compute days between
+         *     consecutive orders. Return percentile stats.
          */
         get: operations["get_repeat_cadence_analytics_repeat_cadence_get"];
         put?: never;
@@ -1538,10 +1540,11 @@ export interface paths {
         };
         /**
          * Get Top Products
-         * @description Top products by revenue over last `days` days. Joins each
-         *     line_items JSONB element to its parent order so we sum across
-         *     every line in every matching order. NULL/blank titles roll up
-         *     into 'Untitled product' rather than dropping them.
+         * @description Top products by revenue over the explicit range (or last `days`
+         *     days when range not provided). Joins each line_items JSONB element
+         *     to its parent order so we sum across every line in every matching
+         *     order. NULL/blank titles roll up into 'Untitled product' rather
+         *     than dropping them.
          */
         get: operations["get_top_products_analytics_top_products_get"];
         put?: never;
@@ -14020,6 +14023,14 @@ export interface operations {
         parameters: {
             query?: {
                 days?: number;
+                /** @description Inclusive start date (YYYY-MM-DD). Both start + end required for explicit range. */
+                start_date?: string | null;
+                /** @description Inclusive end date (YYYY-MM-DD). Both start + end required for explicit range. */
+                end_date?: string | null;
+                /** @description Comparison range start (optional). Both compare bounds required if used. */
+                compare_start?: string | null;
+                /** @description Comparison range end (optional). Both compare bounds required if used. */
+                compare_end?: string | null;
             };
             header?: never;
             path?: never;
@@ -14144,6 +14155,14 @@ export interface operations {
         parameters: {
             query?: {
                 days?: number;
+                /** @description Inclusive start date (YYYY-MM-DD). Both start + end required for explicit range. */
+                start_date?: string | null;
+                /** @description Inclusive end date (YYYY-MM-DD). Both start + end required for explicit range. */
+                end_date?: string | null;
+                /** @description Comparison range start (optional). Both compare bounds required if used. */
+                compare_start?: string | null;
+                /** @description Comparison range end (optional). Both compare bounds required if used. */
+                compare_end?: string | null;
             };
             header?: never;
             path?: never;
@@ -14176,6 +14195,14 @@ export interface operations {
             query?: {
                 days?: number;
                 limit?: number;
+                /** @description Inclusive start date (YYYY-MM-DD). Both start + end required for explicit range. */
+                start_date?: string | null;
+                /** @description Inclusive end date (YYYY-MM-DD). Both start + end required for explicit range. */
+                end_date?: string | null;
+                /** @description Comparison range start (optional). Both compare bounds required if used. */
+                compare_start?: string | null;
+                /** @description Comparison range end (optional). Both compare bounds required if used. */
+                compare_end?: string | null;
             };
             header?: never;
             path?: never;
