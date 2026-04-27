@@ -192,6 +192,19 @@ run_with_autofix "Lite nav ↔ section parity" "audit_lite_nav_section_parity.py
 run_with_autofix "Lite hardcoded currency" "audit_lite_hardcoded_currency.py" --fix-supported
 
 # ---------------------------------------------------------------------------
+# 2b-quater-bis. Backend currency drift — sibling to Lite hardcoded currency.
+# Born 2026-04-27 after Phase 1 cosmetic audit found 4 backend sites with
+# hardcoded "EUR" in user-visible response paths (revenue_genome AOV/RPC
+# genes, klaviyo_events value_currency, instant_onboarding fallback,
+# merchant_groups default param). Doctrine in app/core/currency.py:17
+# states USD is the safer default. This audit grep-enforces it across
+# app/services/*.py and app/api/*.py with an exemption list for
+# legitimate uses (SQLAlchemy column defaults, env-var lookups,
+# multi-currency maps, COALESCE SQL fallbacks).
+# ---------------------------------------------------------------------------
+AUDIT_EXTRA_ARGS=--strict run_with_autofix "Backend currency drift" "audit_backend_currency_drift.py"
+
+# ---------------------------------------------------------------------------
 # 2b-quinquies. Dashboard a11y pattern scan — informational, never blocking.
 # Catches the two violation classes axe flagged on /app routes during F6
 # (icon-only buttons missing aria-label, low-contrast slate-500/600 small

@@ -37,7 +37,7 @@ def _now():
 
 def create_group(db: Session, *, name: str, owner_email: str,
                  description: str | None = None,
-                 base_currency: str = "EUR") -> MerchantGroup:
+                 base_currency: str = "USD") -> MerchantGroup:
     g = MerchantGroup(
         name=name, owner_email=owner_email,
         description=description, base_currency=base_currency,

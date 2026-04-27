@@ -107,7 +107,12 @@ def _compute_intelligence(orders: list[dict]) -> dict:
     total_refunded = 0.0
     order_count = 0
     product_sales: dict[str, dict] = {}  # product_id -> {title, revenue, units}
-    currency = "EUR"
+    # Initial fallback only — overridden on the first order with a non-null
+    # `currency` field. USD is the Shopify global default (per
+    # app/core/currency.py:17), strictly safer than "EUR" if every fetched
+    # order somehow lacks a currency tag (only ever happens on synthetic
+    # fixtures).
+    currency = "USD"
 
     for o in orders:
         try:
