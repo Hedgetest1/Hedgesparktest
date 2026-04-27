@@ -159,6 +159,10 @@ def resolve_window_days(
     When the client didn't → fall back to the legacy `days` window
     ending today (UTC). The third tuple element is the day count for
     cache-key parity with legacy `days` cache keys.
+
+    NOTE: returns naive dates; callers that need shop-tz-correct
+    UTC bounds for SQL filtering should call
+    `resolve_utc_bounds(range_q, fallback_days, shop_tz)` instead.
     """
     if range_q.is_explicit():
         # Type narrowing: is_explicit() guarantees both are non-None.
@@ -169,3 +173,57 @@ def resolve_window_days(
     end = datetime.now(timezone.utc).date()
     start = end - timedelta(days=fallback_days - 1)
     return start, end, fallback_days
+
+
+def resolve_utc_bounds(
+    range_q: DateRangeQuery,
+    *,
+    fallback_days: int,
+    shop_tz: str = "UTC",
+):
+    """Resolve a date range into (start_utc_naive, end_utc_naive_excl,
+    days, start_local_date, end_local_date).
+
+    Born 2026-04-27 from Phase 3B Stage B DA-loop — the original
+    resolve_window_days returned naive dates that Postgres interprets
+    as UTC midnight. For a shop in PST a 23:00 PST order on March 14
+    landed in the "March 14 UTC" bucket via this naive comparison —
+    visible to the merchant as a March 13 order. Real data correctness
+    bug, fixed here.
+
+    Math:
+      start_utc_naive = midnight `start_local` in shop_tz, converted
+                        to UTC, stripped of tzinfo (matches the
+                        `created_at` column which is `TIMESTAMP WITHOUT
+                        TIME ZONE` storing UTC values per project
+                        convention).
+      end_utc_naive_excl = midnight `end_local + 1 day` in shop_tz
+                           converted to UTC. Used as exclusive upper
+                           bound: `created_at < end_utc_naive_excl`.
+
+    Returns:
+      (start_utc, end_utc_excl, days_for_cache, start_local, end_local)
+    """
+    from datetime import datetime, time, timezone as _tz
+
+    start_local, end_local, days = resolve_window_days(
+        range_q, fallback_days=fallback_days
+    )
+
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(shop_tz or "UTC")
+    except Exception:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("UTC")
+
+    # Midnight in shop tz at start_local; +1 day for exclusive end.
+    start_local_dt = datetime.combine(start_local, time.min, tzinfo=tz)
+    end_local_dt = datetime.combine(
+        end_local + timedelta(days=1), time.min, tzinfo=tz
+    )
+
+    start_utc = start_local_dt.astimezone(_tz.utc).replace(tzinfo=None)
+    end_utc_excl = end_local_dt.astimezone(_tz.utc).replace(tzinfo=None)
+
+    return start_utc, end_utc_excl, days, start_local, end_local

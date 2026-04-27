@@ -37,7 +37,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.date_range import DateRangeQuery, get_date_range, resolve_window_days
+from app.core.date_range import DateRangeQuery, get_date_range, resolve_utc_bounds, resolve_window_days
 from app.core.deps import require_merchant_session
 from app.core.redis_client import cache_get, cache_set
 from app.services.revenue_metrics import get_shop_currency, get_shop_timezone
@@ -418,7 +418,9 @@ def get_abandonment_trend(
     None when cart_adds is zero — never fabricate against empty days.
     """
     tz = get_shop_timezone(db, shop) or "UTC"
-    start, end, effective_days = resolve_window_days(range_q, fallback_days=days)
+    start_dt, end_dt_excl, effective_days, start_local, end_local = resolve_utc_bounds(
+        range_q, fallback_days=days, shop_tz=tz
+    )
     cache_key = f"hs:abndntrnd:v1:{shop}:{tz}:{effective_days}{range_q.cache_key_segment()}"
     cached = cache_get(cache_key)
     if cached:
@@ -426,15 +428,14 @@ def get_abandonment_trend(
 
     # events.timestamp is BIGINT epoch milliseconds. Convert to TIMESTAMPTZ
     # via to_timestamp(ms/1000), then bucket by shop's local-tz date.
-    # Inclusive on both ends: bucket dates within [start, end].
-    from datetime import timedelta
-    end_dt_excl = end + timedelta(days=1)
+    # Range bounds: shop-tz date span (start_local..end_local), filter
+    # by UTC ms (start_dt..end_dt_excl).
     rows = db.execute(
         text("""
             WITH days AS (
                 SELECT generate_series(
-                    CAST(:start_dt AS date),
-                    CAST(:end_dt AS date),
+                    CAST(:start_local AS date),
+                    CAST(:end_local AS date),
                     INTERVAL '1 day'
                 )::date AS d
             ),
@@ -458,7 +459,8 @@ def get_abandonment_trend(
         """),
         {
             "shop": shop, "tz": tz,
-            "start_dt": start, "end_dt": end, "end_dt_excl": end_dt_excl,
+            "start_local": start_local, "end_local": end_local,
+            "start_dt": start_dt, "end_dt_excl": end_dt_excl,
         },
     ).mappings().all()
 
@@ -741,16 +743,19 @@ def get_repeat_cadence(
 ) -> RepeatCadenceResponse:
     """For each customer with 2+ orders in the explicit range (or last
     `days` days when range not provided), compute days between
-    consecutive orders. Return percentile stats."""
-    start, end, effective_days = resolve_window_days(range_q, fallback_days=days)
-    cache_key = f"hs:repcad:v1:{shop}:{effective_days}{range_q.cache_key_segment()}"
+    consecutive orders. Return percentile stats.
+
+    Range is interpreted in the SHOP's timezone (not browser-local nor
+    UTC) so the merchant's "today" matches their calendar regardless of
+    where they admin from."""
+    shop_tz = get_shop_timezone(db, shop) or "UTC"
+    start_dt, end_dt_excl, effective_days, _, _ = resolve_utc_bounds(
+        range_q, fallback_days=days, shop_tz=shop_tz
+    )
+    cache_key = f"hs:repcad:v1:{shop}:{shop_tz}:{effective_days}{range_q.cache_key_segment()}"
     cached = cache_get(cache_key)
     if cached:
         return RepeatCadenceResponse(**cached)
-
-    # Both ends inclusive: end_dt_excl = end + 1 day, then `< end_dt_excl`.
-    from datetime import timedelta
-    end_dt_excl = end + timedelta(days=1)
 
     rows = db.execute(
         text("""
@@ -773,7 +778,7 @@ def get_repeat_cadence(
             FROM ranked
             WHERE prev_at IS NOT NULL
         """),
-        {"shop": shop, "start_dt": start, "end_dt_excl": end_dt_excl},
+        {"shop": shop, "start_dt": start_dt, "end_dt_excl": end_dt_excl},
     ).fetchall()
 
     gaps = sorted(float(r[0]) for r in rows if r[0] is not None and float(r[0]) >= 0)
@@ -803,7 +808,7 @@ def get_repeat_cadence(
                 HAVING COUNT(*) >= 2
             ) t
         """),
-        {"shop": shop, "start_dt": start, "end_dt_excl": end_dt_excl},
+        {"shop": shop, "start_dt": start_dt, "end_dt_excl": end_dt_excl},
     ).scalar() or 0
 
     response = RepeatCadenceResponse(
@@ -842,15 +847,13 @@ def get_top_products(
     db: Session = Depends(get_db),
 ) -> TopProductsResponse:
     """Top products by revenue over the explicit range (or last `days`
-    days when range not provided). Joins each line_items JSONB element
-    to its parent order so we sum across every line in every matching
-    order. NULL/blank titles roll up into 'Untitled product' rather
-    than dropping them."""
-    from datetime import timedelta
+    days when range not provided). Range interpreted in shop tz."""
     currency = get_shop_currency(db, shop) or "USD"
-    start, end, effective_days = resolve_window_days(range_q, fallback_days=days)
-    end_dt_excl = end + timedelta(days=1)
-    cache_key = f"hs:topprod:v1:{shop}:{currency}:{effective_days}:{limit}{range_q.cache_key_segment()}"
+    shop_tz = get_shop_timezone(db, shop) or "UTC"
+    start_dt, end_dt_excl, effective_days, _, _ = resolve_utc_bounds(
+        range_q, fallback_days=days, shop_tz=shop_tz
+    )
+    cache_key = f"hs:topprod:v1:{shop}:{currency}:{shop_tz}:{effective_days}:{limit}{range_q.cache_key_segment()}"
     cached = cache_get(cache_key)
     if cached:
         return TopProductsResponse(**cached)
@@ -877,7 +880,7 @@ def get_top_products(
         """),
         {
             "shop": shop, "currency": currency,
-            "start_dt": start, "end_dt_excl": end_dt_excl, "limit": limit,
+            "start_dt": start_dt, "end_dt_excl": end_dt_excl, "limit": limit,
         },
     ).mappings().all()
 

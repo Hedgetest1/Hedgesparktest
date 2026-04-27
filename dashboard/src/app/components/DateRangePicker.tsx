@@ -59,14 +59,34 @@ export function DateRangePicker() {
   const [open, setOpen] = useState(false);
   const [customStart, setCustomStart] = useState(range.start);
   const [customEnd, setCustomEnd] = useState(range.end);
+  // Keyboard navigation cursor for arrow-up/down preset traversal.
+  // -1 = no synthetic focus (Tab-driven focus instead).
+  const [activeIndex, setActiveIndex] = useState<number>(-1);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const presetBtnRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   // Sync local custom inputs when range changes externally
   useEffect(() => {
     setCustomStart(range.start);
     setCustomEnd(range.end);
   }, [range.start, range.end]);
+
+  // Initialize keyboard cursor on the current preset when dropdown opens
+  useEffect(() => {
+    if (!open) {
+      setActiveIndex(-1);
+      return;
+    }
+    const idx = PRESETS.findIndex((p) => p.key === range.preset);
+    setActiveIndex(idx >= 0 ? idx : 0);
+  }, [open, range.preset]);
+
+  // Move DOM focus to follow keyboard cursor
+  useEffect(() => {
+    if (!open || activeIndex < 0) return;
+    presetBtnRefs.current[activeIndex]?.focus();
+  }, [activeIndex, open]);
 
   // Close on click outside
   useEffect(() => {
@@ -80,13 +100,36 @@ export function DateRangePicker() {
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
 
-  // Close on Esc
+  // Keyboard handler: Esc closes; ArrowUp/ArrowDown navigate presets;
+  // Home/End jump to first/last. Per spec section 7 a11y contract.
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
+        e.preventDefault();
         setOpen(false);
         triggerRef.current?.focus();
+        return;
+      }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setActiveIndex((i) => (i + 1) % PRESETS.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setActiveIndex((i) => (i - 1 + PRESETS.length) % PRESETS.length);
+        return;
+      }
+      if (e.key === "Home") {
+        e.preventDefault();
+        setActiveIndex(0);
+        return;
+      }
+      if (e.key === "End") {
+        e.preventDefault();
+        setActiveIndex(PRESETS.length - 1);
+        return;
       }
     }
     document.addEventListener("keydown", onKey);
@@ -95,13 +138,17 @@ export function DateRangePicker() {
 
   const applyPreset = useCallback((preset: DateRangePreset) => {
     if (preset === "custom") {
-      // Don't close — user picks dates next
+      // Switch to custom but stay open — user picks dates next + clicks
+      // Apply. Seed the custom inputs with the current effective range
+      // so they don't reset to default — feels natural to refine the
+      // current view into a custom span.
+      setRange(rangeFromPreset("custom", customStart, customEnd));
       return;
     }
     setRange(rangeFromPreset(preset));
     setOpen(false);
     triggerRef.current?.focus();
-  }, [setRange]);
+  }, [setRange, customStart, customEnd]);
 
   const applyCustom = useCallback(() => {
     if (!customStart || !customEnd) return;
@@ -138,20 +185,50 @@ export function DateRangePicker() {
         </svg>
       </button>
 
-      {/* Dropdown panel */}
+      {/* Dropdown panel — desktop dropdown OR mobile bottom sheet
+          per spec section 6. < md breakpoint switches to fixed
+          bottom-aligned full-width sheet for tap-friendly mobile UX. */}
       {open && (
-        <div
-          className="absolute right-0 z-30 mt-2 min-w-[280px] rounded-2xl border border-white/[0.08] bg-[#0e0e1a] p-2 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.5)]"
-          role="listbox"
-          aria-label="Date range presets"
-        >
+        <>
+          {/* Mobile backdrop (only visible < md) */}
+          <div
+            className="fixed inset-0 z-20 bg-black/40 backdrop-blur-sm md:hidden"
+            aria-hidden
+            onClick={() => setOpen(false)}
+          />
+          <div
+            className={[
+              // Mobile: fixed bottom sheet
+              "fixed inset-x-0 bottom-0 z-30 max-h-[85vh] overflow-y-auto rounded-t-2xl border-t border-white/[0.08] bg-[#0e0e1a] p-3 shadow-[0_-30px_60px_-15px_rgba(0,0,0,0.5)] pb-[env(safe-area-inset-bottom,16px)]",
+              // Desktop: absolute dropdown
+              "md:absolute md:right-0 md:bottom-auto md:inset-x-auto md:mt-2 md:min-w-[280px] md:max-h-none md:rounded-2xl md:border md:border-white/[0.08] md:p-2 md:shadow-[0_30px_60px_-15px_rgba(0,0,0,0.5)] md:pb-2",
+            ].join(" ")}
+            role="listbox"
+            aria-label="Date range presets"
+          >
+            {/* Mobile drawer header */}
+            <div className="mb-2 flex items-center justify-between border-b border-white/[0.05] pb-2 md:hidden">
+              <div className="text-[13px] font-bold text-slate-100">Date range</div>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="rounded-lg p-1 text-slate-300 hover:bg-white/[0.06] focus:outline-none focus:ring-2 focus:ring-[#e8a04e]/50"
+                aria-label="Close date range picker"
+              >
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
+                  <path d="M4 4l10 10M14 4L4 14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+
           {/* Presets */}
           <div className="space-y-0.5">
-            {PRESETS.map((p) => {
+            {PRESETS.map((p, i) => {
               const active = range.preset === p.key;
               return (
                 <button
                   key={p.key}
+                  ref={(el) => { presetBtnRefs.current[i] = el; }}
                   type="button"
                   onClick={() => applyPreset(p.key)}
                   className={`w-full text-left rounded-lg px-3 py-2 text-[13px] font-medium transition ${
@@ -161,6 +238,7 @@ export function DateRangePicker() {
                   } focus:outline-none focus:ring-2 focus:ring-[#e8a04e]/50`}
                   role="option"
                   aria-selected={active}
+                  tabIndex={activeIndex === i ? 0 : -1}
                 >
                   <span className="flex items-center justify-between">
                     {p.label}
@@ -210,7 +288,8 @@ export function DateRangePicker() {
               </button>
             </div>
           )}
-        </div>
+          </div>
+        </>
       )}
     </div>
   );

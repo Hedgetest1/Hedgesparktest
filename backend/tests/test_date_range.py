@@ -20,7 +20,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.core.date_range import (
-    DateRangeQuery, get_date_range, resolve_window_days,
+    DateRangeQuery, get_date_range, resolve_utc_bounds, resolve_window_days,
 )
 from app.models.shop_order import ShopOrder
 from tests.conftest import SHOP_A, auth_cookies
@@ -134,6 +134,74 @@ class TestResolveWindowDays:
         assert end == today
         assert start == today - timedelta(days=13)  # 14 days inclusive
         assert days == 14
+
+
+class TestResolveUtcBounds:
+    """Phase 3B Stage B DA-loop fix — naive `date` filtering treated
+    every range as UTC midnight, so a 23:00 PST order on March 14 was
+    bucketed into the merchant's 'March 14' even though they see it
+    as March 14 evening locally. Real data correctness bug."""
+
+    def test_utc_bounds_for_pacific_shop(self):
+        # Merchant picks "2026-03-14" (single day) on a PST shop (UTC-8).
+        # The day starts at 2026-03-14 00:00 PST = 2026-03-14 08:00 UTC.
+        # The day ends   at 2026-03-15 00:00 PST = 2026-03-15 08:00 UTC.
+        # Pre-fix the SQL ran with `created_at >= '2026-03-14 00:00 UTC'`
+        # which included 8 hours of March 13 PST orders.
+        from datetime import datetime
+        q = DateRangeQuery(
+            start_date=date(2026, 3, 14), end_date=date(2026, 3, 14),
+        )
+        start_utc, end_utc_excl, days, sl, el = resolve_utc_bounds(
+            q, fallback_days=1, shop_tz="America/Los_Angeles",
+        )
+        # PST is UTC-8 in March (PDT actually, UTC-7) — verify the
+        # offset shifts the boundary from 00:00 UTC to a non-zero hour.
+        assert start_utc != datetime(2026, 3, 14, 0, 0, 0)
+        # The local dates round-trip correctly
+        assert sl == date(2026, 3, 14)
+        assert el == date(2026, 3, 14)
+        assert days == 1
+        # Span is exactly 24 hours
+        assert (end_utc_excl - start_utc) == timedelta(days=1)
+
+    def test_utc_bounds_for_european_shop(self):
+        # Italian shop (UTC+1 standard, UTC+2 DST)
+        from datetime import datetime
+        q = DateRangeQuery(
+            start_date=date(2026, 7, 1), end_date=date(2026, 7, 7),
+        )
+        start_utc, end_utc_excl, days, _, _ = resolve_utc_bounds(
+            q, fallback_days=1, shop_tz="Europe/Rome",
+        )
+        # July → CEST (UTC+2). Italy midnight = UTC 22:00 prior day.
+        assert start_utc == datetime(2026, 6, 30, 22, 0, 0)
+        assert end_utc_excl == datetime(2026, 7, 7, 22, 0, 0)
+        assert days == 7
+
+    def test_utc_bounds_utc_shop_is_pass_through(self):
+        from datetime import datetime
+        q = DateRangeQuery(
+            start_date=date(2026, 4, 1), end_date=date(2026, 4, 1),
+        )
+        start_utc, end_utc_excl, _, _, _ = resolve_utc_bounds(
+            q, fallback_days=1, shop_tz="UTC",
+        )
+        assert start_utc == datetime(2026, 4, 1, 0, 0, 0)
+        assert end_utc_excl == datetime(2026, 4, 2, 0, 0, 0)
+
+    def test_invalid_tz_falls_back_to_utc(self):
+        """An unknown IANA tz must not crash — fall back to UTC silently."""
+        from datetime import datetime
+        q = DateRangeQuery(
+            start_date=date(2026, 4, 1), end_date=date(2026, 4, 1),
+        )
+        start_utc, end_utc_excl, _, _, _ = resolve_utc_bounds(
+            q, fallback_days=1, shop_tz="Mars/Olympus_Mons",
+        )
+        # Falls through to UTC behavior
+        assert start_utc == datetime(2026, 4, 1, 0, 0, 0)
+        assert end_utc_excl == datetime(2026, 4, 2, 0, 0, 0)
 
 
 # ════════════════════════════════════════════════════════════════════════
