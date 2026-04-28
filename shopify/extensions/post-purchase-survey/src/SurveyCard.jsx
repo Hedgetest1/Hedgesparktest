@@ -18,7 +18,7 @@
 // FAILURE:     all network errors degrade silently (return null) —
 //              never break the customer's checkout experience.
 
-import {BlockStack, Heading, Text, ChoiceList, TextField, Button, Banner} from "@shopify/ui-extensions-react/checkout";
+import {BlockStack, Heading, Text, ChoiceList, Choice, TextField, Button, Banner} from "@shopify/ui-extensions-react/checkout";
 import {useEffect, useState} from "react";
 
 const API_BASE = "https://api.hedgesparkhq.com";
@@ -45,11 +45,22 @@ export default function SurveyCard({api, surface}) {
           return;
         }
 
-        // Local dedup — already submitted/skipped for this order → hide
-        const local = await storage.read(`hs_survey_${orderId}`);
-        if (local === "submitted" || local === "skipped") {
-          if (!cancelled) setPhase("already");
-          return;
+        // Local dedup — already submitted/skipped for this order → hide.
+        // Defensive: `storage` may be undefined on some surfaces (e.g.
+        // customer-account.order-status renders without buyer-journey
+        // storage in some Shopify revisions). Continue without dedup
+        // rather than throwing into the silent-failure catch below.
+        if (storage && typeof storage.read === "function" && orderId) {
+          try {
+            const local = await storage.read(`hs_survey_${orderId}`);
+            if (local === "submitted" || local === "skipped") {
+              if (!cancelled) setPhase("already");
+              return;
+            }
+          } catch (_) {
+            // storage unavailable — fall through; server-side UNIQUE
+            // (shop_domain, order_id, question_key) still dedups
+          }
         }
 
         // Fetch shop-level config
@@ -92,13 +103,18 @@ export default function SurveyCard({api, surface}) {
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify(body),
       });
+      const writeLocal = async () => {
+        if (storage && typeof storage.write === "function" && orderId) {
+          try { await storage.write(`hs_survey_${orderId}`, "submitted"); } catch (_) {}
+        }
+      };
       if (res.ok) {
-        await storage.write(`hs_survey_${orderId}`, "submitted");
+        await writeLocal();
         setPhase("done");
         return;
       }
       if (res.status === 409) {
-        await storage.write(`hs_survey_${orderId}`, "submitted");
+        await writeLocal();
         setPhase("already");
         return;
       }
@@ -133,8 +149,14 @@ export default function SurveyCard({api, surface}) {
     <BlockStack spacing="base">
       <Heading level={3}>{config?.question || "How did you hear about us?"}</Heading>
       {errorMsg ? <Banner status="critical">{errorMsg}</Banner> : null}
-      <ChoiceList name="hs-survey" value={choice ? [choice] : []} onChange={(v) => setChoice(v[0])}>
-        {options.map((o) => ({...o}))}
+      <ChoiceList
+        name="hs-survey"
+        value={choice || ""}
+        onChange={(v) => setChoice(typeof v === "string" ? v : (Array.isArray(v) ? v[0] : ""))}
+      >
+        {options.map((o) => (
+          <Choice key={o.value} id={o.value}>{o.label}</Choice>
+        ))}
       </ChoiceList>
       {choice === "other" ? (
         <TextField
