@@ -4674,6 +4674,213 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/survey/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Survey Config */
+        get: operations["get_survey_config_survey_config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/survey/response": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post Survey Response */
+        post: operations["post_survey_response_survey_response_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/merchant/survey/aggregate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Survey Aggregate */
+        get: operations["get_survey_aggregate_merchant_survey_aggregate_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/merchant/survey/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put Merchant Survey Config */
+        put: operations["put_merchant_survey_config_merchant_survey_config_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/merchant/reports/standard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Standard Surfaces */
+        get: operations["list_standard_surfaces_merchant_reports_standard_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/merchant/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Reports */
+        get: operations["list_reports_merchant_reports_get"];
+        put?: never;
+        /** Create Report */
+        post: operations["create_report_merchant_reports_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/merchant/reports/{report_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Report */
+        get: operations["get_report_merchant_reports__report_id__get"];
+        /** Update Report */
+        put: operations["update_report_merchant_reports__report_id__put"];
+        post?: never;
+        /** Delete Report */
+        delete: operations["delete_report_merchant_reports__report_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/merchant/reports/{report_id}/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Toggle Schedule */
+        post: operations["toggle_schedule_merchant_reports__report_id__schedule_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/merchant/reports/{report_id}/data": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Execute Report */
+        get: operations["execute_report_merchant_reports__report_id__data_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/merchant/inventory/kpis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Inventory Kpis */
+        get: operations["get_inventory_kpis_merchant_inventory_kpis_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/merchant/inventory/details": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Inventory Details */
+        get: operations["get_inventory_details_merchant_inventory_details_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/merchant/inventory/snapshot-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Snapshot Status */
+        get: operations["get_snapshot_status_merchant_inventory_snapshot_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pro/customer-churn": {
         parameters: {
             query?: never;
@@ -7246,6 +7453,17 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /** AtRiskRow */
+        AtRiskRow: {
+            /** Product Url */
+            product_url: string;
+            /** Product Title */
+            product_title: string;
+            /** Days Of Cover */
+            days_of_cover: number | null;
+            /** Inventory Quantity */
+            inventory_quantity: number;
+        };
         /** AtomicSignalRow */
         AtomicSignalRow: {
             /** Name */
@@ -8965,6 +9183,59 @@ export interface components {
         /** IntegrationsResponse */
         IntegrationsResponse: {
             klaviyo: components["schemas"]["KlaviyoConnectionResponse"];
+        };
+        /** InventoryDetailRow */
+        InventoryDetailRow: {
+            /** Product Url */
+            product_url: string;
+            /** Product Title */
+            product_title: string;
+            /** Inventory Quantity */
+            inventory_quantity: number;
+            /** Sales Rate Per Day */
+            sales_rate_per_day: number;
+            /** Days Of Cover */
+            days_of_cover: number | null;
+            /** Sell Through 30D Pct */
+            sell_through_30d_pct: number;
+            /** Reorder Hint */
+            reorder_hint: string;
+        };
+        /** InventoryDetailsOut */
+        InventoryDetailsOut: {
+            /** Shop Domain */
+            shop_domain: string;
+            /** Rows */
+            rows: components["schemas"]["InventoryDetailRow"][];
+            /** Total */
+            total: number;
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+            /** Lead Time Days */
+            lead_time_days: number;
+        };
+        /** InventoryKpisOut */
+        InventoryKpisOut: {
+            /** Shop Domain */
+            shop_domain: string;
+            /** Products Tracked */
+            products_tracked: number;
+            /** Out Of Stock Count */
+            out_of_stock_count: number;
+            /** Low Stock Count */
+            low_stock_count: number;
+            /** Days Of Cover Top */
+            days_of_cover_top: number | null;
+            /** Top At Risk */
+            top_at_risk: components["schemas"]["AtRiskRow"][];
+            /** Headline */
+            headline: string;
+            /** Lead Time Days */
+            lead_time_days: number;
+            /** Last Snapshot At */
+            last_snapshot_at: string | null;
         };
         /** JourneyTouch */
         JourneyTouch: {
@@ -11240,6 +11511,112 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /** ReportCreateIn */
+        ReportCreateIn: {
+            /** Name */
+            name: string;
+            /** Metric */
+            metric: string;
+            /** Dimensions */
+            dimensions?: string[];
+            /** Filters */
+            filters?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Date Range Preset
+             * @default last_30_days
+             */
+            date_range_preset: string;
+            /** Custom Start */
+            custom_start?: string | null;
+            /** Custom End */
+            custom_end?: string | null;
+            /**
+             * Compare Enabled
+             * @default false
+             */
+            compare_enabled: boolean;
+            /** Formula */
+            formula?: string | null;
+            /** Forecast Horizon */
+            forecast_horizon?: number | null;
+        };
+        /** ReportDataOut */
+        ReportDataOut: {
+            /** Report Id */
+            report_id: number;
+            /** Metric */
+            metric: string;
+            /** Metric Label */
+            metric_label: string;
+            /** Metric Unit */
+            metric_unit: string;
+            /** Dimensions */
+            dimensions: string[];
+            /** Range Label */
+            range_label: string;
+            /** Rows */
+            rows: components["schemas"]["ReportDataRow"][];
+            /** Total */
+            total: number;
+            /** Chart Type */
+            chart_type: string;
+            /** Forecast Horizon */
+            forecast_horizon: number | null;
+            /** Notes */
+            notes: string[];
+        };
+        /** ReportDataRow */
+        ReportDataRow: {
+            /** Label */
+            label: string;
+            /** Value */
+            value: number;
+            /** Pct Of Total */
+            pct_of_total?: number | null;
+            /** Forecast Low */
+            forecast_low?: number | null;
+            /** Forecast High */
+            forecast_high?: number | null;
+            /** Holdout Lift Eur */
+            holdout_lift_eur?: number | null;
+            /** Holdout P Value */
+            holdout_p_value?: number | null;
+            /** Peer Percentile */
+            peer_percentile?: number | null;
+        };
+        /** ReportUpdateIn */
+        ReportUpdateIn: {
+            /** Name */
+            name: string;
+            /** Metric */
+            metric: string;
+            /** Dimensions */
+            dimensions?: string[];
+            /** Filters */
+            filters?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Date Range Preset
+             * @default last_30_days
+             */
+            date_range_preset: string;
+            /** Custom Start */
+            custom_start?: string | null;
+            /** Custom End */
+            custom_end?: string | null;
+            /**
+             * Compare Enabled
+             * @default false
+             */
+            compare_enabled: boolean;
+            /** Formula */
+            formula?: string | null;
+            /** Forecast Horizon */
+            forecast_horizon?: number | null;
+        };
         /** ResolveRequest */
         ResolveRequest: {
             /** Resolution Summary */
@@ -11469,6 +11846,63 @@ export interface components {
             last_fired_at: string | null;
             /** Created At */
             created_at: string | null;
+        };
+        /** SavedReportListOut */
+        SavedReportListOut: {
+            /** Reports */
+            reports: components["schemas"]["SavedReportOut"][];
+            /** Total */
+            total: number;
+        };
+        /** SavedReportOut */
+        SavedReportOut: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Metric */
+            metric: string;
+            /** Dimensions */
+            dimensions: string[];
+            /** Filters */
+            filters: {
+                [key: string]: unknown;
+            };
+            /** Date Range Preset */
+            date_range_preset: string;
+            /** Custom Start */
+            custom_start: string | null;
+            /** Custom End */
+            custom_end: string | null;
+            /** Compare Enabled */
+            compare_enabled: boolean;
+            /** Formula */
+            formula: string | null;
+            /** Forecast Horizon */
+            forecast_horizon: number | null;
+            /** Scheduled */
+            scheduled: boolean;
+            /** Scheduled Cadence */
+            scheduled_cadence: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Last Run At */
+            last_run_at: string | null;
+        };
+        /** ScheduleIn */
+        ScheduleIn: {
+            /** Scheduled */
+            scheduled: boolean;
+            /** Scheduled Cadence */
+            scheduled_cadence?: string | null;
         };
         /**
          * ScrollBucket
@@ -11860,6 +12294,17 @@ export interface components {
             /** Last Error */
             last_error?: string | null;
         };
+        /** SnapshotStatusOut */
+        SnapshotStatusOut: {
+            /** Shop Domain */
+            shop_domain: string;
+            /** Last Snapshot At */
+            last_snapshot_at: string | null;
+            /** Products Tracked */
+            products_tracked: number;
+            /** Is Fresh */
+            is_fresh: boolean;
+        };
         /** SourceSplit */
         SourceSplit: {
             /**
@@ -11897,6 +12342,20 @@ export interface components {
              * @default false
              */
             paid_revenue_gap: boolean;
+        };
+        /** StandardSurfaceOut */
+        StandardSurfaceOut: {
+            /** Surface */
+            surface: string;
+            /** Title */
+            title: string;
+            /** Description */
+            description: string;
+        };
+        /** StandardSurfacesOut */
+        StandardSurfacesOut: {
+            /** Surfaces */
+            surfaces: components["schemas"]["StandardSurfaceOut"][];
         };
         /** StatusBucket */
         StatusBucket: {
@@ -12011,6 +12470,80 @@ export interface components {
             status?: ("active" | "paused") | null;
             /** Description */
             description?: string | null;
+        };
+        /** SurveyAggregateOut */
+        SurveyAggregateOut: {
+            /** Shop Domain */
+            shop_domain: string;
+            /** Range */
+            range: string;
+            /** Total */
+            total: number;
+            /** Distribution */
+            distribution: components["schemas"]["SurveyDistributionEntry"][];
+            top_choice: components["schemas"]["SurveyDistributionEntry"] | null;
+        };
+        /** SurveyConfigOut */
+        SurveyConfigOut: {
+            /** Question */
+            question: string;
+            /** Options */
+            options: {
+                [key: string]: unknown;
+            }[];
+            /** Allow Other */
+            allow_other: boolean;
+            /** Show On Order Status */
+            show_on_order_status: boolean;
+        };
+        /** SurveyConfigUpdate */
+        SurveyConfigUpdate: {
+            /** Survey Question */
+            survey_question?: string | null;
+            /** Survey Options */
+            survey_options?: {
+                [key: string]: unknown;
+            }[] | null;
+            /** Survey Allow Other */
+            survey_allow_other?: boolean | null;
+            /** Survey Show On Order Status */
+            survey_show_on_order_status?: boolean | null;
+        };
+        /** SurveyConfigUpdateOut */
+        SurveyConfigUpdateOut: {
+            /** Status */
+            status: string;
+            config: components["schemas"]["SurveyConfigOut"];
+        };
+        /** SurveyDistributionEntry */
+        SurveyDistributionEntry: {
+            /** Choice */
+            choice: string;
+            /** Count */
+            count: number;
+            /** Pct */
+            pct: number;
+        };
+        /** SurveyResponseIn */
+        SurveyResponseIn: {
+            /** Shop Domain */
+            shop_domain: string;
+            /** Order Id */
+            order_id: string;
+            /**
+             * Question Key
+             * @default how_did_you_hear
+             */
+            question_key: string;
+            /** Answer Choice */
+            answer_choice?: string | null;
+            /** Answer Text */
+            answer_text?: string | null;
+            /**
+             * Consent Given
+             * @default false
+             */
+            consent_given: boolean;
         };
         /** TaxBreakdownResponse */
         TaxBreakdownResponse: {
@@ -18424,6 +18957,446 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_survey_config_survey_config_get: {
+        parameters: {
+            query: {
+                shop: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_survey_response_survey_response_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SurveyResponseIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_survey_aggregate_merchant_survey_aggregate_get: {
+        parameters: {
+            query?: {
+                range?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SurveyAggregateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_merchant_survey_config_merchant_survey_config_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SurveyConfigUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SurveyConfigUpdateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_standard_surfaces_merchant_reports_standard_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StandardSurfacesOut"];
+                };
+            };
+        };
+    };
+    list_reports_merchant_reports_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedReportListOut"];
+                };
+            };
+        };
+    };
+    create_report_merchant_reports_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportCreateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedReportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_report_merchant_reports__report_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                report_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedReportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_report_merchant_reports__report_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                report_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportUpdateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedReportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_report_merchant_reports__report_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                report_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedReportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    toggle_schedule_merchant_reports__report_id__schedule_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                report_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedReportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    execute_report_merchant_reports__report_id__data_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                report_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDataOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_inventory_kpis_merchant_inventory_kpis_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryKpisOut"];
+                };
+            };
+        };
+    };
+    get_inventory_details_merchant_inventory_details_get: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryDetailsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_snapshot_status_merchant_inventory_snapshot_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotStatusOut"];
                 };
             };
         };

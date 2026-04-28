@@ -1,0 +1,13 @@
+# shopify.app.toml is created locally by `shopify app config link
+# --client-id=<existing>` from Partners truth. It is TIER_2 (mirrors
+# OAuth + billing config) and must NEVER be checked into git.
+shopify.app.toml
+
+# Shopify CLI caches
+.shopify/
+node_modules/
+*.log
+
+# Build artifacts
+dist/
+build/

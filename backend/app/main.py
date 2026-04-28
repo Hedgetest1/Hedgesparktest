@@ -194,6 +194,9 @@ from app.api.forecasts import router as forecasts_router, lite_router as forecas
 from app.api.compliance_evidence import router as compliance_evidence_router
 from app.api.merchant_rules import router as merchant_rules_router
 from app.api.public_events import router as public_events_router
+from app.api.survey import router as survey_router
+from app.api.reports import router as reports_router
+from app.api.inventory import router as inventory_router
 from app.api.customer_churn import router as customer_churn_router
 from app.api.nudge_dna import router as nudge_dna_router
 from app.api.integrations import router as integrations_router
@@ -303,7 +306,7 @@ app.add_middleware(
 # return no sensitive data.  The wildcard origin applies to preflight only.
 # POST responses also carry these headers (set in track.py route handlers).
 # ---------------------------------------------------------------------------
-_TRACK_PREFLIGHT_PATHS = frozenset({"/track", "/track/batch"})
+_TRACK_PREFLIGHT_PATHS = frozenset({"/track", "/track/batch", "/survey/response", "/survey/config"})
 _TRACK_CORS_HEADERS = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -332,7 +335,7 @@ async def track_preflight_middleware(request: Request, call_next):
 # Excluded: /track, /track/batch, /nudge/event, /webhooks, /auth — these
 # are either public/storefront endpoints or have their own auth (HMAC).
 # ---------------------------------------------------------------------------
-_CSRF_EXEMPT_PREFIXES = ("/track", "/webhooks", "/auth", "/nudge/event")
+_CSRF_EXEMPT_PREFIXES = ("/track", "/webhooks", "/auth", "/nudge/event", "/survey/response")
 
 
 @app.middleware("http")
@@ -366,7 +369,7 @@ async def csrf_guard_middleware(request: Request, call_next):
 # which run on merchant domains; they need CORS and DO NOT need HSTS
 # (their origin may not be HTTPS on dev shops).
 # ---------------------------------------------------------------------------
-_TRACKER_HEADERS_EXEMPT = frozenset({"/track", "/track/batch", "/nudge/event"})
+_TRACKER_HEADERS_EXEMPT = frozenset({"/track", "/track/batch", "/nudge/event", "/survey/response", "/survey/config"})
 
 # Strict CSP for JSON API responses — any rendered content is a sign
 # of compromise. `default-src 'none'` blocks every content type, and
@@ -569,6 +572,9 @@ app.include_router(forecasts_lite_router)
 app.include_router(compliance_evidence_router)
 app.include_router(merchant_rules_router)
 app.include_router(public_events_router)
+app.include_router(survey_router)
+app.include_router(reports_router)
+app.include_router(inventory_router)
 app.include_router(customer_churn_router)
 app.include_router(nudge_dna_router)
 app.include_router(integrations_router)

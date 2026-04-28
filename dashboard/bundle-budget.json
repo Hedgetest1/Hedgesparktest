@@ -62,10 +62,17 @@
     "chunks_total_bytes": 1816908,
     "chunks_count": 41
   },
+  "_baseline_2026_04_28_gap1_reports_builder": {
+    "_note": "Gap #1 Custom Report Builder shipped (Lite full parity per `feedback_0_60_parity_doctrine.md`). New routes: /app/reports (Hub), /app/reports/new (Wizard), /app/reports/[id] (Viewer), /app/reports/[id]/edit (Edit). Plus shared ReportBuilderForm.tsx (~340 LOC) used by both wizard + edit. Hub also adds the /app/settings/surveys editable form (Gap #7 sister-bug closure: tier-agnostic Settings chrome). Total chunks grew 1817→1975 KB (+158 KB) for 4 new pages + the shared form + post-purchase survey card. largest_chunk 750→827 KB (+77). chunks_count 41→46 (+5 routes). Budget chunks_total raised 1950000 -> 2050000 for ~4% headroom heading into Gap #4 (Inventory) + Gap #5 (Multi-store).",
+    "largest_chunk_bytes": 826893,
+    "root_main_total_bytes": 455826,
+    "chunks_total_bytes": 1975322,
+    "chunks_count": 46
+  },
   "budgets": {
     "largest_chunk_bytes": 860000,
     "root_main_total_bytes": 520000,
-    "chunks_total_bytes": 1950000,
+    "chunks_total_bytes": 2050000,
     "chunks_count_max": 48
   }
 }

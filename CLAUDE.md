@@ -748,6 +748,11 @@ must satisfy:
 | `hs:email:last_verified:v1` | Sticky last-known verified state for flip detection | 30d |
 | `hs:audit_telemetry:{audit_name}` | Per-audit fire-rate + findings HASH (field=YYYY-MM-DD, value=`runs|findings|severity`); surfaced via `/ops/audit-telemetry` | 90d |
 | `hs:compare_toggle_usage:v1` | Compare-toggle adoption counter (HASH, field=YYYY-MM-DD, value=count) — incremented at the `resolve_compare_utc_bounds` chokepoint, captures every compare request | 90d |
+| `hs:survey_cfg:v1:{shop}` | Post-purchase survey config cache (Gap #7) — read at every Shopify Checkout UI Extension render | 10min |
+| `hs:survey:rl:{ip_hash}` | Survey response rate-limit (3 hits / 60s window per ip_hash) | 60s |
+| `hs:survey:daily:{shop}:{date}` | Per-shop daily survey response cap (10k/day) — sanity ceiling against runaway storage | 48h |
+| `hs:survey:pii_violations:{date}` | Daily counter of `answer_text` blocked by `llm_pii_guard` (read by ops dashboards) | 30d |
+| `hs:survey:first_today:{shop}:{date}` | SETNX flag — first response of the day per shop, drives NotificationBell pulse | 24h |
 
 **Note (2026-04-18):** This table is the CURATED list. The backend
 currently uses ~150 Redis prefixes total; the rest are tracked

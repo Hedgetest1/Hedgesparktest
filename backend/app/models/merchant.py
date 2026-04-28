@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, text
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
 
@@ -184,3 +185,49 @@ class Merchant(Base):
     # Merchant-controlled communication pause — stops all non-critical emails
     # when True. Checked by email_orchestrator before any send.
     email_paused = Column(Boolean, nullable=False, default=False, server_default="false")
+
+    # ---------------------------------------------------------------------------
+    # Post-purchase survey config (Gap #7 of brutal $0-70 audit, 2026-04-28)
+    #
+    # The Shopify Checkout UI Extension fetches /survey/config?shop=<domain>
+    # at render time; that endpoint reads these columns. Lite tier sees the
+    # defaults; Pro tier can edit via /pro/settings/surveys.
+    # ---------------------------------------------------------------------------
+    survey_question = Column(
+        String(160),
+        nullable=False,
+        default="How did you hear about us?",
+        server_default=text("'How did you hear about us?'"),
+    )
+    survey_options = Column(
+        JSONB,
+        nullable=False,
+        default=lambda: [
+            {"label": "Instagram", "value": "instagram"},
+            {"label": "TikTok", "value": "tiktok"},
+            {"label": "Google", "value": "google"},
+            {"label": "Friend", "value": "friend"},
+            {"label": "Email", "value": "email"},
+        ],
+        server_default=text(
+            "'["
+            "{\"label\":\"Instagram\",\"value\":\"instagram\"},"
+            "{\"label\":\"TikTok\",\"value\":\"tiktok\"},"
+            "{\"label\":\"Google\",\"value\":\"google\"},"
+            "{\"label\":\"Friend\",\"value\":\"friend\"},"
+            "{\"label\":\"Email\",\"value\":\"email\"}"
+            "]'::jsonb"
+        ),
+    )
+    survey_allow_other = Column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    survey_show_on_order_status = Column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+
+    # Per-shop override for the inventory reorder lead-time (Gap #4,
+    # 2026-04-28). NULL → use the 14-day industry-median default.
+    # Future Settings page (`/app/settings/inventory`) lets the merchant
+    # tune this. Read by the days-of-cover / reorder-hint logic.
+    inventory_lead_time_days = Column(Integer, nullable=True)

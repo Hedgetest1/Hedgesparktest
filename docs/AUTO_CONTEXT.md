@@ -1,5 +1,5 @@
 # WishSpark Auto Context
-Auto-generated: 2026-04-23T23:00:01.230072 UTC
+Auto-generated: 2026-04-28T17:00:01.649356 UTC
 
 ## Project Root
 /opt/wishspark
@@ -62,11 +62,13 @@ Auto-generated: 2026-04-23T23:00:01.230072 UTC
 /backend/app/api/instant_intelligence.py
 /backend/app/api/integrations.py
 /backend/app/api/intent.py
+/backend/app/api/inventory.py
 /backend/app/api/klaviyo.py
 /backend/app/api/knowledge_graph.py
 /backend/app/api/legal_pages.py
 /backend/app/api/lift.py
 /backend/app/api/lite_export.py
+/backend/app/api/lite_extras.py
 /backend/app/api/live_alerts.py
 /backend/app/api/live_opportunities.py
 /backend/app/api/live_visitors.py
@@ -106,6 +108,7 @@ Auto-generated: 2026-04-23T23:00:01.230072 UTC
 /backend/app/api/public_transparency.py
 /backend/app/api/realtime_stream.py
 /backend/app/api/refund_loss.py
+/backend/app/api/reports.py
 /backend/app/api/resend_webhooks.py
 /backend/app/api/revenue_at_risk.py
 /backend/app/api/revenue_autopsy.py
@@ -129,8 +132,10 @@ Auto-generated: 2026-04-23T23:00:01.230072 UTC
 /backend/app/api/source_quality.py
 /backend/app/api/store_intelligence.py
 /backend/app/api/storefront_preview.py
+/backend/app/api/survey.py
 /backend/app/api/team.py
 /backend/app/api/telegram_webhook.py
+/backend/app/api/today_snapshot.py
 /backend/app/api/top_pages.py
 /backend/app/api/track.py
 /backend/app/api/track_purchase.py
@@ -153,6 +158,7 @@ Auto-generated: 2026-04-23T23:00:01.230072 UTC
 /backend/app/services/activation.py
 /backend/app/services/adaptive_governance.py
 /backend/app/services/ads_connectors.py
+/backend/app/services/adversarial_reviewer.py
 /backend/app/services/adversarial_test_gen.py
 /backend/app/services/agency.py
 /backend/app/services/alerting.py
@@ -161,6 +167,7 @@ Auto-generated: 2026-04-23T23:00:01.230072 UTC
 /backend/app/services/anomaly_fusion.py
 /backend/app/services/audience_segments.py
 /backend/app/services/audit.py
+/backend/app/services/audit_telemetry.py
 /backend/app/services/auto_responder.py
 /backend/app/services/autonomous_loop.py
 /backend/app/services/behavioral_cohorts.py
@@ -224,6 +231,9 @@ Auto-generated: 2026-04-23T23:00:01.230072 UTC
 /backend/app/services/instant_onboarding.py
 /backend/app/services/intelligence_report.py
 /backend/app/services/invariant_monitor.py
+/backend/app/services/inventory_snapshot_fetcher.py
+/backend/app/services/inventory_snapshot_runner.py
+/backend/app/services/iterative_fix.py
 /backend/app/services/klaviyo_connection.py
 /backend/app/services/klaviyo_events.py
 /backend/app/services/klaviyo_export.py
@@ -293,6 +303,8 @@ Auto-generated: 2026-04-23T23:00:01.230072 UTC
 /backend/app/services/refund_loss.py
 /backend/app/services/regulatory_feed_monitor.py
 /backend/app/services/regulatory_watch.py
+/backend/app/services/report_holdout_lift.py
+/backend/app/services/report_special_metrics.py
 /backend/app/services/response_guardrails.py
 /backend/app/services/revenue_at_risk.py
 /backend/app/services/revenue_autopsy.py
@@ -310,13 +322,18 @@ Auto-generated: 2026-04-23T23:00:01.230072 UTC
 /backend/app/services/security_heartbeat.py
 /backend/app/services/security_preflight_guard.py
 /backend/app/services/segment_compare.py
+/backend/app/services/sentry_alert_rules.py
+/backend/app/services/sentry_api.py
 /backend/app/services/sentry_parser.py
+/backend/app/services/sentry_poller.py
+/backend/app/services/sentry_quota.py
 /backend/app/services/sentry_triage.py
 /backend/app/services/setup_audit.py
 /backend/app/services/share_engine.py
 /backend/app/services/shopify_admin.py
 /backend/app/services/shopify_auth.py
 /backend/app/services/shopify_cogs_sync.py
+/backend/app/services/sibling_hunt.py
 /backend/app/services/signal_text.py
 /backend/app/services/signal_webhooks.py
 /backend/app/services/silence_detector.py
@@ -355,6 +372,7 @@ Auto-generated: 2026-04-23T23:00:01.230072 UTC
 /backend/app/models/active_model_config.py
 /backend/app/models/active_nudge.py
 /backend/app/models/ad_spend.py
+/backend/app/models/adversarial_review_finding.py
 /backend/app/models/agency.py
 /backend/app/models/analytics_event.py
 /backend/app/models/audit_log.py
@@ -370,12 +388,14 @@ Auto-generated: 2026-04-23T23:00:01.230072 UTC
 /backend/app/models/execution.py
 /backend/app/models/gdpr_request.py
 /backend/app/models/inbound_email.py
+/backend/app/models/inventory_snapshot.py
 /backend/app/models/market_lookup.py
 /backend/app/models/merchant.py
 /backend/app/models/merchant_email.py
 /backend/app/models/merchant_group.py
 /backend/app/models/merchant_journey_state.py
 /backend/app/models/merchant_rule.py
+/backend/app/models/merchant_saved_report.py
 /backend/app/models/merge_outcome.py
 /backend/app/models/meta_review.py
 /backend/app/models/model_upgrade.py
@@ -405,6 +425,7 @@ Auto-generated: 2026-04-23T23:00:01.230072 UTC
 /backend/app/models/store_intelligence_profile.py
 /backend/app/models/store_metrics.py
 /backend/app/models/support_incident.py
+/backend/app/models/survey_response.py
 /backend/app/models/system_lesson.py
 /backend/app/models/system_snapshot.py
 /backend/app/models/trust_contract.py
@@ -426,6 +447,12 @@ Auto-generated: 2026-04-23T23:00:01.230072 UTC
 /app/marketplace
 /app/operations
 /app/pro
+/app/reports
+/app/reports/[id]
+/app/reports/[id]/__tests__/page.test.tsx
+/app/reports/[id]/edit
+/app/reports/__tests__/page.test.tsx
+/app/reports/new
 /app/scale
 /app/settings
 /app/settings/cost-defaults
@@ -434,6 +461,7 @@ Auto-generated: 2026-04-23T23:00:01.230072 UTC
 /app/settings/klaviyo
 /app/settings/privacy
 /app/settings/slack
+/app/settings/surveys
 /app/settings/team
 /app/settings/webhooks
 /cookies

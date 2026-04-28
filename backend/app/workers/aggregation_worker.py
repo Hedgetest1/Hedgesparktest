@@ -465,6 +465,23 @@ def _run_cycle_inner() -> None:
             log(f"prediction_log error (non-fatal): {exc}")
 
         # ------------------------------------------------------------------ #
+        # Inventory snapshot phase (Gap #4, 2026-04-28).                      #
+        # Daily per-merchant snapshot. _BATCH_PER_CYCLE=20 covers 5760        #
+        # merchants/day worst case at 5min cycles × 288/day. Each cycle      #
+        # picks up to 20 merchants who have no snapshot row for today, and   #
+        # writes their inventory levels. Idempotent + Redis day-flag         #
+        # short-circuits the worker if rerun.                                #
+        # ------------------------------------------------------------------ #
+        try:
+            from app.services.inventory_snapshot_runner import run_phase as run_inv_snapshot_phase
+            inv_summary = run_inv_snapshot_phase(db)
+            if inv_summary.get("processed", 0) > 0:
+                log(f"inventory_snapshot: {inv_summary}")
+        except Exception as exc:
+            db.rollback()
+            log(f"inventory_snapshot error (non-fatal): {exc}")
+
+        # ------------------------------------------------------------------ #
         # LLM guardrail benchmark — once-per-week Sunday 04:00-06:00 UTC.     #
         # Runs the structural test_llm_propose_bench.py suite via subprocess #
         # pytest (fake LLM stubs — zero API cost, ~4s). Alerts on regression.#

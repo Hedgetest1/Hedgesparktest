@@ -26,12 +26,14 @@ from app.models.execution import (
 )
 from app.models.gdpr_request import GdprRequest
 from app.models.inbound_email import InboundEmail
+from app.models.inventory_snapshot import InventorySnapshot
 from app.models.market_lookup import MarketLookup
 from app.models.merchant import Merchant
 from app.models.merchant_email import MerchantEmail
 from app.models.merchant_group import MerchantGroup, MerchantGroupMember
 from app.models.merchant_journey_state import MerchantJourneyState
 from app.models.merchant_rule import MerchantRule
+from app.models.merchant_saved_report import MerchantSavedReport
 from app.models.merge_outcome import MergeOutcome
 from app.models.meta_review import MetaReview
 from app.models.model_upgrade import ModelUpgradeProposal
@@ -61,6 +63,7 @@ from app.models.shop_order import ShopOrder
 from app.models.store_intelligence_profile import SipSnapshot, StoreIntelligenceProfile
 from app.models.store_metrics import StoreMetrics
 from app.models.support_incident import SupportIncident
+from app.models.survey_response import SurveyResponse
 from app.models.system_lesson import SystemLesson
 from app.models.system_snapshot import SystemSnapshot
 from app.models.trust_contract import TrustContract, TrustExecutionLog

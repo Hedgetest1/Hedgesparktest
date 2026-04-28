@@ -181,6 +181,14 @@ def run_invariant_check(db: Session) -> dict:
         _check_audit_findings_trend(db, summary)
     except Exception as exc:
         log.warning("invariant_monitor: audit-findings-trend check failed: %s", exc)
+    try:
+        _check_reports_invariants(db, summary)
+    except Exception as exc:
+        log.warning("invariant_monitor: reports-invariants check failed: %s", exc)
+    try:
+        _check_inventory_snapshot_freshness(db, summary)
+    except Exception as exc:
+        log.warning("invariant_monitor: inventory-snapshot check failed: %s", exc)
 
     for script_name, alert_type, source in _AUDITS:
         summary["checked"] += 1
@@ -735,3 +743,222 @@ def _check_audit_findings_trend(db: Session, summary: dict) -> None:
         summary["alerts_written"] += 1
     except Exception as exc:
         log.error("invariant_monitor: trend alert write failed: %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Reports feature invariants (Gap #1, 2026-04-28)
+# ---------------------------------------------------------------------------
+#
+# Two failure modes guarded:
+#   1. Critical indexes on merchant_saved_reports are missing — the partial
+#      UNIQUE on (shop_domain, scheduled_cadence) is the SCHEDULE CAP
+#      enforcement; without it merchants could schedule unlimited reports
+#      and break the 1-daily / 1-weekly email exemption.
+#   2. Cap leak — even with the index, a hypothetical bypass would surface
+#      as a shop having >1 active scheduled report at the same cadence.
+#
+# Both are belt-and-suspenders: the schema enforces, this monitor verifies.
+
+_REPORTS_REQUIRED_INDEXES = {
+    "idx_msr_shop_updated",
+    "idx_msr_scheduled",
+    "uq_msr_shop_name",
+    "uq_msr_shop_cadence",
+}
+
+
+def _check_reports_invariants(db: Session, summary: dict) -> None:
+    """Reports feature: schema indexes + schedule-cap integrity."""
+    summary["checked"] += 1
+    try:
+        from sqlalchemy import inspect as sql_inspect, func
+        from app.services.alerting import write_alert
+        from app.models.merchant_saved_report import MerchantSavedReport
+    except Exception as exc:
+        log.warning("invariant_monitor: reports check imports failed: %s", exc)
+        return
+
+    # 1. Required indexes present (via reflection — no raw SQL on system tables)
+    try:
+        insp = sql_inspect(db.bind)
+        present = {idx["name"] for idx in insp.get_indexes("merchant_saved_reports")}
+        for uc in insp.get_unique_constraints("merchant_saved_reports"):
+            if uc.get("name"):
+                present.add(uc["name"])
+    except Exception as exc:
+        log.warning("invariant_monitor: index reflection failed: %s", exc)
+        return
+    missing = _REPORTS_REQUIRED_INDEXES - present
+    if missing:
+        summary["failed"] += 1
+        try:
+            write_alert(
+                db,
+                severity="critical",
+                source="invariant:reports_indexes",
+                alert_type="invariant_regression",
+                summary=f"Required reports indexes missing: {sorted(missing)}",
+                detail={
+                    "missing_indexes": sorted(missing),
+                    "table": "merchant_saved_reports",
+                    "remediation": (
+                        "Re-run alembic head — the migration "
+                        "zzzb_merchant_saved_reports installs all four. "
+                        "If indexes were dropped manually, recreate via "
+                        "the model __table_args__ definitions."
+                    ),
+                },
+            )
+            summary["alerts_written"] += 1
+        except Exception as exc:
+            log.error("invariant_monitor: reports-indexes alert write failed: %s", exc)
+        return
+
+    # 2. Schedule-cap integrity — cross-tenant by design
+    #
+    # tenant-isolation-exempt: monitoring query.
+    # The check scans across ALL shops to find any shop with >1 active
+    # scheduled report at the same cadence — that's exactly the bug class
+    # this guards (a missing partial UNIQUE constraint, or someone
+    # bypassing it via raw SQL). A shop-scoped query would defeat the
+    # purpose. Aggregate metadata only (no PII or row content); fires a
+    # CRITICAL alert if violated.
+    leak_rows = (
+        db.query(
+            MerchantSavedReport.shop_domain,
+            MerchantSavedReport.scheduled_cadence,
+            func.count(MerchantSavedReport.id).label("n"),
+        )
+        .filter(
+            MerchantSavedReport.scheduled.is_(True),
+            MerchantSavedReport.deleted_at.is_(None),
+        )
+        .group_by(
+            MerchantSavedReport.shop_domain,
+            MerchantSavedReport.scheduled_cadence,
+        )
+        .having(func.count(MerchantSavedReport.id) > 1)
+        .limit(5)
+        .all()
+    )
+    if leak_rows:
+        summary["failed"] += 1
+        try:
+            write_alert(
+                db,
+                severity="critical",
+                source="invariant:reports_schedule_cap",
+                alert_type="invariant_regression",
+                summary=(
+                    f"Reports schedule-cap leak: {len(leak_rows)} shop/cadence "
+                    f"pair(s) have >1 active scheduled report"
+                ),
+                detail={
+                    "leaks": [
+                        {"shop_domain": r.shop_domain, "cadence": r.scheduled_cadence, "count": int(r.n)}
+                        for r in leak_rows
+                    ],
+                    "remediation": (
+                        "The partial UNIQUE constraint uq_msr_shop_cadence "
+                        "should prevent this. Re-create via alembic; if "
+                        "violated, manually unschedule the duplicates "
+                        "(UPDATE merchant_saved_reports SET scheduled=false "
+                        "WHERE id IN (...))."
+                    ),
+                },
+            )
+            summary["alerts_written"] += 1
+        except Exception as exc:
+            log.error("invariant_monitor: reports-cap alert write failed: %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Inventory snapshot freshness (Gap #4, 2026-04-28)
+# ---------------------------------------------------------------------------
+#
+# Catches the worker drift where the daily inventory_snapshots phase
+# stops running for some merchants. We alert if there's any active
+# merchant whose most-recent snapshot is older than _STALE_HOURS.
+
+_INVENTORY_STALE_HOURS = 36
+
+
+def _check_inventory_snapshot_freshness(db: Session, summary: dict) -> None:
+    """Stale-snapshot detector for the inventory pipeline.
+
+    tenant-isolation-exempt: monitoring query.
+    Scans across all active merchants to find any whose most-recent
+    inventory snapshot is older than _STALE_HOURS. Aggregate metadata
+    only (no PII).
+    """
+    summary["checked"] += 1
+    try:
+        from sqlalchemy import text as _text
+        from app.services.alerting import write_alert
+    except Exception as exc:
+        log.warning("invariant_monitor: inventory check imports failed: %s", exc)
+        return
+
+    cutoff_hours = _INVENTORY_STALE_HOURS
+    try:
+        rows = db.execute(_text(
+            f"""
+            SELECT
+                m.shop_domain,
+                MAX(ins.fetched_at) AS last_at
+            FROM merchants m
+            LEFT JOIN inventory_snapshots ins
+              ON ins.shop_domain = m.shop_domain
+            WHERE m.install_status = 'active'
+              AND m.access_token IS NOT NULL
+              AND m.installed_at < (now() - interval '24 hours')
+            GROUP BY m.shop_domain
+            HAVING (
+                MAX(ins.fetched_at) IS NULL
+                OR MAX(ins.fetched_at) < (now() - interval '{cutoff_hours} hours')
+            )
+            LIMIT 5
+            """
+        )).fetchall()
+    except Exception as exc:
+        log.warning("invariant_monitor: inventory freshness probe failed: %s", exc)
+        return
+
+    if not rows:
+        return
+
+    # Don't fire for fresh installs (they need 24h to receive their first
+    # snapshot via the worker). HAVING `m.installed_at < now() - 24h`
+    # already handles that; this defensive log ensures we have a clear
+    # audit trail.
+    summary["failed"] += 1
+    try:
+        write_alert(
+            db,
+            severity="warning",
+            source="invariant:inventory_freshness",
+            alert_type="invariant_regression",
+            summary=(
+                f"Inventory pipeline stale: {len(rows)} active merchant(s) "
+                f"have no snapshot in the last {cutoff_hours}h"
+            ),
+            detail={
+                "cutoff_hours": cutoff_hours,
+                "stale_shops": [
+                    {
+                        "shop_domain": r.shop_domain,
+                        "last_snapshot_at": r.last_at.isoformat() if r.last_at else None,
+                    }
+                    for r in rows
+                ],
+                "remediation": (
+                    "Check pm2 logs wishspark-aggregation-worker for the "
+                    "inventory_snapshot phase. Common causes: Shopify token "
+                    "revoked (stale install), API rate-limit backoff loop, "
+                    "or worker singleton dropped from PM2."
+                ),
+            },
+        )
+        summary["alerts_written"] += 1
+    except Exception as exc:
+        log.error("invariant_monitor: inventory freshness alert write failed: %s", exc)

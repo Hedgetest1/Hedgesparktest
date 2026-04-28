@@ -135,6 +135,8 @@ import { ChannelAttributionCard } from "../components/ChannelAttributionCard";
 import { MonthlyCohortsCard } from "../components/MonthlyCohortsCard";
 import { CohortByDimensionCard } from "../components/CohortByDimensionCard";
 import { SkuForecastCard } from "../components/SkuForecastCard";
+import { StockHealthCard } from "../components/StockHealthCard";
+import { HowCustomersFindYouCard } from "../components/HowCustomersFindYouCard";
 import { GatewayProductsCard } from "../components/GatewayProductsCard";
 import { ExportButton } from "../components/ExportButton";
 import { AnalyticsAssistant } from "../components/AnalyticsAssistant";
@@ -2944,6 +2946,20 @@ function PageInner() {
                     <div className="mt-5">
                       <SkuForecastCard displayCurrency={displayCurrency} />
                     </div>
+
+                    {/* Inventory KPIs — Gap #4 close from brutal $0-70
+                        audit (2026-04-27) under the parity doctrine.
+                        Mipler $19, Lebesgue $59, Shopify Stocky all
+                        ship inventory KPIs in their entry tier. We
+                        ship the parity baseline (low-stock count,
+                        days-of-cover, sell-through) using the existing
+                        `read_products` OAuth scope — no new permission
+                        needed. Daily snapshot pipeline writes to
+                        inventory_snapshots; freshness invariant alerts
+                        if a merchant's snapshot stales >36h. */}
+                    <div className="mt-5">
+                      <StockHealthCard apiBase={API_BASE} shop={shop} />
+                    </div>
                   </div>
                 </section>
               )}
@@ -2997,6 +3013,22 @@ function PageInner() {
                       shop={shop}
                       displayCurrency={displayCurrency}
                     />
+
+                    {/* Post-purchase survey aggregate — Gap #7 close from
+                        brutal $0-70 audit (2026-04-27) under the parity
+                        doctrine. KnoCommerce, Fairing, Zigpoll Lite,
+                        Pathlight all ship "How did you hear about us?"
+                        in their entry tier (45%+ response rate via
+                        Shopify Checkout UI Extension). Surfaces
+                        non-UTM channels Channel Attribution misses by
+                        design — word-of-mouth, podcast, friend, etc.
+                        Sits adjacent because it complements UTM. */}
+                    <div className="mt-5">
+                      <HowCustomersFindYouCard
+                        apiBase={API_BASE}
+                        shop={shop}
+                      />
+                    </div>
                   </div>
                 </section>
               )}

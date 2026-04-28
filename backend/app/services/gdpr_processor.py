@@ -506,6 +506,17 @@ def _process_shop_redact(db: Session, req: GdprRequest) -> str:
         "store_intelligence_profiles",
         "sip_snapshots",
         "prediction_log",
+        # Inventory daily snapshots (Gap #4, 2026-04-28). Product-level
+        # data only (no PII); cascade by shop_domain on uninstall.
+        "inventory_snapshots",
+        # Custom saved reports (Gap #1, 2026-04-28). Config-only,
+        # no PII; cascade by shop_domain on uninstall.
+        "merchant_saved_reports",
+        # Post-purchase survey responses (Gap #7, 2026-04-28).
+        # No PII columns by design (hashed IP/UA only, no customer
+        # email/name); cascades on shop_domain anyway since each row
+        # is merchant-scoped.
+        "survey_responses",
         # Merchant-level state + telemetry
         "merchant_journey_states",
         "merchant_email_stats",

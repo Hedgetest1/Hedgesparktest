@@ -173,6 +173,38 @@ def _gather_rich_context(db: Session, shop_domain: str) -> dict:
             "best_cohort": coh.get("best_cohort"),
         }
 
+    # Inventory stock-at-risk (Gap #4, 2026-04-28). Reuses the same
+    # KPI executor that backs /merchant/inventory/kpis. Fetches the
+    # top-3 at-risk SKUs only — keeps the email content terse.
+    def _inv():
+        from app.api.inventory import (
+            _build_rows,
+            _latest_per_product,
+            _lead_time_for_shop,
+            _sales_rate_30d,
+        )
+        lead_time = _lead_time_for_shop(db, shop_domain)
+        snaps = _latest_per_product(db, shop_domain)
+        if not snaps:
+            return None
+        rates = _sales_rate_30d(db, shop_domain)
+        rows = _build_rows(snaps, rates, lead_time)
+        at_risk = sorted(
+            (r for r in rows if r["inventory_quantity"] > 0 and r["days_of_cover"] is not None),
+            key=lambda r: r["days_of_cover"] or float("inf"),
+        )
+        out_of_stock = [r for r in rows if r["inventory_quantity"] == 0]
+        return {
+            "at_risk": at_risk[:3],
+            "out_of_stock_count": len(out_of_stock),
+            "lead_time_days": lead_time,
+            "tracked": len(rows),
+        }
+
+    inv = _safe(_inv)
+    if inv and (inv.get("at_risk") or inv.get("out_of_stock_count")):
+        ctx["inventory"] = inv
+
     return ctx
 
 
@@ -346,6 +378,42 @@ def _build_email(shop_domain: str, brief: dict, db: Session) -> Tuple[str, str, 
         """
 
     # -------------------------------------------------------------
+    # STOCK HEALTH — Gap #4 daily slot. Calm merchant-friendly copy.
+    # Renders when there's at least 1 at-risk SKU OR an out-of-stock.
+    # -------------------------------------------------------------
+    stock_html = ""
+    inv = rich.get("inventory")
+    if inv and (inv.get("at_risk") or (inv.get("out_of_stock_count") or 0) > 0):
+        oos_count = int(inv.get("out_of_stock_count") or 0)
+        at_risk_rows = inv.get("at_risk") or []
+        oos_block = ""
+        if oos_count > 0:
+            oos_block = (
+                f'<p style="margin:4px 0 10px;font-size:13px;color:#dc2626;font-weight:600">'
+                f"{oos_count} SKU{'s' if oos_count != 1 else ''} out of stock — restock to recover sales</p>"
+            )
+        rows_html = ""
+        for r in at_risk_rows:
+            doc = r.get("days_of_cover")
+            if doc is None:
+                continue
+            rows_html += f"""
+            <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid rgba(255,255,255,0.05);font-size:13px;color:#e2e8f0">
+              <span>{r.get('product_title', '')}</span>
+              <span style="color:#f59e0b;font-weight:700">{doc:.0f} days of cover</span>
+            </div>
+            """
+        if rows_html or oos_block:
+            stock_html = f"""
+            <div style="margin:16px 0;padding:16px 18px;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.18);border-radius:8px">
+                <strong style="color:#f59e0b;font-size:14px">Stock health</strong>
+                <p style="margin:4px 0 10px;font-size:13px;color:#cbd5e1;line-height:1.5">Where your stock is heading.</p>
+                {oos_block}
+                {rows_html}
+            </div>
+            """
+
+    # -------------------------------------------------------------
     # CTA — byte-for-byte from digest_formatter cta_html (amber→violet)
     # -------------------------------------------------------------
     cta_html = f"""
@@ -384,6 +452,7 @@ def _build_email(shop_domain: str, brief: dict, db: Session) -> Tuple[str, str, 
 {risk_html}
 {benchmarks_html}
 {retention_html}
+{stock_html}
 {cta_html}
 """
 
@@ -418,6 +487,17 @@ def _build_email(shop_domain: str, brief: dict, db: Session) -> Tuple[str, str, 
             f"w4 {(ret.get('w4', 0)*100):.0f}% · "
             f"w12 {(ret.get('w12', 0)*100):.0f}%",
         ]
+    inv_text = rich.get("inventory")
+    if inv_text and (inv_text.get("at_risk") or (inv_text.get("out_of_stock_count") or 0) > 0):
+        lines += ["", "STOCK HEALTH"]
+        oos_n = int(inv_text.get("out_of_stock_count") or 0)
+        if oos_n > 0:
+            lines.append(f"  {oos_n} SKU{'s' if oos_n != 1 else ''} out of stock — restock to recover sales")
+        for r in inv_text.get("at_risk") or []:
+            doc = r.get("days_of_cover")
+            if doc is None:
+                continue
+            lines.append(f"  · {r.get('product_title','')} — {doc:.0f} days of cover")
     if rars_total == 0 and signals_count == 0 and not rars_comps:
         lines = [f"Your Morning Intelligence — {shop_name}", period, "",
                  "Clean slate — your funnel is healthy. Spark is watching."]

@@ -1,0 +1,18 @@
+api_version = "2026-04"
+
+[[extensions]]
+name = "Post-Purchase Survey"
+handle = "post-purchase-survey"
+uid = "5bbce4d5-0610-0b76-fa6d-c6fef535cee9f855bf02"
+type = "ui_extension"
+
+[[extensions.targeting]]
+target = "purchase.thank-you.block.render"
+module = "./src/ThankYou.jsx"
+
+[[extensions.targeting]]
+target = "customer-account.order-status.block.render"
+module = "./src/OrderStatus.jsx"
+
+[extensions.capabilities]
+network_access = true

@@ -1,0 +1,15 @@
+{
+  "name": "hedgespark-shopify-app",
+  "version": "1.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "HedgeSpark Shopify app skeleton — hosts client-side Checkout UI Extensions deployed via Shopify CLI. The app's OAuth + webhooks live in /opt/wishspark/backend (FastAPI).",
+  "scripts": {
+    "dev": "shopify app dev",
+    "build": "shopify app build",
+    "deploy": "shopify app deploy"
+  },
+  "workspaces": [
+    "extensions/*"
+  ]
+}

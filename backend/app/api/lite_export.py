@@ -52,6 +52,7 @@ ALLOWED_SURFACES = {
     "pnl",
     "cohorts_monthly",
     "attribution",
+    "inventory",
 }
 
 
@@ -300,6 +301,35 @@ def _rows_for_attribution(db: Session, shop: str) -> tuple[list[str], list[dict[
     return headers, rows
 
 
+def _rows_for_inventory(db: Session, shop: str) -> tuple[list[str], list[dict[str, Any]]]:
+    """Inventory CSV (Gap #4, 2026-04-28). Re-uses the executor in
+    inventory.py. The endpoint reads pre-aggregated snapshots, so this
+    just calls the helper functions.
+    """
+    from app.api.inventory import (
+        _build_rows,
+        _latest_per_product,
+        _lead_time_for_shop,
+        _sales_rate_30d,
+    )
+    lead_time = _lead_time_for_shop(db, shop)
+    snapshots = _latest_per_product(db, shop)
+    sales_rates = _sales_rate_30d(db, shop)
+    rows = _build_rows(snapshots, sales_rates, lead_time)
+    rows.sort(key=lambda r: (r["days_of_cover"] is None, r["days_of_cover"] or float("inf")))
+
+    headers = [
+        "product_url",
+        "product_title",
+        "inventory_quantity",
+        "sales_rate_per_day",
+        "days_of_cover",
+        "sell_through_30d_pct",
+        "reorder_hint",
+    ]
+    return headers, rows
+
+
 _ROW_BUILDERS = {
     "rars": _rows_for_rars,
     "benchmarks": _rows_for_benchmarks,
@@ -307,6 +337,7 @@ _ROW_BUILDERS = {
     "pnl": _rows_for_pnl,
     "cohorts_monthly": _rows_for_cohorts_monthly,
     "attribution": _rows_for_attribution,
+    "inventory": _rows_for_inventory,
 }
 
 
@@ -424,6 +455,7 @@ _SURFACE_PDF_TITLES: dict[str, str] = {
     "pnl":                 "P&L Waterfall — 30-day window",
     "cohorts_monthly":     "Monthly Cohort Economics",
     "attribution":         "Channel Attribution — UTM deterministic",
+    "inventory":           "Stock Health — daily snapshot",
 }
 
 
