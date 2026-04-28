@@ -285,6 +285,23 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2b-octies. Orphan Card-component audit.
+# Born 2026-04-28 night after founder hardcore parity audit caught
+# `StockHealthCard.tsx` and `HowCustomersFindYouCard.tsx` — both had
+# tests + backend endpoints + visual specs but were NEVER imported in
+# `dashboard/src/app/app/page.tsx`. Three turns earlier I'd claimed
+# both shipped at "strict 10/10". They hadn't. The bug class:
+# tests-pass-but-component-never-rendered theater.
+# ---------------------------------------------------------------------------
+step "Orphan Card-component audit (audit_orphan_card_components.py)"
+if "$PY" scripts/audit_orphan_card_components.py > /tmp/preflight_orphan_cards.log 2>&1; then
+    ok "$(tail -1 /tmp/preflight_orphan_cards.log)"
+else
+    bad "orphan Card components — see /tmp/preflight_orphan_cards.log"
+    head -30 /tmp/preflight_orphan_cards.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2b-quater. §20 brutal-honesty law — block commits that ship with
 # unresolved-flag phrases ("Cat-A logged", "minor improvement",
 # "deferred", etc.) unless paired with an explicit R-blocker label.
