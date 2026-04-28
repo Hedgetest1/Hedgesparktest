@@ -252,6 +252,22 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2b-sexies. Sidebar floor-highlight regression preventer.
+# Born 2026-04-28 night after founder catch: clicking "Pro" lit "Lite"
+# because /app/page.tsx hardcoded `currentFloor="pulse"` while serving
+# as the SHARED backing component for /app/lite, /app/pro, /app/scale
+# via re-export shims. Audit blocks any future re-introduction of a
+# string-literal `currentFloor=` in the shared page.
+# ---------------------------------------------------------------------------
+step "Sidebar floor hardcoding (audit_sidebar_floor_hardcoding.py)"
+if "$PY" scripts/audit_sidebar_floor_hardcoding.py > /tmp/preflight_sidebar_floor.log 2>&1; then
+    ok "no hardcoded currentFloor= in shared /app/page.tsx"
+else
+    bad "Sidebar floor regression — see /tmp/preflight_sidebar_floor.log"
+    head -25 /tmp/preflight_sidebar_floor.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2b-quater. §20 brutal-honesty law — block commits that ship with
 # unresolved-flag phrases ("Cat-A logged", "minor improvement",
 # "deferred", etc.) unless paired with an explicit R-blocker label.

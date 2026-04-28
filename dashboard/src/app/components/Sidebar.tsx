@@ -36,7 +36,7 @@ export type NavItem = {
 // (pulse/intelligence/operations) while the merchant is configuring
 // their store. Introduced 2026-04-21 per founder directive: "Settings
 // non dovrebbe evidenziare nessuna tra Lite, Pro e Scale".
-export type Floor = "pulse" | "intelligence" | "operations" | "settings";
+export type Floor = "pulse" | "intelligence" | "operations" | "settings" | "reports";
 
 type FloorDef = {
   id: Floor;
@@ -420,7 +420,7 @@ export function Sidebar({
           that has nothing to do with configuring the shop. Merchant
           returns to the dashboard via the breadcrumb "← Dashboard"
           present on every settings sub-page. */}
-      {currentFloor !== "settings" && (
+      {currentFloor !== "settings" && currentFloor !== "reports" && (
       <div className="flex flex-col gap-1 border-b border-white/[0.04] px-2 py-3">
         {FLOORS.map((floor) => {
           const isActive = currentFloor === floor.id;
@@ -430,6 +430,7 @@ export function Sidebar({
               key={floor.id}
               href={floor.href}
               title={collapsed ? `${floor.label} — ${floor.desc}` : floor.desc}
+              aria-current={isActive ? "page" : undefined}
               className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-bold uppercase tracking-[0.08em] transition-all duration-150 ${
                 isActive
                   ? "bg-[#e8a04e]/15 text-[#e8a04e] shadow-[inset_0_0_0_1px_rgba(232,160,78,0.22)]"

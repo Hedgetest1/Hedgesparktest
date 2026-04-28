@@ -549,6 +549,15 @@ function PageInner() {
     pathname === "/app/lite" || pathname === "/app" || pathname === null;
   const isProFloor =
     pathname === "/app/pro" || pathname === "/app/intelligence";
+  const isScaleFloor =
+    pathname === "/app/scale" || pathname === "/app/operations";
+  // Drive the Sidebar tab highlight from the URL, not from a hardcoded
+  // value. /app/page.tsx is shared by /app/lite, /app/pro, /app/scale
+  // (re-export shims) so this single computed value handles all 3.
+  // Founder catch 2026-04-28 evening: clicking Pro lit Lite because
+  // currentFloor="pulse" was hardcoded.
+  const sidebarCurrentFloor: "pulse" | "intelligence" | "operations" =
+    isProFloor ? "intelligence" : isScaleFloor ? "operations" : "pulse";
   // The 5 migrated Intelligence cards (live on the Pro floor, originally
   // rendered by /app/intelligence/page.tsx) get mirrored at the top of
   // the Pro-floor render here so /app/pro has a single source of truth.
@@ -2111,7 +2120,7 @@ function PageInner() {
         activeSection={activeSection}
         onNavigate={handleNavigate}
         tier={tier}
-        currentFloor="pulse"
+        currentFloor={sidebarCurrentFloor}
         isLiteView={isLiteFloor}
       />
 
