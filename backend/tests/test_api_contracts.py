@@ -155,6 +155,41 @@ class TestDailyRevenue:
             _assert_keys(point, {"day", "revenue", "orders"}, "daily_revenue point")
 
 
+class TestProductConversions:
+    """GET /orders/product-conversions — per-product funnel.
+
+    Born 2026-04-28 night after a missing comma in the CTE chain
+    landed on prod and emitted 500s for hours, surfaced as
+    "Couldn't load this card" on the Pro floor. The endpoint had
+    zero test coverage. This contract test is the runtime layer of
+    the 3-layer preventer (preflight regex + this test + manual
+    inspection)."""
+
+    def test_response_shape(self, client, merchant_a, auth_a):
+        resp = client.get(
+            f"/orders/product-conversions?days=7&shop={SHOP_A}", cookies=auth_a
+        )
+        assert resp.status_code == 200, (
+            f"product-conversions returned {resp.status_code} "
+            f"with body: {resp.text[:200]}"
+        )
+        data = resp.json()
+        _assert_keys(data, {"products", "days", "currency", "has_data"})
+        _assert_type(data["products"], list)
+        _assert_type(data["days"], int)
+        _assert_type(data["currency"], str)
+        _assert_type(data["has_data"], bool)
+
+    def test_empty_state(self, client, merchant_a, auth_a):
+        """Zero events / orders must not crash the SQL."""
+        resp = client.get(
+            f"/orders/product-conversions?days=7&shop={SHOP_A}", cookies=auth_a
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data["products"], list)
+
+
 class TestAnalyticsAlerts:
     """GET /analytics/alerts — alert section."""
 

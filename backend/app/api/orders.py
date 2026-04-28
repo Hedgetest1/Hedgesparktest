@@ -438,7 +438,7 @@ def get_product_conversions(
                       AND product_id   IS NOT NULL
                       AND product_url  IS NOT NULL
                     ORDER BY product_id, timestamp DESC
-                )
+                ),
 
                 -- 5. True converted visitors: viewers who ALSO purchased this product
                 -- Bridges events (view) → visitor_purchase_sessions → shop_orders

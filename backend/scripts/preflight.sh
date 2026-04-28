@@ -268,6 +268,23 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2b-septies. CTE missing-comma audit.
+# Born 2026-04-28 night after founder caught Pro cards stuck on
+# "Couldn't load this card". Backend logs revealed a runtime SQL
+# syntax error on `/orders/product-conversions`: a CTE chain in
+# `app/api/orders.py` had a missing comma between two consecutive
+# `NAME AS (...)` blocks. Postgres parsed the first as terminal,
+# choked on the second.
+# ---------------------------------------------------------------------------
+step "CTE missing-comma audit (audit_cte_missing_comma.py)"
+if "$PY" scripts/audit_cte_missing_comma.py > /tmp/preflight_cte_comma.log 2>&1; then
+    ok "$(tail -1 /tmp/preflight_cte_comma.log)"
+else
+    bad "CTE chain has missing-comma — see /tmp/preflight_cte_comma.log"
+    head -30 /tmp/preflight_cte_comma.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2b-quater. §20 brutal-honesty law — block commits that ship with
 # unresolved-flag phrases ("Cat-A logged", "minor improvement",
 # "deferred", etc.) unless paired with an explicit R-blocker label.
