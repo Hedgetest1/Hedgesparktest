@@ -2150,21 +2150,6 @@ function PageInner() {
             DateRangeContext + useDateRange and re-fetches when the
             range changes. Visual + a11y contract:
             docs/DATE_RANGE_PICKER_VISUAL_SPEC.md */}
-        {/* Scale floor for non-Scale merchants — locked-cassettoni
-            preview of the 10 Northbeam-class moats unlocked by the
-            Scale tier. Replaces the static feature list that lived
-            in operations/page.tsx (which had its own duplicate
-            FloorLayout, causing the "Loading your plan" bounce).
-            Renders inline on the shared page.tsx — single source of
-            truth for the Scale floor experience. */}
-        {isScaleFloor && !isScaleUser && (
-          <div className="px-6 py-10 lg:px-10">
-            <div className="mx-auto max-w-[72rem]">
-              <ScaleFloorPreview onUpgrade={() => setUpgradeModalOpen(true)} />
-            </div>
-          </div>
-        )}
-
         {isLiteFloor && shop && (
           <div className="border-b border-white/[0.04] bg-[#07070f]/95 px-5 py-2.5 backdrop-blur-sm">
             <div className="flex items-center justify-between gap-3">
@@ -2177,6 +2162,17 @@ function PageInner() {
         )}
 
         <main ref={mainRef} className="flex-1 overflow-y-auto hs-scroll-smooth">
+          {/* Scale floor for non-Scale merchants — locked-cassettoni
+              preview of the moats Scale unlocks. Inside <main> so it
+              participates in the inner-scroll container; outside main
+              the parent has overflow-hidden and the page can't scroll. */}
+          {isScaleFloor && !isScaleUser && (
+            <div className="px-6 py-10 lg:px-10">
+              <div className="mx-auto max-w-[72rem]">
+                <ScaleFloorPreview onUpgrade={() => setUpgradeModalOpen(true)} />
+              </div>
+            </div>
+          )}
           {!sessionResolved ? (
             <MascotLoader caption="Connecting to your store..." state="loading" />
           ) : !shop ? (

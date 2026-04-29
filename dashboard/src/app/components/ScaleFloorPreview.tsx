@@ -21,52 +21,52 @@
 const SCALE_FEATURES: Array<{ title: string; body: string; accent: string }> = [
   {
     title: "Causal Lift + Why engine",
-    body: "Real A/B holdout measurement of every action you take. The 'why' Bayesian inference engine ranks the underlying causes when a metric shifts. Closest competitor: Northbeam ($1k+/mo).",
+    body: "Real A/B holdout measurement of every action you take. The 'why' Bayesian inference engine ranks the underlying causes when a metric shifts — so you stop guessing what worked.",
     accent: "#34d399",
   },
   {
     title: "Night Shift Agent + Timeline",
-    body: "Overnight 24h Bayesian inference loop reads every signal, picks the single most-impactful lever, leaves a visible reasoning journal. Timeline shows 30-day retrospective + outcome-tracked recommendations. Nobody under $1k ships this.",
+    body: "While you sleep, a 24h inference loop reads every signal, picks the single most-impactful lever for the morning, and leaves a visible reasoning journal. Timeline shows 30-day retrospective with outcome tracking.",
     accent: "#fbbf24",
   },
   {
     title: "Competitor Playbook",
-    body: "Anonymized peer-network playbook — for every signal class fired on your store, see what merchants in your vertical did about it (ranked by win rate + average CVR lift). Aggregate-only; never peer names. Unique to HedgeSpark.",
+    body: "Anonymized peer-network playbook — for every signal class fired on your store, see what merchants in your vertical did about it (ranked by win rate + average CVR lift). Aggregate-only; never peer names.",
     accent: "#a855f7",
   },
   {
     title: "Anomaly Fusion + Replay",
-    body: "Cross-signal correlation that fires when 3+ signal classes co-spike. Replay reconstructs the event window minute-by-minute (every visitor, source, device). Event-level granularity competitors can't reach.",
+    body: "Cross-signal correlation that fires when multiple signal classes co-spike. Replay reconstructs the event window minute-by-minute — every visitor, source, device — turning 'something weird happened' into a time-stamped narrative you can act on.",
     accent: "#f87171",
   },
   {
     title: "Counterfactual Explorer",
-    body: "What-if math over every open opportunity signal: per-day loss × days-open × AOV, projected back along 4 lag horizons (now / 7d / 14d / 30d). Turns 'oh well, missed it' into a hard cost-of-delay number.",
+    body: "What-if math over every open opportunity signal: per-day loss × days-open × AOV, projected back along four lag horizons. Turns 'oh well, missed it' into a hard cost-of-delay number.",
     accent: "#fb923c",
   },
   {
     title: "Revenue Autopsy + Revenue Genome",
-    body: "Autopsy: post-mortem on lost revenue with per-cause attribution. Genome: source-vs-segment DNA decomposition. Northbeam-class diagnostics nobody under $1k ships.",
+    body: "Autopsy is the post-mortem on lost revenue with per-cause attribution. Genome decomposes your revenue into source × segment DNA — so you know which combinations actually move the needle.",
     accent: "#fb7185",
   },
   {
     title: "Nudge DNA + Lift Report",
-    body: "Nudge DNA: which copy patterns (length, urgency, social proof) are pulling weight on YOUR audience. Lift Report: holdout-measured CVR delta with statistical significance — the only number you don't have to trust the vendor on.",
+    body: "Nudge DNA shows which copy patterns (length, urgency, social proof) are pulling weight on YOUR audience. Lift Report measures holdout CVR delta with statistical significance — the only number you don't have to trust the vendor on.",
     accent: "#10b981",
   },
   {
     title: "MTA model compare",
-    body: "Multi-touch attribution model side-by-side: first-touch vs last-touch vs linear vs time-decay vs data-driven. See which model reads your store best, switch when the data pattern changes. Northbeam $1k+ territory.",
+    body: "Multi-touch attribution model side-by-side: first-touch, last-touch, linear, time-decay, data-driven. See which model reads your store best, switch when the data pattern changes.",
     accent: "#c4b5fd",
   },
   {
     title: "Agency white-label console",
-    body: "Branded reports, sub-client management, per-client margin dashboards. Triple Whale Agency starts at $1.5k/mo for comparable feature-set.",
+    body: "Branded reports, sub-client management, per-client margin dashboards. For agencies running HedgeSpark for multiple stores under one operator.",
     accent: "#3b82f6",
   },
   {
     title: "API access + outbound webhooks",
-    body: "Pull every HedgeSpark metric into your stack via REST + webhooks + full OpenAPI spec. Real-time event streaming. Custom integrations.",
+    body: "Pull every HedgeSpark metric into your stack via REST + webhooks + full OpenAPI spec. Real-time event streaming. Custom integrations and pipelines.",
     accent: "#60a5fa",
   },
 ];
@@ -84,17 +84,17 @@ export function ScaleFloorPreview({
     >
       <div className="rounded-3xl border border-[#3b82f6]/25 bg-gradient-to-br from-[#3b82f6]/[0.05] to-transparent p-7 sm:p-9">
         <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#3b82f6]">
-          Scale tier · €239/mo
+          Scale tier
         </div>
         <h1 className="mt-3 text-[2rem] font-extrabold leading-[1.1] text-white sm:text-[2.5rem]">
-          Northbeam-class moats. At 1/4 the price.
+          The intelligence layer that explains every move
         </h1>
         <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-slate-400">
-          Scale unlocks {SCALE_FEATURES.length} features no competitor
-          ships under $1k/mo: Causal Lift, holdout-measured Lift Report,
-          MTA Compare, Anomaly Fusion, the Night Shift overnight agent,
-          and the rest of the moat intelligence layer. Triple Whale
-          Agency starts at $1,500/mo for a comparable feature-set.
+          Scale adds the deep-intelligence layer on top of your Pro
+          dashboard: Causal Lift, holdout-measured proof, multi-touch
+          attribution, anomaly replay, the Night Shift overnight agent
+          + reasoning journal, and counterfactual projections that turn
+          every signal into a measurable decision.
         </p>
         {onUpgrade && (
           <button
