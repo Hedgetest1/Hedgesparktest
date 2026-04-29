@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_scale_session
+from app.core.deps import require_pro_session, require_scale_session
 
 router = APIRouter(tags=["causal_lift"])
 
@@ -65,11 +65,18 @@ def get_causal_lift(
 
 @router.get("/pro/recommendation-impact", response_model=RecommendationImpactResponse)
 def get_recommendation_impact(
-    shop: str = Depends(require_scale_session),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """
     Quasi-experimental measurement of recommendation impact.
+
+    Note (2026-04-29): un-flipped to require_pro_session after the
+    Pro→Scale moat migration accidentally bulk-flipped this endpoint
+    along with /pro/causal-lift. RecommendationImpactCard renders on
+    the Pro floor (one of the 5 Intelligence cards at the top); it's
+    a Pro-tier feature, not a Scale moat. Causal Lift proper (full
+    A/B holdout) stays Scale via the sibling endpoint above.
     Pre/post revenue comparison for acted-upon recommendations.
     """
     from app.services.causal_intervention_engine import measure_recommendation_impact
