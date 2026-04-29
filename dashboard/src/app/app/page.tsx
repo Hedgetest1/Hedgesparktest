@@ -3565,12 +3565,14 @@ function PageInner() {
                   Live Opportunities cassettone for entry-tier
                   comparable signal. ═══ */}
               {isProFloor && (
-                <AbandonedIntentCard
-                  apiBase={API_BASE}
-                  shop={shop}
-                  isProUser={isProUser}
-                  onUpgrade={() => setUpgradeModalOpen(true)}
-                />
+                <section id="section-pro-abandoned">
+                  <AbandonedIntentCard
+                    apiBase={API_BASE}
+                    shop={shop}
+                    isProUser={isProUser}
+                    onUpgrade={() => setUpgradeModalOpen(true)}
+                  />
+                </section>
               )}
 
               {/* LiveOpportunitiesCard removed from Pro floor 2026-04-29
@@ -3578,9 +3580,11 @@ function PageInner() {
                   Pro merchant sees it on /app/lite. */}
 
               {isProFloor && (
-                <SectionErrorBoundary name="Visitor Intent">
-                  <VisitorIntentExplorerCard apiBase={API_BASE} shop={shop} />
-                </SectionErrorBoundary>
+                <section id="section-pro-visitor-intent">
+                  <SectionErrorBoundary name="Visitor Intent">
+                    <VisitorIntentExplorerCard apiBase={API_BASE} shop={shop} />
+                  </SectionErrorBoundary>
+                </section>
               )}
 
               {/* ═══ Pro-only intelligence — Price Sensitivity stays
@@ -3588,7 +3592,9 @@ function PageInner() {
                   + CausalLift moved to Scale floor below (closest
                   competitor Northbeam $1k+). ═══ */}
               {isProUser && isProFloor && (
-                <PriceSensitivityCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                <section id="section-pro-price">
+                  <PriceSensitivityCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                </section>
               )}
 
               {/* ═══ Scale-only deep intelligence ═══ */}

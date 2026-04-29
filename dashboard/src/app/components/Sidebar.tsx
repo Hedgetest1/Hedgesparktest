@@ -333,6 +333,16 @@ const SECTION_TO_NAV: Record<string, string> = {
   "scroll-cohorts": "nudges",
   "price-intelligence": "price-intelligence",
   "market-intelligence": "price-intelligence",
+  // Pro-floor anchor ids → NAV_ITEMS_PRO nav ids. Same convention
+  // as Lite below: section element carries id="section-pro-*", the
+  // observer strips "section-" and matches against the nav id.
+  "pro-visitor-intent": "pro-visitor-intent",
+  "pro-abandoned": "pro-abandoned",
+  "pro-price": "pro-price",
+  "pro-intelligence": "pro-intelligence",
+  "pro-goals": "pro-goals",
+  "pro-bi-sql": "pro-bi-sql",
+  "pro-subscriptions": "pro-subscriptions",
   // Lite-floor anchor ids → NAV_ITEMS_LITE nav ids. The observer
   // watches `section-lite-*` IDs; stripping the section- prefix
   // yields the nav id match. Every section rendered on /app/lite
@@ -377,11 +387,20 @@ const NAV_ITEMS_PRO: NavItem[] = [
     ),
   },
   {
-    id: "section-funnel",
+    id: "funnel",
     label: "Funnel & sessions",
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 01-.659 1.591l-5.432 5.432a2.25 2.25 0 00-.659 1.591v2.927a2.25 2.25 0 01-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 00-.659-1.591L3.659 7.409A2.25 2.25 0 013 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0112 3z" />
+      </svg>
+    ),
+  },
+  {
+    id: "pro-intelligence",
+    label: "Forecast & intelligence",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
       </svg>
     ),
   },
@@ -435,7 +454,7 @@ const NAV_ITEMS_PRO: NavItem[] = [
     ),
   },
   {
-    id: "section-nudges",
+    id: "nudges",
     label: "Nudges & Lift",
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
@@ -473,7 +492,7 @@ const NAV_ITEMS_PRO: NavItem[] = [
     ),
   },
   {
-    id: "section-scroll",
+    id: "scroll",
     label: "Scroll heatmaps",
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">

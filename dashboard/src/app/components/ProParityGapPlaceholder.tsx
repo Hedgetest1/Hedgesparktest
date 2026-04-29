@@ -29,7 +29,7 @@ export function ProParityGapPlaceholder({
 }) {
   return (
     <section
-      id={id}
+      id={`section-${id}`}
       className="relative my-8 overflow-hidden rounded-3xl border border-dashed p-7 sm:p-9"
       style={{
         borderColor: `${accent}40`,
