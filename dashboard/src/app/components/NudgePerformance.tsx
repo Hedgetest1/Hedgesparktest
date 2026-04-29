@@ -234,19 +234,39 @@ export function NudgePerformance({
 
   if (nudges.length === 0) {
     return (
-      <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6">
-        <div className="mb-1">
+      <div className="rounded-2xl border border-dashed border-white/[0.10] bg-white/[0.02] p-6">
+        <div className="mb-1 flex items-center gap-2">
           <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#d946ef]">
             Nudge Performance
           </span>
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/[0.08] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-300">
+            <span className="relative inline-flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/60" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            </span>
+            Sample
+          </span>
         </div>
-        <h3 className="text-[15px] font-bold leading-tight text-white">
-          No active fixes deployed yet
+        <h3 className="text-[15px] font-bold leading-tight text-slate-200">
+          How much extra revenue your nudges generate
         </h3>
-        <p className="mt-1.5 text-[12px] leading-relaxed text-slate-400">
-          Nudges are created automatically when hot audience segments are detected,
-          or manually via the AI composer. Once deployed, this cassettone shows
-          exactly how much extra revenue each one is generating.
+        {/* Sample nudge stats — 3 mock active nudges with realistic CVR + revenue */}
+        <div className="mt-4 grid gap-3 sm:grid-cols-3 opacity-50">
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Shown</div>
+            <div className="mt-1 text-[22px] font-extrabold tabular-nums text-white">2,840</div>
+          </div>
+          <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/[0.06] p-3">
+            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300">Extra revenue</div>
+            <div className="mt-1 text-[22px] font-extrabold tabular-nums text-emerald-300">$1,240</div>
+          </div>
+          <div className="rounded-xl border border-violet-400/20 bg-violet-500/[0.06] p-3">
+            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-violet-300">Avg lift</div>
+            <div className="mt-1 text-[22px] font-extrabold tabular-nums text-violet-300">+6.4%</div>
+          </div>
+        </div>
+        <p className="mt-4 text-[12px] leading-relaxed text-slate-400">
+          Nudges deploy automatically when hot audience segments are detected, or manually via the AI composer. Once your first nudge ships, this surface fills with measured impressions, attributed revenue, and holdout-measured lift.
         </p>
       </div>
     );

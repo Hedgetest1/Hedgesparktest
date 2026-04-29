@@ -137,7 +137,45 @@ export function RuleBuilderCard({ apiBase, isProUser }: { apiBase: string; isPro
   );
 
   if (!isProUser) return null;
-  if (loading || !catalog) return null;
+  // Cold-start / loading → render a sample-preview block instead of
+  // disappearing silently. Founder bug 2026-04-29: cards that returned
+  // null on no-data made the dashboard look spopolato.
+  if (loading || !catalog) {
+    return (
+      <div className="rounded-2xl border border-dashed border-white/[0.10] bg-white/[0.02] p-5">
+        <div className="mb-3 flex items-center gap-2">
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#d4893a]">
+            Automation rules
+          </div>
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/[0.08] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-300">
+            <span className="relative inline-flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/60" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            </span>
+            Sample
+          </span>
+        </div>
+        <h3 className="text-[15px] font-bold text-slate-200">If-this-then-that automation across your store</h3>
+        <div className="mt-4 space-y-2 opacity-50">
+          {[
+            { trigger: "When refund rate > 3% on a product", action: "Pause its ads", color: "#fb7185" },
+            { trigger: "When a Hot visitor leaves without buying", action: "Send recovery email in 24h", color: "#34d399" },
+            { trigger: "When stock drops below 10 units", action: "Trigger restock alert in Slack", color: "#fbbf24" },
+          ].map((r, i) => (
+            <div key={i} className="rounded-xl border border-white/[0.04] bg-white/[0.015] p-3">
+              <div className="text-[11px] text-slate-400">If</div>
+              <div className="text-[13px] font-semibold text-slate-200">{r.trigger}</div>
+              <div className="mt-1.5 text-[11px] text-slate-400">→ then</div>
+              <div className="text-[13px] font-semibold" style={{ color: r.color }}>{r.action}</div>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 text-[12px] leading-relaxed text-slate-400">
+          Build automation rules from any HedgeSpark signal → any HedgeSpark action. Real rules populate this list once you create your first one.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div

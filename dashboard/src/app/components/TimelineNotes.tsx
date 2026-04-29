@@ -193,9 +193,31 @@ export function TimelineNotes({
           <div className="h-8 rounded bg-white/[0.04]" />
         </div>
       ) : annotations.length === 0 ? (
-        <p className="text-[12px] text-slate-400">
-          No notes yet. Drop a marker every time you change something — you&apos;ll see the impact on every chart.
-        </p>
+        <div className="rounded-xl border border-dashed border-white/[0.10] bg-white/[0.015] p-4">
+          <div className="mb-2 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.14em] text-slate-400">
+            <span className="relative inline-flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/50" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            </span>
+            Sample timeline
+          </div>
+          <div className="space-y-1.5 opacity-50">
+            {[
+              { date: "Apr 12", category: "ads", color: "#fbbf24", label: "Launched Meta Ads campaign" },
+              { date: "Apr 19", category: "price", color: "#a78bfa", label: "Tested -10% on hero product" },
+              { date: "Apr 23", category: "ux", color: "#34d399", label: "Added trust badges to checkout" },
+            ].map((a, i) => (
+              <div key={i} className="flex items-center gap-3 rounded-lg border border-white/[0.04] bg-white/[0.015] px-3 py-2">
+                <span className="flex-shrink-0 h-2 w-2 rounded-full" style={{ background: a.color }} />
+                <span className="font-mono text-[10px] uppercase tracking-wide text-slate-400">{a.date}</span>
+                <span className="text-[12px] text-slate-300">{a.label}</span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-[12px] leading-relaxed text-slate-400">
+            Drop a marker every time you change something on your store — every chart will show the change as a vertical line, so you can see exactly when CVR or revenue moved relative to the change.
+          </p>
+        </div>
       ) : (
         <div className="space-y-1.5">
           {annotations.slice(0, 8).map((a) => {
