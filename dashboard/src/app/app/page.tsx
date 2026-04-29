@@ -84,6 +84,7 @@ import { AbandonedIntentCard } from "../components/AbandonedIntentCard";
 import { LiveOpportunitiesCard } from "../components/LiveOpportunitiesCard";
 import { VisitorIntentExplorerCard } from "../components/VisitorIntentExplorerCard";
 import { ProParityGapPlaceholder } from "../components/ProParityGapPlaceholder";
+import { ScaleFloorPreview } from "../components/ScaleFloorPreview";
 import { PriceSensitivityCard } from "../components/PriceSensitivityCard";
 import { CausalLiftCard } from "../components/CausalLiftCard";
 import { RevenueGenomeCard } from "../components/RevenueGenomeCard";
@@ -2051,7 +2052,7 @@ function PageInner() {
   // Founder directive 2026-04-26 (CLAUDE.md §3.1): Lite cannot show alerts
   // as a duplicate Findings card. Backend `alerts` already fire for Lite
   // via the loadAnalytics ternary fetch but its only consumer (SignalsSection)
-  // is wrapped in {!isLiteFloor}. Surface them through the existing
+  // is wrapped in {isProFloor}. Surface them through the existing
   // top-right NotificationBell + a soft pulse animation when something
   // HIGH/CRITICAL is live. Click → bell dropdown shows Spark-styled rows
   // with the alert content. Warm Lite, no spam, no extra email.
@@ -2149,6 +2150,21 @@ function PageInner() {
             DateRangeContext + useDateRange and re-fetches when the
             range changes. Visual + a11y contract:
             docs/DATE_RANGE_PICKER_VISUAL_SPEC.md */}
+        {/* Scale floor for non-Scale merchants — locked-cassettoni
+            preview of the 10 Northbeam-class moats unlocked by the
+            Scale tier. Replaces the static feature list that lived
+            in operations/page.tsx (which had its own duplicate
+            FloorLayout, causing the "Loading your plan" bounce).
+            Renders inline on the shared page.tsx — single source of
+            truth for the Scale floor experience. */}
+        {isScaleFloor && !isScaleUser && (
+          <div className="px-6 py-10 lg:px-10">
+            <div className="mx-auto max-w-[72rem]">
+              <ScaleFloorPreview onUpgrade={() => setUpgradeModalOpen(true)} />
+            </div>
+          </div>
+        )}
+
         {isLiteFloor && shop && (
           <div className="border-b border-white/[0.04] bg-[#07070f]/95 px-5 py-2.5 backdrop-blur-sm">
             <div className="flex items-center justify-between gap-3">
@@ -2657,7 +2673,7 @@ function PageInner() {
               )}
 
               {/* ═══ INTELLIGENCE HERO — decision-first: what matters most right now ═══ */}
-              {!isLiteFloor && (
+              {isProFloor && (
                 <IntelligenceHero
                   connected={!!shop}
                   isProUser={isProUser}
@@ -2666,7 +2682,7 @@ function PageInner() {
               )}
 
               {/* ═══ REVENUE HERO ═══ */}
-              {!isLiteFloor && (
+              {isProFloor && (
                 <RevenueHero
                   revenue={heroRevenue?.revenue ?? 0}
                   orders={heroRevenue?.orders ?? 0}
@@ -2690,17 +2706,17 @@ function PageInner() {
               )}
 
               {/* ═══ INSTANT INTELLIGENCE — 60s aha moment (α3) ═══ */}
-              {isProUser && !isLiteFloor && <InstantIntelligenceCard apiBase={API_BASE} />}
+              {isProUser && isProFloor && <InstantIntelligenceCard apiBase={API_BASE} />}
 
               {/* ═══ ROI HERO BANNER — the retention weapon (α2) ═══ */}
-              {!isLiteFloor && (
+              {isProFloor && (
                 <div data-tour="roi-hero">
                   <ROIHeroBanner apiBase={API_BASE} isProUser={isProUser} />
                 </div>
               )}
 
               {/* ═══ DAILY NARRATIVE — storytelling block (α7) ═══ */}
-              {!isLiteFloor && <DailyNarrativeBlock apiBase={API_BASE} isProUser={isProUser} />}
+              {isProFloor && <DailyNarrativeBlock apiBase={API_BASE} isProUser={isProUser} />}
 
               {/* ═══ LITE CASSETTONI GRID ═══
                   On /app/lite: the 6-feature grid that replaces all the
@@ -3433,7 +3449,7 @@ function PageInner() {
 
               {/* ═══ REVENUE AT RISK HERO — Pro-floor only (Lite now
                   surfaces this inside the cassettoni grid above). ═══ */}
-              {!isLiteFloor && (
+              {isProFloor && (
                 <RevenueAtRiskHero
                   apiBase={API_BASE}
                   shop={shop}
@@ -3443,14 +3459,14 @@ function PageInner() {
               )}
 
               {/* ═══ TRUST CONTROL CENTER — delegated autonomy (α1) ═══ */}
-              {!isLiteFloor && (
+              {isProFloor && (
                 <div data-tour="trust-center">
                   <TrustControlCenter apiBase={API_BASE} isProUser={isProUser} />
                 </div>
               )}
 
               {/* ═══ UNIT ECONOMICS + PROFIT HEADROOM + FORECAST (β1+β3+α6) ═══ */}
-              {isProUser && !isLiteFloor && (
+              {isProUser && isProFloor && (
                 <div
                   style={{
                     display: "grid",
@@ -3471,7 +3487,7 @@ function PageInner() {
               )}
 
               {/* ═══ CUSTOMER CHURN TABLE (δ4) ═══ */}
-              {!isLiteFloor && <CustomerChurnCard apiBase={API_BASE} isProUser={isProUser} />}
+              {isProFloor && <CustomerChurnCard apiBase={API_BASE} isProUser={isProUser} />}
 
               {/* ═══ Scale-tier moat block — 12 features migrated
                   Pro→Scale 2026-04-29 because their closest competitor
@@ -3489,7 +3505,7 @@ function PageInner() {
               )}
 
               {/* RuleBuilderCard stays Pro — no Scale-tier reclassification. */}
-              {!isLiteFloor && <RuleBuilderCard apiBase={API_BASE} isProUser={isProUser} />}
+              {isProFloor && <RuleBuilderCard apiBase={API_BASE} isProUser={isProUser} />}
 
               {isScaleFloor && isScaleUser && (
                 <RevenueGenomeCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
@@ -3521,7 +3537,7 @@ function PageInner() {
               )}
 
               {/* ═══ PHASE Ω — ASK HEDGE SPARK (knowledge graph NL query) ═══ */}
-              {isProUser && !isLiteFloor && (
+              {isProUser && isProFloor && (
                 <AskHedgeSparkCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
               )}
 
@@ -3531,7 +3547,7 @@ function PageInner() {
                       ProductsInDecline → live on Lite ($0-60 parity).
                   Kept (Pro-genuine, no Lite equivalent):
                     - MonthlyTargetsCard, MonthlyROICard, IntegrationsCard. */}
-              {isProUser && !isLiteFloor && (
+              {isProUser && isProFloor && (
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <MonthlyTargetsCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <MonthlyROICard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
@@ -3545,7 +3561,7 @@ function PageInner() {
                   cart abandonment is a Pro feature; Lite has the
                   Live Opportunities cassettone for entry-tier
                   comparable signal. ═══ */}
-              {!isLiteFloor && (
+              {isProFloor && (
                 <AbandonedIntentCard
                   apiBase={API_BASE}
                   shop={shop}
@@ -3558,7 +3574,7 @@ function PageInner() {
                   per no-doppione doctrine — it's a Lite cassettone, the
                   Pro merchant sees it on /app/lite. */}
 
-              {!isLiteFloor && (
+              {isProFloor && (
                 <SectionErrorBoundary name="Visitor Intent">
                   <VisitorIntentExplorerCard apiBase={API_BASE} shop={shop} />
                 </SectionErrorBoundary>
@@ -3568,7 +3584,7 @@ function PageInner() {
                   Pro (Prisync $99 = Pro mid-band parity). RevenueAutopsy
                   + CausalLift moved to Scale floor below (closest
                   competitor Northbeam $1k+). ═══ */}
-              {isProUser && !isLiteFloor && (
+              {isProUser && isProFloor && (
                 <PriceSensitivityCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
               )}
 
@@ -3581,7 +3597,7 @@ function PageInner() {
               )}
 
               {/* ═══ SECONDARY WIDGETS — smaller but useful ═══ */}
-              {isProUser && !isLiteFloor && (
+              {isProUser && isProFloor && (
                 <>
                   <TimelineNotes apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <CompareProductsCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
@@ -3611,7 +3627,7 @@ function PageInner() {
                   no-doppione doctrine — Daily Brief is a Lite cassettone
                   ($0-60 parity), Pro merchant sees it on /app/lite. */}
 
-              {!isLiteFloor && (
+              {isProFloor && (
                 <>
               {/* ── Level 2 separator ── */}
               <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
@@ -3744,7 +3760,7 @@ function PageInner() {
                   merchant sees it on /app/lite. TrafficSourceBox below
                   preserves the traffic-source widget which is a Pro
                   add-on (not a Lite duplicate). */}
-              {false && !isLiteFloor && (
+              {false && isProFloor && (
                 <SectionErrorBoundary name="Hot Products">
                 <section>
                   <SectionHeading eyebrow="Hot Products" title="Where buyers are active" />
@@ -3813,7 +3829,7 @@ function PageInner() {
                 </SectionErrorBoundary>
               )}
 
-              {!isLiteFloor && (
+              {isProFloor && (
                 <>
               {/* 4 — Product Performance (extracted to _sections/ProductPerformanceSection.tsx) */}
               {mergedProducts.length > 0 && (
@@ -3996,7 +4012,7 @@ function PageInner() {
 
 
               {/* ═══ PRO ZONE SEPARATOR ═══ */}
-              {!isProUser && !isLiteFloor && (
+              {!isProUser && isProFloor && (
                 <div className="relative overflow-hidden rounded-3xl border border-[#d4893a]/15 bg-gradient-to-br from-[#d4893a]/[0.04] via-transparent to-[#7c3aed]/[0.03] p-8 sm:p-10">
                   <div className="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-[#7c3aed] via-[#c026d3] to-[#f97316]" />
                   <div className="pointer-events-none absolute -right-20 -top-20 h-[300px] w-[300px] rounded-full bg-[#d4893a]/[0.06] blur-[120px]" />
@@ -4037,7 +4053,7 @@ function PageInner() {
                   is about to read across the sections below. Designed to pass
                   the "stupid test": zero jargon, plain English, answers
                   "what am I looking at?" in one glance. */}
-              {isProUser && !isLiteFloor && (
+              {isProUser && isProFloor && (
                 <div className="relative overflow-hidden rounded-3xl border border-white/[0.06] bg-gradient-to-br from-white/[0.025] via-transparent to-white/[0.02] px-6 py-7 sm:px-10 sm:py-9">
                   {/* Ambient brand gradient stripe on top */}
                   <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-[#7c3aed] via-[#c026d3] to-[#f97316]" />
@@ -4133,7 +4149,7 @@ function PageInner() {
                   data on Pro). Pro merchant sees on /app/lite. */}
 
               {/* Pro — Nudge Performance */}
-              {isProUser && !isLiteFloor && (
+              {isProUser && isProFloor && (
                 <SectionErrorBoundary name="Nudge Performance">
                 <section id="section-nudges">
                   <SectionHeading
@@ -4174,7 +4190,7 @@ function PageInner() {
                   (not built), Subscription analytics (not built).
                   Placeholders surface them in nav now so the
                   merchant knows what's coming. ═══ */}
-              {!isLiteFloor && (
+              {isProFloor && (
                 <>
                   <ProParityGapPlaceholder
                     id="pro-goals"
@@ -4205,7 +4221,7 @@ function PageInner() {
                   cohort, isPro endpoint is alias of analytics, no
                   extra data on Pro). HeatmapCard stays — genuine Pro
                   feature, no Lite duplicate. */}
-              {isProUser && !isLiteFloor && (
+              {isProUser && isProFloor && (
                 <SectionErrorBoundary name="Scroll Intelligence">
                 <section id="section-scroll">
                   <SectionHeading
@@ -4219,7 +4235,7 @@ function PageInner() {
               )}
 
               {/* Pro — Revenue Forecast + Attribution + LTV Intelligence */}
-              {isProUser && !isLiteFloor && (
+              {isProUser && isProFloor && (
                 <SectionErrorBoundary name="Deep analytics">
                   <ProIntelligenceSection
                     apiBase={API_BASE}
@@ -4237,7 +4253,7 @@ function PageInner() {
               )}
 
               {/* Pro — Behavioral DNA (extracted to _sections/BehavioralIntelligenceSection.tsx) */}
-              {isProUser && !isLiteFloor && behavioralData && (
+              {isProUser && isProFloor && behavioralData && (
                 <SectionErrorBoundary name="Behavioral DNA">
                   <BehavioralIntelligenceSection
                     data={behavioralData}
@@ -4250,7 +4266,7 @@ function PageInner() {
                   /app/settings sub-pages. Entry point for all tiers:
                   TopBar gear (top-right) → hub → dedicated sub-page
                   per area. The inline <SettingsSection /> that used
-                  to render here for !isLiteFloor was retired in the
+                  to render here for isProFloor was retired in the
                   same commit that shipped this comment. */}
 
             </div>
