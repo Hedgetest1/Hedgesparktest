@@ -82,7 +82,7 @@ import { CompareProductsCard } from "../components/CompareProductsCard";
 import { RevenueAutopsyCard } from "../components/RevenueAutopsyCard";
 import { AbandonedIntentCard } from "../components/AbandonedIntentCard";
 import { LiveOpportunitiesCard } from "../components/LiveOpportunitiesCard";
-import { VisitorIntentCard } from "../components/VisitorIntentCard";
+import { VisitorIntentExplorerCard } from "../components/VisitorIntentExplorerCard";
 import { PriceSensitivityCard } from "../components/PriceSensitivityCard";
 import { CausalLiftCard } from "../components/CausalLiftCard";
 import { RevenueGenomeCard } from "../components/RevenueGenomeCard";
@@ -3541,12 +3541,7 @@ function PageInner() {
 
               {!isLiteFloor && (
                 <SectionErrorBoundary name="Visitor Intent">
-                  <VisitorIntentCard
-                    apiBase={API_BASE}
-                    shop={shop}
-                    isProUser={isProUser}
-                    onUpgrade={() => setUpgradeModalOpen(true)}
-                  />
+                  <VisitorIntentExplorerCard apiBase={API_BASE} shop={shop} />
                 </SectionErrorBoundary>
               )}
 
