@@ -887,8 +887,9 @@ function PageInner() {
         try {
           localStorage.setItem("hs_last_shop", shopDomain);
         } catch {}
+        const isScale = json.plan === "scale" && json.billing_active === true;
         const isPro = json.plan === "pro" && json.billing_active === true;
-        applyTier(isPro ? "pro" : "lite");
+        applyTier(isScale ? "scale" : isPro ? "pro" : "lite");
         if (json.pro_trial_days != null) setProTrialDays(json.pro_trial_days);
         setBillingConfirmedAt(json.billing_confirmed_at ?? null);
 
@@ -925,8 +926,9 @@ function PageInner() {
           });
           const planJson = planRes.data;
           if (planJson != null) {
+            const isScale = planJson.plan === "scale" && planJson.billing_active === true;
             const isPro = planJson.plan === "pro" && planJson.billing_active === true;
-            applyTier(isPro ? "pro" : "lite");
+            applyTier(isScale ? "scale" : isPro ? "pro" : "lite");
             if (planJson.pro_trial_days != null) setProTrialDays(planJson.pro_trial_days);
             setBillingConfirmedAt(planJson.billing_confirmed_at ?? null);
           }
