@@ -228,6 +228,37 @@ def has_r_blocker_label_nearby(text: str, match_start: int, match_end: int) -> b
     return False
 
 
+def _strip_diff_removals(text: str) -> str:
+    """Drop diff '-' lines (removed-by-this-commit lines) so the audit
+    doesn't false-positive on phrases that are being DELETED.
+
+    Born 2026-04-29 after a Pro-moat rebuild was blocked because the
+    diff included REMOVALS of forbidden-pattern UI copy that was
+    being replaced with neutral wording. The phrase was gone from
+    source — flagging it on the removal side of a diff is wrong
+    (the fix IS the diff itself).
+
+    Preserved: commit message lines, '+' additions, context lines,
+    diff file headers ('--- a/file' / '+++ b/file' — three dashes/
+    plusses followed by space, never confused with hunk-line prefixes
+    which are single-char).
+
+    Edge case: a removed source line that genuinely starts with '-'
+    (e.g. SQL/Lua comment '--', YAML list '- ', markdown bullet '- ')
+    is dropped along with the diff prefix — that's the right call,
+    because we want the audit to evaluate the merchant-facing CURRENT
+    state, not the pre-fix state."""
+    out: list[str] = []
+    for line in text.split("\n"):
+        if line.startswith("--- ") or line.startswith("+++ "):
+            out.append(line)
+            continue
+        if line.startswith("-"):
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
 def scan(text: str) -> list[tuple[str, int, str]]:
     """Return list of (phrase, line_no, snippet) for every UNRESOLVED
     flag in text. A flag is unresolved when it lacks an R-blocker
@@ -275,6 +306,7 @@ def main() -> int:
         print("audit_unresolved_flags: nothing to scan.")
         return 0
 
+    text = _strip_diff_removals(text)
     findings = scan(text)
 
     if not findings:

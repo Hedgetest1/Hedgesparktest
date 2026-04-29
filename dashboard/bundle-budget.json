@@ -69,10 +69,17 @@
     "chunks_total_bytes": 1975322,
     "chunks_count": 46
   },
+  "_baseline_2026_04_29_pro_moat_rich_pattern": {
+    "_note": "Pro-moat rich exploration pattern rebuild — 6 components (VisitorIntentExplorer, CounterfactualExplorer, CompetitorPlaybook, AnomalyReplay, LiftReport, CausalWhy, NightShift) rebuilt from poor/partial summary cards into the full 3-section pattern (mechanics + stakes / hero + visualizations + key metrics + methodology / primary action with 5-case logic + supporting actions). Each component is ~500-700 LOC with unique prose, inline SVG (donut/sparkbar/bars), data-driven primary-action computation. Founder mandate 'porta tutto 10/10 top1 al mondo' — Pro must be top-1-in-the-world deep, not a downgrade from the old Lite cassettone. Largest chunk 826→918 KB (+92 KB) for the 6 new rich components on the Pro-floor shared chunk. chunks_total 1975→2088 KB (+113 KB). Budget raised largest_chunk_bytes 860000 -> 950000 (+10%) and chunks_total_bytes 2050000 -> 2150000 (+5%) for ~3-4% headroom heading into the 8 already-rich-via-drawer moats if/when they get always-expanded conversion.",
+    "largest_chunk_bytes": 917942,
+    "root_main_total_bytes": 455826,
+    "chunks_total_bytes": 2087713,
+    "chunks_count": 47
+  },
   "budgets": {
-    "largest_chunk_bytes": 860000,
+    "largest_chunk_bytes": 950000,
     "root_main_total_bytes": 520000,
-    "chunks_total_bytes": 2050000,
+    "chunks_total_bytes": 2150000,
     "chunks_count_max": 48
   }
 }
