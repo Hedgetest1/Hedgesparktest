@@ -343,9 +343,16 @@ def _rows_for_top_customers_ltv(db: Session, shop: str) -> tuple[list[str], list
     """One row per customer ranked by lifetime spend. Hashed PII-safe ID.
     Reuses the same source the dashboard tile consumes."""
     from sqlalchemy import text as sql_text
+    from datetime import timezone
     import hashlib
-    from app.services.revenue_metrics import get_shop_currency
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        ZoneInfo = None  # Python <3.9 — falls back to UTC display
+    from app.services.revenue_metrics import get_shop_currency, get_shop_timezone
     currency = get_shop_currency(db, shop) or "USD"
+    shop_tz_name = get_shop_timezone(db, shop) or "UTC"
+    shop_tz = ZoneInfo(shop_tz_name) if ZoneInfo else timezone.utc
     rows_db = db.execute(sql_text("""
         SELECT customer_email,
                COUNT(*) AS orders,
@@ -365,16 +372,26 @@ def _rows_for_top_customers_ltv(db: Session, shop: str) -> tuple[list[str], list
     rows = []
     for r in rows_db:
         h = hashlib.sha1(r[0].encode("utf-8")).hexdigest()[:8]
+        # DB stores naive UTC. Attach UTC tz, convert to shop's IANA tz,
+        # emit ISO8601 with explicit offset so merchant reading the
+        # Sheet sees their local time + a clear timezone marker.
+        first_iso = ""
+        last_iso = ""
+        if r[3] is not None:
+            first_iso = r[3].replace(tzinfo=timezone.utc).astimezone(shop_tz).isoformat()
+        if r[4] is not None:
+            last_iso = r[4].replace(tzinfo=timezone.utc).astimezone(shop_tz).isoformat()
         rows.append({
             "shop": shop, "generated_at": ts, "currency": currency,
+            "shop_timezone": shop_tz_name,
             "customer_id": f"cust_{h}",
             "orders": int(r[1] or 0),
             "total_spent": round(float(r[2] or 0), 2),
-            "first_order_at": r[3].isoformat() if r[3] else "",
-            "last_order_at": r[4].isoformat() if r[4] else "",
+            "first_order_at": first_iso,
+            "last_order_at": last_iso,
         })
-    headers = ["shop", "generated_at", "currency", "customer_id", "orders",
-               "total_spent", "first_order_at", "last_order_at"]
+    headers = ["shop", "generated_at", "currency", "shop_timezone", "customer_id",
+               "orders", "total_spent", "first_order_at", "last_order_at"]
     return headers, rows
 
 
