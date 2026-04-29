@@ -148,11 +148,51 @@ export function CohortTable({
       )}
 
       {cohorts.length === 0 ? (
-        <p className="text-[12px] text-slate-400">
-          Cohort data will appear here after your first Shopify orders are ingested via
-          the orders webhook. Each cohort represents customers grouped by their first
-          purchase week.
-        </p>
+        <div className="rounded-xl border border-dashed border-white/[0.10] bg-white/[0.015] p-4">
+          <div className="mb-2 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.14em] text-slate-400">
+            <span className="relative inline-flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/50" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            </span>
+            Sample retention matrix
+          </div>
+          <div className="overflow-x-auto opacity-50">
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="border-b border-white/[0.06] text-slate-400">
+                  <th className="px-2 py-1.5 text-left">Cohort</th>
+                  <th className="px-2 py-1.5 text-right">W0</th>
+                  <th className="px-2 py-1.5 text-right">W1</th>
+                  <th className="px-2 py-1.5 text-right">W2</th>
+                  <th className="px-2 py-1.5 text-right">W3</th>
+                  <th className="px-2 py-1.5 text-right">W4</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { c: "Apr 14", v: [100, 38, 22, 15, 11] },
+                  { c: "Apr 7", v: [100, 41, 26, 18, 13] },
+                  { c: "Mar 31", v: [100, 36, 20, 14, 10] },
+                  { c: "Mar 24", v: [100, 33, 19, 12, 9] },
+                ].map((row) => (
+                  <tr key={row.c} className="border-b border-white/[0.04]">
+                    <td className="px-2 py-1.5 text-slate-300">{row.c}</td>
+                    {row.v.map((pct, i) => (
+                      <td key={i} className="px-2 py-1.5 text-right tabular-nums" style={{
+                        color: pct >= 30 ? "#34d399" : pct >= 15 ? "#fbbf24" : "#94a3b8",
+                      }}>
+                        {pct}%
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-[12px] leading-relaxed text-slate-400">
+            Real cohorts populate after your first Shopify orders are ingested. Each cohort = customers grouped by their first purchase week; columns show what fraction came back in each subsequent week.
+          </p>
+        </div>
       ) : weekColumns.length === 0 ? (
         <p className="text-[12px] text-slate-400">
           Cohorts exist but no retention data yet — too few weeks have passed to measure repeats.

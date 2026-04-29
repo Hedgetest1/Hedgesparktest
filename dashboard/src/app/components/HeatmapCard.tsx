@@ -131,9 +131,47 @@ export function HeatmapCard({
       </div>
 
       {products.length === 0 ? (
-        <p className="text-[12px] text-slate-400">
-          Scroll data will appear here once visitors start browsing your product pages.
-        </p>
+        <div className="rounded-xl border border-dashed border-white/[0.10] bg-white/[0.015] p-4">
+          <div className="mb-2 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.14em] text-slate-400">
+            <span className="relative inline-flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400/50" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-violet-400" />
+            </span>
+            Sample preview
+          </div>
+          <div className="opacity-50">
+            <div className="mb-2 text-[11px] text-slate-400">
+              Sample product · 86 sessions
+            </div>
+            <div className="space-y-1">
+              {[
+                { pct: "0–25%", count: 86, intensity: 100 },
+                { pct: "25–50%", count: 64, intensity: 74 },
+                { pct: "50–75%", count: 41, intensity: 48 },
+                { pct: "75–100%", count: 18, intensity: 21 },
+              ].map((band) => (
+                <div key={band.pct} className="flex items-center gap-2">
+                  <div className="w-[60px] flex-shrink-0 text-[11px] text-slate-400">{band.pct}</div>
+                  <div className="relative flex-1 overflow-hidden rounded bg-white/[0.04]">
+                    <div
+                      className="h-5 rounded"
+                      style={{
+                        width: `${band.intensity}%`,
+                        background: "linear-gradient(90deg, #a78bfacc 0%, #a78bfa66 100%)",
+                      }}
+                    />
+                  </div>
+                  <div className="w-[40px] flex-shrink-0 text-right text-[11px] tabular-nums text-slate-300">
+                    {band.count}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <p className="mt-3 text-[12px] leading-relaxed text-slate-400">
+            Scroll depth per product — no session replay needed. Real numbers populate the moment your first visitor scrolls a product page.
+          </p>
+        </div>
       ) : (
         <>
           {/* Product selector tabs */}

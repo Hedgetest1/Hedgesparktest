@@ -194,9 +194,42 @@ export function MonthlyTargetsCard({
           <div className="h-10 rounded bg-white/[0.04]" />
         </div>
       ) : progress.length === 0 ? (
-        <p className="text-[12px] text-slate-400">
-          No targets set yet. Add one to see at-risk alerts and projected end-of-month values.
-        </p>
+        <div className="rounded-xl border border-dashed border-white/[0.10] bg-white/[0.015] p-4">
+          <div className="mb-2 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.14em] text-slate-400">
+            <span className="relative inline-flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/50" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            </span>
+            Sample preview
+          </div>
+          <div className="space-y-2 opacity-50">
+            {[
+              { label: "Monthly revenue", current: "$28.4K", target: "$35K", pct: 81, color: "#34d399" },
+              { label: "Monthly orders", current: "412", target: "500", pct: 82, color: "#34d399" },
+              { label: "Conversion rate", current: "2.1%", target: "3.0%", pct: 70, color: "#fbbf24" },
+            ].map((p) => (
+              <div key={p.label} className="rounded-xl border border-white/[0.04] bg-white/[0.015] p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[12px] font-semibold text-slate-200">{p.label}</div>
+                    <div className="mt-0.5 text-[10px] text-slate-400">
+                      now <span className="font-mono tabular-nums text-slate-300">{p.current}</span>
+                      <span className="mx-1">·</span>
+                      target <span className="font-mono tabular-nums text-slate-300">{p.target}</span>
+                    </div>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+                      <div className="h-full rounded-full" style={{ width: `${p.pct}%`, background: p.color }} />
+                    </div>
+                  </div>
+                  <div className="text-[14px] font-bold tabular-nums" style={{ color: p.color }}>{p.pct}%</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-[12px] leading-relaxed text-slate-400">
+            Add your first KPI target above to start tracking real progress with at-risk alerts and projected end-of-month values.
+          </p>
+        </div>
       ) : (
         <div className="space-y-2">
           {progress.map((p) => {
