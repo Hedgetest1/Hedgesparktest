@@ -65,7 +65,112 @@ export function UnitEconomicsCard({ apiBase }: { apiBase: string }) {
       .finally(() => setLoading(false));
   }, [apiBase]);
 
-  if (loading || !data) return null;
+  // Cold-start / loading — render a sample-preview block instead of
+  // disappearing silently. Sample numbers at 50% opacity + watching
+  // pulse so the merchant can see the card SHAPE on day-1 without
+  // having to wait for data accumulation.
+  if (loading || !data) {
+    return (
+      <div
+        style={{
+          padding: "22px 24px",
+          borderRadius: "16px",
+          background: "linear-gradient(135deg, #0b1220 0%, #141d33 100%)",
+          border: "1px dashed rgba(148,163,184,0.18)",
+          marginBottom: "16px",
+          position: "relative",
+          overflow: "hidden",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
+          <span style={{ fontSize: "18px" }}>💶</span>
+          <div
+            style={{
+              color: "#94a3b8",
+              fontSize: "11px",
+              fontWeight: 700,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+            }}
+          >
+            Money in vs money back
+          </div>
+          <span
+            style={{
+              marginLeft: "auto",
+              padding: "3px 10px",
+              borderRadius: "6px",
+              background: "rgba(148,163,184,0.12)",
+              color: "#94a3b8",
+              fontSize: "10px",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+            }}
+          >
+            <span
+              style={{
+                display: "inline-block",
+                height: "6px",
+                width: "6px",
+                borderRadius: "999px",
+                background: "#34d399",
+                animation: "hs-pulse 1.5s ease-in-out infinite",
+              }}
+            />
+            Watching
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: "10px", marginTop: "4px", opacity: 0.5 }}>
+          <div
+            style={{
+              color: "#10b981",
+              fontSize: "38px",
+              fontWeight: 900,
+              fontVariantNumeric: "tabular-nums",
+              letterSpacing: "-0.03em",
+              lineHeight: 1,
+            }}
+          >
+            3.4×
+          </div>
+          <div style={{ color: "#94a3b8", fontSize: "14px" }}>
+            money back for every {currencySymbol(undefined)}1 spent
+          </div>
+        </div>
+        <div style={{ color: "#94a3b8", fontSize: "13px", marginTop: "10px" }}>
+          Preview — your real CAC:LTV ratio populates after we ingest your monthly ad spend (Settings → Costs) plus 30 days of orders.
+        </div>
+        <div
+          style={{
+            marginTop: "12px",
+            paddingTop: "12px",
+            borderTop: "1px solid rgba(148,163,184,0.08)",
+            display: "flex",
+            gap: "16px",
+            fontSize: "12px",
+            color: "#94a3b8",
+            opacity: 0.5,
+          }}
+        >
+          <span><b style={{ color: "#cbd5e1" }}>42</b> new customers</span>
+          <span>·</span>
+          <span><b style={{ color: "#cbd5e1" }}>$24.10</b> cost each</span>
+          <span>·</span>
+          <span><b style={{ color: "#cbd5e1" }}>$82.40</b> back per customer</span>
+        </div>
+        <style jsx>{`
+          @keyframes hs-pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.9); }
+          }
+        `}</style>
+      </div>
+    );
+  }
 
   const meta = STATUS_META[data.status] || STATUS_META.no_data;
   const hasData = data.status !== "no_data";

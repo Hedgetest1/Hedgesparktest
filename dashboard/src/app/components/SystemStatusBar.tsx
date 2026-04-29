@@ -56,7 +56,27 @@ export function SystemStatusBar({
       });
   }, [shop]);
 
-  if (!status) return null;
+  // Cold-start / loading → render a simple "watching" placeholder so
+  // the merchant sees the system is alive even before /merchant/sip-status
+  // returns a payload. Pre-fix this returned null silently.
+  if (!status) {
+    return (
+      <div className="relative mt-8 overflow-hidden rounded-3xl border border-dashed border-white/[0.10] px-6 py-5 sm:px-10">
+        <div className="flex items-center gap-3">
+          <span className="relative inline-flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/60" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+          </span>
+          <div className="text-[12px] font-semibold text-slate-300">
+            Watching your store · building behavioral baselines
+          </div>
+          <div className="ml-auto text-[10px] font-mono uppercase tracking-[0.14em] text-slate-400">
+            warming up
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Hide when system is fully mature
   if (status.confidence === "high" && status.data_points > 5000) return null;
