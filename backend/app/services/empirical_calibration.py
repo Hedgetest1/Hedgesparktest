@@ -19,7 +19,7 @@ Model: Behavioral Index Calibration with Log-Odds Lift (v1)
                       + 0.40 × norm(dwell, 120)
                       + 0.20 × norm(max(visits-1, 0), 4)
 
-   The feature weights (0.40 / 0.40 / 0.20) are provisional starters, not
+   The feature weights (0.40 / 0.40 / 0.20) are provisional defaults, not
    empirically derived — that calibration happens at the shop statistics level.
 
 2. TRAINING

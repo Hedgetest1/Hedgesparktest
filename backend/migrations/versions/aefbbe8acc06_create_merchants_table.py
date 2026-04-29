@@ -23,7 +23,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("shop_domain", sa.String(), nullable=False),
         sa.Column("access_token", sa.String(), nullable=True),
-        sa.Column("plan", sa.String(), nullable=False, server_default="starter"),
+        sa.Column("plan", sa.String(), nullable=False, server_default="lite"),
         sa.Column(
             "installed_at",
             sa.DateTime(),

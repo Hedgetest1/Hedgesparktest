@@ -115,7 +115,7 @@ _ROUTER_PREFIX_RE = re.compile(
 # Candidate mapping therefore only matches that one. This keeps the
 # audit honest: the mapping tracks what's STILL blocked, not what the
 # stale memo claimed.
-_STARTER_CANDIDATES: list[tuple[str, str]] = [
+_LITE_CANDIDATES: list[tuple[str, str]] = [
     ("/pro/revenue-radar", "2. Hot Products + Live Radar"),
 ]
 
@@ -185,10 +185,10 @@ def _collect_all_gates() -> list[GateSite]:
     return all_sites
 
 
-def _starter_candidate(path: str | None) -> str | None:
+def _lite_candidate(path: str | None) -> str | None:
     if not path:
         return None
-    for prefix, feature in _STARTER_CANDIDATES:
+    for prefix, feature in _LITE_CANDIDATES:
         if path.startswith(prefix):
             return feature
     return None
@@ -218,7 +218,7 @@ def _print_survey(sites: list[GateSite]) -> None:
     # Lite-candidate hits
     candidates: dict[str, list[GateSite]] = defaultdict(list)
     for s in sites:
-        feat = _starter_candidate(s.route_path)
+        feat = _lite_candidate(s.route_path)
         if feat:
             candidates[feat].append(s)
 
