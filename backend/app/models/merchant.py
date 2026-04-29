@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, text
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
@@ -225,6 +225,19 @@ class Merchant(Base):
     survey_show_on_order_status = Column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+
+    # G4 Lite parity (2026-04-29) — Google Sheets OAuth (drive.file scope).
+    # encrypted_google_refresh_token stores the long-lived refresh_token
+    # via existing token_crypto (AES-256-GCM, enc:v1: prefix). access_token
+    # is short-lived (~1h) and refreshed in-memory on each Sheets API call.
+    # NULL = merchant has not connected Google Sheets.
+    # Text (vs String) because the encrypted+base64url payload can run
+    # past 256 chars; matches the migration's TEXT type for alembic check.
+    encrypted_google_refresh_token = Column(Text, nullable=True)
+    # Display-only — the Google account the merchant authorized.
+    google_oauth_email = Column(String(255), nullable=True)
+    # When the OAuth handshake completed — used for staleness + audit log.
+    google_oauth_connected_at = Column(DateTime, nullable=True)
 
     # G3 Lite parity (2026-04-29) — multi-question survey support.
     # When NULL, the legacy single-question fields above apply unchanged

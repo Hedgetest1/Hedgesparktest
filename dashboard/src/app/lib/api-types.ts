@@ -6035,6 +6035,116 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/merchant/google/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Google Status */
+        get: operations["get_google_status_merchant_google_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/google/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Start Google Oauth
+         * @description Step 1: redirect the merchant to Google's consent page.
+         */
+        get: operations["start_google_oauth_auth_google_start_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/google/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Google Oauth Callback
+         * @description Step 2: Google redirects here with `code` + `state`. Exchange,
+         *     store, then redirect the merchant back to the integrations page.
+         *
+         *     Note: this endpoint does NOT use require_merchant_session — Google's
+         *     redirect doesn't carry the hs_session cookie reliably (cross-site
+         *     redirect chain). We map state→shop via the in-memory store from step 1.
+         */
+        get: operations["google_oauth_callback_auth_google_callback_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/google/disconnect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Google Disconnect
+         * @description Clear the merchant's stored Google OAuth state. Doesn't revoke
+         *     at Google — merchant can do that from their Google account settings.
+         */
+        post: operations["google_disconnect_auth_google_disconnect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analytics/export-to-sheets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export To Sheets
+         * @description Create a new spreadsheet in the merchant's Drive and write
+         *     the provided headers + rows. Returns the URL the merchant can open
+         *     to view their data.
+         *
+         *     Errors:
+         *       503 — not_configured (admin hasn't set GOOGLE_OAUTH_* env)
+         *       409 — not_connected (merchant must complete OAuth flow first)
+         *       502 — Google Sheets API failure
+         */
+        post: operations["export_to_sheets_analytics_export_to_sheets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agency/register": {
         parameters: {
             query?: never;
@@ -8796,6 +8906,24 @@ export interface components {
              */
             enforcement_mode: string;
         };
+        /** ExportToSheetsRequest */
+        ExportToSheetsRequest: {
+            /** Title */
+            title: string;
+            /** Headers */
+            headers: string[];
+            /** Rows */
+            rows: unknown[][];
+        };
+        /** ExportToSheetsResponse */
+        ExportToSheetsResponse: {
+            /** Spreadsheet Id */
+            spreadsheet_id: string;
+            /** Url */
+            url: string;
+            /** Title */
+            title: string;
+        };
         /** FirstVsRepeatResponse */
         FirstVsRepeatResponse: {
             /** Currency */
@@ -9023,6 +9151,17 @@ export interface components {
              * @default USD
              */
             currency: string;
+        };
+        /** GoogleStatusResponse */
+        GoogleStatusResponse: {
+            /** Configured */
+            configured: boolean;
+            /** Connected */
+            connected: boolean;
+            /** Email */
+            email?: string | null;
+            /** Connected At */
+            connected_at?: string | null;
         };
         /** GroupCreateIn */
         GroupCreateIn: {
@@ -12615,6 +12754,10 @@ export interface components {
             allow_other: boolean;
             /** Show On Order Status */
             show_on_order_status: boolean;
+            /** Questions */
+            questions?: {
+                [key: string]: unknown;
+            }[] | null;
         };
         /** SurveyConfigUpdate */
         SurveyConfigUpdate: {
@@ -12628,6 +12771,8 @@ export interface components {
             survey_allow_other?: boolean | null;
             /** Survey Show On Order Status */
             survey_show_on_order_status?: boolean | null;
+            /** Survey Questions */
+            survey_questions?: components["schemas"]["SurveyQuestionEntry"][] | null;
         };
         /** SurveyConfigUpdateOut */
         SurveyConfigUpdateOut: {
@@ -12643,6 +12788,32 @@ export interface components {
             count: number;
             /** Pct */
             pct: number;
+        };
+        /** SurveyQuestionEntry */
+        SurveyQuestionEntry: {
+            /** Question Key */
+            question_key: string;
+            /** Question */
+            question: string;
+            /**
+             * Type
+             * @default single_choice
+             */
+            type: string;
+            /** Options */
+            options?: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Allow Other
+             * @default true
+             */
+            allow_other: boolean;
+            /**
+             * Position
+             * @default 0
+             */
+            position: number;
         };
         /** SurveyResponseIn */
         SurveyResponseIn: {
@@ -20940,6 +21111,119 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RfmSegmentsResponse"];
+                };
+            };
+        };
+    };
+    get_google_status_merchant_google_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoogleStatusResponse"];
+                };
+            };
+        };
+    };
+    start_google_oauth_auth_google_start_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    google_oauth_callback_auth_google_callback_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    google_disconnect_auth_google_disconnect_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    export_to_sheets_analytics_export_to_sheets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportToSheetsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportToSheetsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -140,6 +140,7 @@ from app.api.public_status import router as public_status_router
 from app.api.public_transparency import router as public_transparency_router
 from app.api.merchant_groups import router as merchant_groups_router
 from app.api.rfm import router as rfm_router
+from app.api.google_oauth import router as google_oauth_router
 from app.api.agency import router as agency_router
 from app.api.storefront_preview import router as storefront_preview_router
 from app.api.tracker_error import router as tracker_error_router
@@ -600,6 +601,7 @@ app.include_router(public_status_router)
 app.include_router(public_transparency_router)
 app.include_router(merchant_groups_router)
 app.include_router(rfm_router)
+app.include_router(google_oauth_router)
 app.include_router(agency_router)
 app.include_router(storefront_preview_router)
 app.include_router(tracker_error_router)
