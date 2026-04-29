@@ -924,3 +924,134 @@ export function FirstVsRepeatAovTile({ displayCurrency }: { displayCurrency: Dis
     </div>
   );
 }
+
+
+// ─────────────────────────────────────────────────────────────────
+// 13. Orders by country — Lite parity gap G1 close (2026-04-29).
+// Shopify Free, Putler $20, Better Reports $19.90, Mipler $9.99 all
+// ship country drilldown at entry tier. Endpoint exists already
+// (/analytics/orders-by-country) — this tile makes the data visible
+// as a ranked list with revenue + orders + bar chart, complementing
+// the Live Radar globe overlay that was the only existing surface.
+// ─────────────────────────────────────────────────────────────────
+
+type GeoCountry = {
+  country_code: string;
+  orders: number;
+  revenue: number;
+};
+type OrdersByCountryData = {
+  currency: string;
+  days: number;
+  has_data: boolean;
+  total_orders: number;
+  total_revenue: number;
+  countries: GeoCountry[];
+};
+
+// ISO-3166-1 alpha-2 → flag emoji via regional indicator symbols.
+// Two-letter code → two regional indicator chars (offset 0x1F1E6 from 'A').
+function flagEmoji(cc: string): string {
+  if (!cc || cc.length !== 2) return "🌐";
+  const upper = cc.toUpperCase();
+  const codePoints = [
+    0x1f1e6 + (upper.charCodeAt(0) - 65),
+    0x1f1e6 + (upper.charCodeAt(1) - 65),
+  ];
+  return String.fromCodePoint(...codePoints);
+}
+
+// Country-code → English country name. Compact map for the codes
+// most likely to appear; Intl.DisplayNames could replace this if
+// already imported elsewhere, but a static map keeps the bundle
+// trim and avoids locale-dependent surprises.
+const COUNTRY_NAMES: Record<string, string> = {
+  US: "United States", GB: "United Kingdom", DE: "Germany", FR: "France",
+  IT: "Italy", ES: "Spain", NL: "Netherlands", BE: "Belgium", IE: "Ireland",
+  CA: "Canada", AU: "Australia", NZ: "New Zealand", JP: "Japan", KR: "South Korea",
+  CN: "China", HK: "Hong Kong", SG: "Singapore", IN: "India", BR: "Brazil",
+  MX: "Mexico", AR: "Argentina", CH: "Switzerland", AT: "Austria", SE: "Sweden",
+  NO: "Norway", DK: "Denmark", FI: "Finland", PT: "Portugal", PL: "Poland",
+  GR: "Greece", CZ: "Czech Republic", RO: "Romania", HU: "Hungary", IL: "Israel",
+  AE: "UAE", SA: "Saudi Arabia", ZA: "South Africa", TR: "Turkey", RU: "Russia",
+};
+
+function countryName(cc: string): string {
+  return COUNTRY_NAMES[cc.toUpperCase()] || cc.toUpperCase();
+}
+
+export function GeoOrdersTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
+  const { data, loading, error, retry } = useTileFetch<OrdersByCountryData>(
+    (query) => apiClient
+      .GET("/analytics/orders-by-country", { params: { query } })
+      .then(r => ({ data: r.data as unknown as OrdersByCountryData, error: r.error })),
+  );
+  if (loading) return <TileSkeleton height={220} label="Loading orders by country" />;
+  if (error) return <TileError retry={retry} label="Orders by country" />;
+  if (!data || !data.has_data || data.countries.length === 0) {
+    return (
+      <TileEmpty
+        title="Orders by country"
+        hint={`No orders to map yet. As your store ships internationally, top countries appear here ranked by revenue.`}
+      />
+    );
+  }
+
+  const top = data.countries.slice(0, 8);
+  const maxRevenue = Math.max(...top.map(c => c.revenue || 0), 1);
+  const ccy = data.currency || displayCurrency;
+
+  return (
+    <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 p-4">
+      <div className="mb-3 flex items-baseline justify-between gap-2">
+        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+          Top countries · last {data.days} days
+        </div>
+        <div className="text-[11px] tabular-nums text-slate-300">
+          {formatMoneyCompact(data.total_revenue, ccy)} · {data.total_orders.toLocaleString("en-US")} orders
+        </div>
+      </div>
+      <ul className="space-y-2" aria-label="Top countries by revenue">
+        {top.map((c) => {
+          const sharePct = data.total_revenue > 0
+            ? Math.round((c.revenue / data.total_revenue) * 100)
+            : 0;
+          const barWidthPct = (c.revenue / maxRevenue) * 100;
+          return (
+            <li key={c.country_code} className="flex items-center gap-3">
+              <span className="flex w-44 flex-shrink-0 items-center gap-2 text-[12px] text-slate-200">
+                <span aria-hidden="true" className="text-[16px] leading-none">
+                  {flagEmoji(c.country_code)}
+                </span>
+                <span className="truncate" title={countryName(c.country_code)}>
+                  {countryName(c.country_code)}
+                </span>
+              </span>
+              <span className="flex-1 h-2 rounded-full bg-white/[0.04] overflow-hidden">
+                <span
+                  className="block h-full rounded-full bg-amber-300/80 transition-all duration-300"
+                  style={{ width: `${barWidthPct}%` }}
+                  aria-hidden="true"
+                />
+              </span>
+              <span className="w-24 flex-shrink-0 text-right text-[12px] font-semibold tabular-nums text-slate-200">
+                {formatMoneyCompact(c.revenue, ccy)}
+              </span>
+              <span className="w-12 flex-shrink-0 text-right text-[11px] tabular-nums text-slate-400">
+                {sharePct}%
+              </span>
+              <span className="w-12 flex-shrink-0 text-right text-[12px] tabular-nums text-slate-400">
+                {c.orders}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+      {data.countries.length > top.length && (
+        <div className="mt-3 text-[12px] text-slate-400">
+          +{data.countries.length - top.length} more countries with smaller revenue.
+        </div>
+      )}
+    </div>
+  );
+}

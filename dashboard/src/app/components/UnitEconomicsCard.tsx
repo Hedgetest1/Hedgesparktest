@@ -6,7 +6,9 @@
  * Pure-merchant language: don't say "CAC:LTV ratio", say "for every €1
  * you spend to acquire a customer, you get €X back over time".
  *
- * Data: GET /pro/cac-ltv
+ * Data: GET /analytics/cac-ltv (Lite-accessible since 2026-04-29 —
+ * Lifetimely Free / OrderMetrics $59 / TrueProfit $25 all ship CAC:LTV
+ * at lower tiers, so €39 Lite must too per strict $0-60 parity rule).
  * Click → drawer with math, status colors, and the "fix it" guidance.
  */
 
@@ -50,24 +52,20 @@ const STATUS_META: Record<string, { color: string; icon: string; label: string }
   no_data: { color: "#94a3b8", icon: "⚪", label: "Not yet" },
 };
 
-export function UnitEconomicsCard({ apiBase, isProUser }: { apiBase: string; isProUser: boolean }) {
+export function UnitEconomicsCard({ apiBase }: { apiBase: string; isProUser?: boolean }) {
   const [data, setData] = useState<CacLtvData | null>(null);
   const [loading, setLoading] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   useEffect(() => {
-    if (!isProUser) {
-      setLoading(false);
-      return;
-    }
     apiClient
-      .GET("/pro/cac-ltv", { params: { query: { window_days: 30 } } })
+      .GET("/analytics/cac-ltv", { params: { query: { window_days: 30 } } })
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .then(({ data: j, error: err }) => { if (!err && j) setData(j as any); })
       .finally(() => setLoading(false));
-  }, [apiBase, isProUser]);
+  }, [apiBase]);
 
-  if (!isProUser || loading || !data) return null;
+  if (loading || !data) return null;
 
   const meta = STATUS_META[data.status] || STATUS_META.no_data;
   const hasData = data.status !== "no_data";

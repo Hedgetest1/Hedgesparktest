@@ -11,7 +11,11 @@ monthly spend) and produces the single most important ratio for DTC:
     ratio 1-3 → ok (grow with caution)
     ratio < 1 → unprofitable — losing money on every acquisition
 
-Endpoint: GET /pro/cac-ltv
+Lite-accessible (Lifetimely Free, OrderMetrics $59, TrueProfit $25 all
+ship CAC/payback at lower tiers — flipped to merchant_session 2026-04-29
+per strict $0-60 parity rule). Canonical path is /analytics/cac-ltv;
+/pro/cac-ltv is preserved as a deprecated alias for backward compat
+with dashboard builds still on the old URL.
 
 Deterministic. Reuses ltv_engine + shop_cost_defaults. No LLM.
 """
@@ -26,12 +30,12 @@ from sqlalchemy import text as sql_text
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db, get_read_db
-from app.core.deps import require_pro_session
+from app.core.deps import require_merchant_session
 from app.services.revenue_metrics import get_shop_currency
 
 log = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/pro", tags=["cac_ltv"])
+router = APIRouter(tags=["cac_ltv"])
 
 
 
@@ -147,12 +151,9 @@ def _get_ltv_metrics(db: Session, shop: str) -> tuple[float, float]:
     return observed, avg_predicted
 
 
-@router.get("/cac-ltv", response_model=CacLtvResponse)
-def get_cac_ltv(
-    window_days: int = 30,
-    shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_read_db),  # ε1 — analytics read path
-):
+def _compute_cac_ltv(
+    db: Session, shop: str, window_days: int
+) -> CacLtvResponse:
     window_days = max(7, min(window_days, 365))
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -203,3 +204,26 @@ def get_cac_ltv(
         currency=currency or "USD",
         generated_at=now.isoformat(),
     )
+
+
+@router.get("/analytics/cac-ltv", response_model=CacLtvResponse)
+def get_cac_ltv(
+    window_days: int = 30,
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_read_db),  # ε1 — analytics read path
+):
+    """CAC:LTV — Lite-accessible parity feature (Lifetimely Free,
+    OrderMetrics $59, TrueProfit $25 all ship at lower tiers)."""
+    return _compute_cac_ltv(db, shop, window_days)
+
+
+@router.get("/pro/cac-ltv", response_model=CacLtvResponse, deprecated=True)
+def get_cac_ltv_legacy(
+    window_days: int = 30,
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_read_db),
+):
+    """Legacy alias of /analytics/cac-ltv. Kept for any dashboard build
+    still on the old URL. Same handler, same auth (now Lite-accessible),
+    same response. Will be removed once all clients migrate."""
+    return _compute_cac_ltv(db, shop, window_days)

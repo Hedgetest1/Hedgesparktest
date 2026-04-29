@@ -4391,6 +4391,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/cac-ltv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Cac Ltv
+         * @description CAC:LTV — Lite-accessible parity feature (Lifetimely Free,
+         *     OrderMetrics $59, TrueProfit $25 all ship at lower tiers).
+         */
+        get: operations["get_cac_ltv_analytics_cac_ltv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pro/cac-ltv": {
         parameters: {
             query?: never;
@@ -4398,8 +4419,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Cac Ltv */
-        get: operations["get_cac_ltv_pro_cac_ltv_get"];
+        /**
+         * Get Cac Ltv Legacy
+         * @deprecated
+         * @description Legacy alias of /analytics/cac-ltv. Kept for any dashboard build
+         *     still on the old URL. Same handler, same auth (now Lite-accessible),
+         *     same response. Will be removed once all clients migrate.
+         */
+        get: operations["get_cac_ltv_legacy_pro_cac_ltv_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -18480,7 +18507,38 @@ export interface operations {
             };
         };
     };
-    get_cac_ltv_pro_cac_ltv_get: {
+    get_cac_ltv_analytics_cac_ltv_get: {
+        parameters: {
+            query?: {
+                window_days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CacLtvResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_cac_ltv_legacy_pro_cac_ltv_get: {
         parameters: {
             query?: {
                 window_days?: number;

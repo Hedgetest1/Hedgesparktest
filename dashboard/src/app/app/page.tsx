@@ -123,6 +123,7 @@ import {
   TaxBreakdownTile,
   PaymentMethodsTile,
   TopVariantsTile,
+  GeoOrdersTile,
 } from "../components/LiteBaseAnalytics";
 import { CustomerChurnTile } from "../components/CustomerChurnTile";
 import { DateRangeProvider } from "../components/DateRangeContext";
@@ -2932,6 +2933,18 @@ function PageInner() {
                     <div className="mt-5">
                       <StockHealthCard apiBase={API_BASE} shop={shop} />
                     </div>
+                    {/* CAC : LTV — money-in vs money-back economics.
+                        Lite-accessible since 2026-04-29 (G6 close, strict
+                        $0-60 parity). Lifetimely Free, OrderMetrics $59,
+                        TrueProfit $25 all ship this — Lite must too. The
+                        card handles the unconfigured state gracefully
+                        (prompts merchant to enter monthly ad spend in
+                        Settings → Costs). Inside Profit intelligence
+                        because CAC/payback is a profit-economics signal,
+                        not a separate spine section. */}
+                    <div className="mt-5">
+                      <UnitEconomicsCard apiBase={API_BASE} />
+                    </div>
                   </div>
                 </section>
               )}
@@ -3265,6 +3278,19 @@ function PageInner() {
                         isPro={false}
                       />
                     </SectionErrorBoundary>
+                    {/* Orders by country — Lite parity gap G1 close
+                        (2026-04-29). Shopify Free, Putler $20, Better
+                        Reports $19.90, Mipler $9.99 all ship country
+                        drilldown at entry tier. Endpoint already lived
+                        at /analytics/orders-by-country (consumed by
+                        Live Radar globe overlay); this tile makes the
+                        ranked list with revenue + orders + bar chart
+                        a first-class Lite spine surface. Fits inside
+                        Audience because "where they buy from" is the
+                        geographic complement to "who buys". */}
+                    <div className="mt-5">
+                      <GeoOrdersTile displayCurrency={displayCurrency} />
+                    </div>
                   </div>
                 </section>
               )}
