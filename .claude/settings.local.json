@@ -1,5 +1,6 @@
 {
   "permissions": {
+    "defaultMode": "bypassPermissions",
     "allow": [
       "Bash(*)",
       "Read(*)",
@@ -8,7 +9,31 @@
       "Grep(*)",
       "Glob(*)",
       "WebFetch(*)",
-      "WebSearch(*)"
+      "WebSearch(*)",
+      "Agent(*)",
+      "Skill(*)",
+      "TaskCreate(*)",
+      "TaskUpdate(*)",
+      "TaskGet(*)",
+      "TaskList(*)",
+      "TaskOutput(*)",
+      "TaskStop(*)",
+      "TodoWrite(*)",
+      "NotebookEdit(*)",
+      "Monitor(*)",
+      "ScheduleWakeup(*)",
+      "CronCreate(*)",
+      "CronList(*)",
+      "CronDelete(*)",
+      "EnterPlanMode(*)",
+      "ExitPlanMode(*)",
+      "EnterWorktree(*)",
+      "ExitWorktree(*)",
+      "PushNotification(*)",
+      "RemoteTrigger(*)",
+      "AskUserQuestion(*)",
+      "ToolSearch(*)",
+      "mcp__*"
     ]
   }
 }

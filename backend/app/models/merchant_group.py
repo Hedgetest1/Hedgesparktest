@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, text
 
 from app.core.database import Base
 from app.core.time_utils import utc_now_naive
@@ -50,4 +50,13 @@ class MerchantGroupMember(Base):
     __table_args__ = (
         UniqueConstraint("group_id", "shop_domain", name="uq_mgm_group_shop"),
         Index("ix_mgm_shop", "shop_domain"),
+        # Partial unique index: only ONE shop per group can be primary.
+        # Created by migration zzzd_merchant_groups; declared here so
+        # alembic check sees no drift.
+        Index(
+            "uq_mgm_one_primary_per_group",
+            "group_id",
+            unique=True,
+            postgresql_where=text("is_primary IS TRUE"),
+        ),
     )

@@ -170,6 +170,75 @@ What this means in practice:
 pricing, or a user-facing narrative — always confirm first, even if the
 answer looks obvious.
 
+### 1.6 Full autonomy default — never ask for permission to act
+
+**Founder mandate 2026-04-29:** *"l'unica cosa che devi evidenziare è
+se per infrastruttura avresti bisogno che io Founder spenda, per il
+resto ad ogni task INIZI E CONCLUDI AUTONOMO 10/10"*.
+
+The founder has granted blanket authorization for every technical
+action inside this project. Asking for YES/NO permission mid-task —
+to run a command, write a file, install a dep, restart a worker, run
+migrations, edit any TIER_0/TIER_1 file, push a branch, open a PR —
+**interrupts the founder's strategic work and breaks flow**. It is
+the operating-mode failure §1 was written to prevent.
+
+**The rule:** every task starts and finishes autonomously at 10/10.
+No interruptions for permission. Settings carry `defaultMode:
+bypassPermissions` so prompts don't fire mechanically; the rule
+above is what governs Claude's *behavior* even when prompts wouldn't
+fire either way.
+
+**The ONLY four legitimate stops that may interrupt a task:**
+
+1. **Infrastructure spend (€).** Anything that requires the founder
+   to pay money to a third party — new SaaS subscription, paid API
+   tier upgrade, paid quota top-up, domain purchase, ad spend.
+   Surface with: cost at 10/100/1k/10k merchants
+   (`feedback_external_software_cost_10_100_1k_10k.md`) + the
+   €0 alternative considered.
+2. **TIER_2 fresh approval** (§10). The 12 listed files require
+   explicit per-change approval — that's a documented invariant,
+   not a permission prompt. State the intended change + diff scope
+   + rationale and wait. Session-scoped TIER_2 approvals
+   (`feedback_session_scoped_tier_approval.md`) cover sprint
+   bundles without re-asking per file.
+3. **Founder-domain decision** (§1.1, §1.5 exception). Brand voice,
+   palette, visual taste, copy, pricing numbers, feature narrative,
+   strategic positioning. Surface ONE proposal + tradeoffs.
+4. **External real-world action by a human.** Founder-side OAuth
+   review approvals, DPA signatures, DNS records the founder must
+   add at the registrar, credentials only the founder can issue.
+   `feedback_credential_request_via_screenshots_txt.md` governs
+   the form (a `.txt` in `screenshots/`, never chat-only).
+
+Anything outside those four = **execute, don't ask**. Default action
+on every flag is FIX (`feedback_no_park_until_attempted_fix.md`),
+not "shall I fix this?". §19 turn-close ritual still fires; the
+founder reviews the diff at end-of-turn, not mid-turn.
+
+**Forbidden chat patterns** (auto-violation of §1.6):
+
+> "Posso procedere?" · "Vuoi che lo faccia?" · "Should I proceed?"
+> · "Want me to fix this?" · "Devo applicare il fix?" · "Apply the
+> change?" · "Is it OK to commit?" · "Ready for me to deploy?" ·
+> "Should I run the tests?"
+
+The founder has already said YES. Saying it 50× per session is the
+exact friction §1.6 forbids. The founder may always reverse a
+direction with a one-line redirect *after* the work — that costs
+one message; pre-asking costs one message per action × 50 actions =
+session pollution.
+
+**Mid-turn surfacing IS allowed** when reporting facts: "tests
+green, deploying", "found 3 siblings, fixing in batch", "this
+touches TIER_2, pausing for approval". Those are status, not
+permission requests.
+
+**End-of-turn IS allowed** for §19 turn-close axes (sibling hunt
+results, pre-mortem, rubric, scheduled-agent offer). That's
+reporting, not asking.
+
 ---
 
 ## 2. Non-negotiable principles (the North Star)
@@ -753,6 +822,8 @@ must satisfy:
 | `hs:survey:daily:{shop}:{date}` | Per-shop daily survey response cap (10k/day) — sanity ceiling against runaway storage | 48h |
 | `hs:survey:pii_violations:{date}` | Daily counter of `answer_text` blocked by `llm_pii_guard` (read by ops dashboards) | 30d |
 | `hs:survey:first_today:{shop}:{date}` | SETNX flag — first response of the day per shop, drives NotificationBell pulse | 24h |
+| `hs:mgroup:v1:dash:{group_id}:{lookback_days}` | Multi-store consolidation per-currency rollup cache (Gap #5 Lite-flipped) | 5min |
+| `hs:agency:v1:dash:{agency_id}:{lookback_days}` | Agency white-label per-currency rollup cache (sibling of mgroup) | 5min |
 
 **Note (2026-04-18):** This table is the CURATED list. The backend
 currently uses ~150 Redis prefixes total; the rest are tracked
