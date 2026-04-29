@@ -4202,7 +4202,7 @@ export interface paths {
          *     Requires the existing Shopify install token (no new OAuth scope needed —
          *     `read_products` is part of the base install).
          *
-         *     Pro-only: require_pro_session enforces plan + session cookie.
+         *     Lite-accessible since 2026-04-29 (G5 parity gap close).
          */
         post: operations["sync_costs_from_shopify_pro_costs_sync_from_shopify_post"];
         delete?: never;
@@ -5999,6 +5999,34 @@ export interface paths {
         };
         /** Group Dashboard Endpoint */
         get: operations["group_dashboard_endpoint_merchant_groups__group_id__dashboard_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analytics/rfm/segments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Rfm Segments
+         * @description Return the shop's customer base segmented into 11 named RFM
+         *     cells (Champions / Loyal / At Risk / Lost / etc.). Quintile-based
+         *     on the shop's own data — no global thresholds, so a small store
+         *     and a large store both produce a usable segmentation.
+         *
+         *     The `sample_customers` list per segment uses non-PII hashed IDs
+         *     (cust_<8hex>) so the merchant can drill in without HedgeSpark
+         *     exposing emails. Recency in days; revenue in shop's primary
+         *     currency.
+         */
+        get: operations["get_rfm_segments_analytics_rfm_segments_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -11776,6 +11804,48 @@ export interface components {
             weak_genes: number;
             /** Generated At */
             generated_at: string;
+        };
+        /** RfmSampleCustomer */
+        RfmSampleCustomer: {
+            /** Id */
+            id: string;
+            /** Orders */
+            orders: number;
+            /** Revenue */
+            revenue: number;
+            /** Last Order Days Ago */
+            last_order_days_ago: number;
+        };
+        /** RfmSegment */
+        RfmSegment: {
+            /** Name */
+            name: string;
+            /** Count */
+            count: number;
+            /** Revenue */
+            revenue: number;
+            /** Share Pct */
+            share_pct: number;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Sample Customers */
+            sample_customers?: components["schemas"]["RfmSampleCustomer"][];
+        };
+        /** RfmSegmentsResponse */
+        RfmSegmentsResponse: {
+            /** Shop Domain */
+            shop_domain: string;
+            /** Currency */
+            currency: string;
+            /** Total Customers */
+            total_customers: number;
+            /** Generated At */
+            generated_at: string;
+            /** Segments */
+            segments?: components["schemas"]["RfmSegment"][];
         };
         /** RiskForecastResponse */
         RiskForecastResponse: {
@@ -20850,6 +20920,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_rfm_segments_analytics_rfm_segments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RfmSegmentsResponse"];
                 };
             };
         };

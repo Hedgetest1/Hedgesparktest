@@ -226,6 +226,23 @@ class Merchant(Base):
         Boolean, nullable=False, default=True, server_default="true"
     )
 
+    # G3 Lite parity (2026-04-29) — multi-question survey support.
+    # When NULL, the legacy single-question fields above apply unchanged
+    # (backward compatibility). When set, this is the canonical question
+    # list — the survey config endpoint returns this array; the legacy
+    # single-question fields are ignored.
+    #
+    # Shape per element:
+    #   {
+    #     "question_key": str,            # <=64 chars, unique per merchant
+    #     "question": str,                # <=160 chars
+    #     "type": "single_choice"|"multi_choice"|"text"|"nps",
+    #     "options": [{"label": str, "value": str}, ...],  # required for *_choice
+    #     "allow_other": bool,
+    #     "position": int,                # 0-based ordering
+    #   }
+    survey_questions = Column(JSONB, nullable=True)
+
     # Per-shop override for the inventory reorder lead-time (Gap #4,
     # 2026-04-28). NULL → use the 14-day industry-median default.
     # Future Settings page (`/app/settings/inventory`) lets the merchant

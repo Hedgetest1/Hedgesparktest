@@ -26,7 +26,10 @@ POST   /pro/costs/products
     product_key / cogs_per_unit / shipping_cost_per_unit / currency. Existing
     rows are updated by (shop_domain, product_key); new rows are inserted.
 
-All routes are Pro-only (require_pro_session enforces plan + session cookie).
+All routes are Lite-accessible since 2026-04-29 (G5 parity gap close +
+`feedback_settings_is_tier_agnostic_chrome.md`: Settings is tier-agnostic
+chrome). OrderMetrics $59, TrueProfit $25, Lifetimely Free, BeProfit
+all ship COGS-management at lower tiers.
 """
 from __future__ import annotations
 
@@ -39,7 +42,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_pro_session
+from app.core.deps import require_merchant_session
 from app.models.product_cost import ProductCost
 from app.models.shop_cost_defaults import ShopCostDefaults
 from app.services.shopify_cogs_sync import sync_product_costs_from_shopify
@@ -148,7 +151,7 @@ class ShopifyCogsSyncResponse(BaseModel):
     response_model_exclude_none=False,
 )
 def get_shop_cost_defaults(
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ):
     """Return the current shop_cost_defaults row (all-NULL shape if absent)."""
@@ -175,7 +178,7 @@ def get_shop_cost_defaults(
 )
 def patch_shop_cost_defaults(
     payload: ShopCostDefaultsPatch,
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -221,7 +224,7 @@ def patch_shop_cost_defaults(
     response_model_exclude_none=False,
 )
 def list_product_costs(
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ):
     """Return all product_costs rows for the shop, newest-edited first."""
@@ -246,7 +249,7 @@ def list_product_costs(
 )
 def upsert_product_costs(
     payload: ProductCostsBulkPayload,
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -318,7 +321,7 @@ def upsert_product_costs(
     response_model_exclude_none=False,
 )
 def sync_costs_from_shopify(
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -332,7 +335,7 @@ def sync_costs_from_shopify(
     Requires the existing Shopify install token (no new OAuth scope needed —
     `read_products` is part of the base install).
 
-    Pro-only: require_pro_session enforces plan + session cookie.
+    Lite-accessible since 2026-04-29 (G5 parity gap close).
     """
     return sync_product_costs_from_shopify(db, shop)
 

@@ -267,13 +267,36 @@ def get_survey_config(shop: str, response: Response, db: Session = Depends(get_d
         return payload
 
     options = merchant.survey_options or _DEFAULT_OPTIONS
+    # Multi-question array (G3 Lite parity, 2026-04-29). When the merchant
+    # has set `survey_questions`, the canonical config is the array. The
+    # legacy single-question fields stay as fallback so unchanged extensions
+    # keep rendering one question via the top-level `question`/`options`.
+    questions_list: list[dict[str, Any]] | None = None
+    if isinstance(merchant.survey_questions, list) and merchant.survey_questions:
+        questions_list = sorted(
+            merchant.survey_questions,
+            key=lambda q: q.get("position", 0) if isinstance(q, dict) else 0,
+        )
     payload = {
-        "question_key": "how_did_you_hear",
-        "question": merchant.survey_question or _DEFAULT_QUESTION,
-        "options": options,
+        "question_key": (
+            questions_list[0].get("question_key", "how_did_you_hear")
+            if questions_list else "how_did_you_hear"
+        ),
+        "question": (
+            questions_list[0].get("question", _DEFAULT_QUESTION)
+            if questions_list else (merchant.survey_question or _DEFAULT_QUESTION)
+        ),
+        "options": (
+            questions_list[0].get("options", _DEFAULT_OPTIONS)
+            if questions_list else options
+        ),
         "allow_other": bool(merchant.survey_allow_other),
         "disabled_on_order_status": not bool(merchant.survey_show_on_order_status),
-        "version": 1,
+        "version": 2 if questions_list else 1,
+        # Full multi-question array — extension v10+ consumes this when
+        # available; older extension versions fall back to the top-level
+        # single-question fields above.
+        "questions": questions_list,
     }
     cache_set(cache_key, payload, _CONFIG_CACHE_TTL)
     return payload
@@ -315,6 +338,8 @@ class SurveyConfigOut(BaseModel):
     options: list[dict[str, Any]]
     allow_other: bool
     show_on_order_status: bool
+    # G3 multi-question (2026-04-29). Null = legacy single-question mode.
+    questions: list[dict[str, Any]] | None = None
 
 
 class SurveyConfigUpdateOut(BaseModel):
@@ -451,11 +476,23 @@ def get_survey_aggregate(
 # PUT /pro/survey/config
 # ---------------------------------------------------------------------------
 
+class SurveyQuestionEntry(BaseModel):
+    question_key: str = Field(..., min_length=1, max_length=64)
+    question: str = Field(..., min_length=1, max_length=_QUESTION_MAX)
+    type: str = Field(default="single_choice")  # single_choice|multi_choice|text|nps
+    options: list[dict[str, Any]] = Field(default_factory=list)
+    allow_other: bool = True
+    position: int = 0
+
+
 class SurveyConfigUpdate(BaseModel):
     survey_question: str | None = Field(default=None, max_length=_QUESTION_MAX)
     survey_options: list[dict[str, Any]] | None = Field(default=None, max_length=_MAX_OPTIONS)
     survey_allow_other: bool | None = None
     survey_show_on_order_status: bool | None = None
+    # G3: multi-question array. When provided, replaces survey_questions
+    # entirely. Pass null to reset to single-question (legacy) mode.
+    survey_questions: list[SurveyQuestionEntry] | None = Field(default=None, max_length=10)
 
 
 @router.put("/merchant/survey/config", response_model=SurveyConfigUpdateOut)
@@ -483,6 +520,51 @@ def put_merchant_survey_config(
     if payload.survey_show_on_order_status is not None:
         merchant.survey_show_on_order_status = bool(payload.survey_show_on_order_status)
 
+    # G3 multi-question handling: validate uniqueness of question_keys +
+    # ensure choice-type questions have ≥2 options. Empty list resets to
+    # single-question (legacy) mode.
+    if payload.survey_questions is not None:
+        seen_keys: set[str] = set()
+        validated_questions: list[dict[str, Any]] = []
+        for q in payload.survey_questions:
+            if q.question_key in seen_keys:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"duplicate question_key: {q.question_key}",
+                )
+            seen_keys.add(q.question_key)
+            if q.type in ("single_choice", "multi_choice"):
+                # Multi-question allows 2-N options (vs legacy single-Q
+                # which enforces 3-8). 2-option Yes/No is parity-correct
+                # for KnoCommerce/Zigpoll/Fairing competitor flows.
+                if not isinstance(q.options, list):
+                    raise HTTPException(status_code=400, detail=f"options must be a list for {q.question_key}")
+                if not (2 <= len(q.options) <= _MAX_OPTIONS):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"options for {q.question_key} must have 2-{_MAX_OPTIONS} entries",
+                    )
+                seen_values: set[str] = set()
+                for entry in q.options:
+                    if not isinstance(entry, dict):
+                        raise HTTPException(status_code=400, detail=f"option in {q.question_key} must be a dict")
+                    label = (entry.get("label") or "").strip()
+                    value = (entry.get("value") or "").strip()
+                    if not label or not value:
+                        raise HTTPException(status_code=400, detail=f"option label+value required for {q.question_key}")
+                    if value in seen_values:
+                        raise HTTPException(status_code=400, detail=f"duplicate option value '{value}' in {q.question_key}")
+                    seen_values.add(value)
+            validated_questions.append({
+                "question_key": q.question_key,
+                "question": q.question.strip()[:_QUESTION_MAX],
+                "type": q.type,
+                "options": q.options,
+                "allow_other": bool(q.allow_other),
+                "position": q.position,
+            })
+        merchant.survey_questions = validated_questions or None
+
     db.commit()
 
     cache_delete(_CONFIG_CACHE_KEY.format(shop=shop))
@@ -494,5 +576,6 @@ def put_merchant_survey_config(
             "options": merchant.survey_options,
             "allow_other": merchant.survey_allow_other,
             "show_on_order_status": merchant.survey_show_on_order_status,
+            "questions": merchant.survey_questions,
         },
     }

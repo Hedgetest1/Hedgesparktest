@@ -130,9 +130,11 @@ function ProductCostsSurface({ isProUser }: { isProUser: boolean }) {
   }, []);
 
   useEffect(() => {
-    if (!isProUser) return;
+    // Lite-accessible since 2026-04-29 (G5 close + settings tier-agnostic
+    // doctrine). Load unconditionally — the underlying endpoint accepts
+    // require_merchant_session.
     load();
-  }, [isProUser, load]);
+  }, [load]);
 
   const dirtyCount = useMemo(
     () => (rows ?? []).filter((r) => r.dirty).length,
@@ -230,23 +232,10 @@ function ProductCostsSurface({ isProUser }: { isProUser: boolean }) {
     }
   };
 
-  if (!isProUser) {
-    return (
-      <div className="rounded-2xl border border-[#e8a04e]/25 bg-gradient-to-br from-[#e8a04e]/[0.06] to-transparent p-6">
-        <h1 className="text-[22px] font-bold text-white">Pro-only settings</h1>
-        <p className="mt-2 max-w-xl text-[13.5px] leading-relaxed text-slate-400">
-          Per-product cost configuration powers the P&L Intelligence floor.
-          Upgrade to Pro to unlock it.
-        </p>
-        <Link
-          href="/app?upgrade=1"
-          className="mt-4 inline-flex rounded-lg bg-[#d4893a] px-5 py-2.5 text-[13px] font-bold uppercase tracking-[0.1em] text-white transition-colors hover:bg-[#e8a04e]"
-        >
-          Upgrade to Pro
-        </Link>
-      </div>
-    );
-  }
+  // Settings is tier-agnostic chrome (`feedback_settings_is_tier_agnostic_chrome.md`).
+  // Pro-only return-block removed 2026-04-29 (G5 parity gap close).
+  // Lite merchants manage COGS too — Lifetimely Free, OrderMetrics $59,
+  // TrueProfit $25, BeProfit all ship this at lower tiers.
 
   return (
     <>
@@ -321,6 +310,23 @@ function ProductCostsSurface({ isProUser }: { isProUser: boolean }) {
           </div>
         )}
       </section>
+
+      {/* CSV bulk import — G5 parity close 2026-04-29.
+          OrderMetrics $59, TrueProfit $25, Lifetimely Free, BeProfit all
+          ship CSV import at $0-60. Format: product_key, product_title,
+          cogs_per_unit, shipping_cost_per_unit, currency. Parse client-
+          side and POST via existing /pro/costs/products bulk endpoint —
+          no new backend work, just UI parity. */}
+      <CsvImportSection
+        onImported={(inserted, updated) => {
+          setSyncMsg({
+            kind: "ok",
+            text: `CSV imported · ${inserted} new + ${updated} updated.`,
+            at: Date.now(),
+          });
+          load();
+        }}
+      />
 
       {/* Table — product list */}
       <section
@@ -523,5 +529,236 @@ function ProductCostsSurface({ isProUser }: { isProUser: boolean }) {
         </div>
       )}
     </>
+  );
+}
+
+
+/* ──────────────────────────────────────────────────────────────────
+ * CsvImportSection — G5 parity gap close (2026-04-29).
+ *
+ * Inline CSV parser + uploader. No external deps (papaparse not in
+ * bundle); minimal split-by-comma is enough for COGS data which is
+ * numeric + ASCII identifiers only. Multi-line + quoted-comma values
+ * not supported — by design (errors surfaced to merchant).
+ *
+ * Expected header (case-insensitive, whitespace-trimmed):
+ *   product_key, product_title, cogs_per_unit, shipping_cost_per_unit, currency
+ *
+ * Parses to the same shape as the manual editor's POST payload.
+ * ────────────────────────────────────────────────────────────────── */
+
+type CsvRow = {
+  product_key: string;
+  product_title?: string;
+  cogs_per_unit?: number;
+  shipping_cost_per_unit?: number;
+  currency?: string;
+};
+
+function parseCsv(text: string): { rows: CsvRow[]; errors: string[] } {
+  const errors: string[] = [];
+  const rows: CsvRow[] = [];
+  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (lines.length === 0) {
+    return { rows, errors: ["CSV is empty."] };
+  }
+  // Header — lowercase + trim.
+  const header = lines[0].split(",").map((c) => c.trim().toLowerCase());
+  const idx = {
+    key: header.indexOf("product_key"),
+    title: header.indexOf("product_title"),
+    cogs: header.indexOf("cogs_per_unit"),
+    ship: header.indexOf("shipping_cost_per_unit"),
+    ccy: header.indexOf("currency"),
+  };
+  if (idx.key === -1) {
+    return {
+      rows: [],
+      errors: ['CSV is missing required column "product_key".'],
+    };
+  }
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(",").map((c) => c.trim());
+    const product_key = cols[idx.key];
+    if (!product_key) {
+      errors.push(`Row ${i + 1}: missing product_key — skipped.`);
+      continue;
+    }
+    const row: CsvRow = { product_key };
+    if (idx.title !== -1 && cols[idx.title]) row.product_title = cols[idx.title];
+    if (idx.cogs !== -1 && cols[idx.cogs]) {
+      const v = parseFloat(cols[idx.cogs]);
+      if (Number.isFinite(v) && v >= 0) row.cogs_per_unit = v;
+      else errors.push(`Row ${i + 1}: cogs_per_unit "${cols[idx.cogs]}" is not a valid number — skipped value.`);
+    }
+    if (idx.ship !== -1 && cols[idx.ship]) {
+      const v = parseFloat(cols[idx.ship]);
+      if (Number.isFinite(v) && v >= 0) row.shipping_cost_per_unit = v;
+      else errors.push(`Row ${i + 1}: shipping_cost_per_unit "${cols[idx.ship]}" is not a valid number — skipped value.`);
+    }
+    if (idx.ccy !== -1 && cols[idx.ccy]) row.currency = cols[idx.ccy].toUpperCase();
+    rows.push(row);
+  }
+  return { rows, errors };
+}
+
+const CSV_TEMPLATE = `product_key,product_title,cogs_per_unit,shipping_cost_per_unit,currency
+shopify-12345,Example Tee,8.50,2.00,USD
+shopify-67890,Example Mug,3.20,1.50,USD
+`;
+
+function CsvImportSection({
+  onImported,
+}: {
+  onImported: (inserted: number, updated: number) => void;
+}) {
+  const [previewRows, setPreviewRows] = useState<CsvRow[] | null>(null);
+  const [parseErrors, setParseErrors] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  const handleFile = (file: File) => {
+    setUploadMsg(null);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result || "");
+      const { rows, errors } = parseCsv(text);
+      setPreviewRows(rows);
+      setParseErrors(errors);
+    };
+    reader.onerror = () => {
+      setPreviewRows(null);
+      setParseErrors(["Could not read this file."]);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleUpload = async () => {
+    if (!previewRows || previewRows.length === 0) return;
+    setUploading(true);
+    setUploadMsg(null);
+    const { data, error } = await apiClient.POST("/pro/costs/products", {
+      body: { products: previewRows },
+    });
+    setUploading(false);
+    if (error || !data) {
+      setUploadMsg({ kind: "err", text: "Import failed — your CSV is still parsed below; try again." });
+      return;
+    }
+    const result = data as { inserted: number; updated: number };
+    setUploadMsg({
+      kind: "ok",
+      text: `Imported · ${result.inserted} new + ${result.updated} updated.`,
+    });
+    setPreviewRows(null);
+    onImported(result.inserted, result.updated);
+  };
+
+  const downloadTemplate = () => {
+    const blob = new Blob([CSV_TEMPLATE], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "hedgespark-cogs-template.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <section
+      className="mb-6 rounded-2xl border border-violet-400/20 bg-violet-500/[0.04] p-5"
+      aria-labelledby="csv-import-heading"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <h2 id="csv-import-heading" className="text-[15px] font-bold text-violet-300">
+            Bulk import from CSV
+          </h2>
+          <p className="mt-1 max-w-lg text-[12.5px] leading-relaxed text-slate-400">
+            Have a spreadsheet of costs? Drop a CSV here. Required column:
+            <span className="ml-1 font-mono text-slate-300">product_key</span>.
+            Optional: product_title, cogs_per_unit, shipping_cost_per_unit, currency.
+          </p>
+        </div>
+        <div className="flex flex-shrink-0 flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={downloadTemplate}
+            className="rounded-lg border border-violet-400/30 bg-violet-500/[0.08] px-4 py-2 text-[12px] font-bold text-violet-200 transition-colors hover:bg-violet-500/[0.15]"
+          >
+            Download template
+          </button>
+          <label
+            className="inline-flex cursor-pointer rounded-lg bg-violet-500/90 px-5 py-2 text-[13px] font-bold uppercase tracking-[0.08em] text-white transition-colors hover:bg-violet-400"
+          >
+            Choose CSV
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleFile(f);
+                e.target.value = "";
+              }}
+            />
+          </label>
+        </div>
+      </div>
+
+      {parseErrors.length > 0 && (
+        <ul className="mt-3 space-y-1 text-[12px] text-amber-300" role="alert">
+          {parseErrors.slice(0, 5).map((err, i) => (
+            <li key={i}>· {err}</li>
+          ))}
+          {parseErrors.length > 5 && (
+            <li className="text-slate-400">· +{parseErrors.length - 5} more — fix and re-upload.</li>
+          )}
+        </ul>
+      )}
+
+      {previewRows && previewRows.length > 0 && (
+        <div className="mt-4 rounded-lg border border-white/[0.06] bg-[#0a0a14] p-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-[12px] font-semibold text-slate-300">
+              Preview · {previewRows.length} row{previewRows.length === 1 ? "" : "s"} ready
+            </span>
+            <button
+              type="button"
+              onClick={handleUpload}
+              disabled={uploading}
+              className="rounded-md bg-emerald-500/90 px-4 py-1.5 text-[12px] font-bold uppercase tracking-[0.08em] text-white transition-colors hover:bg-emerald-400 disabled:opacity-60"
+            >
+              {uploading ? "Importing…" : `Import ${previewRows.length} row${previewRows.length === 1 ? "" : "s"}`}
+            </button>
+          </div>
+          <div className="max-h-40 overflow-auto rounded bg-black/40 p-2 font-mono text-[11px] text-slate-300">
+            {previewRows.slice(0, 8).map((r, i) => (
+              <div key={i}>
+                {r.product_key} · {r.product_title || "—"} · {r.cogs_per_unit ?? "—"} · {r.shipping_cost_per_unit ?? "—"} · {r.currency || "—"}
+              </div>
+            ))}
+            {previewRows.length > 8 && (
+              <div className="mt-1 text-slate-500">… and {previewRows.length - 8} more</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {uploadMsg && (
+        <div
+          className={`mt-3 rounded-lg border px-3 py-2 text-[12px] ${
+            uploadMsg.kind === "ok"
+              ? "border-emerald-400/30 bg-emerald-500/[0.08] text-emerald-200"
+              : "border-rose-400/30 bg-rose-500/[0.08] text-rose-200"
+          }`}
+          role="status"
+        >
+          {uploadMsg.text}
+        </div>
+      )}
+    </section>
   );
 }

@@ -124,6 +124,7 @@ import {
   PaymentMethodsTile,
   TopVariantsTile,
   GeoOrdersTile,
+  RfmSegmentsTile,
 } from "../components/LiteBaseAnalytics";
 import { CustomerChurnTile } from "../components/CustomerChurnTile";
 import { DateRangeProvider } from "../components/DateRangeContext";
@@ -3290,6 +3291,18 @@ function PageInner() {
                         geographic complement to "who buys". */}
                     <div className="mt-5">
                       <GeoOrdersTile displayCurrency={displayCurrency} />
+                    </div>
+                    {/* RFM segments — Lite parity gap G2 close
+                        (2026-04-29). Putler $20, Glew (free), Mipler
+                        ship 11-named-segment RFM at entry. Quintile-
+                        scored on shop's own customer base, so small +
+                        large stores both produce usable segmentation.
+                        Sample customers are non-PII hashed IDs. Fits
+                        inside Audience as the structural complement to
+                        AudienceSegments (which is intent-driven) +
+                        GeoOrdersTile (geographic). */}
+                    <div className="mt-5">
+                      <RfmSegmentsTile displayCurrency={displayCurrency} />
                     </div>
                   </div>
                 </section>

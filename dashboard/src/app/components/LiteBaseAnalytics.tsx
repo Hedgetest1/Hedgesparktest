@@ -1055,3 +1055,124 @@ export function GeoOrdersTile({ displayCurrency }: { displayCurrency: DisplayCur
     </div>
   );
 }
+
+
+// ─────────────────────────────────────────────────────────────────
+// 14. RFM segments — Lite parity gap G2 close (2026-04-29).
+// Putler $20, Glew (free), Mipler ship 11-named-segment RFM at entry.
+// 11 segments grouped into 4 visual zones by health: Active (green),
+// At Risk (amber), Recoverable (rose), Lost (slate). Click the segment
+// to surface sample customer hashes (non-PII).
+// ─────────────────────────────────────────────────────────────────
+
+type RfmSegment = {
+  name: string;
+  count: number;
+  revenue: number;
+  share_pct: number;
+  description: string;
+  sample_customers: {
+    id: string;
+    orders: number;
+    revenue: number;
+    last_order_days_ago: number;
+  }[];
+};
+type RfmSegmentsData = {
+  currency: string;
+  total_customers: number;
+  segments: RfmSegment[];
+};
+
+// Segment → visual zone mapping. Health-coded so the merchant can
+// triage at a glance (which segments are growing vs which are leaking).
+const SEGMENT_ZONE: Record<string, "active" | "atrisk" | "recover" | "lost"> = {
+  "Champions": "active",
+  "Loyal": "active",
+  "Potential Loyalists": "active",
+  "New Customers": "active",
+  "Promising": "active",
+  "Need Attention": "atrisk",
+  "About to Sleep": "atrisk",
+  "At Risk": "atrisk",
+  "Can't Lose Them": "recover",
+  "Hibernating": "recover",
+  "Lost": "lost",
+};
+
+const ZONE_THEME: Record<string, { border: string; bg: string; label: string; text: string }> = {
+  active:  { border: "rgba(52,211,153,0.25)", bg: "rgba(52,211,153,0.06)", label: "#34d399", text: "text-emerald-300" },
+  atrisk:  { border: "rgba(251,191,36,0.25)", bg: "rgba(251,191,36,0.06)", label: "#fbbf24", text: "text-amber-300" },
+  recover: { border: "rgba(248,113,113,0.25)", bg: "rgba(248,113,113,0.06)", label: "#f87171", text: "text-rose-300" },
+  lost:    { border: "rgba(148,163,184,0.25)", bg: "rgba(148,163,184,0.04)", label: "#94a3b8", text: "text-slate-400" },
+};
+
+export function RfmSegmentsTile({ displayCurrency }: { displayCurrency: DisplayCurrency }) {
+  const { data, loading, error, retry } = useTileFetch<RfmSegmentsData>(
+    () => apiClient
+      .GET("/analytics/rfm/segments")
+      .then(r => ({ data: r.data as unknown as RfmSegmentsData, error: r.error })),
+  );
+  if (loading) return <TileSkeleton height={280} label="Loading customer segments" />;
+  if (error) return <TileError retry={retry} label="Customer segments" />;
+  if (!data || data.total_customers === 0) {
+    return (
+      <TileEmpty
+        title="Customer segments"
+        hint="No repeat customers yet to segment. As your store grows, this tile shows Champions, At Risk, Lost — 11 named segments ranked by recency × frequency × spend."
+      />
+    );
+  }
+
+  const ccy = data.currency || displayCurrency;
+  return (
+    <div className="rounded-xl border border-white/[0.05] bg-[#0e0e1a]/60 p-4">
+      <div className="mb-3 flex items-baseline justify-between gap-2">
+        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+          Customer segments · {data.total_customers.toLocaleString("en-US")} customers
+        </div>
+        <div className="text-[11px] tabular-nums text-slate-300">
+          R × F × M, quintile-scored
+        </div>
+      </div>
+      <ul className="space-y-2" aria-label="RFM segments by count and revenue">
+        {data.segments.map((seg) => {
+          const zone = SEGMENT_ZONE[seg.name] || "atrisk";
+          const theme = ZONE_THEME[zone];
+          return (
+            <li
+              key={seg.name}
+              className="rounded-lg p-3"
+              style={{ border: `1px solid ${theme.border}`, background: theme.bg }}
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <span
+                      className={`text-[13px] font-bold ${theme.text}`}
+                      style={{ color: theme.label }}
+                    >
+                      {seg.name}
+                    </span>
+                    <span className="text-[11px] text-slate-400">{seg.description}</span>
+                  </div>
+                </div>
+                <div className="flex flex-shrink-0 items-baseline gap-3 text-right">
+                  <span className="text-[12px] font-bold tabular-nums text-slate-200">
+                    {seg.count.toLocaleString("en-US")}
+                  </span>
+                  <span className="w-12 text-[11px] tabular-nums text-slate-400">
+                    {seg.share_pct.toFixed(1)}%
+                  </span>
+                  <span className="w-20 text-[12px] font-semibold tabular-nums text-slate-300">
+                    {formatMoneyCompact(seg.revenue, ccy)}
+                  </span>
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
