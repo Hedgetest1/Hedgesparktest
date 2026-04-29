@@ -22,7 +22,14 @@ SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY", "")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET", "")
 APP_URL = os.getenv("APP_URL", "").rstrip("/")
 
-# Scopes required by HedgeSpark
+# Scopes required by HedgeSpark.
+# SCOPE-REVIEW: 2026-04-29 — three baseline scopes:
+#   read_products      — required for inventory KPIs, profit slicing
+#   read_orders        — required for revenue/cohorts/attribution/refunds
+#   write_script_tags  — required to inject HedgeSpark tracker on storefront
+# Adding any new scope (read_customers, read_marketing_events, etc.) is a
+# threat-model expansion that needs founder-domain review per CLAUDE.md §1.5
+# AND requires re-install consent flow from every existing merchant.
 SHOPIFY_SCOPES = "read_products,read_orders,write_script_tags"
 
 # Callback URL that Shopify will redirect to after authorization

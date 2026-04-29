@@ -1126,7 +1126,9 @@ step "Orphan-audit backfill (info-only — see /tmp/preflight_orphans.log for de
                   audit_models_without_migrations.py audit_dashboard_redirect_paths.py \
                   audit_csv_naive_split.py audit_currency_mixing_sum.py \
                   audit_pro_gate_on_lite_tile.py audit_tracker_version_bump.py \
-                  audit_oauth_state_redis_backed.py audit_token_storage_encrypted.py; do
+                  audit_oauth_state_redis_backed.py audit_token_storage_encrypted.py \
+                  audit_tracker_xss_vectors.py audit_oauth_scope_drift.py \
+                  audit_oauth_refresh_rotation.py audit_claude_md_drift.py; do
         echo "=== $orphan ==="
         "$PY" "scripts/${orphan}" 2>&1 | head -5 || true
         echo ""

@@ -213,6 +213,40 @@ _AUDITS: list[tuple[str, str, str]] = [
         "invariant_regression",
         "invariant:token_storage_encrypted",
     ),
+    # Tracker XSS vectors: added 2026-04-29 (CTO autonomy mandate retro).
+    # Catches eval/Function/setTimeout-string/document.write/innerHTML-
+    # dynamic in tracker/*.js — XSS surface across all merchant browsers.
+    (
+        "audit_tracker_xss_vectors.py",
+        "invariant_regression",
+        "invariant:tracker_xss_vectors",
+    ),
+    # OAuth scope drift: added 2026-04-29. Catches OAuth scope constants
+    # added or expanded without an inline SCOPE-REVIEW: <date> marker.
+    # Each scope addition changes provider consent screen + threat model.
+    (
+        "audit_oauth_scope_drift.py",
+        "invariant_regression",
+        "invariant:oauth_scope_drift",
+    ),
+    # OAuth refresh-token rotation: added 2026-04-29. Catches services
+    # that store a refresh_token but lack the canonical get_access_token
+    # pattern (refresh on expiry + cache + decrypt round-trip). Without
+    # this, access_tokens silently expire and API calls 401.
+    (
+        "audit_oauth_refresh_rotation.py",
+        "invariant_regression",
+        "invariant:oauth_refresh_rotation",
+    ),
+    # CLAUDE.md drift: added 2026-04-29. Catches the silent class where
+    # CLAUDE.md sections (§6 PM2 process count, §10 TIER_2 file list)
+    # diverge from codebase reality. CLAUDE.md is auto-loaded every
+    # session as authoritative — drift poisons future decisions.
+    (
+        "audit_claude_md_drift.py",
+        "invariant_regression",
+        "invariant:claude_md_drift",
+    ),
 ]
 
 _TIMEOUT_SECONDS = 30

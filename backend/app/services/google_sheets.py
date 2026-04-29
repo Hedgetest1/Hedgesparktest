@@ -47,6 +47,10 @@ _SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets"
 # the merchant's Google email for display ("Connected as user@brand.com").
 # Without these, fetch_userinfo returns empty + we can't show whose
 # account is authorized.
+# SCOPE-REVIEW: 2026-04-29 — three NON-SENSITIVE Google scopes baseline.
+# Adding `drive` (full Drive) or `spreadsheets` (full Sheets) requires
+# (a) bumping this marker date, (b) acknowledging Google verification
+# 4-6 week wait, (c) founder-domain decision per CLAUDE.md §1.5.
 _OAUTH_SCOPE = "openid email https://www.googleapis.com/auth/drive.file"
 
 # In-memory access-token cache: shop_domain -> (token, expires_at_unix).
