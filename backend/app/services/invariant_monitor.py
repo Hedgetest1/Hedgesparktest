@@ -145,6 +145,45 @@ _AUDITS: list[tuple[str, str, str]] = [
         "invariant_regression",
         "invariant:models_without_migrations",
     ),
+    # Dashboard redirect paths: added 2026-04-29 (G4 retro hardening).
+    # Catches RedirectResponse/redirect_to URLs in app/api/* that point
+    # to /app/<path> where no Next.js page.tsx exists — i.e. the bug
+    # founder hit when callback redirected to /app/settings/integrations
+    # (which 404'd) instead of /app/settings/google-sheets.
+    (
+        "audit_dashboard_redirect_paths.py",
+        "invariant_regression",
+        "invariant:dashboard_redirect_paths",
+    ),
+    # Naive CSV split: added 2026-04-29 (G5 retro). Catches dashboard
+    # files that fetch text/csv content and call .split(',') without
+    # routing through parseCsvRfc4180 — bug class breaks on quoted
+    # commas in product titles ("Beer, IPA Edition").
+    (
+        "audit_csv_naive_split.py",
+        "invariant_regression",
+        "invariant:csv_naive_split",
+    ),
+    # Currency mixing SUM: added 2026-04-29 (Gap #5 retro). Catches
+    # SUM(total_price) aggregated across multiple shop_domain values
+    # without currency filter or aggregate_by_currency routing — the
+    # exact bug that made revenue_eur = €10k+$8k+£5k = "€23k" before
+    # the multi_currency_rollup helper was extracted.
+    (
+        "audit_currency_mixing_sum.py",
+        "invariant_regression",
+        "invariant:currency_mixing_sum",
+    ),
+    # Pro-gate on Lite-rendered tile: added 2026-04-29 (G6 retro).
+    # Catches tier-mismatch where a component rendered under
+    # {isLiteFloor && <X />} fetches an endpoint with require_pro_session.
+    # Lite users hit 403 + see error states. Bug class shipped with
+    # UnitEconomicsCard pre-G6-fix.
+    (
+        "audit_pro_gate_on_lite_tile.py",
+        "invariant_regression",
+        "invariant:pro_gate_on_lite_tile",
+    ),
 ]
 
 _TIMEOUT_SECONDS = 30
