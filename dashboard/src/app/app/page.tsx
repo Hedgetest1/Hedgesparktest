@@ -3980,7 +3980,12 @@ function PageInner() {
                 </>
               )}
 
-              {/* 10 — Live Radar + World Map */}
+              {/* 10 — Live Radar + World Map. Lite-only per $0-60
+                  parity (Lucky Orange $32 ships live visitor pulses
+                  at entry tier). Was unconditional pre-2026-04-29
+                  → rendered on both Lite + Pro = doppione that the
+                  founder caught. Now Lite-exclusive. */}
+              {isLiteFloor && (
               <SectionErrorBoundary name="Live Radar">
               <section id="section-live">
                 <SectionHeading
@@ -3997,6 +4002,7 @@ function PageInner() {
                 />
               </section>
               </SectionErrorBoundary>
+              )}
 
               {/* Slack integration migrated 2026-04-21 to
                   /app/settings/slack per founder directive: Slack is

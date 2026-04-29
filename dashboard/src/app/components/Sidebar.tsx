@@ -385,15 +385,10 @@ const NAV_ITEMS_PRO: NavItem[] = [
       </svg>
     ),
   },
-  {
-    id: "section-live",
-    label: "Live Radar",
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h3l2.25-6.75L12 18.75l2.25-9 2.25 4.5h2.25" />
-      </svg>
-    ),
-  },
+  // Live Radar removed from NAV_ITEMS_PRO 2026-04-29 — moved
+  // exclusively to Lite per $0-60 parity (Lucky Orange $32 ships
+  // live visitor pulses at entry tier). NAV_ITEMS_LITE has the
+  // 'live' entry; only one floor home.
   {
     id: "pro-anomaly",
     label: "Anomaly replay",
