@@ -78,14 +78,68 @@ def get_google_status(
 # OAuth handshake
 # ---------------------------------------------------------------------------
 
-# In-memory state map: state_token -> shop_domain. Pruned opportunistically
-# when a callback consumes it.
-# multi-worker: accept-degrade — uvicorn 4-worker setup means a /start
-# request and its matching /callback can hit different workers. Worst
-# case: callback redirects with reason=state_unknown, merchant retries
-# (typical OAuth retry UX). Acceptable trade-off vs Redis round-trip
-# in the OAuth happy path. Promote to Redis if state-unknown rate >5%.
-_oauth_state_map: dict[str, str] = {}
+# Redis-backed OAuth state storage — required for correctness in
+# multi-worker (uvicorn --workers 4) and across backend restarts.
+# Key shape: hs:google_oauth_state:{state_token} -> shop_domain
+# TTL: 300s (OAuth consent screen completes in seconds; 5min is
+# generous for slow readers + tab-switching merchants).
+# Promoted from in-memory dict 2026-04-29 after first user flow saw
+# state_unknown error (PM2 restart wiped the in-memory map mid-flow).
+# multi-worker: redis-backed
+_OAUTH_STATE_KEY_PREFIX = "hs:google_oauth_state"
+_OAUTH_STATE_TTL_S = 300
+
+
+def _store_oauth_state(state: str, shop: str) -> bool:
+    """Persist state→shop in Redis with TTL. Returns True on success.
+
+    Falls back to a degraded in-memory dict if Redis is unavailable
+    (single-worker dev mode). Production always has Redis.
+    """
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            rc.setex(
+                f"{_OAUTH_STATE_KEY_PREFIX}:{state}",
+                _OAUTH_STATE_TTL_S,
+                shop,
+            )
+            return True
+    except Exception as exc:
+        log.warning("oauth state Redis SETEX failed: %s", exc)
+    # Fallback (dev only): keep in module-level dict.
+    _oauth_state_map_fallback[state] = shop
+    return False
+
+
+def _consume_oauth_state(state: str) -> str | None:
+    """Atomically read+delete state from Redis. Returns shop_domain or
+    None if state is unknown / expired / already consumed.
+
+    Uses rc.getdel() (Redis 6.2+) for atomic GET + DEL in one round-trip.
+    A naive GET-then-DEL would race: two concurrent callbacks with the
+    same state token could both read before either deletes — letting
+    a replayed state token authenticate twice.
+    """
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            key = f"{_OAUTH_STATE_KEY_PREFIX}:{state}"
+            value = rc.getdel(key)
+            if value is not None:
+                return value.decode() if isinstance(value, bytes) else value
+    except Exception as exc:
+        log.warning("oauth state Redis GETDEL failed: %s", exc)
+    # Fallback (dev only)
+    return _oauth_state_map_fallback.pop(state, None)
+
+
+# In-memory fallback for dev-only Redis-down scenarios.
+# multi-worker: accept-degrade — only hit when Redis is unreachable;
+# production has Redis as hard dependency so this dict stays empty.
+_oauth_state_map_fallback: dict[str, str] = {}
 
 
 @router.get("/auth/google/start")
@@ -99,7 +153,7 @@ def start_google_oauth(
             detail="Google Sheets not yet configured by HedgeSpark admin.",
         )
     state = generate_state_token()
-    _oauth_state_map[state] = shop
+    _store_oauth_state(state, shop)
     auth_url = build_authorization_url(state)
     # 302 to Google. Browser handles redirect.
     return RedirectResponse(url=auth_url, status_code=302)
@@ -122,10 +176,14 @@ def google_oauth_callback(
     error = request.query_params.get("error")
 
     # Compute redirect target on the dashboard side regardless of outcome.
+    # Path matches the actual settings page at
+    # /app/settings/google-sheets/page.tsx — earlier commit shipped the
+    # backend with /app/settings/integrations which is a 404 (no such
+    # page). Fixed 2026-04-29 same session.
     import os
     dashboard = os.environ.get("DASHBOARD_URL") or "http://127.0.0.1:3000"
-    success_url = f"{dashboard}/app/settings/integrations?google=connected"
-    error_url = f"{dashboard}/app/settings/integrations?google=error"
+    success_url = f"{dashboard}/app/settings/google-sheets?google=connected"
+    error_url = f"{dashboard}/app/settings/google-sheets?google=error"
 
     if error:
         log.warning("google oauth user_denied or error: %s", error)
@@ -133,7 +191,7 @@ def google_oauth_callback(
     if not code or not state:
         return RedirectResponse(url=f"{error_url}&reason=missing_params", status_code=302)
 
-    shop = _oauth_state_map.pop(state, None)
+    shop = _consume_oauth_state(state)
     if not shop:
         return RedirectResponse(url=f"{error_url}&reason=state_unknown", status_code=302)
 

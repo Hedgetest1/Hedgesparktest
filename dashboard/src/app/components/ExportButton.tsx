@@ -1,18 +1,27 @@
 "use client";
 
 /**
- * ExportButton — CSV export primitive for Lite surfaces.
+ * ExportButton — CSV / PDF / Google Sheets export primitive.
  *
- * Strada 3.4 (2026-04-20). Small button placed in section headers:
- * "Export CSV" → fetches /analytics/export?surface=<name>, triggers
- * a browser download, reports success/failure inline.
+ * Strada 3.4 (2026-04-20) original CSV/PDF, extended 2026-04-29 with
+ * "sheets" format for G4 Lite parity gap close (Better Reports $19.90,
+ * Report Pundit Free, Mipler $9.99 all ship Sheets export at $0-60).
  *
- * Uses plain fetch with credentials: "include" so the hs_session
- * cookie is sent. Not via apiClient because apiClient is typed for
- * JSON responses and this endpoint returns text/csv.
+ * Three formats:
+ *   csv    — fetches /analytics/export?surface=X&format=csv → file download
+ *   pdf    — fetches /analytics/export?surface=X&format=pdf → file download
+ *   sheets — fetches CSV, parses it, POSTs to /analytics/export-to-sheets,
+ *            opens the new Google Sheet in a new tab. Requires merchant
+ *            to have connected Google in Settings → Google Sheets export
+ *            (409 from API if not, redirects merchant to that page).
+ *
+ * Uses plain fetch with credentials: "include" so the hs_session cookie
+ * is sent. CSV/PDF can't use apiClient because their endpoints return
+ * text/csv or application/pdf, not JSON.
  */
 
 import { useState } from "react";
+import { apiClient } from "../lib/api-client";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
 
@@ -24,7 +33,38 @@ type Surface =
   | "cohorts_monthly"
   | "attribution";
 
-type Format = "csv" | "pdf";
+type Format = "csv" | "pdf" | "sheets";
+
+// Minimal CSV row parser. Handles double-quoted fields with embedded
+// commas (the standard CSV rules). For HedgeSpark export data this
+// covers everything: numbers, plain identifiers, quoted product titles.
+function parseCsvRow(line: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"' && line[i + 1] === '"') {
+        cur += '"';
+        i++;
+      } else if (ch === '"') {
+        inQuotes = false;
+      } else {
+        cur += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ",") {
+      out.push(cur);
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  out.push(cur);
+  return out.map((s) => s.trim());
+}
 
 export function ExportButton({
   surface,
@@ -43,6 +83,52 @@ export function ExportButton({
     if (state === "loading") return;
     setState("loading");
     try {
+      // ── Sheets format: fetch CSV, parse, push to Google Sheets API.
+      if (format === "sheets") {
+        // 1. Fetch the same CSV the CSV-button would download.
+        const csvUrl = `${API_BASE}/analytics/export?surface=${encodeURIComponent(surface)}&format=csv`;
+        const csvRes = await fetch(csvUrl, { credentials: "include" });
+        if (!csvRes.ok) throw new Error(`csv fetch failed: ${csvRes.status}`);
+        const csvText = await csvRes.text();
+
+        // 2. Parse CSV into headers + rows.
+        const lines = csvText.split(/\r?\n/).filter((l) => l.trim().length > 0);
+        if (lines.length === 0) throw new Error("empty_export");
+        const headers = parseCsvRow(lines[0]);
+        const rows = lines.slice(1).map(parseCsvRow);
+
+        // 3. Push to Google Sheets via /analytics/export-to-sheets.
+        //    apiClient (typed) — backend errors come through `error`,
+        //    HTTP status via response is normalized.
+        const today = new Date().toISOString().slice(0, 10);
+        const title = `HedgeSpark · ${surface} · ${today}`;
+        const { data: sheetsBody, error, response: sheetsResp } =
+          await apiClient.POST("/analytics/export-to-sheets", {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            body: { title, headers, rows } as any,
+          });
+
+        if (sheetsResp?.status === 409) {
+          // Not connected — guide merchant to Settings.
+          window.location.href = "/app/settings/google-sheets";
+          return;
+        }
+        if (sheetsResp?.status === 503) {
+          throw new Error("sheets_not_configured");
+        }
+        if (error || !sheetsBody) throw new Error("sheets_create_failed");
+
+        const body = sheetsBody as unknown as { url: string };
+        // 4. Open the new sheet in a new tab — merchant lands on
+        //    their data immediately. Browsers' popup-blocker is fine
+        //    here because the click was a direct user gesture.
+        window.open(body.url, "_blank", "noopener,noreferrer");
+        setState("ok");
+        setTimeout(() => setState("idle"), 4000);
+        return;
+      }
+
+      // ── CSV / PDF: download via existing /analytics/export endpoint.
       const url = `${API_BASE}/analytics/export?surface=${encodeURIComponent(surface)}&format=${format}`;
       const res = await fetch(url, { credentials: "include" });
       if (!res.ok) throw new Error(`export failed: ${res.status}`);
@@ -66,12 +152,54 @@ export function ExportButton({
     }
   };
 
-  const defaultLabel = format === "pdf" ? "Export PDF" : "Export CSV";
+  const defaultLabel =
+    format === "pdf" ? "Export PDF" :
+    format === "sheets" ? "Export to Sheets" :
+    "Export CSV";
+  const loadingLabel =
+    format === "sheets" ? "Creating sheet…" : "Preparing…";
+  const okLabel =
+    format === "sheets" ? "Opened in Sheets ✓" : "Downloaded ✓";
   const displayLabel =
-    state === "loading" ? "Preparing…" :
-    state === "ok" ? "Downloaded ✓" :
+    state === "loading" ? loadingLabel :
+    state === "ok" ? okLabel :
     state === "error" ? "Retry" :
     (label || defaultLabel);
+
+  // Sheets icon (vs the down-arrow for CSV/PDF) — rendered only for
+  // format === "sheets" so the button is visually distinct from the
+  // download-arrow buttons next to it.
+  const Icon = format === "sheets" ? (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.2}
+      className="h-3 w-3"
+      aria-hidden="true"
+    >
+      <rect x="4" y="3" width="16" height="18" rx="1.5" />
+      <path strokeLinecap="round" d="M4 9h16M4 15h16M9 3v18M15 3v18" />
+    </svg>
+  ) : (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.2}
+      className="h-3 w-3"
+      aria-hidden="true"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+    </svg>
+  );
+
+  const ariaLabel =
+    format === "sheets"
+      ? `Export ${surface} to Google Sheets`
+      : `Export ${surface} as ${format.toUpperCase()}`;
 
   return (
     <button
@@ -83,19 +211,9 @@ export function ExportButton({
         color: state === "error" ? "#f87171" : accentColor,
         borderColor: state === "error" ? "rgba(248,113,113,0.3)" : `${accentColor}40`,
       }}
-      aria-label={`Export ${surface} as CSV`}
+      aria-label={ariaLabel}
     >
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2.2}
-        className="h-3 w-3"
-        aria-hidden="true"
-      >
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-      </svg>
+      {Icon}
       {displayLabel}
     </button>
   );

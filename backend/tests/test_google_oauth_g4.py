@@ -34,9 +34,21 @@ from tests.conftest import SHOP_A, SHOP_B, auth_cookies
 
 @pytest.fixture(autouse=True)
 def reset_oauth_module_state():
-    """Each test starts with no in-memory OAuth state + access cache."""
-    gs_svc._oauth_state_map = {}  # type: ignore[attr-defined]  -- module-level dict
+    """Each test starts with no OAuth state + no access-token cache."""
+    # Fallback in-memory dict (Redis-backed primary path lives in
+    # app.api.google_oauth — but in tests Redis may also be primed).
+    from app.api import google_oauth as goa
+    goa._oauth_state_map_fallback.clear()
     gs_svc._access_token_cache = {}
+    # Wipe any Redis-backed state from previous tests.
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            for key in rc.scan_iter(match="hs:google_oauth_state:*"):
+                rc.delete(key)
+    except Exception:
+        pass
     # Ensure env vars are absent unless test sets them.
     for k in ("GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"):
         os.environ.pop(k, None)
@@ -112,7 +124,11 @@ def test_start_redirects_to_google_when_configured(
     assert r.status_code == 302
     location = r.headers.get("location", "")
     assert location.startswith("https://accounts.google.com/o/oauth2/v2/auth")
-    assert "scope=https" in location and "drive.file" in location
+    # Scope is now `openid email https://www.googleapis.com/auth/drive.file`
+    # — needed to populate merchant's Google email for "Connected as ..." UI.
+    assert "drive.file" in location
+    assert "openid" in location
+    assert "email" in location
     assert "access_type=offline" in location
     assert "prompt=consent" in location
 

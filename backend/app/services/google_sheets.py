@@ -42,8 +42,12 @@ _AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _TOKEN_URL = "https://oauth2.googleapis.com/token"
 _USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 _SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets"
-# drive.file = NON-SENSITIVE, only files this app creates.
-_OAUTH_SCOPE = "https://www.googleapis.com/auth/drive.file"
+# drive.file = NON-SENSITIVE (only files this app creates).
+# openid + email are also NON-SENSITIVE — needed so /userinfo returns
+# the merchant's Google email for display ("Connected as user@brand.com").
+# Without these, fetch_userinfo returns empty + we can't show whose
+# account is authorized.
+_OAUTH_SCOPE = "openid email https://www.googleapis.com/auth/drive.file"
 
 # In-memory access-token cache: shop_domain -> (token, expires_at_unix).
 # Refresh token is encrypted in DB; access token is short-lived (~1h) so

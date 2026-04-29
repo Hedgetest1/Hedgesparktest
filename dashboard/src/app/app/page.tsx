@@ -2814,8 +2814,10 @@ function PageInner() {
                         <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
                           <ExportButton surface="benchmarks" accentColor="#a78bfa" label="Peer CSV" />
                           <ExportButton surface="benchmarks" accentColor="#a78bfa" label="Peer PDF" format="pdf" />
+                          <ExportButton surface="benchmarks" accentColor="#a78bfa" label="Peer Sheets" format="sheets" />
                           <ExportButton surface="benchmarks_vertical" accentColor="#a78bfa" label="Vertical CSV" />
                           <ExportButton surface="benchmarks_vertical" accentColor="#a78bfa" label="Vertical PDF" format="pdf" />
+                          <ExportButton surface="benchmarks_vertical" accentColor="#a78bfa" label="Vertical Sheets" format="sheets" />
                         </div>
                       </div>
                       <div className="mt-1 text-[16px] font-medium leading-snug text-slate-200 sm:text-[17px]">
@@ -2874,6 +2876,7 @@ function PageInner() {
                         <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
                           <ExportButton surface="pnl" accentColor="#e8a04e" />
                           <ExportButton surface="pnl" accentColor="#e8a04e" format="pdf" />
+                          <ExportButton surface="pnl" accentColor="#e8a04e" format="sheets" />
                         </div>
                       </div>
                       <div className="mt-1 text-[16px] font-medium leading-snug text-slate-200 sm:text-[17px]">
@@ -2980,6 +2983,7 @@ function PageInner() {
                         <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
                           <ExportButton surface="attribution" accentColor="#60a5fa" />
                           <ExportButton surface="attribution" accentColor="#60a5fa" format="pdf" />
+                          <ExportButton surface="attribution" accentColor="#60a5fa" format="sheets" />
                         </div>
                       </div>
                       <div className="mt-1 text-[16px] font-medium leading-snug text-slate-200 sm:text-[17px]">
@@ -3047,6 +3051,7 @@ function PageInner() {
                         <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
                           <ExportButton surface="cohorts_monthly" accentColor="#34d399" label="Cohorts CSV" />
                           <ExportButton surface="cohorts_monthly" accentColor="#34d399" label="Cohorts PDF" format="pdf" />
+                          <ExportButton surface="cohorts_monthly" accentColor="#34d399" label="Cohorts Sheets" format="sheets" />
                         </div>
                       </div>
                       <div className="mt-1 text-[16px] font-medium leading-snug text-slate-200 sm:text-[17px]">
