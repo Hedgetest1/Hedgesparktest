@@ -10,7 +10,7 @@ export function ProGate({
   label = "this Pro feature",
   teaser,
 }: {
-  tier: "lite" | "pro";
+  tier: "lite" | "pro" | "scale";
   onUpgradeClick: () => void;
   children: ReactNode;
   label?: string;

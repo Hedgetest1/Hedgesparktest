@@ -57,6 +57,7 @@ from app.models.merchant import Merchant
 router = APIRouter(prefix="/merchant", tags=["merchant"])
 
 _PRO_PLAN = "pro"
+_SCALE_PLAN = "scale"
 
 # Billing config — surfaced to the frontend so CTA copy stays truthful.
 # Read once at import time (same pattern as billing.py).
@@ -68,11 +69,17 @@ def _normalise_plan(raw: str | None) -> str:
     """
     Normalise the raw plan string from the merchants table.
 
-    Returns "pro" only when the stored value is exactly "pro".
-    All other values — "lite", "free", legacy values, None, or any
-    unknown string — map to "lite".
+    Returns:
+      - "scale" if the stored value is exactly "scale"
+      - "pro"   if the stored value is exactly "pro"
+      - "lite"  for everything else (legacy values, None, unknown
+        strings — fail-safe to the lowest tier).
     """
-    return _PRO_PLAN if raw == _PRO_PLAN else "lite"
+    if raw == _SCALE_PLAN:
+        return _SCALE_PLAN
+    if raw == _PRO_PLAN:
+        return _PRO_PLAN
+    return "lite"
 
 
 class MerchantMeResponse(BaseModel):

@@ -31,12 +31,20 @@ const API_BASE =
   (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_BASE_URL) ||
   "";
 
-export type Tier = "lite" | "pro";
+export type Tier = "lite" | "pro" | "scale";
 
 export type SessionState = {
   shop: string | null;
   tier: Tier;
+  /** True for Pro AND Scale merchants. Use for gates that grant the
+   *  feature to anyone above Lite (e.g. Visitor Intent, Funnel,
+   *  Live Radar). */
   isProUser: boolean;
+  /** True for Scale merchants only. Use for the moats migrated to
+   *  Scale on 2026-04-29 (Causal Lift, MTA, Anomaly Fusion + Replay,
+   *  Counterfactual, Competitor Playbook, Revenue Autopsy + Genome,
+   *  Nudge DNA, Lift Report, Night Shift). */
+  isScaleUser: boolean;
   isPreviewing: boolean;
   resolved: boolean;
   /** Force re-fetch. Useful after billing redirect returns. */
@@ -121,10 +129,13 @@ export function useSession(): SessionState {
           // cookie is still valid so we can still show the
           // dashboard. Don't treat this as fatal.
         }
+        const isScale = data.plan === "scale" && data.billing_active === true;
         const isPro = data.plan === "pro" && data.billing_active === true;
         const preview = readPreviewParam();
         setIsPreviewing(preview);
-        setTier(preview ? "lite" : isPro ? "pro" : "lite");
+        setTier(
+          preview ? "lite" : isScale ? "scale" : isPro ? "pro" : "lite",
+        );
         setResolved(true);
         return;
       }
@@ -160,7 +171,9 @@ export function useSession(): SessionState {
   return {
     shop,
     tier,
-    isProUser: tier === "pro",
+    // isProUser is TRUE for Pro AND Scale — Scale inherits Pro.
+    isProUser: tier === "pro" || tier === "scale",
+    isScaleUser: tier === "scale",
     isPreviewing,
     resolved,
     refresh,

@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db, get_read_db
-from app.core.deps import require_pro_session
+from app.core.deps import require_scale_session
 from app.services.mta_engine import compute_mta, compare_models, _MODELS
 
 router = APIRouter(prefix="/pro", tags=["mta"])
@@ -62,7 +62,7 @@ class MtaCompareResponse(BaseModel):
 def get_mta(
     model: str = Query("position_based"),
     window_days: int = Query(30, ge=1, le=365),
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_scale_session),
     db: Session = Depends(get_read_db),  # ε1
 ):
     if model not in _MODELS:
@@ -77,7 +77,7 @@ def get_mta(
 @router.get("/mta/compare", response_model=MtaCompareResponse)
 def compare_mta(
     window_days: int = Query(30, ge=1, le=365),
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_scale_session),
     db: Session = Depends(get_read_db),  # ε1
 ):
     data = compare_models(db, shop, window_days=window_days)

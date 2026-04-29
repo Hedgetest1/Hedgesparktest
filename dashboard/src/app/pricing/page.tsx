@@ -143,7 +143,7 @@ export default function PricingPage() {
   // logic, plus `resolved` so we can distinguish "still loading" from
   // "resolved to lite".
   const session = useSession();
-  const tier: "lite" | "pro" | null = session.resolved ? session.tier : null;
+  const tier: "lite" | "pro" | "scale" | null = session.resolved ? session.tier : null;
 
   const dashboardHref = "/app";
   const isProUser = tier === "pro";

@@ -616,7 +616,7 @@ function PageInner() {
   }, []);
 
   // Tier state
-  const [tier, setTier] = useState<"lite" | "pro">("lite");
+  const [tier, setTier] = useState<"lite" | "pro" | "scale">("lite");
   const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
 
   // Preview mode — `?as=lite` downgrades tier for per-plan
@@ -631,7 +631,7 @@ function PageInner() {
   // auth/billing code path goes through this instead of raw setTier,
   // so the preview stays sticky across session refresh, billing
   // callback, and OnboardingHub readiness updates.
-  const applyTier = useCallback((real: "lite" | "pro") => {
+  const applyTier = useCallback((real: "lite" | "pro" | "scale") => {
     const asParam = new URLSearchParams(window.location.search).get("as");
     const preview = asParam === "lite";
     setTier(preview ? "lite" : real);
@@ -1660,12 +1660,22 @@ function PageInner() {
   const revenueWindows       = data?.revenue_windows ?? null;
 
   // ---------------------------------------------------------------------------
-  // Feature gating — derived from plan tier (from /merchant/plan response,
-  // lines 688 / 734 above). tier="pro" iff plan === "pro" AND billing_active.
-  // Any other state (plan="lite", billing_active=false, or fetch failure)
-  // → tier="lite" → non-Pro UI branches.
+  // Feature gating — derived from plan tier (from /merchant/plan response).
+  //   tier="lite"  → entry tier, isProUser=false, isScaleUser=false
+  //   tier="pro"   → mid tier, isProUser=true, isScaleUser=false
+  //   tier="scale" → top tier, isProUser=true (Scale inherits Pro), isScaleUser=true
+  //
+  // isProUser gates Pro+ features (Visitor Intent, Funnel, Live Radar,
+  // Vertical/Peer benchmarks, Scroll heatmaps, Price Sensitivity, etc.).
+  //
+  // isScaleUser gates the 10 Scale-only moats migrated 2026-04-29 because
+  // their closest competitors live at $130+ band: Causal Lift + Why,
+  // MTA Compare, Anomaly Fusion + Replay, Counterfactual Explorer,
+  // Competitor Playbook, Revenue Autopsy + Genome, Nudge DNA, Lift
+  // Report, Night Shift Agent + Timeline.
   // ---------------------------------------------------------------------------
-  const isProUser = tier === "pro";
+  const isProUser = tier === "pro" || tier === "scale";
+  const isScaleUser = tier === "scale";
 
   // ---------------------------------------------------------------------------
   // Signal dedup + split: early (low confidence) vs strong (high confidence)
@@ -3461,47 +3471,47 @@ function PageInner() {
               {/* ═══ CUSTOMER CHURN TABLE (δ4) ═══ */}
               {!isLiteFloor && <CustomerChurnCard apiBase={API_BASE} isProUser={isProUser} />}
 
-              {/* ═══ NUDGE DNA — what words actually sell (δ5) ═══ */}
-              {!isLiteFloor && <NudgeDnaCard apiBase={API_BASE} isProUser={isProUser} />}
+              {/* ═══ Scale-tier moat block — 12 features migrated
+                  Pro→Scale 2026-04-29 because their closest competitor
+                  lives at $130+ band (Northbeam $1k+ for most). Gate:
+                  isScaleUser && isScaleFloor — visible only to Scale
+                  merchants on /app/scale. ═══ */}
+              {isScaleFloor && isScaleUser && (
+                <NudgeDnaCard apiBase={API_BASE} isProUser={isProUser} />
+              )}
 
-              {/* ═══ WHAT BRINGS THE SALE — multi-touch attribution (β2) ═══ */}
-              {!isLiteFloor && (
+              {isScaleFloor && isScaleUser && (
                 <div data-tour="mta">
                   <MtaCompareCard apiBase={API_BASE} isProUser={isProUser} />
                 </div>
               )}
 
-              {/* ═══ AUTOMATION RULES — low-code (ζ2) ═══ */}
+              {/* RuleBuilderCard stays Pro — no Scale-tier reclassification. */}
               {!isLiteFloor && <RuleBuilderCard apiBase={API_BASE} isProUser={isProUser} />}
 
-              {/* ═══ REVENUE GENOME — the DNA of your revenue ═══ */}
-              {isProUser && !isLiteFloor && (
+              {isScaleFloor && isScaleUser && (
                 <RevenueGenomeCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
               )}
 
-              {/* ═══ PHASE Ω⁵ — NIGHT SHIFT AGENT (morning reveal) ═══ */}
-              {isProUser && !isLiteFloor && (
+              {isScaleFloor && isScaleUser && (
                 <NightShiftCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
               )}
 
-              {/* ═══ NIGHT SHIFT TIMELINE — proof-of-work for the autonomous loop ═══ */}
-              {isProUser && !isLiteFloor && (
+              {isScaleFloor && isScaleUser && (
                 <NightShiftTimeline apiBase={API_BASE} shop={shop} isProUser={isProUser} />
               )}
 
-              {/* ═══ PHASE Ω — THE WHY ENGINE + ANOMALY RADAR (causal layer) ═══ */}
-              {isProUser && !isLiteFloor && (
+              {isScaleFloor && isScaleUser && (
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <CausalWhyCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <AnomalyFusionCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                 </div>
               )}
 
-              {/* ═══ PHASE Ω⁷ — THE UNREACHABLE THREE ═══ */}
-              {isProUser && !isLiteFloor && (
+              {isScaleFloor && isScaleUser && (
                 <AnomalyReplayCard apiBase={API_BASE} isProUser={isProUser} />
               )}
-              {isProUser && !isLiteFloor && (
+              {isScaleFloor && isScaleUser && (
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <CounterfactualExplorerCard apiBase={API_BASE} isProUser={isProUser} />
                   <CompetitorPlaybookCard apiBase={API_BASE} isProUser={isProUser} />
@@ -3552,11 +3562,18 @@ function PageInner() {
                 </SectionErrorBoundary>
               )}
 
-              {/* ═══ DEEP INTELLIGENCE GRID — Pro-only moat features ═══ */}
+              {/* ═══ Pro-only intelligence — Price Sensitivity stays
+                  Pro (Prisync $99 = Pro mid-band parity). RevenueAutopsy
+                  + CausalLift moved to Scale floor below (closest
+                  competitor Northbeam $1k+). ═══ */}
               {isProUser && !isLiteFloor && (
+                <PriceSensitivityCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+              )}
+
+              {/* ═══ Scale-only deep intelligence ═══ */}
+              {isScaleFloor && isScaleUser && (
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <RevenueAutopsyCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                  <PriceSensitivityCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <CausalLiftCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                 </div>
               )}
@@ -4132,8 +4149,9 @@ function PageInner() {
                 </SectionErrorBoundary>
               )}
 
-              {/* Pro — Holdout Lift Report */}
-              {isProUser && !isLiteFloor && (
+              {/* Scale — Holdout Lift Report (closest competitor:
+                  Northbeam $1k+, so Scale tier per migration 2026-04-29). */}
+              {isScaleFloor && isScaleUser && (
                 <SectionErrorBoundary name="Holdout Lift">
                 <section id="section-lift">
                   <SectionHeading

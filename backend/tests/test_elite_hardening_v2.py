@@ -2169,7 +2169,7 @@ def test_every_pro_merchant_route_requires_auth():
     """All /pro/ and /merchant/ routes must require authentication."""
     import re
     hits: list[str] = []
-    _AUTH_DEPS = ("require_pro_session", "require_merchant_session", "require_ops_key", "require_operator")
+    _AUTH_DEPS = ("require_pro_session", "require_scale_session", "require_merchant_session", "require_ops_key", "require_operator")
 
     for file in (_BACKEND / "app" / "api").rglob("*.py"):
         if "__pycache__" in file.parts:

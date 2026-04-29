@@ -38,7 +38,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_pro_session
+from app.core.deps import require_scale_session
 from app.services.nudge_measurement import (
     DEFAULT_ATTRIBUTION_WINDOW_HOURS,
     get_nudge_lift_report,
@@ -96,7 +96,7 @@ class LiftReportResponse(BaseModel):
 )
 def get_store_lift_summary(
     window_hours: int = DEFAULT_ATTRIBUTION_WINDOW_HOURS,
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_scale_session),
     db: Session = Depends(get_db),
 ):
     """

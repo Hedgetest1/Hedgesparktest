@@ -210,8 +210,9 @@ def test_billing_mismatch_pro_no_billing(db):
     assert "plan_pro_billing_inactive" in health["issues"]
 
 
-def test_billing_mismatch_billing_not_pro(db):
-    """billing_active=True but plan != pro → mismatch."""
+def test_billing_mismatch_billing_active_on_lite(db):
+    """billing_active=True but plan == lite → mismatch (Lite is the
+    no-billing tier; Pro and Scale are the paid tiers)."""
     m = Merchant(
         shop_domain="mismatch2.myshopify.com",
         plan="lite",
@@ -224,7 +225,7 @@ def test_billing_mismatch_billing_not_pro(db):
 
     health = check_entitlement_health(db, "mismatch2.myshopify.com")
     assert health["healthy"] is False
-    assert "billing_active_plan_not_pro" in health["issues"]
+    assert "billing_active_plan_lite" in health["issues"]
 
 
 def test_entitlement_healthy(db, merchant_a):

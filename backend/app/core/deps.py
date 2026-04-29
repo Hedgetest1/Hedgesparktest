@@ -141,17 +141,46 @@ def require_pro_session(
     db: Session = Depends(get_db),
 ) -> str:
     """
-    Authenticate merchant session AND enforce Pro plan.
+    Authenticate merchant session AND enforce Pro plan (or higher).
 
-    Combines require_merchant_session + Pro plan check.
-    Returns shop_domain on success.  Raises 401 or 403 on failure.
+    Combines require_merchant_session + Pro/Scale plan check. Scale
+    is a superset of Pro — Scale merchants pass the Pro gate too,
+    matching the tier rank (lite < pro < scale).
+
+    Returns shop_domain on success. Raises 401 or 403 on failure.
     """
     shop = require_merchant_session(request, db)
 
     from app.models.merchant import Merchant
     row = db.query(Merchant).filter(Merchant.shop_domain == shop).first()
-    if row is None or row.plan != "pro" or not row.billing_active:
+    if row is None or row.plan not in ("pro", "scale") or not row.billing_active:
         raise HTTPException(status_code=403, detail="Pro plan required.")
+
+    return shop
+
+
+def require_scale_session(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> str:
+    """
+    Authenticate merchant session AND enforce Scale plan.
+
+    Sibling of require_pro_session, gating Scale-tier-only features
+    (the Northbeam-class moats spostati 2026-04-29 per founder
+    directive: features whose closest-competitor lives at $130+ band
+    move to Scale €239 — Causal Lift, MTA Compare, Anomaly Fusion +
+    Replay, Counterfactual Explorer, Competitor Playbook, Revenue
+    Autopsy + Genome, Nudge DNA, Lift Report, Night Shift Agent).
+
+    Returns shop_domain on success. Raises 401 or 403 on failure.
+    """
+    shop = require_merchant_session(request, db)
+
+    from app.models.merchant import Merchant
+    row = db.query(Merchant).filter(Merchant.shop_domain == shop).first()
+    if row is None or row.plan != "scale" or not row.billing_active:
+        raise HTTPException(status_code=403, detail="Scale plan required.")
 
     return shop
 

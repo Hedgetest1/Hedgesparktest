@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_pro_session
+from app.core.deps import require_scale_session
 
 router = APIRouter(tags=["revenue_genome"])
 
@@ -33,7 +33,7 @@ class RevenueGenomeResponse(BaseModel):
 
 @router.get("/pro/revenue-genome", response_model=RevenueGenomeResponse)
 def get_revenue_genome(
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_scale_session),
     db: Session = Depends(get_db),
 ):
     """

@@ -253,13 +253,14 @@ def run_diagnostics(
             result.repair_attempted = False
             result.repair_result = "repair_in_progress_by_other"
 
-    # Entitlement mismatch detection
-    if merchant.plan == "pro" and not merchant.billing_active:
+    # Entitlement mismatch detection. Pro and Scale both require
+    # billing_active; Lite is the only no-billing tier.
+    if merchant.plan in ("pro", "scale") and not merchant.billing_active:
         result.entitlement_mismatch = True
-        result.degraded_reasons.append("plan_pro_but_billing_inactive")
-    if merchant.billing_active and merchant.plan != "pro":
+        result.degraded_reasons.append(f"plan_{merchant.plan}_but_billing_inactive")
+    if merchant.billing_active and merchant.plan not in ("pro", "scale"):
         result.entitlement_mismatch = True
-        result.degraded_reasons.append("billing_active_but_plan_not_pro")
+        result.degraded_reasons.append("billing_active_but_plan_lite")
 
     return result
 
@@ -1063,13 +1064,13 @@ def check_entitlement_health(db: Session, shop_domain: str) -> dict:
 
     issues = []
 
-    # Pro plan but billing inactive
-    if merchant.plan == "pro" and not merchant.billing_active:
-        issues.append("plan_pro_billing_inactive")
+    # Pro/Scale plan but billing inactive
+    if merchant.plan in ("pro", "scale") and not merchant.billing_active:
+        issues.append(f"plan_{merchant.plan}_billing_inactive")
 
-    # Billing active but not pro
-    if merchant.billing_active and merchant.plan != "pro":
-        issues.append("billing_active_plan_not_pro")
+    # Billing active but Lite (no-billing tier)
+    if merchant.billing_active and merchant.plan not in ("pro", "scale"):
+        issues.append("billing_active_plan_lite")
 
     # Has charge ID but no confirmation
     if merchant.billing_charge_id and not merchant.billing_confirmed_at and merchant.billing_active:

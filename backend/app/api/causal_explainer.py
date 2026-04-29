@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_pro_session
+from app.core.deps import require_scale_session
 
 log = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class CausalExplainResponse(BaseModel):
 
 @router.get("/pro/causal/explain", response_model=CausalExplainResponse)
 def get_explain(
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_scale_session),
     db: Session = Depends(get_db),
 ):
     from app.services.causal_explainer import explain

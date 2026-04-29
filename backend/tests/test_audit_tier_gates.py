@@ -153,9 +153,12 @@ def test_preventer_strict_rejects_invalid_tier_value(tmp_path):
 
 def test_live_tree_survey_runs_clean():
     """Sanity: against the real backend, survey mode exits 0 and counts
-    the expected 139 gates (may drift as code evolves; this pins the
-    baseline observation from the 2026-04-25 session)."""
+    the expected gate population. Baseline drifted to ~111 after the
+    Pro→Scale moat migration (2026-04-29) flipped 12 endpoint files
+    from require_pro_session → require_scale_session — the audit
+    survey only counts require_pro_session sites, so the new
+    require_scale_session sites are not included."""
     mod = _load()
     sites = mod._collect_all_gates()
-    # Baseline ~139 gates; allow ±20 drift for small refactors
-    assert 119 <= len(sites) <= 159, f"unexpected gate count: {len(sites)}"
+    # Baseline ~111-130 gates; allow ±20 drift
+    assert 91 <= len(sites) <= 131, f"unexpected gate count: {len(sites)}"

@@ -39,7 +39,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_pro_session
+from app.core.deps import require_scale_session
 
 log = logging.getLogger("anomaly_replay")
 
@@ -88,7 +88,7 @@ class AnomalyReplayResponse(BaseModel):
 def get_anomaly_replay(
     pattern: str,
     minutes: int = Query(default=60, ge=_MIN_WINDOW, le=_MAX_WINDOW),
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_scale_session),
     db: Session = Depends(get_db),
 ):
     """

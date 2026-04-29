@@ -39,7 +39,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_pro_session
+from app.core.deps import require_scale_session
 from app.core.currency import format_money
 from app.services.revenue_metrics import get_shop_currency
 
@@ -197,7 +197,7 @@ class CounterfactualListResponse(BaseModel):
 
 @router.get("/pro/counterfactual/signals", response_model=CounterfactualListResponse)
 def list_counterfactuals(
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_scale_session),
     db: Session = Depends(get_db),
 ):
     """List open signals with their counterfactual revenue scenarios."""
@@ -259,7 +259,7 @@ def list_counterfactuals(
 @router.get("/pro/counterfactual/signals/{signal_id}", response_model=CounterfactualEntry)
 def get_counterfactual(
     signal_id: int,
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_scale_session),
     db: Session = Depends(get_db),
 ):
     """Detail view for a single signal's counterfactual."""

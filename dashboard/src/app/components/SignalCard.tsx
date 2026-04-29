@@ -222,7 +222,7 @@ function relativeTime(isoStr?: string | null): string {
 
 type Props = {
   signal: OpportunitySignal;
-  tier: "lite" | "pro";
+  tier: "lite" | "pro" | "scale";
   onUpgradeClick: () => void;
 };
 

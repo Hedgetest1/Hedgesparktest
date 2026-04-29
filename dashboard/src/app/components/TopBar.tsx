@@ -5,7 +5,7 @@ import { NotificationBell } from "./NotificationBell";
 import type { SparkNotification } from "../lib/sparkNotifications";
 import type { ReputationScore } from "../lib/sparkReputation";
 
-type Tier = "lite" | "pro";
+type Tier = "lite" | "pro" | "scale";
 
 export type TrialInfo = {
   daysRemaining: number | null;

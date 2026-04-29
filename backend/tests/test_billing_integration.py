@@ -121,11 +121,13 @@ class TestSubscribe:
         assert m.plan == "lite"  # still lite — not yet confirmed
         assert m.billing_active is False
 
-    def test_idempotent_already_pro(self, client, merchant_a, auth_a):
-        """Merchant already on Pro → short-circuits with 200 (no Shopify call)."""
+    def test_idempotent_already_paid(self, client, merchant_a, auth_a):
+        """Merchant already on a paid tier (Pro or Scale) → short-circuits
+        with 200 (no Shopify call). merchant_a is Scale-tier post the
+        2026-04-29 Pro→Scale moat migration."""
         resp = client.post("/billing/subscribe", json={}, cookies=auth_a)
         assert resp.status_code == 200
-        assert resp.json()["plan"] == "pro"
+        assert resp.json()["plan"] in ("pro", "scale")
 
     def test_uninstalled_merchant_409(self, client, db, lite_merchant):
         """Uninstalled merchant cannot subscribe until reinstall."""

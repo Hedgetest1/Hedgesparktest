@@ -74,10 +74,10 @@ _REQUIRED: list[tuple[Path, str, str]] = [
     (LANDING_PATH,         'key: "pro"',                 "landing mid tier machine id"),
     (LANDING_PATH,         'key: "scale"',               "landing top tier machine id"),
     # Dashboard tier-state type — must match landing taxonomy
-    (DASHBOARD_APP_PAGE,   '"lite" | "pro"',             "dashboard tier state union"),
-    (USE_SESSION,          '"lite" | "pro"',             "useSession Tier type"),
-    # Backend response contract — /merchant/me normaliser stays at "lite"|"pro"
-    (BACKEND_MERCHANT_API, 'else "lite"',                "merchant.py normalise_plan fallback"),
+    (DASHBOARD_APP_PAGE,   '"lite" | "pro" | "scale"',   "dashboard tier state union"),
+    (USE_SESSION,          '"lite" | "pro" | "scale"',   "useSession Tier type"),
+    # Backend response contract — /merchant/me normaliser fallback to lite
+    (BACKEND_MERCHANT_API, 'return "lite"',              "merchant.py normalise_plan fallback"),
     # Backend Pydantic class names (dashboard api-types mirrors these)
     (BACKEND_LIVE_ALERTS,  "class LiteAlertRow(",        "live_alerts Pydantic entry-tier class"),
     (BACKEND_LIVE_ALERTS,  "class LiteAlertsResponse(",  "live_alerts Pydantic entry-tier response"),

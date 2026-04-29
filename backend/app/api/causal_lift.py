@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_pro_session
+from app.core.deps import require_scale_session
 
 router = APIRouter(tags=["causal_lift"])
 
@@ -52,7 +52,7 @@ class RecommendationImpactResponse(BaseModel):
 
 @router.get("/pro/causal-lift", response_model=CausalLiftResponse)
 def get_causal_lift(
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_scale_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -65,7 +65,7 @@ def get_causal_lift(
 
 @router.get("/pro/recommendation-impact", response_model=RecommendationImpactResponse)
 def get_recommendation_impact(
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_scale_session),
     db: Session = Depends(get_db),
 ):
     """

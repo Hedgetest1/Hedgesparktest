@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_pro_session
+from app.core.deps import require_scale_session
 from app.services.nudge_dna import extract_patterns, get_cached_dna
 
 router = APIRouter(prefix="/pro", tags=["nudge_dna"])
@@ -54,7 +54,7 @@ class NudgeDnaResponse(BaseModel):
 @router.get("/nudge-dna", response_model=NudgeDnaResponse)
 def get_nudge_dna(
     window_days: int = Query(30, ge=7, le=180),
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_scale_session),
     db: Session = Depends(get_db),
 ):
     cached = get_cached_dna(shop)
@@ -66,7 +66,7 @@ def get_nudge_dna(
 @router.post("/nudge-dna/refresh", response_model=NudgeDnaResponse)
 def refresh_nudge_dna(
     window_days: int = Query(30, ge=7, le=180),
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_scale_session),
     db: Session = Depends(get_db),
 ):
     """Force recompute — bypasses the 4h Redis cache and returns fresh patterns."""

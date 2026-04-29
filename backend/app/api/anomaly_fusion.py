@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_pro_session
+from app.core.deps import require_scale_session
 
 log = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ class AnomalyFusionResponse(BaseModel):
 
 @router.get("/pro/anomalies/fusion", response_model=AnomalyFusionResponse)
 def get_fusion(
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_scale_session),
     db: Session = Depends(get_db),
 ):
     from app.services.anomaly_fusion import fuse

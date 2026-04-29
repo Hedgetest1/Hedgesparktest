@@ -376,11 +376,16 @@ async def subscribe(
             content={"detail": "Merchant has uninstalled the app. Reinstall required."},
         )
 
-    # Short-circuit: already Pro and billing is active
-    if merchant.plan == "pro" and merchant.billing_active:
+    # Short-circuit: already on a paid tier (Pro or Scale) with billing
+    # active. Returns the merchant's actual plan in the response so the
+    # client can render the right UI state.
+    if merchant.plan in ("pro", "scale") and merchant.billing_active:
         return JSONResponse(
             status_code=200,
-            content={"detail": "Shop is already on the Pro plan.", "plan": "pro"},
+            content={
+                "detail": f"Shop is already on the {merchant.plan.capitalize()} plan.",
+                "plan": merchant.plan,
+            },
         )
 
     token = _get_access_token(merchant)

@@ -249,10 +249,17 @@ SHOP_B = "test-shop-b.myshopify.com"
 
 @pytest.fixture()
 def merchant_a(db: Session) -> Merchant:
-    """Create a test merchant (Shop A) and return the ORM object."""
+    """Create a test merchant (Shop A) and return the ORM object.
+
+    Plan: 'scale' (top tier) — gives access to every endpoint
+    (require_merchant_session, require_pro_session which accepts
+    pro+scale, AND require_scale_session). The Pro→Scale migration
+    2026-04-29 moved 12 moat endpoints to require_scale_session;
+    fixing merchant_a to scale-tier keeps all existing 200-asserting
+    tests green without per-test fixture rewrites."""
     m = Merchant(
         shop_domain=SHOP_A,
-        plan="pro",
+        plan="scale",
         billing_active=True,
         install_status="active",
         session_version=0,
@@ -294,7 +301,7 @@ def merchant_eur(db: Session) -> Merchant:
     """
     m = Merchant(
         shop_domain=SHOP_EUR,
-        plan="pro",
+        plan="scale",
         billing_active=True,
         install_status="active",
         session_version=0,

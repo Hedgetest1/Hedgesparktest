@@ -543,7 +543,7 @@ export function Sidebar({
   onToggle: () => void;
   activeSection: string;
   onNavigate: (id: string) => void;
-  tier?: "lite" | "pro";
+  tier?: "lite" | "pro" | "scale";
   /** Which of the three floors the merchant is currently viewing.
    *  Drives the active-state on the floor selector at the top of the
    *  sidebar. Section nav below only renders on the Pulse floor. */

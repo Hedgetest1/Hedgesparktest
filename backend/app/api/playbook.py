@@ -38,7 +38,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_pro_session
+from app.core.deps import require_scale_session
 
 log = logging.getLogger("playbook")
 
@@ -71,7 +71,7 @@ class PlaybookResponse(BaseModel):
 @router.get("/pro/playbook/{signal_type}", response_model=PlaybookResponse)
 def get_playbook_for_signal(
     signal_type: str,
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_scale_session),
     db: Session = Depends(get_db),
 ):
     """
