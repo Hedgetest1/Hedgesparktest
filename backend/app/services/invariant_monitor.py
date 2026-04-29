@@ -184,6 +184,35 @@ _AUDITS: list[tuple[str, str, str]] = [
         "invariant_regression",
         "invariant:pro_gate_on_lite_tile",
     ),
+    # Tracker version bump: added 2026-04-29 (tracker surface retro).
+    # Catches the silent class where tracker/*.js is modified without
+    # bumping TRACKER_VERSION → merchants serve stale cached old JS.
+    # Standalone-mode (timestamp-based) is what runtime sees.
+    (
+        "audit_tracker_version_bump.py",
+        "invariant_regression",
+        "invariant:tracker_version_bump",
+    ),
+    # OAuth state Redis-backed: added 2026-04-29 (OAuth surface retro).
+    # Catches future OAuth integrations that store state in module-level
+    # dicts instead of Redis (multi-worker-broken). Generalizes the
+    # G4 Google OAuth retro fix to all current + future OAuth flows.
+    (
+        "audit_oauth_state_redis_backed.py",
+        "invariant_regression",
+        "invariant:oauth_state_redis_backed",
+    ),
+    # Token storage encrypted: added 2026-04-29 (OAuth surface retro).
+    # Catches new merchants.* secret-bearing columns that don't follow
+    # the `encrypted_<service>_<kind>` naming convention OR don't have
+    # paired encrypt_token/decrypt_token usage. Defense-in-depth on
+    # token_crypto adoption — every new credential integration must
+    # round-trip through AES-256-GCM, no plaintext slip.
+    (
+        "audit_token_storage_encrypted.py",
+        "invariant_regression",
+        "invariant:token_storage_encrypted",
+    ),
 ]
 
 _TIMEOUT_SECONDS = 30
