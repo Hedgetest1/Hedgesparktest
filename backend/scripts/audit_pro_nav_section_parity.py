@@ -64,6 +64,16 @@ NAV_ITEM_RE = re.compile(r'id:\s*"([a-z0-9-]+)"')
 # ProParityGapPlaceholder wraps with id={`section-${id}`}, so its
 # `id="pro-X"` prop becomes a `section-pro-X` anchor at render time.
 PARITY_GAP_RE = re.compile(r'<ProParityGapPlaceholder\s[^>]*?id="(pro-[a-z0-9-]+)"', re.DOTALL)
+# Per-entry block parser — picks up id, href, scaleOnly inside each
+# `{ ... }` of NAV_ITEMS_PRO so we can enforce the scaleOnly→href
+# invariant (every Scale-only entry MUST link to /app/scale, otherwise
+# clicking does nothing — the very bug §1.6 turn-3 was meant to fix).
+NAV_ENTRY_RE = re.compile(
+    r'\{\s*\n\s*id:\s*"([a-z0-9-]+)"(?:[^{}]*?)\}',
+    re.DOTALL,
+)
+HREF_RE = re.compile(r'href:\s*"([^"]+)"')
+SCALE_ONLY_RE = re.compile(r'scaleOnly:\s*true')
 
 
 def collect_pro_section_ids() -> set[str]:
@@ -91,24 +101,39 @@ def collect_pro_section_ids() -> set[str]:
     return ids
 
 
-def collect_pro_nav_ids() -> tuple[set[str], set[str]]:
+def collect_pro_nav_ids() -> tuple[set[str], dict[str, dict[str, str | bool]]]:
+    """Return (set of nav ids, per-entry attrs dict).
+    Per-entry attrs: { "<id>": { "href": "/app/scale" | "", "scaleOnly": True } }
+    """
     src = SIDEBAR_TSX.read_text()
     nav_start = src.find("const NAV_ITEMS_PRO")
     if nav_start == -1:
         sys.stderr.write("ERROR: Sidebar.tsx — NAV_ITEMS_PRO not found.\n")
-        return set(), set()
+        return set(), {}
     nav_end = src.find("\n];", nav_start)
     if nav_end == -1:
         sys.stderr.write("ERROR: Sidebar.tsx — NAV_ITEMS_PRO close not found.\n")
-        return set(), set()
+        return set(), {}
     nav_block = src[nav_start:nav_end]
     nav_ids = set(NAV_ITEM_RE.findall(nav_block))
-    return nav_ids, set()
+
+    # Per-entry parse — non-greedy match on {} blocks, collecting id +
+    # href + scaleOnly per item. Used for the scaleOnly→href invariant.
+    attrs: dict[str, dict[str, str | bool]] = {}
+    for m in NAV_ENTRY_RE.finditer(nav_block):
+        item_id = m.group(1)
+        block = m.group(0)
+        href_m = HREF_RE.search(block)
+        attrs[item_id] = {
+            "href": href_m.group(1) if href_m else "",
+            "scaleOnly": bool(SCALE_ONLY_RE.search(block)),
+        }
+    return nav_ids, attrs
 
 
 def main() -> int:
     section_ids = collect_pro_section_ids()
-    nav_ids, _ = collect_pro_nav_ids()
+    nav_ids, attrs = collect_pro_nav_ids()
 
     findings: list[str] = []
 
@@ -129,13 +154,29 @@ def main() -> int:
             f"{sorted(orphan_sections)}"
         )
 
-    # 3. Nav entries with no matching section anchor (dead nav clicks)
-    actionable_nav = nav_ids - PRO_NAV_SCALE_ONLY - bad_prefixed
+    # 3. Nav entries with no matching section anchor (dead nav clicks).
+    # Cross-floor links (entries with href set) are exempt — they
+    # navigate to a different floor instead of scrolling.
+    cross_floor = {nid for nid, a in attrs.items() if a.get("href")}
+    actionable_nav = nav_ids - PRO_NAV_SCALE_ONLY - bad_prefixed - cross_floor
     dead_nav = actionable_nav - section_ids
     if dead_nav:
         findings.append(
-            f"NAV_ITEMS_PRO entries with no section anchor "
-            f"(click → no scroll target): {sorted(dead_nav)}"
+            f"NAV_ITEMS_PRO entries with no section anchor and no href "
+            f"(click → no scroll target, no navigation): {sorted(dead_nav)}"
+        )
+
+    # 4. Scale-only invariant: every scaleOnly: true entry MUST have an
+    # href. Without it the click silently fails — the exact bug
+    # §1.6-turn the scaleOnly convention was added to fix.
+    scale_no_href = {
+        nid for nid, a in attrs.items()
+        if a.get("scaleOnly") and not a.get("href")
+    }
+    if scale_no_href:
+        findings.append(
+            f"NAV_ITEMS_PRO scaleOnly: true entries WITHOUT href "
+            f"(click does nothing): {sorted(scale_no_href)}"
         )
 
     if findings:
