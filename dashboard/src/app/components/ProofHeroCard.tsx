@@ -81,12 +81,76 @@ export function ProofHeroCard({
 
   if (state === "empty" || !data) {
     return (
-      <CardEmpty
-        accent="emerald"
-        title="No proven wins yet this week"
-        body="This card lights up after HedgeSpark takes an action on one of your products and measures the result against the 7 days before. Give it a little time to work — the first proven win usually shows up within a week of going live."
-        eta="First win in ~5–7 days"
-      />
+      <div className="rounded-2xl border border-dashed border-emerald-400/20 bg-emerald-500/[0.025] p-6">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-400">
+              Proven wins
+            </div>
+            <h3 className="text-[26px] font-extrabold leading-tight tracking-tight text-emerald-300/80">
+              HedgeSpark recovers revenue this week
+            </h3>
+            <p className="mt-2 text-[13px] leading-relaxed text-emerald-200/60">
+              Every number comes from a real before/after measurement on a product we touched. No claims we can&apos;t back up.
+            </p>
+          </div>
+          <span className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-full bg-emerald-500/[0.08] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-300">
+            <span className="relative inline-flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/60" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            </span>
+            Sample
+          </span>
+        </div>
+        <div className="opacity-50">
+          <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
+            <div>
+              <div className="text-[36px] font-extrabold leading-none tracking-tight tabular-nums text-emerald-300">
+                +$1,840
+              </div>
+              <div className="mt-1 text-[11px] font-semibold uppercase tracking-wider text-emerald-400/80">
+                Revenue recovered
+              </div>
+            </div>
+            <div>
+              <div className="text-[24px] font-extrabold leading-none tabular-nums text-white">
+                +1.4
+                <span className="ml-1 text-[12px] font-semibold text-slate-400">points</span>
+              </div>
+              <div className="mt-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                Conversion lift
+              </div>
+            </div>
+          </div>
+          <div className="mt-4 space-y-2">
+            {[
+              { rank: 1, name: "Velvet Crew Sweater", action: "page_optimization", delta: "+$840", cvr: "+2.1 pts" },
+              { rank: 2, name: "Linen Drawstring Pants", action: "nudge_campaign", delta: "+$620", cvr: "+1.3 pts" },
+              { rank: 3, name: "Wool Beanie", action: "stock_alert", delta: "+$380", cvr: "+0.8 pts" },
+            ].map((row) => (
+              <div
+                key={row.rank}
+                className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.05] bg-white/[0.02] px-3 py-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] font-semibold text-slate-200">
+                    {row.rank}. {row.name}
+                  </div>
+                  <div className="text-[11px] text-slate-400">{row.action}</div>
+                </div>
+                <div className="flex-shrink-0 text-right">
+                  <div className="text-[14px] font-extrabold tabular-nums text-emerald-300">{row.delta}</div>
+                  <div className="text-[10px] tabular-nums text-slate-400">{row.cvr}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <p className="mt-4 text-[12px] leading-relaxed text-slate-400">
+          This card lights up after HedgeSpark takes an action on one of your products and measures the result against the 7 days before. The first proven win usually shows up within a week of going live.
+        </p>
+        <p className="mt-1 text-[11px] text-slate-400">First win in ~5–7 days.</p>
+      </div>
     );
   }
 

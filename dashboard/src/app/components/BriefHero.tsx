@@ -160,25 +160,60 @@ export function BriefHero({ brief, loading, tier, onUpgradeClick, emptyHint, spa
     !brief ||
     (!brief.headline && !brief.signals_count && !brief.top_signal_type);
 
-  // ── EMPTY STATE — Spark voice ──
+  // ── EMPTY STATE — Spark voice with sample preview ──
   if (isEmpty) {
     return (
-      <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-7 py-8">
-        <div className="flex items-start gap-4">
-          <Image
-            src="/branding/hedgespark/spark.png"
-            alt=""
-            width={28}
-            height={28}
-            className="mt-0.5 flex-shrink-0 opacity-60"
-          />
-          <div>
-            <p className="text-[16px] leading-relaxed text-slate-400">
-              {emptyHint || "Watching your store. Findings appear within minutes."}
-            </p>
-            <p className="mt-2 text-[13px] text-slate-400">— <span className="hs-brand-gradient font-semibold">Spark</span></p>
+      <div className="rounded-3xl border border-dashed border-[#d4893a]/20 bg-gradient-to-br from-[#d4893a]/[0.03] via-transparent to-[#7c3aed]/[0.02] px-7 py-7">
+        <div className="mb-5 flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <Image
+              src="/branding/hedgespark/spark.png"
+              alt=""
+              width={28}
+              height={28}
+              className="mt-0.5 flex-shrink-0 opacity-70"
+            />
+            <div>
+              <h2 className="text-[1.5rem] font-extrabold leading-tight tracking-tight text-[#e8a04e]/80">
+                Daily brief — today&apos;s headline
+              </h2>
+              <p className="mt-1 text-[13px] leading-relaxed text-slate-400">
+                {emptyHint || "Watching your store. Findings appear within minutes."}
+              </p>
+            </div>
           </div>
+          <span className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-full bg-[#d4893a]/[0.08] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-[#e8a04e]">
+            <span className="relative inline-flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#d4893a]/60" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[#d4893a]" />
+            </span>
+            Sample
+          </span>
         </div>
+
+        <div className="opacity-50 space-y-4">
+          <div className="flex flex-wrap items-center gap-2 text-[12px]">
+            <span className="rounded-lg bg-white/[0.04] px-2.5 py-1 font-semibold tabular-nums text-slate-400 ring-1 ring-white/[0.06]">
+              3 findings
+            </span>
+            <span className="rounded-lg bg-amber-500/15 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-amber-300 ring-1 ring-amber-400/30">
+              High Traffic No Cart
+            </span>
+          </div>
+          <p className="text-[18px] font-bold leading-snug text-white">
+            Velvet Crew Sweater is pulling traffic but losing carts — 312 views, 2 carts in 7 days.
+          </p>
+          <p className="text-[14px] leading-relaxed text-slate-400">
+            Cart rate dropped from 3.1% to 0.6% on this SKU after Friday&apos;s price test. Roll back the test or add a $10-off retargeting nudge for the visitors who bounced.
+          </p>
+          <p className="text-[12px] text-slate-400">
+            — <span className="hs-brand-gradient font-semibold">Spark</span>
+          </p>
+        </div>
+
+        <p className="mt-5 text-[11px] leading-relaxed text-slate-400">
+          Your real brief lands once HedgeSpark has read enough of your visitor and order signals to stand on its own — usually within 48h.
+        </p>
       </div>
     );
   }

@@ -34,18 +34,56 @@ export function RevenueHero({
   shop,
   displayCurrency = "USD",
 }: Props) {
-  // Cold start: show a welcoming hero instead of revenue
+  // Cold start: show a welcoming hero with sample preview instead of a sparse line
   if (coldStartPhase < 3) {
     const messages = [
-      "Connecting your store...",
+      "Connecting your store…",
       "Tracker live — revenue appears with your first order.",
       "Visitors arriving. First report building.",
     ];
     return (
-      <div className="relative overflow-hidden rounded-3xl border border-[#d4893a]/12 bg-gradient-to-br from-[#d4893a]/[0.04] via-transparent to-transparent p-7">
-        <div className="text-[16px] font-medium leading-relaxed text-slate-300">
-          {messages[coldStartPhase] ?? messages[0]}
+      <div className="relative overflow-hidden rounded-3xl border border-dashed border-[#d4893a]/20 bg-gradient-to-br from-[#d4893a]/[0.03] via-transparent to-transparent p-7">
+        <div className="mb-5 flex items-start justify-between gap-3">
+          <div>
+            <div className="mb-2 text-[13px] font-bold uppercase tracking-[0.15em] hs-brand-gradient">
+              Revenue this week
+            </div>
+            <p className="text-[15px] font-medium leading-relaxed text-slate-300">
+              {messages[coldStartPhase] ?? messages[0]}
+            </p>
+          </div>
+          <span className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-full bg-[#d4893a]/[0.10] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-[#e8a04e]">
+            <span className="relative inline-flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#d4893a]/60" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[#d4893a]" />
+            </span>
+            Sample
+          </span>
         </div>
+        <div className="opacity-50">
+          <div className="text-[3rem] font-extrabold leading-none tracking-tight text-white">
+            $12,840
+          </div>
+          <div className="mt-3 flex items-center gap-3">
+            <span className="text-[14px] font-medium text-slate-400">142 orders</span>
+            <span className="flex items-center gap-2 rounded-lg bg-[#d4893a]/15 px-3 py-1 text-[12px] font-bold text-[#e8a04e] ring-1 ring-[#d4893a]/25">
+              <span className="inline-block h-2 w-2 rounded-full bg-[#d4893a]" />
+              3 findings
+            </span>
+          </div>
+          <div className="mt-5 grid grid-cols-7 gap-1.5">
+            {[18, 32, 24, 41, 28, 36, 48].map((h, i) => (
+              <div
+                key={i}
+                className="rounded-sm bg-gradient-to-t from-[#d4893a]/40 to-[#d4893a]/15"
+                style={{ height: `${h}px` }}
+              />
+            ))}
+          </div>
+        </div>
+        <p className="mt-5 text-[12px] leading-relaxed text-slate-400">
+          Your real numbers replace this preview as orders come in. Most stores see live revenue here within 24h of going live.
+        </p>
       </div>
     );
   }

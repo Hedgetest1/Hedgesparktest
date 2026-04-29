@@ -81,12 +81,66 @@ export function RecommendationImpactCard({
 
   if (state === "empty" || !data) {
     return (
-      <CardEmpty
-        accent="amber"
-        title="Waiting for the first deployed action"
-        body="We compare 7 days of revenue before each action against 7 days after, so every recommendation you act on earns a measured impact number. Deploy one and this card turns on."
-        eta="Needs 1 deployed action with 14 days of order data"
-      />
+      <div className="rounded-2xl border border-dashed border-white/[0.10] bg-white/[0.015] p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-[#e8a04e]">
+              Recommendation impact
+            </div>
+            <h3 className="text-[24px] font-extrabold leading-tight tracking-tight text-slate-200">
+              Did your actions move the needle?
+            </h3>
+          </div>
+          <div className="flex items-center gap-2 rounded-full bg-amber-500/[0.08] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-300">
+            <span className="relative inline-flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400/60" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-amber-400" />
+            </span>
+            Sample
+          </div>
+        </div>
+        <div className="grid grid-cols-1 gap-3 opacity-50 sm:grid-cols-3">
+          <div className="rounded-xl border border-amber-400/20 bg-amber-500/[0.05] px-4 py-4 text-center">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
+              Avg impact
+            </div>
+            <div className="mt-1 text-[32px] font-extrabold tabular-nums text-emerald-300">
+              +6.4%
+            </div>
+            <div className="mt-0.5 text-[10px] text-amber-400/70">
+              per action, on revenue
+            </div>
+          </div>
+          <div className="rounded-xl border border-violet-400/20 bg-violet-500/[0.05] px-4 py-4 text-center">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-violet-400">
+              Actions measured
+            </div>
+            <div className="mt-1 text-[32px] font-extrabold tabular-nums text-violet-300">
+              4
+            </div>
+            <div className="mt-0.5 text-[10px] text-violet-400/70">
+              last 60 days
+            </div>
+          </div>
+          <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/[0.05] px-4 py-4 text-center">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+              Best single action
+            </div>
+            <div className="mt-1 text-[32px] font-extrabold tabular-nums text-emerald-300">
+              +14.2%
+            </div>
+            <div className="mt-0.5 text-[10px] text-emerald-400/70">
+              price_test
+            </div>
+          </div>
+        </div>
+        <p className="mt-4 text-[12px] leading-relaxed text-slate-400">
+          We compare 7 days of revenue before each action against 7 days after, so every recommendation you act on earns a measured impact number. Deploy one and this card turns on with your real numbers.
+        </p>
+        <p className="mt-1 text-[11px] text-slate-400">
+          Needs 1 deployed action with 14 days of order data.
+        </p>
+      </div>
     );
   }
 

@@ -117,12 +117,71 @@ export function IntelligenceHero({
 
   if (state === "empty" || !brief || !brief.priority_insight) {
     return (
-      <CardEmpty
-        accent="violet"
-        title="Your intelligence brief is warming up"
-        body="HedgeSpark needs a few days of visitor and order data before it can tell you what's actually driving your numbers. The first brief lands once the signals are strong enough to stand on their own."
-        eta="First brief in ~48h"
-      />
+      <div className="rounded-2xl border border-dashed border-white/[0.10] bg-white/[0.015] p-5 sm:p-6">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="mb-2 flex items-center gap-2.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-violet-400 animate-pulse" />
+              <span className="text-[13px] font-bold uppercase tracking-[0.14em] hs-brand-gradient">
+                Intelligence brief
+              </span>
+            </div>
+            <h3 className="text-[24px] font-extrabold leading-tight tracking-tight text-slate-200 sm:text-[26px]">
+              What&apos;s actually driving your numbers
+            </h3>
+          </div>
+          <span className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-full bg-violet-500/[0.10] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-violet-300">
+            <span className="relative inline-flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400/60" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-violet-400" />
+            </span>
+            Sample
+          </span>
+        </div>
+        <div className="opacity-50 space-y-3">
+          <div className="rounded-xl border border-rose-500/20 bg-rose-500/[0.06] p-4">
+            <div className="mb-2 flex items-center gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-rose-400/80">Conversion breakdown</span>
+            </div>
+            <div className="text-[18px] font-bold text-rose-200">Velvet Crew Sweater</div>
+            <div className="mt-2 flex items-center gap-4">
+              <div>
+                <span className="text-[1.5rem] font-extrabold tabular-nums text-white">312</span>
+                <span className="ml-1.5 text-[12px] text-slate-400">views</span>
+              </div>
+              <span className="text-[18px] text-slate-600" aria-hidden="true">&rarr;</span>
+              <div>
+                <span className="text-[1.5rem] font-extrabold tabular-nums text-rose-400">2</span>
+                <span className="ml-1.5 text-[12px] text-slate-400">carts</span>
+              </div>
+              <div className="ml-auto rounded-lg bg-rose-500/15 px-3 py-1">
+                <span className="text-[12px] font-bold text-rose-400">&darr; 0.6% cart rate</span>
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+              <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">7d revenue</div>
+              <div className="mt-0.5 text-[16px] font-extrabold tabular-nums text-slate-200">$8,420</div>
+              <div className="text-[10px] text-emerald-400">+12% vs prev</div>
+            </div>
+            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+              <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">7d orders</div>
+              <div className="mt-0.5 text-[16px] font-extrabold tabular-nums text-slate-200">94</div>
+              <div className="text-[10px] text-emerald-400">+8% vs prev</div>
+            </div>
+            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+              <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Cart rate</div>
+              <div className="mt-0.5 text-[16px] font-extrabold tabular-nums text-slate-200">2.3%</div>
+              <div className="text-[10px] text-rose-400">&darr; 0.4 pts</div>
+            </div>
+          </div>
+        </div>
+        <p className="mt-4 text-[12px] leading-relaxed text-slate-400">
+          HedgeSpark needs a few days of visitor and order data before it can tell you what&apos;s actually driving your numbers. The first brief lands once the signals are strong enough to stand on their own.
+        </p>
+        <p className="mt-1 text-[11px] text-slate-400">First brief in ~48h.</p>
+      </div>
     );
   }
 
