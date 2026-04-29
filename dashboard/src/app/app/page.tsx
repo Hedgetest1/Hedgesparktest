@@ -3446,7 +3446,10 @@ function PageInner() {
                     marginBottom: "8px",
                   }}
                 >
-                  <UnitEconomicsCard apiBase={API_BASE} />
+                  {/* UnitEconomicsCard removed from Pro floor 2026-04-29
+                      per founder no-doppione doctrine — lives on Lite
+                      ($0-60 parity vs Lifetimely $29 CAC:LTV). Pro
+                      merchant sees it on /app/lite. */}
                   <div data-tour="margin-health">
                     <MarginHealthCard apiBase={API_BASE} isProUser={isProUser} />
                   </div>
@@ -3509,21 +3512,26 @@ function PageInner() {
                 <AskHedgeSparkCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
               )}
 
-              {/* ═══ KILLER FEATURE GRID — drill-downs from the RARS hero ═══ */}
+              {/* ═══ Pro-only operational widgets (no Lite duplicates) ═══
+                  Removed 2026-04-29 per founder no-doppione doctrine:
+                    - VerticalBenchmarksCard, PeerBenchmarksCard,
+                      ProductsInDecline → live on Lite ($0-60 parity).
+                  Kept (Pro-genuine, no Lite equivalent):
+                    - MonthlyTargetsCard, MonthlyROICard, IntegrationsCard. */}
               {isProUser && !isLiteFloor && (
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                  <VerticalBenchmarksCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                  <PeerBenchmarksCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                  <ProductsInDecline apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <MonthlyTargetsCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <MonthlyROICard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <IntegrationsCard apiBase={API_BASE} isProUser={isProUser} />
                 </div>
               )}
 
-              {/* ═══ Lite-accessible deep cards — Pro-floor only now.
-                  On /app/lite these render inside the cassettoni grid
-                  above (click to expand). ═══ */}
+              {/* ═══ Abandoned Intent — Pro-tier exclusive
+                  (founder directive 2026-04-29: it lives in Pro,
+                  not duplicated on Lite). The basic intent-aware
+                  cart abandonment is a Pro feature; Lite has the
+                  Live Opportunities cassettone for entry-tier
+                  comparable signal. ═══ */}
               {!isLiteFloor && (
                 <AbandonedIntentCard
                   apiBase={API_BASE}
@@ -3533,11 +3541,9 @@ function PageInner() {
                 />
               )}
 
-              {!isLiteFloor && (
-                <SectionErrorBoundary name="Live Opportunities">
-                  <LiveOpportunitiesCard apiBase={API_BASE} shop={shop} />
-                </SectionErrorBoundary>
-              )}
+              {/* LiveOpportunitiesCard removed from Pro floor 2026-04-29
+                  per no-doppione doctrine — it's a Lite cassettone, the
+                  Pro merchant sees it on /app/lite. */}
 
               {!isLiteFloor && (
                 <SectionErrorBoundary name="Visitor Intent">
@@ -3581,41 +3587,9 @@ function PageInner() {
               {/* ═══ RECENT ACTIONS — localStorage memory ═══ */}
               <RecentActions actions={recentActions} />
 
-              {/* 1 — Daily Brief — Pro-floor only now (on /app/lite it
-                  lives inside the cassettoni grid above). */}
-              {!isLiteFloor && (
-                <SectionErrorBoundary name="Daily Brief">
-                <section id="section-brief">
-                  <BriefHero
-                    brief={effectiveBrief}
-                    loading={briefLoading}
-                    tier={tier}
-                    onUpgradeClick={() => setUpgradeModalOpen(true)}
-                    emptyHint={
-                      coldStartPhase === 0
-                        ? "Complete setup to start tracking."
-                        : coldStartPhase === 1
-                        ? "Tracker live. First findings within minutes."
-                        : coldStartPhase === 2
-                        ? "Visitors arriving. Analyzing behavior to find your first revenue opportunity."
-                        : undefined
-                    }
-                    sparkInsight={(() => {
-                      const top = strongSignals[0];
-                      if (!top) return earlySignals.length > 0 ? "Early visitor activity detected. Patterns forming." : undefined;
-                      const parts: string[] = [];
-                      if (top.human_label) parts.push(top.human_label);
-                      else if (top.explanation) parts.push(top.explanation);
-                      return parts.join("") || undefined;
-                    })()}
-                    sparkDetail={(() => {
-                      if (strongSignals.length <= 1) return undefined;
-                      return `${strongSignals.length} findings across your store.`;
-                    })()}
-                  />
-                </section>
-                </SectionErrorBoundary>
-              )}
+              {/* BriefHero removed from Pro floor 2026-04-29 per
+                  no-doppione doctrine — Daily Brief is a Lite cassettone
+                  ($0-60 parity), Pro merchant sees it on /app/lite. */}
 
               {!isLiteFloor && (
                 <>
@@ -3744,7 +3718,13 @@ function PageInner() {
                   to Pro merchants with real data during the fetch
                   window. During load → CardSkeleton. After load → real
                   state (grid or CardEmpty). */}
-              {!isLiteFloor && (
+              {/* Hot Products section removed from Pro floor 2026-04-29
+                  per no-doppione doctrine — Hot Products is a Lite
+                  cassettone ($0-60 parity vs Putler $20). The Pro
+                  merchant sees it on /app/lite. TrafficSourceBox below
+                  preserves the traffic-source widget which is a Pro
+                  add-on (not a Lite duplicate). */}
+              {false && !isLiteFloor && (
                 <SectionErrorBoundary name="Hot Products">
                 <section>
                   <SectionHeading eyebrow="Hot Products" title="Where buyers are active" />
