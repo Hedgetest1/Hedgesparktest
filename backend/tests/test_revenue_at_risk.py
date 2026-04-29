@@ -221,3 +221,35 @@ def test_rars_lite_with_zero_prevented_has_zero_net_roi(db):
     assert lite["prevented_eur_this_month"] == 0
     # Therefore net_roi must also be 0, not −99
     assert lite["net_roi_eur"] == 0
+
+
+# ════════════════════════════════════════════════════════════════════
+# Pro-tier gate tests — strict $0-70 parity rule (2026-04-29)
+# RARS moved from Lite to Pro. No $0-70 competitor ships RARS-equivalent
+# at any price; Northbeam $1k+ is the closest analog. Pro €99 carries
+# RARS as a headline differentiator.
+# ════════════════════════════════════════════════════════════════════
+
+
+def test_rars_endpoint_lite_returns_403(client, merchant_b, auth_b):
+    """Lite (starter) merchants must NOT access /analytics/revenue-at-risk."""
+    r = client.get("/analytics/revenue-at-risk", cookies=auth_b)
+    assert r.status_code == 403, (
+        f"Lite tier must get 403, got {r.status_code}: {r.text}"
+    )
+
+
+def test_rars_endpoint_pro_returns_200(client, merchant_a, auth_a):
+    """Pro merchants get 200 with full 5-dim breakdown."""
+    r = client.get("/analytics/revenue-at-risk", cookies=auth_a)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "total_at_risk_eur" in body
+    assert "components" in body
+    assert "headline" in body
+
+
+def test_rars_legacy_pro_path_still_pro_gated(client, merchant_b, auth_b):
+    """The deprecated /pro/revenue-at-risk alias must keep Pro gating too."""
+    r = client.get("/pro/revenue-at-risk", cookies=auth_b)
+    assert r.status_code == 403

@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_merchant_session
+from app.core.deps import require_pro_session
 
 _log = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ class VisitorIntentCounts(BaseModel):
 
 @router.get("/visitor-scores")
 def visitor_scores(
-    shop: str = Depends(require_merchant_session),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     query = text("""
@@ -136,7 +136,7 @@ def visitor_scores(
 
 @router.get("/visitor-intent-classification", response_model=VisitorIntentCounts)
 def visitor_intent_classification(
-    shop: str = Depends(require_merchant_session),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     cached = _cache_get(_VI_CACHE_PREFIX, shop)

@@ -207,15 +207,6 @@ const NAV_ITEMS: NavItem[] = [
 // shared handleNavigate → scrollIntoView pattern.
 const NAV_ITEMS_LITE: NavItem[] = [
   {
-    id: "lite-rars",
-    label: "Revenue at risk",
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-      </svg>
-    ),
-  },
-  {
     id: "lite-today",
     label: "Today",
     icon: (
@@ -340,7 +331,6 @@ const SECTION_TO_NAV: Record<string, string> = {
   // into that section produces no active highlight and the sidebar
   // visually "loses" the merchant's position. Enforced by
   // `audit_lite_nav_section_parity.py` at preflight.
-  "lite-rars": "lite-rars",
   "lite-today": "lite-today",
   "lite-last7": "lite-last7",
   "lite-peers": "lite-peers",

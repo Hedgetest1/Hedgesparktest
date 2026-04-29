@@ -108,7 +108,6 @@ import { CustomerChurnCard } from "../components/CustomerChurnCard";
 import { NudgeDnaCard } from "../components/NudgeDnaCard";
 // Lite-floor — cassettoni grid with click-to-expand (v3 spec)
 import { LiteCassettoniGrid, type CassettoneId } from "../components/LiteCassettoniGrid";
-import { LiteRarsHero } from "../components/LiteRarsHero";
 import { LiteTodaySection } from "../components/LiteTodaySection";
 import { LiteLast7DaysSection } from "../components/LiteLast7DaysSection";
 import {
@@ -569,8 +568,9 @@ function PageInner() {
   // Layout state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeSection, setActiveSection] = useState("brief");
-  // Lifted so the LiteRarsHero (above the grid) can open a specific
-  // cassettone when the merchant clicks a RARS component drill-down.
+  // Cassettone-grid expansion state — controlled so the grid itself
+  // can manage which tile is open. (Was previously also driven by
+  // LiteRarsHero drill-down clicks; RARS moved to Pro 2026-04-29.)
   const [liteExpandedId, setLiteExpandedId] = useState<CassettoneId | null>(null);
   const mainRef = useRef<HTMLElement | null>(null);
   // Track whether user just clicked nav — suppresses observer updates briefly
@@ -2699,41 +2699,13 @@ function PageInner() {
                   this is what HedgeSpark uniquely does. Clicking a
                   component row opens the corresponding drill-down in
                   the cassettone grid below via controlled state. */}
-              {isLiteFloor && (
-                <section id="section-lite-rars">
-                  <LiteRarsHero
-                    apiBase={API_BASE}
-                    shop={shop}
-                    displayCurrency={displayCurrency}
-                    onOpenCassettone={(id) => {
-                      setLiteExpandedId(id);
-                      // Scroll the grid into view so the newly-opened
-                      // cassettone panel lands in the merchant's viewport.
-                      // Small timeout so the state update + render land
-                      // before the scroll computes the target position.
-                      setTimeout(() => {
-                        const el = document.getElementById(`cassettone-panel-${id}`);
-                        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-                      }, 60);
-                    }}
-                  />
-                </section>
-              )}
-
-              {/* Today snapshot — base-analytics pulse closing the
-                  2026-04-25 audit gap. Every cheap Shopify analytics
-                  tool (Lifetimely Free, OrderMetrics, Better Reports,
-                  Shopify native) shows revenue today / orders / AOV /
-                  sessions / conversion / new-vs-returning as the day-1
-                  retrospective hero. Lite previously jumped straight
-                  from the RARS hero into peers / P&L / cassettoni —
-                  the intelligence layer — without grounding the
-                  merchant in "where you stand right now". Slot is
-                  between RARS (the differentiator stays #1) and "You
-                  vs peers" (peers compare to YOU — first show what
-                  YOU did, then compare). All six KPIs sourced from
-                  /analytics/today-snapshot — real DB rows, deltas
-                  null when yesterday is zero (no fabricated +∞%). */}
+              {/* RARS hero (LiteRarsHero) removed from Lite 2026-04-29
+                  per strict $0-70 parity rule — RARS moved to Pro €99
+                  where it competes against $1k+ Northbeam-class tools.
+                  Today snapshot becomes the new Lite spine top: every
+                  cheap Shopify analytics tool ($0-60) shows revenue/
+                  orders/AOV/sessions/conversion/new-vs-returning as
+                  the day-1 hero. That's parity-correct for Lite. */}
               {isLiteFloor && (
                 <LiteTodaySection
                   apiBase={API_BASE}

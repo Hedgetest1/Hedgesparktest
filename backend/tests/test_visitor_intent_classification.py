@@ -227,8 +227,20 @@ def test_classification_tenant_isolation(
 ):
     """Shop B's visitors must not appear in Shop A's counts. Brutal
     tenant-isolation test — a leaky classifier would let one merchant
-    see another's traffic."""
+    see another's traffic.
+
+    Endpoint is Pro-gated since 2026-04-29 (strict $0-70 parity rule).
+    Both shops are upgraded to Pro inline so the tenant-iso invariant
+    is the thing under test, not the auth gate. Lite-tier 403 has its
+    own dedicated test below.
+    """
     _reset_shop_state(db, SHOP_A, SHOP_B)
+    # Upgrade both shops to Pro so they can read the endpoint
+    merchant_a.plan = "pro"
+    merchant_a.billing_active = True
+    merchant_b.plan = "pro"
+    merchant_b.billing_active = True
+    db.flush()
     # Plant a hot visitor on Shop A only
     _insert_visitor_event(
         db, shop=SHOP_A, visitor_id="tenant-a-hot",
@@ -262,3 +274,33 @@ def test_classification_tenant_isolation(
     assert rb.json()["total_visitors"] == 1, (
         f"Shop B leaked Shop A visitor: {rb.json()}"
     )
+
+
+# ════════════════════════════════════════════════════════════════════
+# Pro-tier gate tests — strict $0-70 parity rule (2026-04-29)
+# ════════════════════════════════════════════════════════════════════
+
+
+def test_visitor_intent_classification_lite_returns_403(
+    client, merchant_b, auth_b, db
+):
+    """Lite (starter) merchants must NOT access /analytics/visitor-intent-classification.
+    Per strict $0-70 parity rule: no $0-70 competitor ships per-visitor
+    intent classification at any price (Glew $79 minimum)."""
+    # merchant_b fixture defaults to plan="starter" billing_active=False —
+    # the gate must reject regardless of billing state.
+    r = client.get("/analytics/visitor-intent-classification", cookies=auth_b)
+    assert r.status_code == 403, (
+        f"Lite tier must get 403, got {r.status_code}: {r.text}"
+    )
+
+
+def test_visitor_intent_classification_pro_returns_200(
+    client, merchant_a, auth_a, db
+):
+    """Pro merchants get 200 — merchant_a fixture is plan='pro' billing_active=True."""
+    r = client.get("/analytics/visitor-intent-classification", cookies=auth_a)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "total_visitors" in body
+    assert "hot_visitors" in body
