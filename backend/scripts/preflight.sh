@@ -182,6 +182,22 @@ fi
 run_with_autofix "Lite nav ↔ section parity" "audit_lite_nav_section_parity.py" --fix-supported
 
 # ---------------------------------------------------------------------------
+# 2b-bis-pro. Pro nav ↔ section parity — sister of 2b-bis for the Pro
+# floor. Born 2026-04-29 after founder caught the sidebar highlight
+# stuck on /app/pro: 3 nav ids had a literal `section-` prefix that
+# defeated the observer match, 3 cards rendered raw without a
+# `section-pro-*` wrapper. See audit_pro_nav_section_parity.py header.
+# ---------------------------------------------------------------------------
+step "Pro nav ↔ section parity (audit_pro_nav_section_parity.py)"
+if "$PY" "$BACKEND/scripts/audit_pro_nav_section_parity.py" > /tmp/preflight_pro_nav_section.log 2>&1; then
+    ok "$(tail -1 /tmp/preflight_pro_nav_section.log)"
+else
+    bad "pro nav/section parity regression — see /tmp/preflight_pro_nav_section.log"
+    tail -20 /tmp/preflight_pro_nav_section.log || true
+    fail=1
+fi
+
+# ---------------------------------------------------------------------------
 # 2b-ter. Lite hardcoded currency — block when a Lite-floor JSX file
 # embeds €/$/£/¥/₩/₹ in user-visible text (description, sample value,
 # sublabel) instead of formatting via formatMoneyCompact with the
