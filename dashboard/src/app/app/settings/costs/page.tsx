@@ -555,15 +555,54 @@ type CsvRow = {
   currency?: string;
 };
 
+// RFC 4180 single-pass parser — handles quoted commas + multiline
+// quoted fields. Sibling-fix 2026-04-29: previous version used naive
+// `text.split('\n').split(',')` which broke on product titles like
+// `"Beer, IPA"`. Same parser used in components/ExportButton.tsx.
+function parseCsvRfc4180(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"' && text[i + 1] === '"') { cur += '"'; i++; }
+      else if (ch === '"') { inQuotes = false; }
+      else { cur += ch; }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ",") {
+      row.push(cur); cur = "";
+    } else if (ch === "\n" || ch === "\r") {
+      row.push(cur); cur = "";
+      if (row.length > 0 && !(row.length === 1 && row[0] === "")) {
+        rows.push(row.map((s) => s.trim()));
+      }
+      row = [];
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur.length > 0 || row.length > 0) {
+    row.push(cur);
+    if (!(row.length === 1 && row[0] === "")) {
+      rows.push(row.map((s) => s.trim()));
+    }
+  }
+  return rows;
+}
+
 function parseCsv(text: string): { rows: CsvRow[]; errors: string[] } {
   const errors: string[] = [];
   const rows: CsvRow[] = [];
-  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
-  if (lines.length === 0) {
+  const parsed = parseCsvRfc4180(text);
+  if (parsed.length === 0) {
     return { rows, errors: ["CSV is empty."] };
   }
-  // Header — lowercase + trim.
-  const header = lines[0].split(",").map((c) => c.trim().toLowerCase());
+  // Header — lowercase.
+  const header = parsed[0].map((c) => c.toLowerCase());
   const idx = {
     key: header.indexOf("product_key"),
     title: header.indexOf("product_title"),
@@ -577,8 +616,8 @@ function parseCsv(text: string): { rows: CsvRow[]; errors: string[] } {
       errors: ['CSV is missing required column "product_key".'],
     };
   }
-  for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split(",").map((c) => c.trim());
+  for (let i = 1; i < parsed.length; i++) {
+    const cols = parsed[i];
     const product_key = cols[idx.key];
     if (!product_key) {
       errors.push(`Row ${i + 1}: missing product_key — skipped.`);
