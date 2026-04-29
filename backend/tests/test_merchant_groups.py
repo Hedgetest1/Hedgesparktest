@@ -51,7 +51,7 @@ def merchant_lite(db):
     """
     m = Merchant(
         shop_domain="lite-shop.myshopify.com",
-        plan="starter",
+        plan="lite",
         billing_active=True,
         install_status="active",
         session_version=0,
@@ -69,7 +69,7 @@ def merchant_lite_aux(db, merchant_lite):
     multi-store scenario (one founder, two Shopify stores)."""
     m = Merchant(
         shop_domain="lite-shop-us.myshopify.com",
-        plan="starter",
+        plan="lite",
         billing_active=True,
         install_status="active",
         session_version=0,

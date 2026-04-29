@@ -47,7 +47,7 @@ WIRED_AUDITS: frozenset[str] = frozenset({
     "audit_exception_sinks.py",
     "audit_gdpr_redact_coverage.py",
     "audit_input_bounds.py",
-    "audit_landing_starter_shipped.py",
+    "audit_landing_lite_shipped.py",
     "audit_llm_http_timeout.py",
     "audit_llm_model_version_freshness.py",
     "audit_llm_per_merchant_budget_gate.py",

@@ -3,10 +3,9 @@
 audit_tier_naming_canonical.py — enforce canonical tier naming on
 user-facing surfaces.
 
-Born 2026-04-23 after the Lite→Starter rename incident. The
-memory `project_tier_rename_dashboard_backlog.md` had a stale
-premise claiming the landing was renamed to "Starter". A 15-file
-rename plan was built on that premise without running the cheap
+Born 2026-04-23 after a tier-rename incident. A stale memo had
+a wrong premise about the entry-tier label, and a 15-file rename
+plan was built on that premise without running the cheap
 disconfirming grep. Recovery cost: ~30 min of work reverted + one
 trust-eroding apology to the founder.
 
@@ -22,8 +21,8 @@ Canonical as of 2026-04-23, confirmed by:
   Lite / Pro / Scale across UI`
 - Founder directive 2026-04-23: "l'entry level si chiama Lite,
   1M volte"
-- Existing audit `audit_landing_starter_shipped.py` header comment:
-  "canonical tier name is now `Lite` per founder directive 2026-04-20"
+- Existing audit `audit_landing_lite_shipped.py` enforces every
+  Lite-card bullet maps to a shipped dashboard component.
 
 Checks
 ------
@@ -136,7 +135,7 @@ def main(argv: list[str]) -> int:
     print("If this is an intentional rename by the founder, update ALL:")
     print("  1. This script's _REQUIRED list")
     print("  2. The memory file project_tier_rename_dashboard_backlog.md")
-    print("  3. The audit_landing_starter_shipped.py header comment")
+    print("  3. The audit_landing_lite_shipped.py header comment")
     print("  4. Every file flagged above, coherently, in the same commit")
     print()
     print("If this is NOT an intentional rename, ABORT and investigate:")

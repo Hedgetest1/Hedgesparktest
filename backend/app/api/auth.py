@@ -120,7 +120,7 @@ def auth_callback(
         merchant = Merchant(
             shop_domain=shop,
             access_token=access_token,
-            plan="starter",
+            plan="lite",
             installed_at=datetime.now(timezone.utc).replace(tzinfo=None),
             billing_active=False,
         )

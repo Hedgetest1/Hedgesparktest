@@ -6729,7 +6729,7 @@ export interface paths {
          *
          *     Plan-aware response:
          *     - Pro merchants: full 5-dim `components` breakdown
-         *     - Starter/Lite merchants: total + prevented + net_roi + headline,
+         *     - Lite merchants: total + prevented + net_roi + headline,
          *       `components` returned as empty list (upgrade prompt lives in UI)
          */
         get: operations["get_rars_analytics_revenue_at_risk_get"];
@@ -7024,7 +7024,7 @@ export interface paths {
          *     interest but low conversion, exit products, buyer vs non-buyer
          *     session patterns.
          *
-         *     Plan-aware: Pro gets full list + session_insights, Starter sees
+         *     Plan-aware: Pro gets full list + session_insights, Lite sees
          *     top 3 products with an upgrade bridge in the UI for the full list.
          */
         get: operations["get_abandoned_intent_pro_abandoned_intent_get"];

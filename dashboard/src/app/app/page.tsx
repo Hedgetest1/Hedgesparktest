@@ -618,8 +618,8 @@ function PageInner() {
   const [tier, setTier] = useState<"lite" | "pro">("lite");
   const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
 
-  // Preview mode — `?as=starter` (or `?as=lite`) downgrades tier for
-  // per-plan verification. Downgrade-only by design: we never allow
+  // Preview mode — `?as=lite` downgrades tier for per-plan
+  // verification. Downgrade-only by design: we never allow
   // `?as=pro` because that would fake Pro UI + trigger 403 on every
   // Pro endpoint call for non-Pro users (the very bug the `|| true`
   // hack used to mask). Anyone can preview the Lite experience —
@@ -632,7 +632,7 @@ function PageInner() {
   // callback, and OnboardingHub readiness updates.
   const applyTier = useCallback((real: "lite" | "pro") => {
     const asParam = new URLSearchParams(window.location.search).get("as");
-    const preview = asParam === "starter" || asParam === "lite";
+    const preview = asParam === "lite";
     setTier(preview ? "lite" : real);
     setIsPreviewing(preview);
   }, []);
@@ -1661,7 +1661,7 @@ function PageInner() {
   // ---------------------------------------------------------------------------
   // Feature gating — derived from plan tier (from /merchant/plan response,
   // lines 688 / 734 above). tier="pro" iff plan === "pro" AND billing_active.
-  // Any other state (plan="starter", billing_active=false, or fetch failure)
+  // Any other state (plan="lite", billing_active=false, or fetch failure)
   // → tier="lite" → non-Pro UI branches.
   // ---------------------------------------------------------------------------
   const isProUser = tier === "pro";
@@ -2111,7 +2111,7 @@ function PageInner() {
       className="fixed inset-0 flex bg-[#07070f] text-white"
       // Stable data-attributes for the session-durability E2E suite
       // (S10). Expose the RESOLVED tier and whether preview mode is
-      // active so tests can assert that ?as=starter on a Pro merchant
+      // active so tests can assert that ?as=lite on a Pro merchant
       // downgrades to "lite" without relying on fragile DOM copy.
       data-tier-resolved={tier}
       data-tier-preview={isPreviewing ? "1" : "0"}

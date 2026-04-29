@@ -249,7 +249,7 @@ def create_synthetic_merchants(
         merchant = Merchant(
             shop_domain=shop_domain,
             access_token=None,          # No token — prevents OAuth confusion
-            plan="starter",
+            plan="lite",
             install_status="active",
             billing_active=False,
             is_synthetic=True,

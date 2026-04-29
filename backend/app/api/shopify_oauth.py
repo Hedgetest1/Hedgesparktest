@@ -294,7 +294,7 @@ def _upsert_merchant(
         row = Merchant(
             shop_domain=shop,
             access_token=encrypted_token,
-            plan="starter",
+            plan="lite",
             billing_active=False,
             contact_email=contact_email,
             primary_currency=primary_currency,

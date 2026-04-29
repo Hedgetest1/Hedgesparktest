@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""audit_landing_starter_shipped.py — block landing-Lite promises
+"""audit_landing_lite_shipped.py — block landing-Lite promises
 that don't map to a shipped dashboard component.
 
 (Filename retained for git history; canonical tier name is now
@@ -80,22 +80,20 @@ BULLET_TO_COMPONENT_KEYWORDS: dict[str, list[str]] = {
 }
 
 
-def extract_starter_features(landing_text: str) -> list[str]:
+def extract_lite_features(landing_text: str) -> list[str]:
     """Return the list of Lite tier bullets from landing page.tsx.
 
     The source declares `features: [...]` inside a tier object whose
     `key: "lite"`. We scan from `key: "lite"` forward to the next `]`
-    that closes the features array. (Function name retained for
-    backward compat; the tier was renamed from "Starter" to "Lite"
-    on 2026-04-20 per founder directive.)"""
-    starter_match = re.search(
+    that closes the features array."""
+    lite_match = re.search(
         r'key:\s*"lite".*?features:\s*\[(.*?)\]',
         landing_text,
         re.DOTALL,
     )
-    if not starter_match:
+    if not lite_match:
         return []
-    raw = starter_match.group(1)
+    raw = lite_match.group(1)
     return [m.group(1) for m in re.finditer(r'"([^"]+)"', raw)]
 
 
@@ -143,20 +141,20 @@ def bullet_is_wired(bullet: str, dashboard_blob: str) -> tuple[bool, str]:
     return False, f"mapping for '{matching_keys[0]}' does not match dashboard"
 
 
-@telemetered("audit_landing_starter_shipped")
+@telemetered("audit_landing_lite_shipped")
 def main(argv: list[str]) -> int:
     if not LANDING_PATH.exists():
         print(
-            f"audit_landing_starter_shipped: {LANDING_PATH} not found",
+            f"audit_landing_lite_shipped: {LANDING_PATH} not found",
             file=sys.stderr,
         )
         return 2
 
     landing_text = LANDING_PATH.read_text()
-    bullets = extract_starter_features(landing_text)
+    bullets = extract_lite_features(landing_text)
     if not bullets:
         print(
-            "audit_landing_starter_shipped: no Lite features "
+            "audit_landing_lite_shipped: no Lite features "
             "array found in landing page.tsx",
             file=sys.stderr,
         )
@@ -172,14 +170,14 @@ def main(argv: list[str]) -> int:
 
     if not unmapped:
         print(
-            f"audit_landing_starter_shipped: clean — all "
+            f"audit_landing_lite_shipped: clean — all "
             f"{len(bullets)} Lite bullets map to a shipped "
             "dashboard component."
         )
         return 0
 
     print(
-        f"audit_landing_starter_shipped: {len(unmapped)} Lite "
+        f"audit_landing_lite_shipped: {len(unmapped)} Lite "
         f"bullet(s) not wired to the dashboard (of {len(bullets)} total)"
     )
     print()
@@ -199,7 +197,7 @@ if __name__ == "__main__":
         sys.exit(main(sys.argv[1:]))
     except Exception as exc:  # pragma: no cover
         print(
-            f"audit_landing_starter_shipped: script error — {exc}",
+            f"audit_landing_lite_shipped: script error — {exc}",
             file=sys.stderr,
         )
         sys.exit(2)

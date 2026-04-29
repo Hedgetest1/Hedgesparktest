@@ -1,14 +1,14 @@
 """Tests for Lite parity gaps G1 (geographic drilldown) and G6 (CAC/LTV
 unlock) — closed 2026-04-29 per strict $0-60 parity rule.
 
-Both endpoints must be reachable by Lite (starter) merchants:
+Both endpoints must be reachable by Lite merchants:
   G1: /analytics/orders-by-country — Shopify Free, Putler $20, Better
       Reports $19.90, Mipler $9.99 all ship country drilldown at entry.
   G6: /analytics/cac-ltv — Lifetimely Free, OrderMetrics $59,
       TrueProfit $25 all ship CAC:LTV at lower tiers.
 
 Coverage:
-  * 200 for Lite (starter) merchants on both endpoints
+  * 200 for Lite merchants on both endpoints
   * 200 for Pro merchants on both endpoints
   * 401 unauthenticated
   * Legacy /pro/cac-ltv alias still works (deprecated but not removed)
@@ -26,9 +26,9 @@ from tests.conftest import SHOP_A, SHOP_B, auth_cookies
 
 
 def test_cac_ltv_endpoint_lite_returns_200(client, merchant_b, auth_b):
-    """Lite (starter) merchants get the CAC/LTV endpoint — closes
+    """Lite merchants get the CAC/LTV endpoint — closes
     embarrassing parity gap (Lifetimely Free, TrueProfit $25 ship it).
-    merchant_b fixture is plan='starter' billing_active=False."""
+    merchant_b fixture is plan='lite' billing_active=False."""
     r = client.get("/analytics/cac-ltv", cookies=auth_b)
     assert r.status_code == 200, r.text
     body = r.json()

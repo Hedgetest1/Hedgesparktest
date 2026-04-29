@@ -22,7 +22,7 @@ from __future__ import annotations
 # Pro: €99/mo per pricing matrix §2.2.
 # Scale: €249/mo per pricing matrix §2.3.
 TIER_SUBSCRIPTION_EUR: dict[str, float] = {
-    "starter": 0.0,
+    "lite": 0.0,
     "lite":    0.0,  # alias for defensive lookups
     "pro":     99.0,
     "scale":   249.0,

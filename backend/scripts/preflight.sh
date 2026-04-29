@@ -635,8 +635,8 @@ fi
 # component in the dashboard. Prevents "landing promises X but
 # dashboard doesn't deliver X" drift.
 # ---------------------------------------------------------------------------
-step "Landing Lite shipped-state audit (audit_landing_starter_shipped.py)"
-if "$PY" "$BACKEND/scripts/audit_landing_starter_shipped.py" > /tmp/preflight_landing_shipped.log 2>&1; then
+step "Landing Lite shipped-state audit (audit_landing_lite_shipped.py)"
+if "$PY" "$BACKEND/scripts/audit_landing_lite_shipped.py" > /tmp/preflight_landing_shipped.log 2>&1; then
     ok "every Lite bullet maps to a shipped dashboard component"
 else
     bad "landing Lite bullet not wired — see /tmp/preflight_landing_shipped.log"
@@ -645,8 +645,8 @@ fi
 
 # ---------------------------------------------------------------------------
 # 2o-septies-bis. Tier naming canonical audit. Born 2026-04-23 after
-# the Lite→Starter rename incident: a multi-file rename was built on
-# a stale memory premise without running the cheap disconfirming grep.
+# a tier-rename incident: a multi-file rename was built on a stale
+# memory premise without running the cheap disconfirming grep.
 # This audit asserts the canonical tier names (Lite/Pro/Scale) are
 # present in the landing page.tsx so any future unintentional rename
 # is blocked at commit time with a link to the memory explaining why.

@@ -67,7 +67,7 @@ _PATTERNS: list[tuple[str, dict]] = [
     # Billing / plan / access issues — CRITICAL path
     (r"(paid|payment|charged|billing|invoice|subscription)", {"classification": "billing_access_issue", "affected_area": "billing", "severity": "high"}),
     (r"(pro .*(locked|blocked|not.*(work|show|appear|access)))", {"classification": "billing_access_issue", "affected_area": "plan_access", "severity": "high"}),
-    (r"(upgrade|downgrade|plan|tier|starter|lite).*(not|wrong|still|locked|broken)", {"classification": "billing_access_issue", "affected_area": "plan_access", "severity": "high"}),
+    (r"(upgrade|downgrade|plan|tier|lite).*(not|wrong|still|locked|broken)", {"classification": "billing_access_issue", "affected_area": "plan_access", "severity": "high"}),
     (r"(free|trial).*(expired|ended|over)", {"classification": "billing_access_issue", "affected_area": "billing", "severity": "medium"}),
 
     # Shopify install / auth
@@ -185,7 +185,7 @@ class DiagnosticResult:
     setup_status: str = "unknown"  # degraded / needs_repair / lite_ready / pro_active
     degraded_reasons: list = field(default_factory=list)
     billing_ok: bool = True
-    plan: str = "starter"
+    plan: str = "lite"
     billing_active: bool = False
     onboarding_status: str = "unknown"
     onboarding_error: str | None = None
@@ -211,7 +211,7 @@ def run_diagnostics(
         result.degraded_reasons = ["merchant_not_found"]
         return result
 
-    result.plan = merchant.plan or "starter"
+    result.plan = merchant.plan or "lite"
     result.billing_active = merchant.billing_active or False
     result.onboarding_status = merchant.onboarding_status or "unknown"
     result.onboarding_error = merchant.onboarding_error
@@ -774,7 +774,7 @@ def _respond_billing_issue(message: str, diagnostic: DiagnosticResult | None, sh
             return _pick(voice.BILLING_PRO_LOCKED, message, shop_domain)
         return _pick(voice.BILLING_PRO_HEALTHY, message, shop_domain)
 
-    if not diagnostic.billing_active and diagnostic.plan == "starter":
+    if not diagnostic.billing_active and diagnostic.plan == "lite":
         return _pick(voice.BILLING_STARTER, message, shop_domain)
 
     return f"Your current plan: {diagnostic.plan}, billing active: {diagnostic.billing_active}. If this doesn\u2019t match what you expect, I\u2019ve logged it for investigation."

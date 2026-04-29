@@ -14,7 +14,7 @@ def _make_merchant(db, shop=SHOP_A, token="shpat_test_123", status="pending") ->
     m = Merchant(
         shop_domain=shop,
         access_token=encrypt_token(token),
-        plan="starter",
+        plan="lite",
         billing_active=False,
         install_status="active",
         onboarding_status=status,
@@ -65,7 +65,7 @@ def test_no_token_fails(db):
     """Merchant without access_token → failed + alert."""
     m = Merchant(
         shop_domain=SHOP_A, access_token=None,
-        plan="starter", install_status="active", onboarding_status="pending",
+        plan="lite", install_status="active", onboarding_status="pending",
     )
     db.add(m)
     db.flush()

@@ -284,10 +284,10 @@ def test_classification_tenant_isolation(
 def test_visitor_intent_classification_lite_returns_403(
     client, merchant_b, auth_b, db
 ):
-    """Lite (starter) merchants must NOT access /analytics/visitor-intent-classification.
+    """Lite merchants must NOT access /analytics/visitor-intent-classification.
     Per strict $0-70 parity rule: no $0-70 competitor ships per-visitor
     intent classification at any price (Glew $79 minimum)."""
-    # merchant_b fixture defaults to plan="starter" billing_active=False —
+    # merchant_b fixture defaults to plan="lite" billing_active=False —
     # the gate must reject regardless of billing state.
     r = client.get("/analytics/visitor-intent-classification", cookies=auth_b)
     assert r.status_code == 403, (

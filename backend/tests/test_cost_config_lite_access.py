@@ -9,7 +9,7 @@ from tests.conftest import SHOP_A, SHOP_B, auth_cookies
 
 
 def test_costs_products_get_lite_returns_200(client, merchant_b, auth_b):
-    """GET /pro/costs/products — Lite (starter) plan accepted."""
+    """GET /pro/costs/products — Lite plan accepted."""
     r = client.get("/pro/costs/products", cookies=auth_b)
     assert r.status_code == 200, r.text
     body = r.json()

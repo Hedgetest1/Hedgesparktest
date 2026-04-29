@@ -27,8 +27,8 @@ Output modes
 Valid tier tag values
 ---------------------
   `# tier: pro`                — intentional Pro gate (premium feature)
-  `# tier: starter-candidate`  — proposed for Lite unlock (review)
-  `# tier: starter-unlocked`   — already migrated, Pro gate should
+  `# tier: lite-candidate`  — proposed for Lite unlock (review)
+  `# tier: lite-unlocked`   — already migrated, Pro gate should
                                  be removed OR kept only for legacy
   `# tier: scale-only`         — only Scale tier should see this
                                  (tighter than Pro)
@@ -78,8 +78,8 @@ _TIER_COMMENT_RE = re.compile(r"#\s*tier\s*:\s*([a-z][a-z0-9_-]*)")
 
 _VALID_TIERS = {
     "pro",
-    "starter-candidate",
-    "starter-unlocked",
+    "lite-candidate",
+    "lite-unlocked",
     "scale-only",
 }
 
@@ -281,7 +281,7 @@ def _run_preventer(sites: list[GateSite], strict: bool) -> int:
     print(
         "\nFix: add `# tier: <value>` comment on the same line as "
         "`Depends(require_pro_session)`.\n"
-        "Valid values: pro, starter-candidate, starter-unlocked, scale-only."
+        "Valid values: pro, lite-candidate, lite-unlocked, scale-only."
     )
 
     return 1 if strict else 0

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 
 # ---------------------------------------------------------------------------
-# Lite-tier accessibility — Lite/Starter merchant must get 200 on each
+# Lite-tier accessibility — Lite merchant must get 200 on each
 # unlocked endpoint, NOT 401 or 403. Empty payload shape is fine (cold-start
 # is the expected state for a freshly-installed merchant).
 # ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 
 /**
  * PreviewBanner — sticky top banner shown when the current URL has
- * `?as=starter` or `?as=lite` (preview mode).
+ * `?as=lite` (preview mode).
  *
  * Rendered identically on every floor route (Pulse, Intelligence,
  * Operations). Lives in one place so the copy and exit-button

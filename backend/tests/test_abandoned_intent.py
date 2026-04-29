@@ -29,14 +29,14 @@ def test_abandoned_intent_pro_returns_full_response(db):
 
 def test_abandoned_intent_lite_redacts_session_insights(db):
     """Lite plan returns empty session_insights regardless of data."""
-    report = compute_abandoned_intent(db, "abint-lite-redact.myshopify.com", plan="starter")
+    report = compute_abandoned_intent(db, "abint-lite-redact.myshopify.com", plan="lite")
     assert report["session_insights"] == {}
 
 
 def test_abandoned_intent_lite_caps_products_at_three(db):
     """Lite plan never returns more than 3 products."""
     # Fresh empty shop → 0 products (within cap); Lite filter preserves 0
-    report = compute_abandoned_intent(db, "abint-lite-cap-empty.myshopify.com", plan="starter")
+    report = compute_abandoned_intent(db, "abint-lite-cap-empty.myshopify.com", plan="lite")
     assert len(report["products"]) <= 3
 
 
@@ -44,7 +44,7 @@ def test_abandoned_intent_lite_keeps_hero_headline_and_currency(db):
     """Lite sees the leak count framing + currency identical to Pro."""
     shop = "abint-lite-hero.myshopify.com"
     pro = compute_abandoned_intent(db, shop, plan="pro")
-    lite = compute_abandoned_intent(db, shop, plan="starter")
+    lite = compute_abandoned_intent(db, shop, plan="lite")
     assert pro["headline"] == lite["headline"]
     assert pro["currency"] == lite["currency"]
     assert pro["shop_domain"] == lite["shop_domain"]
@@ -56,7 +56,7 @@ def test_abandoned_intent_empty_shop_still_plan_filtered(db):
     branch."""
     shop = "abint-empty-shop.myshopify.com"
     pro = compute_abandoned_intent(db, shop, plan="pro")
-    lite = compute_abandoned_intent(db, shop, plan="starter")
+    lite = compute_abandoned_intent(db, shop, plan="lite")
     assert pro["products"] == []
     assert lite["products"] == []
     assert pro["session_insights"] == {}
@@ -72,7 +72,7 @@ def test_abandoned_intent_plan_filter_does_not_mutate_cached_dict(db):
     first_product_count = len(pro_first["products"])
     first_insights_keys = set(pro_first["session_insights"].keys())
     # Lite read — should NOT affect the cached dict
-    _lite = compute_abandoned_intent(db, shop, plan="starter")
+    _lite = compute_abandoned_intent(db, shop, plan="lite")
     # Pro read again — must match first read
     pro_second = compute_abandoned_intent(db, shop, plan="pro")
     assert len(pro_second["products"]) == first_product_count, (
@@ -89,7 +89,7 @@ def test_abandoned_intent_total_products_count_preserved_for_lite(db):
     ('showing top 3 of N' instead of lying about scale)."""
     shop = "abint-total-count-probe.myshopify.com"
     pro = compute_abandoned_intent(db, shop, plan="pro")
-    lite = compute_abandoned_intent(db, shop, plan="starter")
+    lite = compute_abandoned_intent(db, shop, plan="lite")
     # Both tiers report the same true total
     assert pro["total_products_count"] == lite["total_products_count"]
     # Products list can differ in length but total_products_count must not
@@ -100,7 +100,7 @@ def test_abandoned_intent_total_products_count_preserved_for_lite(db):
 
 def test_abandoned_intent_total_products_count_is_integer(db):
     """Shape contract: total_products_count is always an int, never null."""
-    for plan in ("pro", "starter", "lite"):
+    for plan in ("pro", "lite", "lite"):
         report = compute_abandoned_intent(db, f"abint-count-shape-{plan}.myshopify.com", plan=plan)
         assert "total_products_count" in report
         assert isinstance(report["total_products_count"], int)
@@ -134,7 +134,7 @@ def test_abandoned_intent_default_plan_is_pro(db):
     """Omitting the plan kwarg defaults to Pro — back-compat with any
     callers that pre-dated Phase 1.4 (service had no plan param before)."""
     report = compute_abandoned_intent(db, "abint-default-plan.myshopify.com")
-    # If default were "starter", session_insights would be {} — but since
+    # If default were "lite", session_insights would be {} — but since
     # default is "pro", the service must not apply the filter.
     # We can only assert the filter-aware shape: session_insights is a
     # dict (empty or populated, depending on data).

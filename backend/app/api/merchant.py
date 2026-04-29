@@ -25,11 +25,11 @@ Response
 Plan normalisation
 ------------------
 merchants.plan stores the raw plan string set at install/upgrade time.
-Known values in the current schema default to "starter".  To keep the
+Known values in the current schema default to "lite".  To keep the
 frontend contract simple, this endpoint normalises the value:
 
     "pro"  → "pro"
-    anything else (starter, lite, free, etc.) → "lite"
+    anything else ("lite", "free", legacy values, None) → "lite"
 
 This means adding a new plan tier in the future requires only a change
 here, not in every frontend component that checks the plan.
@@ -69,8 +69,8 @@ def _normalise_plan(raw: str | None) -> str:
     Normalise the raw plan string from the merchants table.
 
     Returns "pro" only when the stored value is exactly "pro".
-    All other values — "starter", "lite", "free", None, or any unknown
-    string — map to "lite".
+    All other values — "lite", "free", legacy values, None, or any
+    unknown string — map to "lite".
     """
     return _PRO_PLAN if raw == _PRO_PLAN else "lite"
 

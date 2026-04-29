@@ -131,7 +131,7 @@ def test_rars_headline_includes_prevention_when_positive(db):
 
 # ---------------------------------------------------------------------------
 # Phase 1.2 — plan-based fidelity reduction (Lite tier).
-# Note: internal plan key is still "starter" pending a TIER_2 rename
+# Note: internal plan key is still "lite" pending a TIER_2 rename
 # sprint (default in merchants.plan column + onboarding setters).
 # ---------------------------------------------------------------------------
 
@@ -153,14 +153,14 @@ def test_rars_pro_plan_returns_full_component_breakdown(db):
 def test_rars_lite_plan_redacts_component_breakdown(db):
     """plan != 'pro' returns empty components array (upgrade CTA territory)."""
     shop = "rars-lite-plan-shop.myshopify.com"
-    lite_report = get_revenue_at_risk(db, shop, plan="starter")
+    lite_report = get_revenue_at_risk(db, shop, plan="lite")
     assert lite_report["components"] == []
 
 
 def test_rars_lite_plan_keeps_hero_number_and_headline(db):
     """Lite tier still sees the hero total + prevented + headline."""
     shop = "rars-lite-hero-shop.myshopify.com"
-    lite_report = get_revenue_at_risk(db, shop, plan="starter")
+    lite_report = get_revenue_at_risk(db, shop, plan="lite")
     assert "total_at_risk_eur" in lite_report
     assert isinstance(lite_report["total_at_risk_eur"], (int, float))
     assert "prevented_eur_this_month" in lite_report
@@ -175,7 +175,7 @@ def test_rars_plan_fidelity_filter_does_not_affect_total(db):
     # Fresh shop domain so both calls share the cache correctly
     shop = "rars-plan-invariant-shop.myshopify.com"
     pro_report = get_revenue_at_risk(db, shop, plan="pro")
-    lite_report = get_revenue_at_risk(db, shop, plan="starter")
+    lite_report = get_revenue_at_risk(db, shop, plan="lite")
     assert pro_report["total_at_risk_eur"] == lite_report["total_at_risk_eur"]
     assert pro_report["prevented_eur_this_month"] == lite_report["prevented_eur_this_month"]
     assert pro_report["headline"] == lite_report["headline"]
@@ -187,7 +187,7 @@ def test_rars_plan_filter_does_not_mutate_cached_dict(db):
     # Prime cache via Pro (full components) then read as Lite, then Pro again
     pro_first = get_revenue_at_risk(db, shop, plan="pro")
     first_component_count = len(pro_first["components"])
-    _lite = get_revenue_at_risk(db, shop, plan="starter")
+    _lite = get_revenue_at_risk(db, shop, plan="lite")
     pro_second = get_revenue_at_risk(db, shop, plan="pro")
     assert len(pro_second["components"]) == first_component_count, (
         "Lite read mutated shared cached dict — Pro components lost"
@@ -202,7 +202,7 @@ def test_rars_lite_net_roi_is_prevented_not_minus_99(db):
     merchant who pays nothing. Rule: never invent costs for a tier that
     doesn't pay them (feedback_no_accettabile_per_beta.md)."""
     shop = "rars-lite-net-roi-probe.myshopify.com"
-    lite = get_revenue_at_risk(db, shop, plan="starter")
+    lite = get_revenue_at_risk(db, shop, plan="lite")
     pro = get_revenue_at_risk(db, shop, plan="pro")
     # Both read from the same underlying compute — prevented is identical
     assert lite["prevented_eur_this_month"] == pro["prevented_eur_this_month"]
@@ -218,7 +218,7 @@ def test_rars_lite_with_zero_prevented_has_zero_net_roi(db):
     €0 · Net ROI −€99" strip was the visible bug that triggered this
     fix — locking it behind a regression test."""
     shop = "rars-lite-zero-prevented.myshopify.com"
-    lite = get_revenue_at_risk(db, shop, plan="starter")
+    lite = get_revenue_at_risk(db, shop, plan="lite")
     # Fresh shop has no prevented holdout data → prevented == 0
     assert lite["prevented_eur_this_month"] == 0
     # Therefore net_roi must also be 0, not −99
@@ -231,7 +231,7 @@ def test_rars_lite_with_zero_prevented_has_zero_net_roi(db):
 # because no $0-70 competitor ships an equivalent. Lite gets the
 # headline + prevented + net ROI; the full 5-dim breakdown remains
 # Pro-only via plan-aware response (require_merchant_session +
-# get_revenue_at_risk(plan=...) — internal key still "starter"
+# get_revenue_at_risk(plan=...) — internal key still "lite"
 # pending TIER_2 rename sprint).
 # ════════════════════════════════════════════════════════════════════
 

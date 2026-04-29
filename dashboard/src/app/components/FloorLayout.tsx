@@ -6,7 +6,7 @@
  *
  * Handles:
  *   1. Session resolution via useSession (tier detection + preview-mode
- *      honoring for `?as=starter`)
+ *      honoring for `?as=lite`)
  *   2. Redirect to /install when no authenticated shop
  *   3. Preview banner sticky top
  *   4. Sidebar with FloorSelector + correct active floor

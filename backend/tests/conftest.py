@@ -268,7 +268,7 @@ def merchant_b(db: Session) -> Merchant:
     """Create a second merchant (Shop B) for tenant isolation tests."""
     m = Merchant(
         shop_domain=SHOP_B,
-        plan="starter",
+        plan="lite",
         billing_active=False,
         install_status="active",
         session_version=0,

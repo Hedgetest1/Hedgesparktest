@@ -72,10 +72,10 @@ def test_scan_file_accepts_all_valid_tiers(tmp_path):
         'def a(s: str = Depends(require_pro_session)):  # tier: pro\n'
         '    pass\n'
         '@router.get("/b")\n'
-        'def b(s: str = Depends(require_pro_session)):  # tier: starter-candidate\n'
+        'def b(s: str = Depends(require_pro_session)):  # tier: lite-candidate\n'
         '    pass\n'
         '@router.get("/c")\n'
-        'def c(s: str = Depends(require_pro_session)):  # tier: starter-unlocked\n'
+        'def c(s: str = Depends(require_pro_session)):  # tier: lite-unlocked\n'
         '    pass\n'
         '@router.get("/d")\n'
         'def d(s: str = Depends(require_pro_session)):  # tier: scale-only\n'
@@ -84,7 +84,7 @@ def test_scan_file_accepts_all_valid_tiers(tmp_path):
     mod.BACKEND_ROOT = tmp_path
     out = mod._scan_file(f)
     tags = {s.tier_tag for s in out}
-    assert tags == {"pro", "starter-candidate", "starter-unlocked", "scale-only"}
+    assert tags == {"pro", "lite-candidate", "lite-unlocked", "scale-only"}
     # All are VALID so no invalid hits
     invalid = [s for s in out if s.tier_tag and s.tier_tag not in mod._VALID_TIERS]
     assert invalid == []

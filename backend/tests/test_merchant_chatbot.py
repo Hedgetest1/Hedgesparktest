@@ -103,7 +103,7 @@ def test_billing_pro_not_working():
     assert cls.affected_area == "plan_access"
 
 def test_billing_upgrade_issue():
-    cls = classify_message("I upgraded but plan still shows starter")
+    cls = classify_message("I upgraded but plan still shows lite")
     assert cls.classification == "billing_access_issue"
 
 
@@ -214,7 +214,7 @@ def test_billing_mismatch_billing_not_pro(db):
     """billing_active=True but plan != pro → mismatch."""
     m = Merchant(
         shop_domain="mismatch2.myshopify.com",
-        plan="starter",
+        plan="lite",
         billing_active=True,
         install_status="active",
         session_version=0,
@@ -242,7 +242,7 @@ def test_repair_attempted_on_degraded(db):
     """High-severity issue on degraded merchant triggers repair attempt."""
     m = Merchant(
         shop_domain="degraded-shop.myshopify.com",
-        plan="starter",
+        plan="lite",
         billing_active=False,
         install_status="active",
         session_version=0,
@@ -272,8 +272,8 @@ def test_frontend_plan_gate_detection(db, merchant_b):
     """Lite merchant asking about pro feature → correct plan answer."""
     result = process_message(db, SHOP_B, "Pro features are not working for me")
     assert result.classification == "billing_access_issue"
-    # Should tell them they're on starter
-    assert "starter" in result.message.lower() or "Starter" in result.message or "upgrade" in result.message.lower()
+    # Should tell them they're on Lite
+    assert "lite" in result.message.lower() or "upgrade" in result.message.lower()
 
 
 # ---------------------------------------------------------------------------

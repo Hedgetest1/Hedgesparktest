@@ -14,10 +14,10 @@
  * a follow-up commit without changing behavior. Phase 1.8.1 ships the
  * hook as additive.
  *
- * `?as=starter` preview mode is honored here too: if the URL query
- * contains `as=starter` or `as=lite`, the hook forces `tier="lite"`
- * regardless of the real merchant plan. Matches the behavior
- * established in `/app/page.tsx:applyTier` (Phase 1.0-bis).
+ * `?as=lite` preview mode is honored here too: if the URL query
+ * contains `as=lite`, the hook forces `tier="lite"` regardless of
+ * the real merchant plan. Matches the behavior established in
+ * `/app/page.tsx:applyTier` (Phase 1.0-bis).
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -46,7 +46,7 @@ export type SessionState = {
 function readPreviewParam(): boolean {
   if (typeof window === "undefined") return false;
   const p = new URLSearchParams(window.location.search).get("as");
-  return p === "starter" || p === "lite";
+  return p === "lite";
 }
 
 function readRememberedShop(): string | null {

@@ -56,5 +56,5 @@ def get_abandoned_intent(
     """
     from app.services.abandoned_intent import compute_abandoned_intent
     row = db.query(Merchant).filter(Merchant.shop_domain == shop).first()
-    plan = "pro" if (row is not None and row.plan == "pro" and row.billing_active) else "starter"
+    plan = "pro" if (row is not None and row.plan == "pro" and row.billing_active) else "lite"
     return compute_abandoned_intent(db, shop, plan=plan)

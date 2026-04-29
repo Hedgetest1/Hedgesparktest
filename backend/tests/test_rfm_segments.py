@@ -4,7 +4,7 @@ Endpoint: GET /analytics/rfm/segments. Putler $20, Glew (free), Mipler
 ship 11-named-segment RFM at entry; HedgeSpark Lite €39 matches.
 
 Coverage:
-  * Lite tier (starter plan) gets 200
+  * Lite tier gets 200
   * Pro tier gets 200
   * Unauth = 401
   * Empty shop returns total_customers=0 with empty segments[]

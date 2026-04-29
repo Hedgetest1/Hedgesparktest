@@ -36,7 +36,7 @@ class StoreContext:
     shop_name: str = ""  # human-friendly store name (derived from domain)
 
     # Plan & setup
-    plan: str = "starter"
+    plan: str = "lite"
     billing_active: bool = False
     setup_status: str = "unknown"
     onboarding_status: str = "unknown"
@@ -84,7 +84,7 @@ def get_store_context(db: Session, shop_domain: str) -> StoreContext:
         from app.models.merchant import Merchant
         merchant = db.query(Merchant).filter(Merchant.shop_domain == shop_domain).first()
         if merchant:
-            ctx.plan = merchant.plan or "starter"
+            ctx.plan = merchant.plan or "lite"
             ctx.billing_active = merchant.billing_active or False
             ctx.onboarding_status = merchant.onboarding_status or "unknown"
 

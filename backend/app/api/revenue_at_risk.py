@@ -52,8 +52,8 @@ def _compute_rars(shop: str, db: Session) -> dict:
     row = db.query(Merchant).filter(Merchant.shop_domain == shop).first()
     # Only active Pro subscribers get the 5-dim breakdown; everyone
     # else (Lite, trial, missing row) sees the reduced-fidelity view.
-    # Internal plan key still "starter" pending TIER_2 rename sprint.
-    plan = "pro" if (row is not None and row.plan == "pro" and row.billing_active) else "starter"
+    # Internal plan key still "lite" pending TIER_2 rename sprint.
+    plan = "pro" if (row is not None and row.plan == "pro" and row.billing_active) else "lite"
     result = get_revenue_at_risk(db, shop, plan=plan)
     # Strip internal debug field
     result.pop("_prevent_evidence", None)
