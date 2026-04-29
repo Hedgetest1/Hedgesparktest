@@ -2,13 +2,23 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useCallback, useEffect, useRef } from "react";
 
 export type NavItem = {
   id: string;
   label: string;
   icon: ReactNode;
   pro?: boolean;
+  /** When set, clicking this nav item navigates to the URL instead of
+   *  scrolling within the current floor. Used for Pro-sidebar entries
+   *  that point to features rendered on a different floor (Scale-only
+   *  moats listed under Pro for visibility but not scrollable from
+   *  /app/pro). */
+  href?: string;
+  /** Marks an entry as a Scale-tier moat — renders a "Scale" badge
+   *  alongside the label so the Pro merchant knows the click leaves
+   *  the current floor. */
+  scaleOnly?: boolean;
 };
 
 /* ── Three Floors = Three Tiers ───────────────────────────────────────
@@ -411,6 +421,8 @@ const NAV_ITEMS_PRO: NavItem[] = [
   {
     id: "pro-anomaly",
     label: "Anomaly replay",
+    href: "/app/scale",
+    scaleOnly: true,
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
@@ -420,6 +432,8 @@ const NAV_ITEMS_PRO: NavItem[] = [
   {
     id: "pro-causal",
     label: "Causal Why",
+    href: "/app/scale",
+    scaleOnly: true,
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
         <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
@@ -429,6 +443,8 @@ const NAV_ITEMS_PRO: NavItem[] = [
   {
     id: "pro-counterfactual",
     label: "Counterfactual",
+    href: "/app/scale",
+    scaleOnly: true,
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
         <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
@@ -438,6 +454,8 @@ const NAV_ITEMS_PRO: NavItem[] = [
   {
     id: "pro-playbook",
     label: "Competitor playbook",
+    href: "/app/scale",
+    scaleOnly: true,
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
         <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 7.125C2.25 6.504 2.754 6 3.375 6h6c.621 0 1.125.504 1.125 1.125v3.75c0 .621-.504 1.125-1.125 1.125h-6a1.125 1.125 0 01-1.125-1.125v-3.75zM14.25 8.625c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v8.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-8.25zM3.75 16.125c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v2.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-2.25z" />
@@ -447,6 +465,8 @@ const NAV_ITEMS_PRO: NavItem[] = [
   {
     id: "pro-night-shift",
     label: "Night Shift",
+    href: "/app/scale",
+    scaleOnly: true,
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
         <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
@@ -465,6 +485,8 @@ const NAV_ITEMS_PRO: NavItem[] = [
   {
     id: "pro-revenue-autopsy",
     label: "Revenue autopsy",
+    href: "/app/scale",
+    scaleOnly: true,
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
         <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -475,6 +497,8 @@ const NAV_ITEMS_PRO: NavItem[] = [
   {
     id: "pro-mta",
     label: "Multi-touch attribution",
+    href: "/app/scale",
+    scaleOnly: true,
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
         <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
@@ -570,10 +594,17 @@ export function Sidebar({
    *  When true, NAV_ITEMS_LITE is used instead of NAV_ITEMS. */
   isLiteView?: boolean;
 }) {
-  const activeRef = useRef<HTMLButtonElement | null>(null);
+  // Callback ref so the same identifier works for both <button> and
+  // <Link> (rendered as <a>) — Link's typed ref is HTMLAnchorElement
+  // and won't accept a useRef<HTMLButtonElement>. The ref only needs
+  // to call scrollIntoView, which is defined on Element.
+  const activeNodeRef = useRef<Element | null>(null);
+  const activeRef = useCallback((node: Element | null) => {
+    activeNodeRef.current = node;
+  }, []);
 
   useEffect(() => {
-    activeRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    activeNodeRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [activeSection]);
 
   const activeNavId = SECTION_TO_NAV[activeSection] || activeSection;
@@ -686,20 +717,15 @@ export function Sidebar({
           return navList.map((item) => {
           const isActive = activeNavId === item.id;
           const isLocked = item.pro && tier === "lite";
-          return (
-            <button
-              key={item.id}
-              ref={isActive ? activeRef : undefined}
-              onClick={() => onNavigate(item.id)}
-              title={collapsed ? item.label : undefined}
-              className={`mx-2 flex items-center gap-3 rounded-xl px-3 py-3 text-[15px] font-medium transition-all duration-150 ${
-                isActive
-                  ? "bg-[#d4893a]/15 text-[#e8a04e] shadow-[inset_0_0_0_1px_rgba(212,137,58,0.18)]"
-                  : isLocked
-                  ? "text-slate-400 hover:bg-white/[0.03] hover:text-slate-200"
-                  : "text-slate-400 hover:bg-white/[0.05] hover:text-slate-200"
-              } ${collapsed ? "justify-center" : ""}`}
-            >
+          const className = `mx-2 flex items-center gap-3 rounded-xl px-3 py-3 text-[15px] font-medium transition-all duration-150 ${
+            isActive
+              ? "bg-[#d4893a]/15 text-[#e8a04e] shadow-[inset_0_0_0_1px_rgba(212,137,58,0.18)]"
+              : isLocked
+              ? "text-slate-400 hover:bg-white/[0.03] hover:text-slate-200"
+              : "text-slate-400 hover:bg-white/[0.05] hover:text-slate-200"
+          } ${collapsed ? "justify-center" : ""}`;
+          const inner = (
+            <>
               <span className="flex-shrink-0">{item.icon}</span>
               {!collapsed && (
                 <span className="flex min-w-0 flex-1 items-center gap-2 truncate">
@@ -709,11 +735,44 @@ export function Sidebar({
                       Pro
                     </span>
                   )}
+                  {item.scaleOnly && (
+                    <span className="rounded border border-violet-400/30 bg-violet-500/10 px-1.5 py-px text-[9px] font-bold uppercase tracking-[0.08em] text-violet-300">
+                      Scale
+                    </span>
+                  )}
                 </span>
               )}
               {isActive && !collapsed && (
                 <span className="ml-auto h-5 w-[3px] flex-shrink-0 rounded-full bg-[#d4893a]" />
               )}
+            </>
+          );
+          if (item.href) {
+            // Cross-floor nav — Link to the URL. Keeps the merchant
+            // grounded ("Scale" badge says the click leaves Pro);
+            // the destination floor renders the Scale-floor preview
+            // for non-Scale tiers (locked moats with copy + lock).
+            return (
+              <Link
+                key={item.id}
+                ref={isActive ? activeRef : undefined}
+                href={item.href}
+                title={collapsed ? item.label : undefined}
+                className={className}
+              >
+                {inner}
+              </Link>
+            );
+          }
+          return (
+            <button
+              key={item.id}
+              ref={isActive ? activeRef : undefined}
+              onClick={() => onNavigate(item.id)}
+              title={collapsed ? item.label : undefined}
+              className={className}
+            >
+              {inner}
             </button>
           );
           });
