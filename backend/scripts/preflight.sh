@@ -1123,7 +1123,7 @@ step "Orphan-audit backfill (info-only — see /tmp/preflight_orphans.log for de
 {
     for orphan in audit_dev_flag_leaks.py audit_timezone.py audit_claude_md_redis_keys.py \
                   audit_empty_path_fields.py audit_n_plus_one.py audit_dead_endpoints.py \
-                  audit_models_without_migrations.py; do
+                  audit_models_without_migrations.py audit_dashboard_redirect_paths.py; do
         echo "=== $orphan ==="
         "$PY" "scripts/${orphan}" 2>&1 | head -5 || true
         echo ""

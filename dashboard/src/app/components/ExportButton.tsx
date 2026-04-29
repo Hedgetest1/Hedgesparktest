@@ -35,17 +35,21 @@ type Surface =
 
 type Format = "csv" | "pdf" | "sheets";
 
-// Minimal CSV row parser. Handles double-quoted fields with embedded
-// commas (the standard CSV rules). For HedgeSpark export data this
-// covers everything: numbers, plain identifiers, quoted product titles.
-function parseCsvRow(line: string): string[] {
-  const out: string[] = [];
+// CSV parser — handles quoted fields with embedded commas AND newlines.
+// Per RFC 4180 section 2.6, fields containing line breaks must be
+// enclosed in double quotes; literal quote chars escape via "". We
+// parse the entire blob as a single state machine vs a line-at-a-time
+// approach so multiline quoted strings (rare in HedgeSpark exports
+// but legitimate per spec) parse correctly. Returns rows[][cells[]].
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
   let cur = "";
   let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
     if (inQuotes) {
-      if (ch === '"' && line[i + 1] === '"') {
+      if (ch === '"' && text[i + 1] === '"') {
         cur += '"';
         i++;
       } else if (ch === '"') {
@@ -56,14 +60,29 @@ function parseCsvRow(line: string): string[] {
     } else if (ch === '"') {
       inQuotes = true;
     } else if (ch === ",") {
-      out.push(cur);
+      row.push(cur);
       cur = "";
+    } else if (ch === "\n" || ch === "\r") {
+      // End of unquoted row. Push accumulated cell + row, skip CRLF.
+      row.push(cur);
+      cur = "";
+      if (row.length > 0 && !(row.length === 1 && row[0] === "")) {
+        rows.push(row.map((s) => s.trim()));
+      }
+      row = [];
+      if (ch === "\r" && text[i + 1] === "\n") i++;
     } else {
       cur += ch;
     }
   }
-  out.push(cur);
-  return out.map((s) => s.trim());
+  // Final cell + row (no trailing newline).
+  if (cur.length > 0 || row.length > 0) {
+    row.push(cur);
+    if (!(row.length === 1 && row[0] === "")) {
+      rows.push(row.map((s) => s.trim()));
+    }
+  }
+  return rows;
 }
 
 export function ExportButton({
@@ -91,11 +110,11 @@ export function ExportButton({
         if (!csvRes.ok) throw new Error(`csv fetch failed: ${csvRes.status}`);
         const csvText = await csvRes.text();
 
-        // 2. Parse CSV into headers + rows.
-        const lines = csvText.split(/\r?\n/).filter((l) => l.trim().length > 0);
-        if (lines.length === 0) throw new Error("empty_export");
-        const headers = parseCsvRow(lines[0]);
-        const rows = lines.slice(1).map(parseCsvRow);
+        // 2. Parse CSV into headers + rows (RFC 4180 — quoted multiline OK).
+        const parsed = parseCsv(csvText);
+        if (parsed.length === 0) throw new Error("empty_export");
+        const headers = parsed[0];
+        const rows = parsed.slice(1);
 
         // 3. Push to Google Sheets via /analytics/export-to-sheets.
         //    apiClient (typed) — backend errors come through `error`,

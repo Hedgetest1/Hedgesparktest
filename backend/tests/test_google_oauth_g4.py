@@ -35,12 +35,9 @@ from tests.conftest import SHOP_A, SHOP_B, auth_cookies
 @pytest.fixture(autouse=True)
 def reset_oauth_module_state():
     """Each test starts with no OAuth state + no access-token cache."""
-    # Fallback in-memory dict (Redis-backed primary path lives in
-    # app.api.google_oauth — but in tests Redis may also be primed).
-    from app.api import google_oauth as goa
-    goa._oauth_state_map_fallback.clear()
     gs_svc._access_token_cache = {}
-    # Wipe any Redis-backed state from previous tests.
+    # Wipe any Redis-backed state from previous tests — Redis is the
+    # canonical store (no in-memory fallback since 2026-04-29).
     try:
         from app.core.redis_client import _client
         rc = _client()

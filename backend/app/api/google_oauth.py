@@ -91,26 +91,23 @@ _OAUTH_STATE_TTL_S = 300
 
 
 def _store_oauth_state(state: str, shop: str) -> bool:
-    """Persist state→shop in Redis with TTL. Returns True on success.
+    """Persist state→shop in Redis with TTL. Raises on failure.
 
-    Falls back to a degraded in-memory dict if Redis is unavailable
-    (single-worker dev mode). Production always has Redis.
+    Redis is a hard dependency for HedgeSpark backend. There is no
+    in-memory fallback — multi-worker safety + restart-safety both
+    require Redis. If Redis is unreachable, surface the error rather
+    than silently degrading to a broken in-memory dict.
     """
-    try:
-        from app.core.redis_client import _client
-        rc = _client()
-        if rc is not None:
-            rc.setex(
-                f"{_OAUTH_STATE_KEY_PREFIX}:{state}",
-                _OAUTH_STATE_TTL_S,
-                shop,
-            )
-            return True
-    except Exception as exc:
-        log.warning("oauth state Redis SETEX failed: %s", exc)
-    # Fallback (dev only): keep in module-level dict.
-    _oauth_state_map_fallback[state] = shop
-    return False
+    from app.core.redis_client import _client
+    rc = _client()
+    if rc is None:
+        raise RuntimeError("oauth_state_redis_unavailable")
+    rc.setex(
+        f"{_OAUTH_STATE_KEY_PREFIX}:{state}",
+        _OAUTH_STATE_TTL_S,
+        shop,
+    )
+    return True
 
 
 def _consume_oauth_state(state: str) -> str | None:
@@ -121,25 +118,18 @@ def _consume_oauth_state(state: str) -> str | None:
     A naive GET-then-DEL would race: two concurrent callbacks with the
     same state token could both read before either deletes — letting
     a replayed state token authenticate twice.
+
+    Raises if Redis unavailable (consistent with _store_oauth_state).
     """
-    try:
-        from app.core.redis_client import _client
-        rc = _client()
-        if rc is not None:
-            key = f"{_OAUTH_STATE_KEY_PREFIX}:{state}"
-            value = rc.getdel(key)
-            if value is not None:
-                return value.decode() if isinstance(value, bytes) else value
-    except Exception as exc:
-        log.warning("oauth state Redis GETDEL failed: %s", exc)
-    # Fallback (dev only)
-    return _oauth_state_map_fallback.pop(state, None)
-
-
-# In-memory fallback for dev-only Redis-down scenarios.
-# multi-worker: accept-degrade — only hit when Redis is unreachable;
-# production has Redis as hard dependency so this dict stays empty.
-_oauth_state_map_fallback: dict[str, str] = {}
+    from app.core.redis_client import _client
+    rc = _client()
+    if rc is None:
+        raise RuntimeError("oauth_state_redis_unavailable")
+    key = f"{_OAUTH_STATE_KEY_PREFIX}:{state}"
+    value = rc.getdel(key)
+    if value is not None:
+        return value.decode() if isinstance(value, bytes) else value
+    return None
 
 
 @router.get("/auth/google/start")
@@ -153,7 +143,16 @@ def start_google_oauth(
             detail="Google Sheets not yet configured by HedgeSpark admin.",
         )
     state = generate_state_token()
-    _store_oauth_state(state, shop)
+    try:
+        _store_oauth_state(state, shop)
+    except RuntimeError as exc:
+        # Redis unavailable. Surface a controlled 503 instead of 500
+        # — the merchant sees an error message, not a broken page.
+        log.error("oauth_state_store_failed: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="OAuth temporarily unavailable. Try again in a moment.",
+        )
     auth_url = build_authorization_url(state)
     # 302 to Google. Browser handles redirect.
     return RedirectResponse(url=auth_url, status_code=302)
@@ -191,7 +190,11 @@ def google_oauth_callback(
     if not code or not state:
         return RedirectResponse(url=f"{error_url}&reason=missing_params", status_code=302)
 
-    shop = _consume_oauth_state(state)
+    try:
+        shop = _consume_oauth_state(state)
+    except RuntimeError as exc:
+        log.error("oauth_state_consume_failed: %s", exc)
+        return RedirectResponse(url=f"{error_url}&reason=state_unavailable", status_code=302)
     if not shop:
         return RedirectResponse(url=f"{error_url}&reason=state_unknown", status_code=302)
 

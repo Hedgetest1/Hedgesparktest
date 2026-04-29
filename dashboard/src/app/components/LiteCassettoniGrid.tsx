@@ -71,12 +71,8 @@ type TopProduct = {
 };
 
 const ACCENTS: Record<string, { eyebrow: string; hero: string; bg: string; border: string }> = {
-  amberWarn: {
-    eyebrow: "#fbbf24",
-    hero: "#fbbf24",
-    bg: "rgba(251,191,36,0.05)",
-    border: "rgba(251,191,36,0.18)",
-  },
+  // amberWarn removed 2026-04-29 — was used only by RARS cassettone
+  // (RARS moved to Pro tier same day, leaving accent dead).
   violet: {
     eyebrow: "#a78bfa",
     hero: "#a78bfa",
@@ -976,18 +972,8 @@ function humanizeLeak(leak?: string): string {
   )[leak] ?? leak.replace(/_/g, " ");
 }
 
-// Humanize RARS component sources.
-function humanizeRarsSource(source: string): string {
-  return (
-    {
-      abandoned_high_intent: "abandoned high-intent carts",
-      refund_decline: "products losing traction",
-      nudge_gap: "nudges underperforming",
-      below_benchmark: "peers out-earning you",
-      goal_gap: "your monthly targets",
-    } as Record<string, string>
-  )[source] ?? source.replace(/_/g, " ");
-}
+// humanizeRarsSource removed 2026-04-29 — was used only by RARS cassettone
+// panel definition which moved to Pro tier same day.
 
 // Humanize signal_type from brief metrics_snapshot.
 function humanizeSignalType(signal?: string): string {

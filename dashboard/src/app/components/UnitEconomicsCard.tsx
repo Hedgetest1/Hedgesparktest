@@ -52,7 +52,7 @@ const STATUS_META: Record<string, { color: string; icon: string; label: string }
   no_data: { color: "#94a3b8", icon: "⚪", label: "Not yet" },
 };
 
-export function UnitEconomicsCard({ apiBase }: { apiBase: string; isProUser?: boolean }) {
+export function UnitEconomicsCard({ apiBase }: { apiBase: string }) {
   const [data, setData] = useState<CacLtvData | null>(null);
   const [loading, setLoading] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);

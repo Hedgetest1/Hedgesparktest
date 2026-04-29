@@ -3423,7 +3423,7 @@ function PageInner() {
                     marginBottom: "8px",
                   }}
                 >
-                  <UnitEconomicsCard apiBase={API_BASE} isProUser={isProUser} />
+                  <UnitEconomicsCard apiBase={API_BASE} />
                   <div data-tour="margin-health">
                     <MarginHealthCard apiBase={API_BASE} isProUser={isProUser} />
                   </div>
