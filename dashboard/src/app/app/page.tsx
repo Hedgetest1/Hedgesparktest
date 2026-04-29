@@ -83,6 +83,7 @@ import { RevenueAutopsyCard } from "../components/RevenueAutopsyCard";
 import { AbandonedIntentCard } from "../components/AbandonedIntentCard";
 import { LiveOpportunitiesCard } from "../components/LiveOpportunitiesCard";
 import { VisitorIntentExplorerCard } from "../components/VisitorIntentExplorerCard";
+import { ProParityGapPlaceholder } from "../components/ProParityGapPlaceholder";
 import { PriceSensitivityCard } from "../components/PriceSensitivityCard";
 import { CausalLiftCard } from "../components/CausalLiftCard";
 import { RevenueGenomeCard } from "../components/RevenueGenomeCard";
@@ -2845,7 +2846,7 @@ function PageInner() {
                         numbers below threshold.
                       </p>
                     </div>
-                    <PeerBenchmarksCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                    <PeerBenchmarksCard apiBase={API_BASE} shop={shop} isProUser={false} />
 
                     {/* Vertical-aware benchmarks — Strada 3.1. Shows
                         peer comparison narrowed to the merchant's
@@ -2855,7 +2856,7 @@ function PageInner() {
                         VerticalBenchmarksCard — only the Pro-gate was
                         dropped and the endpoint opened. */}
                     <div className="mt-5">
-                      <VerticalBenchmarksCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                      <VerticalBenchmarksCard apiBase={API_BASE} shop={shop} isProUser={false} />
                     </div>
                   </div>
                 </section>
@@ -4107,23 +4108,10 @@ function PageInner() {
               )}
 
               {/* Pro — Audience Segments */}
-              {isProUser && !isLiteFloor && (
-                <SectionErrorBoundary name="Audience Segments">
-                <section id="section-audience">
-                  <SectionHeading
-                    eyebrow="Audience"
-                    title="Who's ready to buy"
-                    pro
-                  />
-                  <AudienceSegments
-                    apiBase={API_BASE}
-                    shop={shop}
-                    apiHeaders={apiHeaders}
-                    topProducts={topProducts}
-                  />
-                </section>
-                </SectionErrorBoundary>
-              )}
+              {/* AudienceSegments removed from Pro floor 2026-04-29
+                  per no-doppione doctrine — Lite renders it (isPro
+                  endpoint is alias of analytics endpoint, no extra
+                  data on Pro). Pro merchant sees on /app/lite. */}
 
               {/* Pro — Nudge Performance */}
               {isProUser && !isLiteFloor && (
@@ -4158,27 +4146,54 @@ function PageInner() {
                 </SectionErrorBoundary>
               )}
 
-              {/* Pro — Scroll Intelligence + Cohort Retention side by side */}
+              {/* Pro — \$60-130 parity-gap placeholder sections.
+                  Three features need to ship for full Pro tier
+                  parity vs Glew Pro \$79 / Lucky Orange Grow \$89 /
+                  Klaviyo Marketing \$100 / Polar Analytics \$120 etc.:
+                  KPI Goals (backend exists, no UI), BI/SQL access
+                  (not built), Subscription analytics (not built).
+                  Placeholders surface them in nav now so the
+                  merchant knows what's coming. ═══ */}
+              {!isLiteFloor && (
+                <>
+                  <ProParityGapPlaceholder
+                    id="pro-goals"
+                    eyebrow="KPI Goals"
+                    title="Set goals · track progress · alert on drift"
+                    body="Define monthly revenue / order / CVR targets, see real-time progress, get alerted when you're trailing. Backend already wired (POST /merchant/goals). UI shipping next sprint to match competitors at the Pro mid-band (Lifetimely Pro and Polar Analytics ship this)."
+                    accent="#34d399"
+                  />
+                  <ProParityGapPlaceholder
+                    id="pro-bi-sql"
+                    eyebrow="BI / SQL access"
+                    title="Read-only SQL sandbox over your store data"
+                    body="Query your raw events, orders, sessions in safe read-only SQL. Saved queries + scheduled email export. Matches the Pro mid-band offered by Klaviyo Marketing, Mixpanel Growth and Glew Pro."
+                    accent="#a78bfa"
+                  />
+                  <ProParityGapPlaceholder
+                    id="pro-subscriptions"
+                    eyebrow="Subscription analytics"
+                    title="Recurring orders · churn · cohort LTV"
+                    body="Auto-detect recurring orders, compute MRR / churn / LTV by subscription cohort, surface at-risk subscribers. Matches the Pro mid-band offered by Glew Pro and Putler Plus."
+                    accent="#fbbf24"
+                  />
+                </>
+              )}
+
+              {/* Pro — Scroll Intelligence (CohortTable removed
+                  2026-04-29 per no-doppione doctrine — Lite renders
+                  cohort, isPro endpoint is alias of analytics, no
+                  extra data on Pro). HeatmapCard stays — genuine Pro
+                  feature, no Lite duplicate. */}
               {isProUser && !isLiteFloor && (
-                <SectionErrorBoundary name="Scroll & Cohorts">
-                <section id="section-scroll-cohorts">
-                  <div className="grid gap-4 xl:grid-cols-2">
-                    <div>
-                      <SectionHeading
-                        eyebrow="Scroll Depth"
-                        title="Where visitors stop reading"
-                        pro
-                      />
-                      <HeatmapCard apiBase={API_BASE} shop={shop} apiHeaders={apiHeaders} />
-                    </div>
-                    <div>
-                      <SectionHeading
-                        eyebrow="Retention"
-                        title="Repeat purchase rates"
-                      />
-                      <CohortTable apiBase={API_BASE} shop={shop} apiHeaders={apiHeaders} displayCurrency={displayCurrency} />
-                    </div>
-                  </div>
+                <SectionErrorBoundary name="Scroll Intelligence">
+                <section id="section-scroll">
+                  <SectionHeading
+                    eyebrow="Scroll Depth"
+                    title="Where visitors stop reading"
+                    pro
+                  />
+                  <HeatmapCard apiBase={API_BASE} shop={shop} apiHeaders={apiHeaders} />
                 </section>
                 </SectionErrorBoundary>
               )}
