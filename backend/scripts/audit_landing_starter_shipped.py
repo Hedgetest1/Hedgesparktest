@@ -61,6 +61,16 @@ BULLET_TO_COMPONENT_KEYWORDS: dict[str, list[str]] = {
     "abandoned intent": ["AbandonedIntentCard"],
     "live opportunities": ["LiveOpportunitiesCard", "live-opportunities"],
     "daily intelligence brief": ["BriefHero", "/brief/today"],
+    # Lite strategic close 2026-04-29 (commit fe278d5) — full $0-60
+    # parity capabilities. Each key is a unique substring of the
+    # corresponding tier-card bullet; at least one needle must
+    # appear in the dashboard scan blob (components/ + Pulse + layout).
+    "p&l · attribution": ["PnlReport", "ChannelAttributionCard"],
+    "multi-store consolidation": ["multi-store", "/app/groups"],
+    "11-segment rfm": ["RfmSegmentsTile"],
+    "custom reports": ["ReportBuilderForm", "/app/reports"],
+    "sparkchat": ["AskHedgeSparkCard"],
+    "cac : ltv": ["UnitEconomicsCard", "/analytics/cac-ltv"],
     # Landing baseline capabilities that are backend-rendered (not a
     # discrete component) — we still want them listed so they don't
     # look like orphans, but the match target is a known backend path.

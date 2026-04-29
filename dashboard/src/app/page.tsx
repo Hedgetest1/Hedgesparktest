@@ -1370,55 +1370,82 @@ function Pricing() {
     </svg>
   );
 
-  // Comparison table — 15 representative features grouped by category.
-  // ✓ = included at that tier; — = not included. Full 32-feature split
-  // lives in the pricing matrix memo (project_brutal_feature_pricing_matrix).
+  // Comparison table — synced 2026-04-29 to Lite strategic close
+  // (commit fe278d5). Lite = full $0-60 parity (RARS + Visitor Intent
+  // moved to Pro per strict $0-70 doctrine; multi-store moved INTO Lite
+  // per $0-60 parity vs Putler $20). Pro = Lite + 10 moats no $0-130
+  // tool ships. Scale = Pro + agency/ads/API infrastructure.
+  // ✓ = included at that tier; — = not included.
   const compare: Array<{ group: string; rows: Array<{ name: string; starter: boolean; pro: boolean; scale: boolean }> }> = [
     {
-      group: "Foundation",
+      group: "Foundation (all plans)",
       rows: [
         { name: "First-party pixel tracker", starter: true, pro: true, scale: true },
-        { name: "Visitor intent scoring (hot / warm / cold)", starter: true, pro: true, scale: true },
-        { name: "Revenue-at-Risk Score (5-dimension)", starter: true, pro: true, scale: true },
+        { name: "Today + last 7 days KPI snapshot", starter: true, pro: true, scale: true },
         { name: "Daily intelligence brief", starter: true, pro: true, scale: true },
+        { name: "Multi-currency rollup (no fake-sum)", starter: true, pro: true, scale: true },
       ],
     },
     {
-      group: "Intelligence (Pro adds)",
+      group: "Lite — full $0-60 parity",
       rows: [
-        { name: "Multi-touch attribution (5-model)", starter: false, pro: true, scale: true },
-        { name: "LTV + cohort retention analysis", starter: false, pro: true, scale: true },
-        { name: "P&L intelligence per product", starter: false, pro: true, scale: true },
-        { name: "Causal lift (real A/B holdout)", starter: false, pro: true, scale: true },
-        { name: "Peer benchmarks (anonymous)", starter: false, pro: true, scale: true },
-        { name: "Session replay + scroll heatmaps", starter: false, pro: true, scale: true },
-        { name: "AI nudge composer + holdout proof", starter: false, pro: true, scale: true },
+        { name: "P&L · attribution · cohort retention · refunds", starter: true, pro: true, scale: true },
+        { name: "Multi-store consolidation (per-currency)", starter: true, pro: true, scale: true },
+        { name: "11-segment RFM + geographic drilldown", starter: true, pro: true, scale: true },
+        { name: "Custom report builder + scheduled email", starter: true, pro: true, scale: true },
+        { name: "Google Sheets / CSV / PDF export", starter: true, pro: true, scale: true },
+        { name: "Post-purchase survey (multi-question)", starter: true, pro: true, scale: true },
+        { name: "AI assistant (SparkChat) on your data", starter: true, pro: true, scale: true },
+        { name: "Peer benchmarks (anonymous)", starter: true, pro: true, scale: true },
+        { name: "CAC : LTV unit economics", starter: true, pro: true, scale: true },
+        { name: "COGS bulk import (CSV)", starter: true, pro: true, scale: true },
+        { name: "Inventory KPIs · stock-at-risk · forecast", starter: true, pro: true, scale: true },
+      ],
+    },
+    {
+      group: "Pro — moat intelligence layer",
+      rows: [
+        { name: "Revenue at Risk Score (5-dimension)", starter: false, pro: true, scale: true },
+        { name: "Visitor intent scoring (per-visitor hot/warm/cold)", starter: false, pro: true, scale: true },
+        { name: "Causal lift + Why engine (real A/B holdout)", starter: false, pro: true, scale: true },
         { name: "Night Shift Agent + Competitor Playbook", starter: false, pro: true, scale: true },
+        { name: "Anomaly Fusion + Replay", starter: false, pro: true, scale: true },
+        { name: "Counterfactual Explorer", starter: false, pro: true, scale: true },
+        { name: "Revenue Autopsy + Revenue Genome", starter: false, pro: true, scale: true },
+        { name: "Nudge DNA + holdout-measured Lift Report", starter: false, pro: true, scale: true },
+        { name: "MTA model compare + Price Sensitivity", starter: false, pro: true, scale: true },
+        { name: "Session replay", starter: false, pro: true, scale: true },
       ],
     },
     {
       group: "Scale (infrastructure adds)",
       rows: [
         { name: "Unified ads connector (Meta / Google / TikTok)", starter: false, pro: false, scale: true },
-        { name: "Multi-store groups + agency white-label", starter: false, pro: false, scale: true },
-        { name: "API access", starter: false, pro: false, scale: true },
+        { name: "Agency white-label console", starter: false, pro: false, scale: true },
+        { name: "API access + outbound webhooks", starter: false, pro: false, scale: true },
       ],
     },
   ];
 
+  // Tier feature lists — synced 2026-04-29 to Lite strategic close
+  // (commit fe278d5). Lite carries full $0-60 competitor parity;
+  // RARS + Visitor Intent + Causal moved to Pro; multi-store moved
+  // INTO Lite per parity vs Putler $20. Scale = Pro + ads/agency/API
+  // infrastructure only (multi-store no longer Scale-exclusive).
   const tiers = [
     {
       key: "lite",
       label: "Lite",
       tagline: "Foundation signals",
-      desc: "See the leak. Every product, every 5 minutes.",
+      desc: "Full $0-60 competitor parity. Every metric your store needs, on real first-party data.",
       features: [
         "First-party pixel tracker",
-        "Visitor intent scoring (hot / warm / cold)",
-        "Revenue-at-Risk Score",
-        "Hot Products + Live Radar",
-        "Abandoned intent — where visitors slip away",
-        "Live opportunities — pages leaking right now",
+        "P&L · attribution · cohort retention · refunds",
+        "Multi-store consolidation (per-currency)",
+        "11-segment RFM + geographic drilldown",
+        "Custom reports + Sheets / CSV / PDF export",
+        "AI assistant (SparkChat) on your data",
+        "CAC : LTV · COGS · Inventory KPIs",
         "Daily intelligence brief",
       ],
       accent: "#c4b5fd",
@@ -1428,15 +1455,17 @@ function Pricing() {
       key: "pro",
       label: "Pro",
       tagline: "Find · Fix · Prove",
-      desc: "Everything in Lite, plus the fix-and-prove loop. Holdout proof on every action.",
+      desc: "Everything in Lite, plus the moat intelligence layer no $0-130 tool ships.",
       features: [
         "Everything in Lite",
-        "Attribution · LTV · P&L · forecast",
-        "Causal lift + peer benchmarks",
-        "Session replay + scroll heatmaps",
-        "AI nudge composer + holdout proof",
+        "Revenue at Risk Score (5-dimension)",
+        "Visitor intent scoring (per-visitor hot / warm / cold)",
+        "Causal lift + Why engine (real A/B holdout)",
         "Night Shift Agent + Competitor Playbook",
-        "Ask HS chatbot on your store data",
+        "Anomaly Fusion + Replay + Counterfactual Explorer",
+        "Revenue Autopsy + Genome + Nudge DNA",
+        "MTA model compare + Price Sensitivity",
+        "Session replay + scroll heatmaps",
       ],
       accent: "#e8a04e",
       recommended: true,
@@ -1445,13 +1474,12 @@ function Pricing() {
       key: "scale",
       label: "Scale",
       tagline: "Agency + infrastructure",
-      desc: "For agencies, multi-store operators, and teams that need API + unified ads.",
+      desc: "For agencies and teams that need unified ads, white-label, and API.",
       features: [
         "Everything in Pro",
         "Unified ads connector (Meta / Google / TikTok)",
-        "Multi-store groups",
-        "Agency white-label",
-        "API access",
+        "Agency white-label console",
+        "API access + outbound webhooks",
       ],
       accent: "#3b82f6",
       recommended: false,
