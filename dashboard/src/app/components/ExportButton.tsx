@@ -31,7 +31,15 @@ type Surface =
   | "benchmarks_vertical"
   | "pnl"
   | "cohorts_monthly"
-  | "attribution";
+  | "attribution"
+  | "inventory"
+  // Per-row surfaces added 2026-04-29 — produce 1 row per customer/
+  // product/country/variant/segment (10-1000+ rows depending on shop).
+  | "top_customers_ltv"
+  | "top_products"
+  | "orders_by_country"
+  | "top_variants"
+  | "rfm_segments";
 
 type Format = "csv" | "pdf" | "sheets";
 

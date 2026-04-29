@@ -3052,6 +3052,7 @@ function PageInner() {
                           <ExportButton surface="cohorts_monthly" accentColor="#34d399" label="Cohorts CSV" />
                           <ExportButton surface="cohorts_monthly" accentColor="#34d399" label="Cohorts PDF" format="pdf" />
                           <ExportButton surface="cohorts_monthly" accentColor="#34d399" label="Cohorts Sheets" format="sheets" />
+                          <ExportButton surface="top_customers_ltv" accentColor="#34d399" label="Top customers Sheets" format="sheets" />
                         </div>
                       </div>
                       <div className="mt-1 text-[16px] font-medium leading-snug text-slate-200 sm:text-[17px]">
@@ -3260,12 +3261,18 @@ function PageInner() {
                   <div className="pointer-events-none absolute -right-32 -top-32 h-[340px] w-[340px] rounded-full bg-[#fbbf24]/[0.05] blur-[150px]" />
                   <div className="relative">
                     <div className="mb-5">
-                      <h2
-                        id="lite-audience-heading"
-                        className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-[#C4B5FD] sm:text-[2.5rem]"
-                      >
-                        Who&apos;s ready to buy
-                      </h2>
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <h2
+                          id="lite-audience-heading"
+                          className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-[#C4B5FD] sm:text-[2.5rem]"
+                        >
+                          Who&apos;s ready to buy
+                        </h2>
+                        <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
+                          <ExportButton surface="rfm_segments" accentColor="#fbbf24" label="RFM Sheets" format="sheets" />
+                          <ExportButton surface="orders_by_country" accentColor="#fbbf24" label="Geo Sheets" format="sheets" />
+                        </div>
+                      </div>
                       <div className="mt-1 text-[16px] font-medium leading-snug text-slate-200 sm:text-[17px]">
                         Hot, warm, cold visitors per top product
                       </div>

@@ -53,6 +53,15 @@ ALLOWED_SURFACES = {
     "cohorts_monthly",
     "attribution",
     "inventory",
+    # Per-row data surfaces (added 2026-04-29) — richer exports that
+    # show one row per customer / product / country / variant. These
+    # produce 10-1000+ rows per export depending on shop volume,
+    # vs the per-summary surfaces above (3-10 rows).
+    "top_customers_ltv",
+    "top_products",
+    "orders_by_country",
+    "top_variants",
+    "rfm_segments",
 }
 
 
@@ -330,6 +339,141 @@ def _rows_for_inventory(db: Session, shop: str) -> tuple[list[str], list[dict[st
     return headers, rows
 
 
+def _rows_for_top_customers_ltv(db: Session, shop: str) -> tuple[list[str], list[dict[str, Any]]]:
+    """One row per customer ranked by lifetime spend. Hashed PII-safe ID.
+    Reuses the same source the dashboard tile consumes."""
+    from sqlalchemy import text as sql_text
+    import hashlib
+    from app.services.revenue_metrics import get_shop_currency
+    currency = get_shop_currency(db, shop) or "USD"
+    rows_db = db.execute(sql_text("""
+        SELECT customer_email,
+               COUNT(*) AS orders,
+               COALESCE(SUM(total_price), 0) AS total_spent,
+               MIN(created_at) AS first_order,
+               MAX(created_at) AS last_order
+        FROM shop_orders
+        WHERE shop_domain = :shop
+          AND customer_email IS NOT NULL
+          AND customer_email <> ''
+          AND currency = :currency
+        GROUP BY customer_email
+        ORDER BY total_spent DESC
+        LIMIT 200
+    """), {"shop": shop, "currency": currency}).fetchall()
+    ts = _now_iso()
+    rows = []
+    for r in rows_db:
+        h = hashlib.sha1(r[0].encode("utf-8")).hexdigest()[:8]
+        rows.append({
+            "shop": shop, "generated_at": ts, "currency": currency,
+            "customer_id": f"cust_{h}",
+            "orders": int(r[1] or 0),
+            "total_spent": round(float(r[2] or 0), 2),
+            "first_order_at": r[3].isoformat() if r[3] else "",
+            "last_order_at": r[4].isoformat() if r[4] else "",
+        })
+    headers = ["shop", "generated_at", "currency", "customer_id", "orders",
+               "total_spent", "first_order_at", "last_order_at"]
+    return headers, rows
+
+
+def _rows_for_top_products(db: Session, shop: str) -> tuple[list[str], list[dict[str, Any]]]:
+    """One row per product ranked by revenue (line_items aggregation)."""
+    from sqlalchemy import text as sql_text
+    from app.services.revenue_metrics import get_shop_currency
+    currency = get_shop_currency(db, shop) or "USD"
+    # CTE pre-filter so jsonb_array_elements() never sees JSON-null
+    # scalars (psycopg2 may convert Python None → JSON null literal).
+    # Per audit_jsonb_array_length_guard: jsonb_typeof guard within
+    # 4 lines above the jsonb_array_elements call. Single-line CTE.
+    rows_db = db.execute(sql_text("""
+        WITH valid_orders AS (SELECT line_items FROM shop_orders WHERE shop_domain = :shop AND currency = :currency AND jsonb_typeof(line_items) = 'array')
+        SELECT li->>'title' AS title, COUNT(*) AS sales,
+               COALESCE(SUM((li->>'price')::numeric * COALESCE((li->>'quantity')::integer, 1)), 0) AS revenue
+        FROM valid_orders, jsonb_array_elements(valid_orders.line_items) li
+        WHERE li->>'title' IS NOT NULL
+        GROUP BY li->>'title' ORDER BY revenue DESC LIMIT 200
+    """), {"shop": shop, "currency": currency}).fetchall()
+    ts = _now_iso()
+    rows = [{
+        "shop": shop, "generated_at": ts, "currency": currency,
+        "product_title": r[0], "units_sold": int(r[1] or 0),
+        "revenue": round(float(r[2] or 0), 2),
+    } for r in rows_db]
+    headers = ["shop", "generated_at", "currency", "product_title", "units_sold", "revenue"]
+    return headers, rows
+
+
+def _rows_for_orders_by_country(db: Session, shop: str) -> tuple[list[str], list[dict[str, Any]]]:
+    """One row per country, sourced from the same /analytics/orders-by-country
+    Redis hash the dashboard tile + Live Radar already consume."""
+    from app.api.lite_extras import get_orders_by_country
+    from app.api.lite_extras import DateRangeQuery
+    # Reuse the existing endpoint logic by direct call.
+    range_q = DateRangeQuery()
+    try:
+        result = get_orders_by_country(days=30, range_q=range_q, shop=shop, db=db)
+    except Exception:
+        return ["shop", "generated_at"], []
+    ts = _now_iso()
+    ccy = result.currency
+    rows = [{
+        "shop": shop, "generated_at": ts, "currency": ccy,
+        "country_code": c.country_code,
+        "orders": c.orders,
+        "revenue": c.revenue,
+    } for c in result.countries]
+    headers = ["shop", "generated_at", "currency", "country_code", "orders", "revenue"]
+    return headers, rows
+
+
+def _rows_for_top_variants(db: Session, shop: str) -> tuple[list[str], list[dict[str, Any]]]:
+    """One row per variant SKU ranked by revenue."""
+    from sqlalchemy import text as sql_text
+    from app.services.revenue_metrics import get_shop_currency
+    currency = get_shop_currency(db, shop) or "USD"
+    # CTE pre-filter (per audit_jsonb_array_length_guard) — single-line
+    # CTE so jsonb_typeof guard stays within 4 lines of jsonb_array_elements.
+    rows_db = db.execute(sql_text("""
+        WITH valid_orders AS (SELECT line_items FROM shop_orders WHERE shop_domain = :shop AND currency = :currency AND jsonb_typeof(line_items) = 'array')
+        SELECT li->>'variant_title' AS variant, li->>'title' AS product,
+               COUNT(*) AS sales,
+               COALESCE(SUM((li->>'price')::numeric * COALESCE((li->>'quantity')::integer, 1)), 0) AS revenue
+        FROM valid_orders, jsonb_array_elements(valid_orders.line_items) li
+        WHERE li->>'variant_title' IS NOT NULL AND li->>'variant_title' <> ''
+        GROUP BY li->>'variant_title', li->>'title' ORDER BY revenue DESC LIMIT 200
+    """), {"shop": shop, "currency": currency}).fetchall()
+    ts = _now_iso()
+    rows = [{
+        "shop": shop, "generated_at": ts, "currency": currency,
+        "product_title": r[1] or "", "variant": r[0] or "",
+        "units_sold": int(r[2] or 0),
+        "revenue": round(float(r[3] or 0), 2),
+    } for r in rows_db]
+    headers = ["shop", "generated_at", "currency", "product_title", "variant", "units_sold", "revenue"]
+    return headers, rows
+
+
+def _rows_for_rfm_segments(db: Session, shop: str) -> tuple[list[str], list[dict[str, Any]]]:
+    """One row per RFM segment with count + revenue + share %."""
+    from app.services.rfm import compute_rfm_segments
+    data = compute_rfm_segments(db, shop)
+    ts = _now_iso()
+    ccy = data.get("currency", "USD")
+    rows = [{
+        "shop": shop, "generated_at": ts, "currency": ccy,
+        "segment": s["name"],
+        "customer_count": s["count"],
+        "share_pct": s["share_pct"],
+        "revenue": s["revenue"],
+        "description": s.get("description", ""),
+    } for s in data.get("segments", [])]
+    headers = ["shop", "generated_at", "currency", "segment", "customer_count",
+               "share_pct", "revenue", "description"]
+    return headers, rows
+
+
 _ROW_BUILDERS = {
     "rars": _rows_for_rars,
     "benchmarks": _rows_for_benchmarks,
@@ -338,6 +482,11 @@ _ROW_BUILDERS = {
     "cohorts_monthly": _rows_for_cohorts_monthly,
     "attribution": _rows_for_attribution,
     "inventory": _rows_for_inventory,
+    "top_customers_ltv": _rows_for_top_customers_ltv,
+    "top_products": _rows_for_top_products,
+    "orders_by_country": _rows_for_orders_by_country,
+    "top_variants": _rows_for_top_variants,
+    "rfm_segments": _rows_for_rfm_segments,
 }
 
 
