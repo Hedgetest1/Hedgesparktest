@@ -173,19 +173,51 @@ export function AudienceSegments({
 
   if (products.length === 0) {
     return (
-      <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6">
-        <div className="mb-1">
+      <div className="rounded-2xl border border-dashed border-white/[0.10] bg-white/[0.02] p-6">
+        <div className="mb-1 flex items-center gap-2">
           <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#f87171]">
             Live Audience
           </span>
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/[0.08] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-300">
+            <span className="relative inline-flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/60" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            </span>
+            Sample
+          </span>
         </div>
-        <h3 className="text-[15px] font-bold leading-tight text-white">
-          No active audience yet
+        <h3 className="text-[15px] font-bold leading-tight text-slate-200">
+          Who&apos;s browsing right now, classified by buying intent
         </h3>
-        <p className="mt-1.5 text-[12px] leading-relaxed text-slate-400">
-          This cassettone classifies every visitor currently browsing your store into
-          HOT / WARM / COLD intent tiers based on scroll depth, dwell time, and
-          visit pattern. Segments appear once products have active visitor traffic.
+        {/* Sample preview — 3 tier counts at 50% opacity */}
+        <div className="mt-4 grid grid-cols-3 gap-3 opacity-50">
+          <div className="rounded-xl border px-4 py-3" style={{ borderColor: "rgba(248, 113, 113, 0.25)", backgroundColor: "rgba(248, 113, 113, 0.06)" }}>
+            <div className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
+              <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-rose-400">HOT</span>
+            </div>
+            <div className="mt-1.5 text-[26px] font-extrabold tabular-nums leading-none text-rose-300">12</div>
+            <div className="mt-1 text-[10px] text-slate-400">ready to buy</div>
+          </div>
+          <div className="rounded-xl border px-4 py-3" style={{ borderColor: "rgba(252, 211, 77, 0.25)", backgroundColor: "rgba(252, 211, 77, 0.06)" }}>
+            <div className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-300" />
+              <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-amber-300">WARM</span>
+            </div>
+            <div className="mt-1.5 text-[26px] font-extrabold tabular-nums leading-none text-amber-200">48</div>
+            <div className="mt-1 text-[10px] text-slate-400">comparing</div>
+          </div>
+          <div className="rounded-xl border px-4 py-3" style={{ borderColor: "rgba(148, 163, 184, 0.20)", backgroundColor: "rgba(148, 163, 184, 0.04)" }}>
+            <div className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+              <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">COLD</span>
+            </div>
+            <div className="mt-1.5 text-[26px] font-extrabold tabular-nums leading-none text-slate-300">29</div>
+            <div className="mt-1 text-[10px] text-slate-400">passing through</div>
+          </div>
+        </div>
+        <p className="mt-4 text-[12px] leading-relaxed text-slate-400">
+          Real intent classification activates as visitors browse — every scroll, dwell, and revisit feeds the HOT/WARM/COLD scorer in real time. No cookies, no guessing.
         </p>
       </div>
     );

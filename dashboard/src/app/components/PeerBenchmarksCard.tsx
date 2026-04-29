@@ -131,13 +131,38 @@ export function PeerBenchmarksCard({
 
   if (!data || data.error || data.note) {
     return (
-      <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
-        <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[#d4893a]">
-          You vs. Similar Shops
+      <div className="rounded-2xl border border-dashed border-white/[0.10] bg-white/[0.02] p-5">
+        <div className="mb-1 flex items-center gap-2">
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#d4893a]">
+            You vs. Similar Shops
+          </div>
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/[0.08] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-300">
+            <span className="relative inline-flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400/60" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-amber-400" />
+            </span>
+            Sample
+          </span>
         </div>
-        <h3 className="text-[15px] font-bold text-white">How you compare to peers</h3>
-        <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
-          {data?.note || "Comparison not available yet — we need at least 10 similar shops in your revenue band. Keep running — this activates automatically."}
+        <h3 className="text-[15px] font-bold text-slate-200">How you compare to peers</h3>
+        <div className="mt-3 space-y-2 opacity-50">
+          {[
+            { label: "Conversion rate", you: "2.1%", peer: "2.4%", delta: "−0.3%", color: "#fbbf24" },
+            { label: "Average order value", you: "$58", peer: "$72", delta: "−$14", color: "#fb7185" },
+            { label: "Repeat-buyer rate", you: "21%", peer: "26%", delta: "−5%", color: "#fbbf24" },
+            { label: "Refund rate", you: "1.8%", peer: "2.4%", delta: "+0.6%", color: "#34d399" },
+          ].map((row) => (
+            <div key={row.label} className="flex items-center justify-between rounded-lg border border-white/[0.04] bg-white/[0.015] px-3 py-2 text-[11px]">
+              <span className="text-slate-300">{row.label}</span>
+              <span className="text-slate-400">
+                you <span className="font-mono tabular-nums text-slate-200">{row.you}</span> · peers <span className="font-mono tabular-nums text-slate-200">{row.peer}</span>
+                <span className="ml-2 font-mono tabular-nums" style={{ color: row.color }}>{row.delta}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 text-[12px] leading-relaxed text-slate-400">
+          {data?.note || "Real comparison activates once we have ≥10 similar shops in your revenue band — usually within 2-3 weeks of going live. The system is collecting peer data daily."}
         </p>
       </div>
     );
