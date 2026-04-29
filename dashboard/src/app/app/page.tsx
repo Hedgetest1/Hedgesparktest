@@ -2279,6 +2279,13 @@ function PageInner() {
                 </details>
               </div>
             </MascotLoader>
+          ) : isScaleFloor && !isScaleUser ? (
+            // Scale floor for non-Scale merchants: ScaleFloorPreview
+            // (rendered above this ladder) is the entire surface.
+            // Suppress all other unconditional widgets (system health
+            // banner, Live Radar, Proof hero, autonomous-loop heart,
+            // etc.) so the floor reads as a clean preview-of-Scale.
+            null
           ) : loading ? (
             <MascotLoader caption="Loading your store data..." state="loading" />
           ) : error ? (
