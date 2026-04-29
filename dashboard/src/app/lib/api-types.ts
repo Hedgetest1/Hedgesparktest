@@ -5911,7 +5911,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/pro/groups": {
+    "/merchant/groups": {
         parameters: {
             query?: never;
             header?: never;
@@ -5919,17 +5919,17 @@ export interface paths {
             cookie?: never;
         };
         /** List Groups Endpoint */
-        get: operations["list_groups_endpoint_pro_groups_get"];
+        get: operations["list_groups_endpoint_merchant_groups_get"];
         put?: never;
         /** Create Group Endpoint */
-        post: operations["create_group_endpoint_pro_groups_post"];
+        post: operations["create_group_endpoint_merchant_groups_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/pro/groups/{group_id}/members": {
+    "/merchant/groups/{group_id}/members": {
         parameters: {
             query?: never;
             header?: never;
@@ -5939,14 +5939,14 @@ export interface paths {
         get?: never;
         put?: never;
         /** Add Member Endpoint */
-        post: operations["add_member_endpoint_pro_groups__group_id__members_post"];
+        post: operations["add_member_endpoint_merchant_groups__group_id__members_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/pro/groups/{group_id}/members/{shop_domain}": {
+    "/merchant/groups/{group_id}/members/{shop_domain}": {
         parameters: {
             query?: never;
             header?: never;
@@ -5957,13 +5957,13 @@ export interface paths {
         put?: never;
         post?: never;
         /** Remove Member Endpoint */
-        delete: operations["remove_member_endpoint_pro_groups__group_id__members__shop_domain__delete"];
+        delete: operations["remove_member_endpoint_merchant_groups__group_id__members__shop_domain__delete"];
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/pro/groups/{group_id}/dashboard": {
+    "/merchant/groups/{group_id}/dashboard": {
         parameters: {
             query?: never;
             header?: never;
@@ -5971,7 +5971,7 @@ export interface paths {
             cookie?: never;
         };
         /** Group Dashboard Endpoint */
-        get: operations["group_dashboard_endpoint_pro_groups__group_id__dashboard_get"];
+        get: operations["group_dashboard_endpoint_merchant_groups__group_id__dashboard_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -9001,10 +9001,33 @@ export interface components {
             members?: {
                 [key: string]: unknown;
             }[];
-            /** Totals */
-            totals?: {
-                [key: string]: unknown;
+            /** By Currency */
+            by_currency?: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
             };
+            /** Headline */
+            headline?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Is Homogeneous
+             * @default true
+             */
+            is_homogeneous: boolean;
+            /** Primary Currency */
+            primary_currency?: string | null;
+            /**
+             * Total Orders
+             * @default 0
+             */
+            total_orders: number;
+            /**
+             * Shop Count
+             * @default 0
+             */
+            shop_count: number;
             /** Top Shop */
             top_shop?: {
                 [key: string]: unknown;
@@ -20620,7 +20643,7 @@ export interface operations {
             };
         };
     };
-    list_groups_endpoint_pro_groups_get: {
+    list_groups_endpoint_merchant_groups_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -20640,7 +20663,7 @@ export interface operations {
             };
         };
     };
-    create_group_endpoint_pro_groups_post: {
+    create_group_endpoint_merchant_groups_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -20673,7 +20696,7 @@ export interface operations {
             };
         };
     };
-    add_member_endpoint_pro_groups__group_id__members_post: {
+    add_member_endpoint_merchant_groups__group_id__members_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -20708,7 +20731,7 @@ export interface operations {
             };
         };
     };
-    remove_member_endpoint_pro_groups__group_id__members__shop_domain__delete: {
+    remove_member_endpoint_merchant_groups__group_id__members__shop_domain__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -20740,7 +20763,7 @@ export interface operations {
             };
         };
     };
-    group_dashboard_endpoint_pro_groups__group_id__dashboard_get: {
+    group_dashboard_endpoint_merchant_groups__group_id__dashboard_get: {
         parameters: {
             query?: {
                 lookback_days?: number;

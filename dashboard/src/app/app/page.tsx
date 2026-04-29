@@ -3346,6 +3346,39 @@ function PageInner() {
                   <AnalyticsAssistant />
                 )}
 
+              {/* ═══ MULTI-STORE BRAND VIEW — Gap #5 close (Lite-flipped
+                  2026-04-29). Putler $29 ships multi-store; we ship at
+                  $39 with truth-shaped per-currency rollup (no fake-
+                  sum across EUR/USD/GBP). Surface is a CTA tile on
+                  the Lite spine; the full management UI lives at
+                  /app/groups (separate route, also Lite-accessible). */}
+              {isLiteFloor && (
+                <section id="section-lite-multistore" className="mb-8">
+                  <div className="mb-5">
+                    <h2
+                      id="lite-multistore-heading"
+                      className="text-[2rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.5rem]"
+                    >
+                      Multi-store
+                    </h2>
+                    <div className="mt-1 text-[16px] font-medium leading-snug text-slate-200 sm:text-[17px]">
+                      Multiple Shopify stores under one brand? See them as one.
+                    </div>
+                    <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-slate-400">
+                      Group your EU, US, and UK stores. Per-currency totals (no
+                      fake conversions), per-shop breakdown, top contributor.
+                      Included in your plan.
+                    </p>
+                  </div>
+                  <a
+                    href="/app/groups"
+                    className="inline-flex items-center gap-2 rounded-xl border border-[#d4893a]/30 bg-[#d4893a]/10 px-5 py-3 text-[13px] font-bold text-[#d4893a] transition-all hover:border-[#d4893a]/50 hover:bg-[#d4893a]/20"
+                  >
+                    Open Multi-Store Brand View →
+                  </a>
+                </section>
+              )}
+
               {/* ═══ REVENUE AT RISK HERO — Pro-floor only (Lite now
                   surfaces this inside the cassettoni grid above). ═══ */}
               {!isLiteFloor && (

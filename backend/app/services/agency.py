@@ -139,64 +139,93 @@ def get_agency_dashboard(db: Session, agency_id: int, *, lookback_days: int = 30
             "agency_id": agency_id,
             "name": agency.name,
             "clients": [],
-            "totals": {"revenue_eur": 0, "revshare_eur": 0, "client_count": 0},
+            "by_currency": {},
+            "headline": None,
+            "is_homogeneous": True,
+            "primary_currency": None,
+            "client_count": 0,
             "generated_at": _now().isoformat(),
         }
 
     cutoff = _now() - timedelta(days=lookback_days)
     shops = [c.shop_domain for c in clients]
 
+    # Per-shop revenue in shop's OWN native currency. We aggregate by
+    # currency in Python; never sum mixed currencies as if same number.
     rows = db.execute(text("""
         SELECT so.shop_domain,
+               COALESCE(m.primary_currency, so.currency) AS currency,
                COALESCE(SUM(so.total_price), 0) AS revenue,
                COUNT(*) AS orders
         FROM shop_orders so
         LEFT JOIN merchants m ON m.shop_domain = so.shop_domain
         WHERE so.shop_domain = ANY(:shops) AND so.created_at >= :cut
           AND (m.primary_currency IS NULL OR so.currency = m.primary_currency)
-        GROUP BY so.shop_domain
+        GROUP BY so.shop_domain, COALESCE(m.primary_currency, so.currency)
     """), {"shops": shops, "cut": cutoff}).fetchall()
 
     by_shop: dict[str, dict] = {}
     for r in rows:
         by_shop[r[0]] = {
-            "revenue_eur": round(float(r[1] or 0), 2),
-            "orders": int(r[2] or 0),
+            "currency": (r[1] or "").upper() or "UNKNOWN",
+            "revenue": round(float(r[2] or 0), 2),
+            "orders": int(r[3] or 0),
         }
 
+    from app.services.multi_currency_rollup import ShopRow, aggregate_by_currency, headline_for
+
+    rollup_input: list[ShopRow] = []
     breakdown = []
-    total_rev = 0.0
-    total_revshare = 0.0
+    # Revshare-by-currency: revshare must be denominated in the shop's
+    # own currency, never folded across currencies.
+    revshare_by_currency: dict[str, float] = {}
     for c in clients:
-        info = by_shop.get(c.shop_domain, {"revenue_eur": 0.0, "orders": 0})
-        revenue = info["revenue_eur"]
+        info = by_shop.get(c.shop_domain, {"currency": "UNKNOWN", "revenue": 0.0, "orders": 0})
+        revenue = info["revenue"]
         revshare = round(revenue * (c.revshare_pct / 100.0), 2)
-        total_rev += revenue
-        total_revshare += revshare
+        rollup_input.append(ShopRow(
+            shop_domain=c.shop_domain,
+            currency=info["currency"],
+            revenue=revenue,
+            orders=info["orders"],
+        ))
+        revshare_by_currency[info["currency"]] = (
+            revshare_by_currency.get(info["currency"], 0.0) + revshare
+        )
         breakdown.append({
             "shop_domain": c.shop_domain,
             "nickname": c.nickname,
             "status": c.status,
             "revshare_pct": c.revshare_pct,
-            "revenue_eur": revenue,
+            "currency": info["currency"],
+            "revenue": revenue,
             "orders": info["orders"],
-            "aov_eur": round(revenue / info["orders"], 2) if info["orders"] else 0.0,
-            "revshare_eur": revshare,
+            "aov": round(revenue / info["orders"], 2) if info["orders"] else 0.0,
+            "revshare": revshare,
         })
 
-    breakdown.sort(key=lambda r: r["revenue_eur"], reverse=True)
-    top_client = breakdown[0] if breakdown else None
+    rollup = aggregate_by_currency(rollup_input)
+
+    breakdown.sort(key=lambda r: r["revenue"], reverse=True)
+    top_client = next(
+        (b for b in breakdown if b["currency"] == rollup["primary_currency"]),
+        breakdown[0] if breakdown else None,
+    )
+
+    # Round revshare totals at boundary
+    revshare_by_currency = {k: round(v, 2) for k, v in revshare_by_currency.items()}
 
     result = {
         "agency_id": agency_id,
         "name": agency.name,
         "lookback_days": lookback_days,
         "clients": breakdown,
-        "totals": {
-            "revenue_eur": round(total_rev, 2),
-            "revshare_eur": round(total_revshare, 2),
-            "client_count": len(clients),
-        },
+        "by_currency": rollup["by_currency"],
+        "revshare_by_currency": revshare_by_currency,
+        "headline": headline_for(rollup),
+        "is_homogeneous": rollup["is_homogeneous"],
+        "primary_currency": rollup["primary_currency"],
+        "client_count": len(clients),
         "top_client": top_client,
         "generated_at": _now().isoformat(),
     }

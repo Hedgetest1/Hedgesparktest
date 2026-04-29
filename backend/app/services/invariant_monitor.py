@@ -132,6 +132,19 @@ _AUDITS: list[tuple[str, str, str]] = [
         "invariant_regression",
         "invariant:jsonb_array_length_guard",
     ),
+    # Models-without-migrations: added 2026-04-29 (Gap #5 close). Runtime
+    # recognition for the class where an SQLAlchemy ORM model lands
+    # (with API + frontend wired) but no Alembic migration covers its
+    # table. Tables get auto-created by Base.metadata.create_all on
+    # boot in dev, hiding the missing migration — but a fresh prod
+    # deploy has no such safety net. Audit catches the gap within
+    # 15min of any --no-verify or new-model commit. Currently 22
+    # baseline drift findings tracked separately.
+    (
+        "audit_models_without_migrations.py",
+        "invariant_regression",
+        "invariant:models_without_migrations",
+    ),
 ]
 
 _TIMEOUT_SECONDS = 30

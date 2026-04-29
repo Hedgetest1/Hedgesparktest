@@ -1,11 +1,19 @@
 """
-merchant_groups.py — Phase Ω'' multi-store API.
+merchant_groups.py — Multi-store consolidation API (Lite-accessible).
 
-  POST   /pro/groups                       — create
-  GET    /pro/groups                       — list (by current shop's owner_email)
-  POST   /pro/groups/{id}/members          — add shop
-  DELETE /pro/groups/{id}/members/{shop}   — remove
-  GET    /pro/groups/{id}/dashboard        — consolidated metrics
+  POST   /merchant/groups                       — create
+  GET    /merchant/groups                       — list (by current shop's owner_email)
+  POST   /merchant/groups/{id}/members          — add shop
+  DELETE /merchant/groups/{id}/members/{shop}   — remove
+  GET    /merchant/groups/{id}/dashboard        — consolidated metrics
+
+Originally gated to Pro tier (Phase Ω'') and never wired into the UI;
+flipped to Lite per the $0-60 parity doctrine on 2026-04-29 (Putler $29
+ships multi-store; we ship at $39 and beat the $129 tier on quality).
+
+Tenant isolation: every endpoint resolves the current shop's
+contact_email and asserts `group.owner_email == that email` before
+acting. Service layer also enforces this for defense-in-depth.
 """
 from __future__ import annotations
 
@@ -17,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.api._types import OkResponse
 from app.core.database import get_db
-from app.core.deps import require_pro_session
+from app.core.deps import require_merchant_session
 from app.models.merchant import Merchant
 from app.models.merchant_group import MerchantGroup
 
@@ -76,7 +84,12 @@ class GroupDashboardResponse(BaseModel):
     base_currency: str | None = None
     lookback_days: int | None = None
     members: list[dict[str, Any]] = Field(default_factory=list)
-    totals: dict[str, Any] = Field(default_factory=dict)
+    by_currency: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    headline: dict[str, Any] | None = None
+    is_homogeneous: bool = True
+    primary_currency: str | None = None
+    total_orders: int = 0
+    shop_count: int = 0
     top_shop: dict[str, Any] | None = None
     generated_at: str | None = None
     error: str | None = None
@@ -89,10 +102,10 @@ def _owner_email_for(db: Session, shop: str) -> str:
     return m.contact_email
 
 
-@router.post("/pro/groups", response_model=GroupCreateResponse)
+@router.post("/merchant/groups", response_model=GroupCreateResponse)
 def create_group_endpoint(
     payload: GroupCreateIn,
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ):
     from app.services.merchant_groups import create_group, add_member
@@ -109,9 +122,9 @@ def create_group_endpoint(
     return {"id": g.id, "name": g.name, "owner_email": g.owner_email}
 
 
-@router.get("/pro/groups", response_model=GroupListResponse)
+@router.get("/merchant/groups", response_model=GroupListResponse)
 def list_groups_endpoint(
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ):
     from app.services.merchant_groups import list_groups_for_owner, list_members
@@ -138,11 +151,11 @@ def list_groups_endpoint(
     }
 
 
-@router.post("/pro/groups/{group_id}/members", response_model=MemberAddResponse)
+@router.post("/merchant/groups/{group_id}/members", response_model=MemberAddResponse)
 def add_member_endpoint(
     group_id: int,
     payload: MemberAddIn,
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ):
     from app.services.merchant_groups import add_member
@@ -152,15 +165,20 @@ def add_member_endpoint(
     email = _owner_email_for(db, shop)
     if g.owner_email != email:
         raise HTTPException(status_code=403, detail="forbidden")
-    m = add_member(db, group_id, payload.shop_domain, label=payload.label, is_primary=payload.is_primary)
+    try:
+        m = add_member(db, group_id, payload.shop_domain, label=payload.label, is_primary=payload.is_primary)
+    except ValueError as exc:
+        if str(exc).startswith("max_members_exceeded"):
+            raise HTTPException(status_code=409, detail=str(exc))
+        raise
     return {"id": m.id, "shop_domain": m.shop_domain, "label": m.label, "is_primary": m.is_primary}
 
 
-@router.delete("/pro/groups/{group_id}/members/{shop_domain}", response_model=OkResponse)
+@router.delete("/merchant/groups/{group_id}/members/{shop_domain}", response_model=OkResponse)
 def remove_member_endpoint(
     group_id: int,
     shop_domain: str,
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
 ):
     from app.services.merchant_groups import remove_member
@@ -176,10 +194,10 @@ def remove_member_endpoint(
     return {"ok": True}
 
 
-@router.get("/pro/groups/{group_id}/dashboard", response_model=GroupDashboardResponse)
+@router.get("/merchant/groups/{group_id}/dashboard", response_model=GroupDashboardResponse)
 def group_dashboard_endpoint(
     group_id: int,
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_db),
     lookback_days: int = Query(30, ge=1, le=365),
 ):
@@ -190,4 +208,8 @@ def group_dashboard_endpoint(
     email = _owner_email_for(db, shop)
     if g.owner_email != email:
         raise HTTPException(status_code=403, detail="forbidden")
-    return get_group_dashboard(db, group_id, lookback_days=lookback_days)
+    return get_group_dashboard(
+        db, group_id,
+        lookback_days=lookback_days,
+        requesting_owner_email=email,
+    )

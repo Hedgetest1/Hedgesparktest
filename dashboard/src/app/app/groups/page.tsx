@@ -1,13 +1,15 @@
 "use client";
 
 /**
- * /app/groups — Multi-store consolidated dashboard.
+ * /app/groups — Multi-store consolidated dashboard (Lite-accessible
+ * since 2026-04-29 Gap #5 close).
  *
  * Lists merchant groups owned by the current shop's contact_email,
  * lets the founder create new groups, add member shops, and view a
- * cross-shop revenue rollup with per-shop breakdown.
+ * truth-shaped per-currency rollup with per-shop breakdown — never
+ * a fake-summed mixed-currency total.
  *
- * Real data from /pro/groups APIs.
+ * Real data from /merchant/groups APIs.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -28,17 +30,24 @@ type DashboardMember = {
   shop_domain: string;
   label: string | null;
   is_primary: boolean;
-  revenue_eur: number;
+  currency: string;
+  revenue: number;
   orders: number;
-  aov_eur: number;
+  aov: number;
 };
+type CurrencyBucket = { revenue: number; orders: number; shops: number };
 type DashboardResponse = {
   group_id: number;
   name: string;
   base_currency: string;
   lookback_days: number;
   members: DashboardMember[];
-  totals: { revenue_eur: number; orders: number; aov_eur: number };
+  by_currency: Record<string, CurrencyBucket>;
+  headline: { currency: string; revenue: number; orders: number; aov: number; shops: number; mixed: boolean } | null;
+  is_homogeneous: boolean;
+  primary_currency: string | null;
+  total_orders: number;
+  shop_count: number;
   top_shop: DashboardMember | null;
   generated_at: string;
 };
@@ -60,7 +69,7 @@ export default function GroupsPage() {
 
   const loadGroups = useCallback(async () => {
     try {
-      const { data: j, error: err } = await apiClient.GET("/pro/groups");
+      const { data: j, error: err } = await apiClient.GET("/merchant/groups");
       if (err || !j) throw new Error("failed");
       const resp = j as unknown as GroupsResponse;
       setGroups(resp.groups || []);
@@ -76,7 +85,7 @@ export default function GroupsPage() {
   const loadDashboard = useCallback(async (id: number) => {
     try {
       const { data: j, error: err } = await apiClient.GET(
-        "/pro/groups/{group_id}/dashboard",
+        "/merchant/groups/{group_id}/dashboard",
         { params: { path: { group_id: id } } },
       );
       if (err || !j) throw new Error("failed");
@@ -97,7 +106,7 @@ export default function GroupsPage() {
       // shop native currency (get_shop_currency). Sending a hardcoded
       // "EUR" here broke USD/GBP/etc. merchants who saw their group
       // totals mis-labelled.
-      const { error: err } = await apiClient.POST("/pro/groups", {
+      const { error: err } = await apiClient.POST("/merchant/groups", {
         body: { name: newName.trim() },
       });
       if (!err) {
@@ -114,7 +123,7 @@ export default function GroupsPage() {
     setAddingShop(true);
     try {
       const { error: err } = await apiClient.POST(
-        "/pro/groups/{group_id}/members",
+        "/merchant/groups/{group_id}/members",
         {
           params: { path: { group_id: selectedId } },
           body: {
@@ -218,26 +227,46 @@ export default function GroupsPage() {
               <>
                 <section className="mb-6 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
                   <h2 className="text-[14px] font-bold text-white">{dashboard.name} — {dashboard.lookback_days}d totals</h2>
-                  <div className="mt-3 grid grid-cols-3 gap-3">
-                    <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/[0.06] p-4 text-center">
-                      <div className="text-[10px] uppercase tracking-wide text-emerald-400">Revenue</div>
-                      <div className="mt-1 text-[22px] font-extrabold text-emerald-300">
-                        {fmtMoney(dashboard.totals.revenue_eur, dashboard.base_currency)}
-                      </div>
+                  {!dashboard.is_homogeneous && (
+                    <p className="mt-2 text-[11px] text-amber-300">
+                      Member shops use different currencies. Totals shown per
+                      currency — never summed across (no FX conversion).
+                    </p>
+                  )}
+                  {Object.keys(dashboard.by_currency).length === 0 ? (
+                    <div className="mt-3 rounded-xl border border-white/[0.05] bg-white/[0.01] p-6 text-center text-[12px] text-slate-400">
+                      No revenue data yet for the last {dashboard.lookback_days} days.
                     </div>
-                    <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4 text-center">
-                      <div className="text-[10px] uppercase tracking-wide text-slate-400">Orders</div>
-                      <div className="mt-1 text-[22px] font-extrabold text-white">
-                        {dashboard.totals.orders.toLocaleString()}
-                      </div>
+                  ) : (
+                    <div className="mt-3 space-y-3">
+                      {Object.entries(dashboard.by_currency).map(([ccy, bucket]) => {
+                        const aov = bucket.orders > 0 ? bucket.revenue / bucket.orders : 0;
+                        return (
+                          <div key={ccy} className="grid grid-cols-3 gap-3">
+                            <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/[0.06] p-4 text-center">
+                              <div className="text-[10px] uppercase tracking-wide text-emerald-400">Revenue · {ccy}</div>
+                              <div className="mt-1 text-[22px] font-extrabold text-emerald-300">
+                                {fmtMoney(bucket.revenue, ccy)}
+                              </div>
+                              <div className="mt-1 text-[10px] text-slate-400">{bucket.shops} shop{bucket.shops === 1 ? "" : "s"}</div>
+                            </div>
+                            <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4 text-center">
+                              <div className="text-[10px] uppercase tracking-wide text-slate-400">Orders</div>
+                              <div className="mt-1 text-[22px] font-extrabold text-white">
+                                {bucket.orders.toLocaleString()}
+                              </div>
+                            </div>
+                            <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4 text-center">
+                              <div className="text-[10px] uppercase tracking-wide text-slate-400">AOV · {ccy}</div>
+                              <div className="mt-1 text-[22px] font-extrabold text-white">
+                                {fmtMoney(aov, ccy)}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                    <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4 text-center">
-                      <div className="text-[10px] uppercase tracking-wide text-slate-400">AOV</div>
-                      <div className="mt-1 text-[22px] font-extrabold text-white">
-                        {fmtMoney(dashboard.totals.aov_eur, dashboard.base_currency)}
-                      </div>
-                    </div>
-                  </div>
+                  )}
                 </section>
 
                 <section className="mb-8 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
@@ -251,8 +280,12 @@ export default function GroupsPage() {
                   </div>
                   <div className="space-y-2">
                     {dashboard.members.map((m) => {
-                      const share = dashboard.totals.revenue_eur > 0
-                        ? Math.round((m.revenue_eur / dashboard.totals.revenue_eur) * 100)
+                      // Share is computed within the member's own currency
+                      // bucket — never across currencies (would be a fake
+                      // ratio of mixed denominations).
+                      const bucket = dashboard.by_currency[m.currency];
+                      const share = bucket && bucket.revenue > 0
+                        ? Math.round((m.revenue / bucket.revenue) * 100)
                         : 0;
                       return (
                         <div key={m.shop_domain} className="rounded-xl border border-white/[0.04] bg-white/[0.015] p-3">
@@ -267,12 +300,15 @@ export default function GroupsPage() {
                                     primary
                                   </span>
                                 )}
+                                <span className="rounded bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-mono text-slate-400">
+                                  {m.currency}
+                                </span>
                               </div>
                               <div className="mt-1 text-[10px] text-slate-400 truncate">{m.shop_domain}</div>
                             </div>
                             <div className="flex-shrink-0 text-right">
-                              <div className="text-[14px] font-bold tabular-nums text-white">{fmtMoney(m.revenue_eur, dashboard.base_currency)}</div>
-                              <div className="text-[10px] text-slate-400 tabular-nums">{m.orders} orders · AOV {fmtMoney(m.aov_eur, dashboard.base_currency)}</div>
+                              <div className="text-[14px] font-bold tabular-nums text-white">{fmtMoney(m.revenue, m.currency)}</div>
+                              <div className="text-[10px] text-slate-400 tabular-nums">{m.orders} orders · AOV {fmtMoney(m.aov, m.currency)}</div>
                             </div>
                           </div>
                           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.05]">

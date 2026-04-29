@@ -1122,7 +1122,8 @@ step "Orphan-audit backfill (info-only — see /tmp/preflight_orphans.log for de
 # audit_n_plus_one.py, audit_dead_endpoints.py.
 {
     for orphan in audit_dev_flag_leaks.py audit_timezone.py audit_claude_md_redis_keys.py \
-                  audit_empty_path_fields.py audit_n_plus_one.py audit_dead_endpoints.py; do
+                  audit_empty_path_fields.py audit_n_plus_one.py audit_dead_endpoints.py \
+                  audit_models_without_migrations.py; do
         echo "=== $orphan ==="
         "$PY" "scripts/${orphan}" 2>&1 | head -5 || true
         echo ""
@@ -1132,7 +1133,8 @@ step "Orphan-audit backfill (info-only — see /tmp/preflight_orphans.log for de
 clean_count=0
 flagged_count=0
 for orphan in audit_dev_flag_leaks.py audit_timezone.py audit_claude_md_redis_keys.py \
-              audit_empty_path_fields.py audit_n_plus_one.py audit_dead_endpoints.py; do
+              audit_empty_path_fields.py audit_n_plus_one.py audit_dead_endpoints.py \
+              audit_models_without_migrations.py; do
     if "$PY" "scripts/${orphan}" 2>/dev/null | head -1 | grep -qE "clean|OK|0 (findings|hits|drift)|^✓"; then
         clean_count=$((clean_count + 1))
     else

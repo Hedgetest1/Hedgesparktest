@@ -83,7 +83,7 @@ def holdout_lift_for_shop_window(
                     SELECT
                         c.visitor_id,
                         c.group_type,
-                        COALESCE(SUM(so.total_price), 0)::float AS total_rev
+                        COALESCE(SUM(so.total_price), 0) AS total_rev
                     FROM cohort c
                     LEFT JOIN visitor_purchase_sessions vps
                       ON vps.shop_domain = :shop

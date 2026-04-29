@@ -1061,9 +1061,14 @@ _RAW_SQL_FSTRING_ALLOWLIST: set[str] = {
     # second arg to execute().
     "app/services/gdpr_processor.py:282",
     # gdpr_processor: {table} interpolated from hardcoded `tables` list
-    # used during Art. 17 erasure. Line shifted 2026-04-23 after the
-    # shop_redact coverage expansion (23 missing tables added).
-    "app/services/gdpr_processor.py:555",
+    # used during Art. 17 erasure. Line shifted 2026-04-29 after further
+    # shop_redact list edits.
+    "app/services/gdpr_processor.py:566",
+    # report_special_metrics: {bucket} interpolated from `_time_bucket_clause`
+    # which returns one of 3 hardcoded `to_char(...)` strings selected by a
+    # whitelisted `grain` ∈ {"day", "week", "month"}. Safe.
+    "app/services/report_special_metrics.py:165",
+    "app/services/report_special_metrics.py:195",
 }
 
 

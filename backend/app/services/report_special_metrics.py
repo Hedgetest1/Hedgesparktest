@@ -57,8 +57,8 @@ def customer_ltv(db: Session, shop: str, start: datetime, end: datetime) -> floa
         """
         SELECT
             COALESCE(
-                SUM(total_price)::float
-                / NULLIF(COUNT(DISTINCT customer_email), 0)::float,
+                SUM(total_price)
+                / NULLIF(COUNT(DISTINCT customer_email), 0),
                 0.0
             ) AS ltv
         FROM shop_orders
@@ -196,8 +196,8 @@ def customer_ltv_by_time(
         f"""
         SELECT {bucket} AS bucket,
                COALESCE(
-                   SUM(total_price)::float
-                   / NULLIF(COUNT(DISTINCT customer_email), 0)::float,
+                   SUM(total_price)
+                   / NULLIF(COUNT(DISTINCT customer_email), 0),
                    0.0
                ) AS ltv
         FROM shop_orders
