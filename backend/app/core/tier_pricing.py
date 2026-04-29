@@ -17,7 +17,7 @@ justification. If they drift, preflight catches it.
 from __future__ import annotations
 
 # Plan → monthly subscription cost in EUR.
-# Starter/Lite: €0 today (closed beta). Early-access install = free
+# Lite: €0 today (closed beta). Early-access install = free
 # trial until billing wire-up in Phase 2+.
 # Pro: €99/mo per pricing matrix §2.2.
 # Scale: €249/mo per pricing matrix §2.3.
@@ -31,5 +31,5 @@ TIER_SUBSCRIPTION_EUR: dict[str, float] = {
 
 def subscription_cost(plan: str) -> float:
     """Return the monthly subscription cost for a plan, defaulting to
-    0.0 for unknown plans (Starter-equivalent — never invent a cost)."""
+    0.0 for unknown plans (Lite-equivalent — never invent a cost)."""
     return TIER_SUBSCRIPTION_EUR.get(plan, 0.0)

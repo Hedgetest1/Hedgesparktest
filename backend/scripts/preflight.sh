@@ -630,16 +630,16 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 2o-sexties. Landing Starter bullets vs shipped dashboard. Asserts
-# every feature bullet on the landing Starter card maps to a shipped
+# 2o-sexties. Landing Lite bullets vs shipped dashboard. Asserts
+# every feature bullet on the landing Lite card maps to a shipped
 # component in the dashboard. Prevents "landing promises X but
 # dashboard doesn't deliver X" drift.
 # ---------------------------------------------------------------------------
-step "Landing Starter shipped-state audit (audit_landing_starter_shipped.py)"
+step "Landing Lite shipped-state audit (audit_landing_starter_shipped.py)"
 if "$PY" "$BACKEND/scripts/audit_landing_starter_shipped.py" > /tmp/preflight_landing_shipped.log 2>&1; then
-    ok "every Starter bullet maps to a shipped dashboard component"
+    ok "every Lite bullet maps to a shipped dashboard component"
 else
-    bad "landing Starter bullet not wired — see /tmp/preflight_landing_shipped.log"
+    bad "landing Lite bullet not wired — see /tmp/preflight_landing_shipped.log"
     tail -20 /tmp/preflight_landing_shipped.log || true
 fi
 

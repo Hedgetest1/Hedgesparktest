@@ -472,10 +472,9 @@ def get_revenue_at_risk(db: Session, shop_domain: str, plan: str = "pro") -> dic
 
     # Net ROI = prevented − subscription. Subscription must match the
     # merchant's ACTUAL tier cost, not an assumed €99 every time. A
-    # Lite/Starter merchant pays €0; a Pro merchant pays €99.
-    # Subtracting €99 from a Lite merchant produces a false
-    # "Net ROI −€99" strip — the lie `feedback_no_accettabile_per_beta.md`
-    # forbids.
+    # Lite merchant pays €0; a Pro merchant pays €99. Subtracting €99
+    # from a Lite merchant produces a false "Net ROI −€99" strip — the
+    # lie `feedback_no_accettabile_per_beta.md` forbids.
     #
     # Pricing is doctrine — imported from `app.core.tier_pricing` so
     # every net_roi calculation in the backend tracks the same number.
@@ -538,8 +537,8 @@ def get_revenue_at_risk(db: Session, shop_domain: str, plan: str = "pro") -> dic
 def _apply_plan_filter(result: dict, plan: str) -> dict:
     """Reduce RARS response fidelity for non-Pro tiers.
 
-    Pro merchants get the full 5-dim breakdown. Starter/Lite merchants
-    get the hero number + prevented + headline but not the drill-down
+    Pro merchants get the full 5-dim breakdown. Lite merchants get
+    the hero number + prevented + headline but not the drill-down
     components — the breakdown lives behind the upgrade CTA.
 
     Lite tier also gets a corrected net_roi: the service computed
@@ -554,7 +553,7 @@ def _apply_plan_filter(result: dict, plan: str) -> dict:
         return result
     filtered = dict(result)
     filtered["components"] = []
-    # Non-Pro merchants pay €0 today (closed-beta Starter) — net_roi
+    # Non-Pro merchants pay €0 today (closed-beta Lite) — net_roi
     # equals prevented, not prevented minus an imaginary subscription.
     prevented = float(result.get("prevented_eur_this_month") or 0.0)
     filtered["net_roi_eur"] = prevented

@@ -144,7 +144,7 @@ def visitor_intent_classification(
         return VisitorIntentCounts(**cached)
     """Aggregate every visitor in the shop into hot/warm/cold tiers.
 
-    This is the data source for the Starter-tier Visitor Intent card:
+    This is the data source for the Lite-tier Visitor Intent card:
     three counts a merchant can read at a glance — "23 hot, 145 warm,
     412 cold right now". The per-visitor drill-down lives in
     /visitor-scores (top 20 by score) and is a Pro upsell surface for

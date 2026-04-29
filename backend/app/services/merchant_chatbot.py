@@ -383,7 +383,7 @@ _PRODUCT_ANSWERS: dict[str, str] = {
     "nudge": "Nudges are smart on-site messages shown to visitors based on their behavior \u2014 social proof, urgency cues, return visitor recognition. You configure them in the Nudges section.",
     "tracker": "The HedgeSpark tracker is a lightweight JavaScript snippet on your store. It captures visitor behavior \u2014 page views, cart actions, purchase intent \u2014 and powers all insights and signals.",
     "klaviyo": "Klaviyo integration pushes high-intent visitor events from HedgeSpark directly to your Klaviyo account for email/SMS targeting. Connect it in Settings \u2192 Integrations.",
-    "plan": "HedgeSpark offers Starter (free) with core signals and Pro with advanced analytics, AI nudges, live radar, and funnel analysis. You can upgrade anytime from the dashboard.",
+    "plan": "HedgeSpark offers Lite (€39) with full $0-60 competitor parity plus the Revenue at Risk Score, and Pro (€99) with the moat intelligence layer — Causal Lift, Night Shift Agent, Anomaly Fusion, Counterfactual, Revenue Autopsy, Nudge DNA, MTA, Session replay. You can upgrade anytime from the dashboard.",
     "pro": "Pro unlocks: Funnel & Session analysis, AI Nudges, Advanced Attribution, Cohort Analysis, Click Heatmaps, and more. Upgrade from the dashboard.",
     "attribution": "Attribution tracks which traffic sources and campaigns drive the most valuable visitors and conversions in your store.",
     "funnel": "Funnel analysis shows where visitors drop off in your purchase flow \u2014 from landing to checkout \u2014 so you can identify and fix conversion bottlenecks.",

@@ -4,7 +4,7 @@ costs in arithmetic without a plan-aware lookup.
 
 Problem class: a service computes `net_roi = prevented - 99.0`
 assuming Pro subscription cost, but the value lands in the response
-of EVERY plan including Lite/Starter (who pay €0). The UI shows
+of EVERY plan including Lite/Lite (who pay €0). The UI shows
 "Net ROI -€99" to a merchant paying nothing — a silent lie detected
 by the 2026-04-19 audit and fixed in commit 3b52b9c.
 

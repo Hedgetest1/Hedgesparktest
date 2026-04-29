@@ -3,7 +3,7 @@ revenue_at_risk.py — GET /analytics/revenue-at-risk API endpoint.
 
 Returns the Revenue-at-Risk Score (RARS) — the hero number of the
 HedgeSpark dashboard. Accessible to all merchant sessions; response
-fidelity reduces for non-Pro plans (Starter sees headline total +
+fidelity reduces for non-Pro plans (Lite sees headline total +
 prevented + net ROI, Pro sees full 5-dim component breakdown).
 
 Cached 5 min per shop; cache is tier-agnostic and filter is applied
@@ -51,7 +51,8 @@ def _compute_rars(shop: str, db: Session) -> dict:
     from app.services.revenue_at_risk import get_revenue_at_risk
     row = db.query(Merchant).filter(Merchant.shop_domain == shop).first()
     # Only active Pro subscribers get the 5-dim breakdown; everyone
-    # else (Starter, trial, missing row) sees the reduced-fidelity view
+    # else (Lite, trial, missing row) sees the reduced-fidelity view.
+    # Internal plan key still "starter" pending TIER_2 rename sprint.
     plan = "pro" if (row is not None and row.plan == "pro" and row.billing_active) else "starter"
     result = get_revenue_at_risk(db, shop, plan=plan)
     # Strip internal debug field
@@ -79,7 +80,7 @@ def get_rars(
 
     Plan-aware response:
     - Pro merchants: full 5-dim `components` breakdown
-    - Starter/Lite merchants: total + prevented + net_roi + headline,
+    - Lite merchants: total + prevented + net_roi + headline,
       `components` returned as empty list (upgrade prompt lives in UI)
     """
     return _compute_rars(shop, db)

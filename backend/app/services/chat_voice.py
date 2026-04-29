@@ -166,8 +166,8 @@ BILLING_PRO_HEALTHY = [
 ]
 
 BILLING_STARTER = [
-    "You\u2019re on the Starter (free) plan. Pro features require an upgrade \u2014 you can start from the Upgrade button in the dashboard.",
-    "You\u2019re currently on Starter. Pro features like nudges, funnels, and heatmaps unlock when you upgrade. The button is at the top of the dashboard.",
+    "You\u2019re on the Lite plan. Pro features require an upgrade \u2014 you can start from the Upgrade button in the dashboard.",
+    "You\u2019re currently on Lite. Pro features like nudges, funnels, and heatmaps unlock when you upgrade. The button is at the top of the dashboard.",
 ]
 
 

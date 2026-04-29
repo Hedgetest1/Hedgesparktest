@@ -3,13 +3,13 @@
 
 Purpose (Phase 1.1 of v1.0 launch roadmap)
 ------------------------------------------
-HedgeSpark charges €39 Starter / €99 Pro / €249 Scale. Each Pro-gated
+HedgeSpark charges €39 Lite / €99 Pro / €249 Scale. Each Pro-gated
 endpoint is a PRICING DECISION: is this feature really premium, or is
-it commodity-table-stakes we should unlock to Starter?
+it commodity-table-stakes we should unlock to Lite?
 
 Today 139 call sites across 61 files use `Depends(require_pro_session)`.
 Many of those were gated by historical default, not deliberate product
-decision. Phase 1 unlocks 6 commodity features to Starter; this audit
+decision. Phase 1 unlocks 6 commodity features to Lite; this audit
 exists to (1) surface every Pro gate grouped by feature area and (2)
 enforce an explicit `# tier:` tag on each, so future additions cannot
 silently creep into Pro without a documented reason.
@@ -17,7 +17,7 @@ silently creep into Pro without a documented reason.
 Output modes
 ------------
   --survey     Markdown table grouped by route prefix, plus the 6
-               Starter-candidate mappings. No preflight gate — report
+               Lite-candidate mappings. No preflight gate — report
                only. Default when no flag passed.
   --preventer  Check that every `Depends(require_pro_session)` has a
                `# tier:` tag on the same line. Exit 1 if any gate is
@@ -27,13 +27,13 @@ Output modes
 Valid tier tag values
 ---------------------
   `# tier: pro`                — intentional Pro gate (premium feature)
-  `# tier: starter-candidate`  — proposed for Starter unlock (review)
+  `# tier: starter-candidate`  — proposed for Lite unlock (review)
   `# tier: starter-unlocked`   — already migrated, Pro gate should
                                  be removed OR kept only for legacy
   `# tier: scale-only`         — only Scale tier should see this
                                  (tighter than Pro)
 
-Starter feature candidates per roadmap
+Lite feature candidates per roadmap
 --------------------------------------
   1. Revenue-at-Risk Score      — /pro/rars/*, /analytics/rars*
   2. Hot Products + Live Radar  — /pro/hot-products*, /analytics/radar*
@@ -96,7 +96,7 @@ _ROUTER_PREFIX_RE = re.compile(
     r"APIRouter\s*\([^)]*prefix\s*=\s*[\"']([^\"']+)[\"']", re.DOTALL
 )
 
-# Starter-candidate route prefix → feature mapping. Matched by
+# Lite-candidate route prefix → feature mapping. Matched by
 # `path.startswith(prefix)`.
 #
 # Note (2026-04-25): 5/6 of the Phase 1.1 roadmap features were already
@@ -215,7 +215,7 @@ def _print_survey(sites: list[GateSite]) -> None:
     tagged = [s for s in sites if s.tier_tag is not None]
     print(f"Sites with `# tier:` tag: **{len(tagged)} / {len(sites)}**\n")
 
-    # Starter-candidate hits
+    # Lite-candidate hits
     candidates: dict[str, list[GateSite]] = defaultdict(list)
     for s in sites:
         feat = _starter_candidate(s.route_path)
@@ -223,7 +223,7 @@ def _print_survey(sites: list[GateSite]) -> None:
             candidates[feat].append(s)
 
     if candidates:
-        print("## Starter-candidate mapping (per v1.0 launch roadmap)\n")
+        print("## Lite-candidate mapping (per v1.0 launch roadmap)\n")
         for feat in sorted(candidates):
             sites_f = candidates[feat]
             print(f"### {feat} — {len(sites_f)} gate(s)\n")

@@ -179,11 +179,11 @@ def main(argv: list[str]) -> int:
         return 0
 
     print(
-        f"audit_landing_starter_shipped: {len(unmapped)} Starter "
+        f"audit_landing_starter_shipped: {len(unmapped)} Lite "
         f"bullet(s) not wired to the dashboard (of {len(bullets)} total)"
     )
     print()
-    print("Each bullet below is on the landing Starter card but the")
+    print("Each bullet below is on the landing Lite card but the")
     print("corresponding dashboard component cannot be located.")
     print("Either ship the component, remove the bullet, or extend the")
     print("BULLET_TO_COMPONENT_KEYWORDS mapping if this is a new pattern.")

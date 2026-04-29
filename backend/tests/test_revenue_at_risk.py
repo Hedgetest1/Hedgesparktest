@@ -130,7 +130,9 @@ def test_rars_headline_includes_prevention_when_positive(db):
 
 
 # ---------------------------------------------------------------------------
-# Phase 1.2 — plan-based fidelity reduction (Starter/Lite unlock)
+# Phase 1.2 — plan-based fidelity reduction (Lite tier).
+# Note: internal plan key is still "starter" pending a TIER_2 rename
+# sprint (default in merchants.plan column + onboarding setters).
 # ---------------------------------------------------------------------------
 
 
@@ -229,7 +231,8 @@ def test_rars_lite_with_zero_prevented_has_zero_net_roi(db):
 # because no $0-70 competitor ships an equivalent. Lite gets the
 # headline + prevented + net ROI; the full 5-dim breakdown remains
 # Pro-only via plan-aware response (require_merchant_session +
-# get_revenue_at_risk(plan="starter"|"pro")).
+# get_revenue_at_risk(plan=...) — internal key still "starter"
+# pending TIER_2 rename sprint).
 # ════════════════════════════════════════════════════════════════════
 
 

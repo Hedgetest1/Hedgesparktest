@@ -7,7 +7,7 @@ but never buy, where they exit, and how buyer vs non-buyer paths differ.
 Accessible to all merchant sessions; response fidelity reduces for
 non-Pro plans:
   - Pro merchants: full 15-product list + session_insights
-  - Starter/Lite:  top 3 products only + session_insights redacted
+  - Lite:  top 3 products only + session_insights redacted
 
 Cached 3h; cache is tier-agnostic and filter applied at response time.
 """
@@ -51,7 +51,7 @@ def get_abandoned_intent(
     interest but low conversion, exit products, buyer vs non-buyer
     session patterns.
 
-    Plan-aware: Pro gets full list + session_insights, Starter sees
+    Plan-aware: Pro gets full list + session_insights, Lite sees
     top 3 products with an upgrade bridge in the UI for the full list.
     """
     from app.services.abandoned_intent import compute_abandoned_intent
