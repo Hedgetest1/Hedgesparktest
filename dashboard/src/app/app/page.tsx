@@ -108,6 +108,7 @@ import { CustomerChurnCard } from "../components/CustomerChurnCard";
 import { NudgeDnaCard } from "../components/NudgeDnaCard";
 // Lite-floor — cassettoni grid with click-to-expand (v3 spec)
 import { LiteCassettoniGrid, type CassettoneId } from "../components/LiteCassettoniGrid";
+import { LiteRarsHero } from "../components/LiteRarsHero";
 import { LiteTodaySection } from "../components/LiteTodaySection";
 import { LiteLast7DaysSection } from "../components/LiteLast7DaysSection";
 import {
@@ -570,9 +571,8 @@ function PageInner() {
   // Layout state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeSection, setActiveSection] = useState("brief");
-  // Cassettone-grid expansion state — controlled so the grid itself
-  // can manage which tile is open. (Was previously also driven by
-  // LiteRarsHero drill-down clicks; RARS moved to Pro 2026-04-29.)
+  // Lifted so the LiteRarsHero (above the grid) can open a specific
+  // cassettone when the merchant clicks a RARS component drill-down.
   const [liteExpandedId, setLiteExpandedId] = useState<CassettoneId | null>(null);
   const mainRef = useRef<HTMLElement | null>(null);
   // Track whether user just clicked nav — suppresses observer updates briefly
@@ -2700,14 +2700,30 @@ function PageInner() {
                   to top weight so it's unmistakable on day-1 that
                   this is what HedgeSpark uniquely does. Clicking a
                   component row opens the corresponding drill-down in
-                  the cassettone grid below via controlled state. */}
-              {/* RARS hero (LiteRarsHero) removed from Lite 2026-04-29
-                  per strict $0-70 parity rule — RARS moved to Pro €99
-                  where it competes against $1k+ Northbeam-class tools.
-                  Today snapshot becomes the new Lite spine top: every
-                  cheap Shopify analytics tool ($0-60) shows revenue/
-                  orders/AOV/sessions/conversion/new-vs-returning as
-                  the day-1 hero. That's parity-correct for Lite. */}
+                  the cassettone grid below via controlled state.
+                  Founder directive 2026-04-29: RARS is the Lite
+                  acquisition hook precisely BECAUSE no $0-70
+                  competitor ships an equivalent. Lite sees the
+                  headline + prevented + net ROI; the full 5-dim
+                  breakdown remains Pro-only via tier-aware
+                  response in /analytics/revenue-at-risk. */}
+              {isLiteFloor && (
+                <section id="section-lite-rars">
+                  <LiteRarsHero
+                    apiBase={API_BASE}
+                    shop={shop}
+                    displayCurrency={displayCurrency}
+                    onOpenCassettone={(id) => {
+                      setLiteExpandedId(id);
+                      setTimeout(() => {
+                        const el = document.getElementById(`cassettone-panel-${id}`);
+                        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }, 60);
+                    }}
+                  />
+                </section>
+              )}
+
               {isLiteFloor && (
                 <LiteTodaySection
                   apiBase={API_BASE}

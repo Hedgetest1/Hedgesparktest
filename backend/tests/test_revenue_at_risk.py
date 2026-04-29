@@ -224,22 +224,27 @@ def test_rars_lite_with_zero_prevented_has_zero_net_roi(db):
 
 
 # ════════════════════════════════════════════════════════════════════
-# Pro-tier gate tests — strict $0-70 parity rule (2026-04-29)
-# RARS moved from Lite to Pro. No $0-70 competitor ships RARS-equivalent
-# at any price; Northbeam $1k+ is the closest analog. Pro €99 carries
-# RARS as a headline differentiator.
+# Tier-aware response tests — RARS-restore correction (2026-04-29)
+# Founder directive: RARS is the Lite acquisition hook precisely
+# because no $0-70 competitor ships an equivalent. Lite gets the
+# headline + prevented + net ROI; the full 5-dim breakdown remains
+# Pro-only via plan-aware response (require_merchant_session +
+# get_revenue_at_risk(plan="starter"|"pro")).
 # ════════════════════════════════════════════════════════════════════
 
 
-def test_rars_endpoint_lite_returns_403(client, merchant_b, auth_b):
-    """Lite (starter) merchants must NOT access /analytics/revenue-at-risk."""
+def test_rars_endpoint_lite_returns_200_headline_only(client, merchant_b, auth_b):
+    """Lite merchants access /analytics/revenue-at-risk and get the
+    headline-tier response (no 5-dim components)."""
     r = client.get("/analytics/revenue-at-risk", cookies=auth_b)
-    assert r.status_code == 403, (
-        f"Lite tier must get 403, got {r.status_code}: {r.text}"
-    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "total_at_risk_eur" in body
+    assert "prevented_eur_this_month" in body
+    assert "net_roi_eur" in body
 
 
-def test_rars_endpoint_pro_returns_200(client, merchant_a, auth_a):
+def test_rars_endpoint_pro_returns_200_with_5dim(client, merchant_a, auth_a):
     """Pro merchants get 200 with full 5-dim breakdown."""
     r = client.get("/analytics/revenue-at-risk", cookies=auth_a)
     assert r.status_code == 200, r.text
@@ -249,7 +254,8 @@ def test_rars_endpoint_pro_returns_200(client, merchant_a, auth_a):
     assert "headline" in body
 
 
-def test_rars_legacy_pro_path_still_pro_gated(client, merchant_b, auth_b):
-    """The deprecated /pro/revenue-at-risk alias must keep Pro gating too."""
+def test_rars_legacy_path_lite_accessible(client, merchant_b, auth_b):
+    """The deprecated /pro/revenue-at-risk alias is also Lite-accessible
+    (same handler, same auth, same plan-aware response)."""
     r = client.get("/pro/revenue-at-risk", cookies=auth_b)
-    assert r.status_code == 403
+    assert r.status_code == 200, r.text

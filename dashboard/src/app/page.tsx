@@ -1371,16 +1371,19 @@ function Pricing() {
   );
 
   // Comparison table — synced 2026-04-29 to Lite strategic close
-  // (commit fe278d5). Lite = full $0-60 parity (RARS + Visitor Intent
-  // moved to Pro per strict $0-70 doctrine; multi-store moved INTO Lite
-  // per $0-60 parity vs Putler $20). Pro = Lite + 10 moats no $0-130
-  // tool ships. Scale = Pro + agency/ads/API infrastructure.
+  // (commit fe278d5) + RARS-restore correction (founder directive
+  // same day): RARS is the Lite acquisition hook BECAUSE no $0-70
+  // competitor ships an equivalent. Lite gets the headline + prevented
+  // + net ROI; the full 5-dim breakdown is Pro-only via tier-aware
+  // response. Visitor Intent stays Pro (founder explicit). Multi-store
+  // moved INTO Lite per $0-60 parity vs Putler $20.
   // ✓ = included at that tier; — = not included.
   const compare: Array<{ group: string; rows: Array<{ name: string; starter: boolean; pro: boolean; scale: boolean }> }> = [
     {
       group: "Foundation (all plans)",
       rows: [
         { name: "First-party pixel tracker", starter: true, pro: true, scale: true },
+        { name: "Revenue at Risk Score — the entry hook (Lite: headline · Pro: 5-dim breakdown)", starter: true, pro: true, scale: true },
         { name: "Today + last 7 days KPI snapshot", starter: true, pro: true, scale: true },
         { name: "Daily intelligence brief", starter: true, pro: true, scale: true },
         { name: "Multi-currency rollup (no fake-sum)", starter: true, pro: true, scale: true },
@@ -1405,7 +1408,6 @@ function Pricing() {
     {
       group: "Pro — moat intelligence layer",
       rows: [
-        { name: "Revenue at Risk Score (5-dimension)", starter: false, pro: true, scale: true },
         { name: "Visitor intent scoring (per-visitor hot/warm/cold)", starter: false, pro: true, scale: true },
         { name: "Causal lift + Why engine (real A/B holdout)", starter: false, pro: true, scale: true },
         { name: "Night Shift Agent + Competitor Playbook", starter: false, pro: true, scale: true },
@@ -1428,17 +1430,19 @@ function Pricing() {
   ];
 
   // Tier feature lists — synced 2026-04-29 to Lite strategic close
-  // (commit fe278d5). Lite carries full $0-60 competitor parity;
-  // RARS + Visitor Intent + Causal moved to Pro; multi-store moved
-  // INTO Lite per parity vs Putler $20. Scale = Pro + ads/agency/API
-  // infrastructure only (multi-store no longer Scale-exclusive).
+  // (commit fe278d5) + RARS-restore correction same day. RARS is
+  // Lite's acquisition hook (headline + prevented + net ROI); the
+  // 5-dim breakdown remains Pro-only via tier-aware response.
+  // Visitor Intent stays Pro (founder explicit). Multi-store moved
+  // INTO Lite per parity vs Putler $20.
   const tiers = [
     {
       key: "lite",
       label: "Lite",
       tagline: "Foundation signals",
-      desc: "Full $0-60 competitor parity. Every metric your store needs, on real first-party data.",
+      desc: "Full $0-60 competitor parity, plus the Revenue at Risk Score nobody else ships at any price.",
       features: [
+        "Revenue at Risk Score (the differentiator)",
         "First-party pixel tracker",
         "P&L · attribution · cohort retention · refunds",
         "Multi-store consolidation (per-currency)",
@@ -1458,7 +1462,7 @@ function Pricing() {
       desc: "Everything in Lite, plus the moat intelligence layer no $0-130 tool ships.",
       features: [
         "Everything in Lite",
-        "Revenue at Risk Score (5-dimension)",
+        "Revenue at Risk — full 5-dimension breakdown",
         "Visitor intent scoring (per-visitor hot / warm / cold)",
         "Causal lift + Why engine (real A/B holdout)",
         "Night Shift Agent + Competitor Playbook",

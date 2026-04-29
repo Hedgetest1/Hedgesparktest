@@ -56,6 +56,7 @@ BULLET_TO_COMPONENT_KEYWORDS: dict[str, list[str]] = {
     "first-party pixel tracker": ["tracker.js", "spark-tracker"],
     "visitor intent scoring": ["VisitorIntentCard", "visitor-intent-classification"],
     "revenue-at-risk score": ["RevenueAtRiskHero", "revenue-at-risk"],
+    "revenue at risk score": ["RevenueAtRiskHero", "LiteRarsHero"],
     "hot products": ["topProducts", "LiveRadarMap", "intent/products"],
     "live radar": ["LiveRadarMap"],
     "abandoned intent": ["AbandonedIntentCard"],

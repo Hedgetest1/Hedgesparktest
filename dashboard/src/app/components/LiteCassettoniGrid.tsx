@@ -38,7 +38,14 @@ type HeroNumber = {
 // Raw payloads we surface from the hero-number fetches so the
 // expanded panel can compose dynamic, merchant-specific storytelling
 // (hero stat / metrics / methodology / actions) — not canonical prose.
-// RarsPayload + VisitorIntentPayload removed 2026-04-29 — Pro tier.
+type RarsPayload = {
+  total_at_risk_eur?: number;
+  prevented_eur_this_month?: number;
+  components?: Array<{ source: string; loss_eur: number; narrative?: string }>;
+  headline?: string | null;
+  currency?: string;
+} | null;
+
 type AbandonedPayload = {
   products?: Array<{
     product_name?: string;
@@ -71,8 +78,12 @@ type TopProduct = {
 };
 
 const ACCENTS: Record<string, { eyebrow: string; hero: string; bg: string; border: string }> = {
-  // amberWarn removed 2026-04-29 — was used only by RARS cassettone
-  // (RARS moved to Pro tier same day, leaving accent dead).
+  amberWarn: {
+    eyebrow: "#fbbf24",
+    hero: "#fbbf24",
+    bg: "rgba(251,191,36,0.05)",
+    border: "rgba(251,191,36,0.18)",
+  },
   violet: {
     eyebrow: "#a78bfa",
     hero: "#a78bfa",
@@ -100,6 +111,7 @@ const ACCENTS: Record<string, { eyebrow: string; hero: string; bg: string; borde
 };
 
 export type CassettoneId =
+  | "revenue-at-risk"
   | "daily-brief"
   | "abandoned-intent"
   | "live-opportunities"
@@ -152,7 +164,8 @@ export function LiteCassettoniGrid({
   // Hero numbers + raw payloads — both go up to the expanded panel
   // so every storytelling block can be merchant-specific (real
   // products / real leak points / real priorities), not static copy.
-  // RARS + Visitor Intent moved to Pro 2026-04-29 — fetches removed.
+  const { heroNumber: rarsNumber, data: rarsData } =
+    useRarsData(apiBase, shop, displayCurrency);
   const briefNumber = useMemo<HeroNumber>(
     () => ({
       value: effectiveBrief?.signals_count
@@ -178,9 +191,6 @@ export function LiteCassettoniGrid({
     setExpandedId((current) => (current === id ? null : id));
   };
 
-  // 4-tile Lite cassettoni (was 6: RARS + Visitor Intent moved to Pro
-  // 2026-04-29 per strict $0-70 parity rule — no $0-70 competitor ships
-  // RARS or per-visitor intent classification at any price).
   const cassettoni: Array<{
     id: CassettoneId;
     eyebrow: string;
@@ -189,6 +199,14 @@ export function LiteCassettoniGrid({
     meta: string;
     accent: keyof typeof ACCENTS;
   }> = [
+    {
+      id: "revenue-at-risk",
+      eyebrow: "Money",
+      title: "Revenue at risk",
+      number: rarsNumber,
+      meta: "this month",
+      accent: "amberWarn",
+    },
     {
       id: "daily-brief",
       eyebrow: "Today",
@@ -321,6 +339,7 @@ export function LiteCassettoniGrid({
         const ctx: PanelCtx = {
           heroValue: activeCassettone?.number.value ?? "—",
           heroLoading: activeCassettone?.number.loading ?? false,
+          rarsData,
           briefData: effectiveBrief,
           abandonedData,
           liveOppsData,
@@ -694,7 +713,7 @@ export function LiteCassettoniGrid({
 type PanelCtx = {
   heroValue: string;
   heroLoading: boolean;
-  // RARS + Visitor Intent payloads removed 2026-04-29 — moved to Pro tier.
+  rarsData: RarsPayload;
   briefData: DailyBrief | null;
   abandonedData: AbandonedPayload;
   liveOppsData: LiveOppsPayload;
@@ -972,8 +991,18 @@ function humanizeLeak(leak?: string): string {
   )[leak] ?? leak.replace(/_/g, " ");
 }
 
-// humanizeRarsSource removed 2026-04-29 — was used only by RARS cassettone
-// panel definition which moved to Pro tier same day.
+// Humanize RARS component sources.
+function humanizeRarsSource(source: string): string {
+  return (
+    {
+      abandoned_high_intent: "abandoned high-intent carts",
+      refund_decline: "products losing traction",
+      nudge_gap: "nudges underperforming",
+      below_benchmark: "peers out-earning you",
+      goal_gap: "your monthly targets",
+    } as Record<string, string>
+  )[source] ?? source.replace(/_/g, " ");
+}
 
 // Humanize signal_type from brief metrics_snapshot.
 function humanizeSignalType(signal?: string): string {
@@ -990,6 +1019,175 @@ function humanizeSignalType(signal?: string): string {
 }
 
 const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
+  // ------------------------------------------------------------------
+  // 1. Revenue at risk (amber)
+  // ------------------------------------------------------------------
+  "revenue-at-risk": {
+    title: "Revenue at risk",
+    mechanics:
+      "I add up every signal on your store that points to lost revenue this month — abandoned high-intent carts, refund trends, nudges underperforming peers, and targets you're missing. One number, five sources, updated every minute.",
+    stakes:
+      "This is the money HedgeSpark exists to earn back for you. Leaving it on the floor is the most expensive thing you can do this month — cheaper than acquiring new traffic to replace it.",
+    getSubtitle: (ctx) => {
+      if (ctx.heroLoading) return "Calculating…";
+      if (ctx.heroValue === "—") {
+        return "No material risk detected this month. I'll flag the moment any signal crosses threshold.";
+      }
+      const prevented = ctx.rarsData?.prevented_eur_this_month ?? 0;
+      const ccy = ctx.rarsData?.currency ?? ctx.displayCurrency;
+      if (prevented > 0) {
+        return `${ctx.heroValue} at risk this month · already prevented ${formatMoneyCompact(prevented, ccy)}.`;
+      }
+      return `${ctx.heroValue} at risk this month — money about to slip through your store if no one acts.`;
+    },
+    getHeroStat: (ctx) => {
+      const comps = (ctx.rarsData?.components ?? [])
+        .filter((c) => c.loss_eur > 0)
+        .sort((a, b) => b.loss_eur - a.loss_eur);
+      if (comps.length === 0) return null;
+      const top = comps[0];
+      const total = comps.reduce((s, c) => s + c.loss_eur, 0);
+      const ccy = ctx.rarsData?.currency ?? ctx.displayCurrency;
+      const share = total > 0 ? Math.round((top.loss_eur / total) * 100) : 0;
+      return {
+        label: "Biggest leak right now",
+        value: formatMoneyCompact(top.loss_eur, ccy),
+        sublabel: `From ${humanizeRarsSource(top.source)} — ${share}% of your total at-risk amount this month.`,
+        color: "#fbbf24",
+      };
+    },
+    getDonutSegments: (ctx) => {
+      const comps = (ctx.rarsData?.components ?? []).filter((c) => c.loss_eur > 0);
+      if (comps.length === 0) return null;
+      const colorMap: Record<string, string> = {
+        abandoned_high_intent: "#f87171",
+        refund_decline: "#fbbf24",
+        nudge_gap: "#a78bfa",
+        below_benchmark: "#60a5fa",
+        goal_gap: "#e8a04e",
+      };
+      return comps
+        .sort((a, b) => b.loss_eur - a.loss_eur)
+        .map((c) => ({
+          label: humanizeRarsSource(c.source),
+          value: Math.round(c.loss_eur),
+          color: colorMap[c.source] ?? "#94a3b8",
+        }));
+    },
+    getDonutHero: (ctx) => ({
+      value: ctx.heroValue,
+      label: "at risk",
+    }),
+    getKeyMetrics: (ctx) => {
+      const comps = (ctx.rarsData?.components ?? []).filter((c) => c.loss_eur > 0);
+      const total = comps.reduce((s, c) => s + c.loss_eur, 0);
+      const prevented = ctx.rarsData?.prevented_eur_this_month ?? 0;
+      const ccy = ctx.rarsData?.currency ?? ctx.displayCurrency;
+      const top = [...comps].sort((a, b) => b.loss_eur - a.loss_eur)[0];
+      return [
+        {
+          label: "Total at risk this month",
+          value: total > 0 ? formatMoneyCompact(total, ccy) : "—",
+          color: total > 0 ? "#fbbf24" : undefined,
+        },
+        {
+          label: "Already prevented this month",
+          value: prevented > 0 ? formatMoneyCompact(prevented, ccy) : "—",
+          color: prevented > 0 ? "#34d399" : undefined,
+        },
+        {
+          label: "Active leak sources",
+          value: `${comps.length}`,
+        },
+        {
+          label: "Top leak share",
+          value: top && total > 0 ? `${Math.round((top.loss_eur / total) * 100)}%` : "—",
+        },
+      ];
+    },
+    methodology: {
+      formula:
+        "Sum of five independent signal losses (abandoned high-intent, refund decline, nudge gap, below-benchmark, goal gap), reduced by already-prevented amounts and priced in your store's currency.",
+      getInputs: (ctx) => {
+        const comps = (ctx.rarsData?.components ?? [])
+          .filter((c) => c.loss_eur > 0)
+          .sort((a, b) => b.loss_eur - a.loss_eur);
+        const ccy = ctx.rarsData?.currency ?? ctx.displayCurrency;
+        return comps.map((c) => ({
+          label: humanizeRarsSource(c.source),
+          value: formatMoneyCompact(c.loss_eur, ccy),
+        }));
+      },
+      note:
+        "Only components with material loss are included. The component list mirrors the full breakdown you see on Pro — nothing is hidden from Lite.",
+    },
+    empty: {
+      description:
+        "The moment any of the five loss signals crosses threshold, the biggest leak + prioritized fixes land here. Until then, a clean slate means your store isn't bleeding money this month.",
+      sampleHeroStat: {
+        label: "Biggest leak right now",
+        value: 420,
+        sublabel: "From abandoned high-intent carts — 42% of your total at-risk amount.",
+        color: "#fbbf24",
+      },
+      sampleKeyMetrics: [
+        { label: "Total at risk this month", value: 1020, color: "#fbbf24" },
+        { label: "Already prevented this month", value: 280, color: "#34d399" },
+        { label: "Active leak sources", value: "3" },
+        { label: "Top leak share", value: "42%" },
+      ],
+    },
+    getPrimaryAction: (ctx) => {
+      const comps = (ctx.rarsData?.components ?? [])
+        .filter((c) => c.loss_eur > 0)
+        .sort((a, b) => b.loss_eur - a.loss_eur);
+      if (comps.length === 0) {
+        return {
+          headline: "All clear",
+          label: "No active leak source right now",
+          description:
+            "Use the quiet period to look at Hot Products below — doubling down on what's working beats chasing small leaks. When a new signal crosses threshold, you'll see it here first.",
+        };
+      }
+      const top = comps[0];
+      const ccy = ctx.rarsData?.currency ?? ctx.displayCurrency;
+      const total = comps.reduce((s, c) => s + c.loss_eur, 0);
+      const share = total > 0 ? Math.round((top.loss_eur / total) * 100) : 0;
+      return {
+        headline: "Fix first",
+        label: `Tackle ${humanizeRarsSource(top.source)}`,
+        description: `${formatMoneyCompact(top.loss_eur, ccy)} is leaking from this single source — roughly ${share}% of your total at-risk amount this month. Addressing it alone moves the needle more than anything else on your list.`,
+      };
+    },
+    getSupportingActions: (ctx) => {
+      const out: SupportingAction[] = [];
+      const comps = (ctx.rarsData?.components ?? [])
+        .filter((c) => c.loss_eur > 0)
+        .sort((a, b) => b.loss_eur - a.loss_eur);
+      const ccy = ctx.rarsData?.currency ?? ctx.displayCurrency;
+      if (comps.length >= 2) {
+        out.push({
+          label: `Then tackle ${humanizeRarsSource(comps[1].source)}`,
+          description: `${formatMoneyCompact(comps[1].loss_eur, ccy)} from your second-largest source. Address once the primary leak is under control — not in parallel, or you won't know which fix moved which number.`,
+        });
+      }
+      const prevented = ctx.rarsData?.prevented_eur_this_month ?? 0;
+      if (prevented > 0) {
+        out.push({
+          label: "Keep the active nudges running",
+          description: `${formatMoneyCompact(prevented, ccy)} prevented so far this month — your active nudges are earning their rent. Don't pause them while you experiment with the leak above.`,
+        });
+      } else if (comps.length > 0) {
+        out.push({
+          label: "Drill into the specifics below",
+          description:
+            "Open Abandoned Intent and Live Opportunities — those two panels show the concrete pages and products behind the risk number above, with the exact action each one needs.",
+        });
+      }
+      return out;
+    },
+  },
+
   // ------------------------------------------------------------------
   // 2. Daily brief (violet)
   // ------------------------------------------------------------------
@@ -1511,7 +1709,8 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
   },
 
   // ------------------------------------------------------------------
-  // 6. Hot products (emerald)
+  // 5. Hot products (emerald) — Visitor Intent removed 2026-04-29 per
+  // strict $0-70 parity (closest competitor Glew $79).
   // ------------------------------------------------------------------
   "hot-products": {
     title: "Hot products",
@@ -1775,6 +1974,40 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
 // Hero-number fetches (one per cassettone). Each is defensive — on
 // failure, shows "—" instead of crashing or fabricating.
 // ----------------------------------------------------------------------
+
+function useRarsData(
+  apiBase: string,
+  shop: string,
+  displayCurrency: "USD" | "EUR",
+): { heroNumber: HeroNumber; data: RarsPayload } {
+  const [data, setData] = useState<RarsPayload>(null);
+  const [value, setValue] = useState<string>("…");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!apiBase || !shop) return;
+    let active = true;
+    apiClient
+      .GET("/analytics/revenue-at-risk")
+      .then(({ data: raw }) => {
+        if (!active) return;
+        const payload = raw as RarsPayload;
+        setData(payload ?? null);
+        const n = payload?.total_at_risk_eur ?? 0;
+        const ccy = payload?.currency ?? displayCurrency;
+        setValue(n > 0 ? formatMoneyCompact(n, ccy || displayCurrency) : "—");
+      })
+      .catch(() => {
+        if (active) { setValue("—"); setData(null); }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, [apiBase, shop, displayCurrency]);
+
+  return { heroNumber: { value, loading }, data };
+}
 
 function useAbandonedData(
   apiBase: string,
