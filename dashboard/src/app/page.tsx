@@ -1422,7 +1422,12 @@ function Pricing() {
     {
       group: "Scale (infrastructure adds)",
       rows: [
-        { name: "Unified ads connector (Meta / Google / TikTok)", lite: false, pro: false, scale: true },
+        // Ad spend integration intentionally NOT classified yet —
+        // requires legal entity (P.IVA) for Meta + Google APIs;
+        // Polar $40 / Lifetimely $29 ship attribution at $0-60 so
+        // the doctrine-correct tier is Lite, but we don't promise
+        // it on the landing until P.IVA opens. See
+        // project_phase_3c_ad_spend_pending.md.
         { name: "Agency white-label console", lite: false, pro: false, scale: true },
         { name: "API access + outbound webhooks", lite: false, pro: false, scale: true },
       ],
@@ -1478,10 +1483,9 @@ function Pricing() {
       key: "scale",
       label: "Scale",
       tagline: "Agency + infrastructure",
-      desc: "For agencies and teams that need unified ads, white-label, and API.",
+      desc: "For agencies and multi-store teams that need white-label + API.",
       features: [
         "Everything in Pro",
-        "Unified ads connector (Meta / Google / TikTok)",
         "Agency white-label console",
         "API access + outbound webhooks",
       ],
