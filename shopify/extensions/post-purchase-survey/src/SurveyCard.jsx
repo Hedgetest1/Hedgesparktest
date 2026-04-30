@@ -17,30 +17,24 @@
 // CONSENT:     reads customerPrivacy; analytics=false → render null.
 // FAILURE:     all network errors degrade silently (return null) —
 //              never break the customer's checkout experience.
+//
+// POST-MORTEM 2026-04-30 (commits 029f108 → 9a794e5 → fd6d1d5):
+// the survey did not render from v7 through v11 because
+// shopify.extension.toml had api_version = "2026-04" — a
+// non-existent Shopify API version (npm dist-tag latest is
+// "2025-07") — while package.json pinned @shopify/ui-extensions
+// {,-react} = "2024.10.x". Runtime threw `TypeError: Cannot read
+// properties of undefined (reading 'channel')` in
+// _evalExtensionSource. Fixed in v12 by aligning both to
+// "2025-07" / "2025.7.x". Lesson: Shopify CLI does NOT validate
+// api_version against published API versions on deploy.
 
 import {BlockStack, Heading, Text, ChoiceList, Choice, TextField, Button, Banner} from "@shopify/ui-extensions-react/checkout";
 import {useEffect, useState} from "react";
 
 const API_BASE = "https://api.hedgesparkhq.com";
 
-// Module-load sentinel — fires the moment Shopify imports this bundle,
-// even before any React component instantiates. If the founder sees this
-// in DevTools Console but never sees the Banner, the bundle is loading
-// but React rendering is failing. If the founder doesn't see this log
-// AT ALL on the Thank-You page, the bundle is not being fetched —
-// proving CDN propagation lag or a Shopify-side registration issue,
-// NOT a code bug.
-console.log("[HedgeSpark survey v11] module loaded — bundle fetched OK");
-
 export default function SurveyCard({api, surface}) {
-  // Component-mount sentinel — fires when React instantiates the
-  // component on a checkout page that has the block placed.
-  console.log("[HedgeSpark survey v11] SurveyCard component instantiated", {
-    hasApi: !!api,
-    apiKeys: api ? Object.keys(api) : [],
-    surface,
-  });
-
   // Defensive: if Shopify ever passes a bare/undefined api, don't crash
   // the whole React tree — we want at least the dev-store probe to show.
   const safeApi = api || {};
@@ -55,14 +49,12 @@ export default function SurveyCard({api, surface}) {
   const [errorMsg, setErrorMsg] = useState("");
   const [debugTrace, setDebugTrace] = useState("");
 
-  // Render visible probe + errors on dev/test stores so we can diagnose
-  // without guessing from the browser console. Real customer stores keep
-  // the silent-fail behavior. The check is intentionally permissive: it
-  // matches any myshopify subdomain that LOOKS like a dev/test/staging
-  // store, plus the empty-domain fallback that hits when `shop` is
-  // undefined in the api object (a possibility we want to make visible).
+  // Render debug primitives on dev/test/staging stores only. Real
+  // customer stores stay silent-fail. Tightened to match KNOWN dev
+  // patterns — the empty-shopDomain fallback was removed in v13
+  // because it could leak the probe to real customers if the api
+  // object failed to populate `shop` for any reason.
   const isDevStore =
-    !shopDomain ||
     shopDomain.includes("hedgespark-dev") ||
     shopDomain.includes("dev.myshopify") ||
     shopDomain.includes("test.myshopify") ||
@@ -175,24 +167,16 @@ export default function SurveyCard({api, surface}) {
     }
   }
 
-  // TEMPORARY UNCONDITIONAL DIAGNOSTIC PROBE — visible on EVERY store
-  // (dev + real customer) to prove the extension mounted. If the founder
-  // (or any tester) places a real test order and DOES NOT see this banner
-  // on the Thank-You page, the extension is not mounting at all and the
-  // bug is in the deploy/configuration layer, not in this component.
-  // Revert to dev-only gate (or remove entirely) once render is confirmed.
-  const probe = (
-    <Banner status="info" title="HedgeSpark survey v11 loaded">
-      <Text>{`phase=${phase} shop=${shopDomain || "(empty)"} order=${orderId || "(empty)"} surface=${surface || "?"} apiKeys=${Object.keys(safeApi).join(",") || "(none)"}`}</Text>
+  // Dev-store probe — invisible to real customers, useful for future
+  // bring-up diagnostics. Stripped to nothing on production stores.
+  const probe = isDevStore ? (
+    <Banner status="info" title="HS Survey debug">
+      <Text>{`phase=${phase} shop=${shopDomain || "(empty)"} order=${orderId || "(empty)"} surface=${surface || "?"}`}</Text>
     </Banner>
-  );
+  ) : null;
 
-  // Always render the probe — including during loading/hidden — so the
-  // diagnostic is visible no matter what state the consent gate or the
-  // config fetch leave us in. Real customers will see the banner during
-  // the diagnostic window; that's accepted per the temporary mandate.
   if (phase === "loading" || phase === "hidden") {
-    return <BlockStack spacing="tight">{probe}</BlockStack>;
+    return isDevStore ? <BlockStack spacing="tight">{probe}</BlockStack> : null;
   }
   if (phase === "debug_error") {
     return (
