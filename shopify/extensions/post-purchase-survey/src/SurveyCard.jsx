@@ -23,7 +23,24 @@ import {useEffect, useState} from "react";
 
 const API_BASE = "https://api.hedgesparkhq.com";
 
+// Module-load sentinel — fires the moment Shopify imports this bundle,
+// even before any React component instantiates. If the founder sees this
+// in DevTools Console but never sees the Banner, the bundle is loading
+// but React rendering is failing. If the founder doesn't see this log
+// AT ALL on the Thank-You page, the bundle is not being fetched —
+// proving CDN propagation lag or a Shopify-side registration issue,
+// NOT a code bug.
+console.log("[HedgeSpark survey v11] module loaded — bundle fetched OK");
+
 export default function SurveyCard({api, surface}) {
+  // Component-mount sentinel — fires when React instantiates the
+  // component on a checkout page that has the block placed.
+  console.log("[HedgeSpark survey v11] SurveyCard component instantiated", {
+    hasApi: !!api,
+    apiKeys: api ? Object.keys(api) : [],
+    surface,
+  });
+
   // Defensive: if Shopify ever passes a bare/undefined api, don't crash
   // the whole React tree — we want at least the dev-store probe to show.
   const safeApi = api || {};
@@ -165,7 +182,7 @@ export default function SurveyCard({api, surface}) {
   // bug is in the deploy/configuration layer, not in this component.
   // Revert to dev-only gate (or remove entirely) once render is confirmed.
   const probe = (
-    <Banner status="info" title="HedgeSpark survey loaded">
+    <Banner status="info" title="HedgeSpark survey v11 loaded">
       <Text>{`phase=${phase} shop=${shopDomain || "(empty)"} order=${orderId || "(empty)"} surface=${surface || "?"} apiKeys=${Object.keys(safeApi).join(",") || "(none)"}`}</Text>
     </Banner>
   );
