@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_scale_session
+from app.core.deps import require_pro_session
 
 router = APIRouter(tags=["revenue_autopsy"])
 
@@ -40,7 +40,7 @@ class RevenueAutopsyResponse(BaseModel):
 
 @router.get("/pro/revenue-autopsy", response_model=RevenueAutopsyResponse)
 def get_revenue_autopsy(
-    shop: str = Depends(require_scale_session),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """

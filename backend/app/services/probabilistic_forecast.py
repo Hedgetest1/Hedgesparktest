@@ -485,8 +485,10 @@ def forecast_by_sku(
                       AND created_at >= :since
                       AND (:currency IS NULL OR currency = :currency)
                       AND line_items IS NOT NULL
-                      AND jsonb_typeof(line_items) = 'array'
-                      AND jsonb_array_length(line_items) > 0
+                      AND CASE WHEN jsonb_typeof(line_items) = 'array'
+                               THEN jsonb_array_length(line_items) > 0
+                               ELSE FALSE
+                          END
                 )
                 SELECT
                     COALESCE(item->>'product_id', item->>'product_url') AS product_key,
@@ -530,8 +532,10 @@ def forecast_by_sku(
                           AND created_at >= :since
                           AND (:currency IS NULL OR currency = :currency)
                           AND line_items IS NOT NULL
-                          AND jsonb_typeof(line_items) = 'array'
-                          AND jsonb_array_length(line_items) > 0
+                          AND CASE WHEN jsonb_typeof(line_items) = 'array'
+                                   THEN jsonb_array_length(line_items) > 0
+                                   ELSE FALSE
+                              END
                     )
                     SELECT
                         date_trunc('day', vo.created_at AT TIME ZONE :tz)::date AS d,

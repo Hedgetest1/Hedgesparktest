@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_scale_session
+from app.core.deps import require_pro_session
 
 router = APIRouter(tags=["night_shift"])
 
@@ -81,7 +81,7 @@ class ApplyActionResponse(BaseModel):
 
 @router.get("/pro/night-shift/latest", response_model=NightShiftReport)
 def get_latest(
-    shop: str = Depends(require_scale_session),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -100,7 +100,7 @@ def get_latest(
 
 @router.post("/pro/night-shift/run", response_model=NightShiftReport)
 def force_run(
-    shop: str = Depends(require_scale_session),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """Force a fresh run, bypassing the per-day cache."""
@@ -110,7 +110,7 @@ def force_run(
 
 @router.get("/pro/night-shift/timeline", response_model=TimelineResponse)
 def get_timeline(
-    shop: str = Depends(require_scale_session),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -234,7 +234,7 @@ def get_timeline(
 
 @router.post("/pro/night-shift/apply", response_model=ApplyActionResponse)
 def apply_action(
-    shop: str = Depends(require_scale_session),
+    shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
     """

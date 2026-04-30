@@ -74,21 +74,71 @@ def _scan_file(path: Path) -> list[str]:
         if stripped.startswith("#") or stripped.startswith("--"):
             continue
 
-        # Class 1: jsonb_array_length() needs typeof guard within 4 lines
+        # Class 1: jsonb_array_length() must be CASE-WRAPPED, not just
+        # have a sibling jsonb_typeof guard in the same WHERE clause.
+        #
+        # The Postgres planner is FREE to reorder boolean clauses joined
+        # by AND. So:
+        #
+        #   AND jsonb_typeof(col) = 'array'
+        #   AND jsonb_array_length(col) > 0   -- planner can call this first → panic
+        #
+        # is NOT safe — observed live 2026-04-30 on /analytics/discount-codes
+        # which had EXACTLY this pattern and produced "cannot get array
+        # length of a scalar" 500s. The fix is CASE-wrap, which IS
+        # short-circuit-evaluated:
+        #
+        #   AND CASE WHEN jsonb_typeof(col) = 'array'
+        #            THEN jsonb_array_length(col) > 0
+        #            ELSE FALSE
+        #       END
+        #
+        # Audit rule: every jsonb_array_length(X) call must be in an
+        # enclosing CASE WHEN branch that already verified
+        # jsonb_typeof(X) = 'array'. Look back up to 6 lines for:
+        #   (a) at least one `CASE WHEN` opener
+        #   (b) a `jsonb_typeof(X) = 'array'` guard between that CASE
+        #       WHEN and the array_length call
+        #   (c) no `END` keyword between the typeof guard and the
+        #       array_length (= the typeof's CASE hasn't closed)
         for m in _JSONB_ARRAY_LEN_RE.finditer(line):
             expr = m.group(1)
-            window_start = max(0, idx - 4)
-            window = "\n".join(lines[window_start:idx + 1])
-            guarded = any(
-                tm.group(1) == expr
+            expr_tail = expr.split(".")[-1]
+            window_start = max(0, idx - 6)
+            window_lines = lines[window_start:idx + 1]
+            window = "\n".join(window_lines)
+            # Position of THIS jsonb_array_length call within the window.
+            cur_pos_in_window = window.rfind(line) + m.start()
+            # Find typeof-array guards before the call, matching the
+            # same column (tail-compared so `so.x` matches `x`).
+            matching_typeof_positions = [
+                tm.start()
                 for tm in _JSONB_TYPEOF_RE.finditer(window)
-            )
-            if guarded:
+                if tm.group(1).split(".")[-1] == expr_tail
+                and tm.start() < cur_pos_in_window
+            ]
+            # CASE-wrapped if at least one matching typeof guard exists
+            # before the array_length AND there's no `END` keyword
+            # between that guard and the call (= the typeof's CASE
+            # branch is still open).
+            case_wrapped = False
+            for tp in matching_typeof_positions:
+                between = window[tp:cur_pos_in_window]
+                if not re.search(r"\bEND\b", between, re.IGNORECASE):
+                    # Also verify there's a CASE WHEN somewhere before
+                    # the typeof position (otherwise the AND-pair is
+                    # bare in a WHERE clause = vulnerable).
+                    before_typeof = window[:tp]
+                    if re.search(r"\bCASE\s+WHEN\b", before_typeof, re.IGNORECASE):
+                        case_wrapped = True
+                        break
+            if case_wrapped:
                 continue
             findings.append(
                 f"{path.relative_to(BACKEND)}:{idx + 1}: "
-                f"jsonb_array_length({expr}) without preceding "
-                f"jsonb_typeof({expr}) = 'array' guard within 4 lines"
+                f"jsonb_array_length({expr}) NOT wrapped in "
+                f"CASE WHEN jsonb_typeof({expr}) = 'array' THEN ... — "
+                f"vulnerable to Postgres planner reorder + scalar panic"
             )
 
         # Class 2: jsonb_array_elements() / jsonb_array_elements_text()

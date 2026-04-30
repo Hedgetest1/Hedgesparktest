@@ -30,6 +30,56 @@ async function probe(page, route) {
   await page.goto(`http://127.0.0.1:3000${route.path}`, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForTimeout(5000);
 
+  // Layer-2 check: inventory of CardError instances in the rendered
+  // page. Born 2026-04-30 after founder caught 4 red error cards on
+  // /app/pro that the prior nav-only headless probe missed (the test
+  // checked that activeNav was non-null on scroll, not that the cards
+  // themselves rendered without error). Fails the smoke test if any
+  // CardError is visible — every error card in production is a
+  // tier-gate or endpoint failure that the merchant should never see.
+  const cardErrors = await page.evaluate(() => {
+    const errs = [];
+    // Detector 1: role=alert + aria-label markers from _CardStates.tsx
+    document.querySelectorAll('[role="alert"]').forEach((el) => {
+      const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+      if (aria.includes('failed to load') || aria.includes("couldn't load") || aria.includes('couldn’t load')) {
+        // Walk up to nearest section ancestor for context
+        const section = el.closest("[id^='section-']");
+        errs.push({
+          via: 'aria',
+          aria: el.getAttribute('aria-label'),
+          text: (el.textContent || '').trim().slice(0, 200),
+          sectionId: section ? section.id : null,
+          top: Math.round(el.getBoundingClientRect().top + (document.querySelector('main')?.scrollTop || 0)),
+        });
+      }
+    });
+    // Detector 2: literal CardError header text "Couldn't load this card"
+    const candidates = document.querySelectorAll('div, section');
+    candidates.forEach((el) => {
+      const t = (el.textContent || '').toLowerCase();
+      if (t.includes("couldn't load this card") || t.includes('couldn’t load this card')) {
+        // skip parent containers that just contain the marker text
+        const cls = (el.className && typeof el.className === 'string') ? el.className : '';
+        if (cls.includes('rose-400') || cls.includes('rose-500')) {
+          errs.push({
+            via: 'text',
+            text: (el.textContent || '').trim().slice(0, 200),
+            classes: cls.slice(0, 200),
+          });
+        }
+      }
+    });
+    // dedupe
+    const seen = new Set();
+    return errs.filter((x) => {
+      const k = (x.aria || '') + '|' + x.text.slice(0, 80);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  });
+
   const inventory = await page.evaluate(() => {
     const sections = Array.from(document.querySelectorAll("main [id^='section-']")).map(s => ({
       id: s.id,
@@ -43,6 +93,9 @@ async function probe(page, route) {
     const main = document.querySelector('main');
     return { sections, navs, mainScrollHeight: main?.scrollHeight, mainClientHeight: main?.clientHeight };
   });
+
+  // Attach error inventory to the inventory object
+  inventory.cardErrors = cardErrors;
 
   const results = [];
   for (const sec of inventory.sections) {
@@ -89,11 +142,18 @@ async function probe(page, route) {
   const page = await ctx.newPage();
   page.on('pageerror', e => console.error('PAGE ERR:', e.message));
 
-  let totalSections = 0, totalNullActive = 0;
+  let totalSections = 0, totalNullActive = 0, totalCardErrors = 0;
   for (const route of ROUTES) {
     const { inventory, results } = await probe(page, route);
     console.log(`\n========== ${route.label} (${route.path}) ==========`);
     console.log(`Sections: ${inventory.sections.length} · Nav slots: ${inventory.navs.length} · Scroll height: ${inventory.mainScrollHeight}px`);
+    if (inventory.cardErrors && inventory.cardErrors.length > 0) {
+      console.log(`  ❌ CARD ERRORS on ${route.label}: ${inventory.cardErrors.length}`);
+      for (const ce of inventory.cardErrors) {
+        console.log(`     [${ce.via}] route=${route.label} section=${ce.sectionId || '?'} y=${ce.top || '?'} aria="${ce.aria || ''}" :: ${ce.text.slice(0, 140)}`);
+      }
+      totalCardErrors += inventory.cardErrors.length;
+    }
     for (const r of results) {
       const flag = r.activeNav === null || r.activeNav === 'null' ? '  ❌ NULL' : '  ✓';
       console.log(`${flag} ${r.section.padEnd(36)} y=${String(r.top).padStart(6)} → activeNav=${JSON.stringify(r.activeNav)}`);
@@ -104,6 +164,10 @@ async function probe(page, route) {
   console.log(`\n===== SUMMARY =====`);
   console.log(`${totalSections} section(s) probed across ${ROUTES.length} floor(s)`);
   console.log(`${totalNullActive} null/empty active highlights`);
+  console.log(`${totalCardErrors} CardError instance(s) visible`);
   await browser.close();
-  process.exit(totalNullActive === 0 ? 0 : 1);
+  // Fail on EITHER scroll-spy regression OR any visible CardError.
+  // CardError visible = an endpoint failed (403/500/network) or a
+  // component crashed; merchants should never see this.
+  process.exit((totalNullActive === 0 && totalCardErrors === 0) ? 0 : 1);
 })();
