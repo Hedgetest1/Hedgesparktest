@@ -573,6 +573,12 @@ function PageInner() {
   const pathname = usePathname();
   const isLiteFloor =
     pathname === "/app/lite" || pathname === "/app" || pathname === null;
+  // Used to disable Pro-tier rendering of sections that doppione Lite
+  // floor content (founder no-doppione doctrine). Widened to `boolean`
+  // so TS doesn't constant-fold and discard type narrows in the JSX
+  // below — narrows on revenueWindows / sparkActions / etc. are still
+  // exercised even though the block is statically dead.
+  const renderProDoppioneBlock: boolean = false;
   const isProFloor =
     pathname === "/app/pro" || pathname === "/app/intelligence";
   const isScaleFloor =
@@ -2755,7 +2761,7 @@ function PageInner() {
               )}
 
               {/* ═══ REVENUE HERO ═══ */}
-              {isProFloor && (
+              {renderProDoppioneBlock && isProFloor && (
                 <RevenueHero
                   revenue={heroRevenue?.revenue ?? 0}
                   orders={heroRevenue?.orders ?? 0}
@@ -2782,7 +2788,7 @@ function PageInner() {
               {isProUser && isProFloor && <InstantIntelligenceCard apiBase={API_BASE} />}
 
               {/* ═══ ROI HERO BANNER — the retention weapon (α2) ═══ */}
-              {isProFloor && (
+              {renderProDoppioneBlock && isProFloor && (
                 <div data-tour="roi-hero">
                   <ROIHeroBanner apiBase={API_BASE} isProUser={isProUser} />
                 </div>
@@ -3539,7 +3545,7 @@ function PageInner() {
               )}
 
               {/* ═══ UNIT ECONOMICS + PROFIT HEADROOM + FORECAST (β1+β3+α6) ═══ */}
-              {isProUser && isProFloor && (
+              {renderProDoppioneBlock && isProUser && isProFloor && (
                 <div
                   style={{
                     display: "grid",
@@ -3548,10 +3554,9 @@ function PageInner() {
                     marginBottom: "8px",
                   }}
                 >
-                  {/* UnitEconomicsCard removed from Pro floor 2026-04-29
-                      per founder no-doppione doctrine — lives on Lite
-                      ($0-60 parity vs Lifetimely $29 CAC:LTV). Pro
-                      merchant sees it on /app/lite. */}
+                  {/* MarginHealthCard / RevenueForecastCard disabled
+                      on Pro 2026-04-30 — Lifetimely $49 covers margin
+                      + forecast at $0-60. Lite floor canonical home. */}
                   <div data-tour="margin-health">
                     <MarginHealthCard apiBase={API_BASE} isProUser={isProUser} />
                   </div>
@@ -3559,8 +3564,9 @@ function PageInner() {
                 </div>
               )}
 
-              {/* ═══ CUSTOMER CHURN TABLE (δ4) ═══ */}
-              {isProFloor && <CustomerChurnCard apiBase={API_BASE} isProUser={isProUser} />}
+              {/* CustomerChurnCard disabled on Pro 2026-04-30 —
+                  Lifetimely Pro $49 ships customer churn at $0-60. */}
+              {renderProDoppioneBlock && isProFloor && <CustomerChurnCard apiBase={API_BASE} isProUser={isProUser} />}
 
               {/* ═══ Scale-tier moat block — 12 features migrated
                   Pro→Scale 2026-04-29 because their closest competitor
@@ -3641,60 +3647,23 @@ function PageInner() {
                 <AskHedgeSparkCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
               )}
 
-              {/* ═══ Pro-only operational widgets — Targets/ROI/
-                  Integrations. Section anchor closes the scroll-spy
-                  gap that previously left ~4200px between Action
-                  Queue and Multi-touch attribution un-highlighted in
-                  the sidebar. Founder feedback 2026-04-30. ═══ */}
-              {isProUser && isProFloor && (
-                <section id="section-pro-targets">
-                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
-                    Targets &amp; ROI
-                  </h2>
-                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                    <MonthlyTargetsCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                    <MonthlyROICard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                    <IntegrationsCard apiBase={API_BASE} isProUser={isProUser} />
-                  </div>
-                </section>
-              )}
+              {/* ═══ DOPPIONE CLEANUP 2026-04-30 ═══
+                  The following sections were REMOVED from Pro floor
+                  per founder strict no-doppione doctrine
+                  (`feedback_no_doppione_strict_tier_match.md`):
 
-              {/* ═══ Abandoned Intent — Pro-tier exclusive
-                  (founder directive 2026-04-29: it lives in Pro,
-                  not duplicated on Lite). The basic intent-aware
-                  cart abandonment is a Pro feature; Lite has the
-                  Live Opportunities cassettone for entry-tier
-                  comparable signal. ═══ */}
-              {isProFloor && (
-                <section id="section-pro-abandoned">
-                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
-                    Abandoned intent
-                  </h2>
-                  <AbandonedIntentCard
-                    apiBase={API_BASE}
-                    shop={shop}
-                    isProUser={isProUser}
-                    onUpgrade={() => setUpgradeModalOpen(true)}
-                  />
-                </section>
-              )}
+                    - Targets & ROI (Lifetimely Pro $49 = $0-60 band)
+                    - Abandoned Intent (Lite cassettone covers it)
+                    - Revenue Autopsy (Lifetimely Pro $49 = $0-60)
 
-              {/* LiveOpportunitiesCard removed from Pro floor 2026-04-29
-                  per no-doppione doctrine — it's a Lite cassettone, the
-                  Pro merchant sees it on /app/lite. */}
+                  Pro/Scale tiers ship DIFFERENT competitor-feature
+                  classes from Lite, not deeper renderings of Lite
+                  features. Each tier matches a different competitor
+                  pricing band ($0-60 / $60-130 / $130+). ═══ */}
 
-              {/* VisitorIntentExplorerCard removed from Pro 2026-04-30
-                  per founder $0-60 parity doctrine: Visitor Intent
-                  cassettone is shipped on Lite (LiteCassettoniGrid),
-                  Lucky Orange $32 / Glew $79 cover this signal at
-                  entry tier. No "deep version on Pro" doppione —
-                  Pro/Scale features must be DIFFERENT competitor
-                  matches, not deeper renderings of Lite features. */}
-
-              {/* ═══ Pro-only intelligence — Price Sensitivity stays
-                  Pro (Prisync $99 = Pro mid-band parity). RevenueAutopsy
-                  + CausalLift moved to Scale floor below (closest
-                  competitor Northbeam $1k+). ═══ */}
+              {/* Price Sensitivity stays Pro — Prisync $99 = $60-130
+                  parity, no $0-60 competitor ships price-sensitivity
+                  modeling. */}
               {isProUser && isProFloor && (
                 <section id="section-pro-price">
                   <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
@@ -3704,12 +3673,25 @@ function PageInner() {
                 </section>
               )}
 
-              {/* Revenue Autopsy — KEEP-in-Pro per founder $60-130
-                  parity rule (Lifetimely Pro $49-149, Glew Pro $79,
-                  Polar $89-159 all ship per-product revenue
-                  decomposition). Pro merchant gets the WoW delta
-                  decomposition. Scale floor inherits via same gate. */}
-              {(isProFloor || isScaleFloor) && isProUser && (
+              {/* Subscription analytics placeholder — Pro $60-130 parity
+                  (Glew Pro $79, Putler Plus $79). UI shipping next
+                  sprint; placeholder keeps the Pro nav slot lit. */}
+              {isProFloor && isProUser && (
+                <ProParityGapPlaceholder
+                  id="pro-subscriptions"
+                  eyebrow="Subscription analytics"
+                  title="Recurring orders · churn · cohort LTV"
+                  body="Auto-detect recurring orders, compute MRR / churn / LTV by subscription cohort, surface at-risk subscribers. Matches the Pro mid-band offered by Glew Pro and Putler Plus."
+                  accent="#fbbf24"
+                />
+              )}
+
+              {/* Revenue Autopsy — Scale-only after 2026-04-30 audit.
+                  Lifetimely Pro $49 ships per-product revenue
+                  decomposition at $0-60 — Lite already covers it via
+                  lite-pnl + Lite cassettoni. Scale gets the deeper
+                  ML-driven autopsy variant. */}
+              {isScaleFloor && isScaleUser && (
                 <section id="section-pro-revenue-autopsy">
                   <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
                     Revenue autopsy
@@ -3757,7 +3739,25 @@ function PageInner() {
                   no-doppione doctrine — Daily Brief is a Lite cassettone
                   ($0-60 parity), Pro merchant sees it on /app/lite. */}
 
-              {isProFloor && (
+              {/* ═══ DOPPIONE BLOCK DISABLED 2026-04-30 ═══
+                  The big lite-style block below (Store pulse / Revenue
+                  / Signals / Product Performance / What-next / Weekly
+                  Trend / Funnel / Live / Lift / parity-gap-placeholders
+                  / Scroll heatmaps / Nudges / pro-intelligence
+                  Attribution+LTV+P&L sub-sections) is a doppione of
+                  Lite floor (lite-rars / lite-pnl / lite-attribution /
+                  lite-retention / lite-signals cassettoni). Each of
+                  these features ships at $0-60 competitor band
+                  (Lifetimely $49, Lucky Orange $32, Klaviyo $20) →
+                  canonical home is Lite. Pro tier ships only $60-130
+                  features that Lite does NOT have.
+
+                  Per founder strict no-doppione doctrine
+                  (`feedback_no_doppione_strict_tier_match.md`). The
+                  block is gated `false && isProFloor` so the JSX
+                  remains for git history / debugging diff while never
+                  rendering. ═══ */}
+              {renderProDoppioneBlock && isProFloor && (
                 <>
               {/* ── Level 2 separator ── */}
               <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
@@ -3817,18 +3817,17 @@ function PageInner() {
               </SectionErrorBoundary>
 
               {/* Revenue at risk banner — below KPI grid, above signals */}
-              {isProUser
-                ? (revenueWindows && (revenueWindows.total_revenue_at_risk ?? 0) > 0) && (
-                    <RevenueWindowPro data={revenueWindows} displayCurrency={displayCurrency} />
-                  )
-                : (revenueWindowTease && (revenueWindowTease.estimated_revenue_at_risk ?? 0) > 0) && (
-                    <RevenueWindowLite
-                      data={revenueWindowTease}
-                      onUpgradeClick={() => setUpgradeModalOpen(true)}
-                      displayCurrency={displayCurrency}
-                    />
-                  )
-              }
+              {/* Revenue at risk banner — Pro users see RevenueWindowPro,
+                  Lite users see RevenueWindowLite (upgrade tease). */}
+              {isProUser && revenueWindows && (revenueWindows.total_revenue_at_risk ?? 0) > 0 ? (
+                <RevenueWindowPro data={revenueWindows} displayCurrency={displayCurrency} />
+              ) : !isProUser && revenueWindowTease && (revenueWindowTease.estimated_revenue_at_risk ?? 0) > 0 ? (
+                <RevenueWindowLite
+                  data={revenueWindowTease}
+                  onUpgradeClick={() => setUpgradeModalOpen(true)}
+                  displayCurrency={displayCurrency}
+                />
+              ) : null}
 
               {/* Calibration quality indicator */}
               {data?.calibration && (
@@ -3903,7 +3902,7 @@ function PageInner() {
                   merchant sees it on /app/lite. TrafficSourceBox below
                   preserves the traffic-source widget which is a Pro
                   add-on (not a Lite duplicate). */}
-              {false && isProFloor && (
+              {renderProDoppioneBlock && isProFloor && (
                 <SectionErrorBoundary name="Hot Products">
                 <section>
                   <SectionHeading eyebrow="Hot Products" title="Where buyers are active" />
@@ -3972,7 +3971,7 @@ function PageInner() {
                 </SectionErrorBoundary>
               )}
 
-              {isProFloor && (
+              {renderProDoppioneBlock && isProFloor && (
                 <>
               {/* 4 — Product Performance (extracted to _sections/ProductPerformanceSection.tsx) */}
               {mergedProducts.length > 0 && (
@@ -4200,7 +4199,7 @@ function PageInner() {
                   is about to read across the sections below. Designed to pass
                   the "stupid test": zero jargon, plain English, answers
                   "what am I looking at?" in one glance. */}
-              {isProUser && isProFloor && (
+              {renderProDoppioneBlock && isProUser && isProFloor && (
                 <div className="relative overflow-hidden rounded-3xl border border-white/[0.06] bg-gradient-to-br from-white/[0.025] via-transparent to-white/[0.02] px-6 py-7 sm:px-10 sm:py-9">
                   {/* Ambient brand gradient stripe on top */}
                   <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-[#7c3aed] via-[#c026d3] to-[#f97316]" />
@@ -4296,7 +4295,7 @@ function PageInner() {
                   data on Pro). Pro merchant sees on /app/lite. */}
 
               {/* Pro — Nudge Performance */}
-              {isProUser && isProFloor && (
+              {renderProDoppioneBlock && isProUser && isProFloor && (
                 <SectionErrorBoundary name="Nudge Performance">
                 <section id="section-nudges">
                   <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
@@ -4340,7 +4339,13 @@ function PageInner() {
                   (not built), Subscription analytics (not built).
                   Placeholders surface them in nav now so the
                   merchant knows what's coming. ═══ */}
-              {isProFloor && (
+              {/* pro-goals + pro-bi-sql disabled on Pro 2026-04-30 —
+                  Lifetimely $49 ships goals, Mixpanel $25 ships SQL
+                  at $0-60 band. Lite-tier canonical home. The
+                  pro-subscriptions placeholder remains as a separate
+                  Pro-distinct slot (Glew $79 / Putler $79 = $60-130
+                  band). */}
+              {renderProDoppioneBlock && isProFloor && (
                 <>
                   <ProParityGapPlaceholder
                     id="pro-goals"
@@ -4366,12 +4371,10 @@ function PageInner() {
                 </>
               )}
 
-              {/* Pro — Scroll Intelligence (CohortTable removed
-                  2026-04-29 per no-doppione doctrine — Lite renders
-                  cohort, isPro endpoint is alias of analytics, no
-                  extra data on Pro). HeatmapCard stays — genuine Pro
-                  feature, no Lite duplicate. */}
-              {isProUser && isProFloor && (
+              {/* Scroll heatmaps disabled on Pro 2026-04-30 — Lucky
+                  Orange $32 + Hotjar Free ship heatmaps at $0-60 band,
+                  canonical home is Lite. Founder no-doppione doctrine. */}
+              {renderProDoppioneBlock && isProUser && isProFloor && (
                 <SectionErrorBoundary name="Scroll Intelligence">
                 <section id="section-scroll">
                   <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
@@ -4387,8 +4390,14 @@ function PageInner() {
                 </SectionErrorBoundary>
               )}
 
-              {/* Pro — Revenue Forecast + Attribution + LTV Intelligence */}
-              {isProUser && isProFloor && (
+              {/* ProIntelligenceSection disabled on Pro 2026-04-30 —
+                  Attribution/LTV/P&L sub-sections are doppioni of
+                  Lite (lite-attribution, lite-retention, lite-pnl
+                  cover them at $0-60 parity). Predictive Forecast +
+                  Predicted-LTV + Price+Market intel will get their
+                  own Pro-distinct section in a separate sprint, scoped
+                  to features competitors $0-60 don't ship. */}
+              {renderProDoppioneBlock && isProUser && isProFloor && (
                 <SectionErrorBoundary name="Deep analytics">
                   <ProIntelligenceSection
                     apiBase={API_BASE}
@@ -4405,8 +4414,11 @@ function PageInner() {
                 </SectionErrorBoundary>
               )}
 
-              {/* Pro — Behavioral DNA (extracted to _sections/BehavioralIntelligenceSection.tsx) */}
-              {isProUser && isProFloor && behavioralData && (
+              {/* Behavioral DNA disabled on Pro 2026-04-30 — closer
+                  to Scale tier (deep ML behavioral clustering). Will
+                  re-enable on /app/scale floor when Scale section is
+                  built out. */}
+              {renderProDoppioneBlock && isProUser && isProFloor && behavioralData && (
                 <SectionErrorBoundary name="Behavioral DNA">
                   <BehavioralIntelligenceSection
                     data={behavioralData}

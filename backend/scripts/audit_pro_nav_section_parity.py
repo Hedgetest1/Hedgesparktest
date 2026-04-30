@@ -54,14 +54,29 @@ SECTIONS_DIR = DASHBOARD / "app" / "app" / "_sections"
 # duplicates — Lite uses a different cassettoni grid). Each gets a
 # dedicated nav slot per founder UX rule "biggest = most important,
 # every section answers one question stated in its title".
-SHARED_SECTION_IDS = {
-    "funnel", "nudges", "scroll",
-    "overview", "revenue", "signals", "product-performance",
-    # "what-next" removed 2026-04-30 — WhatNextSection no longer
-    # renders on Pro (founder $0-60 parity: "Your next moves" lives
-    # inside Lite cassettone drawers, not as a Pro top-level section).
-    # The component file still contains the literal anchor string
-    # but is never rendered, so we exclude it from parity matching.
+SHARED_SECTION_IDS: set[str] = set()
+# Empty set 2026-04-30 — Pro tier strict no-doppione: every Pro nav
+# id must have its own `section-pro-*` anchor; no shared anchors with
+# Lite floor.
+
+# `section-pro-*` anchors that exist in source files but DO NOT render
+# on Pro floor. They are kept in source either:
+#   - rendered only on Scale floor (e.g., revenue-autopsy is Scale-
+#     only after 2026-04-30 audit; Lifetimely $49 = $0-60 doppione
+#     for Pro)
+#   - false-gated for git-history visibility (e.g., pro-intelligence
+#     ProIntelligenceSection's section-pro-intelligence anchor is
+#     inside JSX that's `false && isProFloor` gated)
+#   - placeholder cards no longer wired to Pro nav (e.g., pro-goals
+#     and pro-bi-sql were demoted from Pro → Lite per Lifetimely $49
+#     / Mixpanel $25 = $0-60 parity)
+# Excluded from "orphan section" finding because they're not orphan,
+# they're intentionally scoped to a different floor or disabled.
+PRO_ANCHORS_NOT_ON_PRO_FLOOR = {
+    "pro-revenue-autopsy",  # Scale-only render
+    "pro-intelligence",     # false-gated dead code
+    "pro-goals",            # demoted to Lite-tier ($49 Lifetimely)
+    "pro-bi-sql",           # demoted to Lite-tier ($25 Mixpanel)
 }
 
 # 2026-04-30 — Scale-cross-link allow-list REMOVED. The `scaleOnly`
@@ -113,6 +128,9 @@ def collect_pro_section_ids() -> set[str]:
         # ProParityGapPlaceholder wraps its id prop with `section-`
         # at render time, so its id="pro-X" produces section-pro-X.
         ids.update(PARITY_GAP_RE.findall(text))
+    # Exclude anchors that exist in source but aren't actually wired
+    # to Pro nav (Scale-only / false-gated / demoted-to-Lite).
+    ids -= PRO_ANCHORS_NOT_ON_PRO_FLOOR
     return ids
 
 
