@@ -59,9 +59,41 @@ TRIVIAL_PATTERNS = re.compile(
 )
 
 
-def get_commit_text() -> str:
-    """Get the commit message being prepared (current HEAD or staged)."""
-    # Prefer HEAD message if a commit was just made
+def _read_msg_file(path: str) -> str:
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            raw = f.read()
+        lines = [ln for ln in raw.split("\n") if not ln.lstrip().startswith("#")]
+        return "\n".join(lines).strip()
+    except Exception:
+        return ""
+
+
+def get_commit_text(msg_file: str | None = None) -> str:
+    """Get the commit message being prepared.
+
+    Order of preference:
+      1. Explicit --msg-file argument (commit-msg hook receives $1).
+      2. .git/COMMIT_EDITMSG (interactive commits + post-commit
+         inspection).
+      3. HEAD (ad-hoc audit invocation).
+
+    Pre-commit hooks CANNOT see the in-flight message reliably with
+    `git commit -m` because git only finalises COMMIT_EDITMSG after a
+    successful commit. The right hook stage for this audit is
+    `commit-msg`, where $1 is the path to the message git is about
+    to use. The --msg-file arg makes that wiring explicit.
+    """
+    if msg_file:
+        text = _read_msg_file(msg_file)
+        if text:
+            return text
+    import os
+    cem = "/opt/wishspark/.git/COMMIT_EDITMSG"
+    if os.path.exists(cem):
+        text = _read_msg_file(cem)
+        if text:
+            return text
     try:
         out = subprocess.check_output(
             ["git", "log", "-1", "--pretty=%B"],
@@ -77,9 +109,11 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--lenient", action="store_true",
                     help="Warn instead of block (not used in preflight)")
+    ap.add_argument("--msg-file", default=None,
+                    help="Path to the commit message file (commit-msg hook $1)")
     args = ap.parse_args()
 
-    text = get_commit_text()
+    text = get_commit_text(args.msg_file)
     if not text.strip():
         print("audit_lateral_change_evidence: skip — no commit message yet")
         return 0

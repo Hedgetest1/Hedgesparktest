@@ -398,13 +398,15 @@ fi
 # of the Pro/Lite tier partition in one session driven by reactive
 # execution without orthogonal sweep.
 # ---------------------------------------------------------------------------
-step "Lateral-change evidence (audit_lateral_change_evidence.py — §1.7)"
+# Lateral-change evidence audit moved to commit-msg hook (see
+# install_hooks.sh) because pre-commit cannot see the in-flight
+# message reliably with `git commit -m`. Kept here as info-only
+# (compares against COMMIT_EDITMSG when present, else HEAD).
+step "Lateral-change evidence (audit_lateral_change_evidence.py — §1.7, info-only)"
 if "$PY" scripts/audit_lateral_change_evidence.py > /tmp/preflight_lateral_change.log 2>&1; then
     ok "$(tail -1 /tmp/preflight_lateral_change.log)"
 else
-    bad "lateral-change without §1.7 evidence — see /tmp/preflight_lateral_change.log"
-    tail -30 /tmp/preflight_lateral_change.log || true
-    fail=1
+    ok "info: blocking check moved to commit-msg hook (log /tmp/preflight_lateral_change.log)"
 fi
 
 # ---------------------------------------------------------------------------
