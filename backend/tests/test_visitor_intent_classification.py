@@ -277,28 +277,39 @@ def test_classification_tenant_isolation(
 
 
 # ════════════════════════════════════════════════════════════════════
-# Pro-tier gate tests — strict $0-70 parity rule (2026-04-29)
+# Tier-gate tests — Lite-accessible per strict $0-60 parity rule
 # ════════════════════════════════════════════════════════════════════
+# Original 2026-04-29 strategic close cited only Glew $79 as the
+# competitor visitor-scoring reference and gated this endpoint to Pro.
+# Re-audit 2026-04-30 (after the d7dfa10 reasoning bug surfaced)
+# revealed Lucky Orange $32 ALSO ships visitor scoring at $0-60 —
+# correcting that miss puts visitor-intent firmly in the Lite band per
+# feedback_0_60_parity_doctrine.md. Endpoint flipped require_pro_session
+# → require_merchant_session; tests below assert the new contract.
 
 
-def test_visitor_intent_classification_lite_returns_403(
+def test_visitor_intent_classification_lite_returns_200(
     client, merchant_b, auth_b, db
 ):
-    """Lite merchants must NOT access /analytics/visitor-intent-classification.
-    Per strict $0-70 parity rule: no $0-70 competitor ships per-visitor
-    intent classification at any price (Glew $79 minimum)."""
+    """Lite merchants MUST access /analytics/visitor-intent-classification.
+    Per strict $0-60 parity rule + Lucky Orange $32 visitor-scoring
+    citation, this is Lite-band content."""
     # merchant_b fixture defaults to plan="lite" billing_active=False —
-    # the gate must reject regardless of billing state.
+    # the gate must accept regardless of billing state.
     r = client.get("/analytics/visitor-intent-classification", cookies=auth_b)
-    assert r.status_code == 403, (
-        f"Lite tier must get 403, got {r.status_code}: {r.text}"
+    assert r.status_code == 200, (
+        f"Lite tier must get 200, got {r.status_code}: {r.text}"
     )
+    body = r.json()
+    assert "total_visitors" in body
+    assert "hot_visitors" in body
 
 
 def test_visitor_intent_classification_pro_returns_200(
     client, merchant_a, auth_a, db
 ):
-    """Pro merchants get 200 — merchant_a fixture is plan='pro' billing_active=True."""
+    """Pro merchants also get 200 — gate is require_merchant_session, both
+    Lite + Pro pass. merchant_a fixture is plan='pro' billing_active=True."""
     r = client.get("/analytics/visitor-intent-classification", cookies=auth_a)
     assert r.status_code == 200, r.text
     body = r.json()

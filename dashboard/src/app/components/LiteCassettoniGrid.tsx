@@ -68,6 +68,15 @@ type LiveOppsPayload = {
   }>;
 } | null;
 
+type VisitorIntentPayload = {
+  hot_visitors?: number;
+  warm_visitors?: number;
+  cold_visitors?: number;
+  total_visitors?: number;
+  hot_threshold?: number;
+  warm_threshold?: number;
+} | null;
+
 type TopProduct = {
   product_id?: string | null;
   product_name?: string | null;
@@ -115,6 +124,7 @@ export type CassettoneId =
   | "daily-brief"
   | "abandoned-intent"
   | "live-opportunities"
+  | "visitor-intent"
   | "hot-products";
 
 // ----------------------------------------------------------------------
@@ -179,6 +189,8 @@ export function LiteCassettoniGrid({
     useAbandonedData(apiBase, shop);
   const { heroNumber: liveOppsNumber, data: liveOppsData } =
     useLiveOppsData(apiBase, shop);
+  const { heroNumber: visitorIntentNumber, data: visitorIntentData } =
+    useVisitorIntentData(apiBase, shop);
   const hotProductsNumber = useMemo<HeroNumber>(
     () => ({
       value: loading ? "…" : topProducts.length > 0 ? `${Math.min(3, topProducts.length)}` : "0",
@@ -230,6 +242,14 @@ export function LiteCassettoniGrid({
       number: liveOppsNumber,
       meta: "pages to fix now",
       accent: "amberOpp",
+    },
+    {
+      id: "visitor-intent",
+      eyebrow: "Right now",
+      title: "Visitor intent",
+      number: visitorIntentNumber,
+      meta: "hot visitors",
+      accent: "rose",
     },
     {
       id: "hot-products",
@@ -343,6 +363,7 @@ export function LiteCassettoniGrid({
           briefData: effectiveBrief,
           abandonedData,
           liveOppsData,
+          visitorIntentData,
           topProducts,
           displayCurrency,
           loading,
@@ -717,6 +738,7 @@ type PanelCtx = {
   briefData: DailyBrief | null;
   abandonedData: AbandonedPayload;
   liveOppsData: LiveOppsPayload;
+  visitorIntentData: VisitorIntentPayload;
   topProducts: TopProduct[];
   displayCurrency: "USD" | "EUR";
   loading: boolean;
@@ -1709,8 +1731,193 @@ const PANEL_CONFIG: Record<CassettoneId, PanelConfig> = {
   },
 
   // ------------------------------------------------------------------
-  // 5. Hot products (emerald) — Visitor Intent removed 2026-04-29 per
-  // strict $0-70 parity (closest competitor Glew $79).
+  // 5. Visitor intent (rose)
+  // ------------------------------------------------------------------
+  "visitor-intent": {
+    title: "Visitor intent",
+    mechanics:
+      "I classify every live visitor into Hot (engaged and clicked), Warm (engaged but no click), and Cold (pass-through). A Hot visitor is roughly ten times more likely to buy than a Cold one — so the split tells you whether your traffic is the problem or your pages are.",
+    stakes:
+      "If your mix is mostly Cold, your traffic is wrong — fix the acquisition. If your mix is mostly Warm but low Hot, your product pages aren't earning the click — fix the conversion. Two very different costly mistakes, and mixing them up burns weeks.",
+    getSubtitle: (ctx) => {
+      if (ctx.heroLoading) return "Calculating…";
+      const hot = ctx.visitorIntentData?.hot_visitors ?? 0;
+      const warm = ctx.visitorIntentData?.warm_visitors ?? 0;
+      const cold = ctx.visitorIntentData?.cold_visitors ?? 0;
+      const total = ctx.visitorIntentData?.total_visitors ?? 0;
+      if (total === 0) {
+        return "No visitors scored yet. The classification kicks in with the first visitor.";
+      }
+      return `Hot ${hot} · Warm ${warm} · Cold ${cold} — out of ${total.toLocaleString()} visitors scored.`;
+    },
+    getHeroStat: (ctx) => {
+      const hot = ctx.visitorIntentData?.hot_visitors ?? 0;
+      const warm = ctx.visitorIntentData?.warm_visitors ?? 0;
+      const cold = ctx.visitorIntentData?.cold_visitors ?? 0;
+      const total = ctx.visitorIntentData?.total_visitors ?? 0;
+      if (total === 0) return null;
+      const segments = [
+        { label: "Cold", value: cold, color: "#94a3b8" },
+        { label: "Warm", value: warm, color: "#a78bfa" },
+        { label: "Hot", value: hot, color: "#f87171" },
+      ].sort((a, b) => b.value - a.value);
+      const dominant = segments[0];
+      const pct = total > 0 ? Math.round((dominant.value / total) * 100) : 0;
+      return {
+        label: "Dominant segment right now",
+        value: `${dominant.label} ${pct}%`,
+        sublabel: `${dominant.value.toLocaleString()} of ${total.toLocaleString()} visitors scored — the shape of your current traffic.`,
+        color: dominant.color,
+      };
+    },
+    getDonutSegments: (ctx) => {
+      const hot = ctx.visitorIntentData?.hot_visitors ?? 0;
+      const warm = ctx.visitorIntentData?.warm_visitors ?? 0;
+      const cold = ctx.visitorIntentData?.cold_visitors ?? 0;
+      if (hot + warm + cold === 0) return null;
+      return [
+        { label: "Hot", value: hot, color: "#f87171" },
+        { label: "Warm", value: warm, color: "#a78bfa" },
+        { label: "Cold", value: cold, color: "#94a3b8" },
+      ];
+    },
+    getDonutHero: (ctx) => ({
+      value: `${ctx.visitorIntentData?.total_visitors?.toLocaleString() ?? "—"}`,
+      label: "visitors tracked",
+    }),
+    getKeyMetrics: (ctx) => {
+      const hot = ctx.visitorIntentData?.hot_visitors ?? 0;
+      const warm = ctx.visitorIntentData?.warm_visitors ?? 0;
+      const cold = ctx.visitorIntentData?.cold_visitors ?? 0;
+      const total = ctx.visitorIntentData?.total_visitors ?? 0;
+      return [
+        {
+          label: "Hot visitors",
+          value: `${hot.toLocaleString()}`,
+          color: hot > 0 ? "#f87171" : undefined,
+        },
+        {
+          label: "Warm visitors",
+          value: `${warm.toLocaleString()}`,
+          color: warm > 0 ? "#a78bfa" : undefined,
+        },
+        {
+          label: "Cold visitors",
+          value: `${cold.toLocaleString()}`,
+          color: cold > 0 ? "#94a3b8" : undefined,
+        },
+        { label: "Total scored", value: `${total.toLocaleString()}` },
+      ];
+    },
+    methodology: {
+      formula:
+        "conversion_score = weighted sum of dwell time, scroll depth, and click count per visitor. Above the Hot threshold = Hot. Between Warm and Hot thresholds = Warm. At or below Warm threshold = Cold.",
+      getInputs: (ctx) => {
+        const hotThreshold = ctx.visitorIntentData?.hot_threshold;
+        const warmThreshold = ctx.visitorIntentData?.warm_threshold;
+        const rows: Array<{ label: string; value: string }> = [];
+        if (hotThreshold !== undefined) {
+          rows.push({ label: "Hot threshold", value: `> ${hotThreshold}` });
+        }
+        if (warmThreshold !== undefined) {
+          rows.push({ label: "Warm threshold", value: `> ${warmThreshold}` });
+        }
+        rows.push({
+          label: "Total visitors scored",
+          value: `${(ctx.visitorIntentData?.total_visitors ?? 0).toLocaleString()}`,
+        });
+        return rows;
+      },
+      note:
+        "Thresholds are published on purpose — we want you to audit the classification. Hot visitors are roughly 10× more likely to convert than Cold ones based on historical data across all shops.",
+    },
+    empty: {
+      description:
+        "Every live visitor will be classified Hot / Warm / Cold within seconds of landing on your store. The split tells you in one glance whether to fix acquisition or conversion — two very different costly mistakes.",
+      sampleHeroStat: {
+        label: "Dominant segment right now",
+        value: "Warm 54%",
+        sublabel: "48 of 89 visitors scored — your traffic is engaged but uncommitted.",
+        color: "#a78bfa",
+      },
+      sampleKeyMetrics: [
+        { label: "Hot visitors", value: "12", color: "#f87171" },
+        { label: "Warm visitors", value: "48", color: "#a78bfa" },
+        { label: "Cold visitors", value: "29", color: "#94a3b8" },
+        { label: "Total scored", value: "89" },
+      ],
+    },
+    getPrimaryAction: (ctx) => {
+      const hot = ctx.visitorIntentData?.hot_visitors ?? 0;
+      const warm = ctx.visitorIntentData?.warm_visitors ?? 0;
+      const cold = ctx.visitorIntentData?.cold_visitors ?? 0;
+      const total = ctx.visitorIntentData?.total_visitors ?? 0;
+      if (total === 0) {
+        return {
+          headline: "Tracker warming up",
+          label: "No visitors scored yet",
+          description:
+            "Check that the HedgeSpark script is loaded on your storefront. As soon as the first visitor arrives, they'll be classified and this panel will populate.",
+        };
+      }
+      if (cold > hot + warm) {
+        return {
+          headline: "Traffic problem",
+          label: `Cold outnumbers engaged (${cold} vs ${hot + warm})`,
+          description:
+            "Your traffic quality is low. The fix is upstream — audit ad creative, landing pages, and channel mix. Fixing product pages won't help if Cold visitors dominate.",
+        };
+      }
+      if (warm > 0 && hot < Math.max(1, Math.round(warm / 3))) {
+        return {
+          headline: "Conversion problem",
+          label: `${warm} Warm but only ${hot} Hot`,
+          description:
+            "Your visitors are engaging but not clicking. The fix is on-page — tighten CTAs, add social proof, reduce friction above the fold. This is a page problem, not a traffic problem.",
+        };
+      }
+      if (hot > 0) {
+        return {
+          headline: "Strike now",
+          label: `${hot} Hot visitor${hot !== 1 ? "s" : ""} on your store right now`,
+          description:
+            "Hot visitors are 10× more likely to convert than Cold ones. Messaging them within the hour — email, retarget pixel, push — recovers meaningfully more than waiting until tomorrow.",
+        };
+      }
+      return {
+        headline: "Healthy mix",
+        label: "Balanced intent distribution",
+        description:
+          "Your Hot/Warm/Cold split is healthy. Use the quiet period to invest in what's working — Hot Products is the right next panel to open.",
+      };
+    },
+    getSupportingActions: (ctx) => {
+      const hot = ctx.visitorIntentData?.hot_visitors ?? 0;
+      const out: SupportingAction[] = [];
+      if (hot > 0) {
+        out.push({
+          label: "Open Abandoned Intent",
+          description:
+            "Those Hot visitors leave traces on specific products. Abandoned Intent shows exactly which products they're looking at and where they drop off.",
+        });
+      } else {
+        out.push({
+          label: "Open Live Opportunities",
+          description:
+            "The pages with the biggest leaking intent right now are where to focus — especially if your mix shows a conversion problem rather than a traffic one.",
+        });
+      }
+      out.push({
+        label: "Re-check in an hour",
+        description:
+          "The mix shifts throughout the day as traffic sources change. A morning Cold-heavy mix can flip to Hot by afternoon if the right channel kicks in.",
+      });
+      return out;
+    },
+  },
+
+  // ------------------------------------------------------------------
+  // 6. Hot products (emerald)
   // ------------------------------------------------------------------
   "hot-products": {
     title: "Hot products",
@@ -2081,3 +2288,34 @@ function useLiveOppsData(
   return { heroNumber: { value, loading }, data };
 }
 
+function useVisitorIntentData(
+  apiBase: string,
+  shop: string,
+): { heroNumber: HeroNumber; data: VisitorIntentPayload } {
+  const [data, setData] = useState<VisitorIntentPayload>(null);
+  const [value, setValue] = useState<string>("…");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!apiBase || !shop) return;
+    let active = true;
+    apiClient
+      .GET("/analytics/visitor-intent-classification")
+      .then(({ data: raw }) => {
+        if (!active) return;
+        const payload = raw as VisitorIntentPayload;
+        setData(payload ?? null);
+        const hot = payload?.hot_visitors ?? 0;
+        setValue(hot > 0 ? String(hot) : "—");
+      })
+      .catch(() => {
+        if (active) { setValue("—"); setData(null); }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, [apiBase, shop]);
+
+  return { heroNumber: { value, loading }, data };
+}
