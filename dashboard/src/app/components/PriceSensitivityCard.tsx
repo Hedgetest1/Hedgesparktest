@@ -87,13 +87,77 @@ export function PriceSensitivityCard({
   }
 
   if (state === "empty" || !data) {
+    const sampleBands = [
+      { band: "<$20", cvr: 1.8, sweet: false },
+      { band: "$20-50", cvr: 3.2, sweet: false },
+      { band: "$50-100", cvr: 4.6, sweet: true },
+      { band: "$100-200", cvr: 2.4, sweet: false },
+      { band: "$200+", cvr: 1.1, sweet: false },
+    ];
+    const maxCvrSample = Math.max(...sampleBands.map((b) => b.cvr));
     return (
-      <CardEmpty
-        accent="violet"
-        title="Not enough data to spot a sweet spot"
-        body="To read price sensitivity we group your products into price bands and need enough traffic per band to compare them. Once each band has seen a few dozen visitors we can tell you which price point converts best."
-        eta="Needs more visitor traffic per band"
-      />
+      <div className="rounded-2xl border border-dashed border-white/[0.10] bg-white/[0.015] p-6">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-[#e8a04e]">
+              Price sensitivity
+            </div>
+            <h3 className="text-[28px] font-extrabold leading-tight tracking-tight text-[#e8a04e]">
+              Your conversion sweet spot
+            </h3>
+            <p className="mt-2 text-[13px] leading-relaxed text-slate-400">
+              We group your products into price bands and compare conversion
+              across them. Once each band has seen a few dozen visitors, the
+              sweet spot lights up green — preview below shows a typical
+              SMB Shopify shape.
+            </p>
+          </div>
+          <div className="flex flex-shrink-0 items-center gap-2 rounded-full bg-violet-500/[0.08] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-violet-300">
+            <span className="relative inline-flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400/60" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-violet-400" />
+            </span>
+            Sample
+          </div>
+        </div>
+
+        <div className="space-y-2.5 opacity-50">
+          {sampleBands.map((b) => {
+            const w = Math.max(5, (b.cvr / maxCvrSample) * 100);
+            return (
+              <div key={b.band} className="flex items-center gap-3">
+                <div className="w-20 flex-shrink-0 text-right text-[12px] font-semibold tabular-nums text-slate-400">
+                  {b.band}
+                </div>
+                <div className="flex-1">
+                  <div className="h-6 overflow-hidden rounded-md bg-white/[0.04]">
+                    <div
+                      className="h-full rounded-md"
+                      style={{
+                        width: `${w}%`,
+                        background: b.sweet ? "#34d399" : "#7c3aed",
+                      }}
+                    />
+                  </div>
+                </div>
+                <div className="w-16 flex-shrink-0 text-right">
+                  <span
+                    className={`text-[14px] font-extrabold tabular-nums ${
+                      b.sweet ? "text-emerald-400" : "text-slate-300"
+                    }`}
+                  >
+                    {b.cvr.toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-4 inline-block rounded-full bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold text-slate-400">
+          Real bands replace this preview as visitor traffic ramps
+        </div>
+      </div>
     );
   }
 
