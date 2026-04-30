@@ -46,17 +46,14 @@ SECTIONS_DIR = DASHBOARD / "app" / "app" / "_sections"
 # `section-scroll` are shared with the legacy NAV_ITEMS).
 SHARED_SECTION_IDS = {"funnel", "nudges", "scroll"}
 
-# Pro nav ids that point to features which today only render on the
-# Scale floor (Pro→Scale moat migration 2026-04-28). They're left in
-# NAV_ITEMS_PRO intentionally so the merchant can see what Pro+
-# unlocks; clicking does nothing on /app/pro until they're either
-# moved back to Pro tier or routed to /app/scale on click. Tracked
-# as a separate sidebar-information-architecture follow-up.
-PRO_NAV_SCALE_ONLY = {
-    "pro-anomaly", "pro-causal", "pro-counterfactual",
-    "pro-playbook", "pro-night-shift", "pro-revenue-autopsy",
-    "pro-mta",
-}
+# 2026-04-30 — Scale-cross-link allow-list REMOVED. The `scaleOnly`
+# convention itself was a strategic mistake: it parked features in
+# the Pro sidebar that didn't render on Pro, with a "Scale" badge
+# that taught Pro merchants their tier is incomplete. Founder rule:
+# every NAV_ITEMS_PRO entry that competitors $60-130 ship MUST live
+# fully on Pro (no badge, real anchor). Items that ONLY $140+ ships
+# migrate fully to Scale and are removed from NAV_ITEMS_PRO. The
+# audit now BANS scaleOnly: true entirely (see check #4 below).
 
 PRO_SECTION_RE = re.compile(r'id="section-(pro-[a-z0-9-]+)"')
 GENERIC_SECTION_RE = re.compile(r'id="section-([a-z0-9-]+)"')
@@ -158,7 +155,7 @@ def main() -> int:
     # Cross-floor links (entries with href set) are exempt — they
     # navigate to a different floor instead of scrolling.
     cross_floor = {nid for nid, a in attrs.items() if a.get("href")}
-    actionable_nav = nav_ids - PRO_NAV_SCALE_ONLY - bad_prefixed - cross_floor
+    actionable_nav = nav_ids - bad_prefixed - cross_floor
     dead_nav = actionable_nav - section_ids
     if dead_nav:
         findings.append(
@@ -166,17 +163,25 @@ def main() -> int:
             f"(click → no scroll target, no navigation): {sorted(dead_nav)}"
         )
 
-    # 4. Scale-only invariant: every scaleOnly: true entry MUST have an
-    # href. Without it the click silently fails — the exact bug
-    # §1.6-turn the scaleOnly convention was added to fix.
-    scale_no_href = {
-        nid for nid, a in attrs.items()
-        if a.get("scaleOnly") and not a.get("href")
-    }
-    if scale_no_href:
+    # 4. Scale-badge ban (2026-04-30): NO NAV_ITEMS_PRO entry may
+    # carry `scaleOnly: true`. The convention itself was a strategic
+    # mistake — it parked features in the Pro sidebar that didn't
+    # actually render on Pro (with a "Scale" badge cross-linking to
+    # /app/scale). Founder rule: features ship FULLY on Pro (real
+    # anchor, no badge) when $60-130 competitors carry parity, or
+    # are REMOVED entirely from Pro nav when only $140+ competitors
+    # ship them. Anything else teaches Pro merchants their tier is
+    # incomplete — exactly the experience we are killing.
+    scale_only = {nid for nid, a in attrs.items() if a.get("scaleOnly")}
+    if scale_only:
         findings.append(
-            f"NAV_ITEMS_PRO scaleOnly: true entries WITHOUT href "
-            f"(click does nothing): {sorted(scale_no_href)}"
+            f"NAV_ITEMS_PRO entries with scaleOnly: true are BANNED "
+            f"as of 2026-04-30 — every Pro nav entry must live FULLY "
+            f"on Pro or be removed entirely. Found: {sorted(scale_only)}. "
+            f"Apply the founder $60-130 parity test: if competitors in "
+            f"that band ship the feature, restore it on Pro (real "
+            f"section anchor, no scaleOnly, no href); otherwise drop "
+            f"it from NAV_ITEMS_PRO."
         )
 
     if findings:

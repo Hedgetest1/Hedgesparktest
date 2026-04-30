@@ -580,41 +580,61 @@ function PageInner() {
   // Track whether user just clicked nav — suppresses observer updates briefly
   const isScrollingRef = useRef(false);
 
-  // ── Scroll-synced sidebar via IntersectionObserver ──
-  // Re-runs when loading/tier change (sections appear conditionally)
-  const observerRef = useRef<IntersectionObserver | null>(null);
-  const reobserve = useCallback(() => {
+  // ── Scroll-synced sidebar via deterministic scroll position ──
+  //
+  // The previous IntersectionObserver implementation worked for
+  // well-spaced sections but mis-fired when 3+ sections stacked
+  // within ~600px (the Pro parity-gap placeholders): rootMargin
+  // race + asynchronous IO callbacks meant clicking section N
+  // sometimes lit nav slot N+1. Deterministic scrollTop-based
+  // resolution removes the ambiguity — pick the section whose top
+  // is the largest value still ≤ scrollTop+probeOffset.
+  //
+  // probeOffset = 120 means "the active section is the one whose
+  // top edge is just above the line 120px below the scroll-top".
+  // Tested with sections as close as 200px apart on /app/pro and
+  // every nav slot lights correctly.
+  const sectionElsRef = useRef<HTMLElement[]>([]);
+  const refreshSections = useCallback(() => {
     const main = mainRef.current;
     if (!main) return;
-
-    observerRef.current?.disconnect();
-
-    const obs = new IntersectionObserver(
-      (entries) => {
-        if (isScrollingRef.current) return;
-        let topEntry: IntersectionObserverEntry | null = null;
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          if (!topEntry || entry.boundingClientRect.top < topEntry.boundingClientRect.top) {
-            topEntry = entry;
-          }
-        }
-        if (topEntry) {
-          const sectionId = topEntry.target.id.replace("section-", "");
-          setActiveSection(sectionId);
-        }
-      },
-      {
-        root: main,
-        rootMargin: "-10% 0px -70% 0px",
-        threshold: 0,
-      }
+    sectionElsRef.current = Array.from(
+      main.querySelectorAll<HTMLElement>("[id^='section-']")
     );
-
-    const sections = main.querySelectorAll("[id^='section-']");
-    sections.forEach((s) => obs.observe(s));
-    observerRef.current = obs;
   }, []);
+  const scrollSpy = useCallback(() => {
+    if (isScrollingRef.current) return;
+    const main = mainRef.current;
+    if (!main) return;
+    const els = sectionElsRef.current;
+    if (els.length === 0) return;
+    const probe = main.scrollTop + 120;
+    let activeId: string | null = null;
+    for (const el of els) {
+      if (el.offsetTop <= probe) {
+        activeId = el.id;
+      } else {
+        break;
+      }
+    }
+    if (activeId) {
+      setActiveSection(activeId.replace("section-", ""));
+    }
+  }, []);
+  // Compatibility shim — `reobserve` is wired into useEffect deps
+  // throughout the file. Keep the name; the new implementation
+  // refreshes the cached section list and runs the spy once so the
+  // sidebar reflects current scroll on tier/loading transitions.
+  const reobserve = useCallback(() => {
+    refreshSections();
+    scrollSpy();
+  }, [refreshSections, scrollSpy]);
+  useEffect(() => {
+    const main = mainRef.current;
+    if (!main) return;
+    main.addEventListener("scroll", scrollSpy, { passive: true });
+    return () => main.removeEventListener("scroll", scrollSpy);
+  }, [scrollSpy]);
 
   // Tier state
   const [tier, setTier] = useState<"lite" | "pro" | "scale">("lite");
@@ -2099,7 +2119,9 @@ function PageInner() {
   // Re-observe sections when content loads/tier changes (conditional sections appear)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (!loading) requestAnimationFrame(reobserve); }, [loading, tier, reobserve]);
-  useEffect(() => { return () => observerRef.current?.disconnect(); }, []);
+  // (legacy IntersectionObserver disconnect removed 2026-04-30 —
+  // scrollSpy uses a plain scroll listener, cleaned up in its own
+  // effect above.)
 
   const RADAR_POSITIONS = [
     "left-[12%] top-[18%]", "left-[68%] top-[20%]",
@@ -3501,10 +3523,14 @@ function PageInner() {
                 <NudgeDnaCard apiBase={API_BASE} isProUser={isProUser} />
               )}
 
-              {isScaleFloor && isScaleUser && (
-                <div data-tour="mta">
+              {/* Multi-touch attribution — KEEP-in-Pro per founder
+                  $60-130 parity rule (Glew Pro $79, Triple Whale Pro
+                  $129+, Polar $89-159 all ship MTA). Lives fully on
+                  Pro; Scale floor inherits it via the same gate. */}
+              {(isProFloor || isScaleFloor) && isProUser && (
+                <section id="section-pro-mta" data-tour="mta">
                   <MtaCompareCard apiBase={API_BASE} isProUser={isProUser} />
-                </div>
+                </section>
               )}
 
               {/* RuleBuilderCard stays Pro — no Scale-tier reclassification. */}
@@ -3514,12 +3540,16 @@ function PageInner() {
                 <RevenueGenomeCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
               )}
 
-              {isScaleFloor && isScaleUser && (
-                <NightShiftCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-              )}
-
-              {isScaleFloor && isScaleUser && (
-                <NightShiftTimeline apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+              {/* Night Shift — KEEP-in-Pro per founder $60-130 parity
+                  rule (Glew Pro $79 + Lifetimely Pro $49-149 + Triple
+                  Whale Pro $129 all ship overnight alerts). Both the
+                  predictive Card and the retrospective Timeline live
+                  on Pro; Scale floor inherits the same gate. */}
+              {(isProFloor || isScaleFloor) && isProUser && (
+                <section id="section-pro-night-shift">
+                  <NightShiftCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  <NightShiftTimeline apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                </section>
               )}
 
               {isScaleFloor && isScaleUser && (
@@ -3529,8 +3559,14 @@ function PageInner() {
                 </div>
               )}
 
-              {isScaleFloor && isScaleUser && (
-                <AnomalyReplayCard apiBase={API_BASE} isProUser={isProUser} />
+              {/* Anomaly Replay — KEEP-in-Pro per founder $60-130
+                  parity rule (Triple Whale Pro $129 ships Lighthouse
+                  with comparable diagnostic-replay framing). Lives
+                  fully on Pro; Scale floor inherits via same gate. */}
+              {(isProFloor || isScaleFloor) && isProUser && (
+                <section id="section-pro-anomaly">
+                  <AnomalyReplayCard apiBase={API_BASE} isProUser={isProUser} />
+                </section>
               )}
               {isScaleFloor && isScaleUser && (
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -3597,12 +3633,23 @@ function PageInner() {
                 </section>
               )}
 
-              {/* ═══ Scale-only deep intelligence ═══ */}
-              {isScaleFloor && isScaleUser && (
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {/* Revenue Autopsy — KEEP-in-Pro per founder $60-130
+                  parity rule (Lifetimely Pro $49-149, Glew Pro $79,
+                  Polar $89-159 all ship per-product revenue
+                  decomposition). Pro merchant gets the WoW delta
+                  decomposition. Scale floor inherits via same gate. */}
+              {(isProFloor || isScaleFloor) && isProUser && (
+                <section id="section-pro-revenue-autopsy">
                   <RevenueAutopsyCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                  <CausalLiftCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                </div>
+                </section>
+              )}
+
+              {/* Causal Lift (holdout-measured) — Scale-only.
+                  Closest competitor Northbeam $1k+ — no $60-130
+                  competitor ships true holdout-measured causal lift,
+                  so it stays a Scale moat. */}
+              {isScaleFloor && isScaleUser && (
+                <CausalLiftCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
               )}
 
               {/* ═══ SECONDARY WIDGETS — smaller but useful ═══ */}
@@ -3638,6 +3685,13 @@ function PageInner() {
 
               {isProFloor && (
                 <>
+              {/* Catch-all anchor for the Pro nav "Store pulse" entry.
+                  The lite-style block below renders inner anchors
+                  (overview / revenue / signals / product-performance /
+                  what-next) which all roll up to nav-id "pro-overview"
+                  via SECTION_TO_NAV_PRO. This sentinel is the click
+                  target so handleNavigate("pro-overview") scrolls here. */}
+              <div id="section-pro-overview" aria-hidden="true" />
               {/* ── Level 2 separator ── */}
               <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
 

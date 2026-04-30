@@ -10,16 +10,17 @@ export type NavItem = {
   icon: ReactNode;
   pro?: boolean;
   /** When set, clicking this nav item navigates to the URL instead of
-   *  scrolling within the current floor. Used for Pro-sidebar entries
-   *  that point to features rendered on a different floor (Scale-only
-   *  moats listed under Pro for visibility but not scrollable from
-   *  /app/pro). */
+   *  scrolling within the current floor. */
   href?: string;
-  /** Marks an entry as a Scale-tier moat — renders a "Scale" badge
-   *  alongside the label so the Pro merchant knows the click leaves
-   *  the current floor. */
-  scaleOnly?: boolean;
 };
+
+// `scaleOnly` was a 2026-04-29 anti-pattern that put features the
+// merchant sees in their tier's sidebar but rendered on a different
+// floor (with a "Scale" badge cross-link). Founder rule (2026-04-30):
+// every NAV_ITEMS_PRO entry that competitors $60-130 ship MUST live
+// fully on Pro (no badge, no cross-floor click). Items that ONLY
+// $140+ competitors ship migrate fully to Scale and are removed from
+// the Pro nav entirely. Enforced by audit_pro_nav_section_parity.py.
 
 /* ── Three Floors = Three Tiers ───────────────────────────────────────
  * HedgeSpark dashboard is organized as three tier-named experiences:
@@ -326,7 +327,12 @@ const NAV_ITEMS_LITE: NavItem[] = [
   },
 ];
 
-const SECTION_TO_NAV: Record<string, string> = {
+// Per-floor section→nav resolution. The same anchor id (e.g. "signals",
+// "overview") can appear on Pulse and Pro with DIFFERENT nav targets
+// because the two floors have different sidebars. Keyed by floor
+// because a flat dict can't fork. Resolution chain in `resolveNavId`
+// below: floor map → fall back to bare section id.
+const SECTION_TO_NAV_PULSE: Record<string, string> = {
   brief: "brief",
   overview: "overview",
   revenue: "revenue",
@@ -343,16 +349,58 @@ const SECTION_TO_NAV: Record<string, string> = {
   "scroll-cohorts": "nudges",
   "price-intelligence": "price-intelligence",
   "market-intelligence": "price-intelligence",
-  // Pro-floor anchor ids → NAV_ITEMS_PRO nav ids. Same convention
-  // as Lite below: section element carries id="section-pro-*", the
-  // observer strips "section-" and matches against the nav id.
+  "lite-attribution": "lite-attribution",
+  "lite-audience": "lite-audience",
+  "lite-last7": "lite-last7",
+  "lite-multistore": "lite-multistore",
+  "lite-peers": "lite-peers",
+  "lite-pnl": "lite-pnl",
+  "lite-rars": "lite-rars",
+  "lite-refunds": "lite-refunds",
+  "lite-retention": "lite-retention",
+  "lite-signals": "lite-signals",
+  "lite-today": "lite-today",
+};
+
+const SECTION_TO_NAV_PRO: Record<string, string> = {
+  // Anchors that map directly to NAV_ITEMS_PRO ids.
   "pro-visitor-intent": "pro-visitor-intent",
   "pro-abandoned": "pro-abandoned",
   "pro-price": "pro-price",
+  "pro-anomaly": "pro-anomaly",
+  "pro-revenue-autopsy": "pro-revenue-autopsy",
+  "pro-mta": "pro-mta",
+  "pro-night-shift": "pro-night-shift",
   "pro-intelligence": "pro-intelligence",
   "pro-goals": "pro-goals",
   "pro-bi-sql": "pro-bi-sql",
   "pro-subscriptions": "pro-subscriptions",
+  funnel: "funnel",
+  sessions: "funnel",
+  nudges: "nudges",
+  lift: "nudges",
+  scroll: "scroll",
+  // Lite-style ghost sections that also render under `isProFloor` at
+  // page.tsx ~line 3639 (Store Pulse KPIs / Revenue / Signals / Product
+  // performance / What next). Until the no-doppione cleanup strips
+  // them from Pro, all roll up to the catch-all "Store pulse" entry.
+  overview: "pro-overview",
+  revenue: "pro-overview",
+  signals: "pro-overview",
+  "product-performance": "pro-overview",
+  "what-next": "pro-overview",
+  proof: "pro-overview",
+  live: "pro-overview",
+  // Sub-anchors of ProIntelligenceSection — each rolls up to the
+  // single "Forecast & intelligence" nav slot so scroll-spy doesn't
+  // ghost when the merchant is reading Forecast / Attribution / LTV
+  // / P&L / Gateway / Price-intel / Market-intel / Behavioral DNA.
+  "price-intelligence": "pro-intelligence",
+  "market-intelligence": "pro-intelligence",
+  "behavioral-intelligence": "pro-intelligence",
+};
+
+const SECTION_TO_NAV_LITE: Record<string, string> = {
   // Lite-floor anchor ids → NAV_ITEMS_LITE nav ids. The observer
   // watches `section-lite-*` IDs; stripping the section- prefix
   // yields the nav id match. Every section rendered on /app/lite
@@ -371,7 +419,27 @@ const SECTION_TO_NAV: Record<string, string> = {
   "lite-audience": "lite-audience",
   "lite-signals": "lite-signals",
   "lite-multistore": "lite-multistore",
+  live: "live",
 };
+
+export function resolveNavId(
+  activeSection: string,
+  currentFloor: Floor,
+  isLiteView: boolean,
+): string {
+  if (currentFloor === "intelligence") {
+    return SECTION_TO_NAV_PRO[activeSection] || activeSection;
+  }
+  if (currentFloor === "pulse" && isLiteView) {
+    return SECTION_TO_NAV_LITE[activeSection] || activeSection;
+  }
+  return SECTION_TO_NAV_PULSE[activeSection] || activeSection;
+}
+
+// Back-compat re-export for any caller that still imports the legacy
+// flat map (e.g. preflight audits). Mirrors the Pulse-floor mapping
+// since that's what the legacy callers consumed.
+const SECTION_TO_NAV = SECTION_TO_NAV_PULSE;
 
 // ─── Pro-floor NAV items ────────────────────────────────────────
 //
@@ -385,7 +453,35 @@ const SECTION_TO_NAV: Record<string, string> = {
 // /app/page.tsx. Placeholder entries (pro-goals, pro-bi-sql,
 // pro-subscriptions) point to `section-pro-coming-soon` until the
 // $60-130 parity-gap features ship.
+// Order = real DOM scroll order on /app/pro. Audit script
+// (audit_pro_nav_section_parity.py) enforces nav-id ↔ section-anchor
+// parity at preflight — every entry without href maps to a
+// `<section id="section-{id}">` anchor on the Pro vertical.
+//
+// 2026-04-30: 7 prior `scaleOnly` cross-floor entries (Anomaly Replay,
+// Causal Why, Counterfactual, Competitor Playbook, Night Shift, Revenue
+// Autopsy, MTA) reclassified per founder $60-130 competitor-parity
+// rule:
+//   KEEP-in-Pro  (4): competitors $60-130 ship the feature, so it
+//                     lives fully on Pro (no badge, real anchor):
+//                     Anomaly Replay (Triple Whale Lighthouse $129),
+//                     Night Shift (Glew/Lifetimely $79+ alerts),
+//                     Revenue Autopsy (Lifetimely/Glew/Polar $79+),
+//                     MTA (Glew $79, Triple Whale $129+).
+//   MIGRATE-Scale (3): only $1k+ competitors ship → removed from
+//                     NAV_ITEMS_PRO entirely, lives only on Scale:
+//                     Causal Why, Counterfactual, Competitor Playbook
+//                     (Northbeam $1k+ territory).
 const NAV_ITEMS_PRO: NavItem[] = [
+  {
+    id: "pro-abandoned",
+    label: "Abandoned intent",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+      </svg>
+    ),
+  },
   {
     id: "pro-visitor-intent",
     label: "Visitor intent",
@@ -397,112 +493,11 @@ const NAV_ITEMS_PRO: NavItem[] = [
     ),
   },
   {
-    id: "funnel",
-    label: "Funnel & sessions",
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 01-.659 1.591l-5.432 5.432a2.25 2.25 0 00-.659 1.591v2.927a2.25 2.25 0 01-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 00-.659-1.591L3.659 7.409A2.25 2.25 0 013 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0112 3z" />
-      </svg>
-    ),
-  },
-  {
-    id: "pro-intelligence",
-    label: "Forecast & intelligence",
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
-      </svg>
-    ),
-  },
-  // Live Radar removed from NAV_ITEMS_PRO 2026-04-29 — moved
-  // exclusively to Lite per $0-60 parity (Lucky Orange $32 ships
-  // live visitor pulses at entry tier). NAV_ITEMS_LITE has the
-  // 'live' entry; only one floor home.
-  {
     id: "pro-anomaly",
     label: "Anomaly replay",
-    href: "/app/scale",
-    scaleOnly: true,
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-      </svg>
-    ),
-  },
-  {
-    id: "pro-causal",
-    label: "Causal Why",
-    href: "/app/scale",
-    scaleOnly: true,
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
-      </svg>
-    ),
-  },
-  {
-    id: "pro-counterfactual",
-    label: "Counterfactual",
-    href: "/app/scale",
-    scaleOnly: true,
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-      </svg>
-    ),
-  },
-  {
-    id: "pro-playbook",
-    label: "Competitor playbook",
-    href: "/app/scale",
-    scaleOnly: true,
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 7.125C2.25 6.504 2.754 6 3.375 6h6c.621 0 1.125.504 1.125 1.125v3.75c0 .621-.504 1.125-1.125 1.125h-6a1.125 1.125 0 01-1.125-1.125v-3.75zM14.25 8.625c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v8.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-8.25zM3.75 16.125c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v2.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-2.25z" />
-      </svg>
-    ),
-  },
-  {
-    id: "pro-night-shift",
-    label: "Night Shift",
-    href: "/app/scale",
-    scaleOnly: true,
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
-      </svg>
-    ),
-  },
-  {
-    id: "nudges",
-    label: "Nudges & Lift",
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-      </svg>
-    ),
-  },
-  {
-    id: "pro-revenue-autopsy",
-    label: "Revenue autopsy",
-    href: "/app/scale",
-    scaleOnly: true,
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5" />
-      </svg>
-    ),
-  },
-  {
-    id: "pro-mta",
-    label: "Multi-touch attribution",
-    href: "/app/scale",
-    scaleOnly: true,
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
       </svg>
     ),
   },
@@ -516,20 +511,64 @@ const NAV_ITEMS_PRO: NavItem[] = [
     ),
   },
   {
-    id: "scroll",
-    label: "Scroll heatmaps",
+    id: "pro-revenue-autopsy",
+    label: "Revenue autopsy",
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5" />
       </svg>
     ),
   },
   {
-    id: "pro-abandoned",
-    label: "Abandoned intent",
+    id: "pro-mta",
+    label: "Multi-touch attribution",
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      </svg>
+    ),
+  },
+  {
+    id: "pro-night-shift",
+    label: "Night Shift",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
+      </svg>
+    ),
+  },
+  // Catch-all for the Lite-style pulse/revenue/signals/products/what-next
+  // sections that currently render on Pro (line ~3639 page.tsx). The
+  // "no-doppione" cleanup that strips them from Pro is a separate
+  // sprint; meanwhile this single nav entry catches every ghost
+  // section via SECTION_TO_NAV mappings below — ensures the sidebar
+  // never goes dark when the merchant scrolls through them.
+  {
+    id: "pro-overview",
+    label: "Store pulse",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+      </svg>
+    ),
+  },
+  {
+    id: "funnel",
+    label: "Funnel & sessions",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 01-.659 1.591l-5.432 5.432a2.25 2.25 0 00-.659 1.591v2.927a2.25 2.25 0 01-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 00-.659-1.591L3.659 7.409A2.25 2.25 0 013 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0112 3z" />
+      </svg>
+    ),
+  },
+  {
+    id: "nudges",
+    label: "Nudges & Lift",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
       </svg>
     ),
   },
@@ -564,9 +603,35 @@ const NAV_ITEMS_PRO: NavItem[] = [
     ),
     pro: true,
   },
+  {
+    id: "scroll",
+    label: "Scroll heatmaps",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+      </svg>
+    ),
+  },
+  {
+    id: "pro-intelligence",
+    label: "Forecast & intelligence",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
+      </svg>
+    ),
+  },
 ];
 
-export { NAV_ITEMS, NAV_ITEMS_LITE, NAV_ITEMS_PRO, SECTION_TO_NAV };
+export {
+  NAV_ITEMS,
+  NAV_ITEMS_LITE,
+  NAV_ITEMS_PRO,
+  SECTION_TO_NAV,
+  SECTION_TO_NAV_PULSE,
+  SECTION_TO_NAV_PRO,
+  SECTION_TO_NAV_LITE,
+};
 
 export function Sidebar({
   collapsed,
@@ -607,7 +672,7 @@ export function Sidebar({
     activeNodeRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [activeSection]);
 
-  const activeNavId = SECTION_TO_NAV[activeSection] || activeSection;
+  const activeNavId = resolveNavId(activeSection, currentFloor, isLiteView);
 
   return (
     <aside
@@ -733,11 +798,6 @@ export function Sidebar({
                   {isLocked && (
                     <span className="rounded border border-[#d4893a]/30 bg-[#d4893a]/10 px-1.5 py-px text-[9px] font-bold uppercase tracking-[0.08em] text-[#e8a04e]">
                       Pro
-                    </span>
-                  )}
-                  {item.scaleOnly && (
-                    <span className="rounded border border-violet-400/30 bg-violet-500/10 px-1.5 py-px text-[9px] font-bold uppercase tracking-[0.08em] text-violet-300">
-                      Scale
                     </span>
                   )}
                 </span>
