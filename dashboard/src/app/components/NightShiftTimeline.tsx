@@ -164,11 +164,132 @@ export function NightShiftTimeline({
 
   if (state === "empty" || !data) {
     return (
-      <CardEmpty
-        accent="violet"
-        title="Nothing needed fixing overnight"
-        body="HedgeSpark monitored your store and didn't find anything worth touching. That's a good sign — when the radar is clear, the best action is no action."
-      />
+      <div className="rounded-2xl border border-dashed border-violet-400/20 bg-gradient-to-br from-violet-500/[0.04] via-white/[0.02] to-transparent p-6">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-[#e8a04e]">
+              While you slept
+            </div>
+            <h3 className="text-[28px] font-extrabold leading-tight tracking-tight text-[#e8a04e]">
+              Here&apos;s what HedgeSpark fixed for you
+            </h3>
+            <p className="mt-2 text-[13px] leading-relaxed text-slate-400">
+              Every row is a real decision the autonomous loop makes on your
+              store, with the measured outcome. The first action will appear
+              within ~48h of going live — preview below shows what it looks
+              like in flight.
+            </p>
+          </div>
+          <div className="flex flex-shrink-0 items-center gap-2 rounded-full bg-violet-500/[0.08] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-violet-300">
+            <span className="relative inline-flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400/60" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-violet-400" />
+            </span>
+            Sample
+          </div>
+        </div>
+
+        <div className="opacity-50">
+          <div className="grid gap-3 sm:grid-cols-4">
+            <div className="rounded-xl border border-violet-400/20 bg-violet-500/[0.05] px-4 py-3">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-violet-400">
+                Overnight
+              </div>
+              <div className="mt-1 text-[26px] font-extrabold tabular-nums text-violet-200">
+                2
+              </div>
+              <div className="text-[11px] text-violet-400/70">actions taken</div>
+            </div>
+            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                This week
+              </div>
+              <div className="mt-1 text-[26px] font-extrabold tabular-nums text-slate-200">
+                7
+              </div>
+              <div className="text-[11px] text-slate-400">actions total</div>
+            </div>
+            <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/[0.05] px-4 py-3">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+                Wins · 7d
+              </div>
+              <div className="mt-1 text-[26px] font-extrabold tabular-nums text-emerald-300">
+                3
+              </div>
+              <div className="text-[11px] text-emerald-400/70">avg lift +5.8%</div>
+            </div>
+            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Still measuring
+              </div>
+              <div className="mt-1 text-[26px] font-extrabold tabular-nums text-slate-200">
+                2
+              </div>
+              <div className="text-[11px] text-slate-400">verdict pending</div>
+            </div>
+          </div>
+
+          <div className="mt-5 space-y-2">
+            <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
+              Last 24 hours · most recent first
+            </div>
+            {[
+              {
+                label: "Launched a nudge · social proof",
+                product: "Ceramic Mug",
+                reason: "47 visitors viewed last 24h, 0 added to cart — adding social-proof badge to flip hesitant buyers.",
+                verdict: "Lifted sales",
+                color: "#10b981",
+                rel: "8h ago",
+              },
+              {
+                label: "Paused a nudge · high interest",
+                product: "Silk Pillowcase",
+                reason: "Holdout vs exposed showed –2.1% lift on a small sample — pulling it before it can do measurable harm.",
+                verdict: "Measuring",
+                color: "#a78bfa",
+                rel: "21h ago",
+              },
+            ].map((row) => (
+              <div
+                key={row.label}
+                className="flex items-center gap-3 rounded-xl border border-white/[0.05] bg-white/[0.015] px-4 py-3"
+              >
+                <div
+                  className="h-2 w-2 flex-shrink-0 rounded-full"
+                  style={{ background: row.color }}
+                  aria-hidden="true"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-[13px] font-semibold text-slate-200">
+                      {row.label}
+                    </span>
+                    <span className="text-[11px] text-slate-400" aria-hidden="true">·</span>
+                    <span className="truncate text-[12px] text-slate-400">{row.product}</span>
+                  </div>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
+                    {row.reason}
+                  </p>
+                </div>
+                <div className="flex-shrink-0 text-right">
+                  <div
+                    className="text-[11px] font-bold uppercase tracking-wider"
+                    style={{ color: row.color }}
+                  >
+                    {row.verdict}
+                  </div>
+                  <div className="mt-0.5 text-[10px] tabular-nums text-slate-400">{row.rel}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-4 inline-block rounded-full bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold text-slate-400">
+          First measured action replaces this preview within ~48h
+        </div>
+      </div>
     );
   }
 
