@@ -74,8 +74,6 @@ SHARED_SECTION_IDS: set[str] = set()
 # they're intentionally scoped to a different floor or disabled.
 PRO_ANCHORS_NOT_ON_PRO_FLOOR = {
     "pro-revenue-autopsy",  # Scale-only render
-    "pro-goals",            # demoted to Lite-tier ($49 Lifetimely)
-    "pro-bi-sql",           # demoted to Lite-tier ($25 Mixpanel)
     "pro-visitor-intent",   # Lite cassettone canonical home
     "pro-abandoned",        # Lite cassettone canonical home
     "pro-targets",          # Lifetimely $49 = Lite-tier

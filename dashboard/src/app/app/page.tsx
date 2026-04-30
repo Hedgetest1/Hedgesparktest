@@ -3598,35 +3598,12 @@ function PageInner() {
                 </SectionErrorBoundary>
               )}
 
-              {isLiteFloor && (
-                <section id="section-lite-goals" className="mb-8">
-                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
-                    KPI goals
-                  </h2>
-                  <ProParityGapPlaceholder
-                    id="lite-goals-inner"
-                    eyebrow="KPI Goals"
-                    title="Set goals · track progress · alert on drift"
-                    body="Define monthly revenue / order / CVR targets, see real-time progress, get alerted when you're trailing. Backend wired (POST /merchant/goals). UI shipping next sprint to match competitors at the entry tier (Lifetimely Pro ships goal tracking)."
-                    accent="#34d399"
-                  />
-                </section>
-              )}
-
-              {isLiteFloor && (
-                <section id="section-lite-bisql" className="mb-8">
-                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
-                    BI / SQL access
-                  </h2>
-                  <ProParityGapPlaceholder
-                    id="lite-bisql-inner"
-                    eyebrow="BI / SQL access"
-                    title="Read-only SQL sandbox over your store data"
-                    body="Query your raw events, orders, sessions in safe read-only SQL. Saved queries + scheduled email export. Matches the entry-tier offered by Mixpanel Growth."
-                    accent="#a78bfa"
-                  />
-                </section>
-              )}
+              {/* KPI goals + BI/SQL placeholders restored on Pro
+                  2026-04-30 per founder directive — they were part
+                  of the original "3 coming-soon" infrastructure on
+                  Pro (verde / violet / amber) and belong together
+                  visually + tier-strategically. The earlier
+                  migration to Lite was reverted here. */}
 
               {/* ═══ REVENUE AT RISK HERO — Pro-floor only (Lite now
                   surfaces this inside the cassettoni grid above). ═══ */}
@@ -3787,9 +3764,31 @@ function PageInner() {
                 </section>
               )}
 
-              {/* Subscription analytics placeholder — Pro $60-130 parity
-                  (Glew Pro $79, Putler Plus $79). UI shipping next
-                  sprint; placeholder keeps the Pro nav slot lit. */}
+              {/* The 3 "coming-soon" Pro placeholder cards — original
+                  infrastructure restored 2026-04-30. Verde KPI Goals,
+                  violet BI/SQL, amber Subscription analytics. Each
+                  represents a Pro $60-130 parity gap with backend
+                  scaffolding wired and UI shipping next. */}
+              {isProFloor && isProUser && (
+                <ProParityGapPlaceholder
+                  id="pro-goals"
+                  eyebrow="KPI Goals"
+                  title="Set goals · track progress · alert on drift"
+                  body="Define monthly revenue / order / CVR targets, see real-time progress, get alerted when you're trailing. Backend already wired (POST /merchant/goals). UI shipping next sprint to match competitors at the Pro mid-band (Lifetimely Pro and Polar Analytics ship this)."
+                  accent="#34d399"
+                />
+              )}
+
+              {isProFloor && isProUser && (
+                <ProParityGapPlaceholder
+                  id="pro-bi-sql"
+                  eyebrow="BI / SQL access"
+                  title="Read-only SQL sandbox over your store data"
+                  body="Query your raw events, orders, sessions in safe read-only SQL. Saved queries + scheduled email export. Matches the Pro mid-band offered by Klaviyo Marketing, Mixpanel Growth and Glew Pro."
+                  accent="#a78bfa"
+                />
+              )}
+
               {isProFloor && isProUser && (
                 <ProParityGapPlaceholder
                   id="pro-subscriptions"
