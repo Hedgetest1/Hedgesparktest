@@ -3537,11 +3537,16 @@ function PageInner() {
                 />
               )}
 
-              {/* ═══ TRUST CONTROL CENTER — delegated autonomy (α1) ═══ */}
+              {/* Trust Control Center — Pro autonomy controls.
+                  Pro-distinct: no $0-60 competitor ships delegated-
+                  autonomy controls. */}
               {isProFloor && (
-                <div data-tour="trust-center">
+                <section id="section-pro-trust" data-tour="trust-center">
+                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                    Trust controls
+                  </h2>
                   <TrustControlCenter apiBase={API_BASE} isProUser={isProUser} />
-                </div>
+                </section>
               )}
 
               {/* ═══ UNIT ECONOMICS + PROFIT HEADROOM + FORECAST (β1+β3+α6) ═══ */}
@@ -3642,9 +3647,16 @@ function PageInner() {
                 </div>
               )}
 
-              {/* ═══ PHASE Ω — ASK HEDGE SPARK (knowledge graph NL query) ═══ */}
+              {/* Ask HedgeSpark — Pro LLM chat over knowledge graph.
+                  Pro-distinct: no $0-60 competitor ships natural-
+                  language Q&A over store data. */}
               {isProUser && isProFloor && (
-                <AskHedgeSparkCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                <section id="section-pro-ask">
+                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                    Ask HedgeSpark
+                  </h2>
+                  <AskHedgeSparkCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                </section>
               )}
 
               {/* ═══ DOPPIONE CLEANUP 2026-04-30 ═══
@@ -3708,12 +3720,17 @@ function PageInner() {
                 <CausalLiftCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
               )}
 
-              {/* ═══ SECONDARY WIDGETS — smaller but useful ═══ */}
+              {/* Change tracking — Pro-distinct timeline of "what
+                  you changed and how it moved the numbers". No $0-60
+                  competitor ships annotation-tracked impact. */}
               {isProUser && isProFloor && (
-                <>
+                <section id="section-pro-changes">
+                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                    Change tracking
+                  </h2>
                   <TimelineNotes apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <CompareProductsCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                </>
+                </section>
               )}
 
               {/* ═══ TOP SIGNAL CARD — only strong signals (not early) ═══ */}
@@ -3727,8 +3744,18 @@ function PageInner() {
                 />
               )}
 
-              {/* ═══ PROOF HERO — shows only when improvements exist ═══ */}
-              {isProUser && (
+              {/* Proof hero — Pro-distinct holdout-measured proof of
+                  recovered revenue. */}
+              {isProUser && isProFloor && (
+                <section id="section-pro-proof">
+                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                    Proof of value
+                  </h2>
+                  <ProofHeroCard apiBase={API_BASE} shop={shop} />
+                </section>
+              )}
+              {/* Keep ProofHero on Lite as a teaser. */}
+              {isProUser && !isProFloor && (
                 <ProofHeroCard apiBase={API_BASE} shop={shop} />
               )}
 
@@ -4390,15 +4417,19 @@ function PageInner() {
                 </SectionErrorBoundary>
               )}
 
-              {/* ProIntelligenceSection disabled on Pro 2026-04-30 —
-                  Attribution/LTV/P&L sub-sections are doppioni of
-                  Lite (lite-attribution, lite-retention, lite-pnl
-                  cover them at $0-60 parity). Predictive Forecast +
-                  Predicted-LTV + Price+Market intel will get their
-                  own Pro-distinct section in a separate sprint, scoped
-                  to features competitors $0-60 don't ship. */}
-              {renderProDoppioneBlock && isProUser && isProFloor && (
-                <SectionErrorBoundary name="Deep analytics">
+              {/* Pro-distinct deep analytics: Revenue Forecast
+                  (predictive ML — Triple Whale Pro $129) + Predicted
+                  LTV + Price/Market intel + behavioral cohorts.
+                  Attribution / LTV-cohorts / P&L sub-sections inside
+                  ProIntelligenceSection are TOPIC-overlap with Lite
+                  (lite-attribution / lite-retention / lite-pnl) but
+                  the Pro variants here render predictive ML on top
+                  of the same data — feature-distinct from Lite's
+                  retrospective views. Founder rule: same data, same
+                  topic OK if the Pro variant is a different
+                  competitor-feature class ($60-130 ML predictive). */}
+              {isProUser && isProFloor && (
+                <SectionErrorBoundary name="Forecast & intelligence">
                   <ProIntelligenceSection
                     apiBase={API_BASE}
                     displayCurrency={displayCurrency}
@@ -4414,11 +4445,11 @@ function PageInner() {
                 </SectionErrorBoundary>
               )}
 
-              {/* Behavioral DNA disabled on Pro 2026-04-30 — closer
-                  to Scale tier (deep ML behavioral clustering). Will
-                  re-enable on /app/scale floor when Scale section is
-                  built out. */}
-              {renderProDoppioneBlock && isProUser && isProFloor && behavioralData && (
+              {/* Behavioral DNA — Pro-distinct behavioral clustering
+                  + cohort segmentation. Polar Analytics $89 +
+                  borderline; full clustering is more $99 territory.
+                  KEEP on Pro. */}
+              {isProUser && isProFloor && behavioralData && (
                 <SectionErrorBoundary name="Behavioral DNA">
                   <BehavioralIntelligenceSection
                     data={behavioralData}
