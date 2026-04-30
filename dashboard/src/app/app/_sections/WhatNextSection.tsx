@@ -23,6 +23,9 @@ export function WhatNextSection(p: WhatNextSectionProps) {
 
   return (
     <section id="section-what-next">
+      <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+        What to do next
+      </h2>
       <SectionHeading
         eyebrow="Actions"
         title="What to do next"

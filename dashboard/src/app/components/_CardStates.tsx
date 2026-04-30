@@ -157,16 +157,23 @@ export function useCardFetch<T>({
     }
     setState("loading");
 
-    // Transient-error retry policy: network blips, 5xx, and parse
-    // errors all get up to 3 auto-retries with exponential backoff
-    // (300ms / 1s / 3s) before the card flips to the visible
-    // "Couldn't load" state. Born 2026-04-30 after founder caught
-    // red error cards flashing during page load — first-fetch
-    // failures during cold-start auth/cookie race were rendering
-    // CardError boxes that healed on the next request anyway.
-    // 401 (session-expired) and 403 (tier mismatch) are FINAL — no
-    // retry, immediate state="error".
-    const RETRY_DELAYS_MS = [300, 1000, 3000];
+    // Transient-error retry policy. Founder repeatedly caught red
+    // CardError boxes flashing during page load. Two failure modes:
+    //   (a) cold-start race: first fetch after backend restart can
+    //       take 5-10s; prior 3-retry-4s policy timed out before
+    //       the backend was ready.
+    //   (b) cached stale bundle: an old useCardFetch without retry
+    //       can fail on first request before the new bundle loads.
+    //
+    // New policy: keep retrying with exponential backoff for up to
+    // 30 SECONDS (= ~9 attempts: 0.3 / 1 / 2 / 3 / 5 / 5 / 5 / 5 / 4
+    // s = 30s). The card stays in skeleton/loading state the whole
+    // time — NEVER flashes red mid-recovery. Only after 30s of
+    // continuous failure do we surface CardError.
+    //
+    // 401 (session-expired) and 403 (tier mismatch) are FINAL —
+    // no retry, immediate state="error" (those won't fix themselves).
+    const RETRY_DELAYS_MS = [300, 1000, 2000, 3000, 5000, 5000, 5000, 5000, 4000];
 
     async function attemptFetch(retryIdx: number): Promise<void> {
       try {
@@ -192,6 +199,9 @@ export function useCardFetch<T>({
         // immediately so the merchant sees the right state.
         const isFinal = msg.includes("HTTP 401") || msg.includes("HTTP 403");
         if (!isFinal && retryIdx < RETRY_DELAYS_MS.length) {
+          // KEEP state="loading" during retries so the card shows
+          // skeleton instead of red error. Only flip to "error"
+          // after retries are exhausted.
           setTimeout(() => {
             if (activeRef.current) attemptFetch(retryIdx + 1);
           }, RETRY_DELAYS_MS[retryIdx]);

@@ -21,6 +21,9 @@ export function SignalsSection(p: SignalsSectionProps) {
 
   return (
     <section id="section-signals">
+      <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+        Findings
+      </h2>
       <SectionHeading eyebrow="Findings" title={strongSignals.length > 0 ? "What we found" : "Needs attention"} />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

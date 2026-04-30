@@ -38,6 +38,9 @@ export function ProductPerformanceSection(p: ProductPerformanceSectionProps) {
 
   return (
     <section id="section-product-performance">
+      <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+        Product performance
+      </h2>
       <SectionHeading
         eyebrow="Products"
         title="Where your traffic goes"

@@ -43,6 +43,9 @@ export function ProIntelligenceSection(p: ProIntelligenceSectionProps) {
 
   return (
     <section id="section-pro-intelligence">
+      <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+        Forecast &amp; intelligence
+      </h2>
       {/* Revenue Forecast */}
       <SectionHeading
         eyebrow="Forecast"

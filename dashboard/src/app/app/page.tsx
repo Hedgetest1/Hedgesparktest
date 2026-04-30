@@ -2379,30 +2379,16 @@ function PageInner() {
                   NudgePerformance, LiftReport, ProIntelligenceSection, etc.)
                   sit under the same shell. */}
               {isProFloor && isProUser && shop && (
-                <>
-                  <div className="mb-6">
-                    <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#e8a04e]">
-                      Floor · Pro
-                    </div>
-                    <h1 className="mt-3 text-[2rem] font-extrabold leading-[1.1] text-white sm:text-[2.5rem]">
-                      Deep analytics. Every number defended.
-                    </h1>
-                  </div>
-                  {/* Top-of-Pro daily intelligence block — 5 cassetti
-                      (rec-impact / churn / risk / cohort / action-queue)
-                      consolidated under one section anchor + one nav
-                      slot ("Daily intelligence"). Founder feedback
-                      2026-04-30: 24 individual nav entries was bloat;
-                      these 5 cassetti are different facets of "today's
-                      intelligence" so they belong under one heading. */}
-                  <section id="section-pro-daily-intel">
-                    <RecommendationImpactCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                    <ChurnForecastCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                    <RiskForecastCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                    <CohortSummaryCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                    <NudgeActionQueueCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                  </section>
-                </>
+                <section id="section-pro-daily-intel">
+                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                    Daily intelligence
+                  </h2>
+                  <RecommendationImpactCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  <ChurnForecastCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  <RiskForecastCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  <CohortSummaryCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  <NudgeActionQueueCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                </section>
               )}
 
               {/* DashboardHero removed — logo + shop + active status already in sidebar + topbar */}
@@ -3586,6 +3572,9 @@ function PageInner() {
                   Pro; Scale floor inherits it via the same gate. */}
               {(isProFloor || isScaleFloor) && isProUser && (
                 <section id="section-pro-mta" data-tour="mta">
+                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                    Multi-touch attribution
+                  </h2>
                   <MtaCompareCard apiBase={API_BASE} isProUser={isProUser} />
                 </section>
               )}
@@ -3603,6 +3592,9 @@ function PageInner() {
                   overnight alerts). */}
               {(isProFloor || isScaleFloor) && isProUser && (
                 <section id="section-pro-night-shift">
+                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                    Night Shift
+                  </h2>
                   <NightShiftCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                 </section>
               )}
@@ -3650,10 +3642,15 @@ function PageInner() {
                   Queue and Multi-touch attribution un-highlighted in
                   the sidebar. Founder feedback 2026-04-30. ═══ */}
               {isProUser && isProFloor && (
-                <section id="section-pro-targets" className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                  <MonthlyTargetsCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                  <MonthlyROICard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                  <IntegrationsCard apiBase={API_BASE} isProUser={isProUser} />
+                <section id="section-pro-targets">
+                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                    Targets &amp; ROI
+                  </h2>
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <MonthlyTargetsCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                    <MonthlyROICard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                    <IntegrationsCard apiBase={API_BASE} isProUser={isProUser} />
+                  </div>
                 </section>
               )}
 
@@ -3665,6 +3662,9 @@ function PageInner() {
                   comparable signal. ═══ */}
               {isProFloor && (
                 <section id="section-pro-abandoned">
+                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                    Abandoned intent
+                  </h2>
                   <AbandonedIntentCard
                     apiBase={API_BASE}
                     shop={shop}
@@ -3680,6 +3680,9 @@ function PageInner() {
 
               {isProFloor && (
                 <section id="section-pro-visitor-intent">
+                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                    Visitor intent
+                  </h2>
                   <SectionErrorBoundary name="Visitor Intent">
                     <VisitorIntentExplorerCard apiBase={API_BASE} shop={shop} />
                   </SectionErrorBoundary>
@@ -3692,6 +3695,9 @@ function PageInner() {
                   competitor Northbeam $1k+). ═══ */}
               {isProUser && isProFloor && (
                 <section id="section-pro-price">
+                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                    Price sensitivity
+                  </h2>
                   <PriceSensitivityCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                 </section>
               )}
@@ -3703,6 +3709,9 @@ function PageInner() {
                   decomposition. Scale floor inherits via same gate. */}
               {(isProFloor || isScaleFloor) && isProUser && (
                 <section id="section-pro-revenue-autopsy">
+                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                    Revenue autopsy
+                  </h2>
                   <RevenueAutopsyCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                 </section>
               )}
@@ -3754,10 +3763,9 @@ function PageInner() {
               {/* 2 — Store pulse */}
               <SectionErrorBoundary name="Store Pulse">
               <section id="section-overview">
-                <SectionHeading
-                  eyebrow="Store Pulse"
-                  title="How your store is performing"
-                />
+                <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                  Store pulse
+                </h2>
 
                 {/* Phase 0-1: hide zero-wall KPI cards, show waiting message instead */}
                 {coldStartPhase <= 1 ? (
@@ -3787,6 +3795,9 @@ function PageInner() {
               {/* Real orders / revenue section */}
               <SectionErrorBoundary name="Revenue">
               <section id="section-revenue">
+                <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                  Revenue
+                </h2>
                 <OrdersSummary apiBase={API_BASE} shop={shop} displayCurrency={displayCurrency} />
                 <ProductConversions apiBase={API_BASE} shop={shop} />
               </section>
@@ -4066,6 +4077,9 @@ function PageInner() {
               {/* 8 — Conversion Funnel (Pro) */}
               <SectionErrorBoundary name="Funnel">
               <section id="section-funnel">
+                <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                  Funnel &amp; sessions
+                </h2>
                 {isProUser && (
                 <SectionHeading
                   eyebrow="Funnel"
@@ -4277,6 +4291,9 @@ function PageInner() {
               {isProUser && isProFloor && (
                 <SectionErrorBoundary name="Nudge Performance">
                 <section id="section-nudges">
+                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                    Nudges &amp; Lift
+                  </h2>
                   <SectionHeading
                     eyebrow="Nudges"
                     title="Performance"
@@ -4349,6 +4366,9 @@ function PageInner() {
               {isProUser && isProFloor && (
                 <SectionErrorBoundary name="Scroll Intelligence">
                 <section id="section-scroll">
+                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                    Scroll heatmaps
+                  </h2>
                   <SectionHeading
                     eyebrow="Scroll Depth"
                     title="Where visitors stop reading"
