@@ -87,10 +87,13 @@ export function useKlaviyoConnection(
     let active = true;
     authFetch(`${API_BASE}/merchant/integrations`)
       .then((r) => {
-        if (r.status === 401 || r.status === 403) {
+        if (r.status === 401) {
           dispatchSessionExpired();
           return null;
         }
+        // 403 = no Klaviyo integration set up; surface as null,
+        // not as session-expired. (See page.tsx auth-status comment.)
+        if (r.status === 403) return null;
         return r.ok ? r.json() : null;
       })
       .then((d) => {

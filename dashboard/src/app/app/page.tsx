@@ -197,7 +197,12 @@ function apiFetch(url: string, init?: RequestInit): Promise<Response> {
     credentials: "include",
     cache: "no-store",
   }).then((res) => {
-    if (res.status === 401 || res.status === 403) dispatchSessionExpired();
+    // Only 401 = invalid/missing session. 403 = authenticated but
+    // not authorized for this tier — handled per-card (CardError /
+    // CardEmpty with upgrade CTA). Treating 403 as session-expired
+    // caused the prior bug: Pro→Lite redirect + "No shop connected"
+    // when /pro endpoints returned 403 due to a tier-gate mismatch.
+    if (res.status === 401) dispatchSessionExpired();
     return res;
   });
 }
@@ -537,24 +542,19 @@ class DashboardErrorBoundary extends React.Component<
 }
 
 // ---------------------------------------------------------------------------
-// Compute the absolute top of `el` relative to `ancestor`'s
-// scrollable content by walking the offsetParent chain. Cannot rely
-// on `el.offsetTop` alone — sections live under different
-// offsetParent ancestors (ErrorBoundary, SectionHeading, flex
-// containers), so a bare offsetTop returns top-relative-to-the-
-// nearest-positioned-ancestor, which differs per section. Reads
-// live layout values each call: ~1µs per section, called <60×/sec
-// during scroll = trivial. getBoundingClientRect() was tried and
-// abandoned 2026-04-30 because cached metrics went stale after
-// content reflow (lazy images, late data fill).
-function offsetTopWithin(el: HTMLElement, ancestor: HTMLElement): number {
-  let top = 0;
-  let current: HTMLElement | null = el;
-  while (current && current !== ancestor) {
-    top += current.offsetTop;
-    current = current.offsetParent as HTMLElement | null;
-  }
-  return top;
+// Compute `el`'s absolute top inside `ancestor`'s scrollable content.
+// Read fresh from getBoundingClientRect each call — cheap (~10µs total
+// for 25 sections) and correct under reflow (lazy images, late data
+// fill, content expansion). The offsetParent-walk approach was tried
+// and abandoned 2026-04-30 because if `main` itself is static-
+// positioned (flex-1 overflow-y-auto = static), its descendant's
+// offsetParent SKIPS main entirely and lands at body — the chain walk
+// returns wrong positions and scroll-spy desyncs. getBoundingClientRect
+// is offsetParent-independent: it just reports viewport coords.
+function topWithin(el: HTMLElement, ancestor: HTMLElement): number {
+  return el.getBoundingClientRect().top
+    - ancestor.getBoundingClientRect().top
+    + ancestor.scrollTop;
 }
 
 // Main page
@@ -614,42 +614,49 @@ function PageInner() {
   // top edge is just above the line 120px below the scroll-top".
   // Tested with sections as close as 200px apart on /app/pro and
   // every nav slot lights correctly.
-  // Cached list of section elements. Cheap to refresh when DOM
-  // structure changes (loading flips, tier changes); the cost is in
-  // querySelectorAll, not in position calc.
-  const sectionElsRef = useRef<HTMLElement[]>([]);
-  const refreshSections = useCallback(() => {
-    const main = mainRef.current;
-    if (!main) return;
-    sectionElsRef.current = Array.from(
-      main.querySelectorAll<HTMLElement>("[id^='section-']")
-    );
-  }, []);
+  // No section-list cache: scrollSpy queries main.querySelectorAll
+  // each call (~5µs) so it never sees a stale list when cards mount
+  // after data load. refreshSections kept as a no-op shim to preserve
+  // the existing reobserve() API used in useEffect deps.
+  const refreshSections = useCallback(() => {}, []);
   const scrollSpy = useCallback(() => {
     if (isScrollingRef.current) return;
     const main = mainRef.current;
     if (!main) return;
-    const els = sectionElsRef.current;
+    // Re-query sections each call — cheap (~5µs) and bullet-proof
+    // against late-mounting cards (CardSkeleton → loaded transitions
+    // add new <section> anchors that the cached list would miss).
+    const els = main.querySelectorAll<HTMLElement>("[id^='section-']");
     if (els.length === 0) return;
     const probe = main.scrollTop + 120;
-    // Pick the section whose absolute top in main's scrollable
-    // content is the largest value still ≤ probe. The largest-≤
-    // selection (rather than first/last hit) makes the result
-    // independent of DOM order, which matters because sections
-    // live under different offsetParent ancestors (ErrorBoundary,
-    // SectionHeading, etc.) and cannot be assumed monotonic in
-    // querySelectorAll iteration.
+    // Pick the section whose absolute top is the largest value still
+    // ≤ probe. Largest-≤ selection (vs first/last hit) is robust to
+    // out-of-order DOM enumeration when sections live in different
+    // ancestor blocks.
     let activeId: string | null = null;
     let activeTop = -Infinity;
+    let firstId: string | null = null;
+    let firstTop = Infinity;
     for (const el of els) {
-      const top = offsetTopWithin(el, main);
+      const top = topWithin(el, main);
       if (top <= probe && top > activeTop) {
         activeTop = top;
         activeId = el.id;
       }
+      if (top < firstTop) {
+        firstTop = top;
+        firstId = el.id;
+      }
     }
-    if (activeId) {
-      setActiveSection(activeId.replace("section-", ""));
+    // Fallback: if scrolled above all sections, highlight the first
+    // one (= the page's natural starting nav slot). Without this the
+    // sidebar shows no highlight for the first N pixels of every
+    // floor where the hero / dashboard chrome renders before any
+    // <section> anchor — the merchant scrolls and the sidebar
+    // appears unresponsive until they reach the first section.
+    const finalId = activeId ?? firstId;
+    if (finalId) {
+      setActiveSection(finalId.replace("section-", ""));
     }
   }, []);
   // Compatibility shim — `reobserve` is wired into useEffect deps
@@ -1194,10 +1201,11 @@ function PageInner() {
           { headers: apiHeaders(), credentials: "include", cache: "no-store" }
         );
 
-        if (res.status === 401 || res.status === 403) {
+        if (res.status === 401) {
           dispatchSessionExpired();
           return;
         }
+        if (res.status === 403) return;
         if (!res.ok) throw new Error(`Overview failed: ${res.status}`);
         const json = (await res.json()) as OverviewResponse;
 
@@ -1349,7 +1357,8 @@ function PageInner() {
           `${API_BASE}/live/visitors?shop=${encodeURIComponent(shop)}`,
           { headers: apiHeaders(), credentials: "include", cache: "no-store" }
         );
-        if (res.status === 401 || res.status === 403) { dispatchSessionExpired(); return; }
+        if (res.status === 401) { dispatchSessionExpired(); return; }
+        if (res.status === 403) return;
         if (!res.ok) return;
         const json = await res.json();
         if (active) setLiveVisitors(Array.isArray(json.visitors) ? json.visitors : []);
@@ -1404,7 +1413,8 @@ function PageInner() {
     async function loadSignals() {
       try {
         const res = await fetch(endpoint, { headers: apiHeaders(), credentials: "include", cache: "no-store" });
-        if (res.status === 401 || res.status === 403) { dispatchSessionExpired(); return; }
+        if (res.status === 401) { dispatchSessionExpired(); return; }
+        if (res.status === 403) return;
         if (!res.ok) return;
         const json = await res.json();
         if (active) setSignals(Array.isArray(json) ? json : []);
@@ -1654,10 +1664,11 @@ function PageInner() {
         // Detect session expiry on core analytics (most reliable signal)
         const alertsStatus = alertsRes.response.status;
         const trendStatus = trendRes.response.status;
-        if ([alertsStatus, trendStatus].some((s) => s === 401 || s === 403)) {
+        if ([alertsStatus, trendStatus].some((s) => s === 401)) {
           dispatchSessionExpired();
           return;
         }
+        if ([alertsStatus, trendStatus].some((s) => s === 403)) return;
 
         if (!active) return;
         setAlerts(alertsRes.data?.alerts ?? []);
@@ -2371,11 +2382,26 @@ function PageInner() {
                       Deep analytics. Every number defended.
                     </h1>
                   </div>
-                  <RecommendationImpactCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                  <ChurnForecastCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                  <RiskForecastCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                  <CohortSummaryCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                  <NudgeActionQueueCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  {/* Top-of-Pro cassetti — each wrapped in its own
+                      section anchor so the sidebar scroll-spy lights
+                      the corresponding nav slot. Without these
+                      anchors the first ~7000px of /app/pro was a
+                      no-mans-land where scroll-spy had no target. */}
+                  <section id="section-pro-rec-impact">
+                    <RecommendationImpactCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  </section>
+                  <section id="section-pro-churn">
+                    <ChurnForecastCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  </section>
+                  <section id="section-pro-risk">
+                    <RiskForecastCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  </section>
+                  <section id="section-pro-cohort">
+                    <CohortSummaryCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  </section>
+                  <section id="section-pro-action-queue">
+                    <NudgeActionQueueCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  </section>
                 </>
               )}
 

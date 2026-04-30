@@ -158,17 +158,22 @@ export function useCardFetch<T>({
     setState("loading");
     fetch(url, { credentials: "include" })
       .then(async (r) => {
-        // 401/403 = session-expired. Dispatch the global event the
-        // page-level fetchers also fire so the user gets the unified
-        // re-auth flow instead of an isolated "Couldn't load" card.
-        // Born from §20.3 multi-dim sweep on 2026-04-25 — useCardFetch
-        // was the only fetcher in the dashboard NOT participating in
-        // the session-expired flow.
-        if (r.status === 401 || r.status === 403) {
+        // Only 401 = session-expired (no valid auth). Dispatch the
+        // global event the page-level fetchers also fire so the user
+        // gets the unified re-auth flow.
+        // 403 = authenticated but not authorized for this tier — show
+        // the card's local error state instead, do NOT trigger global
+        // session-expired flow. Treating 403 as session-expired caused
+        // a Pro→Lite flash redirect 2026-04-30 when /pro endpoints
+        // returned 403 due to a backend tier-gate mismatch.
+        if (r.status === 401) {
           if (typeof window !== "undefined") {
             window.dispatchEvent(new Event("hedgespark:session-expired"));
           }
-          throw new Error(`HTTP ${r.status}`);
+          throw new Error(`HTTP 401`);
+        }
+        if (r.status === 403) {
+          throw new Error(`HTTP 403`);
         }
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
