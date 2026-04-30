@@ -901,6 +901,7 @@ must satisfy:
 | `hs:llm_realmodel_drift:history` | B2 weekly drift 8-week history | 90d |
 | `hs:vint:v1:{shop_md5_16}` | Visitor Intent aggregate cache | 60s |
 | `hs:liveopps:v1:{shop_md5_16}` | Live Opportunities aggregate cache | 60s |
+| `hs:hmap:{shop}:{url_md5_16}:{event_type}` | Lite spatial heatmap 10×10 buckets — HASH field `{x}:{y}` (0-9 each), event_type ∈ {click, mousemove}; populated by `_bump_heatmap_bucket` at every click + mousemove ingest | 30d |
 | `hs:email:domain_status:v1` | Resend domain verification cache | 10min |
 | `hs:email:last_verified:v1` | Sticky last-known verified state | 30d |
 | `hs:audit_telemetry:{audit_name}` | per-audit fire-rate + findings HASH | 90d |
