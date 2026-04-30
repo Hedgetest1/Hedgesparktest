@@ -79,7 +79,12 @@ const DIM_UNITS_LABEL: Record<Dim, string> = {
 export function ProfitSliceTile({
   displayCurrency,
 }: { displayCurrency: DisplayCurrency }) {
-  const [dim, setDim] = useState<Dim>("variant");
+  // Default to "country" rather than "variant": variant_id is only ingested
+  // by pixel v15+, so legacy orders return rows=[] on the variant dimension
+  // and the card flashes empty on cold load. Country is always populated
+  // from order shipping address. User can still flip to variant/channel
+  // via the dim switcher.
+  const [dim, setDim] = useState<Dim>("country");
 
   const { data, loading, error, retry } = useAsyncResource<ProfitDimData>(
     () => apiClient.GET("/analytics/pnl/profit-by-dimension", {
