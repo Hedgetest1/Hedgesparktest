@@ -363,7 +363,7 @@ const SECTION_TO_NAV_PULSE: Record<string, string> = {
 };
 
 const SECTION_TO_NAV_PRO: Record<string, string> = {
-  // Anchors that map directly to NAV_ITEMS_PRO ids.
+  // Anchors that map 1:1 to NAV_ITEMS_PRO ids (Pro-distinct content).
   "pro-visitor-intent": "pro-visitor-intent",
   "pro-abandoned": "pro-abandoned",
   "pro-price": "pro-price",
@@ -380,24 +380,25 @@ const SECTION_TO_NAV_PRO: Record<string, string> = {
   nudges: "nudges",
   lift: "nudges",
   scroll: "scroll",
-  // Lite-style ghost sections that also render under `isProFloor` at
-  // page.tsx ~line 3639 (Store Pulse KPIs / Revenue / Signals / Product
-  // performance / What next). Until the no-doppione cleanup strips
-  // them from Pro, all roll up to the catch-all "Store pulse" entry.
-  overview: "pro-overview",
-  revenue: "pro-overview",
-  signals: "pro-overview",
-  "product-performance": "pro-overview",
-  "what-next": "pro-overview",
-  proof: "pro-overview",
-  live: "pro-overview",
+  // Pro-vertical sections (page.tsx ~3686 isProFloor block) — each
+  // a Pro-distinct render (NOT a Lite duplicate; Lite uses cassettoni,
+  // Pro uses these full sections). Each gets its own nav slot.
+  overview: "overview",
+  revenue: "revenue",
+  signals: "signals",
+  "product-performance": "product-performance",
+  "what-next": "what-next",
   // Sub-anchors of ProIntelligenceSection — each rolls up to the
   // single "Forecast & intelligence" nav slot so scroll-spy doesn't
-  // ghost when the merchant is reading Forecast / Attribution / LTV
+  // ghost while the merchant is reading Forecast / Attribution / LTV
   // / P&L / Gateway / Price-intel / Market-intel / Behavioral DNA.
   "price-intelligence": "pro-intelligence",
   "market-intelligence": "pro-intelligence",
   "behavioral-intelligence": "pro-intelligence",
+  // Misc sub-anchors that still fall under "What to do next" or are
+  // legacy passthroughs (e.g. proof = sub-anchor in Findings block).
+  proof: "signals",
+  live: "live",
 };
 
 const SECTION_TO_NAV_LITE: Record<string, string> = {
@@ -539,18 +540,54 @@ const NAV_ITEMS_PRO: NavItem[] = [
       </svg>
     ),
   },
-  // Catch-all for the Lite-style pulse/revenue/signals/products/what-next
-  // sections that currently render on Pro (line ~3639 page.tsx). The
-  // "no-doppione" cleanup that strips them from Pro is a separate
-  // sprint; meanwhile this single nav entry catches every ghost
-  // section via SECTION_TO_NAV mappings below — ensures the sidebar
-  // never goes dark when the merchant scrolls through them.
+  // ── Lite-style sections under isProFloor (page.tsx ~3686) ──
+  // These render Pro-distinct content (NOT doppioni of Lite — Lite
+  // uses cassettoni grid; Pro renders SectionHeading + SignalsSection
+  // / ProductPerformanceSection / WhatNextSection / OrdersSummary /
+  // KPI grid). Each gets its own nav entry per founder UX rule
+  // ("biggest = most important, every section answers one question").
   {
-    id: "pro-overview",
+    id: "overview",
     label: "Store pulse",
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
         <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+      </svg>
+    ),
+  },
+  {
+    id: "revenue",
+    label: "Revenue",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    ),
+  },
+  {
+    id: "signals",
+    label: "Findings",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+      </svg>
+    ),
+  },
+  {
+    id: "product-performance",
+    label: "Product performance",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+      </svg>
+    ),
+  },
+  {
+    id: "what-next",
+    label: "What to do next",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" />
       </svg>
     ),
   },

@@ -537,6 +537,26 @@ class DashboardErrorBoundary extends React.Component<
 }
 
 // ---------------------------------------------------------------------------
+// Compute the absolute top of `el` relative to `ancestor`'s
+// scrollable content by walking the offsetParent chain. Cannot rely
+// on `el.offsetTop` alone — sections live under different
+// offsetParent ancestors (ErrorBoundary, SectionHeading, flex
+// containers), so a bare offsetTop returns top-relative-to-the-
+// nearest-positioned-ancestor, which differs per section. Reads
+// live layout values each call: ~1µs per section, called <60×/sec
+// during scroll = trivial. getBoundingClientRect() was tried and
+// abandoned 2026-04-30 because cached metrics went stale after
+// content reflow (lazy images, late data fill).
+function offsetTopWithin(el: HTMLElement, ancestor: HTMLElement): number {
+  let top = 0;
+  let current: HTMLElement | null = el;
+  while (current && current !== ancestor) {
+    top += current.offsetTop;
+    current = current.offsetParent as HTMLElement | null;
+  }
+  return top;
+}
+
 // Main page
 // ---------------------------------------------------------------------------
 function PageInner() {
@@ -594,6 +614,9 @@ function PageInner() {
   // top edge is just above the line 120px below the scroll-top".
   // Tested with sections as close as 200px apart on /app/pro and
   // every nav slot lights correctly.
+  // Cached list of section elements. Cheap to refresh when DOM
+  // structure changes (loading flips, tier changes); the cost is in
+  // querySelectorAll, not in position calc.
   const sectionElsRef = useRef<HTMLElement[]>([]);
   const refreshSections = useCallback(() => {
     const main = mainRef.current;
@@ -609,12 +632,20 @@ function PageInner() {
     const els = sectionElsRef.current;
     if (els.length === 0) return;
     const probe = main.scrollTop + 120;
+    // Pick the section whose absolute top in main's scrollable
+    // content is the largest value still ≤ probe. The largest-≤
+    // selection (rather than first/last hit) makes the result
+    // independent of DOM order, which matters because sections
+    // live under different offsetParent ancestors (ErrorBoundary,
+    // SectionHeading, etc.) and cannot be assumed monotonic in
+    // querySelectorAll iteration.
     let activeId: string | null = null;
+    let activeTop = -Infinity;
     for (const el of els) {
-      if (el.offsetTop <= probe) {
+      const top = offsetTopWithin(el, main);
+      if (top <= probe && top > activeTop) {
+        activeTop = top;
         activeId = el.id;
-      } else {
-        break;
       }
     }
     if (activeId) {
@@ -3685,13 +3716,6 @@ function PageInner() {
 
               {isProFloor && (
                 <>
-              {/* Catch-all anchor for the Pro nav "Store pulse" entry.
-                  The lite-style block below renders inner anchors
-                  (overview / revenue / signals / product-performance /
-                  what-next) which all roll up to nav-id "pro-overview"
-                  via SECTION_TO_NAV_PRO. This sentinel is the click
-                  target so handleNavigate("pro-overview") scrolls here. */}
-              <div id="section-pro-overview" aria-hidden="true" />
               {/* ── Level 2 separator ── */}
               <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
 

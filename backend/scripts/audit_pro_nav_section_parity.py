@@ -42,9 +42,22 @@ SECTIONS_DIR = DASHBOARD / "app" / "app" / "_sections"
 
 # Cross-floor canonical ids that legitimately appear in NAV_ITEMS_PRO
 # without a `section-pro-*` anchor — they re-use the floor-agnostic
-# `section-X` anchor (e.g., `section-funnel`, `section-nudges`,
-# `section-scroll` are shared with the legacy NAV_ITEMS).
-SHARED_SECTION_IDS = {"funnel", "nudges", "scroll"}
+# `section-X` anchor.
+#
+# `funnel`, `nudges`, `scroll` are floor-agnostic conversion-funnel
+# anchors shared with the legacy NAV_ITEMS.
+#
+# `overview`, `revenue`, `signals`, `product-performance`, `what-next`
+# are Pro-distinct sections rendered under `isProFloor` at page.tsx
+# ~3686 (Store Pulse KPIs / Revenue / Findings / Product performance /
+# What to do next). They render Pro-distinct content (NOT Lite
+# duplicates — Lite uses a different cassettoni grid). Each gets a
+# dedicated nav slot per founder UX rule "biggest = most important,
+# every section answers one question stated in its title".
+SHARED_SECTION_IDS = {
+    "funnel", "nudges", "scroll",
+    "overview", "revenue", "signals", "product-performance", "what-next",
+}
 
 # 2026-04-30 — Scale-cross-link allow-list REMOVED. The `scaleOnly`
 # convention itself was a strategic mistake: it parked features in

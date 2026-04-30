@@ -198,6 +198,46 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2b-bis-runtime. Scroll-spy runtime smoke test — Playwright-driven
+# multi-floor probe born 2026-04-30 after the static parity audit (above)
+# caught the missing-anchor class but couldn't catch the position-
+# resolution class (offsetTop vs offsetParent corruption) that left 5+
+# Pro sections lit on the wrong nav slot. Skipped automatically when:
+#   - PREFLIGHT_SKIP_SCROLLSPY=1 explicitly opts out
+#   - dashboard or backend not responding (CI containers without them)
+#   - HS_SESSION env not set (no forged Pro token available)
+# Total cost: ~30s when run; 0 when skipped. Static-first → runtime-fallback
+# pattern matches feedback_pipeline_multi_layer_recognition.md.
+# ---------------------------------------------------------------------------
+step "Scroll-spy runtime smoke (dashboard/scripts/scrollspy_smoke.js, runtime)"
+if [ "${PREFLIGHT_SKIP_SCROLLSPY:-0}" = "1" ]; then
+    info "skipped — PREFLIGHT_SKIP_SCROLLSPY=1"
+elif ! curl -fsS --max-time 2 http://127.0.0.1:3000/ >/dev/null 2>&1; then
+    info "skipped — dashboard not responding on :3000"
+elif ! curl -fsS --max-time 2 http://127.0.0.1:8000/system/health >/dev/null 2>&1; then
+    info "skipped — backend not responding on :8000"
+else
+    # Forge a Pro-tier session token for hedgespark-dev. Read env from
+    # backend/.env for MERCHANT_SESSION_SECRET. If forge fails, skip.
+    SCROLLSPY_TOKEN=$(
+        cd "$BACKEND" 2>/dev/null && \
+        export $(grep -E '^(MERCHANT_SESSION_SECRET|SHOPIFY_API_SECRET|DATABASE_URL|REDIS_URL)=' .env 2>/dev/null | xargs -d '\n' 2>/dev/null) && \
+        "$PY" -c "from app.core.merchant_session import create_session_token; print(create_session_token('hedgespark-dev.myshopify.com'))" 2>/dev/null
+    )
+    if [ -z "$SCROLLSPY_TOKEN" ] || [ "$SCROLLSPY_TOKEN" = "None" ]; then
+        info "skipped — could not forge session token (env missing or signing key unset)"
+    else
+        if HS_SESSION="$SCROLLSPY_TOKEN" node "$REPO_ROOT/dashboard/scripts/scrollspy_smoke.js" > /tmp/preflight_scrollspy.log 2>&1; then
+            ok "$(tail -2 /tmp/preflight_scrollspy.log | head -1)"
+        else
+            bad "scroll-spy regression — see /tmp/preflight_scrollspy.log"
+            tail -30 /tmp/preflight_scrollspy.log || true
+            fail=1
+        fi
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # 2b-ter. Lite hardcoded currency — block when a Lite-floor JSX file
 # embeds €/$/£/¥/₩/₹ in user-visible text (description, sample value,
 # sublabel) instead of formatting via formatMoneyCompact with the
