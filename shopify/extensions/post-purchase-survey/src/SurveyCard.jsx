@@ -24,15 +24,32 @@ import {useEffect, useState} from "react";
 const API_BASE = "https://api.hedgesparkhq.com";
 
 export default function SurveyCard({api, surface}) {
-  const {shop, orderConfirmation, storage, customerPrivacy} = api;
+  // Defensive: if Shopify ever passes a bare/undefined api, don't crash
+  // the whole React tree — we want at least the dev-store probe to show.
+  const safeApi = api || {};
+  const {shop, orderConfirmation, storage, customerPrivacy} = safeApi;
   const shopDomain = shop?.myshopifyDomain || "";
   const orderId = orderConfirmation?.current?.order?.id || "";
 
-  const [phase, setPhase] = useState("loading"); // loading|hidden|prompt|submitting|done|already
+  const [phase, setPhase] = useState("loading"); // loading|hidden|prompt|submitting|done|already|debug_error
   const [config, setConfig] = useState(null);
   const [choice, setChoice] = useState(null);
   const [otherText, setOtherText] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const [debugTrace, setDebugTrace] = useState("");
+
+  // Render visible probe + errors on dev/test stores so we can diagnose
+  // without guessing from the browser console. Real customer stores keep
+  // the silent-fail behavior. The check is intentionally permissive: it
+  // matches any myshopify subdomain that LOOKS like a dev/test/staging
+  // store, plus the empty-domain fallback that hits when `shop` is
+  // undefined in the api object (a possibility we want to make visible).
+  const isDevStore =
+    !shopDomain ||
+    shopDomain.includes("hedgespark-dev") ||
+    shopDomain.includes("dev.myshopify") ||
+    shopDomain.includes("test.myshopify") ||
+    shopDomain.includes("staging.myshopify");
 
   useEffect(() => {
     let cancelled = false;
@@ -77,9 +94,25 @@ export default function SurveyCard({api, surface}) {
 
         setConfig(data);
         setPhase("prompt");
-      } catch (_err) {
-        // Silent failure — never break the Thank-You experience
-        if (!cancelled) setPhase("hidden");
+      } catch (err) {
+        // Silent failure on real stores — never break the Thank-You
+        // experience. On the dev store, render the trace so we can
+        // diagnose without guessing from the browser console.
+        if (cancelled) return;
+        if (isDevStore) {
+          const trace = [
+            `phase: useEffect-init`,
+            `surface: ${surface || "?"}`,
+            `shop: ${shopDomain || "?"}`,
+            `orderId: ${orderId || "?"}`,
+            `error: ${err && err.name ? err.name : "?"}: ${err && err.message ? err.message : String(err)}`,
+            err && err.stack ? `stack(head): ${String(err.stack).split("\n").slice(0, 3).join(" | ")}` : "",
+          ].filter(Boolean).join("\n");
+          setDebugTrace(trace);
+          setPhase("debug_error");
+        } else {
+          setPhase("hidden");
+        }
       }
     })();
     return () => { cancelled = true; };
@@ -125,10 +158,39 @@ export default function SurveyCard({api, surface}) {
     }
   }
 
-  if (phase === "loading" || phase === "hidden") return null;
+  // TEMPORARY UNCONDITIONAL DIAGNOSTIC PROBE — visible on EVERY store
+  // (dev + real customer) to prove the extension mounted. If the founder
+  // (or any tester) places a real test order and DOES NOT see this banner
+  // on the Thank-You page, the extension is not mounting at all and the
+  // bug is in the deploy/configuration layer, not in this component.
+  // Revert to dev-only gate (or remove entirely) once render is confirmed.
+  const probe = (
+    <Banner status="info" title="HedgeSpark survey loaded">
+      <Text>{`phase=${phase} shop=${shopDomain || "(empty)"} order=${orderId || "(empty)"} surface=${surface || "?"} apiKeys=${Object.keys(safeApi).join(",") || "(none)"}`}</Text>
+    </Banner>
+  );
+
+  // Always render the probe — including during loading/hidden — so the
+  // diagnostic is visible no matter what state the consent gate or the
+  // config fetch leave us in. Real customers will see the banner during
+  // the diagnostic window; that's accepted per the temporary mandate.
+  if (phase === "loading" || phase === "hidden") {
+    return <BlockStack spacing="tight">{probe}</BlockStack>;
+  }
+  if (phase === "debug_error") {
+    return (
+      <BlockStack spacing="tight">
+        {probe}
+        <Banner status="critical" title="HedgeSpark Survey — debug (dev store only)">
+          <Text>{debugTrace || "Unknown error"}</Text>
+        </Banner>
+      </BlockStack>
+    );
+  }
   if (phase === "already") {
     return (
       <BlockStack spacing="tight">
+        {probe}
         <Text appearance="subdued">Thanks for sharing earlier ✓</Text>
       </BlockStack>
     );
@@ -136,6 +198,7 @@ export default function SurveyCard({api, surface}) {
   if (phase === "done") {
     return (
       <BlockStack spacing="tight">
+        {probe}
         <Text emphasis="bold">Thanks! ✓</Text>
         <Text appearance="subdued">Your answer helps the store improve.</Text>
       </BlockStack>
@@ -147,6 +210,7 @@ export default function SurveyCard({api, surface}) {
 
   return (
     <BlockStack spacing="base">
+      {probe}
       <Heading level={3}>{config?.question || "How did you hear about us?"}</Heading>
       {errorMsg ? <Banner status="critical">{errorMsg}</Banner> : null}
       <ChoiceList
