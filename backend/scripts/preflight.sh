@@ -389,6 +389,25 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2b-bis-§1.7. Lateral-change evidence — every commit whose subject
+# or body uses lateral-change keywords (remove / rimuovi / add /
+# aggiungi / migrate / restore / etc.) must include §1.7 evidence
+# of the pre-execution protocol (sibling hunt / sticky-state read /
+# pre-mortem / 3-DA). Born 2026-04-30 from
+# `feedback_2026_04_30_failure_mode_diagnosis.md` after 8 oscillations
+# of the Pro/Lite tier partition in one session driven by reactive
+# execution without orthogonal sweep.
+# ---------------------------------------------------------------------------
+step "Lateral-change evidence (audit_lateral_change_evidence.py — §1.7)"
+if "$PY" scripts/audit_lateral_change_evidence.py > /tmp/preflight_lateral_change.log 2>&1; then
+    ok "$(tail -1 /tmp/preflight_lateral_change.log)"
+else
+    bad "lateral-change without §1.7 evidence — see /tmp/preflight_lateral_change.log"
+    tail -30 /tmp/preflight_lateral_change.log || true
+    fail=1
+fi
+
+# ---------------------------------------------------------------------------
 # 2b-sexies. §19 Axis 5 reinforcement — every devil's-advocate lens
 # in the commit message MUST cite executable verification (grep -n,
 # pytest, curl, psql, fenced code block, Evidence: tag). Born after a

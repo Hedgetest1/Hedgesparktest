@@ -239,6 +239,94 @@ permission requests.
 results, pre-mortem, rubric, scheduled-agent offer). That's
 reporting, not asking.
 
+### 1.7 Pre-execution protocol — mandatory for non-trivial changes
+
+**Born 2026-04-30** after a session of 8 oscillations on the
+Pro/Lite tier partition where I executed founder commands reactively
+(remove X / add Y) without orthogonal sweep, missing visual triads,
+prior decisions, and to-do list state. Founder words: *"non estendi
+a livello ortogonale e multidimensionale e non fai i 3 DA e poi fix
+10/10"*. Detail in
+`feedback_2026_04_30_failure_mode_diagnosis.md`.
+
+**The rule:** for ANY change beyond a typo / pure formatting / one-
+line config tweak — and ESPECIALLY for `remove`/`rimuovi`/`add`/
+`aggiungi` / tier-feature / visible-UI / sticky-state changes — the
+following pre-execution checklist MUST appear visibly in the reply
+BEFORE any tool call that performs the change. Skipping it is a
+§1.7 violation and the founder may quote this section to demand
+the protocol be re-run.
+
+**The 5-step checklist (every step in the reply, every time):**
+
+1. **Axis 0 — Risk-weight + scope.** One line: cosmetic / feature /
+   cross-file / architectural / TIER_2. Plus: "scope of this turn
+   is X; out-of-scope findings will be surfaced not silently
+   expanded."
+
+2. **Sibling hunt — `grep -n` evidence.** For every component / id /
+   class / variable about to be touched: paste `grep -n` output.
+   Classify each hit: 🔴 real consumer (must update), 🟡 verify,
+   ⚫ skip. Empirical: 1 reported issue → 3-4 hidden siblings.
+
+3. **Sticky-state read.** Read the relevant `project_*.md`
+   memo BEFORE acting. For tier/feature/UI changes, this is
+   `project_current_partition_state.md`. For other domains, the
+   topic-specific memo. If no memo exists for the affected sticky
+   state, CREATE one in the same turn.
+
+4. **Pre-mortem — 1 paragraph.** "After this change ships, the
+   founder reloads /app/X and sees Y. If Y is wrong, the most
+   likely reason is Z (= the dimension I might be skipping).
+   Mitigation: I will verify Z by ____ before claiming done."
+
+5. **3-DA with grep evidence — Internal / Investor-CTO / Competitor-
+   CTO+CEO lenses.** Each lens produces ONE concrete challenge AND
+   one cited verification (grep / curl / psql / runtime probe). A
+   DA without verification is rhetoric, not analysis. See §19
+   Axis 5 for the strict form.
+
+**For founder commands of the form "remove X" / "add Y" with
+lateral implications:**
+
+- **DO NOT execute immediately.** Default = pause + surface.
+- **Run the 5-step checklist** to identify lateral impact (visual
+  triad, ordered sequence, branded set, prior sticky decision,
+  to-do list entry).
+- **If lateral impact detected**, surface to founder in ONE message
+  before executing: "X è parte della triade Y/Z (per decisione
+  DD/MM). Rimuoverla rompe la coerenza. Confermi tutte e 3 OPPURE
+  solo X?"
+- **Reactive default = INCORRECT default** for any change with
+  cross-cutting implications. The founder's "do X" is a stated goal,
+  not a license to skip lateral analysis.
+
+**Anti-pattern that violates §1.7:**
+
+> Founder: "rimuovi X"
+> Me: [executes Edit + Bash + commit immediately, no checklist
+>     visible in reply]
+
+**Compliant pattern under §1.7:**
+
+> Founder: "rimuovi X"
+> Me:
+>   *Axis 0:* feature / cross-file / scope = remove X only
+>   *Sibling hunt:* `grep -n "X" src/` → 4 hits, 1 real consumer
+>   *Sticky-state:* `project_current_partition_state.md` says X is
+>      part of triad {X,Y,Z} (founder decision 2026-04-DD)
+>   *Pre-mortem:* removing X breaks the visual triad → founder
+>      will see 2 cards instead of 3
+>   *3-DA:* (Internal) the triad was sticky; (Investor) tier
+>      partition reads less coherent; (Competitor) Glew $79 ships
+>      same triad → consistency lost
+>   *Surface to founder:* "X is part of triad — confirm all 3 or
+>      only X?" — wait for response before executing.
+
+**Skip license:** the founder may say "skip §1.7" / "fast path"
+once for an explicit one-shot. The protocol resumes on the next
+non-trivial turn without reminder.
+
 ---
 
 ## 2. Non-negotiable principles (the North Star)
