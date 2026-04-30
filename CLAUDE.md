@@ -874,8 +874,8 @@ must satisfy:
 | `hs:merchant_opt_out:{shop}` | Art. 21 opt-out flag | none |
 | `llm:monthly_cost:{month}` | LLM spend | 35d |
 | `llm:daily:{module}:{date}` | LLM calls per module | 7d |
-| `hs:shop_ccy:v1:{shop}` | shop primary currency cache | 1h |
-| `hs:shop_tz:v1:{shop}` | shop IANA timezone cache | 1h |
+| `hs:shop_ccy:v1:{shop}` | shop currency cache | 1h |
+| `hs:shop_tz:v1:{shop}` | shop timezone cache | 1h |
 | `hs:shop_aov:v1:{shop}:{ccy}` | shop AOV cache | 5min |
 | `hs:trkerr:tot:{shop}:{date}` | tracker error volume (A1) | 7d |
 | `hs:trkerr:hash:{shop}:{date}` | tracker distinct-error set (A1) | 7d |
@@ -895,32 +895,30 @@ must satisfy:
 | `hs:spike:sentry_rate:{hour}` | Sentry rate-spike cooldown | 1h |
 | `hs:spike:sentry_regression:{fp}:{hour}` | Sentry regression cooldown | 1h |
 | `hs:spike:p95_drift:{route}:{day}` | p95 drift cooldown | 24h |
-| `hs:spike:dashboard_asset_drift:hour` | dashboard asset drift cooldown (stale Next.js manifest) | 1h |
-| `hs:spike:perf_network_layer_drift:{route}:{hour}` | RUM×Lighthouse-public correlation cooldown (edge-layer drift) | 1h |
-| `hs:llm_realmodel_drift:last_run:{iso_week}` | B2 weekly real-model corpus dedup | 8d |
-| `hs:llm_realmodel_drift:history` | B2 weekly drift rolling 8-week history | 90d |
-| `hs:vint:v1:{shop_md5_16}` | Visitor Intent Classification aggregate cache (Phase 1.9.3) | 60s |
-| `hs:liveopps:v1:{shop_md5_16}` | Live Opportunities page-leak aggregate cache (Phase 1.9.3) | 60s |
-| `hs:email:domain_status:v1` | Resend domain verification state cache (deliverability preventer) | 10min |
-| `hs:email:last_verified:v1` | Sticky last-known verified state for flip detection | 30d |
-| `hs:audit_telemetry:{audit_name}` | Per-audit fire-rate + findings HASH (field=YYYY-MM-DD, value=`runs|findings|severity`); surfaced via `/ops/audit-telemetry` | 90d |
-| `hs:compare_toggle_usage:v1` | Compare-toggle adoption counter (HASH, field=YYYY-MM-DD, value=count) — incremented at the `resolve_compare_utc_bounds` chokepoint, captures every compare request | 90d |
-| `hs:survey_cfg:v1:{shop}` | Post-purchase survey config cache (Gap #7) — read at every Shopify Checkout UI Extension render | 10min |
-| `hs:survey:rl:{ip_hash}` | Survey response rate-limit (3 hits / 60s window per ip_hash) | 60s |
-| `hs:survey:daily:{shop}:{date}` | Per-shop daily survey response cap (10k/day) — sanity ceiling against runaway storage | 48h |
-| `hs:survey:pii_violations:{date}` | Daily counter of `answer_text` blocked by `llm_pii_guard` (read by ops dashboards) | 30d |
-| `hs:survey:first_today:{shop}:{date}` | SETNX flag — first response of the day per shop, drives NotificationBell pulse | 24h |
-| `hs:mgroup:v1:dash:{group_id}:{lookback_days}` | Multi-store consolidation per-currency rollup cache (Gap #5 Lite-flipped) | 5min |
-| `hs:agency:v1:dash:{agency_id}:{lookback_days}` | Agency white-label per-currency rollup cache (sibling of mgroup) | 5min |
+| `hs:spike:dashboard_asset_drift:hour` | dashboard asset drift cooldown | 1h |
+| `hs:spike:perf_network_layer_drift:{route}:{hour}` | RUM×Lighthouse drift cooldown | 1h |
+| `hs:llm_realmodel_drift:last_run:{iso_week}` | B2 weekly real-model dedup | 8d |
+| `hs:llm_realmodel_drift:history` | B2 weekly drift 8-week history | 90d |
+| `hs:vint:v1:{shop_md5_16}` | Visitor Intent aggregate cache | 60s |
+| `hs:liveopps:v1:{shop_md5_16}` | Live Opportunities aggregate cache | 60s |
+| `hs:email:domain_status:v1` | Resend domain verification cache | 10min |
+| `hs:email:last_verified:v1` | Sticky last-known verified state | 30d |
+| `hs:audit_telemetry:{audit_name}` | per-audit fire-rate + findings HASH | 90d |
+| `hs:compare_toggle_usage:v1` | compare-toggle adoption counter HASH | 90d |
+| `hs:survey_cfg:v1:{shop}` | Post-purchase survey config cache | 10min |
+| `hs:survey:rl:{ip_hash}` | Survey response rate-limit (3/60s) | 60s |
+| `hs:survey:daily:{shop}:{date}` | Per-shop daily survey cap (10k/day) | 48h |
+| `hs:survey:pii_violations:{date}` | Daily PII-blocked counter | 30d |
+| `hs:survey:first_today:{shop}:{date}` | SETNX first-response flag | 24h |
+| `hs:mgroup:v1:dash:{group_id}:{lookback_days}` | Multi-store rollup cache | 5min |
+| `hs:agency:v1:dash:{agency_id}:{lookback_days}` | Agency rollup cache | 5min |
 
-**Note (2026-04-18):** This table is the CURATED list. The backend
-currently uses ~150 Redis prefixes total; the rest are tracked
-internally by their owning modules and scheduled for catalog sweep.
-Verify with `backend/scripts/audit_claude_md_redis_keys.py` (standalone —
-not yet preflight-blocking until the backlog is closed). Any NEW key
-added after 2026-04-18 should land in this table in the same commit.
-**Daily digest dedup is DB-based** (`worker_state.last_digest_date`),
-not Redis — removed stale `hs:digest:*` rows.
+Curated list — backend uses ~150 prefixes total; rest tracked in
+owning modules. Verified by `audit_claude_md_redis_keys.py`
+(orphan-info, not preflight-blocking until backlog closes). Every
+NEW key lands here in the same commit. **Every key has a TTL** (no
+permanent keys except `hs:merchant_opt_out`). Daily digest dedup is
+DB-based (`worker_state.last_digest_date`), not Redis.
 
 ---
 
