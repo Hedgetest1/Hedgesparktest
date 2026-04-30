@@ -3526,6 +3526,108 @@ function PageInner() {
                 </section>
               )}
 
+              {/* ═══ Lite-tier $0-60 features added 2026-04-30 ═══
+                  Funnel (Lucky Orange $32), Scroll heatmaps (LO $32 /
+                  Hotjar Free), Nudges & Lift (Klaviyo $20), KPI goals
+                  (Lifetimely $49), BI / SQL access (Mixpanel $25) —
+                  all ship at $0-60 competitor band, canonical home is
+                  Lite per founder strict no-doppione doctrine. ═══ */}
+              {isLiteFloor && (
+                <SectionErrorBoundary name="Funnel (Lite)">
+                  <section id="section-lite-funnel" className="mb-8">
+                    <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                      Funnel &amp; sessions
+                    </h2>
+                    <SectionHeading
+                      eyebrow="Funnel"
+                      title="Where you lose buyers"
+                      description="Drop-off from view to purchase."
+                    />
+                    {funnelSteps.length === 0 ? (
+                      <p className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-3 text-[12px] text-slate-400">
+                        No funnel data yet — events will appear once your tracker is active.
+                      </p>
+                    ) : (
+                      <FunnelVisualization steps={funnelSteps} />
+                    )}
+                    <div className="mt-6">
+                      <SessionsSection
+                        isProUser={true}
+                        sessions={sessions}
+                        clicks={clicks}
+                        formatDuration={formatDuration}
+                        shortUrl={shortUrl}
+                      />
+                    </div>
+                  </section>
+                </SectionErrorBoundary>
+              )}
+
+              {isLiteFloor && (
+                <SectionErrorBoundary name="Scroll heatmaps (Lite)">
+                  <section id="section-lite-heatmaps" className="mb-8">
+                    <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                      Scroll heatmaps
+                    </h2>
+                    <SectionHeading
+                      eyebrow="Scroll Depth"
+                      title="Where visitors stop reading"
+                    />
+                    <HeatmapCard apiBase={API_BASE} shop={shop} apiHeaders={apiHeaders} />
+                  </section>
+                </SectionErrorBoundary>
+              )}
+
+              {isLiteFloor && (
+                <SectionErrorBoundary name="Nudges & Lift (Lite)">
+                  <section id="section-lite-nudges" className="mb-8">
+                    <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                      Nudges &amp; Lift
+                    </h2>
+                    <SectionHeading
+                      eyebrow="Nudges"
+                      title="Performance"
+                    />
+                    <NudgePerformance
+                      apiBase={API_BASE}
+                      shop={shop}
+                      apiHeaders={apiHeaders}
+                      displayCurrency={displayCurrency}
+                    />
+                  </section>
+                </SectionErrorBoundary>
+              )}
+
+              {isLiteFloor && (
+                <section id="section-lite-goals" className="mb-8">
+                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                    KPI goals
+                  </h2>
+                  <ProParityGapPlaceholder
+                    id="lite-goals-inner"
+                    eyebrow="KPI Goals"
+                    title="Set goals · track progress · alert on drift"
+                    body="Define monthly revenue / order / CVR targets, see real-time progress, get alerted when you're trailing. Backend wired (POST /merchant/goals). UI shipping next sprint to match competitors at the entry tier (Lifetimely Pro ships goal tracking)."
+                    accent="#34d399"
+                  />
+                </section>
+              )}
+
+              {isLiteFloor && (
+                <section id="section-lite-bisql" className="mb-8">
+                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                    BI / SQL access
+                  </h2>
+                  <ProParityGapPlaceholder
+                    id="lite-bisql-inner"
+                    eyebrow="BI / SQL access"
+                    title="Read-only SQL sandbox over your store data"
+                    body="Query your raw events, orders, sessions in safe read-only SQL. Saved queries + scheduled email export. Matches the entry-tier offered by Mixpanel Growth."
+                    accent="#a78bfa"
+                  />
+                </section>
+              )}
+
               {/* ═══ REVENUE AT RISK HERO — Pro-floor only (Lite now
                   surfaces this inside the cassettoni grid above). ═══ */}
               {isProFloor && (

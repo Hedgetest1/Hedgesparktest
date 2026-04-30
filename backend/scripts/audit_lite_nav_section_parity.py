@@ -87,7 +87,11 @@ def collect_nav_ids() -> tuple[set[str], set[str]]:
     # closing `];` on its own line (or paragraph break before
     # SECTION_TO_NAV). We use a simple substring slice between markers.
     nav_block_start = src.find("const NAV_ITEMS_LITE")
-    section_map_start = src.find("const SECTION_TO_NAV")
+    # Prefer SECTION_TO_NAV_LITE (per-floor map shipped 2026-04-30) —
+    # fall back to legacy SECTION_TO_NAV alias if absent.
+    section_map_start = src.find("const SECTION_TO_NAV_LITE")
+    if section_map_start == -1:
+        section_map_start = src.find("const SECTION_TO_NAV")
     if nav_block_start == -1 or section_map_start == -1:
         sys.stderr.write("ERROR: Sidebar.tsx structure changed — cannot parse markers.\n")
         return set(), set()
