@@ -130,12 +130,74 @@ export function ROIHeroBanner({ apiBase, isProUser }: { apiBase: string; isProUs
   if (state === "empty" || !data) {
     return (
       <div style={{ marginBottom: "24px" }}>
-        <CardEmpty
-          accent="emerald"
-          title="Your proven-savings tracker is warming up"
-          body="HedgeSpark runs real A/B tests against a control group before counting any saved euro. The first proven number appears once we've seen enough visitors — usually within 48 hours of going live."
-          eta="First measurement in ~48h"
-        />
+        <div
+          className="rounded-2xl border border-dashed border-emerald-400/25 p-6"
+          style={{
+            background:
+              "radial-gradient(circle at 20% 20%, rgba(16,185,129,0.08) 0%, transparent 55%), linear-gradient(135deg, #0b1220 0%, #111c2e 100%)",
+          }}
+        >
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-[#e8a04e]">
+                Proven savings · 30 days
+              </div>
+              <h3 className="text-[28px] font-extrabold leading-tight tracking-tight text-[#e8a04e]">
+                Real euros HedgeSpark put back
+              </h3>
+              <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-slate-400">
+                HedgeSpark runs real A/B tests against a control group before
+                counting any saved euro. First proven number appears within
+                ~48h of going live — preview below shows what a typical
+                month looks like for an SMB Shopify store on Pro.
+              </p>
+            </div>
+            <div className="flex flex-shrink-0 items-center gap-2 rounded-full bg-emerald-500/[0.10] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-300">
+              <span className="relative inline-flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/60" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              </span>
+              Sample
+            </div>
+          </div>
+
+          <div className="opacity-50">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+              Saved last 30 days
+            </div>
+            <div className="mt-1 text-[56px] font-extrabold leading-none tabular-nums text-emerald-300">
+              €1,847
+            </div>
+            <div className="mt-1 text-[12px] text-emerald-400/70">
+              vs holdout · 14× ROI on €99/mo plan · all measurements p&lt;0.05
+            </div>
+
+            <div className="mt-5 grid gap-2 sm:grid-cols-3">
+              {[
+                { label: "Cart-recovery nudges", value: "€812", lift: "+4.2%" },
+                { label: "Price-band optimisation", value: "€634", lift: "+3.1%" },
+                { label: "Shipping-threshold prompt", value: "€401", lift: "+1.8%" },
+              ].map((row) => (
+                <div
+                  key={row.label}
+                  className="rounded-xl border border-emerald-400/15 bg-emerald-500/[0.04] px-4 py-3"
+                >
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+                    {row.label}
+                  </div>
+                  <div className="mt-1 text-[20px] font-extrabold tabular-nums text-emerald-300">
+                    {row.value}
+                  </div>
+                  <div className="text-[11px] text-emerald-400/70">{row.lift} vs control</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-4 inline-block rounded-full bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold text-slate-400">
+            Real measurements replace this preview within ~48h
+          </div>
+        </div>
       </div>
     );
   }
