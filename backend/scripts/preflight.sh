@@ -410,6 +410,26 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2b-septies. Shopify extension api_version + SDK alignment preventer.
+# Born 2026-04-30 after the post-purchase-survey extension shipped 4
+# deploys (v7-v11) without rendering on a real Thank-You page because
+# shopify.extension.toml had `api_version = "2026-04"` (a non-existent
+# Shopify API version) while package.json pinned SDK = "2024.10.x".
+# Runtime threw `Cannot read properties of undefined (reading 'channel')`.
+# Audit blocks any commit where any extension's toml api_version isn't
+# in the published-SDK allowlist or doesn't match the package.json SDK
+# pin. See audit_shopify_api_version_pinned.py for the doctrine.
+# ---------------------------------------------------------------------------
+step "Shopify extension api_version + SDK pinned (audit_shopify_api_version_pinned.py)"
+if "$PY" scripts/audit_shopify_api_version_pinned.py > /tmp/preflight_shopify_api.log 2>&1; then
+    ok "$(tail -1 /tmp/preflight_shopify_api.log)"
+else
+    bad "shopify api_version / SDK mismatch — see /tmp/preflight_shopify_api.log"
+    tail -20 /tmp/preflight_shopify_api.log || true
+    fail=1
+fi
+
+# ---------------------------------------------------------------------------
 # 2b-sexies. §19 Axis 5 reinforcement — every devil's-advocate lens
 # in the commit message MUST cite executable verification (grep -n,
 # pytest, curl, psql, fenced code block, Evidence: tag). Born after a
