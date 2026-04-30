@@ -84,12 +84,62 @@ export function HowCustomersFindYouCard({
 
   if (state === "empty" || !data) {
     return (
-      <CardEmpty
-        accent="amber"
-        title="We're listening"
-        body="The post-purchase survey is live on your Thank-You page. The first response will land here within 24h of your next order."
-        eta="Needs ~1 order"
-      />
+      <div className="rounded-2xl border border-dashed border-white/[0.10] bg-white/[0.015] p-6">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-[1.75rem] font-extrabold leading-[1.08] tracking-tight text-[#e8a04e] sm:text-[2rem]">
+              How customers find you
+            </h3>
+            <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-slate-400">
+              The post-purchase survey is live on your Thank-You page. The first
+              response will land here within 24h of your next order — preview
+              below shows a typical SMB Shopify mix.
+            </p>
+          </div>
+          <div className="flex flex-shrink-0 items-center gap-2 rounded-full bg-amber-500/[0.08] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-300">
+            <span className="relative inline-flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400/60" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-amber-400" />
+            </span>
+            Sample
+          </div>
+        </div>
+
+        <div className="space-y-2 opacity-50">
+          {[
+            { choice: "instagram", count: 8, pct: 42 },
+            { choice: "tiktok", count: 5, pct: 26 },
+            { choice: "friend", count: 3, pct: 16 },
+            { choice: "google", count: 3, pct: 16 },
+          ].map((entry, i) => (
+            <div
+              key={entry.choice}
+              className="flex items-center gap-3 rounded-xl border border-white/[0.05] bg-white/[0.015] px-4 py-3"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="truncate text-[13px] font-semibold text-slate-200">
+                    {labelFor(entry.choice)}
+                  </span>
+                  <span className="flex-shrink-0 text-[12px] tabular-nums text-slate-400">
+                    {entry.count} ({entry.pct}%)
+                  </span>
+                </div>
+                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/[0.04]">
+                  <div
+                    className="h-full rounded-full"
+                    style={{ width: `${entry.pct}%`, background: barColor(i) }}
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 inline-block rounded-full bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold text-slate-400">
+          Real responses replace this preview after ~1 order
+        </div>
+      </div>
     );
   }
 
