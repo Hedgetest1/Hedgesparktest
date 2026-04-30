@@ -3767,17 +3767,28 @@ function PageInner() {
                   Store pulse
                 </h2>
 
-                {/* Phase 0-1: hide zero-wall KPI cards, show waiting message instead */}
-                {coldStartPhase <= 1 ? (
+                {/* Phase 0 (setup incomplete): hide cards, show setup
+                    CTA. Phase 1+ (tracker active, even with 0 visitors):
+                    show KPI grid — zero values are valid info, leaving
+                    a blank section is worse UX. Founder feedback
+                    2026-04-30: "Store pulse è vuoto" was caused by the
+                    prior phase ≤1 hide that left the section empty
+                    when total_visitors=0. */}
+                {coldStartPhase === 0 ? (
                   <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-5 py-6">
                     <p className="text-[13px] text-slate-400">
-                      {coldStartPhase === 0
-                        ? "Complete setup to see your metrics."
-                        : "Tracker active — data appears with your next visitor."}
+                      Complete setup to see your metrics.
                     </p>
                   </div>
                 ) : (
                 <>
+                {coldStartPhase === 1 && (
+                  <div className="mb-4 rounded-xl border border-amber-400/15 bg-amber-500/[0.04] px-4 py-2.5">
+                    <p className="text-[12px] font-medium text-amber-300/80">
+                      Tracker active — your numbers populate as visitors arrive.
+                    </p>
+                  </div>
+                )}
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   <KpiCard label="Visitors (24h)" value={formatNumber(summary.total_visitors)} hint="Last 24 hours" numeric={summary.total_visitors} onClick={() => setActiveKpi("visitors")} />
                   <KpiCard label="Events (24h)" value={formatNumber(summary.total_events)} hint="Browsing events" numeric={summary.total_events} onClick={() => setActiveKpi("events")} />
