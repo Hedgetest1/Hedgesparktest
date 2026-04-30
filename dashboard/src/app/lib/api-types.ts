@@ -2986,6 +2986,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/pro/heatmap/spatial": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Spatial Heatmap
+         * @description Spatial click/move heatmap as a 10×10 percentage grid for one URL.
+         *
+         *     Closes the Lite parity gap with Lucky Orange Build $39 (which ships
+         *     click + move + scroll heatmaps). Scroll is covered by the existing
+         *     `/pro/heatmap` endpoint above; this endpoint adds spatial click and
+         *     move.
+         *
+         *     Storage path: tracker emits `click` + `mousemove` events with x_pct
+         *     + y_pct → track.py `_bump_heatmap_bucket` writes to Redis HASH
+         *     `hs:hmap:{shop}:{url_md5_16}:{event_type}`, field `{x}:{y}` (0-9).
+         */
+        get: operations["get_spatial_heatmap_pro_heatmap_spatial_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pro/cohorts": {
         parameters: {
             query?: never;
@@ -7089,6 +7118,13 @@ export interface paths {
         /**
          * Get Recommendation Impact
          * @description Quasi-experimental measurement of recommendation impact.
+         *
+         *     Note (2026-04-29): un-flipped to require_pro_session after the
+         *     Pro→Scale moat migration accidentally bulk-flipped this endpoint
+         *     along with /pro/causal-lift. RecommendationImpactCard renders on
+         *     the Pro floor (one of the 5 Intelligence cards at the top); it's
+         *     a Pro-tier feature, not a Scale moat. Causal Lift proper (full
+         *     A/B holdout) stays Scale via the sibling endpoint above.
          *     Pre/post revenue comparison for acted-upon recommendations.
          */
         get: operations["get_recommendation_impact_pro_recommendation_impact_get"];
@@ -12602,6 +12638,30 @@ export interface components {
              */
             paid_revenue_gap: boolean;
         };
+        /** SpatialBucket */
+        SpatialBucket: {
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+            /** Count */
+            count: number;
+        };
+        /** SpatialHeatmapResponse */
+        SpatialHeatmapResponse: {
+            /** Product Url */
+            product_url: string;
+            /** Event Type */
+            event_type: string;
+            /** Grid Size */
+            grid_size: number;
+            /** Total Events */
+            total_events: number;
+            /** Buckets */
+            buckets: components["schemas"]["SpatialBucket"][];
+            /** Generated At */
+            generated_at: string;
+        };
         /** StandardSurfaceOut */
         StandardSurfaceOut: {
             /** Surface */
@@ -13067,6 +13127,10 @@ export interface components {
             dwell_seconds?: number | null;
             /** Scroll Depth */
             scroll_depth?: number | null;
+            /** X Pct */
+            x_pct?: number | null;
+            /** Y Pct */
+            y_pct?: number | null;
             /** Source Type */
             source_type?: string | null;
             /** Referrer */
@@ -17188,6 +17252,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HeatmapTopResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_spatial_heatmap_pro_heatmap_spatial_get: {
+        parameters: {
+            query: {
+                product_url: string;
+                event_type?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpatialHeatmapResponse"];
                 };
             };
             /** @description Validation Error */

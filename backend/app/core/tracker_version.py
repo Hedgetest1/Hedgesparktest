@@ -20,7 +20,7 @@ import os
 
 # Bump this when any file in /opt/wishspark/tracker/*.js changes.
 # Format: integer, monotonically increasing.
-TRACKER_VERSION = 15
+TRACKER_VERSION = 16
 
 # SHA-256 of the concatenated contents of every tracker/*.js file,
 # computed by test_elite_hardening_v2::test_tracker_js_hash_matches_version.
@@ -31,7 +31,7 @@ TRACKER_VERSION = 15
 #   3. Run pytest; paste the new hash from the failure message below
 # This pairing guarantees TRACKER_VERSION is bumped EVERY time any tracker
 # script changes — otherwise merchant browsers keep cached stale JS.
-TRACKER_SOURCE_HASH = "13c7192749638273f2b73b358046bd03dcf37d300449f9bd4743949b5c62dee5"
+TRACKER_SOURCE_HASH = "08d09ba49df377f9330ef208977b3562293455a9a53fd698e9fe771fc13e55a2"
 
 
 def get_tracker_url() -> str:

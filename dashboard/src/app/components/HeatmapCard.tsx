@@ -3,19 +3,28 @@
 import { useEffect, useState } from "react";
 import { apiClient, getHeaders, type paths } from "../lib/api-client";
 
-// HeatmapCard — Scroll depth visualization from real behavioral data.
+// HeatmapCard — Scroll + Click + Move heatmaps from real behavioral data.
 //
-// HedgeSpark captures scroll_depth per visitor per product page.
-// This component aggregates that into a visual scroll map.
+// Lite slot 13 (per project_current_partition_state.md). Closes Lucky
+// Orange Build $39 / Hotjar Free parity gap which ship all three modes.
 //
-// Attacks Microsoft Clarity on their core proposition — but our data
-// is connected to conversion outcomes, not just visual session replay.
+// HedgeSpark captures:
+//  - max_scroll_depth per visitor (existing) → /pro/heatmap/top
+//  - x_pct/y_pct on every click + sampled mousemove (tracker v16+) →
+//    /pro/heatmap/spatial?event_type=click|move (Redis 10×10 buckets)
 //
-// Source of truth: GET /pro/heatmap/top → HeatmapTopResponse (fully typed).
+// Source of truth:
+//  - GET /pro/heatmap/top    → HeatmapTopResponse  (scroll quartiles)
+//  - GET /pro/heatmap/spatial → SpatialHeatmapResponse (10×10 grid)
 
 type HeatmapTopData =
   paths["/pro/heatmap/top"]["get"]["responses"]["200"]["content"]["application/json"];
 type ScrollBucket = HeatmapTopData["products"][number]["buckets"][number];
+
+type SpatialData =
+  paths["/pro/heatmap/spatial"]["get"]["responses"]["200"]["content"]["application/json"];
+
+type ViewMode = "scroll" | "click" | "move";
 
 const BUCKET_COLORS = [
   { bg: "bg-sky-500/70",     text: "text-sky-300"    },
@@ -66,6 +75,82 @@ function ScrollDepthBar({ buckets, totalViewers }: { buckets: ScrollBucket[]; to
   );
 }
 
+// 10×10 spatial grid. Each cell rendered as a div with opacity scaled by
+// count / max(count). Hue per mode: violet (click) / sky (move).
+function SpatialGrid({
+  data,
+  mode,
+}: {
+  data: SpatialData | null;
+  mode: "click" | "move";
+}) {
+  const buckets = data?.buckets ?? [];
+  const total = data?.total_events ?? 0;
+
+  if (!buckets.length || total === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-white/[0.10] bg-white/[0.015] p-4 text-center">
+        <p className="text-[11.5px] leading-relaxed text-slate-400">
+          {mode === "click"
+            ? "No click data yet for this product. Cells light up the moment your first visitor clicks anywhere on the page."
+            : "No mouse-move data yet for this product. Cells light up the moment your first visitor moves their cursor on the page."}
+        </p>
+      </div>
+    );
+  }
+
+  // Build a 10×10 sparse map.
+  const grid: number[][] = Array.from({ length: 10 }, () => Array(10).fill(0));
+  let maxCount = 0;
+  for (const b of buckets) {
+    if (b.x >= 0 && b.x <= 9 && b.y >= 0 && b.y <= 9) {
+      grid[b.y][b.x] = b.count;
+      if (b.count > maxCount) maxCount = b.count;
+    }
+  }
+
+  // Hue: violet (#a78bfa) for click, sky (#38bdf8) for move.
+  const baseRgb = mode === "click" ? "167, 139, 250" : "56, 189, 248";
+
+  return (
+    <div className="space-y-2">
+      <div
+        className="relative overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] p-1.5"
+        style={{ aspectRatio: "16/9" }}
+      >
+        <div className="grid h-full w-full grid-cols-10 grid-rows-10 gap-px">
+          {Array.from({ length: 10 }).map((_, y) =>
+            Array.from({ length: 10 }).map((__, x) => {
+              const c = grid[y][x];
+              const intensity = maxCount > 0 ? c / maxCount : 0;
+              return (
+                <div
+                  key={`${x}-${y}`}
+                  className="rounded-[2px]"
+                  style={{
+                    backgroundColor: `rgba(${baseRgb}, ${0.05 + intensity * 0.85})`,
+                  }}
+                  title={c > 0 ? `${c} ${mode === "click" ? "clicks" : "samples"}` : ""}
+                />
+              );
+            })
+          )}
+        </div>
+      </div>
+      <div className="flex items-center justify-between text-[11px] text-slate-400">
+        <span>
+          {mode === "click" ? "Top-left → bottom-right" : "Cursor density"}
+        </span>
+        <span className="tabular-nums">
+          {total.toLocaleString()} {mode === "click" ? "clicks" : "samples"}
+          {" · "}
+          peak {maxCount.toLocaleString()}/cell
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export function HeatmapCard({
   apiBase: _apiBase,
   shop,
@@ -78,6 +163,9 @@ export function HeatmapCard({
   const [data, setData] = useState<HeatmapTopData | null>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<number>(0);
+  const [mode, setMode] = useState<ViewMode>("scroll");
+  const [spatialClick, setSpatialClick] = useState<SpatialData | null>(null);
+  const [spatialMove, setSpatialMove] = useState<SpatialData | null>(null);
 
   useEffect(() => {
     if (!shop) return;
@@ -100,6 +188,35 @@ export function HeatmapCard({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shop]);
 
+  const products = data?.products ?? [];
+  const current = products[selected];
+  const currentUrl = current?.product_url ?? "";
+
+  // Lazy-fetch spatial data when the user switches to click/move tab,
+  // scoped to the currently-selected product. Avoids paying the cost
+  // until the merchant actually opens the tab.
+  useEffect(() => {
+    if (!shop || !currentUrl) return;
+    if (mode === "scroll") return;
+    let active = true;
+
+    async function loadSpatial() {
+      try {
+        const res = await apiClient.GET("/pro/heatmap/spatial", {
+          params: { query: { product_url: currentUrl, event_type: mode } },
+          headers: getHeaders(apiHeaders),
+        });
+        if (!active || res.data == null) return;
+        if (mode === "click") setSpatialClick(res.data);
+        else setSpatialMove(res.data);
+      } catch { /* silent */ }
+    }
+
+    loadSpatial();
+    return () => { active = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shop, currentUrl, mode]);
+
   if (loading) {
     return (
       <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5 animate-pulse">
@@ -113,20 +230,15 @@ export function HeatmapCard({
     );
   }
 
-  const products = data?.products ?? [];
-  const current = products[selected];
-
   return (
     <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
-      {/* Header — internal Pro badge removed. Pro context is owned by the
-          parent SectionHeading / Pro Intelligence zone. */}
       <div className="mb-4">
         <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-          Scroll Intelligence
+          Behavior Intelligence
         </div>
-        <h3 className="text-[14px] font-semibold text-white">Where visitors stop reading</h3>
+        <h3 className="text-[14px] font-semibold text-white">Where visitors stop, click & move</h3>
         <p className="mt-0.5 text-[11px] text-slate-400">
-          Real scroll depth per product — no session replay needed
+          Scroll depth + click + cursor density per product — no session replay
         </p>
       </div>
 
@@ -169,7 +281,7 @@ export function HeatmapCard({
             </div>
           </div>
           <p className="mt-3 text-[12px] leading-relaxed text-slate-400">
-            Scroll depth per product — no session replay needed. Real numbers populate the moment your first visitor scrolls a product page.
+            Scroll + click + move heatmaps populate the moment your first visitor lands on a product page.
           </p>
         </div>
       ) : (
@@ -193,38 +305,71 @@ export function HeatmapCard({
             </div>
           )}
 
-          {/* Current product stats */}
+          {/* Mode tabs — Scroll / Click / Move */}
+          <div className="mb-4 inline-flex gap-1 rounded-lg border border-white/[0.06] bg-white/[0.02] p-1">
+            {(
+              [
+                { id: "scroll", label: "Scroll" },
+                { id: "click",  label: "Clicks" },
+                { id: "move",   label: "Move" },
+              ] as { id: ViewMode; label: string }[]
+            ).map((m) => (
+              <button
+                key={m.id}
+                onClick={() => setMode(m.id)}
+                className={`rounded-md px-3 py-1 text-[11px] font-semibold transition-colors ${
+                  mode === m.id
+                    ? "bg-violet-600/80 text-white"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+
           {current && (
             <>
-              <div className="mb-3 grid grid-cols-3 gap-2">
-                <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-                  <div className="text-[10px] uppercase text-slate-400">Viewers</div>
-                  <div className="mt-0.5 text-[13px] font-semibold text-white">
-                    {current.total_viewers?.toLocaleString() ?? "—"}
+              {/* Stats — only meaningful for scroll mode */}
+              {mode === "scroll" && (
+                <div className="mb-3 grid grid-cols-3 gap-2">
+                  <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+                    <div className="text-[10px] uppercase text-slate-400">Viewers</div>
+                    <div className="mt-0.5 text-[13px] font-semibold text-white">
+                      {current.total_viewers?.toLocaleString() ?? "—"}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+                    <div className="text-[10px] uppercase text-slate-400">Avg Scroll</div>
+                    <div className="mt-0.5 text-[13px] font-semibold text-white">
+                      {current.avg_scroll_depth != null ? `${current.avg_scroll_depth.toFixed(0)}%` : "—"}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+                    <div className="text-[10px] uppercase text-slate-400">Full Page</div>
+                    <div className="mt-0.5 text-[13px] font-semibold text-white">
+                      {current.deep_reader_pct != null ? `${current.deep_reader_pct.toFixed(0)}%` : "—"}
+                    </div>
                   </div>
                 </div>
-                <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-                  <div className="text-[10px] uppercase text-slate-400">Avg Scroll</div>
-                  <div className="mt-0.5 text-[13px] font-semibold text-white">
-                    {current.avg_scroll_depth != null ? `${current.avg_scroll_depth.toFixed(0)}%` : "—"}
-                  </div>
-                </div>
-                <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-                  <div className="text-[10px] uppercase text-slate-400">Full Page</div>
-                  <div className="mt-0.5 text-[13px] font-semibold text-white">
-                    {current.deep_reader_pct != null ? `${current.deep_reader_pct.toFixed(0)}%` : "—"}
-                  </div>
-                </div>
-              </div>
+              )}
 
-              {/* Scroll depth bars */}
-              <ScrollDepthBar
-                buckets={current.buckets ?? []}
-                totalViewers={current.total_viewers ?? 0}
-              />
+              {/* Body — depends on mode */}
+              {mode === "scroll" && (
+                <ScrollDepthBar
+                  buckets={current.buckets ?? []}
+                  totalViewers={current.total_viewers ?? 0}
+                />
+              )}
+              {mode === "click" && (
+                <SpatialGrid data={spatialClick} mode="click" />
+              )}
+              {mode === "move" && (
+                <SpatialGrid data={spatialMove} mode="move" />
+              )}
 
-              {/* Insight */}
-              {current.insight && (
+              {/* Insight — scroll only (LLM-free, deterministic) */}
+              {mode === "scroll" && current.insight && (
                 <div className="mt-3 rounded-xl border border-violet-400/[0.1] bg-violet-500/[0.04] px-3.5 py-3">
                   <p className="text-[12px] leading-[1.6] text-slate-300">{current.insight}</p>
                 </div>

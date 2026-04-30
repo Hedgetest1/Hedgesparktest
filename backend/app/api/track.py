@@ -100,6 +100,7 @@ _ALLOWED_EVENT_TYPES: frozenset[str] = frozenset({
     "scroll",
     "add_to_cart",
     "click",
+    "mousemove",
     "page_leave",
     "wishlist_add",
     "purchase",
@@ -130,6 +131,13 @@ class TrackPayload(BaseModel):
     timestamp: Optional[int] = Field(None, ge=0, le=9999999999999)  # epoch ms, max ~2286 CE
     dwell_seconds: Optional[int] = Field(None, ge=0, le=86400)    # max 24h
     scroll_depth: Optional[int] = Field(None, ge=0, le=100)       # percentage
+
+    # Spatial heatmap coordinates as % of viewport. Sent on click +
+    # mousemove events from spark-tracker.js v16+. Stored ONLY in
+    # Redis buckets (no schema migration) — see _bump_heatmap_bucket
+    # below.
+    x_pct: Optional[float] = Field(None, ge=0, le=100)
+    y_pct: Optional[float] = Field(None, ge=0, le=100)
 
     # Source attribution — sent by spark-tracker.js since migration j7e0a4b8c3d6.
     source_type: Optional[str] = Field(None, max_length=64)
@@ -256,6 +264,47 @@ def _consent_allows_ingestion(payload: "TrackPayload", request=None) -> bool:
     if os.getenv("TRACK_CONSENT_STRICT", "").strip() == "1":
         return False
     return True
+
+
+def _bump_heatmap_bucket(
+    shop_domain: str,
+    url: str,
+    event_type: str,
+    x_pct: float,
+    y_pct: float,
+) -> None:
+    """Increment 10×10 spatial-heatmap bucket counter for click /
+    mousemove events. Redis HASH per (shop, url-md5, event_type),
+    field = "{x_bucket}:{y_bucket}" (each 0-9). 30-day TTL.
+
+    Why hashed url: avoid 2KB Redis key per page. Lookup uses the
+    same md5 truncation in the spatial-heatmap endpoint.
+
+    Why bucket grid 10×10: 100 cells per page is fine resolution for
+    canvas heatmap rendering; coarser (5×5) loses headline buttons,
+    finer (20×20) blows up Redis size with no perceptible UX gain.
+    """
+    if x_pct is None or y_pct is None or not url:
+        return
+    if event_type not in ("click", "mousemove"):
+        return
+    try:
+        import hashlib as _h
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("track.heatmap_bucket")
+            return
+        url_h = _h.md5(url.encode("utf-8")).hexdigest()[:16]
+        x_bucket = max(0, min(9, int(x_pct // 10)))
+        y_bucket = max(0, min(9, int(y_pct // 10)))
+        key = f"hs:hmap:{shop_domain}:{url_h}:{event_type}"
+        field = f"{x_bucket}:{y_bucket}"
+        rc.hincrby(key, field, 1)
+        rc.expire(key, 30 * 24 * 3600)
+    except Exception as exc:
+        log.warning("track: _bump_heatmap_bucket failed: %s", exc)
 
 
 def _bump_consent_metric(accepted: bool) -> None:
@@ -777,6 +826,18 @@ def track_event(request: Request, payload: TrackPayload, db: Session = Depends(g
     )
 
     db.add(event)
+
+    # Spatial heatmap bucket increment (Lite spatial heatmap — Lucky
+    # Orange Build $39 parity). Click + mousemove events with x_pct/
+    # y_pct hit a 10×10 Redis grid; rendered by HeatmapCard click +
+    # move tabs. Stored ONLY in Redis to avoid schema migration.
+    _bump_heatmap_bucket(
+        shop_domain=payload.shop_domain,
+        url=canonical_product_url or payload.page_url or "",
+        event_type=payload.event_type,
+        x_pct=payload.x_pct,
+        y_pct=payload.y_pct,
+    )
 
     # Store shopify_y → visitor_id mapping for pixel identity bridging.
     # When the Custom Pixel fires checkout_completed, it sends event.clientId

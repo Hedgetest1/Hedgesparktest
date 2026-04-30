@@ -1068,11 +1068,51 @@
           if (_clickCount >= _MAX_CLICKS) return;
           if (!_matchesClickSelector(e.target)) return;
           _clickCount++;
+          // Coords as % of viewport for Lite spatial heatmap (Lucky
+          // Orange $32 parity). 1 decimal precision keeps payload
+          // small. Coords go to Redis bucket on /track, not stored
+          // in events table — no schema migration.
+          var _vw = Math.max(1, window.innerWidth || 1);
+          var _vh = Math.max(1, window.innerHeight || 1);
           sendEventBatched("click", {
             product_url: detectProductUrl(),
+            x_pct: Math.round((e.clientX / _vw) * 1000) / 10,
+            y_pct: Math.round((e.clientY / _vh) * 1000) / 10,
           });
         } catch (_) {}
       }, true);
+    } catch (_) {}
+  }
+
+  // ---------------------------------------------------------------------------
+  // 6b. Mousemove sampler — Lite spatial heatmap "movement trails"
+  //     (Lucky Orange Build $39 ships move heatmaps; we ship aggregate
+  //      density on the same Lite tier). Throttled to 200ms; capped at
+  //      50 samples per page load to avoid event firehose. Only on
+  //      product pages (same gate as click). Coords as % of viewport.
+  // ---------------------------------------------------------------------------
+  if (detectProductUrl()) {
+    try {
+      var _moveCount = 0;
+      var _MAX_MOVES = 50;
+      var _MOVE_THROTTLE_MS = 200;
+      var _lastMoveTs = 0;
+      document.addEventListener("mousemove", function (e) {
+        try {
+          if (_moveCount >= _MAX_MOVES) return;
+          var _now = Date.now();
+          if (_now - _lastMoveTs < _MOVE_THROTTLE_MS) return;
+          _lastMoveTs = _now;
+          _moveCount++;
+          var _vw = Math.max(1, window.innerWidth || 1);
+          var _vh = Math.max(1, window.innerHeight || 1);
+          sendEventBatched("mousemove", {
+            product_url: detectProductUrl(),
+            x_pct: Math.round((e.clientX / _vw) * 1000) / 10,
+            y_pct: Math.round((e.clientY / _vh) * 1000) / 10,
+          });
+        } catch (_) {}
+      }, { passive: true });
     } catch (_) {}
   }
 

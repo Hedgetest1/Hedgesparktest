@@ -3564,14 +3564,14 @@ function PageInner() {
               )}
 
               {isLiteFloor && (
-                <SectionErrorBoundary name="Scroll heatmaps (Lite)">
+                <SectionErrorBoundary name="Heatmaps (Lite)">
                   <section id="section-lite-heatmaps" className="mb-8">
                     <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
-                      Scroll heatmaps
+                      Heatmaps
                     </h2>
                     <SectionHeading
-                      eyebrow="Scroll Depth"
-                      title="Where visitors stop reading"
+                      eyebrow="Behavior Intelligence"
+                      title="Scroll · click · cursor density"
                     />
                     <HeatmapCard apiBase={API_BASE} shop={shop} apiHeaders={apiHeaders} />
                   </section>

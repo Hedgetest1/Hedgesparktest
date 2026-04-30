@@ -443,6 +443,60 @@ class TestProEndpointSmoke:
         assert resp.status_code in (401, 403)
 
     # ------------------------------------------------------------------
+    # 25b. GET /pro/heatmap/spatial — 10×10 click/move grid (Lite slot 13)
+    # ------------------------------------------------------------------
+
+    def test_heatmap_spatial_click_200(self, client, merchant_a, auth_a):
+        resp = client.get(
+            "/pro/heatmap/spatial",
+            params={
+                "product_url": "/products/test-handle",
+                "event_type": "click",
+            },
+            cookies=auth_a,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["event_type"] == "click"
+        assert body["grid_size"] == 10
+        assert "buckets" in body
+        assert "total_events" in body
+
+    def test_heatmap_spatial_move_200(self, client, merchant_a, auth_a):
+        resp = client.get(
+            "/pro/heatmap/spatial",
+            params={
+                "product_url": "/products/test-handle",
+                "event_type": "move",
+            },
+            cookies=auth_a,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["event_type"] == "mousemove"
+
+    def test_heatmap_spatial_unknown_type_returns_empty(self, client, merchant_a, auth_a):
+        resp = client.get(
+            "/pro/heatmap/spatial",
+            params={
+                "product_url": "/products/test-handle",
+                "event_type": "bogus",
+            },
+            cookies=auth_a,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total_events"] == 0
+        assert body["buckets"] == []
+
+    def test_heatmap_spatial_unauth(self, client):
+        resp = client.get(
+            "/pro/heatmap/spatial",
+            params={"product_url": "/products/test-handle", "event_type": "click"},
+        )
+        assert resp.status_code in (401, 403)
+
+    # ------------------------------------------------------------------
     # 26. GET /analytics/clicks — click insights
     #     Router prefix is /analytics; path is /clicks.
     # ------------------------------------------------------------------
