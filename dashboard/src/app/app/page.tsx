@@ -2382,24 +2382,18 @@ function PageInner() {
                       Deep analytics. Every number defended.
                     </h1>
                   </div>
-                  {/* Top-of-Pro cassetti — each wrapped in its own
-                      section anchor so the sidebar scroll-spy lights
-                      the corresponding nav slot. Without these
-                      anchors the first ~7000px of /app/pro was a
-                      no-mans-land where scroll-spy had no target. */}
-                  <section id="section-pro-rec-impact">
+                  {/* Top-of-Pro daily intelligence block — 5 cassetti
+                      (rec-impact / churn / risk / cohort / action-queue)
+                      consolidated under one section anchor + one nav
+                      slot ("Daily intelligence"). Founder feedback
+                      2026-04-30: 24 individual nav entries was bloat;
+                      these 5 cassetti are different facets of "today's
+                      intelligence" so they belong under one heading. */}
+                  <section id="section-pro-daily-intel">
                     <RecommendationImpactCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                  </section>
-                  <section id="section-pro-churn">
                     <ChurnForecastCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                  </section>
-                  <section id="section-pro-risk">
                     <RiskForecastCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                  </section>
-                  <section id="section-pro-cohort">
                     <CohortSummaryCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                  </section>
-                  <section id="section-pro-action-queue">
                     <NudgeActionQueueCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   </section>
                 </>
@@ -3597,16 +3591,22 @@ function PageInner() {
                 <RevenueGenomeCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
               )}
 
-              {/* Night Shift — KEEP-in-Pro per founder $60-130 parity
-                  rule (Glew Pro $79 + Lifetimely Pro $49-149 + Triple
-                  Whale Pro $129 all ship overnight alerts). Both the
-                  predictive Card and the retrospective Timeline live
-                  on Pro; Scale floor inherits the same gate. */}
+              {/* NightShiftCard (predictive overnight alerts) — Pro
+                  per founder $60-130 parity rule (Glew Pro $79 +
+                  Lifetimely Pro $49-149 + Triple Whale Pro $129 ship
+                  overnight alerts). */}
               {(isProFloor || isScaleFloor) && isProUser && (
                 <section id="section-pro-night-shift">
                   <NightShiftCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                  <NightShiftTimeline apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                 </section>
+              )}
+
+              {/* NightShiftTimeline (retrospective autonomous-action
+                  history) — Scale-only. Closest competitor Northbeam
+                  Auto $1k+ — no $60-130 ships autonomous-action
+                  audit-trail UI. */}
+              {isScaleFloor && isScaleUser && (
+                <NightShiftTimeline apiBase={API_BASE} shop={shop} isProUser={isProUser} />
               )}
 
               {isScaleFloor && isScaleUser && (
@@ -3616,14 +3616,15 @@ function PageInner() {
                 </div>
               )}
 
-              {/* Anomaly Replay — KEEP-in-Pro per founder $60-130
-                  parity rule (Triple Whale Pro $129 ships Lighthouse
-                  with comparable diagnostic-replay framing). Lives
-                  fully on Pro; Scale floor inherits via same gate. */}
-              {(isProFloor || isScaleFloor) && isProUser && (
-                <section id="section-pro-anomaly">
-                  <AnomalyReplayCard apiBase={API_BASE} isProUser={isProUser} />
-                </section>
+              {/* Anomaly Replay (minute-by-minute event-level replay)
+                  — Scale-only after 2026-04-30 re-audit. Triple Whale
+                  Lighthouse $129 ships CORRELATIONAL explanation, not
+                  event-level replay; true minute-by-minute replay
+                  with cross-signal fusion lives at Northbeam $1k+ /
+                  Triple Whale Mate $400+ tier. Per founder $60-130
+                  parity rule, this migrates fully to Scale. */}
+              {isScaleFloor && isScaleUser && (
+                <AnomalyReplayCard apiBase={API_BASE} isProUser={isProUser} />
               )}
               {isScaleFloor && isScaleUser && (
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -3637,18 +3638,17 @@ function PageInner() {
                 <AskHedgeSparkCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
               )}
 
-              {/* ═══ Pro-only operational widgets (no Lite duplicates) ═══
-                  Removed 2026-04-29 per founder no-doppione doctrine:
-                    - VerticalBenchmarksCard, PeerBenchmarksCard,
-                      ProductsInDecline → live on Lite ($0-60 parity).
-                  Kept (Pro-genuine, no Lite equivalent):
-                    - MonthlyTargetsCard, MonthlyROICard, IntegrationsCard. */}
+              {/* ═══ Pro-only operational widgets — Targets/ROI/
+                  Integrations. Section anchor closes the scroll-spy
+                  gap that previously left ~4200px between Action
+                  Queue and Multi-touch attribution un-highlighted in
+                  the sidebar. Founder feedback 2026-04-30. ═══ */}
               {isProUser && isProFloor && (
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <section id="section-pro-targets" className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <MonthlyTargetsCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <MonthlyROICard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <IntegrationsCard apiBase={API_BASE} isProUser={isProUser} />
-                </div>
+                </section>
               )}
 
               {/* ═══ Abandoned Intent — Pro-tier exclusive

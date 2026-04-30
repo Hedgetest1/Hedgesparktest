@@ -156,16 +156,21 @@ export function useCardFetch<T>({
       };
     }
     setState("loading");
-    fetch(url, { credentials: "include" })
-      .then(async (r) => {
-        // Only 401 = session-expired (no valid auth). Dispatch the
-        // global event the page-level fetchers also fire so the user
-        // gets the unified re-auth flow.
-        // 403 = authenticated but not authorized for this tier — show
-        // the card's local error state instead, do NOT trigger global
-        // session-expired flow. Treating 403 as session-expired caused
-        // a Pro→Lite flash redirect 2026-04-30 when /pro endpoints
-        // returned 403 due to a backend tier-gate mismatch.
+
+    // Transient-error retry policy: network blips, 5xx, and parse
+    // errors all get up to 3 auto-retries with exponential backoff
+    // (300ms / 1s / 3s) before the card flips to the visible
+    // "Couldn't load" state. Born 2026-04-30 after founder caught
+    // red error cards flashing during page load — first-fetch
+    // failures during cold-start auth/cookie race were rendering
+    // CardError boxes that healed on the next request anyway.
+    // 401 (session-expired) and 403 (tier mismatch) are FINAL — no
+    // retry, immediate state="error".
+    const RETRY_DELAYS_MS = [300, 1000, 3000];
+
+    async function attemptFetch(retryIdx: number): Promise<void> {
+      try {
+        const r = await fetch(url, { credentials: "include" });
         if (r.status === 401) {
           if (typeof window !== "undefined") {
             window.dispatchEvent(new Event("hedgespark:session-expired"));
@@ -176,39 +181,52 @@ export function useCardFetch<T>({
           throw new Error(`HTTP 403`);
         }
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((j: T) => {
+        const j = (await r.json()) as T;
         if (!activeRef.current) return;
         setData(j);
-        if (isEmpty && isEmpty(j)) {
-          setState("empty");
-        } else {
-          setState("ready");
-        }
-      })
-      .catch((err: unknown) => {
+        setState(isEmpty && isEmpty(j) ? "empty" : "ready");
+      } catch (err) {
         if (!activeRef.current) return;
-        setState("error");
-        const e = err as { name?: string; message?: string } | null;
-        const derivedComponent =
-          component ||
-          (() => {
-            try {
-              const path = new URL(url, "http://_").pathname;
-              return `useCardFetch(${path.split("/").filter(Boolean).slice(-2).join("/")})`;
-            } catch {
-              return "useCardFetch";
-            }
-          })();
-        reportFrontendError({
-          component: derivedComponent,
-          error_type: (e && e.name) || "CardFetchError",
-          message: (e && e.message) || "card fetch failed",
-          severity: "warning",
-          extra: { url },
-        });
+        const msg = (err as Error)?.message || "";
+        // Final-state errors: never retry (permanent), surface
+        // immediately so the merchant sees the right state.
+        const isFinal = msg.includes("HTTP 401") || msg.includes("HTTP 403");
+        if (!isFinal && retryIdx < RETRY_DELAYS_MS.length) {
+          setTimeout(() => {
+            if (activeRef.current) attemptFetch(retryIdx + 1);
+          }, RETRY_DELAYS_MS[retryIdx]);
+          return;
+        }
+        // Either final-state or retries exhausted: show the error.
+        await onError(err);
+      }
+    }
+
+    async function onError(err: unknown): Promise<void> {
+      if (!activeRef.current) return;
+      setState("error");
+      const e = err as { name?: string; message?: string } | null;
+      const derivedComponent =
+        component ||
+        (() => {
+          try {
+            const path = new URL(url, "http://_").pathname;
+            return `useCardFetch(${path.split("/").filter(Boolean).slice(-2).join("/")})`;
+          } catch {
+            return "useCardFetch";
+          }
+        })();
+      reportFrontendError({
+        component: derivedComponent,
+        error_type: (e && e.name) || "CardFetchError",
+        message: (e && e.message) || "card fetch failed",
+        severity: "warning",
+        extra: { url },
       });
+    }
+
+    attemptFetch(0);
+
     return () => {
       activeRef.current = false;
     };
