@@ -2383,10 +2383,15 @@ function PageInner() {
                   <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
                     Daily intelligence
                   </h2>
+                  {/* CohortSummaryCard removed 2026-04-30 per founder
+                      no-doppione audit — already renders in Lite
+                      section-lite-retention (cohort analysis lives on
+                      Lite at $0-60 parity). The other 4 cassetti
+                      (RecImpact / Churn / Risk / NudgeQueue) are Pro-
+                      genuine, no Lite or Scale equivalent. */}
                   <RecommendationImpactCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <ChurnForecastCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <RiskForecastCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
-                  <CohortSummaryCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                   <NudgeActionQueueCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
                 </section>
               )}
