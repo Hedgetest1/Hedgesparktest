@@ -628,11 +628,21 @@ function PageInner() {
     // add new <section> anchors that the cached list would miss).
     const els = main.querySelectorAll<HTMLElement>("[id^='section-']");
     if (els.length === 0) return;
-    const probe = main.scrollTop + 120;
-    // Pick the section whose absolute top is the largest value still
-    // ≤ probe. Largest-≤ selection (vs first/last hit) is robust to
-    // out-of-order DOM enumeration when sections live in different
-    // ancestor blocks.
+
+    // Section is "active" when its TOP has crossed the VIEWPORT
+    // TOP-THIRD line (33% from top). This matches where the
+    // merchant's eye actually reads — section titles sit near the
+    // top of the visible area, and the merchant doesn't think of a
+    // section as "active" until its title has scrolled into the
+    // upper reading band.
+    //
+    // 0.33 sits between two failure modes:
+    //   - 0.13 (scroll+120): switches too early, sidebar leads
+    //     section by ~700px on tall sections
+    //   - 0.50 (centerline): switches too late, sidebar lags
+    //     section by ~280px when a short section follows a tall one
+    //     (founder caught step 15 + 24 in 2026-04-30 30-step probe)
+    const probe = main.scrollTop + main.clientHeight * 0.33;
     let activeId: string | null = null;
     let activeTop = -Infinity;
     let firstId: string | null = null;
@@ -648,12 +658,8 @@ function PageInner() {
         firstId = el.id;
       }
     }
-    // Fallback: if scrolled above all sections, highlight the first
-    // one (= the page's natural starting nav slot). Without this the
-    // sidebar shows no highlight for the first N pixels of every
-    // floor where the hero / dashboard chrome renders before any
-    // <section> anchor — the merchant scrolls and the sidebar
-    // appears unresponsive until they reach the first section.
+    // Fallback: scrolled above all sections — highlight the first
+    // to keep the sidebar lit at all times.
     const finalId = activeId ?? firstId;
     if (finalId) {
       setActiveSection(finalId.replace("section-", ""));
