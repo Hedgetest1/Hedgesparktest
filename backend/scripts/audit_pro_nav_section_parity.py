@@ -56,7 +56,12 @@ SECTIONS_DIR = DASHBOARD / "app" / "app" / "_sections"
 # every section answers one question stated in its title".
 SHARED_SECTION_IDS = {
     "funnel", "nudges", "scroll",
-    "overview", "revenue", "signals", "product-performance", "what-next",
+    "overview", "revenue", "signals", "product-performance",
+    # "what-next" removed 2026-04-30 — WhatNextSection no longer
+    # renders on Pro (founder $0-60 parity: "Your next moves" lives
+    # inside Lite cassettone drawers, not as a Pro top-level section).
+    # The component file still contains the literal anchor string
+    # but is never rendered, so we exclude it from parity matching.
 }
 
 # 2026-04-30 — Scale-cross-link allow-list REMOVED. The `scaleOnly`

@@ -3683,16 +3683,13 @@ function PageInner() {
                   per no-doppione doctrine — it's a Lite cassettone, the
                   Pro merchant sees it on /app/lite. */}
 
-              {isProFloor && (
-                <section id="section-pro-visitor-intent">
-                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
-                    Visitor intent
-                  </h2>
-                  <SectionErrorBoundary name="Visitor Intent">
-                    <VisitorIntentExplorerCard apiBase={API_BASE} shop={shop} />
-                  </SectionErrorBoundary>
-                </section>
-              )}
+              {/* VisitorIntentExplorerCard removed from Pro 2026-04-30
+                  per founder $0-60 parity doctrine: Visitor Intent
+                  cassettone is shipped on Lite (LiteCassettoniGrid),
+                  Lucky Orange $32 / Glew $79 cover this signal at
+                  entry tier. No "deep version on Pro" doppione —
+                  Pro/Scale features must be DIFFERENT competitor
+                  matches, not deeper renderings of Lite features. */}
 
               {/* ═══ Pro-only intelligence — Price Sensitivity stays
                   Pro (Prisync $99 = Pro mid-band parity). RevenueAutopsy
@@ -3992,17 +3989,12 @@ function PageInner() {
                 </SectionErrorBoundary>
               )}
 
-              {/* 5 — WHAT TO DO NEXT (extracted to _sections/WhatNextSection.tsx) */}
-              {sparkActions.length > 0 && (
-                <SectionErrorBoundary name="What to do next">
-                  <WhatNextSection
-                    sparkActions={sparkActions}
-                    isProUser={isProUser}
-                    displayCurrency={displayCurrency}
-                    setUpgradeModalOpen={setUpgradeModalOpen}
-                  />
-                </SectionErrorBoundary>
-              )}
+              {/* WhatNextSection removed from Pro 2026-04-30 per
+                  founder $0-60 parity doctrine: "Your next moves" is
+                  already shipped inside every Lite cassettone drawer
+                  (LiteCassettoniGrid Section 3 — same content, more
+                  compact + contextual to the signal opened). No
+                  doppione. */}
 
               {/* 6 — Weekly Trend */}
               <SectionErrorBoundary name="Weekly Trend">

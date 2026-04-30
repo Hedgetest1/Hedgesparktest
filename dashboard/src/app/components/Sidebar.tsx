@@ -366,7 +366,6 @@ const SECTION_TO_NAV_PRO: Record<string, string> = {
   // Anchors that map 1:1 to NAV_ITEMS_PRO ids (Pro-distinct content).
   "pro-daily-intel": "pro-daily-intel",
   "pro-targets": "pro-targets",
-  "pro-visitor-intent": "pro-visitor-intent",
   "pro-abandoned": "pro-abandoned",
   "pro-price": "pro-price",
   "pro-revenue-autopsy": "pro-revenue-autopsy",
@@ -388,7 +387,6 @@ const SECTION_TO_NAV_PRO: Record<string, string> = {
   revenue: "revenue",
   signals: "signals",
   "product-performance": "product-performance",
-  "what-next": "what-next",
   // Sub-anchors of ProIntelligenceSection — each rolls up to the
   // single "Forecast & intelligence" nav slot so scroll-spy doesn't
   // ghost while the merchant is reading Forecast / Attribution / LTV
@@ -522,16 +520,6 @@ const NAV_ITEMS_PRO: NavItem[] = [
     ),
   },
   {
-    id: "pro-visitor-intent",
-    label: "Visitor intent",
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-      </svg>
-    ),
-  },
-  {
     id: "pro-price",
     label: "Price sensitivity",
     icon: (
@@ -589,15 +577,6 @@ const NAV_ITEMS_PRO: NavItem[] = [
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
         <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-      </svg>
-    ),
-  },
-  {
-    id: "what-next",
-    label: "What to do next",
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" />
       </svg>
     ),
   },
