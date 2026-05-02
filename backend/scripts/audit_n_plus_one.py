@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import ast
 import pathlib
+import re
 import sys
 from collections import defaultdict
 from _audit_telemetry_shim import telemetered
@@ -95,7 +96,14 @@ def _resolve_call_len_of_constant(call: ast.Call, module_scope: ast.Module) -> i
 def loop_is_small_literal(iter_node: ast.expr, module_scope: ast.Module | None = None) -> bool:
     """Exempt range(...) with small constants, including
     `range(len(KNOWN_IDS))` where KNOWN_IDS is a module-level
-    tuple/list/set constant (MED-10 closure)."""
+    tuple/list/set constant (MED-10 closure). Also exempts inline
+    list/tuple/set literals of <=10 elements (born 2026-05-02 from
+    the brutal-CTO N+1 triage — `for table in ["t1","t2","t3"]: ...`
+    was flagged but is a fixed small-set sweep, not unbounded N+1)."""
+    # Inline collection literal — `for x in [a, b, c]` / `for x in (a, b)`
+    # / `for x in {a, b}`. Treat <=10 as small fixed set.
+    if isinstance(iter_node, (ast.List, ast.Tuple, ast.Set)):
+        return len(iter_node.elts) <= 10
     if not isinstance(iter_node, ast.Call):
         return False
     if not isinstance(iter_node.func, ast.Name) or iter_node.func.id != "range":
@@ -151,10 +159,42 @@ def audit_file(path: pathlib.Path) -> list[Finding]:
     findings: list[Finding] = []
     rel = str(path.relative_to(APP_ROOT.parent))
 
+    # Build a set of line numbers explicitly tagged as N+1 false-positives
+    # via `# n-plus-one: false-positive` (or `# n-plus-one: ok`) comments.
+    # The tag must be on the same line as the `for` opener OR within the
+    # 5 lines immediately preceding it. Born 2026-05-02 from the brutal-
+    # CTO Finding-5 triage: 2 of 3 sampled candidates were intentional
+    # batching loops with explanation comments. The audit needs an
+    # explicit opt-out so authors can mark intentional patterns rather
+    # than restructure code to dodge the heuristic.
+    optout_lines: set[int] = set()
+    src_lines = src.splitlines()
+    _OPTOUT_RE = re.compile(r"#\s*n-plus-one:\s*(?:false-positive|ok|skip)\b", re.IGNORECASE)
+    for i, line in enumerate(src_lines, start=1):
+        if _OPTOUT_RE.search(line):
+            # Tag applies to the next `for` opener within ±5 lines
+            for offset in range(0, 6):
+                optout_lines.add(i + offset)
+
     for node in ast.walk(tree):
         if not isinstance(node, ast.For):
             continue
         if loop_is_small_literal(node.iter, module_scope=tree):
+            continue
+        if node.lineno in optout_lines:
+            continue
+        # Skip explicit batching pattern: `for i in range(0, N, batch_size)`
+        # where step is a literal int >= 2. This catches DELETE/INSERT
+        # batching loops that legitimately call db.execute once per batch.
+        if (
+            isinstance(node.iter, ast.Call)
+            and isinstance(node.iter.func, ast.Name)
+            and node.iter.func.id == "range"
+            and len(node.iter.args) == 3
+            and isinstance(node.iter.args[2], ast.Constant)
+            and isinstance(node.iter.args[2].value, int)
+            and node.iter.args[2].value >= 2
+        ):
             continue
 
         # Extract the loop var name(s)

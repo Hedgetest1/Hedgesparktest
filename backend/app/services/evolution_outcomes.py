@@ -548,6 +548,9 @@ def detect_self_caused_regressions(db: Session) -> dict:
         .all()
     )
 
+    # n-plus-one: false-positive (loop body is an INTENTIONAL combined-
+    # window query that previously WAS N+1 — comment below explains the
+    # optimization. Audit's static heuristic can't see the rationale.)
     for c in recent_applies:
         summary["checked"] += 1
 
