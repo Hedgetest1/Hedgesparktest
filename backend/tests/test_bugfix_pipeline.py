@@ -450,3 +450,159 @@ def test_run_sibling_sweep_empty_when_no_signatures():
     # Either None (no signatures) or a section, depending on fallback;
     # the contract: never raises, never returns garbage.
     assert out is None or "Sibling Pattern Sweep" in out
+
+
+# ---------------------------------------------------------------------------
+# Phase B — post-apply retro-grep verification
+# ---------------------------------------------------------------------------
+
+def test_count_sibling_hits_returns_positive_for_known_identifier():
+    """Counter returns >=1 for a real codebase identifier."""
+    from app.services.bugfix_pipeline import _count_sibling_hits
+    counts = _count_sibling_hits(["MERCHANT_SESSION_SECRET"])
+    assert counts.get("MERCHANT_SESSION_SECRET", 0) >= 1
+
+
+def test_count_sibling_hits_returns_zero_for_nonexistent():
+    """Counter returns 0 for a string that's not in the codebase."""
+    from app.services.bugfix_pipeline import _count_sibling_hits
+    counts = _count_sibling_hits(["XYZZY_NONEXISTENT_VARIABLE_NAME_42"])
+    assert counts.get("XYZZY_NONEXISTENT_VARIABLE_NAME_42", 0) == 0
+
+
+def test_count_sibling_hits_empty_signatures_returns_empty():
+    """Empty input → empty output (no exception)."""
+    from app.services.bugfix_pipeline import _count_sibling_hits
+    assert _count_sibling_hits([]) == {}
+
+
+def test_post_apply_retro_check_no_alert_when_no_context(db):
+    """Candidate without pre_apply_sibling_counts → no alert (no baseline
+    to compare against)."""
+    from app.services.bugfix_pipeline import _post_apply_retro_check
+    from app.models.bugfix_candidate import BugFixCandidate
+    from app.models.ops_alert import OpsAlert
+
+    c = BugFixCandidate(
+        title="bug",
+        summary="—",
+        source_type="ops_alert",
+        source_ref="x",
+        priority_score=1.0,
+        status="applied",
+        context_json=None,
+    )
+    db.add(c)
+    db.flush()
+
+    before = db.query(OpsAlert).filter(
+        OpsAlert.alert_type == "fix_incomplete"
+    ).count()
+    _post_apply_retro_check(c, db)
+    after = db.query(OpsAlert).filter(
+        OpsAlert.alert_type == "fix_incomplete"
+    ).count()
+    assert after == before
+
+
+def test_post_apply_retro_check_alerts_when_signature_did_not_decrease(db):
+    """Pre-apply signature with hit count > 0 that still has same count
+    post-apply → CRITICAL fix_incomplete alert."""
+    import json
+    from app.services.bugfix_pipeline import _post_apply_retro_check
+    from app.models.bugfix_candidate import BugFixCandidate
+    from app.models.ops_alert import OpsAlert
+
+    # MERCHANT_SESSION_SECRET has many real hits in the codebase. We
+    # claim its pre-apply count was 1 (artificially low). Post-apply
+    # the real count is way more than 1 → "did not decrease" → alert.
+    c = BugFixCandidate(
+        title="renamed env var",
+        summary="—",
+        source_type="ops_alert",
+        source_ref="ret-1",
+        priority_score=1.0,
+        status="applied",
+        context_json=json.dumps({
+            "pre_apply_sibling_counts": {
+                "MERCHANT_SESSION_SECRET": 1,
+            }
+        }),
+    )
+    db.add(c)
+    db.flush()
+
+    _post_apply_retro_check(c, db)
+    alerts = db.query(OpsAlert).filter(
+        OpsAlert.alert_type == "fix_incomplete",
+        OpsAlert.source == f"bugfix_apply:retro_check:{c.id}",
+    ).all()
+    assert len(alerts) == 1
+    assert alerts[0].severity == "critical"
+    assert "MERCHANT_SESSION_SECRET" in (alerts[0].summary or "")
+
+
+def test_post_apply_retro_check_silent_when_signature_decreased(db):
+    """Pre-apply count > current count → fix worked, no alert."""
+    import json
+    from app.services.bugfix_pipeline import _post_apply_retro_check
+    from app.models.bugfix_candidate import BugFixCandidate
+    from app.models.ops_alert import OpsAlert
+
+    # Claim the pre-apply count was huge; the actual post-apply count
+    # of XYZZY_NONEXISTENT is 0 → strictly decreased → silent.
+    c = BugFixCandidate(
+        title="removed nonexistent var",
+        summary="—",
+        source_type="ops_alert",
+        source_ref="ret-2",
+        priority_score=1.0,
+        status="applied",
+        context_json=json.dumps({
+            "pre_apply_sibling_counts": {
+                "XYZZY_NONEXISTENT_VARIABLE_NAME_42": 99,
+            }
+        }),
+    )
+    db.add(c)
+    db.flush()
+
+    _post_apply_retro_check(c, db)
+    alerts = db.query(OpsAlert).filter(
+        OpsAlert.alert_type == "fix_incomplete",
+        OpsAlert.source == f"bugfix_apply:retro_check:{c.id}",
+    ).all()
+    assert len(alerts) == 0
+
+
+def test_post_apply_retro_check_skips_non_upper_snake(db):
+    """Only UPPER_SNAKE signatures are subject to the retro rule.
+    File basenames + dotted paths legitimately persist after a fix."""
+    import json
+    from app.services.bugfix_pipeline import _post_apply_retro_check
+    from app.models.bugfix_candidate import BugFixCandidate
+    from app.models.ops_alert import OpsAlert
+
+    c = BugFixCandidate(
+        title="—",
+        summary="—",
+        source_type="ops_alert",
+        source_ref="ret-3",
+        priority_score=1.0,
+        status="applied",
+        context_json=json.dumps({
+            "pre_apply_sibling_counts": {
+                "auth_hardening.py": 1,
+                "app.core.auth_hardening": 1,
+            }
+        }),
+    )
+    db.add(c)
+    db.flush()
+
+    _post_apply_retro_check(c, db)
+    alerts = db.query(OpsAlert).filter(
+        OpsAlert.alert_type == "fix_incomplete",
+        OpsAlert.source == f"bugfix_apply:retro_check:{c.id}",
+    ).all()
+    assert len(alerts) == 0

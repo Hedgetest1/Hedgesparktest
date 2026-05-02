@@ -1306,6 +1306,176 @@ def _run_sibling_sweep(candidate: BugFixCandidate) -> str | None:
     )
 
 
+def _count_sibling_hits(signatures: list[str]) -> dict[str, int]:
+    """Return a hit-count map for the given signatures across
+    backend/app + dashboard/src. Used by Phase B post-apply retro-grep
+    verification — call once at propose time (stash on candidate.context_json),
+    again at apply time (compare). A signature whose count did NOT decrease
+    after the patch is a strong indicator the LLM missed a sibling.
+
+    Never raises; missing tools / IO errors collapse to {} (treat-as-clean).
+    """
+    import shutil
+    import subprocess
+
+    if not signatures:
+        return {}
+    rg_path = shutil.which("rg")
+    grep_path = shutil.which("grep")
+    if not rg_path and not grep_path:
+        return {}
+    backend_root = _BACKEND_DIR
+    dashboard_root = os.path.join(_BACKEND_DIR, "..", "dashboard", "src")
+    search_paths: list[str] = []
+    if os.path.isdir(os.path.join(backend_root, "app")):
+        search_paths.append(os.path.join(backend_root, "app"))
+    if os.path.isdir(dashboard_root):
+        search_paths.append(dashboard_root)
+    if not search_paths:
+        return {}
+
+    counts: dict[str, int] = {}
+    for sig in signatures:
+        try:
+            if rg_path:
+                cmd = [
+                    rg_path, "--count", "--no-heading",
+                    "--glob", "!**/__pycache__/**",
+                    "--glob", "!**/node_modules/**",
+                    "--glob", "!**/.next/**",
+                    "--fixed-strings", sig,
+                    *search_paths,
+                ]
+            else:
+                cmd = [
+                    grep_path, "-rcF",
+                    "--exclude-dir=__pycache__",
+                    "--exclude-dir=node_modules",
+                    "--exclude-dir=.next",
+                    sig,
+                    *search_paths,
+                ]
+            res = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=8,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            continue
+        # rg --count and grep -c emit "<file>:<n>" per file. Sum across files.
+        total = 0
+        for line in (res.stdout or "").splitlines():
+            if ":" in line:
+                tail = line.rsplit(":", 1)[-1].strip()
+                if tail.isdigit():
+                    total += int(tail)
+        counts[sig] = total
+    return counts
+
+
+# Phase B retro-grep — only signatures matching this pattern are subject
+# to the post-apply "must decrease" check. File basenames + dotted paths
+# legitimately persist across a fix (we just renamed the env var, not
+# the file); UPPER_SNAKE env-var-style identifiers should NOT persist
+# unchanged after a rename-class fix.
+_RETRO_CHECK_SIG_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]+$")
+
+
+def _post_apply_retro_check(candidate: "BugFixCandidate", db: Session) -> None:
+    """Phase B post-apply retro-grep verification.
+
+    The pipeline's apply path just succeeded. Re-count the candidate's
+    pre-apply pattern signatures across the codebase. Any UPPER_SNAKE
+    signature whose count did NOT strictly decrease is a strong
+    indicator the LLM missed a sibling — write a CRITICAL ops_alert
+    so the founder and the next triage cycle catch the gap.
+
+    Never raises — retro-check failure is silent (the apply itself
+    already succeeded; this is observability, not gating).
+    """
+    try:
+        if not candidate.context_json:
+            return
+        ctx = json.loads(candidate.context_json)
+    except Exception:
+        return
+    pre_counts = ctx.get("pre_apply_sibling_counts") or {}
+    if not isinstance(pre_counts, dict) or not pre_counts:
+        return
+
+    # Only check signatures eligible for the retro rule
+    eligible = [
+        sig for sig, n in pre_counts.items()
+        if isinstance(n, int) and n > 0 and _RETRO_CHECK_SIG_PATTERN.match(sig)
+    ]
+    if not eligible:
+        return
+
+    post_counts = _count_sibling_hits(eligible)
+    residual: list[tuple[str, int, int]] = []  # (sig, pre, post)
+    for sig in eligible:
+        pre_n = pre_counts.get(sig, 0)
+        post_n = post_counts.get(sig, 0)
+        # If the count did NOT strictly decrease, the fix likely missed
+        # at least one sibling. Even decreasing by 1 is OK — the LLM
+        # touched at least one site, so multidim discipline kicked in.
+        if post_n >= pre_n:
+            residual.append((sig, int(pre_n), int(post_n)))
+
+    if not residual:
+        log.info(
+            "post_apply_retro_check: clean (cand=%d, %d signature(s) all decreased)",
+            candidate.id, len(eligible),
+        )
+        return
+
+    # Write a CRITICAL ops_alert so the next triage cycle re-opens the bug
+    detail = {
+        "candidate_id": candidate.id,
+        "title": candidate.title,
+        "git_commit_sha": candidate.git_commit_sha,
+        "residual_signatures": [
+            {"signature": sig, "pre": pre, "post": post}
+            for sig, pre, post in residual
+        ],
+        "rule": (
+            "post-apply retro-grep: UPPER_SNAKE signature count did "
+            "not decrease — fix likely missed siblings. See CLAUDE.md "
+            "§19 Axis 5 + §11 fix-one-find-all-siblings."
+        ),
+    }
+    summary_text = (
+        f"fix_incomplete: cand={candidate.id} "
+        f"residual_signatures={len(residual)} (e.g. "
+        f"{residual[0][0]}: {residual[0][1]}→{residual[0][2]})"
+    )
+    try:
+        from app.services.alerting import write_alert
+        write_alert(
+            db,
+            severity="critical",
+            source=f"bugfix_apply:retro_check:{candidate.id}",
+            alert_type="fix_incomplete",
+            summary=summary_text,
+            detail=detail,
+        )
+        db.commit()
+        log.warning(
+            "post_apply_retro_check: ALERTED cand=%d residual=%d",
+            candidate.id, len(residual),
+        )
+    except Exception as exc:
+        # SINK-class invariant: commit-path try/except MUST rollback in
+        # the except branch; otherwise the SQLAlchemy session remains
+        # unusable for the caller's next ORM op (CLAUDE.md §11).
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        log.warning(
+            "post_apply_retro_check: alert write failed (cand=%d): %s",
+            candidate.id, exc,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Triage: scan for actionable bugs → create candidates
 # ---------------------------------------------------------------------------
@@ -3177,6 +3347,12 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
     # sees every other call site that may be a sibling. ZERO extra LLM
     # calls — this is prompt enrichment only, bounded to ~4KB total.
     # See _run_sibling_sweep header (line ~1107) for design rationale.
+    #
+    # Phase B (post-apply retro-grep verification): after the LLM-proposed
+    # patch is applied, _post_apply_retro_check re-counts the same
+    # signatures and alerts if any UPPER_SNAKE one did NOT strictly
+    # decrease. Stash pre-apply counts on the candidate context now so
+    # the apply path has the baseline to compare against.
     try:
         sweep_section = _run_sibling_sweep(candidate)
         if sweep_section:
@@ -3185,6 +3361,23 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
                 "propose_patch: sibling sweep wired (cand=%d, ~%d chars)",
                 candidate.id, len(sweep_section),
             )
+        # Phase B baseline: stash hit counts (cheap — same grep runs
+        # we just did, but counted) for post-apply retro verification.
+        pre_signatures = _extract_pattern_signatures(candidate)
+        if pre_signatures:
+            pre_counts = _count_sibling_hits(pre_signatures)
+            if pre_counts:
+                try:
+                    existing_ctx = json.loads(candidate.context_json or "{}")
+                except Exception:
+                    existing_ctx = {}
+                if isinstance(existing_ctx, dict):
+                    existing_ctx["pre_apply_sibling_counts"] = pre_counts
+                    candidate.context_json = json.dumps(existing_ctx)
+                    log.info(
+                        "propose_patch: stashed %d pre-apply sibling counts (cand=%d)",
+                        len(pre_counts), candidate.id,
+                    )
     except Exception as exc:
         log.debug("propose_patch: sibling sweep failed (non-fatal): %s", exc)
 
@@ -5051,6 +5244,20 @@ def _apply_bugfix_candidate_impl(db: Session, candidate_id: int) -> ApplyResult:
         candidate.outcome_status = None  # will be measured 48h later by evolution_outcomes
         _classify_candidate_domain(candidate)
         db.flush()
+
+        # Phase B (post-apply retro-grep verification): re-run sibling
+        # sweep with the candidate's pre-apply pattern signatures.
+        # Any UPPER_SNAKE signature whose count did NOT strictly
+        # decrease writes a CRITICAL fix_incomplete ops_alert. Never
+        # raises — observability layer, not a gate. See
+        # _post_apply_retro_check header for design rationale.
+        try:
+            _post_apply_retro_check(candidate, db)
+        except Exception as exc:
+            log.debug(
+                "bugfix_apply: retro-check raised unexpectedly (non-fatal): %s",
+                exc,
+            )
 
         # Record successful patch fingerprint (outcome will be updated after 48h measurement)
         _record_patch_fingerprint(db, candidate, outcome="applied")
