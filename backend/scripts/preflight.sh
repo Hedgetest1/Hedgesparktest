@@ -164,6 +164,23 @@ fi
 # the posture list does not match the real env var, making
 # /ops/auth/posture report the secret as missing when it is actually set.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# 2c-pre. Kill-switches wired — verifies every CLAUDE.md-documented
+# kill switch (PIPELINE_AUTO_PROPOSE_DISABLED, ALLOW_INSECURE_DEV,
+# TELEGRAM_WEBHOOK_SECRET, RESEND_WEBHOOK_SECRET) has at least one
+# os.getenv read in app/. A documented kill switch with no reader
+# is a safety lie. Born 2026-05-02 from the brutal-CTO 10/10 elite
+# sprint Gap 3 (PIPELINE_AUTO_PROPOSE_DISABLED was doc-only,
+# never actually wired — caught + fixed in same sprint).
+# ---------------------------------------------------------------------------
+step "Kill-switches wired (audit_kill_switches_wired.py)"
+if "$PY" scripts/audit_kill_switches_wired.py > /tmp/preflight_kill_switches.log 2>&1; then
+    ok "$(tail -1 /tmp/preflight_kill_switches.log)"
+else
+    bad "documented kill switch unwired — see /tmp/preflight_kill_switches.log"
+    tail -25 /tmp/preflight_kill_switches.log
+fi
+
 step "Critical-secrets consistency (audit_critical_secrets_consistency.py)"
 if "$PY" scripts/audit_critical_secrets_consistency.py > /tmp/preflight_critical_secrets.log 2>&1; then
     ok "$(tail -1 /tmp/preflight_critical_secrets.log)"

@@ -384,6 +384,11 @@ _AUDITS: list[tuple[str, str, str]] = [
     ("audit_tier_gates.py", "invariant_regression", "invariant:tier_gates"),
     ("audit_tier_naming_canonical.py", "invariant_regression", "invariant:tier_naming_canonical"),
     ("audit_timezone.py", "invariant_regression", "invariant:timezone"),
+    # Kill-switches wired (added 2026-05-02 elite-tier sprint Gap 3).
+    # Catches the bug class where a CLAUDE.md-documented kill switch
+    # has zero os.getenv readers in app/. The original bug:
+    # PIPELINE_AUTO_PROPOSE_DISABLED was doc-only, never wired.
+    ("audit_kill_switches_wired.py", "invariant_regression", "invariant:kill_switches_wired"),
 ]
 
 _TIMEOUT_SECONDS = 30

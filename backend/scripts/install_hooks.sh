@@ -25,6 +25,7 @@ DA_AUDIT="backend/scripts/audit_commit_devils_advocate.py"
 LATERAL_AUDIT="backend/scripts/audit_lateral_change_evidence.py"
 UNRESOLVED_FLAGS_AUDIT="backend/scripts/audit_unresolved_flags.py"
 DA_EVIDENCE_AUDIT="backend/scripts/audit_da_evidence.py"
+NON_TRIVIAL_PROTOCOL_AUDIT="backend/scripts/audit_non_trivial_commit_protocol.py"
 AUTO_DEPLOY="backend/scripts/post_commit_auto_deploy.sh"
 
 if [ ! -d "$REPO_ROOT/.git" ]; then
@@ -38,6 +39,7 @@ chmod +x "$REPO_ROOT/$DA_AUDIT"
 chmod +x "$REPO_ROOT/$LATERAL_AUDIT"
 chmod +x "$REPO_ROOT/$UNRESOLVED_FLAGS_AUDIT"
 chmod +x "$REPO_ROOT/$DA_EVIDENCE_AUDIT"
+chmod +x "$REPO_ROOT/$NON_TRIVIAL_PROTOCOL_AUDIT"
 chmod +x "$REPO_ROOT/backend/scripts/classify_commit_tier.py"
 
 # --- pre-commit ---
@@ -82,6 +84,7 @@ ROOT="\$(git rev-parse --show-toplevel)"
 "\$ROOT/$LATERAL_AUDIT" --msg-file "\$1"
 "\$ROOT/$UNRESOLVED_FLAGS_AUDIT" --text-file "\$1"
 "\$ROOT/$DA_EVIDENCE_AUDIT" --text-file "\$1"
+"\$ROOT/$NON_TRIVIAL_PROTOCOL_AUDIT" --msg-file "\$1"
 EOF
 chmod +x "$MSG_HOOK"
 

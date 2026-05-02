@@ -274,6 +274,17 @@ def _run_onboarding_health():
 
 def _run_bug_triage(auto_apply_paused: bool = False):
     """Scan for new bug-worthy events, create candidates, auto-propose, auto-apply, auto-promote."""
+    # Hard kill-switch — env-var override that NUKES the entire pipeline
+    # (triage included). Per CLAUDE.md "Kill switch" section. This is the
+    # break-glass control for the founder when something is genuinely wrong
+    # and even triage should not run. Wired 2026-05-02 after the brutal-CTO
+    # audit found the doc was a lie (the env var was documented as the
+    # kill switch but never read in code). audit_kill_switches_wired.py
+    # is the structural preventer keeping this honest going forward.
+    if os.getenv("PIPELINE_AUTO_PROPOSE_DISABLED", "").strip().lower() in ("1", "true", "yes"):
+        log("bug_triage: HARD-DISABLED via PIPELINE_AUTO_PROPOSE_DISABLED env — full pipeline skipped")
+        return
+
     db = SessionLocal()
     try:
         from app.services.bugfix_pipeline import (
