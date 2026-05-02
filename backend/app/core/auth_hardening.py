@@ -158,7 +158,7 @@ def _write_alert(
 # Critical secrets whose presence + minimum quality we want the process to
 # verify on startup. Each entry is (env_var, min_length, description).
 _CRITICAL_SECRETS: list[tuple[str, int, str]] = [
-    ("MERCHANT_SESSION_SIGNING_KEY", 32, "Session JWT signing key"),
+    ("MERCHANT_SESSION_SECRET", 32, "Session JWT signing key"),
     ("TOKEN_ENCRYPTION_KEY", 32, "Merchant token encryption key"),
     ("SHOPIFY_API_SECRET", 16, "Shopify OAuth secret"),
     ("OPS_API_KEY", 16, "Ops endpoint admin key"),

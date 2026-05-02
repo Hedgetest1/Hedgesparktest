@@ -62,9 +62,9 @@ def test_audit_secrets_detects_missing(monkeypatch):
 
 
 def test_audit_secrets_detects_weak(monkeypatch):
-    monkeypatch.setenv("MERCHANT_SESSION_SIGNING_KEY", "changeme")
+    monkeypatch.setenv("MERCHANT_SESSION_SECRET", "changeme")
     rows = ah.audit_secrets()
-    row = next(r for r in rows if r["name"] == "MERCHANT_SESSION_SIGNING_KEY")
+    row = next(r for r in rows if r["name"] == "MERCHANT_SESSION_SECRET")
     assert row["status"] == "weak"
 
 
