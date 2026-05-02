@@ -155,7 +155,7 @@ def _autofix_test_db(test_url: str) -> int:
     env = {"DATABASE_URL": test_url, "PATH": "/usr/bin:/bin:/usr/local/bin"}
     # Inherit minimal env to keep secrets from leaking into subprocess
     import os
-    for k in ("MERCHANT_SESSION_SECRET", "TOKEN_ENCRYPTION_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
+    for k in ("MERCHANT_SESSION_SECRET", "MERCHANT_TOKEN_ENCRYPTION_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
         if v := os.environ.get(k):
             env[k] = v
     try:
