@@ -395,6 +395,17 @@ _AUDITS: list[tuple[str, str, str]] = [
     # SCOPE-LOCK enforcer (principle 13) for the self-healing pipeline;
     # silent drift in the reviewer = scope lock breached.
     ("audit_reviewer_layer_integrity.py", "invariant_regression", "invariant:reviewer_layer_integrity"),
+    # Brutal-CTO-inspection follow-up (added 2026-05-02 evening).
+    # 1. DB pool doctrine catches code-default drift from CLAUDE.md
+    #    §6 (the bug that produced 20× QueuePool exhaustions live).
+    # 2. Log rotation health catches pm2-logrotate regression OR any
+    #    log file ballooning past 200 MB (the 104 MB unrotated bug).
+    # 3. Runtime exception recurrence catches NameError /
+    #    UnboundLocalError / AttributeError firing >= 3×/24h in the
+    #    backend error log (the 4118 historical NameError class).
+    ("audit_db_pool_doctrine.py", "invariant_regression", "invariant:db_pool_doctrine"),
+    ("audit_log_rotation_health.py", "invariant_regression", "invariant:log_rotation_health"),
+    ("audit_runtime_exception_recurrence.py", "invariant_regression", "invariant:runtime_exception_recurrence"),
 ]
 
 _TIMEOUT_SECONDS = 30

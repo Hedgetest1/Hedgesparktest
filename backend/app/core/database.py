@@ -51,17 +51,27 @@ elif "sslmode=" in (DATABASE_URL or ""):
 # ---------------------------------------------------------------------------
 # Connection pool configuration
 #
-# Defaults are sized for SINGLE-WORKER uvicorn (pool_size=20, max_overflow=40
-# → 60 conn max from backend). When flipping to uvicorn --workers 4 (pre-10k
-# merchant hardening), set DB_POOL_SIZE=5 and DB_MAX_OVERFLOW=10 in backend
-# .env — math:
-#   4 workers × (5 + 10) = 60 conn from backend (same ceiling as single-worker)
-#   + 7 PM2 singleton workers × ~2 conn = 14
-#   + admin/psql/pg_stat headroom ~10
-#   = ~84 conn total, well below Postgres max_connections=100
+# Sized for the CURRENT runtime (uvicorn --workers 4, per ecosystem.config.js
+# + CLAUDE.md §6). DEFAULTS NOW MATCH the documented doctrine, not the legacy
+# single-worker numbers. Math at 4 workers:
 #
-# Env vars let the pool scale atomically with the worker flip without code
-# changes or separate commits per environment.
+#   backend  = 4 workers × (5 + 10) = 60 conn ceiling
+#   PM2      = 7 singleton workers × ~2 conn = 14
+#   admin    = psql / pg_stat headroom ~10
+#   ─────────────────────────────────────────
+#   total    = ~84 conn, vs Postgres max_connections=200 → 116 conn headroom
+#
+# Drift discovery (2026-05-02): the previous defaults (20 + 40 = 60 per
+# worker × 4 = 240) silently exceeded Postgres max_connections=200 and
+# produced 20× QueuePool timeout exhaustions in the live error log. The
+# defaults were sized for SINGLE-WORKER uvicorn but the runtime flipped
+# to multi-worker without scaling them down. Fix: align the code default
+# to CLAUDE.md §6 doctrine (5 + 10) so future deployments inherit the
+# correct values without env-override gymnastics. audit_db_pool_doctrine
+# locks this in.
+#
+# Env vars still let an operator override (e.g. PgBouncer mode 2-3, or
+# higher when intentionally provisioning Postgres for >200 conn).
 #
 # pool_timeout=30     — seconds to wait for a free connection before raising
 # pool_pre_ping=True  — issues a lightweight SELECT 1 before handing out each
@@ -70,16 +80,11 @@ elif "sslmode=" in (DATABASE_URL or ""):
 # pool_recycle=1800   — recycle connections every 30 minutes; prevents
 #                       server-side idle-connection kills from reaching FastAPI
 #
-# Without PgBouncer these settings protect against:
-#   - require_pro_plan() opening a new session per request (bug fixed in deps.py)
-#   - aggregation_worker + multiple PM2 instances competing for connections
-#   - Postgres default connection limit (typically 100) being breached
-#
-# With PgBouncer in transaction mode the pool_size here can be reduced to 2-3
-# since PgBouncer owns the real connection pool.  See scripts/pgbouncer.ini.
+# With PgBouncer in transaction mode the pool_size here can be reduced to
+# 2-3 since PgBouncer owns the real connection pool.
 # ---------------------------------------------------------------------------
-POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "20"))
-POOL_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "40"))
+POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "5"))
+POOL_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "10"))
 
 engine = create_engine(
     DATABASE_URL,

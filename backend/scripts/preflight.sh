@@ -198,6 +198,50 @@ else
     tail -25 /tmp/preflight_reviewer_integrity.log
 fi
 
+# ---------------------------------------------------------------------------
+# 2c-pre-ter. DB pool doctrine. Verifies code defaults
+# (POOL_SIZE / POOL_MAX_OVERFLOW in app/core/database.py) match
+# CLAUDE.md §6 doctrine AND that workers × pool fits under Postgres
+# max_connections invariant. Born 2026-05-02 after the brutal-CTO
+# inspection found the code defaults (20 + 40) drifted from the
+# doctrine (5 + 10) and produced 20× QueuePool exhaustions live.
+# ---------------------------------------------------------------------------
+step "DB pool doctrine (audit_db_pool_doctrine.py)"
+if "$PY" scripts/audit_db_pool_doctrine.py > /tmp/preflight_db_pool.log 2>&1; then
+    ok "$(tail -1 /tmp/preflight_db_pool.log)"
+else
+    bad "DB pool doctrine drift — see /tmp/preflight_db_pool.log"
+    tail -25 /tmp/preflight_db_pool.log
+fi
+
+# ---------------------------------------------------------------------------
+# 2c-pre-quater. Log rotation health. Verifies pm2-logrotate is
+# installed + configured + no log file > 200 MB. Born 2026-05-02
+# after the brutal-CTO found a 104 MB unrotated backend error log.
+# ---------------------------------------------------------------------------
+step "Log rotation health (audit_log_rotation_health.py)"
+if "$PY" scripts/audit_log_rotation_health.py > /tmp/preflight_log_rotation.log 2>&1; then
+    ok "$(tail -1 /tmp/preflight_log_rotation.log)"
+else
+    bad "log rotation regression — see /tmp/preflight_log_rotation.log"
+    tail -25 /tmp/preflight_log_rotation.log
+fi
+
+# ---------------------------------------------------------------------------
+# 2c-pre-quinquies. Runtime exception recurrence. Scans the PM2
+# backend error log for NameError / UnboundLocalError / AttributeError
+# / ImportError / SyntaxError accumulating over the last 24h. Threshold
+# 3 hits/24h. Born 2026-05-02 after the brutal-CTO found 4118 historical
+# NameError occurrences across April that no audit had flagged.
+# ---------------------------------------------------------------------------
+step "Runtime exception recurrence (audit_runtime_exception_recurrence.py)"
+if "$PY" scripts/audit_runtime_exception_recurrence.py > /tmp/preflight_runtime_exc.log 2>&1; then
+    ok "$(tail -1 /tmp/preflight_runtime_exc.log)"
+else
+    bad "runtime exception recurrence — see /tmp/preflight_runtime_exc.log"
+    tail -25 /tmp/preflight_runtime_exc.log
+fi
+
 step "Critical-secrets consistency (audit_critical_secrets_consistency.py)"
 if "$PY" scripts/audit_critical_secrets_consistency.py > /tmp/preflight_critical_secrets.log 2>&1; then
     ok "$(tail -1 /tmp/preflight_critical_secrets.log)"
