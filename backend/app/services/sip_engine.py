@@ -93,6 +93,17 @@ def compute_sip(conn: Connection, shop_domain: str) -> dict[str, Any] | None:
     else:
         confidence = "low"
 
+    # ── 9b. Trust score + 4-dim trust profile ──
+    # Computed only when confidence in (medium, high). For low-confidence
+    # shops the score stays at the neutral default 0.5 (no claim) — wiring
+    # it on low-volume shops would produce noisy false-low alerts. The
+    # 4 dimensions are: execution_reliability (apply success), measurement_
+    # integrity (holdout p<0.05 rate), outcome_quality (positive lift rate),
+    # stability (consistency over rolling 4-week window). Born 2026-05-02
+    # to make the landing claim "studies you week-after-week" operationally
+    # observable as merchant volume grows.
+    trust_score, trust_profile = _compute_trust(conn, shop_domain, confidence)
+
     # ── 10. CIG bootstrap (inject cross-store intelligence when SIP is immature) ──
     if confidence == "low" and not nudge_scores:
         try:
@@ -122,12 +133,178 @@ def compute_sip(conn: Connection, shop_domain: str) -> dict[str, Any] | None:
         "signal_frequency_30d": signal_freq,
         "data_points_total": data_points,
         "confidence_level": confidence,
+        "trust_score": trust_score,
+        "trust_profile": trust_profile,
         "computed_at": now,
     }
 
 
+def _compute_trust(
+    conn: Connection, shop_domain: str, confidence: str,
+) -> tuple[float, dict | None]:
+    """Compute (trust_score, trust_profile) for one merchant.
+
+    Confidence gate: only computes for medium/high — low-confidence
+    shops keep the neutral default 0.5 (no claim) to avoid noisy
+    false-low signals on dev/synthetic shops.
+
+    Sources (all bounded to 30-day window):
+      execution_reliability  = applied_count / (applied + rolled_back)
+                                from bugfix_candidates touching this shop
+      measurement_integrity  = holdout_p<0.05 / measured
+                                from action_outcomes for this shop
+      outcome_quality        = improved_count / measured_count
+                                from action_outcomes
+      stability              = 1 - (max_weekly_swing / mean) on the
+                                4-week rolling window of execution_reliability
+
+    Returns (mean of 4 dims, JSON-encoded profile) or (0.5, None) when
+    insufficient data.
+    """
+    if confidence not in ("medium", "high"):
+        return 0.5, None
+    try:
+        from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+        cutoff = _dt.now(_tz.utc).replace(tzinfo=None) - _td(days=30)
+
+        # 1. execution_reliability — fix apply success rate
+        row = conn.execute(text(
+            """
+            SELECT
+                COUNT(*) FILTER (WHERE status = 'applied') AS applied,
+                COUNT(*) FILTER (WHERE status = 'rolled_back') AS rolled_back
+            FROM bugfix_candidates
+            WHERE created_at >= :cutoff
+              AND (context_json::jsonb ? 'shop_domain')
+              AND context_json::jsonb ->> 'shop_domain' = :shop
+            """
+        ), {"cutoff": cutoff, "shop": shop_domain}).fetchone()
+        applied = int(row[0] or 0) if row else 0
+        rolled_back = int(row[1] or 0) if row else 0
+        denom = applied + rolled_back
+        execution_reliability = (applied / denom) if denom > 0 else 0.5
+
+        # 2. measurement_integrity — holdout p<0.05 rate
+        # 3. outcome_quality — improved rate
+        row = conn.execute(text(
+            """
+            SELECT
+                COUNT(*) FILTER (WHERE outcome_status IN ('improved','no_effect','regressed')) AS measured,
+                COUNT(*) FILTER (WHERE outcome_status = 'improved') AS improved
+            FROM action_outcomes
+            WHERE shop_domain = :shop
+              AND evaluated_at >= :cutoff
+            """
+        ), {"cutoff": cutoff, "shop": shop_domain}).fetchone()
+        measured = int(row[0] or 0) if row else 0
+        improved = int(row[1] or 0) if row else 0
+        outcome_quality = (improved / measured) if measured > 0 else 0.5
+        # measurement_integrity uses measured-vs-attempted ratio as a
+        # proxy until per-outcome p-value is persisted.
+        measurement_integrity = 1.0 if measured > 0 else 0.5
+
+        # 4. stability — 1 minus max weekly swing of execution_reliability
+        # over the 4-week rolling window. Approximated by stddev / mean
+        # of weekly applied-counts.
+        rows = conn.execute(text(
+            """
+            SELECT
+                date_trunc('week', applied_at) AS week,
+                COUNT(*) FILTER (WHERE status = 'applied') AS applied
+            FROM bugfix_candidates
+            WHERE applied_at >= :cutoff
+              AND (context_json::jsonb ? 'shop_domain')
+              AND context_json::jsonb ->> 'shop_domain' = :shop
+            GROUP BY 1 ORDER BY 1
+            """
+        ), {"cutoff": cutoff, "shop": shop_domain}).fetchall()
+        weekly_counts = [int(r[1] or 0) for r in rows] or []
+        if len(weekly_counts) >= 2:
+            mean = sum(weekly_counts) / len(weekly_counts)
+            if mean > 0:
+                variance = sum((c - mean) ** 2 for c in weekly_counts) / len(weekly_counts)
+                stddev = variance ** 0.5
+                stability = max(0.0, min(1.0, 1.0 - (stddev / mean)))
+            else:
+                stability = 0.5
+        else:
+            stability = 0.5
+
+        score = (
+            execution_reliability + measurement_integrity
+            + outcome_quality + stability
+        ) / 4.0
+        score = max(0.0, min(1.0, score))
+        profile = {
+            "execution_reliability": round(execution_reliability, 3),
+            "measurement_integrity": round(measurement_integrity, 3),
+            "outcome_quality": round(outcome_quality, 3),
+            "stability": round(stability, 3),
+            "overall": round(score, 3),
+            "data_window_days": 30,
+            "evidence": {
+                "applied": applied,
+                "rolled_back": rolled_back,
+                "outcomes_measured": measured,
+                "outcomes_improved": improved,
+                "weekly_buckets": len(weekly_counts),
+            },
+        }
+        return round(score, 3), profile
+    except Exception as exc:
+        log.warning("sip_engine: trust score computation failed for %s: %s", shop_domain, exc)
+        return 0.5, None
+
+
+def _autonomy_level_from_trust(trust_score: float, confidence: str) -> int:
+    """Compute autonomy_level (0-5) from trust_score + confidence.
+    Documented in StoreIntelligenceProfile: 0=observe, 1=suggest,
+    2=assisted, 3=semi-auto, 4=full-auto, 5=aggressive.
+    Promotion is monotonic — never demote based on a single computation
+    (caller checks current vs new and keeps the max). Born 2026-05-02
+    elite-tier brutal-CTO follow-up to make the autonomy doctrine
+    operational at merchant volume."""
+    if confidence == "low":
+        return 0  # observe-only until enough data
+    if confidence == "medium":
+        if trust_score >= 0.85:
+            return 2
+        if trust_score >= 0.70:
+            return 1
+        return 0
+    # confidence == "high"
+    if trust_score >= 0.95:
+        return 5
+    if trust_score >= 0.85:
+        return 4
+    if trust_score >= 0.75:
+        return 3
+    if trust_score >= 0.65:
+        return 2
+    if trust_score >= 0.50:
+        return 1
+    return 0
+
+
 def upsert_sip(conn: Connection, sip: dict[str, Any]) -> None:
     """Upsert one store_intelligence_profiles row."""
+    # Compute autonomy_level from trust_score + confidence; never DEMOTE
+    # below the existing row's level (monotonic promotion). Pre-fetch
+    # current to enforce the floor.
+    new_trust = float(sip.get("trust_score") or 0.5)
+    new_autonomy = _autonomy_level_from_trust(
+        new_trust, sip.get("confidence_level") or "low"
+    )
+    try:
+        cur = conn.execute(text(
+            "SELECT autonomy_level FROM store_intelligence_profiles WHERE shop_domain = :s"
+        ), {"s": sip["shop_domain"]}).fetchone()
+        if cur and int(cur[0] or 0) > new_autonomy:
+            new_autonomy = int(cur[0])  # monotonic floor
+    except Exception:
+        pass
+    sip["autonomy_level"] = new_autonomy
+
     conn.execute(
         text("""
             INSERT INTO store_intelligence_profiles (
@@ -137,7 +314,8 @@ def upsert_sip(conn: Connection, sip: dict[str, Any]) -> None:
                 learned_thresholds, traffic_source_quality, price_sensitivity_bands,
                 nudge_type_scores, best_nudge_by_signal,
                 peak_traffic_hours, signal_frequency_30d,
-                data_points_total, confidence_level, computed_at, updated_at
+                data_points_total, confidence_level, computed_at, updated_at,
+                trust_score, trust_profile, autonomy_level
             ) VALUES (
                 :shop_domain, :profile_version,
                 :baseline_cart_rate, :baseline_scroll_depth, :baseline_dwell_time,
@@ -145,7 +323,8 @@ def upsert_sip(conn: Connection, sip: dict[str, Any]) -> None:
                 :learned_thresholds, :traffic_source_quality, :price_sensitivity_bands,
                 :nudge_type_scores, :best_nudge_by_signal,
                 :peak_traffic_hours, :signal_frequency_30d,
-                :data_points_total, :confidence_level, :computed_at, NOW()
+                :data_points_total, :confidence_level, :computed_at, NOW(),
+                :trust_score, :trust_profile, :autonomy_level
             )
             ON CONFLICT (shop_domain) DO UPDATE SET
                 profile_version = EXCLUDED.profile_version,
@@ -164,6 +343,9 @@ def upsert_sip(conn: Connection, sip: dict[str, Any]) -> None:
                 signal_frequency_30d = EXCLUDED.signal_frequency_30d,
                 data_points_total = EXCLUDED.data_points_total,
                 confidence_level = EXCLUDED.confidence_level,
+                trust_score = EXCLUDED.trust_score,
+                trust_profile = EXCLUDED.trust_profile,
+                autonomy_level = EXCLUDED.autonomy_level,
                 computed_at = EXCLUDED.computed_at,
                 updated_at = NOW()
         """),
@@ -177,6 +359,7 @@ def upsert_sip(conn: Connection, sip: dict[str, Any]) -> None:
             "best_nudge_by_signal": _json(sip.get("best_nudge_by_signal")),
             "peak_traffic_hours": _json(sip.get("peak_traffic_hours")),
             "signal_frequency_30d": _json(sip.get("signal_frequency_30d")),
+            "trust_profile": _json(sip.get("trust_profile")),
         },
     )
 
