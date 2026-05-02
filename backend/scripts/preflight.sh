@@ -158,6 +158,21 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2c. Critical-secrets consistency — every entry in
+# auth_hardening._CRITICAL_SECRETS must be read as os.getenv/os.environ
+# somewhere in app/. Catches the 2026-05-02 drift class where a name in
+# the posture list does not match the real env var, making
+# /ops/auth/posture report the secret as missing when it is actually set.
+# ---------------------------------------------------------------------------
+step "Critical-secrets consistency (audit_critical_secrets_consistency.py)"
+if "$PY" scripts/audit_critical_secrets_consistency.py > /tmp/preflight_critical_secrets.log 2>&1; then
+    ok "$(tail -1 /tmp/preflight_critical_secrets.log)"
+else
+    bad "_CRITICAL_SECRETS drift — see /tmp/preflight_critical_secrets.log"
+    tail -20 /tmp/preflight_critical_secrets.log
+fi
+
+# ---------------------------------------------------------------------------
 # 2b-ter. Lite-orphan endpoint sweep — informational, never blocking.
 # Catches Lite-accessible backends with no Lite-floor render path (the
 # 2026-04-25 audit class). Prints findings; exit 0 always so a deliberate

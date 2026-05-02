@@ -12,9 +12,11 @@ Two concerns bundled (both are lightweight and Redis-backed):
      advisory — it does NOT block logins (that would be a TIER_2
      auth-flow change requiring explicit human approval).
 
-  2. Secret posture — on startup the process checks the environment
-     for the critical secrets and logs a structured "secrets_check"
-     audit entry. Missing or weak secrets fire an ops alert.
+  2. Secret posture — observability surface for ops review. Hard
+     enforcement (FATAL crash on missing critical secrets) lives in
+     app/main.py::_startup_env_audit. This module exposes the broader
+     posture (status + length per secret) via /ops/auth/posture so
+     operators can verify configuration health on demand.
 
 Public API
 ----------
@@ -155,13 +157,19 @@ def _write_alert(
 # Secret posture audit
 # ---------------------------------------------------------------------------
 
-# Critical secrets whose presence + minimum quality we want the process to
-# verify on startup. Each entry is (env_var, min_length, description).
+# Critical secrets whose presence + minimum quality the ops endpoint
+# /ops/auth/posture surfaces for human review. Each entry is
+# (env_var, min_length, description). Hard-enforcement (FATAL on missing)
+# for the truly load-bearing ones lives in app/main.py::_startup_env_audit;
+# this list is the broader observability view for ops.
 _CRITICAL_SECRETS: list[tuple[str, int, str]] = [
     ("MERCHANT_SESSION_SECRET", 32, "Session JWT signing key"),
-    ("TOKEN_ENCRYPTION_KEY", 32, "Merchant token encryption key"),
+    ("MERCHANT_TOKEN_ENCRYPTION_KEY", 32, "Merchant token encryption key"),
     ("SHOPIFY_API_SECRET", 16, "Shopify OAuth secret"),
     ("OPS_API_KEY", 16, "Ops endpoint admin key"),
+    ("SHOPIFY_WEBHOOK_SECRET", 16, "Shopify webhook HMAC secret"),
+    ("TELEGRAM_WEBHOOK_SECRET", 16, "Telegram webhook signature secret"),
+    ("RESEND_WEBHOOK_SECRET", 16, "Resend webhook signature secret"),
 ]
 
 _WEAK_VALUES = {"changeme", "secret", "password", "dev", "test", "admin"}
@@ -214,34 +222,3 @@ def auth_posture() -> dict:
     }
 
 
-def run_startup_audit() -> None:
-    """Call once at app startup — logs + alerts on missing/weak secrets."""
-    rows = audit_secrets()
-    missing = [r for r in rows if r["status"] == "missing"]
-    weak = [r for r in rows if r["status"] == "weak"]
-    if missing or weak:
-        log.error(
-            "auth_hardening: secret posture check failed — missing=%s weak=%s",
-            [r["name"] for r in missing],
-            [r["name"] for r in weak],
-        )
-        try:
-            from app.services.alerting import write_alert
-            from app.core.database import SessionLocal
-            db = SessionLocal()
-            try:
-                write_alert(
-                    db,
-                    severity="critical" if missing else "warning",
-                    source="auth_hardening",
-                    alert_type="secret_posture",
-                    summary=f"Secret posture failure — missing={len(missing)} weak={len(weak)}",
-                    detail={"rows": rows},
-                )
-                db.commit()
-            finally:
-                db.close()
-        except Exception as exc:
-            log.warning("auth_hardening: startup audit alert write failed: %s", exc)
-    else:
-        log.info("auth_hardening: all %d critical secrets OK", len(rows))
