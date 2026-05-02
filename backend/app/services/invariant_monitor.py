@@ -247,6 +247,45 @@ _AUDITS: list[tuple[str, str, str]] = [
         "invariant_regression",
         "invariant:claude_md_drift",
     ),
+    # Critical-secrets consistency: added 2026-05-02 after the multidim
+    # audit_hardening sweep caught two env-var-name drifts the single-
+    # dim R-fix had missed. Catches the class where _CRITICAL_SECRETS
+    # in auth_hardening.py lists an env name that no os.getenv reads —
+    # making /ops/auth/posture report a key as "missing" when it is
+    # actually configured under a different name. Preflight blocks at
+    # commit time; this catches the same class within 15min of any
+    # --no-verify bypass or future drift introduced via a
+    # post-merge-conflict resolution.
+    (
+        "audit_critical_secrets_consistency.py",
+        "invariant_regression",
+        "invariant:critical_secrets_consistency",
+    ),
+    # Shopify api_version pinning: added 2026-05-02 (was preflight-only
+    # since b2116ab on 2026-04-30). Catches the class where the survey
+    # extension toml or an SDK pin drifts off the {2024-10, 2025-01,
+    # 2025-04, 2025-07} allowlist — Shopify CLI does not validate
+    # api_version against published SDKs, so the v12 survey-extension
+    # disaster (api_version=2026-04 = nonexistent) shipped silent for
+    # 13 deploys. Periodic recognition closes the class beyond commit.
+    (
+        "audit_shopify_api_version_pinned.py",
+        "invariant_regression",
+        "invariant:shopify_api_version_pinned",
+    ),
+    # Dashboard dead code: added 2026-05-02. Catches the class where a
+    # Lite/Pro card or hook becomes orphan after a tier-partition
+    # change but stays on disk because no commit touches it. Caught
+    # the VisitorIntentExplorerCard.tsx orphan during the 2026-04-30
+    # signals-cassettone hunt (commit 2c3e27d). Preflight catches at
+    # commit; this catches drift introduced between commits or via
+    # branch merges that touch tier nav without grep-checking
+    # downstream consumers.
+    (
+        "audit_dashboard_dead_code.py",
+        "invariant_regression",
+        "invariant:dashboard_dead_code",
+    ),
 ]
 
 _TIMEOUT_SECONDS = 30
