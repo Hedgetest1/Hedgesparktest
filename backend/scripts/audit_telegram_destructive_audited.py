@@ -49,6 +49,8 @@ Usage
     ./scripts/audit_telegram_destructive_audited.py          # report
     ./scripts/audit_telegram_destructive_audited.py --strict # exit 1 on any miss
 """
+# invariant-eligible: false  (has runtime side-effects: HTTP/DB/subproc)
+
 from __future__ import annotations
 
 import ast

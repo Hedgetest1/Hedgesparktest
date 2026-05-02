@@ -45,6 +45,8 @@ Usage
 Scope is narrowly the dashboard's own assets — the exact bug class we
 saw. Small, targeted, fast (<2 s on a warm cache).
 """
+# invariant-eligible: false  (has runtime side-effects: HTTP/DB/subproc)
+
 from __future__ import annotations
 
 import argparse

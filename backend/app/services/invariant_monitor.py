@@ -310,6 +310,80 @@ _AUDITS: list[tuple[str, str, str]] = [
         "invariant_regression",
         "invariant:lite_card_states_usage",
     ),
+    # Env-var registries class-of-class (added 2026-05-02 after the
+    # brutal-CTO 10/10 sprint). Generalises the single-class
+    # critical_secrets_consistency audit to ALL module-level
+    # bindings matching *_SECRETS / *_KEYS / *_ENV_VARS / *_REQUIRED_ENV
+    # / *ENV_REGISTRY naming. Fires when ANY env-var name in such a
+    # registry is not read as os.getenv elsewhere — same root cause
+    # as the auth_hardening drift, generalised across the codebase.
+    (
+        "audit_env_var_registries_consistency.py",
+        "invariant_regression",
+        "invariant:env_var_registries",
+    ),
+    # ── Bulk-wire batch (2026-05-02 brutal-CTO 10/10 sprint) ──
+    # All entries below are state-based audits classified safe-to-wire
+    # by audit_invariant_monitor_coverage (no DB/HTTP/subproc side
+    # effects). Periodic scan closes the post-merge drift gap that
+    # preflight catches at commit. Per-audit doctrine lives in each
+    # script's module docstring; this block trades verbose commentary
+    # for coverage breadth. Re-classify with `audit_invariant_monitor_coverage`
+    # and tag `# invariant-eligible: false` on any audit that should
+    # NOT run periodically (e.g. ones discovered to have side effects).
+    ("audit_alembic_test_db_parity.py", "invariant_regression", "invariant:alembic_test_db_parity"),
+    ("audit_analytics_date_range_coverage.py", "invariant_regression", "invariant:analytics_date_range_coverage"),
+    ("audit_audit_telemetry_coverage.py", "invariant_regression", "invariant:audit_telemetry_coverage"),
+    ("audit_autonomy_coverage.py", "invariant_regression", "invariant:autonomy_coverage"),
+    ("audit_backend_currency_drift.py", "invariant_regression", "invariant:backend_currency_drift"),
+    ("audit_backend_frontend_coverage.py", "invariant_regression", "invariant:backend_frontend_coverage"),
+    ("audit_bundle_budget.py", "invariant_regression", "invariant:bundle_budget"),
+    ("audit_claude_md_pm2_map.py", "invariant_regression", "invariant:claude_md_pm2_map"),
+    ("audit_claude_md_redis_keys.py", "invariant_regression", "invariant:claude_md_redis_keys"),
+    ("audit_cte_missing_comma.py", "invariant_regression", "invariant:cte_missing_comma"),
+    ("audit_dashboard_api_base_env.py", "invariant_regression", "invariant:dashboard_api_base_env"),
+    ("audit_dashboard_fetches.py", "invariant_regression", "invariant:dashboard_fetches"),
+    ("audit_data_truth.py", "invariant_regression", "invariant:data_truth"),
+    ("audit_dead_endpoints.py", "invariant_regression", "invariant:dead_endpoints"),
+    ("audit_email_deliverability.py", "invariant_regression", "invariant:email_deliverability"),
+    ("audit_email_registry.py", "invariant_regression", "invariant:email_registry"),
+    ("audit_empty_path_fields.py", "invariant_regression", "invariant:empty_path_fields"),
+    ("audit_endpoint_test_coverage.py", "invariant_regression", "invariant:endpoint_test_coverage"),
+    ("audit_exception_debug.py", "invariant_regression", "invariant:exception_debug"),
+    ("audit_gdpr_redact_coverage.py", "invariant_regression", "invariant:gdpr_redact_coverage"),
+    ("audit_input_bounds.py", "invariant_regression", "invariant:input_bounds"),
+    ("audit_landing_lite_shipped.py", "invariant_regression", "invariant:landing_lite_shipped"),
+    ("audit_lite_hardcoded_currency.py", "invariant_regression", "invariant:lite_hardcoded_currency"),
+    ("audit_lite_nav_section_parity.py", "invariant_regression", "invariant:lite_nav_section_parity"),
+    ("audit_lite_orphan_endpoints.py", "invariant_regression", "invariant:lite_orphan_endpoints"),
+    ("audit_llm_http_timeout.py", "invariant_regression", "invariant:llm_http_timeout"),
+    ("audit_llm_model_version_freshness.py", "invariant_regression", "invariant:llm_model_version_freshness"),
+    ("audit_llm_per_merchant_budget_gate.py", "invariant_regression", "invariant:llm_per_merchant_budget_gate"),
+    ("audit_llm_pii_guard_coverage.py", "invariant_regression", "invariant:llm_pii_guard_coverage"),
+    ("audit_llm_token_ground_truth.py", "invariant_regression", "invariant:llm_token_ground_truth"),
+    ("audit_llm_truncation_rejection.py", "invariant_regression", "invariant:llm_truncation_rejection"),
+    ("audit_merchant_voice_coherence.py", "invariant_regression", "invariant:merchant_voice_coherence"),
+    ("audit_model_drift.py", "invariant_regression", "invariant:model_drift"),
+    ("audit_n_plus_one.py", "invariant_regression", "invariant:n_plus_one"),
+    ("audit_orphan_card_components.py", "invariant_regression", "invariant:orphan_card_components"),
+    ("audit_pro_nav_section_parity.py", "invariant_regression", "invariant:pro_nav_section_parity"),
+    ("audit_redis_client_imports.py", "invariant_regression", "invariant:redis_client_imports"),
+    ("audit_response_models.py", "invariant_regression", "invariant:response_models"),
+    ("audit_safety_check_fail_closed.py", "invariant_regression", "invariant:safety_check_fail_closed"),
+    ("audit_scheduled_jobs_map.py", "invariant_regression", "invariant:scheduled_jobs_map"),
+    ("audit_session_hook_centralization.py", "invariant_regression", "invariant:session_hook_centralization"),
+    ("audit_sidebar_floor_hardcoding.py", "invariant_regression", "invariant:sidebar_floor_hardcoding"),
+    ("audit_silent_returns.py", "invariant_regression", "invariant:silent_returns"),
+    ("audit_sql_columns.py", "invariant_regression", "invariant:sql_columns"),
+    ("audit_sql_schema.py", "invariant_regression", "invariant:sql_schema"),
+    ("audit_ssr_body_size.py", "invariant_regression", "invariant:ssr_body_size"),
+    ("audit_stale_doctrine_defaults.py", "invariant_regression", "invariant:stale_doctrine_defaults"),
+    ("audit_tenant_isolation.py", "invariant_regression", "invariant:tenant_isolation"),
+    ("audit_test_hermeticity.py", "invariant_regression", "invariant:test_hermeticity"),
+    ("audit_tier_cost_literals.py", "invariant_regression", "invariant:tier_cost_literals"),
+    ("audit_tier_gates.py", "invariant_regression", "invariant:tier_gates"),
+    ("audit_tier_naming_canonical.py", "invariant_regression", "invariant:tier_naming_canonical"),
+    ("audit_timezone.py", "invariant_regression", "invariant:timezone"),
 ]
 
 _TIMEOUT_SECONDS = 30

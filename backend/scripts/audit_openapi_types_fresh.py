@@ -29,6 +29,8 @@ Exit codes:
     1  drift: endpoints in openapi not in api-types
     2  script error
 """
+# invariant-eligible: false  (has runtime side-effects: HTTP/DB/subproc)
+
 from __future__ import annotations
 
 import json

@@ -173,6 +173,23 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2c-bis. Class-of-class env-var registry consistency.
+# Generalises the single-class _CRITICAL_SECRETS audit above to ALL
+# module-level bindings whose name matches a registry shape pattern
+# (*_SECRETS / *_KEYS / *_ENV_VARS / *_REQUIRED_ENV / *ENV_REGISTRY).
+# Catches the same drift class (env-var name in a list literal that
+# is never read as os.getenv) anywhere it appears, not just in
+# auth_hardening. Born 2026-05-02 from the brutal-CTO 10/10 sprint.
+# ---------------------------------------------------------------------------
+step "Env-var registries class-of-class (audit_env_var_registries_consistency.py)"
+if "$PY" scripts/audit_env_var_registries_consistency.py > /tmp/preflight_env_var_registries.log 2>&1; then
+    ok "$(tail -1 /tmp/preflight_env_var_registries.log)"
+else
+    bad "env-var registry drift — see /tmp/preflight_env_var_registries.log"
+    tail -20 /tmp/preflight_env_var_registries.log
+fi
+
+# ---------------------------------------------------------------------------
 # 2d. Frontend never-crash architecture — verifies the 4-layer
 # error-boundary stack (global-error / app/error / SectionErrorBoundary
 # / ErrorReporterInstaller) plus Sentry config files are present AND
@@ -449,6 +466,25 @@ fi
 # DA-evidence audit moved to commit-msg hook on 2026-05-02 (same
 # EDITMSG-staleness reason as audit_unresolved_flags above). Kept
 # this comment block as a marker so future grep finds the rationale.
+
+# ---------------------------------------------------------------------------
+# 2b-octies. Invariant_monitor coverage — meta-preventer (strict).
+# Auto-classifies every preflight audit script as commit-stage-only
+# vs state-based (heuristic on source patterns). State-based audits
+# NOT in invariant_monitor._AUDITS — and NOT tagged
+# `# invariant-eligible: false` — fail the build. Born 2026-05-02
+# from the brutal-CTO 10/10 sprint after the bulk-triage of 53
+# orphans into invariant_monitor._AUDITS + 3 opt-out tags closed
+# the legacy gap. From now on, every NEW preflight audit must
+# either be wired periodic OR explicitly tagged opt-out.
+# ---------------------------------------------------------------------------
+step "Invariant-monitor coverage (audit_invariant_monitor_coverage.py --strict)"
+if "$PY" scripts/audit_invariant_monitor_coverage.py --strict > /tmp/preflight_invariant_coverage.log 2>&1; then
+    ok "$(head -1 /tmp/preflight_invariant_coverage.log)"
+else
+    bad "invariant_monitor coverage drift — see /tmp/preflight_invariant_coverage.log"
+    tail -25 /tmp/preflight_invariant_coverage.log
+fi
 
 # ---------------------------------------------------------------------------
 # 2b-bis. Data-truth audit — catches currency drift (hardcoded €/$, SUM
