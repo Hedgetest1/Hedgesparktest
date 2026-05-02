@@ -406,6 +406,13 @@ _AUDITS: list[tuple[str, str, str]] = [
     ("audit_db_pool_doctrine.py", "invariant_regression", "invariant:db_pool_doctrine"),
     ("audit_log_rotation_health.py", "invariant_regression", "invariant:log_rotation_health"),
     ("audit_runtime_exception_recurrence.py", "invariant_regression", "invariant:runtime_exception_recurrence"),
+    # Brutal-CTO follow-up wave 2 (added 2026-05-02 evening).
+    # Worker memory growth catches silent OOM-leak class — workers
+    # running for days without restart accumulating heap. Threshold
+    # 100% over 14d window minimum. DB table growth catches runaway
+    # append-only growth before it degrades query latency.
+    ("audit_worker_memory_growth.py", "invariant_regression", "invariant:worker_memory_growth"),
+    ("audit_db_table_growth.py", "invariant_regression", "invariant:db_table_growth"),
 ]
 
 _TIMEOUT_SECONDS = 30

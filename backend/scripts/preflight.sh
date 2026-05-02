@@ -242,6 +242,33 @@ else
     tail -25 /tmp/preflight_runtime_exc.log
 fi
 
+# ---------------------------------------------------------------------------
+# 2c-pre-sexies. Worker memory growth tracker. Snapshots pm2 jlist
+# memory readings into a 14d rolling ledger. Alerts when any worker
+# grew >100% over the window minimum (silent OOM-leak class).
+# ---------------------------------------------------------------------------
+step "Worker memory growth (audit_worker_memory_growth.py)"
+if "$PY" scripts/audit_worker_memory_growth.py > /tmp/preflight_worker_mem.log 2>&1; then
+    ok "$(tail -1 /tmp/preflight_worker_mem.log)"
+else
+    bad "worker memory leak suspected — see /tmp/preflight_worker_mem.log"
+    tail -25 /tmp/preflight_worker_mem.log
+fi
+
+# ---------------------------------------------------------------------------
+# 2c-pre-septies. DB table growth tracker. Snapshots
+# pg_stat_user_tables row counts into a 30d rolling ledger. Alerts
+# when any table grew >200% over the prior-7-readings median in 24h
+# (high-spike tables get 500% threshold).
+# ---------------------------------------------------------------------------
+step "DB table growth (audit_db_table_growth.py)"
+if "$PY" scripts/audit_db_table_growth.py > /tmp/preflight_db_growth.log 2>&1; then
+    ok "$(tail -1 /tmp/preflight_db_growth.log)"
+else
+    bad "DB table runaway growth — see /tmp/preflight_db_growth.log"
+    tail -25 /tmp/preflight_db_growth.log
+fi
+
 step "Critical-secrets consistency (audit_critical_secrets_consistency.py)"
 if "$PY" scripts/audit_critical_secrets_consistency.py > /tmp/preflight_critical_secrets.log 2>&1; then
     ok "$(tail -1 /tmp/preflight_critical_secrets.log)"

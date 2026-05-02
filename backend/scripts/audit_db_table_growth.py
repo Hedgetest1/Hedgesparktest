@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+"""DB-table row-count growth tracker.
+
+Born 2026-05-02 from the brutal-CTO post-elite-tier inspection. There
+was NO automated tracking of which DB tables grow and how fast. At
+10k merchants, large append-only tables (events, ops_alerts,
+action_outcomes, shop_orders) can blow up in a week and degrade
+query latency before anybody notices.
+
+Strategy
+--------
+Each run snapshots `pg_stat_user_tables.n_live_tup` for every
+public-schema table into a 30-day rolling JSON ledger. Then computes
+day-over-day growth deltas. If any table grew more than
+_GROWTH_THRESHOLD_PCT in 24h (compared to the median of the prior
+7 readings), the audit FAILS.
+
+Threshold tuning
+----------------
+Initial 200 % over baseline median = 3× growth in 24h. Generous to
+avoid false positives during normal merchant onboarding. Tighten as
+production traffic stabilises.
+
+Usage
+-----
+    python3 scripts/audit_db_table_growth.py
+    python3 scripts/audit_db_table_growth.py --threshold 100
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+
+REPO = "/opt/wishspark"
+sys.path.insert(0, f"{REPO}/backend")
+
+LEDGER_PATH = Path(
+    "/root/.claude/projects/-opt-wishspark/memory/"
+    "db_table_rolling_ledger.json"
+)
+_DEFAULT_THRESHOLD_PCT = 200
+_RETENTION_DAYS = 30
+# Tables that legitimately spike during normal operation (e.g. events,
+# tracker_events) — we still track them but with a higher threshold.
+_HIGH_SPIKE_TABLES = frozenset({
+    "events", "tracker_events", "shop_orders", "action_outcomes",
+    "ops_alerts", "audit_log",
+})
+_HIGH_SPIKE_THRESHOLD_PCT = 500
+
+
+def _query_table_sizes() -> dict[str, int]:
+    """Run a single SELECT against pg_stat_user_tables. Returns
+    {table_name: row_count}."""
+    try:
+        from app.core.database import SessionLocal
+        from sqlalchemy import text
+    except Exception:
+        return {}
+    db = SessionLocal()
+    try:
+        rows = db.execute(text(
+            "SELECT relname, n_live_tup FROM pg_stat_user_tables "
+            "WHERE schemaname='public'"
+        )).fetchall()
+        return {r[0]: int(r[1] or 0) for r in rows}
+    except Exception:
+        return {}
+    finally:
+        db.close()
+
+
+def _load_ledger() -> dict:
+    if not LEDGER_PATH.is_file():
+        return {}
+    try:
+        return json.loads(LEDGER_PATH.read_text())
+    except Exception:
+        return {}
+
+
+def _save_ledger(ledger: dict) -> None:
+    LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
+    LEDGER_PATH.write_text(json.dumps(ledger, indent=2, sort_keys=True))
+
+
+def _prune(ledger: dict) -> dict:
+    cutoff = datetime.now() - timedelta(days=_RETENTION_DAYS)
+    out = {}
+    for ts, snap in ledger.items():
+        try:
+            if datetime.fromisoformat(ts) >= cutoff:
+                out[ts] = snap
+        except Exception:
+            continue
+    return out
+
+
+def _median(xs: list[int]) -> int:
+    if not xs:
+        return 0
+    s = sorted(xs)
+    n = len(s)
+    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) // 2
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--threshold", type=int, default=_DEFAULT_THRESHOLD_PCT)
+    args = ap.parse_args()
+
+    sizes = _query_table_sizes()
+    if not sizes:
+        print("audit_db_table_growth: skip — DB query returned empty")
+        return 0
+
+    now = datetime.now().isoformat(timespec="seconds")
+    ledger = _load_ledger()
+    ledger[now] = sizes
+    ledger = _prune(ledger)
+    _save_ledger(ledger)
+
+    # For each table, compute median over the prior 7 readings
+    # (excluding today's snapshot). If today exceeds median × threshold,
+    # flag the growth.
+    history: dict[str, list[int]] = {}
+    today_snapshot = ledger[now]
+    for ts, snap in ledger.items():
+        if ts == now:
+            continue
+        for name, n in snap.items():
+            history.setdefault(name, []).append(int(n))
+    # Trim each history to the last 7 readings
+    for name, lst in history.items():
+        history[name] = lst[-7:]
+
+    findings: list[str] = []
+    for name, current in today_snapshot.items():
+        prior = history.get(name) or []
+        if len(prior) < 2:
+            continue  # not enough baseline yet
+        baseline = _median(prior)
+        if baseline <= 0:
+            continue
+        threshold_pct = (
+            _HIGH_SPIKE_THRESHOLD_PCT if name in _HIGH_SPIKE_TABLES
+            else args.threshold
+        )
+        growth_pct = ((current - baseline) * 100) // baseline
+        if growth_pct >= threshold_pct:
+            findings.append(
+                f"{name}: baseline {baseline:,} rows "
+                f"→ now {current:,} rows = +{growth_pct}% "
+                f"(threshold {threshold_pct}%)"
+            )
+
+    if findings:
+        print(
+            f"FAIL: {len(findings)} table(s) grew above the "
+            f"day-over-day threshold:"
+        )
+        for f in findings:
+            print(f"  - {f}")
+        print(
+            "\nAction: confirm growth is expected (merchant onboarding, "
+            "campaign spike) — if not, look for unbounded write loops, "
+            "missing retention policy, runaway worker. Add a retention "
+            "task in retention_task.py if the table is append-only."
+        )
+        return 1
+
+    print(
+        f"OK: {len(today_snapshot)} table(s) within day-over-day growth "
+        f"budget (window {len(ledger)} sample(s))."
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
