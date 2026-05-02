@@ -767,6 +767,164 @@ def _check_antigen(
     return None
 
 
+def _compute_intent_token_bag(patch_diff: str | None) -> frozenset[str]:
+    """Phase J — semantic intent fingerprint (zero-LLM token-bag).
+
+    Extracts a normalized bag of "what this patch DOES" tokens from the
+    added lines of a diff. Used by _check_intent_similarity_to_failed
+    to catch the case where two patches have DIFFERENT structure but
+    SAME intent (e.g. one adds try/except, another adds if/raise — both
+    target the same root cause). Deterministic; no LLM cost.
+
+    Categories collected (tagged in the bag for namespaced Jaccard):
+      verb:<v>     control / data verbs (raise, return, commit, rollback,
+                   execute, delete, insert, update, log, warn, error,
+                   set, clear, del)
+      exc:<C>     exception class references (FooError, FooException)
+      call:<f>    function calls (lowercase identifier followed by `(`)
+      http:<x>    HTTP-shaped tokens (status_code, HTTPException, etc.)
+      env:<NAME>  os.getenv("NAME") / os.environ[...] reads
+    Generic noise tokens (if, for, return, len, etc.) are filtered.
+    """
+    import re as _re
+    if not patch_diff:
+        return frozenset()
+    bag: set[str] = set()
+    _CALL_NOISE = {
+        "if", "elif", "for", "while", "with", "return", "yield", "print",
+        "len", "str", "int", "float", "list", "dict", "set", "tuple",
+        "type", "isinstance", "hasattr", "getattr", "setattr", "format",
+        "open", "range", "enumerate", "min", "max", "sum", "any", "all",
+        "Optional", "List", "Dict", "Set", "Tuple", "Any",
+    }
+    _VERBS = (
+        "raise", "return", "commit", "rollback", "execute", "delete",
+        "insert", "update", "log", "warn", "error", "set", "clear", "del",
+    )
+    for line in patch_diff.split("\n"):
+        if not line.startswith("+"):
+            continue
+        if line.startswith("+++"):
+            continue
+        body = line[1:].strip()
+        if not body or body.startswith("#"):
+            continue
+        # Verbs (whole-word)
+        for v in _VERBS:
+            if _re.search(rf"\b{v}\b", body):
+                bag.add(f"verb:{v}")
+        # Exception classes
+        for m in _re.findall(r"\b([A-Z][a-zA-Z]+(?:Error|Exception))\b", body):
+            bag.add(f"exc:{m}")
+        # Function calls (heuristic: lowercase identifier directly before `(`)
+        for m in _re.findall(r"\b([a-z_][a-z_0-9]+)\s*\(", body):
+            if m not in _CALL_NOISE:
+                bag.add(f"call:{m}")
+        # HTTP-shaped tokens
+        for m in _re.findall(
+            r"\b(status_code|HTTPException|raise_for_status|response\.\w+)\b",
+            body,
+        ):
+            bag.add(f"http:{m}")
+        # Env var reads
+        for m in _re.findall(r'os\.(?:getenv|environ\.get)\(\s*[\'"]([A-Z_][A-Z0-9_]*)[\'"]', body):
+            bag.add(f"env:{m}")
+        for m in _re.findall(r'os\.environ\[\s*[\'"]([A-Z_][A-Z0-9_]*)[\'"]\s*\]', body):
+            bag.add(f"env:{m}")
+    return frozenset(bag)
+
+
+def _intent_jaccard(a: frozenset[str], b: frozenset[str]) -> float:
+    """Return Jaccard similarity (intersection / union) of two token bags.
+    Returns 0.0 when either bag is empty (no signal)."""
+    if not a or not b:
+        return 0.0
+    union = a | b
+    return len(a & b) / len(union) if union else 0.0
+
+
+# Threshold tuned empirically: 0.70 catches "same intent, different code"
+# without flagging legitimate mid-fix iterations of the same bug. Below
+# this, the Jaccard signal is too noisy to act on.
+_INTENT_SIMILARITY_THRESHOLD = 0.70
+
+
+def _check_intent_similarity_to_failed(
+    db: Session,
+    candidate: BugFixCandidate,
+    intent_bag: frozenset[str],
+    lookback_days: int = 14,
+    sample_size: int = 12,
+) -> dict | None:
+    """Phase J — semantic similarity check against recent failed patches.
+
+    Compares the candidate's intent token bag (computed by
+    _compute_intent_token_bag) against the bags of up to N recently-
+    failed patches in the SAME affected_domain. Returns the best match
+    if its Jaccard exceeds _INTENT_SIMILARITY_THRESHOLD.
+
+    Cheap: pulls at most `sample_size` PatchFingerprint rows; each
+    failure-bag is parsed from the failure_reason JSON if present, or
+    skipped. Total CPU is bounded.
+
+    Never raises — returns None on any error. The caller treats None
+    as "no semantic match" and proceeds with normal proposal flow.
+    """
+    if not intent_bag:
+        return None
+    domain = candidate.affected_domain
+    if not domain:
+        return None
+    try:
+        from app.models.patch_fingerprint import PatchFingerprint
+        cutoff = _now() - timedelta(days=lookback_days)
+        rows = (
+            db.query(PatchFingerprint)
+            .filter(
+                PatchFingerprint.affected_domain == domain,
+                PatchFingerprint.outcome.in_([
+                    "rolled_back", "apply_failed",
+                    "tests_failed", "test_timeout",
+                ]),
+                PatchFingerprint.created_at >= cutoff,
+            )
+            .order_by(PatchFingerprint.created_at.desc())
+            .limit(sample_size)
+            .all()
+        )
+    except Exception as exc:
+        log.warning("intent_similarity: query failed (non-fatal): %s", exc)
+        return None
+
+    best: tuple[float, "PatchFingerprint"] | None = None
+    for row in rows:
+        # Failed-patch intent bag may be stored on the row's failure_reason
+        # JSON. If absent, skip (legacy rows pre-Phase-J have no bag).
+        try:
+            payload = json.loads(row.failure_reason or "{}")
+            stored = payload.get("intent_bag") if isinstance(payload, dict) else None
+            if not isinstance(stored, list):
+                continue
+            other = frozenset(str(t) for t in stored)
+        except Exception:
+            continue
+        sim = _intent_jaccard(intent_bag, other)
+        if sim >= _INTENT_SIMILARITY_THRESHOLD:
+            if best is None or sim > best[0]:
+                best = (sim, row)
+    if best is None:
+        return None
+    sim, row = best
+    return {
+        "candidate_id": row.bugfix_candidate_id,
+        "outcome": row.outcome,
+        "failure_reason": row.failure_reason,
+        "created_at": row.created_at,
+        "match_type": "intent_bag",
+        "jaccard": round(sim, 3),
+    }
+
+
 def _check_patch_fingerprint(
     db: Session, fingerprint: str, diff_fp: str | None = None, lookback_days: int = 30,
     skeleton_fp: str | None = None,
@@ -3605,6 +3763,49 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
             )
             db.flush()
             return False
+
+    # Phase J — intent-bag Jaccard check (the 5th fingerprint layer).
+    # Catches the "same approach, different code" failure mode that the
+    # AST skeleton misses (e.g. one patch adds try/except, another adds
+    # if/raise — different shape, same intent). Token-bag is computed
+    # from added lines (verbs / exception classes / call names / HTTP
+    # tokens / env vars). Compared via Jaccard against last 12 failed
+    # patches in the same affected_domain. Threshold 0.70.
+    intent_bag = _compute_intent_token_bag(candidate.patch_diff)
+    if intent_bag:
+        intent_match = _check_intent_similarity_to_failed(db, candidate, intent_bag)
+        if intent_match:
+            log.info(
+                "propose_patch: INTENT-BAG REJECT id=%d — matches failed "
+                "candidate #%d (jaccard=%.3f, %s)",
+                candidate.id, intent_match["candidate_id"],
+                intent_match["jaccard"], intent_match["outcome"],
+            )
+            candidate.failure_reason = (
+                f"intent_bag_dedup: jaccard={intent_match['jaccard']} matches "
+                f"failed candidate #{intent_match['candidate_id']} "
+                f"({intent_match['outcome']}); same intent, different code"
+            )
+            # Also stash the bag for future comparisons (helps when this
+            # candidate eventually fails and becomes a corpus row).
+            try:
+                existing_ctx = json.loads(candidate.context_json or "{}")
+                if isinstance(existing_ctx, dict):
+                    existing_ctx["intent_bag"] = sorted(intent_bag)
+                    candidate.context_json = json.dumps(existing_ctx)
+            except Exception:
+                pass
+            db.flush()
+            return False
+        # Stash the bag for future similarity checks (so when this
+        # candidate's outcome is recorded, the bag is queryable).
+        try:
+            existing_ctx = json.loads(candidate.context_json or "{}")
+            if isinstance(existing_ctx, dict):
+                existing_ctx["intent_bag"] = sorted(intent_bag)
+                candidate.context_json = json.dumps(existing_ctx)
+        except Exception:
+            pass
 
     candidate.status = "patch_proposed"
 

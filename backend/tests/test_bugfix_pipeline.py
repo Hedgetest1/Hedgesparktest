@@ -740,6 +740,91 @@ def test_pipeline_e2e_retro_check_catches_fix_incomplete(db):
     assert detail_obj["candidate_id"] == cand.id
 
 
+# ---------------------------------------------------------------------------
+# Phase J — semantic intent-bag Jaccard fingerprint
+# ---------------------------------------------------------------------------
+
+def test_intent_token_bag_extracts_verbs_and_calls():
+    """Bag picks up control verbs + function-call names from added lines."""
+    from app.services.bugfix_pipeline import _compute_intent_token_bag
+    diff = (
+        "+++ b/foo.py\n"
+        "+def fix(x):\n"
+        "+    if x is None:\n"
+        "+        raise ValueError('bad')\n"
+        "+    db.commit()\n"
+        "+    log.warning('done')\n"
+    )
+    bag = _compute_intent_token_bag(diff)
+    assert "verb:raise" in bag
+    assert "verb:commit" in bag
+    assert "verb:log" in bag
+    assert "exc:ValueError" in bag
+    assert "call:commit" in bag
+
+
+def test_intent_token_bag_skips_noise_calls():
+    """Generic builtins (len, str, int, ...) are NOT captured as call: tokens."""
+    from app.services.bugfix_pipeline import _compute_intent_token_bag
+    diff = (
+        "+++ b/foo.py\n"
+        "+x = len(xs)\n"
+        "+y = str(z)\n"
+        "+if isinstance(a, int):\n"
+        "+    pass\n"
+    )
+    bag = _compute_intent_token_bag(diff)
+    assert "call:len" not in bag
+    assert "call:str" not in bag
+    assert "call:isinstance" not in bag
+
+
+def test_intent_token_bag_captures_env_var_reads():
+    """os.getenv / os.environ reads are tagged env:NAME."""
+    from app.services.bugfix_pipeline import _compute_intent_token_bag
+    diff = (
+        "+++ b/foo.py\n"
+        '+secret = os.getenv("MY_SECRET")\n'
+        '+key = os.environ["MY_KEY"]\n'
+    )
+    bag = _compute_intent_token_bag(diff)
+    assert "env:MY_SECRET" in bag
+    assert "env:MY_KEY" in bag
+
+
+def test_intent_jaccard_identical_bags():
+    """Identical bags -> Jaccard 1.0."""
+    from app.services.bugfix_pipeline import _intent_jaccard
+    a = frozenset({"call:foo", "verb:commit", "exc:ValueError"})
+    assert _intent_jaccard(a, a) == 1.0
+
+
+def test_intent_jaccard_disjoint_bags():
+    """Disjoint bags -> Jaccard 0.0."""
+    from app.services.bugfix_pipeline import _intent_jaccard
+    a = frozenset({"call:foo"})
+    b = frozenset({"call:bar"})
+    assert _intent_jaccard(a, b) == 0.0
+
+
+def test_intent_jaccard_partial_overlap():
+    """Half-overlap -> Jaccard 0.33 (2 shared / 6 union -> 1/3)."""
+    from app.services.bugfix_pipeline import _intent_jaccard
+    a = frozenset({"call:foo", "verb:commit", "exc:ValueError", "verb:rollback"})
+    b = frozenset({"call:foo", "verb:commit", "call:bar", "exc:KeyError"})
+    sim = _intent_jaccard(a, b)
+    # intersection = 2 (call:foo, verb:commit); union = 6 distinct
+    assert 0.30 < sim < 0.40
+
+
+def test_intent_jaccard_empty_returns_zero():
+    """Empty bag on either side -> 0 (no signal)."""
+    from app.services.bugfix_pipeline import _intent_jaccard
+    a = frozenset({"call:foo"})
+    assert _intent_jaccard(a, frozenset()) == 0.0
+    assert _intent_jaccard(frozenset(), a) == 0.0
+
+
 def test_pipeline_e2e_invariant_audit_creates_triageable_alert(db):
     """E2E: invariant_monitor failure writes an ops_alert with
     alert_type='invariant_regression' + source 'invariant:<name>'.
