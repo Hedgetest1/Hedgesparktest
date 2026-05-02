@@ -741,6 +741,106 @@ def test_pipeline_e2e_retro_check_catches_fix_incomplete(db):
 
 
 # ---------------------------------------------------------------------------
+# Phase E (elite-tier sprint) — chaos tests: Redis down / DB error / LLM 503
+# ---------------------------------------------------------------------------
+
+def test_chaos_sibling_sweep_survives_grep_failure(monkeypatch):
+    """When ripgrep AND grep both fail (no shutil.which match), the
+    sibling sweep returns None gracefully — propose_patch continues
+    without enrichment. Pre-pipeline-launch chaos: subprocess tools
+    missing on a barebones container."""
+    from app.services import bugfix_pipeline as bp
+    from types import SimpleNamespace
+
+    # Force shutil.which to return None for both rg and grep
+    import shutil
+    original_which = shutil.which
+    def _no_grep(name):
+        if name in ("rg", "grep"):
+            return None
+        return original_which(name)
+    monkeypatch.setattr(shutil, "which", _no_grep)
+
+    c = SimpleNamespace(
+        id=1, title="MERCHANT_SESSION_SECRET drift",
+        summary="—", context_json=None, patch_files=None,
+    )
+    out = bp._run_sibling_sweep(c)
+    assert out is None  # graceful degrade
+
+
+def test_chaos_intent_similarity_db_error_returns_none(monkeypatch):
+    """Phase J retro-similarity check tolerates DB query failure —
+    returns None instead of crashing the propose_patch flow."""
+    from app.services import bugfix_pipeline as bp
+
+    # Patch the inline import to raise on db query
+    class _BrokenSession:
+        def query(self, *a, **kw):
+            raise RuntimeError("simulated postgres connection pool exhausted")
+    bag = frozenset({"call:foo", "verb:commit"})
+    candidate_stub = type("C", (), {"affected_domain": "tests"})()
+    out = bp._check_intent_similarity_to_failed(_BrokenSession(), candidate_stub, bag)
+    assert out is None
+
+
+def test_chaos_post_apply_retro_check_alert_write_failure_doesnt_crash(monkeypatch, db):
+    """When write_alert raises (Redis / DB outage), retro_check rolls
+    back the session and logs a warning — the apply already succeeded
+    so the workflow must NOT propagate the alert-write failure."""
+    import json as _json
+    from app.services import bugfix_pipeline as bp
+
+    cand = BugFixCandidate(
+        title="rename env",
+        summary="—",
+        source_type="ops_alert",
+        source_ref="chaos-1",
+        priority_score=1.0,
+        status="applied",
+        git_commit_sha="deadbee",
+        context_json=_json.dumps({
+            "pre_apply_sibling_counts": {
+                "MERCHANT_TOKEN_ENCRYPTION_KEY": 1,
+            }
+        }),
+    )
+    db.add(cand)
+    db.flush()
+
+    # Force write_alert to raise — simulating DB outage during alerting.
+    def _broken_write_alert(*args, **kwargs):
+        raise RuntimeError("simulated alerting DB outage")
+    import app.services.alerting as _alerting
+    monkeypatch.setattr(_alerting, "write_alert", _broken_write_alert)
+
+    # Should NOT raise — internal try/except + db.rollback per CLAUDE.md §11
+    bp._post_apply_retro_check(cand, db)
+
+
+def test_chaos_count_sibling_hits_subprocess_timeout_returns_partial(monkeypatch):
+    """When subprocess.run hits TimeoutExpired, the counter skips that
+    signature and returns whatever it managed to count — never raises."""
+    import subprocess as _sp
+    from app.services.bugfix_pipeline import _count_sibling_hits
+
+    original = _sp.run
+    call_count = [0]
+    def _flaky_run(*args, **kwargs):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            raise _sp.TimeoutExpired(cmd="grep", timeout=8)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(_sp, "run", _flaky_run)
+
+    counts = _count_sibling_hits(["MERCHANT_SESSION_SECRET", "MERCHANT_TOKEN_ENCRYPTION_KEY"])
+    # First sig timed out → not in counts. Second succeeded.
+    assert "MERCHANT_SESSION_SECRET" not in counts or counts.get("MERCHANT_SESSION_SECRET", 0) == 0
+    # Total result is a dict with no exception
+    assert isinstance(counts, dict)
+
+
+# ---------------------------------------------------------------------------
 # Phase B (elite-tier sprint) — kill-switch backlog test
 # ---------------------------------------------------------------------------
 

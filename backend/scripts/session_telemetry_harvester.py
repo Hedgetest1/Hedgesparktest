@@ -44,6 +44,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -53,6 +54,12 @@ from pathlib import Path
 
 TASKS_ROOT = Path("/tmp/claude-0")
 MEMORY_DIR = Path("/root/.claude/projects/-opt-wishspark/memory")
+# Cross-session persistence (Phase F). One JSON file accumulates aggregate
+# pattern counts across every harvester run, surviving the /tmp wipe
+# between sessions. Each run merges the new window's counts into the
+# rolling 30-day totals + emits a "trends" section in the memo.
+CROSS_SESSION_LEDGER = MEMORY_DIR / "session_telemetry_rolling_ledger.json"
+_LEDGER_RETENTION_DAYS = 30
 
 # Pattern signatures we care about
 _PRE_BLOCKED_RE = re.compile(r"preflight:\s*BLOCKED", re.IGNORECASE)
@@ -112,6 +119,77 @@ def _scan_files(files: list[Path]) -> dict:
         for sha, subject in _SHIPPED_RE.findall(text):
             summary["shipped_commits"].append((sha, subject))
     return summary
+
+
+def _load_cross_session_ledger() -> dict:
+    """Load the rolling 30-day ledger (Phase F cross-session persistence).
+    Schema:
+      { "<YYYY-MM-DD>": {
+            "total_tasks": int, "preflight_blocks": int,
+            "forbidden_phrase_hits": int, "da_evidence_hits": int,
+            "tier1_fallbacks": int, "shipped": int, "audit_failures": {<name>: int}
+        } }
+    Older keys (>30d) are pruned on each write."""
+    if not CROSS_SESSION_LEDGER.is_file():
+        return {}
+    try:
+        return json.loads(CROSS_SESSION_LEDGER.read_text())
+    except Exception:
+        return {}
+
+
+def _save_cross_session_ledger(ledger: dict, today: str, current: dict) -> None:
+    """Merge today's counts into the ledger, prune entries older than
+    _LEDGER_RETENTION_DAYS, write back atomically."""
+    merged = dict(ledger)
+    merged[today] = {
+        "total_tasks": current["total_tasks"],
+        "preflight_blocks": current["preflight_blocks"],
+        "forbidden_phrase_hits": current["forbidden_phrase_hits"],
+        "da_evidence_hits": current["da_evidence_hits"],
+        "tier1_fallbacks": current["tier1_manual_deploy_fallback"],
+        "shipped": len(current["shipped_commits"]),
+        "audit_failures": dict(current["audit_failures"]),
+    }
+    cutoff = datetime.now() - timedelta(days=_LEDGER_RETENTION_DAYS)
+    pruned: dict = {}
+    for k, v in merged.items():
+        try:
+            if datetime.strptime(k, "%Y-%m-%d") >= cutoff:
+                pruned[k] = v
+        except Exception:
+            continue
+    CROSS_SESSION_LEDGER.write_text(json.dumps(pruned, indent=2, sort_keys=True))
+
+
+def _cross_session_trends(ledger: dict) -> list[str]:
+    """Compute simple trend lines from the rolling ledger:
+      - total commits shipped over window
+      - top-3 audit_failures by frequency
+      - days with preflight_blocks > 5 (high-friction days)"""
+    if not ledger:
+        return []
+    days_with_data = sorted(ledger.keys())
+    total_shipped = sum(int(d.get("shipped", 0)) for d in ledger.values())
+    cumulative_audits: Counter = Counter()
+    high_friction_days = 0
+    for d in ledger.values():
+        af = d.get("audit_failures") or {}
+        for name, n in af.items():
+            cumulative_audits[name] += int(n)
+        if int(d.get("preflight_blocks", 0)) > 5:
+            high_friction_days += 1
+    out = [
+        f"Window: {days_with_data[0]} → {days_with_data[-1]} "
+        f"({len(days_with_data)} day(s) recorded)",
+        f"Total shipped commits across window: **{total_shipped}**",
+        f"High-friction days (preflight_blocks > 5): **{high_friction_days}**",
+    ]
+    if cumulative_audits:
+        out.append("Top-3 audit failures (rolling):")
+        for name, count in cumulative_audits.most_common(3):
+            out.append(f"  - `{name}` — {count} hit(s)")
+    return out
 
 
 def _suggest_preventers(s: dict) -> list[str]:
@@ -190,6 +268,14 @@ def _format_memo(s: dict, hours: int, dry_run: bool) -> str:
         lines.append("## Preventer suggestions")
         lines.append("- (none — no pattern hit the >=3 threshold)")
         lines.append("")
+    # Phase F — cross-session trends from the rolling ledger
+    ledger = _load_cross_session_ledger()
+    trends = _cross_session_trends(ledger)
+    if trends:
+        lines.append("## Cross-session trends (rolling 30d ledger)")
+        for t in trends:
+            lines.append(f"- {t}")
+        lines.append("")
     lines.append(
         "_This memo is auto-regenerated each run. Treat as INFO; "
         "actionable preventers should land as feedback memos OR "
@@ -199,6 +285,82 @@ def _format_memo(s: dict, hours: int, dry_run: bool) -> str:
         lines.append("")
         lines.append("**DRY-RUN — not written to disk.**")
     return "\n".join(lines) + "\n"
+
+
+_SCAFFOLD_DIR = Path("/opt/wishspark/backend/scripts/scaffolded_preventers")
+_SCAFFOLD_THRESHOLD = 10  # rolling-window hits required to auto-scaffold
+
+
+def _scaffold_preventer(audit_name: str, total_hits: int) -> Path | None:
+    """Phase D — when a recurring failure pattern crosses the rolling
+    threshold, write a stub preventer file the founder + agent can
+    flesh out. The stub contains TODOs + the failure pattern source.
+    Skip if a scaffold for the same audit already exists (idempotent).
+    """
+    _SCAFFOLD_DIR.mkdir(parents=True, exist_ok=True)
+    safe = re.sub(r"[^a-z0-9_]", "_", audit_name.lower())
+    out_path = _SCAFFOLD_DIR / f"scaffold_for_{safe}.py"
+    if out_path.exists():
+        return None  # already scaffolded — don't overwrite human work
+    content = f'''#!/usr/bin/env python3
+"""AUTO-SCAFFOLDED preventer stub — fill in the body.
+
+Generated by session_telemetry_harvester.py on {datetime.now().strftime('%Y-%m-%d')}
+because audit `{audit_name}` failed {total_hits} times in the rolling
+30-day window. The harvester suggests this is a recurring class of
+bug worth preventing earlier.
+
+TODO: fill in the body. Pattern to follow (see existing audit_*.py
+for inspiration):
+
+  1. Identify the precise CODE PATTERN that triggers `{audit_name}` to fail.
+  2. Write an AST-walk OR regex scan that catches the pattern in
+     app/ source.
+  3. Print FAIL + remediation hint when found, exit 1.
+  4. Move this file from scaffolded_preventers/ to scripts/ when ready.
+  5. Wire into preflight.sh + invariant_monitor._AUDITS.
+
+Failure-class context:
+  - `{audit_name}` failed {total_hits} times in the rolling window.
+  - The harvester treats >= {_SCAFFOLD_THRESHOLD} as the threshold for
+    "this needs an earlier-stage preventer".
+"""
+import sys
+
+
+def main() -> int:
+    print("FAIL: this preventer is scaffolded but not yet implemented")
+    print("Edit backend/scripts/scaffolded_preventers/{out_path.name}")
+    print("then move to backend/scripts/ and wire to preflight + invariant_monitor.")
+    return 0  # exit 0 until implemented (don't block commits)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+'''
+    out_path.write_text(content)
+    return out_path
+
+
+def _maybe_scaffold_preventers(ledger: dict) -> list[Path]:
+    """Walk the rolling ledger, sum audit_failures across days, scaffold
+    a stub for any audit that crossed _SCAFFOLD_THRESHOLD. Returns the
+    list of paths actually written this run."""
+    if not ledger:
+        return []
+    cumulative: Counter = Counter()
+    for d in ledger.values():
+        af = d.get("audit_failures") or {}
+        for name, n in af.items():
+            cumulative[name] += int(n)
+    scaffolded: list[Path] = []
+    for name, total in cumulative.items():
+        if total < _SCAFFOLD_THRESHOLD:
+            continue
+        path = _scaffold_preventer(name, total)
+        if path is not None:
+            scaffolded.append(path)
+    return scaffolded
 
 
 def main() -> int:
@@ -230,6 +392,20 @@ def main() -> int:
     except Exception as exc:
         print(f"ERROR: write failed: {exc}", file=sys.stderr)
         return 1
+    # Phase F — persist today's counts into the rolling ledger
+    try:
+        ledger = _load_cross_session_ledger()
+        _save_cross_session_ledger(ledger, today, summary)
+    except Exception as exc:
+        print(f"WARN: ledger save failed (non-fatal): {exc}", file=sys.stderr)
+    # Phase D — auto-scaffold preventer stubs for recurring failure classes
+    try:
+        ledger_after = _load_cross_session_ledger()
+        scaffolded = _maybe_scaffold_preventers(ledger_after)
+        for p in scaffolded:
+            print(f"  scaffolded preventer stub: {p}")
+    except Exception as exc:
+        print(f"WARN: scaffold pass failed (non-fatal): {exc}", file=sys.stderr)
     print(f"OK: telemetry memo written to {out_path}")
     print(f"  total_tasks={summary['total_tasks']} "
           f"preflight_blocks={summary['preflight_blocks']} "
