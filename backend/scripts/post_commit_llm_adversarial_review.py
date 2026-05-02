@@ -136,28 +136,51 @@ Return only the JSON object.
 """
 
 
-def _call_anthropic(prompt: str, max_tokens: int = 1024) -> str | None:
-    """Direct Anthropic SDK call. Returns response text or None on
-    any failure (network, auth, parse). Bounded at max_tokens."""
+def _call_anthropic(prompt: str, max_tokens: int = 1024) -> tuple[str | None, str | None]:
+    """Direct Anthropic REST call via httpx (matches bugfix_pipeline._call_llm
+    pattern). Returns (response_text, failure_reason). When response_text is
+    None, failure_reason names WHY (no_api_key / http_<status> / network_<exc>
+    / truncated / empty_content) so the operator can see at a glance whether
+    the failure is config (top-up Anthropic), throttling (429), or transient."""
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     if not api_key:
-        return None
+        return None, "no_api_key"
     try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
-        resp = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
+        import httpx
+        resp = httpx.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-6",
+                "max_tokens": max_tokens,
+                "temperature": 0.1,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=60.0,
         )
-        # Concatenate all text blocks
-        parts = []
-        for block in resp.content:
-            if hasattr(block, "text"):
-                parts.append(block.text)
-        return "".join(parts) or None
-    except Exception:
-        return None
+        if resp.status_code != 200:
+            # Surface the specific Anthropic error type on the wire so
+            # operator can distinguish credit_balance_too_low (top-up
+            # needed), invalid_api_key (rotate), rate limit, etc.
+            try:
+                err_payload = resp.json().get("error", {})
+                err_type = err_payload.get("message") or err_payload.get("type") or "unknown"
+            except Exception:
+                err_type = resp.text[:120]
+            return None, f"http_{resp.status_code}: {err_type[:80]}"
+        body = resp.json()
+        if body.get("stop_reason") == "max_tokens":
+            return None, "truncated"
+        content = body.get("content") or []
+        if not content:
+            return None, "empty_content"
+        return content[0].get("text", "") or None, None
+    except Exception as exc:
+        return None, f"network_{type(exc).__name__}"
 
 
 def _parse_findings(raw: str) -> dict | None:
@@ -263,9 +286,9 @@ def main() -> int:
     msg = _commit_msg(sha)
     diff = _commit_diff(sha)
     prompt = _PROMPT_TEMPLATE.format(message=msg, diff=diff)
-    raw = _call_anthropic(prompt)
+    raw, failure = _call_anthropic(prompt)
     if not raw:
-        print("post_commit_llm_review: skip — anthropic call returned empty")
+        print(f"post_commit_llm_review: skip — anthropic call: {failure or 'unknown'}")
         return 0
 
     parsed = _parse_findings(raw)

@@ -413,6 +413,14 @@ _AUDITS: list[tuple[str, str, str]] = [
     # append-only growth before it degrades query latency.
     ("audit_worker_memory_growth.py", "invariant_regression", "invariant:worker_memory_growth"),
     ("audit_db_table_growth.py", "invariant_regression", "invariant:db_table_growth"),
+    # Route runtime coverage (added 2026-05-02 after the brutal-CTO
+    # silent_audits alarm caught it as orphan — the script was not in
+    # preflight nor invariant_monitor, so nothing periodically refreshed
+    # its telemetry. Self-skips with exit 0 when /tmp/cov.json is missing,
+    # so wiring it here is safe — telemetry stays fresh + the audit
+    # actually fires when a full pytest --cov run produces real coverage
+    # data.
+    ("audit_route_runtime_coverage.py", "invariant_regression", "invariant:route_runtime_coverage"),
 ]
 
 _TIMEOUT_SECONDS = 30

@@ -168,6 +168,13 @@ def audit() -> int:
             ctx_clean = re.sub(
                 r"\{isLiteFloor\s*&&\s*\(isProUser\s*\?", "{LITE_PROVIEW &&", ctx_clean
             )
+            # Also accept the AND-chain form `{isLiteFloor && isProUser &&`
+            # as a valid Pro-only-on-Lite gate. Lite users won't render the
+            # component at all (no preview lock UX, but no 403 either).
+            # Born 2026-05-02 from finding 2 of the brutal-CTO inspection.
+            ctx_clean = re.sub(
+                r"\{isLiteFloor\s*&&\s*isProUser\s*&&", "{LITE_PROVIEW_ANDCHAIN &&", ctx_clean
+            )
             # Now check if the immediately-preceding render block is plain
             # `{isLiteFloor &&`. We look for the LAST `{` opener before usage.
             last_lite_open = ctx_clean.rfind("{isLiteFloor &&")
@@ -175,6 +182,7 @@ def audit() -> int:
                 ctx_clean.rfind("{NOT_LITE &&"),
                 ctx_clean.rfind("{NOT_LITE_BUT_PRO &&"),
                 ctx_clean.rfind("{LITE_PROVIEW &&"),
+                ctx_clean.rfind("{LITE_PROVIEW_ANDCHAIN &&"),
             )
             if last_lite_open > last_other_open and last_lite_open > -1:
                 lineno = page_text[: usage.start()].count("\n") + 1

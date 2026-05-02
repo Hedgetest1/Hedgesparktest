@@ -3577,7 +3577,12 @@ function PageInner() {
                 </SectionErrorBoundary>
               )}
 
-              {isLiteFloor && (
+              {/* NudgePerformance calls /pro/nudges — gate to isProUser
+                  to prevent Lite-tier 403s. The component renders for
+                  Pro/Scale users browsing the Lite floor (they keep
+                  full visibility); Lite-tier users don't see the
+                  section at all. Pro-gate-on-Lite-tile audit fix. */}
+              {isLiteFloor && isProUser && (
                 <SectionErrorBoundary name="Nudges & Lift (Lite)">
                   <section id="section-lite-nudges" className="mb-8">
                     <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
