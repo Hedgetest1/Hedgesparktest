@@ -396,28 +396,14 @@ fi
 # the founder catching two latent theater bugs the prior turn's
 # anemic Devil's-Advocate had missed. See CLAUDE.md §20.
 # ---------------------------------------------------------------------------
-step "Unresolved-flag scan (audit_unresolved_flags.py — §20 law)"
-# We scan the staged commit message and diff, NOT HEAD, because at
-# preflight time the new commit hasn't been recorded yet. Pull the
-# message from the COMMIT_EDITMSG file written by git pre-commit.
-COMMIT_MSG_FILE="$BACKEND/../.git/COMMIT_EDITMSG"
-STAGED_DIFF="$(git -C "$BACKEND/.." diff --cached 2>/dev/null || true)"
-COMMIT_MSG=""
-if [[ -f "$COMMIT_MSG_FILE" ]]; then
-    COMMIT_MSG="$(cat "$COMMIT_MSG_FILE")"
-fi
-SCAN_INPUT_FILE="$(mktemp -t preflight_unresolved_input.XXXXXX)"
-trap 'rm -f "$SCAN_INPUT_FILE"' EXIT
-{
-    printf '%s\n' "$COMMIT_MSG"
-    printf '%s\n' "$STAGED_DIFF"
-} > "$SCAN_INPUT_FILE"
-if "$PY" scripts/audit_unresolved_flags.py --text-file "$SCAN_INPUT_FILE" > /tmp/preflight_unresolved_flags.log 2>&1; then
-    ok "no unresolved flags in commit message — §20 law satisfied"
-else
-    bad "unresolved flag(s) in commit — see /tmp/preflight_unresolved_flags.log"
-    tail -25 /tmp/preflight_unresolved_flags.log || true
-fi
+# Unresolved-flag scan + DA-evidence audit MOVED to commit-msg hook
+# on 2026-05-02. Reading COMMIT_EDITMSG at pre-commit time was unsafe:
+# git only writes the new message AFTER pre-commit, so a `git commit
+# -m "fresh"` after a previous failed attempt saw the STALE message.
+# The commit-msg hook receives the actual message path as $1, written
+# fresh by git, so the audits there always see what is actually
+# shipping. See backend/scripts/install_hooks.sh for the wire.
+ok "Unresolved-flag + DA-evidence audits → moved to commit-msg hook (post-2026-05-02 EDITMSG fix)"
 
 # ---------------------------------------------------------------------------
 # 2b-bis-§1.7. Lateral-change evidence — every commit whose subject
@@ -460,21 +446,9 @@ else
     fail=1
 fi
 
-# ---------------------------------------------------------------------------
-# 2b-sexies. §19 Axis 5 reinforcement — every devil's-advocate lens
-# in the commit message MUST cite executable verification (grep -n,
-# pytest, curl, psql, fenced code block, Evidence: tag). Born after a
-# turn-close where DA paragraphs read fine in prose but contained
-# zero verification, and re-running them surfaced 50 silent
-# regressions. See CLAUDE.md §19 Axis 5 + audit_da_evidence.py.
-# ---------------------------------------------------------------------------
-step "DA evidence scan (audit_da_evidence.py — §19 Axis 5)"
-if "$PY" scripts/audit_da_evidence.py --text-file "$SCAN_INPUT_FILE" > /tmp/preflight_da_evidence.log 2>&1; then
-    ok "every DA lens cites executable verification — §19 Axis 5 satisfied"
-else
-    bad "DA lens without evidence — see /tmp/preflight_da_evidence.log"
-    tail -20 /tmp/preflight_da_evidence.log || true
-fi
+# DA-evidence audit moved to commit-msg hook on 2026-05-02 (same
+# EDITMSG-staleness reason as audit_unresolved_flags above). Kept
+# this comment block as a marker so future grep finds the rationale.
 
 # ---------------------------------------------------------------------------
 # 2b-bis. Data-truth audit — catches currency drift (hardcoded €/$, SUM
