@@ -1420,6 +1420,26 @@ def _post_apply_retro_check(candidate: "BugFixCandidate", db: Session) -> None:
         if post_n >= pre_n:
             residual.append((sig, int(pre_n), int(post_n)))
 
+    # Sentry breadcrumb — retro-check result. Drops on every run so
+    # the pipeline's verification activity is visible in ops review.
+    try:
+        from app.core.sentry_init import pipeline_breadcrumb
+        pipeline_breadcrumb(
+            "pipeline.retro_check",
+            (
+                f"retro-check cand={candidate.id} "
+                f"residual={len(residual)}/{len(eligible)}"
+            ),
+            level="warning" if residual else "info",
+            data={
+                "candidate_id": candidate.id,
+                "eligible_signatures": len(eligible),
+                "residual_signatures": len(residual),
+            },
+        )
+    except Exception:
+        pass
+
     if not residual:
         log.info(
             "post_apply_retro_check: clean (cand=%d, %d signature(s) all decreased)",
@@ -3018,6 +3038,24 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
     candidate = db.get(BugFixCandidate, candidate_id)
     if not candidate or candidate.status not in ("open", "analyzed"):
         return False
+
+    # Sentry breadcrumb — pipeline event for ops visibility. Lands on the
+    # active scope so any subsequent capture sees the recent trail.
+    try:
+        from app.core.sentry_init import pipeline_breadcrumb
+        pipeline_breadcrumb(
+            "pipeline.propose",
+            f"propose_patch start cand={candidate_id}",
+            level="info",
+            data={
+                "candidate_id": candidate_id,
+                "source_type": candidate.source_type,
+                "source_ref": candidate.source_ref,
+                "title": (candidate.title or "")[:120],
+            },
+        )
+    except Exception:
+        pass
 
     candidate.status = "analyzed"
 
@@ -5244,6 +5282,23 @@ def _apply_bugfix_candidate_impl(db: Session, candidate_id: int) -> ApplyResult:
         candidate.outcome_status = None  # will be measured 48h later by evolution_outcomes
         _classify_candidate_domain(candidate)
         db.flush()
+
+        # Sentry breadcrumb — apply success event. Pipeline activity
+        # visible in any subsequent error capture for the same worker.
+        try:
+            from app.core.sentry_init import pipeline_breadcrumb
+            pipeline_breadcrumb(
+                "pipeline.apply",
+                f"apply success cand={candidate.id}",
+                level="info",
+                data={
+                    "candidate_id": candidate.id,
+                    "git_commit_sha": commit_sha,
+                    "domain": candidate.affected_domain,
+                },
+            )
+        except Exception:
+            pass
 
         # Phase B (post-apply retro-grep verification): re-run sibling
         # sweep with the candidate's pre-apply pattern signatures.

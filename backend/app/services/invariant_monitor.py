@@ -412,6 +412,24 @@ def run_invariant_check(db: Session) -> dict:
             # now healed (alert stays open until resolved explicitly).
             continue
 
+        # Sentry breadcrumb — invariant audit fired. Lands on the active
+        # scope so any subsequent agent_worker capture sees the trail.
+        try:
+            from app.core.sentry_init import pipeline_breadcrumb
+            pipeline_breadcrumb(
+                "pipeline.invariant",
+                f"invariant audit fired: {script_name}",
+                level="warning",
+                data={
+                    "script": script_name,
+                    "alert_type": alert_type,
+                    "source": source,
+                    "exit_code": result.returncode,
+                },
+            )
+        except Exception:
+            pass
+
         summary["failed"] += 1
         # Trim audit output to a reasonable detail size
         stdout_tail = "\n".join(result.stdout.splitlines()[-40:])

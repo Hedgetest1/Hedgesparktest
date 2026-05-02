@@ -335,6 +335,48 @@ def sentry_span(op: str, description: str, **data):
         return _NoopSpan()
 
 
+def pipeline_breadcrumb(
+    category: str,
+    message: str,
+    level: str = "info",
+    data: dict | None = None,
+) -> None:
+    """Drop a structured Sentry breadcrumb for the self-healing pipeline.
+
+    Born 2026-05-02 from the brutal-CTO audit: the pipeline was
+    invisible in Sentry pre-this-wire — only `component:agent_worker`
+    tag, zero breadcrumbs at the propose / apply / retro_check / fail
+    boundaries. A brutal external CTO opening Sentry would see "what's
+    even running here?". After wire-up, every pipeline event lands as
+    a breadcrumb on the active Sentry scope so any subsequent error
+    captures the recent pipeline trail.
+
+    Categories used:
+      - "pipeline.triage"          run_bug_triage cycle
+      - "pipeline.propose"         propose_patch lifecycle
+      - "pipeline.apply"           _apply_patch lifecycle
+      - "pipeline.retro_check"     _post_apply_retro_check finding
+      - "pipeline.promotion"       promotion_pipeline events
+      - "pipeline.invariant"       invariant_monitor audit fires
+      - "pipeline.quarantine"      thrashing / fingerprint dedup
+      - "pipeline.fix_template"    template cache hit/miss
+
+    Levels (Sentry standard): debug, info, warning, error, critical.
+
+    Never raises — sentry_sdk may be absent or scope inactive.
+    """
+    try:
+        import sentry_sdk
+        sentry_sdk.add_breadcrumb(
+            category=category,
+            message=message,
+            level=level,
+            data=data or {},
+        )
+    except Exception:
+        pass
+
+
 def cron_monitor(
     slug: str,
     interval_minutes: int,

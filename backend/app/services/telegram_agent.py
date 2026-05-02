@@ -2493,10 +2493,34 @@ def build_daily_digest(db) -> str:
             "WHERE status = 'rolled_back' AND applied_at >= :c"
         ), {"c": cutoff_24h}).scalar() or 0
 
+        # Phase B retro-grep alerts in last 24h — counts cases where
+        # the pipeline applied a "fix" that did NOT strictly decrease
+        # an UPPER_SNAKE pattern signature. Surfaces silent fix-
+        # incomplete to the founder so multidim discipline stays
+        # visible day to day.
+        retro_alerts_24h = db.execute(sql_text(
+            "SELECT COUNT(*) FROM ops_alerts "
+            "WHERE alert_type = 'fix_incomplete' AND created_at >= :c"
+        ), {"c": cutoff_24h}).scalar() or 0
+
+        # Triage activity in 24h — open/in-flight candidates created
+        # during the window. Triaged > applied = pipeline producing
+        # without converging; useful health signal.
+        triaged_24h = db.execute(sql_text(
+            "SELECT COUNT(*) FROM bugfix_candidates "
+            "WHERE created_at >= :c"
+        ), {"c": cutoff_24h}).scalar() or 0
+
         lines.append("")
         pipe_parts = [f"{applied_24h} fixes shipped"]
+        if triaged_24h > applied_24h:
+            pipe_parts.append(f"{triaged_24h - applied_24h} in flight")
         if rolled_24h > 0:
             pipe_parts.append(f"\U0001f534 {rolled_24h} rolled back")
+            if overall_status == "OK":
+                overall_status = "WARNING"
+        if retro_alerts_24h > 0:
+            pipe_parts.append(f"\U0001f7e0 {retro_alerts_24h} fix\\_incomplete")
             if overall_status == "OK":
                 overall_status = "WARNING"
 
