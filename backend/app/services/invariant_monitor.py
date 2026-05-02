@@ -471,26 +471,56 @@ def run_invariant_check(db: Session) -> dict:
     except Exception as exc:
         log.warning("invariant_monitor: inventory-snapshot check failed: %s", exc)
 
-    for script_name, alert_type, source in _AUDITS:
-        summary["checked"] += 1
-        script_path = _SCRIPTS_DIR / script_name
-        if not script_path.is_file():
-            log.warning("invariant_monitor: audit script missing: %s", script_path)
-            continue
+    # Run subprocess audits IN PARALLEL — sequential execution at 86 audits ×
+    # 30s timeout = 2580s worst case > 15min cycle. Born 2026-05-02 from
+    # the brutal-CTO scale audit. ThreadPoolExecutor with bounded
+    # concurrency: 4 workers limits Postgres pool pressure (each audit
+    # may open its own DB connection via SessionLocal).
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _run_one_audit(triple: tuple[str, str, str]):
+        """Run one audit subprocess. Returns (triple, status, result_obj)
+        where status ∈ {"ok","timeout","missing","subprocess_error","fail"}.
+        Pure compute — no DB writes here; main thread serialises those."""
+        sname, _atype, _src = triple
+        spath = _SCRIPTS_DIR / sname
+        if not spath.is_file():
+            return triple, "missing", None
         try:
-            # --strict forces exit 1 on any finding. Without it, audits
-            # default to report-only (exit 0) for preflight readability;
-            # runtime-check path MUST see failures as non-zero to trigger
-            # the ops_alert branch below.
-            result = subprocess.run(
-                [_PYTHON_BIN, str(script_path), "--strict"],
+            res = subprocess.run(
+                [_PYTHON_BIN, str(spath), "--strict"],
                 capture_output=True,
                 text=True,
                 timeout=_TIMEOUT_SECONDS,
                 cwd=str(_BACKEND_ROOT),
             )
         except subprocess.TimeoutExpired:
-            # Audit itself hung — treat as critical so operators notice
+            return triple, "timeout", None
+        except Exception as exc:
+            log.error("invariant_monitor: subprocess failed for %s: %s", sname, exc)
+            return triple, "subprocess_error", None
+        return triple, ("ok" if res.returncode == 0 else "fail"), res
+
+    audit_results: list[tuple] = []
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        futures = {ex.submit(_run_one_audit, t): t for t in _AUDITS}
+        for fut in as_completed(futures):
+            try:
+                audit_results.append(fut.result())
+            except Exception as exc:
+                triple = futures[fut]
+                log.error("invariant_monitor: future failed for %s: %s", triple[0], exc)
+
+    # Now serialise the alert-write phase (single DB session, no thread sharing)
+    for triple, status, result in audit_results:
+        script_name, alert_type, source = triple
+        summary["checked"] += 1
+        if status == "missing":
+            log.warning("invariant_monitor: audit script missing: %s/%s", _SCRIPTS_DIR, script_name)
+            continue
+        if status == "subprocess_error":
+            continue  # already logged inside _run_one_audit
+        if status == "timeout":
             summary["failed"] += 1
             try:
                 write_alert(
@@ -505,11 +535,8 @@ def run_invariant_check(db: Session) -> dict:
             except Exception as exc:
                 log.error("invariant_monitor: failed to write timeout alert: %s", exc)
             continue
-        except Exception as exc:
-            log.error("invariant_monitor: subprocess failed for %s: %s", script_name, exc)
-            continue
 
-        if result.returncode == 0:
+        if status == "ok":
             # Audit green — no action. The chronic-aggregation logic in
             # write_alert handles the case where a previous failure has
             # now healed (alert stays open until resolved explicitly).
