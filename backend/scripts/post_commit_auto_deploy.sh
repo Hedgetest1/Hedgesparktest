@@ -187,3 +187,16 @@ if [ "$BACKEND_TOUCHED" = "1" ] && [ "$DASH_TOUCHED" = "1" ]; then
 fi
 
 ok "TIER_0 auto-deploy complete for commit $(git rev-parse --short HEAD)"
+
+# Independent post-commit review (Gap 1, Phase L of the elite-tier
+# brutal-CTO sprint). Runs as a separate process from the agent that
+# wrote the commit, deterministic claim verifier — flags structural
+# inconsistencies between commit message claims and the diff.
+# Non-blocking; writes ops_alert on findings so next triage cycle
+# catches them.
+log "running independent post-commit review..."
+if "$BACKEND/venv/bin/python" "$BACKEND/scripts/post_commit_independent_review.py" >> "$LOG" 2>&1; then
+    ok "independent review complete"
+else
+    log "independent review exited non-zero (non-fatal)"
+fi
