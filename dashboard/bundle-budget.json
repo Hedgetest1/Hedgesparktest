@@ -76,10 +76,17 @@
     "chunks_total_bytes": 2087713,
     "chunks_count": 47
   },
+  "_baseline_2026_05_02_settings_inventory": {
+    "_note": "/app/settings/inventory new sub-page (lead-time override form, ~280 LOC). Next.js route-splits per page so chunks_count grew 48→49 (+1 single new route chunk). largest_chunk + chunks_total are unchanged (page is small, code-split per-route). Budget chunks_count_max raised 48 -> 52 for ~6% headroom across the remaining queueable Settings sub-pages (e.g. team-roles, ad-spend manual entry, future inventory subpages).",
+    "largest_chunk_bytes": 818533,
+    "root_main_total_bytes": 455826,
+    "chunks_total_bytes": 2013259,
+    "chunks_count": 49
+  },
   "budgets": {
     "largest_chunk_bytes": 950000,
     "root_main_total_bytes": 520000,
     "chunks_total_bytes": 2150000,
-    "chunks_count_max": 48
+    "chunks_count_max": 52
   }
 }

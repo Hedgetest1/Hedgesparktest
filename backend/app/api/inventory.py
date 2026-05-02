@@ -30,7 +30,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import require_merchant_session
-from app.core.redis_client import cache_get, cache_set
+from app.core.redis_client import cache_delete, cache_get, cache_set
 
 router = APIRouter(tags=["inventory"])
 log = logging.getLogger("inventory")
@@ -90,6 +90,18 @@ class SnapshotStatusOut(BaseModel):
     last_snapshot_at: datetime | None
     products_tracked: int
     is_fresh: bool                      # True if last snapshot < 36h
+
+
+class InventorySettingsOut(BaseModel):
+    shop_domain: str
+    lead_time_days: int | None          # NULL = use default
+    default_lead_time_days: int         # always 14
+    effective_lead_time_days: int       # what the engine actually uses
+
+
+class InventorySettingsPatch(BaseModel):
+    # None / not-set is treated as "revert to default" (clears the override)
+    lead_time_days: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -350,4 +362,88 @@ def get_snapshot_status(
         "last_snapshot_at": last_at,
         "products_tracked": products_tracked,
         "is_fresh": is_fresh,
+    }
+
+
+# ---------------------------------------------------------------------------
+# /merchant/inventory/settings — per-shop lead-time override
+# ---------------------------------------------------------------------------
+
+# Sane bounds: 1 day (just-in-time supply chain) to 365 (annual buyer).
+# Outside this range is almost certainly a typo; reject with 422.
+_MIN_LEAD_TIME_DAYS = 1
+_MAX_LEAD_TIME_DAYS = 365
+
+
+def _read_lead_time_override(db: Session, shop: str) -> int | None:
+    row = db.execute(text(
+        "SELECT inventory_lead_time_days FROM merchants WHERE shop_domain = :s"
+    ), {"s": shop}).fetchone()
+    if not row or row[0] is None:
+        return None
+    val = int(row[0])
+    return val if val > 0 else None
+
+
+@router.get("/merchant/inventory/settings", response_model=InventorySettingsOut)
+def get_inventory_settings(
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+) -> dict:
+    override = _read_lead_time_override(db, shop)
+    effective = override if override is not None else _DEFAULT_LEAD_TIME_DAYS
+    return {
+        "shop_domain": shop,
+        "lead_time_days": override,
+        "default_lead_time_days": _DEFAULT_LEAD_TIME_DAYS,
+        "effective_lead_time_days": effective,
+    }
+
+
+@router.patch("/merchant/inventory/settings", response_model=InventorySettingsOut)
+def patch_inventory_settings(
+    payload: InventorySettingsPatch,
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Set or clear the per-shop lead-time override. None clears."""
+    new_value: int | None = payload.lead_time_days
+    if new_value is not None:
+        if not (_MIN_LEAD_TIME_DAYS <= new_value <= _MAX_LEAD_TIME_DAYS):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"lead_time_days must be between {_MIN_LEAD_TIME_DAYS} and "
+                    f"{_MAX_LEAD_TIME_DAYS}, got {new_value}"
+                ),
+            )
+
+    res = db.execute(
+        text(
+            "UPDATE merchants SET inventory_lead_time_days = :v "
+            "WHERE shop_domain = :s"
+        ),
+        {"v": new_value, "s": shop},
+    )
+    if res.rowcount == 0:
+        # No merchant row — rare; fail loud rather than silently
+        raise HTTPException(status_code=404, detail="Merchant not found.")
+    db.commit()
+
+    # Invalidate the inventory KPI cache so the next dashboard fetch reflects
+    # the new lead time immediately (otherwise merchant sees stale numbers
+    # for up to 10 minutes — confusing UX).
+    cache_delete(_KPI_CACHE_KEY.format(shop=shop))
+
+    log.info(
+        "inventory_settings: lead_time_days set shop=%s value=%s",
+        shop, new_value,
+    )
+
+    effective = new_value if new_value is not None else _DEFAULT_LEAD_TIME_DAYS
+    return {
+        "shop_domain": shop,
+        "lead_time_days": new_value,
+        "default_lead_time_days": _DEFAULT_LEAD_TIME_DAYS,
+        "effective_lead_time_days": effective,
     }

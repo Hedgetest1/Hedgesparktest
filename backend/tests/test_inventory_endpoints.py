@@ -195,3 +195,112 @@ def test_snapshot_status_empty_returns_not_fresh(client, merchant_a):
     assert body["products_tracked"] == 0
     assert body["last_snapshot_at"] is None
     assert body["is_fresh"] is False
+
+
+# ════════════════════════════════════════════════════════════════════════
+# /merchant/inventory/settings — lead-time override
+# ════════════════════════════════════════════════════════════════════════
+
+
+def test_settings_get_default_when_unset(client, merchant_a):
+    cookies = auth_cookies(SHOP_A)
+    r = client.get("/merchant/inventory/settings", cookies=cookies)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["lead_time_days"] is None
+    assert body["default_lead_time_days"] == 14
+    assert body["effective_lead_time_days"] == 14
+
+
+def test_settings_patch_sets_override(client, merchant_a):
+    cookies = auth_cookies(SHOP_A)
+    r = client.patch(
+        "/merchant/inventory/settings",
+        json={"lead_time_days": 30},
+        cookies=cookies,
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["lead_time_days"] == 30
+    assert body["effective_lead_time_days"] == 30
+
+    # Persisted: GET returns the new value
+    r2 = client.get("/merchant/inventory/settings", cookies=cookies)
+    assert r2.json()["lead_time_days"] == 30
+
+
+def test_settings_patch_null_clears_override(client, merchant_a, db):
+    # Pre-seed an override so the clear is observable
+    db.execute(
+        ShopOrder.__table__.metadata.tables["merchants"].update().where(
+            ShopOrder.__table__.metadata.tables["merchants"].c.shop_domain == SHOP_A
+        ).values(inventory_lead_time_days=21)
+    )
+    db.flush()
+
+    cookies = auth_cookies(SHOP_A)
+    r = client.patch(
+        "/merchant/inventory/settings",
+        json={"lead_time_days": None},
+        cookies=cookies,
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["lead_time_days"] is None
+    assert body["effective_lead_time_days"] == 14  # back to default
+
+
+def test_settings_patch_rejects_zero_and_negative(client, merchant_a):
+    cookies = auth_cookies(SHOP_A)
+    for bad in (0, -1, -100):
+        r = client.patch(
+            "/merchant/inventory/settings",
+            json={"lead_time_days": bad},
+            cookies=cookies,
+        )
+        assert r.status_code == 422, f"value {bad} should 422"
+
+
+def test_settings_patch_rejects_too_large(client, merchant_a):
+    cookies = auth_cookies(SHOP_A)
+    r = client.patch(
+        "/merchant/inventory/settings",
+        json={"lead_time_days": 366},
+        cookies=cookies,
+    )
+    assert r.status_code == 422
+
+
+def test_settings_patch_invalidates_kpi_cache(client, merchant_a, db):
+    """After PATCH, the next /kpis call must reflect the new lead time —
+    no stale 10-min cache served."""
+    # Seed enough data for /kpis to populate the cache
+    _seed_snapshot(db, SHOP_A, "/products/c1", "C1", qty=10)
+    for d in range(30):
+        _seed_order(db, SHOP_A, "C1", qty=1, days_ago=d)
+    db.flush()
+
+    cookies = auth_cookies(SHOP_A)
+    # Prime the cache with default lead time (14)
+    r = client.get("/merchant/inventory/kpis", cookies=cookies)
+    assert r.status_code == 200
+    assert r.json()["lead_time_days"] == 14
+
+    # Change the lead time → cache must be invalidated
+    client.patch(
+        "/merchant/inventory/settings",
+        json={"lead_time_days": 60},
+        cookies=cookies,
+    )
+    r2 = client.get("/merchant/inventory/kpis", cookies=cookies)
+    assert r2.json()["lead_time_days"] == 60, "KPI cache not invalidated"
+
+
+def test_settings_endpoints_require_session(client):
+    r1 = client.get("/merchant/inventory/settings")
+    assert r1.status_code in (401, 403)
+    r2 = client.patch(
+        "/merchant/inventory/settings",
+        json={"lead_time_days": 30},
+    )
+    assert r2.status_code in (401, 403)

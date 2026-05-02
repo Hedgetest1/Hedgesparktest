@@ -4937,6 +4937,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/merchant/inventory/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Inventory Settings */
+        get: operations["get_inventory_settings_merchant_inventory_settings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Patch Inventory Settings
+         * @description Set or clear the per-shop lead-time override. None clears.
+         */
+        patch: operations["patch_inventory_settings_merchant_inventory_settings_patch"];
+        trace?: never;
+    };
     "/pro/customer-churn": {
         parameters: {
             query?: never;
@@ -9489,6 +9510,22 @@ export interface components {
             lead_time_days: number;
             /** Last Snapshot At */
             last_snapshot_at: string | null;
+        };
+        /** InventorySettingsOut */
+        InventorySettingsOut: {
+            /** Shop Domain */
+            shop_domain: string;
+            /** Lead Time Days */
+            lead_time_days: number | null;
+            /** Default Lead Time Days */
+            default_lead_time_days: number;
+            /** Effective Lead Time Days */
+            effective_lead_time_days: number;
+        };
+        /** InventorySettingsPatch */
+        InventorySettingsPatch: {
+            /** Lead Time Days */
+            lead_time_days?: number | null;
         };
         /** JourneyTouch */
         JourneyTouch: {
@@ -19815,6 +19852,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SnapshotStatusOut"];
+                };
+            };
+        };
+    };
+    get_inventory_settings_merchant_inventory_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventorySettingsOut"];
+                };
+            };
+        };
+    };
+    patch_inventory_settings_merchant_inventory_settings_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventorySettingsPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventorySettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

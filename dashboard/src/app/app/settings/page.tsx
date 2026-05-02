@@ -12,6 +12,7 @@
  * Sub-pages live:
  *   /app/settings/costs          — per-product COGS + Shopify sync
  *   /app/settings/cost-defaults  — shop-wide cost fallbacks
+ *   /app/settings/inventory      — reorder lead-time override
  *   /app/settings/currency       — USD ⇄ EUR display toggle
  *   /app/settings/slack          — Slack digest integration
  *   /app/settings/klaviyo        — Klaviyo API key + verification
@@ -167,6 +168,26 @@ const SETTINGS: SettingsCard[] = [
         aria-hidden="true"
       >
         <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h12M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
+      </svg>
+    ),
+  },
+  {
+    href: "/app/settings/inventory",
+    title: "Inventory",
+    blurb:
+      "Reorder lead-time override. How many days of cover before HedgeSpark flags a product to reorder. Default 14, range 1-365.",
+    status: "live",
+    icon: (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        className="h-5 w-5"
+        aria-hidden="true"
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
       </svg>
     ),
   },
