@@ -389,6 +389,12 @@ _AUDITS: list[tuple[str, str, str]] = [
     # has zero os.getenv readers in app/. The original bug:
     # PIPELINE_AUTO_PROPOSE_DISABLED was doc-only, never wired.
     ("audit_kill_switches_wired.py", "invariant_regression", "invariant:kill_switches_wired"),
+    # Reviewer-layer integrity (added 2026-05-02 elite-tier sprint Gap G).
+    # Hashes the AST skeleton of the 5 critical reviewer methods and
+    # alerts if any drifts from the golden hash. The reviewer is the
+    # SCOPE-LOCK enforcer (principle 13) for the self-healing pipeline;
+    # silent drift in the reviewer = scope lock breached.
+    ("audit_reviewer_layer_integrity.py", "invariant_regression", "invariant:reviewer_layer_integrity"),
 ]
 
 _TIMEOUT_SECONDS = 30

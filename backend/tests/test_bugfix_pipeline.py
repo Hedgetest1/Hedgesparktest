@@ -741,6 +741,129 @@ def test_pipeline_e2e_retro_check_catches_fix_incomplete(db):
 
 
 # ---------------------------------------------------------------------------
+# Phase B (elite-tier sprint) — kill-switch backlog test
+# ---------------------------------------------------------------------------
+
+def test_pipeline_kill_switch_skips_full_loop(monkeypatch, caplog):
+    """Setting PIPELINE_AUTO_PROPOSE_DISABLED=1 -> _run_bug_triage in
+    agent_worker returns early BEFORE opening a DB session. Verified
+    by log capture (the disabled-skip log line must appear and no
+    triage / propose / apply log lines must follow within the same
+    invocation).
+
+    This is the brutal-CTO sprint Gap B closure: the env-var kill switch
+    was wired in commit 313a17f but the actual disable behavior had no
+    automated test. Test scope: log-capture, not state-mutation, because
+    the worker uses SessionLocal() (separate from this test's fixture
+    session) and the SAVEPOINT-based test isolation makes cross-session
+    state assertions unreliable.
+    """
+    import logging as _logging
+    from app.workers import agent_worker as aw
+
+    # Capture log calls directly on the worker's logger object.
+    # caplog.at_level() can miss loggers configured with custom handlers
+    # (the case here: worker.agent uses the centralised logging_config
+    # JSON formatter). Inject a stash handler instead.
+    captured: list[str] = []
+
+    class _Stash(_logging.Handler):
+        def emit(self, record: _logging.LogRecord) -> None:
+            try:
+                captured.append(record.getMessage())
+            except Exception:
+                pass
+
+    handler = _Stash(level=_logging.DEBUG)
+    target_logger = _logging.getLogger("worker.agent")
+    target_logger.addHandler(handler)
+    try:
+        monkeypatch.setenv("PIPELINE_AUTO_PROPOSE_DISABLED", "1")
+        aw._run_bug_triage(auto_apply_paused=False)
+    finally:
+        target_logger.removeHandler(handler)
+
+    skip_lines = [m for m in captured if "HARD-DISABLED" in m]
+    assert len(skip_lines) == 1, (
+        f"kill-switch ON but skip-log line not emitted "
+        f"(captured {len(captured)} records, none with HARD-DISABLED)"
+    )
+
+    # And NO downstream triage/propose/apply log lines must follow.
+    forbidden_phrases = (
+        "bugfix_triage:", "auto_propose:", "auto_apply:",
+        "auto_promotion:", "auto_merge:",
+    )
+    leaked = [
+        m for m in captured
+        if any(p in m for p in forbidden_phrases)
+    ]
+    assert not leaked, (
+        f"kill-switch ON but downstream log lines leaked "
+        f"({len(leaked)} records): "
+        + "; ".join(m[:80] for m in leaked[:3])
+    )
+
+
+def _capture_worker_logs(target_logger_name: str = "worker.agent") -> tuple[list[str], object]:
+    """Return (captured_list, handler) — caller adds/removes the handler."""
+    import logging as _logging
+    captured: list[str] = []
+
+    class _Stash(_logging.Handler):
+        def emit(self, record: _logging.LogRecord) -> None:
+            try:
+                captured.append(record.getMessage())
+            except Exception:
+                pass
+
+    handler = _Stash(level=_logging.DEBUG)
+    target_logger = _logging.getLogger(target_logger_name)
+    target_logger.addHandler(handler)
+    return captured, handler
+
+
+def test_pipeline_kill_switch_accepts_truthy_variants(monkeypatch):
+    """The kill-switch wire accepts 1 / true / yes (case-insensitive)
+    per the implementation in agent_worker._run_bug_triage. Each
+    variant must trigger the HARD-DISABLED skip line."""
+    import logging as _logging
+    from app.workers import agent_worker as aw
+
+    for value in ("1", "true", "TRUE", "yes", "Yes"):
+        captured, handler = _capture_worker_logs()
+        target_logger = _logging.getLogger("worker.agent")
+        try:
+            monkeypatch.setenv("PIPELINE_AUTO_PROPOSE_DISABLED", value)
+            aw._run_bug_triage(auto_apply_paused=False)
+        finally:
+            target_logger.removeHandler(handler)
+        skipped = any("HARD-DISABLED" in m for m in captured)
+        assert skipped, f"value {value!r} did not trigger the kill-switch skip"
+
+
+def test_pipeline_kill_switch_off_falsy_variants_pass_through(monkeypatch):
+    """Falsy values (empty / 0 / no / random) MUST NOT trigger the kill
+    switch — the pipeline runs normally (the HARD-DISABLED line must NOT
+    appear)."""
+    import logging as _logging
+    from app.workers import agent_worker as aw
+
+    for value in ("", "0", "no", "false", "False", "off"):
+        captured, handler = _capture_worker_logs()
+        target_logger = _logging.getLogger("worker.agent")
+        try:
+            monkeypatch.setenv("PIPELINE_AUTO_PROPOSE_DISABLED", value)
+            aw._run_bug_triage(auto_apply_paused=False)
+        finally:
+            target_logger.removeHandler(handler)
+        skipped = any("HARD-DISABLED" in m for m in captured)
+        assert not skipped, (
+            f"value {value!r} unexpectedly triggered the kill switch"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Phase J — semantic intent-bag Jaccard fingerprint
 # ---------------------------------------------------------------------------
 

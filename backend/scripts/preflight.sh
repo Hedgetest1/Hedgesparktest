@@ -181,6 +181,23 @@ else
     tail -25 /tmp/preflight_kill_switches.log
 fi
 
+# ---------------------------------------------------------------------------
+# 2c-pre-bis. Reviewer-layer integrity — second-order safety net for the
+# self-healing pipeline scope lock (principle 13). Hashes the AST
+# skeleton of the 5 critical reviewer methods (review_entity +
+# _check_constitution + _compute_risk_level + _compute_verdict +
+# _is_auto_approvable) and compares to a golden frozen 2026-05-02.
+# Drift fails until the golden is intentionally updated. Born from
+# the brutal-CTO sprint Gap G — "what verifies the verifier?".
+# ---------------------------------------------------------------------------
+step "Reviewer-layer integrity (audit_reviewer_layer_integrity.py)"
+if "$PY" scripts/audit_reviewer_layer_integrity.py > /tmp/preflight_reviewer_integrity.log 2>&1; then
+    ok "$(tail -1 /tmp/preflight_reviewer_integrity.log)"
+else
+    bad "reviewer-layer drift — see /tmp/preflight_reviewer_integrity.log"
+    tail -25 /tmp/preflight_reviewer_integrity.log
+fi
+
 step "Critical-secrets consistency (audit_critical_secrets_consistency.py)"
 if "$PY" scripts/audit_critical_secrets_consistency.py > /tmp/preflight_critical_secrets.log 2>&1; then
     ok "$(tail -1 /tmp/preflight_critical_secrets.log)"
