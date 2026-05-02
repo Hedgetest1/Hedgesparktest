@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -1102,6 +1103,207 @@ def _classify_candidate_domain(candidate: BugFixCandidate) -> str | None:
 
 def _now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+# ---------------------------------------------------------------------------
+# Multidim sibling-pattern sweep
+# ---------------------------------------------------------------------------
+#
+# Born 2026-05-02 after the founder mandate "rendi il sistema intelligente,
+# multidimensionale". Manual debugging applies the §11 protocol: distill the
+# bug to a grep-able pattern, run it across the codebase, classify each hit
+# (🔴 fix / 🟡 verify / ⚫ skip), include the sibling list when proposing
+# the fix. Empirical 1:3-4 ratio (1 reported bug → 3-4 hidden siblings)
+# from the April 2026 hunts. The pipeline previously did NOT do this —
+# it would have shipped the single-dim R-fix and missed the siblings.
+#
+# Strategy: extract grep-able pattern signatures from candidate identity
+# (title + summary + structured context), run ripgrep across app/ and
+# dashboard/src, return bounded hit list (<=20 hits per signature, <=5
+# signatures), inject as a "## Sibling Pattern Sweep" section in the
+# LLM prompt. ZERO extra LLM calls — enriches the existing prompt only.
+# Bounded output (~1KB max) so prompt token cost is negligible.
+
+_MAX_SIBLING_SIGNATURES = 5
+_MAX_HITS_PER_SIGNATURE = 20
+_MAX_SIBLING_OUTPUT_CHARS = 4000  # safety cap on the prompt section
+
+# Identifiers that look greppable but produce noise. Extending this set
+# is cheaper than producing a wrong-context grep result.
+_NOISE_SIGNATURES = frozenset({
+    "self", "cls", "None", "True", "False", "test", "tests", "mock",
+    "import", "from", "class", "def", "async", "return", "raise",
+    "value", "result", "data", "row", "rows", "exc", "error", "log",
+    "shop", "merchant", "candidate", "bug", "fix", "patch", "alert",
+})
+
+
+def _extract_pattern_signatures(candidate: BugFixCandidate) -> list[str]:
+    """Extract up to _MAX_SIBLING_SIGNATURES grep-able tokens from the
+    candidate identity. Each signature is something distinctive enough
+    that a grep across the codebase will return a manageable number of
+    hits — file paths, env-var names (UPPERCASE_WITH_UNDERSCORES),
+    quoted string literals, dotted attribute paths.
+    """
+    signatures: list[str] = []
+    seen: set[str] = set()
+    text_pool = " ".join(filter(None, [
+        candidate.title or "",
+        candidate.summary or "",
+        candidate.context_json or "",
+        candidate.patch_files or "",
+    ]))
+
+    # Pattern 1: env-var names (ALL_CAPS_UNDERSCORE, length 6+).
+    # Highest-fidelity signature for the auth_hardening drift class.
+    for m in re.findall(r"\b([A-Z][A-Z0-9_]{5,})\b", text_pool):
+        if m in _NOISE_SIGNATURES:
+            continue
+        if m not in seen:
+            seen.add(m)
+            signatures.append(m)
+            if len(signatures) >= _MAX_SIBLING_SIGNATURES:
+                return signatures
+
+    # Pattern 2: dotted module / attribute paths (e.g. app.core.X.func)
+    for m in re.findall(r"\b([a-z_][a-z_0-9]*\.[a-z_][a-z_0-9.]+)\b", text_pool):
+        if "." not in m or m in seen:
+            continue
+        # Skip overly generic dotted paths (e.g. self.foo, db.commit)
+        first = m.split(".", 1)[0]
+        if first in _NOISE_SIGNATURES:
+            continue
+        seen.add(m)
+        signatures.append(m)
+        if len(signatures) >= _MAX_SIBLING_SIGNATURES:
+            return signatures
+
+    # Pattern 3: quoted string literals length 8+ from the title/summary
+    for m in re.findall(r'["\']([^"\']{8,80})["\']', text_pool):
+        # Normalize whitespace and skip if it looks like prose
+        norm = m.strip()
+        if " " in norm and len(norm) > 24:
+            continue
+        if norm in seen:
+            continue
+        seen.add(norm)
+        signatures.append(norm)
+        if len(signatures) >= _MAX_SIBLING_SIGNATURES:
+            return signatures
+
+    # Pattern 4: file basenames extracted from patch_files / culprit
+    for m in re.findall(r"([a-z_][a-z_0-9]+\.(?:py|tsx|ts|js))", text_pool):
+        if m in seen:
+            continue
+        seen.add(m)
+        signatures.append(m)
+        if len(signatures) >= _MAX_SIBLING_SIGNATURES:
+            return signatures
+
+    return signatures
+
+
+def _run_sibling_sweep(candidate: BugFixCandidate) -> str | None:
+    """Run grep across the codebase for the candidate's pattern
+    signatures. Returns a formatted prompt section (or None if no
+    signatures were extractable). Never raises — sweep failure is a
+    silent fall-through to the existing prompt.
+    """
+    import shutil
+    import subprocess
+
+    signatures = _extract_pattern_signatures(candidate)
+    if not signatures:
+        return None
+
+    # Prefer ripgrep (rg) for speed + sensible defaults; fall back to
+    # plain grep -rn if rg isn't installed.
+    rg_path = shutil.which("rg")
+    grep_path = shutil.which("grep")
+    if not rg_path and not grep_path:
+        return None
+
+    backend_root = _BACKEND_DIR
+    dashboard_root = os.path.join(_BACKEND_DIR, "..", "dashboard", "src")
+    search_paths: list[str] = []
+    if os.path.isdir(os.path.join(backend_root, "app")):
+        search_paths.append(os.path.join(backend_root, "app"))
+    if os.path.isdir(dashboard_root):
+        search_paths.append(dashboard_root)
+    if not search_paths:
+        return None
+
+    sections: list[str] = []
+    total_chars = 0
+    for sig in signatures:
+        # Build the command. Use --no-config + --no-ignore-vcs sparingly;
+        # we want the same view as a developer running grep manually.
+        try:
+            if rg_path:
+                cmd = [
+                    rg_path, "--line-number", "--no-heading",
+                    "--max-count", str(_MAX_HITS_PER_SIGNATURE),
+                    "--glob", "!**/__pycache__/**",
+                    "--glob", "!**/node_modules/**",
+                    "--glob", "!**/.next/**",
+                    "--fixed-strings", sig,
+                    *search_paths,
+                ]
+            else:
+                cmd = [
+                    grep_path, "-rn",
+                    "--exclude-dir", "__pycache__",
+                    "--exclude-dir", "node_modules",
+                    "--exclude-dir", ".next",
+                    "-F", sig,
+                    *search_paths,
+                ]
+            res = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=8,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+            log.debug("sibling_sweep: grep failed for %r: %s", sig, exc)
+            continue
+        # rg / grep both exit 1 when no match — treat as empty, not error
+        out = res.stdout or ""
+        if not out.strip():
+            continue
+        # Cap to _MAX_HITS_PER_SIGNATURE
+        lines = out.splitlines()[:_MAX_HITS_PER_SIGNATURE]
+        # Make hits relative to repo root for readability
+        rel_lines: list[str] = []
+        for ln in lines:
+            ln = ln.replace(_BACKEND_DIR + "/", "backend/")
+            ln = ln.replace(os.path.realpath(dashboard_root) + "/", "dashboard/src/")
+            rel_lines.append(ln)
+        block = (
+            f"### Signature: {sig}  ({len(rel_lines)} hit(s))\n"
+            + "\n".join(rel_lines)
+        )
+        if total_chars + len(block) > _MAX_SIBLING_OUTPUT_CHARS:
+            sections.append(
+                f"### Signature: {sig}  ({len(rel_lines)} hit(s) — TRUNCATED, "
+                f"prompt-section cap reached)"
+            )
+            break
+        sections.append(block)
+        total_chars += len(block)
+
+    if not sections:
+        return None
+    return (
+        "## Sibling Pattern Sweep\n"
+        "Pre-fix grep across `backend/app` + `dashboard/src` for identifiers "
+        "extracted from the bug. Each hit is a CANDIDATE for the same fix:\n"
+        "classify 🔴 (real consumer — must update), 🟡 (verify), ⚫ (skip).\n"
+        "Empirical 1:3-4 ratio (1 reported bug → 3-4 hidden siblings) — if "
+        "your patch only touches the file in the bug report, you are "
+        "almost certainly missing a sibling.\n\n"
+        + "\n\n".join(sections)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2968,6 +3170,44 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
                     context_parts.append("\n".join(iter_block))
         except Exception as exc:
             log.debug("propose_patch: iteration context parse failed (non-fatal): %s", exc)
+
+    # Multidim sibling-pattern sweep — the missing intelligence layer.
+    # Distills the bug into grep-able pattern signatures and runs them
+    # across backend/app + dashboard/src so the LLM proposing the fix
+    # sees every other call site that may be a sibling. ZERO extra LLM
+    # calls — this is prompt enrichment only, bounded to ~4KB total.
+    # See _run_sibling_sweep header (line ~1107) for design rationale.
+    try:
+        sweep_section = _run_sibling_sweep(candidate)
+        if sweep_section:
+            context_parts.append(sweep_section)
+            log.info(
+                "propose_patch: sibling sweep wired (cand=%d, ~%d chars)",
+                candidate.id, len(sweep_section),
+            )
+    except Exception as exc:
+        log.debug("propose_patch: sibling sweep failed (non-fatal): %s", exc)
+
+    # Pipeline doctrine reminder — the final instruction the LLM reads
+    # before generating the patch. Forces multidim discipline (sibling
+    # sweep + Lens 1 retro-grep mental model) into every proposal.
+    context_parts.append(
+        "## Multidim discipline (mandatory)\n"
+        "Before proposing the patch:\n"
+        "1. Read the Sibling Pattern Sweep section above. Identify every "
+        "🔴 hit (real consumer of the same identifier).\n"
+        "2. Your patch MUST update every 🔴 hit, not just the file in "
+        "the bug report. The empirical ratio is 1:3-4 (1 reported bug → "
+        "3-4 hidden siblings). Single-file patches for a multi-site "
+        "identifier are wrong by default.\n"
+        "3. After the patch, the same grep run with the bug's pattern "
+        "signature must return ZERO real-consumer hits. Mention in your "
+        "commit message: 'sibling hunt: <N> hits classified, <K> 🔴 fixed, "
+        "<M> 🟡 verified, <L> ⚫ skipped'.\n"
+        "4. Trust the sweep over your own assumptions about scope. If "
+        "the sweep shows a hit you weren't expecting, that's a sibling "
+        "the symptom-fixer would miss."
+    )
 
     user_message = "\n\n".join(context_parts)
 

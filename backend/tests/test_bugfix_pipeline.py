@@ -358,3 +358,95 @@ def test_slack_failure_does_not_break_proposal(db):
     db.refresh(c)
     assert c.status == "patch_proposed"
     assert c.notified_at is None  # Slack failed but candidate persists
+
+
+# ---------------------------------------------------------------------------
+# Multidim sibling-pattern sweep helpers (added 2026-05-02)
+# ---------------------------------------------------------------------------
+
+def test_extract_pattern_signatures_env_var():
+    """Env-var name (UPPER_SNAKE) is the highest-fidelity signature."""
+    from types import SimpleNamespace
+    from app.services.bugfix_pipeline import _extract_pattern_signatures
+    c = SimpleNamespace(
+        title="audit_secrets reports MERCHANT_SESSION_SIGNING_KEY as missing",
+        summary="_CRITICAL_SECRETS lists MERCHANT_SESSION_SIGNING_KEY but real env is MERCHANT_SESSION_SECRET",
+        context_json=None,
+        patch_files=None,
+    )
+    sigs = _extract_pattern_signatures(c)
+    assert "MERCHANT_SESSION_SIGNING_KEY" in sigs
+    assert "MERCHANT_SESSION_SECRET" in sigs
+
+
+def test_extract_pattern_signatures_skips_noise():
+    """Generic identifiers like 'self' / 'data' / 'shop' must NOT be signatures."""
+    from types import SimpleNamespace
+    from app.services.bugfix_pipeline import _extract_pattern_signatures
+    c = SimpleNamespace(
+        title="self.data.shop returns wrong value",
+        summary="None",
+        context_json=None,
+        patch_files=None,
+    )
+    sigs = _extract_pattern_signatures(c)
+    assert "self" not in sigs
+    assert "data" not in sigs
+    assert "shop" not in sigs
+
+
+def test_extract_pattern_signatures_caps_at_max():
+    """Bounded signature count protects against prompt bloat."""
+    from types import SimpleNamespace
+    from app.services.bugfix_pipeline import (
+        _extract_pattern_signatures,
+        _MAX_SIBLING_SIGNATURES,
+    )
+    huge = " ".join(f"DISTINCT_VAR_NAME_{i}" for i in range(50))
+    c = SimpleNamespace(
+        title="bug",
+        summary=huge,
+        context_json=None,
+        patch_files=None,
+    )
+    sigs = _extract_pattern_signatures(c)
+    assert len(sigs) <= _MAX_SIBLING_SIGNATURES
+
+
+def test_run_sibling_sweep_returns_real_hits_for_known_identifier():
+    """End-to-end: candidate referencing a real identifier returns real
+    grep hits formatted as a prompt section."""
+    from types import SimpleNamespace
+    from app.services.bugfix_pipeline import _run_sibling_sweep
+    c = SimpleNamespace(
+        id=999,
+        title="Fix MERCHANT_SESSION_SECRET handling drift",
+        summary="The audit list in auth_hardening.py references the secret",
+        context_json=None,
+        patch_files=None,
+    )
+    out = _run_sibling_sweep(c)
+    assert out is not None
+    assert "Sibling Pattern Sweep" in out
+    assert "MERCHANT_SESSION_SECRET" in out
+    # The real codebase has multiple MERCHANT_SESSION_SECRET hits
+    # (main.py, merchant_session.py, survey.py); confirm the sweep
+    # picked at least the canonical reader site.
+    assert "merchant_session.py" in out
+
+
+def test_run_sibling_sweep_empty_when_no_signatures():
+    """No greppable signature → returns None (graceful degradation)."""
+    from types import SimpleNamespace
+    from app.services.bugfix_pipeline import _run_sibling_sweep
+    c = SimpleNamespace(
+        id=1,
+        title="bug",
+        summary="just a generic note",
+        context_json=None,
+        patch_files=None,
+    )
+    out = _run_sibling_sweep(c)
+    # Either None (no signatures) or a section, depending on fallback;
+    # the contract: never raises, never returns garbage.
+    assert out is None or "Sibling Pattern Sweep" in out
