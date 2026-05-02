@@ -173,6 +173,22 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2d. Frontend never-crash architecture — verifies the 4-layer
+# error-boundary stack (global-error / app/error / SectionErrorBoundary
+# / ErrorReporterInstaller) plus Sentry config files are present AND
+# load-bearing. Regressions like commenting out the install call or
+# removing the mount from layout.tsx fail the audit.
+# Born 2026-05-02 from founder mandate "FRONT END CHE NON CRASHA MAI".
+# ---------------------------------------------------------------------------
+step "Frontend never-crash architecture (audit_route_error_boundary_coverage.py)"
+if "$PY" scripts/audit_route_error_boundary_coverage.py > /tmp/preflight_route_error_boundary.log 2>&1; then
+    ok "$(tail -1 /tmp/preflight_route_error_boundary.log)"
+else
+    bad "frontend error-boundary regression — see /tmp/preflight_route_error_boundary.log"
+    tail -20 /tmp/preflight_route_error_boundary.log
+fi
+
+# ---------------------------------------------------------------------------
 # 2b-ter. Lite-orphan endpoint sweep — informational, never blocking.
 # Catches Lite-accessible backends with no Lite-floor render path (the
 # 2026-04-25 audit class). Prints findings; exit 0 always so a deliberate

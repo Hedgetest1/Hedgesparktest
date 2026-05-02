@@ -286,6 +286,30 @@ _AUDITS: list[tuple[str, str, str]] = [
         "invariant_regression",
         "invariant:dashboard_dead_code",
     ),
+    # Frontend never-crash architecture: added 2026-05-02 after founder
+    # mandate "FRONT END CHE NON CRASHA MAI". Verifies the 4 error-
+    # boundary layers (global-error / app/error / SectionErrorBoundary
+    # / ErrorReporterInstaller) + Sentry config files are present AND
+    # load-bearing — regressions like commenting out the install call
+    # or removing the JSX mount from layout.tsx fire an alert. This is
+    # the merchant-facing crash safety net; periodic recognition closes
+    # the class against silent removal between commits.
+    (
+        "audit_route_error_boundary_coverage.py",
+        "invariant_regression",
+        "invariant:frontend_never_crash",
+    ),
+    # Lite card-states usage: added 2026-05-02 (was preflight-only).
+    # Per CLAUDE.md §4 Phase Ω⁷, every Lite card MUST use the unified
+    # CardSkeleton/CardError/CardEmpty primitives + useCardFetch hook
+    # so loading/failure/empty states never surface as silent .catch()
+    # white-space. Periodic scan catches regressions where a future
+    # card lands without those primitives.
+    (
+        "audit_lite_card_states_usage.py",
+        "invariant_regression",
+        "invariant:lite_card_states_usage",
+    ),
 ]
 
 _TIMEOUT_SECONDS = 30
