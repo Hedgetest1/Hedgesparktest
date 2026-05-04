@@ -93,17 +93,49 @@ def _resolve_call_len_of_constant(call: ast.Call, module_scope: ast.Module) -> i
     return None
 
 
+def _resolve_name_to_collection_len(name_id: str, module_scope: ast.Module) -> int | None:
+    """If `name_id` is bound at module scope to an inline tuple/list/set
+    literal, return its length. Else None. Born 2026-05-04 (wave 6 N+1
+    sweep) so `for x in CONST:` where CONST is module-level inline
+    list/tuple ≤10 elements gets the same exemption as the inline form
+    `for x in [a, b, c]:`."""
+    for stmt in module_scope.body:
+        targets: list[ast.expr] = []
+        value: ast.expr | None = None
+        if isinstance(stmt, ast.Assign):
+            targets = list(stmt.targets)
+            value = stmt.value
+        elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
+            targets = [stmt.target]
+            value = stmt.value
+        else:
+            continue
+        for t in targets:
+            if isinstance(t, ast.Name) and t.id == name_id:
+                if isinstance(value, (ast.Tuple, ast.List, ast.Set)):
+                    return len(value.elts)
+    return None
+
+
 def loop_is_small_literal(iter_node: ast.expr, module_scope: ast.Module | None = None) -> bool:
     """Exempt range(...) with small constants, including
     `range(len(KNOWN_IDS))` where KNOWN_IDS is a module-level
     tuple/list/set constant (MED-10 closure). Also exempts inline
     list/tuple/set literals of <=10 elements (born 2026-05-02 from
     the brutal-CTO N+1 triage — `for table in ["t1","t2","t3"]: ...`
-    was flagged but is a fixed small-set sweep, not unbounded N+1)."""
+    was flagged but is a fixed small-set sweep, not unbounded N+1).
+    Wave-6 closure (2026-05-04): also exempt `for x in CONST` where
+    CONST is a module-level Name bound to an inline tuple/list/set
+    literal of <=10 elements (resolved via _resolve_name_to_collection_len)."""
     # Inline collection literal — `for x in [a, b, c]` / `for x in (a, b)`
     # / `for x in {a, b}`. Treat <=10 as small fixed set.
     if isinstance(iter_node, (ast.List, ast.Tuple, ast.Set)):
         return len(iter_node.elts) <= 10
+    # `for x in MODULE_CONST` where MODULE_CONST = (a, b, c) at module scope
+    if isinstance(iter_node, ast.Name) and module_scope is not None:
+        n = _resolve_name_to_collection_len(iter_node.id, module_scope)
+        if n is not None and n <= 10:
+            return True
     if not isinstance(iter_node, ast.Call):
         return False
     if not isinstance(iter_node.func, ast.Name) or iter_node.func.id != "range":

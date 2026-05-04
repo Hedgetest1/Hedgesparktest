@@ -50,6 +50,15 @@ _IMPACT_SIGNAL_MAX_BONUS = 10
 # Remediation class calibration bounds
 _REMEDIATION_CONFIDENCE_OFFSET_BOUNDS = {"min": -15, "max": 15}
 
+# Bounded 3-window sweep used by find_co_occurring_families.
+# Hoisted to module scope so audit_n_plus_one's "small literal" exemption
+# applies (3 elements ≤ 10 — no real N+1 risk).
+_CO_OCCURRENCE_WINDOWS = (
+    ("short_1h",  "1 hour",   2),
+    ("medium_6h", "6 hours",  3),
+    ("long_24h",  "24 hours", 4),
+)
+
 
 def _now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
@@ -544,13 +553,7 @@ def find_co_occurring_families(db: Session, fingerprint: str) -> list[dict]:
     results: list[dict] = []
     seen_fps: set[str] = set()
 
-    _WINDOWS = [
-        ("short_1h", "1 hour", 2),
-        ("medium_6h", "6 hours", 3),
-        ("long_24h", "24 hours", 4),
-    ]
-
-    for window_name, interval, min_count in _WINDOWS:
+    for window_name, interval, min_count in _CO_OCCURRENCE_WINDOWS:
         try:
             rows = db.execute(text(f"""
                 SELECT s2.fingerprint, s2.error_type, s2.culprit,
