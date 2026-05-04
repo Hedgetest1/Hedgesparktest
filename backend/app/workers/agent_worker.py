@@ -1248,9 +1248,16 @@ def _run_lifecycle_emails():
             db.commit()
 
         # --- 2. First insight: shops with signals that haven't received this email ---
+        # Single query collapses the prior pattern (DISTINCT outer + 2
+        # per-shop sub-queries for top signal + count). merchants.shop_domain
+        # is unique → JOIN does not multiply rows.
         from sqlalchemy import text
         first_insight_shops = db.execute(text("""
-            SELECT DISTINCT os.shop_domain
+            SELECT
+                os.shop_domain,
+                COUNT(*)                                              AS signal_count,
+                (array_agg(os.signal_type  ORDER BY os.signal_strength DESC NULLS LAST))[1] AS top_signal_type,
+                (array_agg(os.explanation  ORDER BY os.signal_strength DESC NULLS LAST))[1] AS top_explanation
             FROM opportunity_signals os
             JOIN merchants m ON m.shop_domain = os.shop_domain
             WHERE m.install_status = 'active'
@@ -1261,28 +1268,23 @@ def _run_lifecycle_emails():
                   SELECT me.shop_domain FROM merchant_emails me
                   WHERE me.email_type = 'first_insight' AND me.status = 'sent'
               )
+            GROUP BY os.shop_domain
             LIMIT 10
         """)).fetchall()
 
         for row in first_insight_shops:
             shop = row[0]
-            # Get signal details for context
-            top = db.execute(text("""
-                SELECT signal_type, explanation, product_url
-                FROM opportunity_signals
-                WHERE shop_domain = :shop AND expires_at > now()
-                ORDER BY signal_strength DESC NULLS LAST
-                LIMIT 1
-            """), {"shop": shop}).fetchone()
-
-            signal_count = db.execute(text("""
-                SELECT COUNT(*) FROM opportunity_signals
-                WHERE shop_domain = :shop AND expires_at > now()
-            """), {"shop": shop}).scalar() or 1
+            signal_count = int(row[1] or 1)
+            top_signal_type = row[2]
+            top_explanation = row[3]
 
             ctx = {"signal_count": signal_count}
-            if top:
-                ctx["top_signal"] = top[1] or top[0] or "a product showing unusual visitor behavior"
+            if top_signal_type or top_explanation:
+                ctx["top_signal"] = (
+                    top_explanation
+                    or top_signal_type
+                    or "a product showing unusual visitor behavior"
+                )
 
             result = submit_lifecycle_intent(db, shop, "first_insight", ctx)
             if result["status"] == "queued":

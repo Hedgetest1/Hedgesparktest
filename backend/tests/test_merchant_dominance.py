@@ -244,6 +244,66 @@ class TestLowSeverityEscalation:
         result = run_low_severity_escalation(db)
         assert result["escalated"] == 0
 
+    def test_first_insight_query_aggregates_per_shop(self, db):
+        """N+1 collapse regression guard: the agent_worker first_insight
+        query must return signal_count + top_signal_type + top_explanation
+        per shop in a single GROUP BY, ordered by signal_strength DESC."""
+        from datetime import datetime, timedelta, timezone
+        from sqlalchemy import text as sa_text
+        from app.models.merchant import Merchant
+        from app.models.opportunity_signal import OpportunitySignal
+        from app.core.token_crypto import encrypt_token
+
+        shop = "first-insight-test.myshopify.com"
+        m = Merchant(
+            shop_domain=shop,
+            access_token=encrypt_token("shpat_x"),
+            install_status="active",
+            contact_email="ops@firstinsight.test",
+        )
+        db.add(m)
+
+        future = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=7)
+        # Insert 3 signals with distinct strengths — strongest must surface
+        # as the "top" via array_agg(... ORDER BY signal_strength DESC NULLS LAST)[1]
+        for prod, sig_type, expl, strength in [
+            ("/products/weak", "low_intent", "weak signal", 0.2),
+            ("/products/strong", "high_intent", "strong signal", 0.9),
+            ("/products/medium", "med_intent", "medium signal", 0.5),
+        ]:
+            db.add(OpportunitySignal(
+                shop_domain=shop,
+                product_url=prod,
+                signal_type=sig_type,
+                signal_strength=strength,
+                explanation=expl,
+                expires_at=future,
+            ))
+        db.flush()
+
+        rows = db.execute(sa_text("""
+            SELECT
+                os.shop_domain,
+                COUNT(*)                                              AS signal_count,
+                (array_agg(os.signal_type  ORDER BY os.signal_strength DESC NULLS LAST))[1] AS top_signal_type,
+                (array_agg(os.explanation  ORDER BY os.signal_strength DESC NULLS LAST))[1] AS top_explanation
+            FROM opportunity_signals os
+            JOIN merchants m ON m.shop_domain = os.shop_domain
+            WHERE m.install_status = 'active'
+              AND m.contact_email IS NOT NULL
+              AND m.contact_email != ''
+              AND os.expires_at > now()
+              AND os.shop_domain = :shop
+            GROUP BY os.shop_domain
+        """), {"shop": shop}).fetchall()
+
+        assert len(rows) == 1
+        row = rows[0]
+        assert row[0] == shop
+        assert int(row[1]) == 3            # signal_count
+        assert row[2] == "high_intent"     # top_signal_type from strongest
+        assert row[3] == "strong signal"   # top_explanation from strongest
+
     def test_bulk_dedup_skips_already_escalated_only(self, db):
         """Bulk-dedup correctness: shop with active escalation is skipped,
         sibling shops without active escalation are still escalated.
