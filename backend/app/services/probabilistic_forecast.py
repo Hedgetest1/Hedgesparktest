@@ -513,17 +513,17 @@ def forecast_by_sku(
     if not top_products:
         return _empty_sku_forecast(shop_domain, horizon_days, window_days, currency, now)
 
-    products_out: list[dict] = []
-    for row in top_products:
-        product_key = row[0]
-        title = str(row[1])
-        observed_revenue = round(float(row[2] or 0), 2)
-
-        # 2. Daily revenue series for this product (shop-tz bucketed).
-        # Same CTE-pre-filter pattern as #1 to keep LATERAL safe from
-        # JSON-null/scalar rows.
+    # 2. Daily revenue series for ALL top products in ONE batched query.
+    # Was N+1: 1 outer top-products SELECT + N per-product daily SELECTs
+    # (each with its own jsonb_array_elements LATERAL pre-filter CTE).
+    # Now: 1 outer + 1 batched (= 2 round-trips constant regardless of N).
+    # Uses GROUP BY (pkey, day) with ANY(:pkeys) filter; same CTE pre-
+    # filter pattern as the per-product variant.
+    pkeys = [str(row[0]) for row in top_products if row[0] is not None]
+    daily_by_pkey: dict[str, list[tuple]] = {pkey: [] for pkey in pkeys}
+    if pkeys:
         try:
-            daily_rows = db.execute(
+            batch_rows = db.execute(
                 _sql_text_pbsku("""
                     WITH valid_orders AS (
                         SELECT created_at, line_items
@@ -538,26 +538,36 @@ def forecast_by_sku(
                               END
                     )
                     SELECT
+                        COALESCE(item->>'product_id', item->>'product_url') AS pkey,
                         date_trunc('day', vo.created_at AT TIME ZONE :tz)::date AS d,
                         COALESCE(SUM(
                             (item->>'price')::numeric * (item->>'quantity')::int
                         ), 0) AS rev
                     FROM valid_orders vo,
                          jsonb_array_elements(vo.line_items) AS item
-                    WHERE COALESCE(item->>'product_id', item->>'product_url') = :pkey
+                    WHERE COALESCE(item->>'product_id', item->>'product_url') = ANY(:pkeys)
                       AND item->>'price' IS NOT NULL
                       AND item->>'quantity' IS NOT NULL
-                    GROUP BY date_trunc('day', vo.created_at AT TIME ZONE :tz)::date
-                    ORDER BY d ASC
+                    GROUP BY pkey, date_trunc('day', vo.created_at AT TIME ZONE :tz)::date
+                    ORDER BY pkey, d ASC
                 """),
                 {"shop": shop_domain, "since": since, "currency": currency,
-                 "tz": tz, "pkey": product_key},
+                 "tz": tz, "pkeys": pkeys},
             ).fetchall()
+            for r in batch_rows:
+                daily_by_pkey.setdefault(r[0], []).append((r[1], r[2]))
         except Exception as exc:
-            log.warning("forecast_by_sku: daily query failed for %s: %s",
-                        product_key, exc)
-            daily_rows = []
+            log.warning("forecast_by_sku: batched daily query failed: %s", exc)
+            # daily_by_pkey stays {pkey: []} → forecast falls through to
+            # "insufficient" branch per product, matching prior fallback.
 
+    products_out: list[dict] = []
+    for row in top_products:
+        product_key = row[0]
+        title = str(row[1])
+        observed_revenue = round(float(row[2] or 0), 2)
+
+        daily_rows = daily_by_pkey.get(str(product_key), [])
         values = [float(r[1] or 0) for r in daily_rows]
         n_days = len(values)
 
