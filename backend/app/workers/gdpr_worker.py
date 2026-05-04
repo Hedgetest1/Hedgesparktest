@@ -130,9 +130,11 @@ def run_cycle() -> dict:
         else:
             log(f"processing {len(pending)} GDPR request(s)")
 
+        from app.core.query_count_monitor import worker_scope as _worker_scope
         for req in pending:
             try:
-                process_gdpr_request(db, req)
+                with _worker_scope("gdpr_worker.process_request", req.shop_domain or "unknown"):
+                    process_gdpr_request(db, req)
                 stats["processed"] += 1
             except Exception as exc:
                 stats["errors"] += 1

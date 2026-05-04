@@ -676,6 +676,7 @@ async def run_optimization_cycle(
         except Exception as exc:
             log.warning("nudge_optimizer: product_metrics pre-load failed: %s", exc)
 
+    from app.core.query_count_monitor import worker_scope as _worker_scope
     for nudge in nudges:
         # Skip single-variant nudges quickly
         if not nudge.is_ab_experiment():
@@ -684,28 +685,29 @@ async def run_optimization_cycle(
         summary["evaluated"] += 1
 
         try:
-            decision = evaluate_nudge(db, nudge)
+            with _worker_scope("nudge_optimizer.evaluate_nudge", nudge.shop_domain or "unknown"):
+                decision = evaluate_nudge(db, nudge)
 
-            if decision.decision == "waiting":
-                summary["waiting"] += 1
-                log.debug(
-                    "nudge_optimizer: waiting nudge=%d (%s)",
-                    nudge.id, decision.reason,
-                )
-                continue
+                if decision.decision == "waiting":
+                    summary["waiting"] += 1
+                    log.debug(
+                        "nudge_optimizer: waiting nudge=%d (%s)",
+                        nudge.id, decision.reason,
+                    )
+                    continue
 
-            if decision.decision in ("winner", "inconclusive"):
-                _promote_winner(db, nudge, decision)
-                summary["promoted"] += 1
+                if decision.decision in ("winner", "inconclusive"):
+                    _promote_winner(db, nudge, decision)
+                    summary["promoted"] += 1
 
-                if decision.decision == "winner":
-                    # Use pre-loaded product_metrics cache (no per-nudge DB call)
-                    signals = _pm_cache.get((nudge.shop_domain, nudge.product_url or ""), {})
+                    if decision.decision == "winner":
+                        # Use pre-loaded product_metrics cache (no per-nudge DB call)
+                        signals = _pm_cache.get((nudge.shop_domain, nudge.product_url or ""), {})
 
-                    product_title = (nudge.product_url or "").split("/")[-1].replace("-", " ").title()
+                        product_title = (nudge.product_url or "").split("/")[-1].replace("-", " ").title()
 
-                    await _generate_challenger(db, nudge, decision, signals, product_title)
-                    summary["challenged"] += 1
+                        await _generate_challenger(db, nudge, decision, signals, product_title)
+                        summary["challenged"] += 1
 
         except Exception as exc:
             log.error(

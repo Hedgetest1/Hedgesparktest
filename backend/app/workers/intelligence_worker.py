@@ -145,13 +145,15 @@ def run_cycle():
         log(f"found {len(pairs)} (shop_domain, product_url) pairs (limit {_PAIR_LIMIT})")
 
         import time as _time
+        from app.core.query_count_monitor import worker_scope as _worker_scope
         _cycle_start = _time.monotonic()
         for shop_domain, product_url in pairs:
             if _time.monotonic() - _cycle_start > _TIME_BUDGET_SECONDS:
                 log(f"time budget exhausted ({_TIME_BUDGET_SECONDS}s) after {rows_written} rows — yielding")
                 break
             try:
-                update_product_opportunity(db, product_url, shop_domain)
+                with _worker_scope("intelligence_worker.update_opportunity", shop_domain):
+                    update_product_opportunity(db, product_url, shop_domain)
                 log(f"updated opportunity for {shop_domain} | {product_url}")
                 rows_written += 1
                 shops_seen.add(shop_domain)
@@ -166,7 +168,8 @@ def run_cycle():
         for shop_domain in shops_seen:
             try:
                 from app.services.klaviyo_export import push_intent_signals_to_klaviyo
-                result = push_intent_signals_to_klaviyo(db=db, shop_domain=shop_domain)
+                with _worker_scope("intelligence_worker.klaviyo_push", shop_domain):
+                    result = push_intent_signals_to_klaviyo(db=db, shop_domain=shop_domain)
                 if result.get("pushed", 0) > 0:
                     log(f"klaviyo: pushed {result['pushed']} intent events for {shop_domain}")
                     db.commit()

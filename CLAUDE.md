@@ -887,12 +887,19 @@ codebase carries 3 layers of N+1 detection:
    same module) — wraps each per-shop iteration in background
    workers; same enter-reset / exit-check semantics at higher
    thresholds (`QUERY_COUNT_WORKER_SOFT_THRESHOLD=100` /
-   `_WORKER_HARD=300`). Currently wired in:
+   `_WORKER_HARD=300`). Wired in 7 per-shop loops covering all
+   per-shop workers (full 3-layer N+1 coverage):
    - `agent_worker.first_insight` per-shop loop
    - `aggregation_worker.store_metrics` per-shop loop (~10 sub-ops)
    - `segment_monitor.shop_scan` per-shop product scan
+   - `intelligence_worker.update_opportunity` per (shop, product) pair
+   - `intelligence_worker.klaviyo_push` per-shop intent push
+   - `gdpr_worker.process_request` per-request (shop-scoped)
+   - `nudge_optimizer.evaluate_nudge` per-nudge (shop-scoped) —
+     wired in service rather than worker (loop lives there)
 
-   To add: `with worker_scope("worker_name", shop_domain): ...`
+   To add for new per-shop loops:
+   `with worker_scope("worker_name.op", shop_domain): ...`
 
 ### 12.2 Load test harness
 
