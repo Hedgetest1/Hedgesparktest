@@ -77,6 +77,16 @@ if not os.environ.get("DATABASE_URL_TEST"):
 _test_engine = create_engine(_DATABASE_URL, pool_pre_ping=True)
 _TestSession = sessionmaker(bind=_test_engine, autocommit=False, autoflush=False)
 
+# Wire the runtime N+1 detector listener to the test engine so
+# tests/test_query_count_monitor.py can verify the wiring works
+# end-to-end. Production engine is wired in app/core/database.py at
+# import time; tests use _test_engine so wire it here too.
+try:
+    from app.core.query_count_monitor import install_listener as _install_qcm
+    _install_qcm(_test_engine)
+except Exception:
+    pass  # SILENT-EXCEPT-OK: test-time listener wiring is best-effort; tests that depend on it will surface the failure via assertion.
+
 
 # ---------------------------------------------------------------------------
 # Session-start safety net — keep wishspark_test at alembic head

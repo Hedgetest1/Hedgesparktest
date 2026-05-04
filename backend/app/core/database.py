@@ -201,3 +201,18 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Runtime N+1 detector (paired with audit_n_plus_one static check).
+# Wires the after_cursor_execute event listener once at import time so
+# QueryCountMiddleware can read the per-request count.
+# Detail: app/core/query_count_monitor.py.
+# ---------------------------------------------------------------------------
+try:
+    from app.core.query_count_monitor import install_listener as _install_query_listener
+    _install_query_listener(engine)
+    if read_engine is not engine:
+        _install_query_listener(read_engine)
+except Exception as _exc:
+    log.warning("query_count_monitor: install failed (non-fatal): %s", _exc)

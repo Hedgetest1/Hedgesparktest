@@ -493,6 +493,12 @@ async def security_headers_middleware(request: Request, call_next):
 
 app.add_middleware(RequestIDMiddleware)
 
+# Runtime N+1 detector — paired with audit_n_plus_one static check.
+# Counts DB cursor executes per request, logs/alerts at thresholds
+# (soft 30, hard 100, env-overridable). Detail in query_count_monitor.
+from app.core.query_count_monitor import QueryCountMiddleware  # noqa: E402
+app.add_middleware(QueryCountMiddleware)
+
 Base.metadata.create_all(bind=engine)
 
 app.include_router(events_router)
