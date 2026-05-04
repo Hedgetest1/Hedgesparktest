@@ -1272,6 +1272,7 @@ def _run_lifecycle_emails():
             LIMIT 10
         """)).fetchall()
 
+        from app.core.query_count_monitor import worker_scope
         for row in first_insight_shops:
             shop = row[0]
             signal_count = int(row[1] or 1)
@@ -1286,10 +1287,15 @@ def _run_lifecycle_emails():
                     or "a product showing unusual visitor behavior"
                 )
 
-            result = submit_lifecycle_intent(db, shop, "first_insight", ctx)
-            if result["status"] == "queued":
-                intents_queued += 1
-            db.commit()
+            # Worker-scope query monitor: per-shop iteration gets a
+            # fresh count so a future N+1 regression in the lifecycle
+            # path surfaces at runtime, paired with the static
+            # audit_n_plus_one preflight check.
+            with worker_scope("agent_worker.first_insight", shop):
+                result = submit_lifecycle_intent(db, shop, "first_insight", ctx)
+                if result["status"] == "queued":
+                    intents_queued += 1
+                db.commit()
 
         # --- 3. Connection issue: stuck merchants (degraded/failed >2h) ---
         stuck_cutoff = now - timedelta(hours=2)

@@ -23,19 +23,23 @@ Architecture
 
 Worker scope
 ============
-The middleware only covers HTTP requests. For background workers,
-N+1 detection is deferred to the static audit (run in preflight) and
-to operator inspection of /system/health. Worker-scope query counting
-would require per-cycle reset hooks in each worker loop — separate
-sub-sprint.
+HTTP request scope is the FastAPI middleware above. Background-
+worker scope is the `worker_scope(name, scope_id)` context manager
+below — workers wrap each per-shop iteration to get the same kind
+of N+1 alarm at a higher threshold (workers legitimately do more
+work than a single HTTP request). Use:
 
-Why thresholds 30 / 100
-=======================
- - 30 (soft): a typical Pro dashboard load issues ~5-15 queries
-   (auth + tier + ~5-10 widget aggregations). 30 is "something is off".
- - 100 (hard): unambiguous N+1 territory; nothing in our codebase
-   *should* legitimately issue 100 queries per request.
- - Both thresholds env-overridable for ops tuning.
+    with worker_scope("aggregation_worker", shop_domain):
+        do_per_shop_work(...)
+
+Why thresholds 30 / 100 (HTTP) and 100 / 300 (worker)
+=====================================================
+ - HTTP soft 30 / hard 100 — a typical Pro dashboard load issues
+   ~5-15 queries; 30 = "something is off"; 100 = unambiguous N+1.
+ - Worker soft 100 / hard 300 — a per-shop worker iteration
+   legitimately does multiple aggregations and updates; 100 = first
+   smell; 300 = unambiguous N+1 in the worker loop.
+ - All thresholds env-overridable for ops tuning.
 """
 from __future__ import annotations
 
@@ -148,3 +152,68 @@ def _sentry_breadcrumb(route: str, n: int, *, level: str, tag: str) -> None:
         )
     except Exception:
         pass  # SILENT-EXCEPT-OK: sentry breadcrumb best-effort observability; never raise from a middleware finally branch.
+
+
+# ---------------------------------------------------------------------------
+# Worker-scope query monitor (paired with the HTTP middleware above).
+# Background workers wrap each per-shop iteration to get the same N+1
+# alarm at higher thresholds (workers do legitimately more work than a
+# single HTTP request).
+# ---------------------------------------------------------------------------
+
+# Worker thresholds — higher than HTTP because workers legitimately do
+# many aggregations + updates per per-shop iteration. Env-tunable.
+_WORKER_SOFT_THRESHOLD = int(os.getenv("QUERY_COUNT_WORKER_SOFT_THRESHOLD", "100"))
+_WORKER_HARD_THRESHOLD = int(os.getenv("QUERY_COUNT_WORKER_HARD_THRESHOLD", "300"))
+
+
+class worker_scope:
+    """Context manager: reset count at enter, log/alert at exit if the
+    per-iteration query count crossed the worker soft/hard thresholds.
+
+    Usage in workers:
+        with worker_scope("aggregation_worker", shop_domain):
+            do_per_shop_work(...)
+
+    Each enter creates a NEW dict in the contextvar so the SQLAlchemy
+    listener writes into a fresh counter. Exit reads the count, logs
+    if over threshold, breadcrumbs to Sentry, then leaves the
+    contextvar intact (process owns its own scope; no implicit reset
+    after exit so caller can read get_count() if desired).
+
+    Workers WITHOUT shop_domain (e.g. global cycles) can pass any
+    string as scope_id (e.g. "global", "cycle-N").
+    """
+
+    def __init__(self, worker_name: str, scope_id: str) -> None:
+        self.worker_name = worker_name
+        self.scope_id = scope_id
+
+    def __enter__(self) -> "worker_scope":
+        reset_count()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        n = get_count()
+        if n >= _WORKER_HARD_THRESHOLD:
+            log.error(
+                "query_count_worker_hard: worker=%s scope=%s n=%d "
+                "(threshold=%d) — likely N+1 in worker loop; investigate.",
+                self.worker_name, self.scope_id, n, _WORKER_HARD_THRESHOLD,
+            )
+            _sentry_breadcrumb(
+                f"{self.worker_name}:{self.scope_id}", n,
+                level="warning", tag="query_count_worker_hard",
+            )
+        elif n >= _WORKER_SOFT_THRESHOLD:
+            log.warning(
+                "query_count_worker_soft: worker=%s scope=%s n=%d "
+                "(threshold=%d)",
+                self.worker_name, self.scope_id, n, _WORKER_SOFT_THRESHOLD,
+            )
+            _sentry_breadcrumb(
+                f"{self.worker_name}:{self.scope_id}", n,
+                level="info", tag="query_count_worker_soft",
+            )
+        # Do NOT swallow exceptions
+        return None

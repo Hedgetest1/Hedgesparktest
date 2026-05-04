@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 
+import pytest
 from sqlalchemy import text
 
 from app.core.query_count_monitor import (
@@ -88,3 +89,54 @@ def test_sentry_breadcrumb_no_op_safe():
     from app.core.query_count_monitor import _sentry_breadcrumb
     # Should be a no-op without raising
     _sentry_breadcrumb("/test", 42, level="info", tag="test_tag")
+
+
+# ---------------------------------------------------------------------------
+# Worker-scope query monitor — paired with HTTP middleware
+# ---------------------------------------------------------------------------
+
+def test_worker_scope_resets_count_on_enter(db):
+    """worker_scope.__enter__ must reset the contextvar so the per-
+    iteration counter starts at 0 regardless of prior state."""
+    from app.core.query_count_monitor import worker_scope
+
+    # Pollute count BEFORE entering scope
+    reset_count()
+    db.execute(text("SELECT 1"))
+    db.execute(text("SELECT 2"))
+    assert get_count() >= 2
+
+    with worker_scope("test_worker", "shop_x"):
+        # Count must be 0 right after enter
+        assert get_count() == 0
+        db.execute(text("SELECT 3"))
+        assert get_count() >= 1
+
+
+def test_worker_scope_does_not_swallow_exceptions(db):
+    """worker_scope.__exit__ returns None (or False) → propagates exceptions."""
+    from app.core.query_count_monitor import worker_scope
+
+    with pytest.raises(ValueError, match="boom"):
+        with worker_scope("test_worker", "shop_y"):
+            raise ValueError("boom")
+
+
+def test_worker_scope_isolates_iterations(db):
+    """Two consecutive worker_scope blocks must NOT share count state.
+    Per-shop iterations get isolated alarms."""
+    from app.core.query_count_monitor import worker_scope
+
+    # First scope: do many queries
+    with worker_scope("test_worker", "shop_a"):
+        for _ in range(5):
+            db.execute(text("SELECT 1"))
+        # Inside scope, count > 0
+        assert get_count() >= 5
+
+    # Second scope: should NOT inherit prior count
+    with worker_scope("test_worker", "shop_b"):
+        # Right after enter, count is 0 again
+        assert get_count() == 0
+        db.execute(text("SELECT 1"))
+        assert get_count() >= 1
