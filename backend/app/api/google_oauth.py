@@ -25,7 +25,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_merchant_session
 from app.models.merchant import Merchant
 from app.services.google_sheets import (
@@ -60,7 +60,7 @@ class GoogleStatusResponse(BaseModel):
 @router.get("/merchant/google/status", response_model=GoogleStatusResponse)
 def get_google_status(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     merchant = db.query(Merchant).filter(Merchant.shop_domain == shop).first()
     return GoogleStatusResponse(

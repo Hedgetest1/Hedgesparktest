@@ -33,7 +33,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_read_db
 from app.core.deps import require_merchant_session
 
 # Reportlab — pure-python PDF generation (no system deps). Imported
@@ -637,7 +637,7 @@ def export_surface(
     surface: str = Query(..., description="Surface to export (see ALLOWED_SURFACES)"),
     format: str = Query("csv", description="Output format: csv | pdf"),
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """Export a Lite surface as CSV or PDF. One parameterized endpoint
     serves all supported surfaces; each builder returns (headers, rows)

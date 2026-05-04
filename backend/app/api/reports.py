@@ -37,7 +37,7 @@ from sqlalchemy import and_, desc, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_merchant_session
 from app.core.redis_client import cache_delete, cache_get, cache_set
 from app.models.merchant_saved_report import MerchantSavedReport
@@ -407,7 +407,7 @@ def _to_out(row: MerchantSavedReport) -> SavedReportOut:
 @router.get("/merchant/reports", response_model=SavedReportListOut)
 def list_reports(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> dict:
     rows = (
         db.query(MerchantSavedReport)
@@ -492,7 +492,7 @@ def _fetch_owned(db: Session, shop: str, report_id: int) -> MerchantSavedReport:
 def get_report(
     report_id: int = Path(..., ge=1),
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> dict:
     return _to_out(_fetch_owned(db, shop, report_id)).model_dump()
 
@@ -715,7 +715,7 @@ def execute_report(
     response: Response,
     report_id: int = Path(..., ge=1),
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> dict:
     cache_key = f"hs:report:run:v1:{shop}:{report_id}"
     cached = cache_get(cache_key)

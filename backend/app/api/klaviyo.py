@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_pro_session
 from app.services.klaviyo_export import (
     get_segment_with_identity,
@@ -47,7 +47,7 @@ def get_klaviyo_segment(
     product_url: str,
     hours: int = 72,
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     HOT segment with identity resolution for Klaviyo export preview.

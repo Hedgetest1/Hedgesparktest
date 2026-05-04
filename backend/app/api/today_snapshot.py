@@ -38,7 +38,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_read_db
 from app.core.deps import require_merchant_session
 from app.core.redis_client import cache_get, cache_set
 from app.services.revenue_metrics import get_shop_currency, get_shop_timezone
@@ -269,7 +269,7 @@ def _query_top_sellers_today(db: Session, shop: str, tz: str, limit: int = 5) ->
 )
 def get_today_snapshot(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Six base KPIs for today + yesterday + delta — the day-1 retrospective

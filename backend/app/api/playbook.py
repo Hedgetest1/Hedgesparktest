@@ -37,7 +37,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_read_db
 from app.core.deps import require_scale_session
 
 log = logging.getLogger("playbook")
@@ -72,7 +72,7 @@ class PlaybookResponse(BaseModel):
 def get_playbook_for_signal(
     signal_type: str,
     shop: str = Depends(require_scale_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Return peer playbook for a given signal type — how did other

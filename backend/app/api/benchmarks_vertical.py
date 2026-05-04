@@ -15,7 +15,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_merchant_session, require_pro_session
 
 log = logging.getLogger(__name__)
@@ -91,7 +91,7 @@ def _build_vertical_response(db: Session, shop: str) -> VerticalSelfResponse:
 @router.get("/pro/vertical", response_model=VerticalSelfResponse)
 def get_my_vertical(
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """Return the merchant's classified vertical + confidence (Pro)."""
     return _build_vertical_response(db, shop)
@@ -100,7 +100,7 @@ def get_my_vertical(
 @router.get("/analytics/vertical", response_model=VerticalSelfResponse)
 def get_my_vertical_lite(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """Lite-accessible classification — sibling of `/pro/vertical`.
 

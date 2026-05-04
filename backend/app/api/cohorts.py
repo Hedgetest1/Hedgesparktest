@@ -28,7 +28,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_merchant_session, require_pro_session
 from app.services.cohort_engine import get_cohort_retention, get_cohort_summary
 from app.services.ltv_engine import (
@@ -253,7 +253,7 @@ lite_router = APIRouter(prefix="/analytics/cohorts", tags=["cohorts"])
 )
 def get_cohort_summary_lite(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """Lite-accessible retention summary. Same shape + service as the
     Pro-gated /pro/cohorts/summary endpoint; only the auth dependency
@@ -270,7 +270,7 @@ def get_cohort_summary_lite(
 def get_monthly_cohorts_lite(
     months: int = 6,
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """Lite-accessible monthly cohort analysis (Strada 3.3, 2026-04-20).
     Same service + response shape as /pro/cohorts/monthly. Each monthly
@@ -307,7 +307,7 @@ def get_product_ltv_lite(
 def get_weekly_cohorts_lite(
     weeks: int = 12,
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """Lite-accessible weekly cohort matrix (founder directive 2026-04-26).
     Same service + response shape as the Pro-gated /pro/cohorts (no path
@@ -327,7 +327,7 @@ def get_weekly_cohorts_lite(
 def get_predicted_ltv_lite(
     limit: int = 50,
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """Lite-accessible predicted LTV customer ranking (founder directive
     2026-04-26). Same service + response shape as /pro/cohorts/ltv/customers.
@@ -428,7 +428,7 @@ def get_cohorts_by_dimension_lite(
 def get_cohorts(
     weeks: int = 12,
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Full weekly cohort retention matrix.
@@ -469,7 +469,7 @@ def get_cohorts(
 )
 def get_cohort_summary_endpoint(
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     High-level retention summary for the Pro dashboard.
@@ -494,7 +494,7 @@ def get_cohort_summary_endpoint(
 def get_monthly_cohorts_endpoint(
     months: int = 6,
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Monthly acquisition cohort analysis.
@@ -550,7 +550,7 @@ def get_monthly_cohorts_endpoint(
 )
 def get_ltv_summary_endpoint(
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     High-level LTV metrics for the Pro dashboard.
@@ -576,7 +576,7 @@ def get_ltv_summary_endpoint(
 def get_product_ltv_endpoint(
     limit: int = 20,
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Product LTV contribution — which products drive high-LTV customers.
@@ -595,7 +595,7 @@ def get_product_ltv_endpoint(
 def get_predicted_ltv_endpoint(
     limit: int = 50,
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Top customers with predicted LTV.

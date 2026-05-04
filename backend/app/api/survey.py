@@ -51,7 +51,7 @@ from sqlalchemy import desc, func, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_merchant_session, require_pro_session
 from app.core.llm_pii_guard import check_for_pii
 from app.core.redis_client import _client as _redis_client, cache_delete, cache_get, cache_set
@@ -238,7 +238,7 @@ def _validate_options(options: list[Any]) -> list[dict[str, str]]:
 # ---------------------------------------------------------------------------
 
 @router.get("/survey/config")
-def get_survey_config(shop: str, response: Response, db: Session = Depends(get_db)) -> dict:
+def get_survey_config(shop: str, response: Response, db: Session = Depends(get_read_db)) -> dict:
     if not is_valid_shop_domain(shop):
         raise HTTPException(status_code=400, detail="Invalid shop_domain")
 
@@ -430,7 +430,7 @@ _RANGE_TO_DAYS = {
 def get_survey_aggregate(
     range: str = "last_30_days",
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> dict:
     days = _RANGE_TO_DAYS.get(range)
     if days is None:

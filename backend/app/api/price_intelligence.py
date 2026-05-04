@@ -45,7 +45,7 @@ Response
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_pro_session
 from app.models.price_intelligence import PriceIntelligence
 from app.services.price_radar_service import evaluate_price
@@ -63,7 +63,7 @@ router = APIRouter()
 @router.get("/price-intelligence/top")
 def top_price_intelligence(
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Pro price intelligence — full response, backend-enforced.

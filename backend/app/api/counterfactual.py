@@ -38,7 +38,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_read_db
 from app.core.deps import require_scale_session
 from app.core.currency import format_money
 from app.services.revenue_metrics import get_shop_currency
@@ -198,7 +198,7 @@ class CounterfactualListResponse(BaseModel):
 @router.get("/pro/counterfactual/signals", response_model=CounterfactualListResponse)
 def list_counterfactuals(
     shop: str = Depends(require_scale_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """List open signals with their counterfactual revenue scenarios."""
     try:
@@ -260,7 +260,7 @@ def list_counterfactuals(
 def get_counterfactual(
     signal_id: int,
     shop: str = Depends(require_scale_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """Detail view for a single signal's counterfactual."""
     aov, aov_is_real = _shop_aov(db, shop)

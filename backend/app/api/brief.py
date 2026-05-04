@@ -68,7 +68,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_merchant_session, require_pro_session
 from app.core.redis_client import KEY_BRIEF, TTL_BRIEF, cache_get, cache_set
 from app.models.daily_brief import DailyBrief
@@ -270,7 +270,7 @@ def _get_full_brief(shop: str, db: Session) -> dict:
 @router.get("/today")
 def get_today_brief(
     shop: str         = Depends(require_merchant_session),
-    db:   Session     = Depends(get_db),
+    db:   Session     = Depends(get_read_db),
 ):
     """
     Lite daily brief — diagnostic fields only.
@@ -299,7 +299,7 @@ def get_today_brief(
 @router.get("/today/pro")
 def get_today_brief_pro(
     shop: str         = Depends(require_pro_session),
-    db:   Session     = Depends(get_db),
+    db:   Session     = Depends(get_read_db),
 ):
     """
     Pro daily brief — full response including prescriptive fields.

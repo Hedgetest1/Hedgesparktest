@@ -70,7 +70,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_pro_session
 from app.services.action_candidates_engine import generate_action_candidates
 
@@ -88,7 +88,7 @@ router = APIRouter(prefix="/actions", tags=["actions"])
 @router.get("/candidates/pro")
 def action_candidates_pro(
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Pro action candidates — ranked list of actionable signals, backend-enforced.

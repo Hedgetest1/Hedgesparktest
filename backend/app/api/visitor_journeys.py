@@ -30,7 +30,7 @@ from pydantic import BaseModel
 from sqlalchemy import text as sql_text
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_read_db
 from app.core.deps import require_pro_session
 from app.services.revenue_metrics import get_shop_currency
 
@@ -81,7 +81,7 @@ def get_visitor_journeys(
     window_days: int = Query(30, ge=1, le=365),
     limit: int = Query(5, ge=1, le=20),
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     cutoff = now - timedelta(days=window_days)

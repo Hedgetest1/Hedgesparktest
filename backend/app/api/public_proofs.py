@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from app.api._types import OkResponse
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_pro_session
 
 router = APIRouter(tags=["shares"])
@@ -95,7 +95,7 @@ def create_share(
 @router.get("/pro/shares", response_model=list[ShareRow])
 def list_shares(
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """List merchant's active shares."""
     from sqlalchemy import text

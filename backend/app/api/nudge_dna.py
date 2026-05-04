@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_scale_session
 from app.services.nudge_dna import extract_patterns, get_cached_dna
 
@@ -55,7 +55,7 @@ class NudgeDnaResponse(BaseModel):
 def get_nudge_dna(
     window_days: int = Query(30, ge=7, le=180),
     shop: str = Depends(require_scale_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     cached = get_cached_dna(shop)
     if cached is not None:

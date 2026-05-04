@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_pro_session
 from app.models.merchant_rule import MerchantRule
 from app.services.rule_engine import _ALLOWED_ACTIONS
@@ -126,7 +126,7 @@ def catalog():
 @router.get("", response_model=list[RuleResponse])
 def list_rules(
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     rows = (
         db.query(MerchantRule)

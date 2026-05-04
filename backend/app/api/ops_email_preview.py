@@ -25,7 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_operator
 
 log = logging.getLogger(__name__)
@@ -70,7 +70,7 @@ def preview_email(
     email_type: str = Query(..., description="one of: lite_morning_digest | weekly_digest"),
     format: str = Query("html", description="html | json"),
     _op: bool = Depends(require_operator),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """Operator preview — renders the email for the given shop and
     email_type WITHOUT sending. Returns HTML by default so the

@@ -395,6 +395,19 @@ _AUDITS: list[tuple[str, str, str]] = [
     # SCOPE-LOCK enforcer (principle 13) for the self-healing pipeline;
     # silent drift in the reviewer = scope lock breached.
     ("audit_reviewer_layer_integrity.py", "invariant_regression", "invariant:reviewer_layer_integrity"),
+    # Read-replica routing drift (added 2026-05-04 evening flag-closure
+    # round). Walks app/api/*.py and flags pure-read GET endpoints still
+    # using Depends(get_db) instead of Depends(get_read_db). Catches
+    # drift sneaking via --no-verify or merge-conflict resolution that
+    # would mean the day a Postgres read replica is provisioned, those
+    # GETs don't get the free 2× capacity.
+    ("audit_read_replica_routing_drift.py", "invariant_regression", "invariant:read_replica_routing"),
+    # Worker-scope coverage (added 2026-05-04 evening). Walks per-shop
+    # for-loops in workers + nudge_optimizer service and flags any
+    # missing the worker_scope context-manager wrap. Worker_scope is
+    # the runtime N+1 detector for background workers (CLAUDE.md §12.1).
+    # Drift here = silently lost N+1 visibility.
+    ("audit_worker_scope_coverage.py", "invariant_regression", "invariant:worker_scope_coverage"),
     # Brutal-CTO-inspection follow-up (added 2026-05-02 evening).
     # 1. DB pool doctrine catches code-default drift from CLAUDE.md
     #    §6 (the bug that produced 20× QueuePool exhaustions live).

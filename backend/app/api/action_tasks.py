@@ -58,7 +58,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal, get_db
+from app.core.database import SessionLocal, get_db, get_read_db
 from app.core.deps import require_pro_session
 from app.services.action_executor import (
     STATUS_EXECUTING,
@@ -244,7 +244,7 @@ def list_action_tasks(
     claimed_by: Optional[str] = None,
     limit: int = 50,
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     List action tasks for the shop, newest first.
@@ -393,7 +393,7 @@ def release_action_task(
 def get_action_task(
     task_id: int,
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Return a single action task by ID.

@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_pro_session
 from app.services.proof_engine import get_proof_report
 
@@ -114,7 +114,7 @@ class ProofReportResponse(BaseModel):
 def proof_report(
     window_hours: int = 168,
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Unified proof-of-value report.

@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_merchant_session
 from app.services.klaviyo_connection import (
     disconnect_klaviyo,
@@ -66,7 +66,7 @@ class IntegrationsResponse(BaseModel):
 @router.get("", response_model=IntegrationsResponse)
 def get_integrations(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> IntegrationsResponse:
     """
     Return all integration statuses for the authenticated merchant.

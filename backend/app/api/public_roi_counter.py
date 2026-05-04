@@ -33,7 +33,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from starlette.responses import StreamingResponse
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 
 router = APIRouter(tags=["public_roi"])
 log = logging.getLogger("public_roi_counter")
@@ -172,7 +172,7 @@ def _get_cached_or_compute() -> dict:
 
 
 @router.get("/public/roi-counter")
-def get_roi_counter(db: Session = Depends(get_db)):
+def get_roi_counter(db: Session = Depends(get_read_db)):
     """
     Public social-proof counter. No auth. Cached 10 min. Always returns
     a structured doc — callers can rely on the shape.

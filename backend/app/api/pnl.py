@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_merchant_session, require_pro_session
 from app.services.pnl_engine import get_pnl_report
 
@@ -121,7 +121,7 @@ class PnlReportResponse(BaseModel):
 def get_pnl_endpoint(
     window_days: int = Query(default=30, ge=1, le=90),
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Profit Intelligence — deterministic P&L waterfall from real orders.
@@ -189,7 +189,7 @@ def get_pnl_margin_drag_lite(
 def get_pnl_lite_endpoint(
     window_days: int = Query(default=30, ge=1, le=90),
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """Lite-accessible P&L (Strada 2.3). Identical shape + service as
     the Pro /pro/pnl endpoint; only auth differs. Data shown at either

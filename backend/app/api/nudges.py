@@ -108,7 +108,7 @@ from pydantic import BaseModel, Field
 from app.api._types import OkResponse
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_pro_session
 from app.models.active_nudge import ActiveNudge
 from app.services.nudge_engine import (
@@ -529,7 +529,7 @@ def list_pro_nudges(
     ),
     limit: int     = Query(default=50, ge=1, le=100),
     shop:  str     = Depends(require_pro_session),
-    db:    Session = Depends(get_db),
+    db:    Session = Depends(get_read_db),
 ):
     """
     List nudges for the shop with full metadata including holdout configuration.
@@ -845,7 +845,7 @@ def get_nudge_rank(
     ),
     limit: int            = Query(default=50, ge=1, le=100),
     shop:  str            = Depends(require_pro_session),
-    db:    Session        = Depends(get_db),
+    db:    Session        = Depends(get_read_db),
 ):
     """
     Autonomous nudge revenue prioritization feed.
@@ -1091,7 +1091,7 @@ def get_nudge_stats_pro(
         description="Attribution window in hours (1–168).",
     ),
     shop:         str     = Depends(require_pro_session),
-    db:           Session = Depends(get_db),
+    db:           Session = Depends(get_read_db),
 ):
     """
     Full measurement report for one nudge.

@@ -624,7 +624,17 @@ async def run_optimization_cycle(
         "errors":    int,
     }
     """
-    summary = {"evaluated": 0, "promoted": 0, "challenged": 0, "waiting": 0, "errors": 0}
+    summary = {
+        "evaluated": 0, "promoted": 0, "challenged": 0, "waiting": 0, "errors": 0,
+        # Aliases consumed by nudge_optimization_worker._record_cycle
+        # (shape contract — KEEP IN SYNC). _shops_seen tracks unique
+        # shops that owned at least one A/B nudge this cycle.
+        "shops_processed": 0,
+        "nudges_evaluated": 0,
+        "winners_promoted": 0,
+        "challengers_generated": 0,
+    }
+    _shops_seen: set[str] = set()
 
     try:
         q = db.query(ActiveNudge).filter(
@@ -683,6 +693,8 @@ async def run_optimization_cycle(
             continue
 
         summary["evaluated"] += 1
+        if nudge.shop_domain:
+            _shops_seen.add(nudge.shop_domain)
 
         try:
             with _worker_scope("nudge_optimizer.evaluate_nudge", nudge.shop_domain or "unknown"):
@@ -716,11 +728,17 @@ async def run_optimization_cycle(
             )
             summary["errors"] += 1
 
+    # Populate worker_log aliases (kept in sync with worker._record_cycle).
+    summary["shops_processed"] = len(_shops_seen)
+    summary["nudges_evaluated"] = summary["evaluated"]
+    summary["winners_promoted"] = summary["promoted"]
+    summary["challengers_generated"] = summary["challenged"]
+
     log.info(
         "nudge_optimizer: cycle complete — evaluated=%d promoted=%d "
-        "challenged=%d waiting=%d errors=%d shop=%s",
+        "challenged=%d waiting=%d errors=%d shops=%d shop=%s",
         summary["evaluated"], summary["promoted"], summary["challenged"],
-        summary["waiting"], summary["errors"],
+        summary["waiting"], summary["errors"], summary["shops_processed"],
         shop_domain or "all",
     )
     return summary

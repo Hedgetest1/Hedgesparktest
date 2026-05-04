@@ -54,7 +54,7 @@ Response
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_pro_session
 from app.models.market_lookup import MarketLookup
 
@@ -71,7 +71,7 @@ router = APIRouter()
 @router.get("/market-lookup/top")
 def top_market_lookup(
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Pro market lookup — full response, backend-enforced.

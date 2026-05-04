@@ -28,7 +28,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_merchant_session
 from app.core.redis_client import cache_delete, cache_get, cache_set
 
@@ -234,7 +234,7 @@ def _build_rows(
 @router.get("/merchant/inventory/kpis", response_model=InventoryKpisOut)
 def get_inventory_kpis(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> dict:
     cache_key = _KPI_CACHE_KEY.format(shop=shop)
     cached = cache_get(cache_key)
@@ -306,7 +306,7 @@ def get_inventory_details(
     page: int = Query(default=1, ge=1, le=200),
     page_size: int = Query(default=_DEFAULT_DETAIL_PAGE_SIZE, ge=1, le=_MAX_DETAIL_PAGE_SIZE),
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> dict:
     lead_time = _lead_time_for_shop(db, shop)
     snapshots = _latest_per_product(db, shop)
@@ -337,7 +337,7 @@ def get_inventory_details(
 @router.get("/merchant/inventory/snapshot-status", response_model=SnapshotStatusOut)
 def get_snapshot_status(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> dict:
     row = db.execute(text(
         """
@@ -388,7 +388,7 @@ def _read_lead_time_override(db: Session, shop: str) -> int | None:
 @router.get("/merchant/inventory/settings", response_model=InventorySettingsOut)
 def get_inventory_settings(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> dict:
     override = _read_lead_time_override(db, shop)
     effective = override if override is not None else _DEFAULT_LEAD_TIME_DAYS

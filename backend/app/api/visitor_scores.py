@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_read_db
 from app.core.deps import require_merchant_session
 
 _log = logging.getLogger(__name__)
@@ -101,7 +101,7 @@ class VisitorIntentCounts(BaseModel):
 @router.get("/visitor-scores")
 def visitor_scores(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     query = text("""
         WITH visitor_stats AS (
@@ -137,7 +137,7 @@ def visitor_scores(
 @router.get("/visitor-intent-classification", response_model=VisitorIntentCounts)
 def visitor_intent_classification(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     cached = _cache_get(_VI_CACHE_PREFIX, shop)
     if cached is not None:

@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_pro_session
 from app.services.margin_guard import get_margin_snapshot, check_discount_safe
 
@@ -58,7 +58,7 @@ class MarginCheckResponse(BaseModel):
 @router.get("/snapshot", response_model=MarginSnapshot)
 def margin_snapshot(
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     return MarginSnapshot(**get_margin_snapshot(db, shop))
 
@@ -67,7 +67,7 @@ def margin_snapshot(
 def margin_check(
     discount_pct: float = Query(..., ge=-100.0, le=100.0),
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     r = check_discount_safe(db, shop, discount_pct)
     return MarginCheckResponse(

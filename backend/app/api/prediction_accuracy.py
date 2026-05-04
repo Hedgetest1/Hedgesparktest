@@ -30,7 +30,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_pro_session
 from app.services.prediction_log import MIN_PREDICTIONS_FOR_REPORT, compute_accuracy
 
@@ -65,7 +65,7 @@ class PredictionAccuracyResponse(BaseModel):
 @router.get("/prediction-accuracy", response_model=PredictionAccuracyResponse)
 def get_prediction_accuracy(
     shop_domain: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> PredictionAccuracyResponse:
     """Return honest MAPE + last 8 predictions, or insufficient_history
     with unlock copy. Pro-tier only (require_pro_session enforces both

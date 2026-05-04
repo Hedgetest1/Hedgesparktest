@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_pro_session
 
 router = APIRouter(tags=["night_shift"])
@@ -111,7 +111,7 @@ def force_run(
 @router.get("/pro/night-shift/timeline", response_model=TimelineResponse)
 def get_timeline(
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Merchant-facing timeline of autonomous actions HedgeSpark took on

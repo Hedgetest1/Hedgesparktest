@@ -27,7 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_pro_session
 from app.services import trust_contract as tc_service
 
@@ -189,7 +189,7 @@ def _execution_to_response(x) -> TrustExecutionResponse:
 @router.get("/contracts", response_model=list[TrustContractResponse])
 def list_contracts(
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     rows = tc_service.list_contracts(db, shop)
     return [_contract_to_response(r) for r in rows]
@@ -407,7 +407,7 @@ def panic_stop(
 def list_executions(
     limit: int = 50,
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     limit = max(1, min(limit, 200))
     rows = tc_service.list_executions(db, shop, limit=limit)
@@ -417,7 +417,7 @@ def list_executions(
 @router.get("/summary", response_model=TrustSummaryResponse)
 def trust_summary(
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     from datetime import datetime, timedelta, timezone
     from app.models.trust_contract import TrustContract, TrustExecutionLog

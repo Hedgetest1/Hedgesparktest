@@ -71,7 +71,7 @@ To enforce a new Pro endpoint with this same whole-Pro pattern:
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_merchant_session, require_pro_session
 from app.models.product_opportunity import ProductOpportunity
 from app.services.opportunity_engine import get_or_refresh_signals
@@ -162,7 +162,7 @@ def opportunities_pro(
 @router.get("/opportunities/top")
 def top_opportunities(
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Pro intelligence opportunities — full response, backend-enforced.

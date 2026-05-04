@@ -116,26 +116,20 @@ Base = declarative_base()
 # Default: read replica = primary (no-op). When enabled, callers use
 # ReadSession() or Depends(get_read_db) for analytics queries.
 #
-# Call sites currently routed to read replica (12 files, ~12% of API
-# surface — pure-read analytical endpoints with no writes in same module):
-#   - app/api/roi_hero.py
-#   - app/api/cac_ltv.py
-#   - app/api/mta.py
-#   - app/api/rfm.py
-#   - app/api/forecasts.py
-#   - app/api/customer_churn.py
-#   - app/api/lite_extras.py            (14 GETs — biggest single switch)
-#   - app/api/dashboard.py              (3 GETs — overview + intelligence)
-#   - app/api/intent.py                 (5 GETs — visitor intent analytics)
-#   - app/api/orders.py                 (4 GETs — order analytics)
-#   - app/api/heatmap.py                (3 GETs — click/move maps)
-#   - app/api/compliance_evidence.py    (1 GET — SOC2 evidence)
+# Routing coverage: 55 files / ~85+ pure-read GET endpoints route via
+# get_read_db (verified by audit_read_replica_routing_drift.py — exit 0
+# when all pure-read GETs are routed). Coverage was 6.5% before
+# 2026-05-04, 41% after the same-day mega-sweep.
 #
-# Future migration candidates (8 pure-read files surfaced by
-# audit_read_replica_candidates.py): visitor_journeys, anomaly_replay,
-# lift, lite_export, playbook, today_snapshot, counterfactual,
-# visitor_scores. Service-layer migration: mta_engine,
-# customer_churn_scorer, nudge_dna (callers must pass read session).
+# Drift preventer: scripts/audit_read_replica_routing_drift.py walks
+# every app/api/*.py and flags pure-read GET endpoints still using
+# Depends(get_db). Conservative — treats any function calling into
+# app.services.* as opaque (may write through service). Opt-out per
+# route via `# read-replica: stay-primary — <reason>` annotation
+# above @router.get(...).
+#
+# Whole-file allowlist (admin/ops/auth/billing/webhook surfaces — primary
+# is correct even when pure-read): see ALLOWLIST_FILES in the audit.
 #
 # Transactional writes (actions, bugfix apply, trust contracts, webhooks,
 # OAuth, billing) MUST continue to use the primary via SessionLocal().

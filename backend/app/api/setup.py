@@ -92,7 +92,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_merchant_session
 from app.core.token_crypto import decrypt_token
 from app.models.merchant import Merchant
@@ -123,7 +123,7 @@ def _tracker_url() -> str:
 async def get_setup_status(
     shop: str = Depends(require_merchant_session),
     deep: bool = Query(default=False, description="When true, calls Shopify API to verify live state"),
-    db:   Session = Depends(get_db),
+    db:   Session = Depends(get_read_db),
 ):
     """
     Return the setup/readiness state for the given shop.
@@ -187,7 +187,7 @@ def get_attribution_snippet(
 @router.get("/pixel-status")
 def get_pixel_status(
     shop: str = Depends(require_merchant_session),
-    db:   Session = Depends(get_db),
+    db:   Session = Depends(get_read_db),
 ):
     """
     Check whether the Shopify Custom Pixel is sending purchase events.

@@ -30,7 +30,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_pro_session
 from app.services.shopify_admin import (
     create_discount,
@@ -72,7 +72,7 @@ class PriceUpdateRequest(BaseModel):
 def get_inventory(
     product_url: str,
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Read real inventory levels for a product from Shopify Admin API.
@@ -164,7 +164,7 @@ def update_price(
 def list_products(
     limit: int = 10,
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Fetch products from the merchant's Shopify store.

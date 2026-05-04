@@ -38,7 +38,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_merchant_session
 from app.services import slack_dispatcher
 
@@ -66,7 +66,7 @@ class SlackConnectResponse(BaseModel):
 @router.get("/status", response_model=SlackStatusResponse)
 def get_slack_status(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """Return the merchant's Slack integration state (never the URL
     itself)."""
@@ -295,7 +295,7 @@ def oauth_callback(
     code: str | None = Query(default=None),
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """Slack redirects here after the merchant authorizes. We verify
     the state (CSRF), exchange the code for a webhook URL at

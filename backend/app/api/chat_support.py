@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.deps import require_merchant_session, require_operator, get_db
+from app.core.database import get_read_db
 
 log = logging.getLogger("chat_support")
 
@@ -192,7 +193,7 @@ def resolve_support_incident(
 @router.get("/support/resolutions")
 def chat_support_resolutions(
     shop_domain: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Get undelivered resolution messages for this merchant.

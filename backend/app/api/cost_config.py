@@ -41,7 +41,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_merchant_session
 from app.models.product_cost import ProductCost
 from app.models.shop_cost_defaults import ShopCostDefaults
@@ -152,7 +152,7 @@ class ShopifyCogsSyncResponse(BaseModel):
 )
 def get_shop_cost_defaults(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """Return the current shop_cost_defaults row (all-NULL shape if absent)."""
     row = db.query(ShopCostDefaults).filter_by(shop_domain=shop).first()
@@ -225,7 +225,7 @@ def patch_shop_cost_defaults(
 )
 def list_product_costs(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """Return all product_costs rows for the shop, newest-edited first."""
     rows = (

@@ -50,7 +50,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_merchant_session
 from app.models.merchant import Merchant
 
@@ -100,7 +100,7 @@ class MerchantMeResponse(BaseModel):
 )
 def get_merchant_me(
     shop: str = Depends(require_merchant_session),
-    db:   Session = Depends(get_db),
+    db:   Session = Depends(get_read_db),
 ):
     """
     Return the authenticated merchant's identity and plan from the session cookie.
@@ -151,7 +151,7 @@ def get_merchant_me(
 )
 def get_merchant_plan(
     shop: str = Depends(require_merchant_session),
-    db:   Session = Depends(get_db),
+    db:   Session = Depends(get_read_db),
 ):
     """Alias for /merchant/me — kept for backward compatibility."""
     return get_merchant_me(shop=shop, db=db)

@@ -28,7 +28,7 @@ from pydantic import BaseModel
 from sqlalchemy import text as sql_text
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_pro_session
 from app.core.currency import format_money
 from app.services.revenue_metrics import get_shop_currency
@@ -274,7 +274,7 @@ def _compute_narrative(db: Session, shop: str) -> dict:
 @router.get("/daily-narrative", response_model=DailyNarrativeResponse)
 def get_daily_narrative(
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     data = _compute_narrative(db, shop)
     return DailyNarrativeResponse(**data)

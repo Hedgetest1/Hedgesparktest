@@ -37,7 +37,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_read_db
 from app.core.deps import require_scale_session
 from app.services.nudge_measurement import (
     DEFAULT_ATTRIBUTION_WINDOW_HOURS,
@@ -97,7 +97,7 @@ class LiftReportResponse(BaseModel):
 def get_store_lift_summary(
     window_hours: int = DEFAULT_ATTRIBUTION_WINDOW_HOURS,
     shop: str = Depends(require_scale_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Aggregated holdout lift across all nudges with experiment data.

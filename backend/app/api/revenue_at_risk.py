@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_merchant_session
 from app.models.merchant import Merchant
 
@@ -67,7 +67,7 @@ def _compute_rars(shop: str, db: Session) -> dict:
 )
 def get_rars(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Return the Revenue-at-Risk Score: one number showing how much
@@ -94,7 +94,7 @@ def get_rars(
 )
 def get_rars_legacy(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """Legacy alias of /analytics/revenue-at-risk. Kept for backward
     compatibility with dashboard builds on the old path. Same handler,

@@ -30,7 +30,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, get_read_db
 from app.core.deps import require_merchant_session, require_pro_session
 from app.services.utm_attribution import (
     get_utm_attribution,
@@ -84,7 +84,7 @@ class AttributionSummaryResponse(BaseModel):
 def get_source_attribution_lite(
     days: int = 30,
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Lite attribution — traffic source breakdown (no revenue data).
@@ -120,7 +120,7 @@ def get_source_attribution_pro(
     days: int = 30,
     model: str = Query("first_touch", pattern="^(first_touch|last_touch)$"),
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Pro attribution — full source → behavior → conversion → revenue report.
@@ -144,7 +144,7 @@ def get_source_attribution_pro(
 def get_product_source_attribution(
     days: int = 30,
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Pro — top (source × product) combinations by visitor volume.
@@ -163,7 +163,7 @@ def get_product_source_attribution(
 def get_attribution_summary_pro(
     days: int = 30,
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Pro — attribution overview dashboard.
@@ -187,7 +187,7 @@ def get_attribution_summary_pro(
 def get_attribution_summary_lite(
     days: int = 30,
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """Lite-accessible attribution summary (Strada 3.2, 2026-04-20).
     Same shape + service as /attribution/summary/pro; auth differs.
