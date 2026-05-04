@@ -366,6 +366,18 @@ async def shopify_app_uninstalled(
     # Do NOT reset plan — preserve for audit trail and for reinstall detection
     # Do NOT clear webhook_id / script_tag_id — retain for audit trail
 
+    # Invalidate the auth-session cache so the next request hits DB
+    # and sees the uninstalled status immediately (cache TTL 30s
+    # would otherwise leave a brief window where the merchant could
+    # still authenticate).
+    try:
+        from app.core.redis_client import _client as _rc
+        rc = _rc()
+        if rc is not None:
+            rc.delete(f"hs:auth:msv:v1:{shop_domain}")
+    except Exception:
+        pass  # SILENT-EXCEPT-OK: cache invalidation best-effort; uninstall flow is rare and 30s stale window is the worst case
+
     try:
         db.commit()
         log.info(

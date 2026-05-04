@@ -49,6 +49,26 @@ ENV_FILE = REPO / ".env"
 # higher (some operators provision more) but never lower.
 _POSTGRES_MAX_CONNECTIONS_FLOOR = 200
 
+# PgBouncer awareness — born 2026-05-04 (10k-readiness sprint). When
+# DATABASE_URL points at port 6432 (PgBouncer), the relevant ceiling
+# is PgBouncer's max_client_conn (default 5000), NOT Postgres
+# max_connections. PgBouncer multiplexes app conns onto a smaller
+# server-side PG pool (max_db_connections, default 100).
+_PGBOUNCER_PORT = 6432
+_PGBOUNCER_MAX_CLIENT_CONN_FLOOR = 5000
+
+
+def _detect_pgbouncer(env_text: str) -> bool:
+    """Return True if DATABASE_URL points at PgBouncer (port 6432)."""
+    for line in env_text.splitlines():
+        line = line.strip()
+        if line.startswith("DATABASE_URL="):
+            value = line.split("=", 1)[1]
+            if f":{_PGBOUNCER_PORT}/" in value:
+                return True
+            return False
+    return False
+
 
 def _read(path: Path) -> str:
     try:
@@ -138,16 +158,34 @@ def main() -> int:
         ceiling = workers * (eff_size + eff_overflow)
         # Add 14 for PM2 singleton workers and ~10 admin headroom.
         ceiling_total = ceiling + 14 + 10
-        if ceiling_total > _POSTGRES_MAX_CONNECTIONS_FLOOR:
-            failures.append(
-                f"DB pool math exceeds Postgres invariant: "
-                f"{workers} uvicorn workers × ({eff_size}+{eff_overflow}) "
-                f"= {ceiling} backend conn, +14 PM2 +10 admin = "
-                f"{ceiling_total} > Postgres max_connections invariant "
-                f"floor ({_POSTGRES_MAX_CONNECTIONS_FLOOR}). Either lower "
-                f"DB_POOL_SIZE / DB_MAX_OVERFLOW (CLAUDE.md §6 says 5+10) "
-                f"OR raise Postgres max_connections + update doctrine."
-            )
+        # PgBouncer changes the math: the app-side pool talks to
+        # PgBouncer (port 6432), which multiplexes onto a smaller
+        # server-side PG pool. So the relevant ceiling is PgBouncer's
+        # max_client_conn (5000 in our config), NOT PG max_connections.
+        using_pgbouncer = _detect_pgbouncer(_read(ENV_FILE))
+        if using_pgbouncer:
+            if ceiling_total > _PGBOUNCER_MAX_CLIENT_CONN_FLOOR:
+                failures.append(
+                    f"DB pool math exceeds PgBouncer max_client_conn: "
+                    f"{workers} uvicorn workers × ({eff_size}+{eff_overflow}) "
+                    f"= {ceiling} client conn, +14 PM2 +10 admin = "
+                    f"{ceiling_total} > PgBouncer max_client_conn floor "
+                    f"({_PGBOUNCER_MAX_CLIENT_CONN_FLOOR}). Either lower "
+                    f"DB pool OR raise pgbouncer.ini max_client_conn."
+                )
+        else:
+            if ceiling_total > _POSTGRES_MAX_CONNECTIONS_FLOOR:
+                failures.append(
+                    f"DB pool math exceeds Postgres invariant: "
+                    f"{workers} uvicorn workers × ({eff_size}+{eff_overflow}) "
+                    f"= {ceiling} backend conn, +14 PM2 +10 admin = "
+                    f"{ceiling_total} > Postgres max_connections invariant "
+                    f"floor ({_POSTGRES_MAX_CONNECTIONS_FLOOR}). Either lower "
+                    f"DB_POOL_SIZE / DB_MAX_OVERFLOW OR raise Postgres "
+                    f"max_connections + update doctrine. "
+                    f"NOTE: install PgBouncer (transaction pool) and route "
+                    f"DATABASE_URL to port 6432 to lift this ceiling."
+                )
 
     # Doctrine drift — code defaults must match CLAUDE.md §6 doctrine
     if doc_size is not None and db_size is not None and db_size != doc_size:
@@ -182,11 +220,21 @@ def main() -> int:
         )
         return 1
 
-    print(
-        f"OK: DB pool math green — {workers}×({eff_size}+{eff_overflow})"
-        f"+14+10={workers*(eff_size+eff_overflow)+24} ≤ "
-        f"Postgres max_connections floor {_POSTGRES_MAX_CONNECTIONS_FLOOR}."
-    )
+    if using_pgbouncer:
+        print(
+            f"OK: DB pool math green — {workers}×({eff_size}+{eff_overflow})"
+            f"+14+10={workers*(eff_size+eff_overflow)+24} ≤ "
+            f"PgBouncer max_client_conn floor "
+            f"{_PGBOUNCER_MAX_CLIENT_CONN_FLOOR} (PgBouncer in front; "
+            f"PG max_connections={_POSTGRES_MAX_CONNECTIONS_FLOOR} "
+            f"protected by PgBouncer max_db_connections=100)."
+        )
+    else:
+        print(
+            f"OK: DB pool math green — {workers}×({eff_size}+{eff_overflow})"
+            f"+14+10={workers*(eff_size+eff_overflow)+24} ≤ "
+            f"Postgres max_connections floor {_POSTGRES_MAX_CONNECTIONS_FLOOR}."
+        )
     return 0
 
 

@@ -3307,6 +3307,15 @@ def force_logout(
     previous_sv = m.session_version or 0
     m.session_version = previous_sv + 1
     db.commit()
+    # Invalidate the auth-session cache so the next request re-reads
+    # the new session_version (require_merchant_session caches for 30s).
+    try:
+        from app.core.redis_client import _client as _rc
+        rc = _rc()
+        if rc is not None:
+            rc.delete(f"hs:auth:msv:v1:{shop}")
+    except Exception:
+        pass  # SILENT-EXCEPT-OK: cache invalidation best-effort; 30s stale window is the worst case
     log.warning(
         "ops.force_logout: shop=%s session_version %d → %d (all existing sessions invalidated)",
         shop, previous_sv, previous_sv + 1,

@@ -80,8 +80,13 @@ if _REDIS_URL:
         socket_timeout=1,
         # Decode byte responses to str automatically.
         decode_responses=True,
-        # Keep the pool small — this is a cache layer, not a primary store.
-        max_connections=10,
+        # Pool sized for 10k-merchant-readiness sprint (2026-05-04):
+        # under high concurrency the prior 10-conn ceiling caused
+        # "Too many connections" cascades that nuked cache hit ratio
+        # at 1000+ simultaneous merchants. 100 per worker × 4 workers
+        # = 400 conns; Redis maxclients=10000 → ample headroom.
+        # Env override `REDIS_POOL_MAX_CONNECTIONS` for ops tuning.
+        max_connections=int(os.getenv("REDIS_POOL_MAX_CONNECTIONS", "100")),
     )
 else:
     logger.warning(

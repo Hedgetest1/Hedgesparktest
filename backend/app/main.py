@@ -231,6 +231,21 @@ async def lifespan(app: FastAPI):
     _startup_telegram_warmup()
     from app.core.metrics import start_background_pusher
     start_background_pusher()
+    # Bump anyio's default thread limiter so sync route handlers can
+    # serve many concurrent requests via the thread pool. Default 40 is
+    # too small for the high-concurrency tier; 200 per worker × 4
+    # workers = 800 concurrent sync handlers. Born 2026-05-04 (10k-
+    # readiness sprint): 1000 simultaneous merchants on /dashboard/overview
+    # produced 99.8% timeouts because the 40-thread limit serialized them.
+    # Env override `ANYIO_THREAD_POOL_SIZE` for ops tuning.
+    try:
+        import anyio
+        import os as _os
+        _limit = int(_os.getenv("ANYIO_THREAD_POOL_SIZE", "200"))
+        anyio.to_thread.current_default_thread_limiter().total_tokens = _limit
+    except Exception as _exc:
+        # Best-effort — never block startup
+        _startup_log.warning("anyio thread limiter bump failed: %s", _exc)
     yield
 
 

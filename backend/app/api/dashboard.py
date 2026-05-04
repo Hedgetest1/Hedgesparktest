@@ -878,34 +878,30 @@ def _build_sandbox_runs() -> list[dict]:
 # a Pro-tier proprietary analysis.  The correct boundary is the whole section.
 # ---------------------------------------------------------------------------
 
-@router.get("/overview")
-def get_dashboard_overview(
-    shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
-):
-    """
-    Lite dashboard overview — summary, top_products, real AOV/currency.
+def build_lite_dashboard_overview(db: Session, shop: str) -> dict[str, Any]:
+    """Build the Lite dashboard payload + write to Redis cache.
 
-    Cached in Redis for 60 seconds.  Dashboard data changes on aggregation
-    worker cycles (5 min), so 60s staleness is imperceptible to merchants.
+    Pure function: same input → same output. Used by both the HTTP
+    endpoint (cache miss path) AND the worker pre-warm task. Splitting
+    this out lets background workers proactively fill the cache so
+    merchant requests skip the 18-query cold path.
+
+    Born 2026-05-04 (Item 7-bis follow-up): load harness at 1000
+    concurrent showed 73% PoolTimeout because every fresh request
+    paid the cold-cache cost. Pre-warming via worker eliminates
+    almost all cold paths under steady-state load.
     """
     from app.core.redis_client import cache_get, cache_set, KEY_DASHBOARD, TTL_DASHBOARD
+    from app.services.revenue_metrics import get_shop_aov, get_shop_currency, FALLBACK_AOV
+
     cache_key = KEY_DASHBOARD.format(shop=shop) + ":lite"
 
-    cached = cache_get(cache_key)
-    if cached is not None:
-        return cached
-
-    # Resolve real AOV and currency for truthful revenue estimates
-    from app.services.revenue_metrics import get_shop_aov, get_shop_currency, FALLBACK_AOV
     shop_currency = get_shop_currency(db, shop)
     real_aov = get_shop_aov(db, shop, currency=shop_currency)
     aov_is_real = real_aov != FALLBACK_AOV
 
-    # Generate intelligence brief (cached separately with 5-min TTL)
     store_brief = None
     try:
-        from app.core.redis_client import cache_get, cache_set as cs
         brief_key = f"hs:brief:{shop}"
         cached_brief = cache_get(brief_key)
         if cached_brief is not None:
@@ -915,9 +911,9 @@ def get_dashboard_overview(
             brief = generate_store_brief(db, shop)
             if brief:
                 store_brief = brief.to_dict()
-                cs(brief_key, store_brief, 300)  # 5-min cache
+                cache_set(brief_key, store_brief, 300)  # 5-min cache
     except Exception as exc:
-        log.warning("dashboard: get_dashboard_overview failed: %s", exc)
+        log.warning("dashboard: build_lite_dashboard_overview brief failed: %s", exc)
 
     result = {
         "summary":              _build_summary(db, shop),
@@ -931,6 +927,46 @@ def get_dashboard_overview(
     }
     cache_set(cache_key, result, TTL_DASHBOARD)
     return result
+
+
+def prewarm_lite_dashboard(db: Session, shop: str) -> bool:
+    """Worker entry point: build dashboard payload + write cache only
+    if not already warm. Returns True if a build happened, False if
+    the cache was already populated. Best-effort — never raises."""
+    from app.core.redis_client import cache_get, KEY_DASHBOARD
+    cache_key = KEY_DASHBOARD.format(shop=shop) + ":lite"
+    try:
+        if cache_get(cache_key) is not None:
+            return False  # already warm
+        build_lite_dashboard_overview(db, shop)
+        return True
+    except Exception as exc:
+        log.warning("dashboard: prewarm_lite_dashboard failed for %s: %s", shop, exc)
+        return False
+
+
+@router.get("/overview")
+def get_dashboard_overview(
+    shop: str = Depends(require_merchant_session),
+    db: Session = Depends(get_db),
+):
+    """
+    Lite dashboard overview — summary, top_products, real AOV/currency.
+
+    Cached in Redis for 60 seconds.  Dashboard data changes on aggregation
+    worker cycles (5 min), so 60s staleness is imperceptible to merchants.
+
+    Cache hit path: zero DB queries.
+    Cache miss path: ~18 DB queries (delegated to build_lite_dashboard_overview).
+    The aggregation worker pre-warms this cache for active merchants every
+    5 min, so production cold-cache hits are rare.
+    """
+    from app.core.redis_client import cache_get, KEY_DASHBOARD
+    cache_key = KEY_DASHBOARD.format(shop=shop) + ":lite"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+    return build_lite_dashboard_overview(db, shop)
 
 
 @router.get("/intelligence")

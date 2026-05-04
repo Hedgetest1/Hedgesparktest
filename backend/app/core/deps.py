@@ -92,29 +92,51 @@ def require_merchant_session(
             shop = payload["shop"]
             token_sv = payload.get("sv", 0)
 
-            # Existence gate: a valid HMAC signature alone is not enough.
-            # A JWT for a shop that doesn't exist in our DB (uninstalled,
-            # never-installed, or forged with a known-secret for a bogus
-            # shop) must be rejected. Prior to this gate the path would
-            # return `shop` unconditionally on valid-signature, which
-            # created a theoretical auth-permissive surface: downstream
-            # queries returned empty so no data leaked, but the auth
-            # middleware itself was too lenient. Hardening adds a
-            # deterministic 401 at the auth gate itself.
-            from app.models.merchant import Merchant
-            merchant = db.query(Merchant).filter(Merchant.shop_domain == shop).first()
-            if merchant is None:
-                log.warning(
-                    "deps: session rejected — no merchant row for shop=%s "
-                    "(uninstalled, never-installed, or forged JWT)",
-                    shop,
-                )
-                raise HTTPException(
-                    status_code=401,
-                    detail="Session invalid. Please reinstall HedgeSpark.",
-                )
-            # Check session_version against DB — enables forced logout
-            db_sv = getattr(merchant, "session_version", None) or 0
+            # Existence + session_version gate via Redis cache. The
+            # validation requires merchant.session_version and the
+            # row's existence, both of which are stable on the
+            # 30s-cache horizon (uninstall + sv bump invalidate the
+            # key explicitly). Cache hit eliminates the per-request
+            # DB query that was the auth-path bottleneck under load
+            # (1000-merchant test 2026-05-04 surfaced 68% PoolTimeout
+            # even with dashboard cache pre-warmed).
+            #
+            # Born 2026-05-04 (Item 7-bis Stage 2: 10k readiness).
+            from app.core.redis_client import _client as _redis_client
+            import json
+            cache_key = f"hs:auth:msv:v1:{shop}"
+            rc = _redis_client()
+            cached_validation: dict | None = None
+            if rc is not None:
+                try:
+                    raw = rc.get(cache_key)
+                    if raw is not None:
+                        cached_validation = json.loads(raw)
+                except Exception:
+                    pass  # SILENT-EXCEPT-OK: redis cache best-effort; fall through to DB on miss/error
+
+            if cached_validation is None:
+                from app.models.merchant import Merchant
+                merchant = db.query(Merchant).filter(Merchant.shop_domain == shop).first()
+                if merchant is None:
+                    log.warning(
+                        "deps: session rejected — no merchant row for shop=%s "
+                        "(uninstalled, never-installed, or forged JWT)",
+                        shop,
+                    )
+                    raise HTTPException(
+                        status_code=401,
+                        detail="Session invalid. Please reinstall HedgeSpark.",
+                    )
+                db_sv = int(getattr(merchant, "session_version", None) or 0)
+                cached_validation = {"exists": True, "sv": db_sv}
+                if rc is not None:
+                    try:
+                        rc.setex(cache_key, 30, json.dumps(cached_validation))
+                    except Exception:
+                        pass  # SILENT-EXCEPT-OK: redis write best-effort; next request will repopulate
+
+            db_sv = int(cached_validation["sv"])
             if token_sv < db_sv:
                 log.warning(
                     "deps: session rejected — token sv=%d < merchant sv=%d for shop=%s",

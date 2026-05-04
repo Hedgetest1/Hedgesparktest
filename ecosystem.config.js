@@ -124,16 +124,17 @@ module.exports = {
       merge_logs:          false,
       env: {
         PYTHONPATH:        "/opt/wishspark/backend",
-        // DB pool tuned for 4 uvicorn workers. Total backend conn:
-        // 4 × (8 + 15) = 92; + 7 singleton PM2 workers × ~2 = 14;
-        // + admin/psql headroom ~10; = ~116, below Postgres max_connections=200.
-        // Bumped 2026-05-04 (Item 7-bis) from 5+10 → 8+15 after the
-        // load-test harness reported p99 = 16s and 24% timeout rate at
-        // 100 concurrent merchants (pool exhaustion). The new ceiling
-        // gives 53% more headroom for the cold-cache 18-query path.
-        // See app/core/database.py for the env-read logic.
-        DB_POOL_SIZE:      "8",
-        DB_MAX_OVERFLOW:   "15",
+        // DB pool tuned for 4 uvicorn workers BEHIND PgBouncer
+        // (transaction pooling). Total app conns to PgBouncer:
+        // 4 × (50 + 100) = 600; PgBouncer max_client_conn=5000 →
+        // ample headroom. PgBouncer multiplexes onto 50 server-side
+        // PG conns. PG max_connections=200 unchanged.
+        // Bumped 2026-05-04 (10k-readiness sprint Stage 3) from
+        // 8+15 → 50+100 after PgBouncer landed: 1000-merchant test
+        // showed app pool was the new bottleneck (PgBouncer + Redis
+        // were not).
+        DB_POOL_SIZE:      "50",
+        DB_MAX_OVERFLOW:   "100",
       },
     },
 

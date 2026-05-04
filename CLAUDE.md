@@ -537,16 +537,18 @@ mutable state would NOT share across them, so every such site in
 annotated `# multi-worker: accept-degrade` — enforced at preflight
 via `scripts/audit_multiworker_safety.py`.
 
-**DB pool math:** `DB_POOL_SIZE=8`, `DB_MAX_OVERFLOW=15` (ecosystem.
-config.js env block for wishspark-backend, read by
-`app/core/database.py`). 4 workers × (8 + 15) = 92 conn ceiling from
-backend; + 7 singleton PM2 workers × ~2 = 14; + admin headroom ~10; =
-~116, well below Postgres `max_connections=200` (bumped from 100 during
-the 2026-04-23 scaling flip). Invariant monitor enforces `>= 200` via
-`_check_postgres_capacity` — env override `EXPECTED_PG_MAX_CONNECTIONS`.
-Pool bumped 2026-05-04 from 5+10=15 → 8+15=23 per worker after Item 8
-load-test surfaced p99 = 16s + 24% timeout under 100 concurrent merchants
-(pool exhaustion). The new ceiling gives 53% more headroom.
+**DB pool math (post-PgBouncer):** `DB_POOL_SIZE=50`,
+`DB_MAX_OVERFLOW=100` (ecosystem.config.js env block for
+wishspark-backend, read by `app/core/database.py`). 4 workers × (50 + 100)
+= 600 client conns to PgBouncer; PgBouncer max_client_conn=5000 → ample
+headroom. PgBouncer in transaction-pool mode multiplexes onto
+default_pool_size=50 server-side PG conns. PG max_connections=200
+unchanged; PgBouncer keeps it ≤100 via max_db_connections.
+Bumped 2026-05-04 (10k-readiness sprint Stage 3) from 8+15 → 50+100
+after PgBouncer landed: 1000-merchant test surfaced app pool was the
+new bottleneck (PgBouncer + Redis pool were not). Architecture: app
+→ (port 6432) PgBouncer → (port 5432) Postgres. Update DATABASE_URL
+to point at port 6432 to use PgBouncer (default after this commit).
 
 **Singleton guarantee for workers:** the 7 `wishspark-*-worker` /
 `-monitor` / `-optimizer` processes MUST remain `instances: 1` —

@@ -128,12 +128,40 @@ def setup_merchants(n: int, *, force: bool = False) -> list[str]:
 
 
 def cleanup_merchants() -> int:
-    """Delete every merchant with the load-test prefix. Returns count."""
+    """Delete every merchant with the load-test prefix + cascade-clean
+    the analytical tables the aggregation_worker populates for each
+    shop. Without the cascade, repeated test runs leave orphan rows
+    that trip audit_db_table_growth alarms (e.g., store_metrics grew
+    +20000% from one 1000-merchant test). Returns merchant count."""
     db = SessionLocal()
     try:
+        # Cascade-clean per-shop derived tables. Order matches the
+        # aggregation_worker write pattern so child rows go first.
+        # All filters use LIKE on the test prefix so production data
+        # is untouched.
+        like_pattern = f"{_SHOP_PREFIX}%"
+        for table in (
+            "store_metrics",
+            "store_intelligence_profiles",
+            "merchant_journey_states",
+            "ops_alerts",
+            "execution_opportunities",
+            "execution_audiences",
+            "execution_tracking",
+            "execution_baselines",
+            "merchant_email_stats",
+            "merchant_emails",
+        ):
+            try:
+                db.execute(
+                    text(f"DELETE FROM {table} WHERE shop_domain LIKE :p"),
+                    {"p": like_pattern},
+                )
+            except Exception:
+                pass  # table may not exist in older schemas — best-effort
         result = db.execute(
             text("DELETE FROM merchants WHERE shop_domain LIKE :p"),
-            {"p": f"{_SHOP_PREFIX}%"},
+            {"p": like_pattern},
         )
         db.commit()
         return result.rowcount
@@ -369,6 +397,11 @@ def main() -> int:
                     help="Wipe pre-existing _loadtest_ merchants and proceed")
     ap.add_argument("--keep", action="store_true",
                     help="Skip cleanup at end (for debugging)")
+    ap.add_argument("--prewarm", action="store_true",
+                    help=("Pre-warm Lite dashboard cache for every test merchant "
+                          "before running the load. Simulates the production "
+                          "aggregation_worker pre-warm cycle without waiting "
+                          "5 min."))
     args = ap.parse_args()
 
     print(f"[setup] creating {args.merchants} synthetic merchants "
@@ -387,6 +420,22 @@ def main() -> int:
         tokens[s] = tok
 
     try:
+        if args.prewarm:
+            print(f"[prewarm] filling Lite dashboard cache for {args.merchants} test merchants...")
+            from app.api.dashboard import prewarm_lite_dashboard
+            from app.core.database import SessionLocal as _SL
+            _t0 = time.perf_counter()
+            warmed = 0
+            for s in shops:
+                _pw = _SL()
+                try:
+                    if prewarm_lite_dashboard(_pw, s):
+                        warmed += 1
+                finally:
+                    _pw.close()
+            print(f"[prewarm] {warmed}/{len(shops)} cached in "
+                  f"{time.perf_counter() - _t0:.1f}s")
+
         print(f"[run] hitting {args.route} ({args.requests} req × "
               f"{args.merchants} merchants = {args.requests * args.merchants} "
               f"total) concurrently against {args.base_url} ...")
@@ -396,6 +445,8 @@ def main() -> int:
                 f"production-realistic ramp={args.ramp_seconds}s "
                 f"think={args.think_ms}ms"
             )
+        if args.prewarm:
+            scenario += " [prewarmed]"
         print(f"[run] scenario: {scenario}")
         report = asyncio.run(
             run_harness(shops, tokens, args.route,

@@ -805,6 +805,20 @@ def _run_cycle_inner() -> None:
                                 conn.rollback()
                                 log(f"SIP error for {shop} (non-fatal): {exc_sip}")
 
+                            # Pre-warm dashboard cache so merchant requests
+                            # avoid the 18-query cold path. Best-effort —
+                            # never raises (try/except in the helper).
+                            try:
+                                from app.api.dashboard import prewarm_lite_dashboard
+                                from app.core.database import SessionLocal as _SL
+                                _pw_db = _SL()
+                                try:
+                                    prewarm_lite_dashboard(_pw_db, shop)
+                                finally:
+                                    _pw_db.close()
+                            except Exception as exc_pw:
+                                log(f"dashboard prewarm error for {shop} (non-fatal): {exc_pw}")
+
                             # Autonomous Revenue Loop (Pro merchants only)
                             try:
                                 from app.services.autonomous_loop import run_autonomous_cycle

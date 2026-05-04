@@ -27,6 +27,7 @@ to validate every prefix in `app/` is documented somewhere.
 | `hs:abndntrnd:v1` | `app/api/lite_extras.py:475` | TBD | TBD |
 | `hs:action_cooldown:v1` | `app/services/orchestrator.py:82` | TBD | TBD |
 | `hs:adversarial_probes` | `app/services/bugfix_pipeline.py:572` | TBD | TBD |
+| `hs:auth:msv:v1` | `app/core/deps.py:115` | 30s | merchant session-version + existence cache (auth fast-path; eliminates per-request DB query under load) |
 | `hs:agency:v1` | `app/services/agency.py:22` | TBD | TBD |
 | `hs:agg_cursor` | `app/workers/aggregation_worker.py:605` | TBD | TBD |
 | `hs:ai_budget` | `app/services/nudge_composer.py:148` | TBD | TBD |
