@@ -98,7 +98,32 @@ def _row(query: str, db: Session, params: dict[str, Any] | None = None) -> dict[
         return {}
 
 
+# Process-lifetime cache for schema introspection.
+#
+# Born 2026-05-04 (item 7-bis): the load test harness surfaced
+# /dashboard/overview cold-cache p95 = 2194ms with 29 queries per
+# request. Investigation: ~71 _table_exists + _columns call sites in
+# dashboard.py, each issuing an information_schema query. Schema is
+# IMMUTABLE per-process (alembic migrations require a PM2 restart),
+# so the introspection result is a constant — caching once per
+# process drops dashboard cold-cache from 29 → ~5-10 queries (only
+# the actual data queries remain). Manual purge available via
+# `_clear_schema_cache()` for tests.
+_TABLE_EXISTS_CACHE: dict[str, bool] = {}
+_COLUMNS_CACHE: dict[str, set[str]] = {}
+
+
+def _clear_schema_cache() -> None:
+    """Reset the process-lifetime schema cache. Used by tests after
+    creating/dropping tables in a SAVEPOINT-isolated fixture."""
+    _TABLE_EXISTS_CACHE.clear()
+    _COLUMNS_CACHE.clear()
+
+
 def _table_exists(db: Session, table_name: str) -> bool:
+    cached = _TABLE_EXISTS_CACHE.get(table_name)
+    if cached is not None:
+        return cached
     result = _row(
         """
         SELECT EXISTS (
@@ -111,11 +136,17 @@ def _table_exists(db: Session, table_name: str) -> bool:
         db,
         {"table_name": table_name},
     )
-    return _safe_bool(result.get("exists"), False)
+    exists = _safe_bool(result.get("exists"), False)
+    _TABLE_EXISTS_CACHE[table_name] = exists
+    return exists
 
 
 def _columns(db: Session, table_name: str) -> set[str]:
+    cached = _COLUMNS_CACHE.get(table_name)
+    if cached is not None:
+        return cached
     if not _table_exists(db, table_name):
+        _COLUMNS_CACHE[table_name] = set()
         return set()
     rows = _rows(
         """
@@ -127,7 +158,9 @@ def _columns(db: Session, table_name: str) -> set[str]:
         db,
         {"table_name": table_name},
     )
-    return {str(row.get("column_name")) for row in rows if row.get("column_name")}
+    cols = {str(row.get("column_name")) for row in rows if row.get("column_name")}
+    _COLUMNS_CACHE[table_name] = cols
+    return cols
 
 
 def _pick(cols: set[str], *candidates: str) -> str | None:
