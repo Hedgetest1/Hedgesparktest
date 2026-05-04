@@ -862,6 +862,56 @@ must satisfy:
 - [ ] **Every LLM call path is pre-gated** by budget + PII guard.
 - [ ] **No N+1** — batch or JOIN instead of per-row queries.
 
+### 12.1 N+1 detection — 3-layer architecture
+
+Per `feedback_post_fix_pipeline_recognition.md` doctrine: every fix
+teaches the pipeline. After the 9-of-9 N+1 sweep on 2026-05-04, the
+codebase carries 3 layers of N+1 detection:
+
+1. **Static audit** (`scripts/audit_n_plus_one.py`) — runs in
+   preflight; exits non-zero if any new `for x in xs: db.execute(...)`
+   pattern lands. Exemptions: small literal/Name iterables ≤10
+   elements (see `loop_is_small_literal`); explicit
+   `# n-plus-one: ok — <reason>` opt-out comment.
+
+2. **HTTP runtime detector** (`app/core/query_count_monitor.py`) —
+   FastAPI middleware counts queries per request via SQLAlchemy
+   event listener. Adds `X-Query-Count` header to every response.
+   Logs at `QUERY_COUNT_SOFT_THRESHOLD` (30) / errors at
+   `QUERY_COUNT_HARD_THRESHOLD` (100); both env-tunable. Sentry
+   breadcrumb on hard breach.
+
+3. **Worker runtime detector** (`worker_scope` context manager,
+   same module) — wraps each per-shop iteration in background
+   workers; same enter-reset / exit-check semantics at higher
+   thresholds (`QUERY_COUNT_WORKER_SOFT_THRESHOLD=100` /
+   `_WORKER_HARD=300`). Currently wired in:
+   - `agent_worker.first_insight` per-shop loop
+   - `aggregation_worker.store_metrics` per-shop loop (~10 sub-ops)
+   - `segment_monitor.shop_scan` per-shop product scan
+
+   To add: `with worker_scope("worker_name", shop_domain): ...`
+
+### 12.2 Load test harness
+
+`scripts/load_test_harness.py` simulates N synthetic merchants with
+forged sessions hitting the API concurrently. Captures
+X-Query-Count + p50/p95/p99 latency + error rate. Two scenarios:
+
+- **Synthetic worst-case** (default): `--merchants 100 --requests 10`
+  — all merchants fire cold-cache requests simultaneously. Surfaces
+  pool exhaustion + cold-path query count.
+- **Production-realistic**: add `--ramp-seconds 60 --think-ms 1500`
+  — merchants arrive over the ramp window, browse with realistic
+  inter-request pacing. Validates the production p95 budget.
+
+Empirical 2026-05-04 baseline (post-sweep + pool bump 8+15):
+realistic 100×10 = p95 52ms / 0% errors / 13.6 req/s.
+Synthetic 100×10 = p95 3.2s / 0% errors / 92 req/s (pool ceiling).
+
+Safety: test merchants prefixed `_loadtest_` (cleanup-in-finally;
+refuses to start if prior `_loadtest_` shops exist unless --force).
+
 ---
 
 ## 13. Redis keys — canonical list
