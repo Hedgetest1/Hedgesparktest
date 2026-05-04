@@ -156,3 +156,127 @@ def test_api_causal_endpoint(client, auth_a):
     body = r.json()
     assert "hypotheses" in body
     assert "narrative" in body
+
+
+# ---------------------------------------------------------------------------
+# measure_recommendation_impact — N+1 collapse regression guard.
+# Behavior preservation: each autonomous action gets a 14-day window split
+# by action_at; pre/post revenue must come out matching per-action math.
+# Prior code did 1 SQL per action; refactored to a single LATERAL-style query.
+# ---------------------------------------------------------------------------
+
+class TestMeasureRecommendationImpact:
+    SHOP = "causal-impact-test.myshopify.com"
+
+    def test_two_actions_distinct_windows(self, db):
+        from app.models.merchant import Merchant
+        from app.models.autonomous_action import AutonomousAction
+        from app.services.causal_intervention_engine import measure_recommendation_impact
+        from app.core.token_crypto import encrypt_token
+
+        db.add(Merchant(
+            shop_domain=self.SHOP,
+            access_token=encrypt_token("shpat_x"),
+            install_status="active", plan="pro",
+        ))
+
+        now = _now()
+        # Two actions 30 days apart so 14-day windows do NOT overlap
+        t1 = now - timedelta(days=40)
+        t2 = now - timedelta(days=10)
+
+        for action_at, atype in [(t1, "nudge_deploy"), (t2, "nudge_promote")]:
+            db.add(AutonomousAction(
+                shop_domain=self.SHOP,
+                signal_type="HIGH_TRAFFIC_NO_CART",
+                product_url="/products/x",
+                action_type=atype,
+                risk_level="low", decision_reason="test",
+                outcome="win",
+                deployed_at=action_at, created_at=action_at,
+            ))
+
+        # Action 1: €100 pre, €200 post
+        db.add(ShopOrder(
+            shop_domain=self.SHOP, shopify_order_id="t1-pre",
+            total_price=100, currency="EUR", line_items=[],
+            created_at=t1 - timedelta(days=3),
+        ))
+        db.add(ShopOrder(
+            shop_domain=self.SHOP, shopify_order_id="t1-post",
+            total_price=200, currency="EUR", line_items=[],
+            created_at=t1 + timedelta(days=3),
+        ))
+        # Action 2: €50 pre, €300 post
+        db.add(ShopOrder(
+            shop_domain=self.SHOP, shopify_order_id="t2-pre",
+            total_price=50, currency="EUR", line_items=[],
+            created_at=t2 - timedelta(days=3),
+        ))
+        db.add(ShopOrder(
+            shop_domain=self.SHOP, shopify_order_id="t2-post",
+            total_price=300, currency="EUR", line_items=[],
+            created_at=t2 + timedelta(days=3),
+        ))
+        db.flush()
+
+        out = measure_recommendation_impact(db, self.SHOP)
+
+        assert out["actions_measured"] == 2
+        impacts = {i["action_type"]: i for i in out["impacts"]}
+        assert impacts["nudge_deploy"]["pre_revenue"] == 100.0
+        assert impacts["nudge_deploy"]["post_revenue"] == 200.0
+        assert impacts["nudge_deploy"]["impact_pct"] == 100.0
+        assert impacts["nudge_promote"]["pre_revenue"] == 50.0
+        assert impacts["nudge_promote"]["post_revenue"] == 300.0
+        assert impacts["nudge_promote"]["impact_pct"] == 500.0
+        assert out["avg_impact_pct"] == 300.0
+
+    def test_no_actions_returns_empty(self, db):
+        from app.models.merchant import Merchant
+        from app.services.causal_intervention_engine import measure_recommendation_impact
+        from app.core.token_crypto import encrypt_token
+
+        shop = "causal-empty.myshopify.com"
+        db.add(Merchant(
+            shop_domain=shop, access_token=encrypt_token("shpat_x"),
+            install_status="active", plan="pro",
+        ))
+        db.flush()
+
+        out = measure_recommendation_impact(db, shop)
+        assert out["actions_measured"] == 0
+        assert out["avg_impact_pct"] == 0
+        assert "No completed actions" in out["detail"]
+
+    def test_zero_pre_revenue_excluded(self, db):
+        """Actions with pre=0 must not contribute (preserves division-by-
+        zero guard across the refactor)."""
+        from app.models.merchant import Merchant
+        from app.models.autonomous_action import AutonomousAction
+        from app.services.causal_intervention_engine import measure_recommendation_impact
+        from app.core.token_crypto import encrypt_token
+
+        shop = "causal-zero-pre.myshopify.com"
+        db.add(Merchant(
+            shop_domain=shop, access_token=encrypt_token("shpat_x"),
+            install_status="active", plan="pro",
+        ))
+        action_at = _now() - timedelta(days=20)
+        db.add(AutonomousAction(
+            shop_domain=shop,
+            signal_type="X", product_url="/p", action_type="nudge_deploy",
+            risk_level="low", decision_reason="t", outcome="measured",
+            deployed_at=action_at, created_at=action_at,
+        ))
+        db.add(ShopOrder(
+            shop_domain=shop, shopify_order_id="post-only",
+            total_price=500, currency="EUR", line_items=[],
+            created_at=action_at + timedelta(days=2),
+        ))
+        db.flush()
+
+        out = measure_recommendation_impact(db, shop)
+        # Action exists but excluded because pre=0
+        assert out["actions_measured"] == 0
+        assert out["avg_impact_pct"] == 0

@@ -234,39 +234,47 @@ def measure_recommendation_impact(db: Session, shop_domain: str) -> dict:
             "detail": "No completed actions to measure.",
         }
 
-    # For each action, compare 7-day revenue before vs 7-day after
+    # For each action, compare 7-day revenue before vs 7-day after.
+    # Single GROUP BY collapses the prior per-action SUM probe into one
+    # round-trip via unnest() over parallel arrays of (action_type,
+    # action_at), joined to shop_orders by overlapping window.
+    # Was N+1 round-trips (1 outer + 1 per action); now 2 (1 outer +
+    # 1 batched aggregate).
     impacts = []
-    for action in actions:
-        action_date = action[1]
-        pre_start = action_date - timedelta(days=7)
-        post_end = action_date + timedelta(days=7)
+    if actions:
+        atypes = [a[0] for a in actions]
+        ats = [a[1] for a in actions]
 
-        rev_row = db.execute(text("""
+        agg_rows = db.execute(text("""
             SELECT
-                COALESCE(SUM(CASE WHEN created_at < :action_date THEN total_price ELSE 0 END), 0) as pre_rev,
-                COALESCE(SUM(CASE WHEN created_at >= :action_date THEN total_price ELSE 0 END), 0) as post_rev
-            FROM shop_orders
-            WHERE shop_domain = :shop
-              AND created_at >= :pre_start
-              AND created_at < :post_end
-        """), {
-            "shop": shop_domain,
-            "action_date": action_date,
-            "pre_start": pre_start,
-            "post_end": post_end,
-        }).fetchone()
+                a.action_type,
+                a.action_at,
+                COALESCE(SUM(CASE WHEN o.created_at <  a.action_at THEN o.total_price ELSE 0 END), 0) AS pre_rev,
+                COALESCE(SUM(CASE WHEN o.created_at >= a.action_at THEN o.total_price ELSE 0 END), 0) AS post_rev
+            FROM unnest(CAST(:atypes AS text[]), CAST(:ats AS timestamp[]))
+                 WITH ORDINALITY AS a(action_type, action_at, ord)
+            LEFT JOIN shop_orders o
+              ON o.shop_domain = :shop
+             AND o.created_at >= a.action_at - INTERVAL '7 days'
+             AND o.created_at <  a.action_at + INTERVAL '7 days'
+            GROUP BY a.ord, a.action_type, a.action_at
+            ORDER BY a.ord
+        """), {"shop": shop_domain, "atypes": atypes, "ats": ats}).fetchall()
 
-        pre = float(rev_row[0] or 0)
-        post = float(rev_row[1] or 0)
-        if pre > 0:
-            change = ((post - pre) / pre) * 100
-            impacts.append({
-                "action_type": action[0],
-                "action_date": action_date.isoformat(),
-                "pre_revenue": round(pre, 2),
-                "post_revenue": round(post, 2),
-                "impact_pct": round(change, 1),
-            })
+        for r in agg_rows:
+            atype = r[0]
+            action_date = r[1]
+            pre = float(r[2] or 0)
+            post = float(r[3] or 0)
+            if pre > 0:
+                change = ((post - pre) / pre) * 100
+                impacts.append({
+                    "action_type": atype,
+                    "action_date": action_date.isoformat(),
+                    "pre_revenue": round(pre, 2),
+                    "post_revenue": round(post, 2),
+                    "impact_pct": round(change, 1),
+                })
 
     avg_impact = (sum(i["impact_pct"] for i in impacts) / len(impacts)) if impacts else 0
 
