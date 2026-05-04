@@ -33,7 +33,7 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy import text as sql_text
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_read_db
 
 log = logging.getLogger(__name__)
 
@@ -345,7 +345,7 @@ def get_evidence(
     request: Request,
     days: int = Query(90, ge=7, le=365),
     format: str = Query("json", pattern="^(json|zip)$"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     _require_ops_key(request)
     bundle = _build_bundle(db, days)

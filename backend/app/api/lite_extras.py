@@ -36,7 +36,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_read_db
 from app.core.date_range import (
     DateRangeQuery, get_date_range, resolve_compare_utc_bounds,
     resolve_utc_bounds, resolve_window_days,
@@ -323,7 +323,7 @@ def get_device_breakdown(
     days: int = Query(14, ge=1, le=90),
     range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> DeviceBreakdownResponse:
     """Visitor sessions split by device_type over the explicit range
     (or last `days` days). Range interpreted in shop tz."""
@@ -398,7 +398,7 @@ def get_device_breakdown(
 def get_top_customers_ltv(
     limit: int = Query(10, ge=1, le=50),
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> TopCustomersResponse:
     """Top customers ranked by lifetime total spend.
 
@@ -460,7 +460,7 @@ def get_abandonment_trend(
     days: int = Query(14, ge=7, le=90),
     range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> AbandonmentTrendResponse:
     """Daily cart-abandonment % over the explicit range (or last `days`
     days when range not provided).
@@ -571,7 +571,7 @@ def get_first_vs_repeat_aov(
     days: int = Query(90, ge=14, le=365),
     range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> FirstVsRepeatResponse:
     """AOV comparison: customers' first purchase vs repeat purchases.
 
@@ -705,7 +705,7 @@ def get_orders_by_country(
     days: int = Query(30, ge=7, le=90),
     range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> OrdersByCountryResponse:
     """Aggregate orders + revenue by country over the explicit range
     (or last `days` days).
@@ -851,7 +851,7 @@ def get_order_rhythm(
     days: int = Query(30, ge=7, le=365),
     range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> OrderRhythmResponse:
     """Order rhythm — when (hour-of-day + day-of-week) the merchant's
     customers buy. Both buckets in shop's local timezone so "Tuesday
@@ -952,7 +952,7 @@ def get_repeat_cadence(
     days: int = Query(180, ge=30, le=730),
     range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> RepeatCadenceResponse:
     """For each customer with 2+ orders in the explicit range (or last
     `days` days when range not provided), compute days between
@@ -1103,7 +1103,7 @@ def get_top_products(
     limit: int = Query(10, ge=1, le=50),
     range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> TopProductsResponse:
     """Top products by revenue over the explicit range (or last `days`
     days when range not provided). Range interpreted in shop tz."""
@@ -1214,7 +1214,7 @@ def get_discount_codes(
     days: int = Query(30, ge=7, le=180),
     range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> DiscountCodesResponse:
     """Top discount codes by usage in the explicit range (or last N
     days). Computes total discount + total revenue per code so the
@@ -1348,7 +1348,7 @@ def get_order_status(
     days: int = Query(30, ge=7, le=180),
     range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> OrderStatusResponse:
     """Financial + fulfillment status breakdown for the explicit range
     (or last N days). Range in shop tz."""
@@ -1434,7 +1434,7 @@ def get_tax_breakdown(
     days: int = Query(30, ge=7, le=180),
     range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> TaxBreakdownResponse:
     """Total tax + effective rate over enriched orders in the explicit
     range (or last N days). Range in shop tz."""
@@ -1524,7 +1524,7 @@ def get_payment_methods(
     days: int = Query(30, ge=7, le=180),
     range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> PaymentMethodsResponse:
     """Order count + revenue split by payment_method (gateway).
     Range in shop tz."""
@@ -1629,7 +1629,7 @@ def get_top_variants(
     limit: int = Query(10, ge=1, le=50),
     range_q: DateRangeQuery = Depends(get_date_range),
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> TopVariantsResponse:
     """Top-selling variants over the explicit range (or last `days`
     days). Joins each line_items[] element to its parent order via
@@ -1856,7 +1856,7 @@ def _churn_action(band: str) -> str:
 def get_customer_churn_forecast(
     top_n: int = Query(10, ge=1, le=50),
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ) -> CustomerChurnForecastResponse:
     """Per-customer churn risk based on personal-cadence overdue factor.
 

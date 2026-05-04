@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_read_db
 from app.core.deps import require_merchant_session, require_pro_session
 from app.services.external_lookup_service import infer_external_lookup
 
@@ -948,7 +948,7 @@ def prewarm_lite_dashboard(db: Session, shop: str) -> bool:
 @router.get("/overview")
 def get_dashboard_overview(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Lite dashboard overview — summary, top_products, real AOV/currency.
@@ -972,7 +972,7 @@ def get_dashboard_overview(
 @router.get("/intelligence")
 def get_dashboard_intelligence(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Store intelligence brief — multi-signal synthesis with priority action.
@@ -1000,7 +1000,7 @@ def get_dashboard_intelligence(
 @router.get("/overview/pro")
 def get_dashboard_overview_pro(
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Pro dashboard overview — Lite data + price intelligence + market lookup +

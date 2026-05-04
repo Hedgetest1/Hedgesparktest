@@ -50,7 +50,7 @@ import pytest
 from sqlalchemy import create_engine, text, event
 from sqlalchemy.orm import sessionmaker, Session
 
-from app.core.database import Base, get_db
+from app.core.database import Base, get_db, get_read_db
 from app.main import app as fastapi_app
 from app.models.merchant import Merchant
 from app.models.event import Event
@@ -228,6 +228,9 @@ def client(db):
         yield db
 
     fastapi_app.dependency_overrides[get_db] = _override_get_db
+    # Read replica routes use the same hermetic transactional session in tests
+    # so SAVEPOINT isolation holds across both primary and read paths.
+    fastapi_app.dependency_overrides[get_read_db] = _override_get_db
 
     # Use httpx sync client via ASGITransport for TestClient-like behavior.
     # Wrapped to move per-request cookies= onto the client instance,

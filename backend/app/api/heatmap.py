@@ -38,7 +38,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_read_db
 from app.core.deps import require_merchant_session
 
 log = logging.getLogger(__name__)
@@ -219,7 +219,7 @@ def get_heatmap(
     product_url: str,
     hours: int = 72,
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Scroll depth aggregation for a specific product page.
@@ -250,7 +250,7 @@ def get_heatmap(
 def get_top_heatmaps(
     hours: int = 72,
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Scroll profiles for the top 5 products by viewer count in the window.

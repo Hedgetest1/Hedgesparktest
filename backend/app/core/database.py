@@ -116,15 +116,26 @@ Base = declarative_base()
 # Default: read replica = primary (no-op). When enabled, callers use
 # ReadSession() or Depends(get_read_db) for analytics queries.
 #
-# Call sites to migrate (opt-in, TIER_0 safe):
+# Call sites currently routed to read replica (12 files, ~12% of API
+# surface — pure-read analytical endpoints with no writes in same module):
 #   - app/api/roi_hero.py
 #   - app/api/cac_ltv.py
 #   - app/api/mta.py
-#   - app/services/mta_engine.py
+#   - app/api/rfm.py
 #   - app/api/forecasts.py
-#   - app/api/compliance_evidence.py
-#   - app/services/customer_churn_scorer.py
-#   - app/services/nudge_dna.py
+#   - app/api/customer_churn.py
+#   - app/api/lite_extras.py            (14 GETs — biggest single switch)
+#   - app/api/dashboard.py              (3 GETs — overview + intelligence)
+#   - app/api/intent.py                 (5 GETs — visitor intent analytics)
+#   - app/api/orders.py                 (4 GETs — order analytics)
+#   - app/api/heatmap.py                (3 GETs — click/move maps)
+#   - app/api/compliance_evidence.py    (1 GET — SOC2 evidence)
+#
+# Future migration candidates (8 pure-read files surfaced by
+# audit_read_replica_candidates.py): visitor_journeys, anomaly_replay,
+# lift, lite_export, playbook, today_snapshot, counterfactual,
+# visitor_scores. Service-layer migration: mta_engine,
+# customer_churn_scorer, nudge_dna (callers must pass read session).
 #
 # Transactional writes (actions, bugfix apply, trust contracts, webhooks,
 # OAuth, billing) MUST continue to use the primary via SessionLocal().

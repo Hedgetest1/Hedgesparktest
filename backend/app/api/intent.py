@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case
 
-from app.core.database import get_db
+from app.core.database import get_read_db
 from app.core.deps import require_merchant_session
 from app.models.visitor_product_state import VisitorProductState
 
@@ -14,7 +14,7 @@ router = APIRouter()
 @router.get("/intent/top-hot")
 def top_hot_visitors(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     results = (
         db.query(VisitorProductState)
@@ -44,7 +44,7 @@ def top_hot_visitors(
 def visitor_intent(
     visitor_id: str,
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     results = (
         db.query(VisitorProductState)
@@ -76,7 +76,7 @@ def visitor_intent(
 @router.get("/intent/summary")
 def intent_summary(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     from sqlalchemy import case
     row = (
@@ -104,7 +104,7 @@ def intent_summary(
 @router.get("/intent/products/top")
 def top_products(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     rows = (
         db.query(
@@ -140,7 +140,7 @@ def top_products(
 @router.get("/intent/products/opportunities")
 def product_opportunities(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     rows = (
         db.query(
