@@ -29,6 +29,11 @@ _log = logging.getLogger("worker.aggregation.retention")
 RETENTION_DAYS = 90
 NUDGE_EVENT_RETENTION_DAYS = 60
 WORKER_LOG_RETENTION_DAYS = 30
+# Keep terminal-status bugfix candidates only briefly — discarded/
+# apply_failed are write-once analytical breadcrumbs, not load-bearing.
+# Active candidates (open/analyzed/patch_proposed/applied/superseded)
+# are NEVER pruned by this task — only terminal failure/discarded rows.
+BUGFIX_CANDIDATE_RETENTION_DAYS = 30
 
 _RETENTION_INTERVAL_S = 86_400  # once per 24h
 
@@ -115,6 +120,36 @@ def run_worker_log_retention(conn) -> int:
     cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=WORKER_LOG_RETENTION_DAYS)
     result = conn.execute(
         text("DELETE FROM worker_log WHERE started_at < :cutoff"),
+        {"cutoff": cutoff},
+    )
+    return result.rowcount
+
+
+def run_bugfix_candidate_retention(conn) -> int:
+    """Delete TERMINAL bugfix_candidates older than
+    BUGFIX_CANDIDATE_RETENTION_DAYS. Terminal = discarded | apply_failed.
+
+    Active states (open / analyzed / patch_proposed / applied /
+    superseded) are NEVER pruned — they are load-bearing for the
+    self-healing pipeline state machine. The 92.7% of candidates that
+    accumulate forever are discarded triage breadcrumbs, kept long
+    enough for short-term trend analysis but not forever.
+
+    Born 2026-05-04: audit_db_table_growth caught bugfix_candidates
+    growing 62 → 1294 (+1987%) over the first month of pipeline
+    operation; no retention had been wired.
+    """
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+        days=BUGFIX_CANDIDATE_RETENTION_DAYS
+    )
+    result = conn.execute(
+        text(
+            """
+            DELETE FROM bugfix_candidates
+            WHERE status IN ('discarded', 'apply_failed')
+              AND created_at < :cutoff
+            """
+        ),
         {"cutoff": cutoff},
     )
     return result.rowcount

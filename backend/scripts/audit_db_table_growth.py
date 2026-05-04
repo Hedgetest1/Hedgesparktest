@@ -49,6 +49,11 @@ _RETENTION_DAYS = 30
 _HIGH_SPIKE_TABLES = frozenset({
     "events", "tracker_events", "shop_orders", "action_outcomes",
     "ops_alerts", "audit_log",
+    # bugfix_candidates: pipeline-driven analytical breadcrumb table.
+    # Steady-state ~30/day × 30d retention = ~1000 rows; legitimate spikes
+    # during burst-triage cycles. Retention task in retention_task.py
+    # bounds growth (terminal status pruned at 30d).
+    "bugfix_candidates",
 })
 _HIGH_SPIKE_THRESHOLD_PCT = 500
 
