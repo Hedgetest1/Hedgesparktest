@@ -291,35 +291,38 @@ def get_aggregate_funnel(db: Session, days: int = 30) -> dict:
             "avg_sessions_to_complete": None,
         }
 
-    # Per-step: count distinct shops that reached each milestone
+    # Per-step: count distinct shops that reached each milestone +
+    # median elapsed seconds. Single GROUP BY query over all milestones
+    # (was 2 queries × len(FUNNEL_MILESTONES) = 18 round-trips → 1).
     # Only count milestones recorded AFTER the cutoff (prevents stale
     # milestones from inflating conversion rates for shops that installed
     # within the window but had milestone events from a prior period).
+    rows = db.execute(text("""
+        SELECT
+            event_type,
+            COUNT(DISTINCT shop_domain) AS reached,
+            percentile_cont(0.5) WITHIN GROUP (
+                ORDER BY elapsed_seconds
+            ) FILTER (WHERE elapsed_seconds IS NOT NULL) AS median_elapsed
+        FROM onboarding_events
+        WHERE event_type = ANY(:steps)
+          AND created_at >= :cutoff
+          AND shop_domain IN (
+              SELECT shop_domain FROM merchants
+              WHERE install_status = 'active' AND installed_at >= :cutoff
+          )
+        GROUP BY event_type
+    """), {"steps": list(FUNNEL_MILESTONES), "cutoff": cutoff}).fetchall()
+
+    by_step = {row[0]: (int(row[1] or 0), row[2]) for row in rows}
+
     funnel_steps = []
     prev_count = total_installs
+    # Iterate in canonical FUNNEL_MILESTONES order (SQL GROUP BY result
+    # order is undefined; we must preserve the funnel sequence for
+    # conversion-rate math below).
     for step in FUNNEL_MILESTONES:
-        reached = db.execute(text("""
-            SELECT COUNT(DISTINCT shop_domain)
-            FROM onboarding_events
-            WHERE event_type = :step
-              AND created_at >= :cutoff
-              AND shop_domain IN (
-                  SELECT shop_domain FROM merchants
-                  WHERE install_status = 'active' AND installed_at >= :cutoff
-              )
-        """), {"step": step, "cutoff": cutoff}).scalar() or 0
-
-        # Median elapsed seconds for this step
-        median_elapsed = db.execute(text("""
-            SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY elapsed_seconds)
-            FROM onboarding_events
-            WHERE event_type = :step AND elapsed_seconds IS NOT NULL
-              AND created_at >= :cutoff
-              AND shop_domain IN (
-                  SELECT shop_domain FROM merchants
-                  WHERE install_status = 'active' AND installed_at >= :cutoff
-              )
-        """), {"step": step, "cutoff": cutoff}).scalar()
+        reached, median_elapsed = by_step.get(step, (0, None))
 
         pct = round(reached / total_installs, 3) if total_installs > 0 else 0
         drop_off = round(1.0 - (reached / prev_count), 3) if prev_count > 0 else 0

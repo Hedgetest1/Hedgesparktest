@@ -181,3 +181,83 @@ def test_successful_onboarding_writes_audit_log(db):
     )).fetchone()
     assert audit is not None
     assert audit[1] == "onboarding"
+
+
+# ---------------------------------------------------------------------------
+# Aggregate funnel — N+1 collapse correctness (single GROUP BY across all
+# milestones must preserve canonical FUNNEL_MILESTONES order in the output)
+# ---------------------------------------------------------------------------
+
+def test_aggregate_funnel_preserves_milestone_order(db):
+    """get_aggregate_funnel must emit funnel_steps in canonical order even
+    though the underlying SQL GROUP BY does not guarantee row order."""
+    from datetime import timedelta
+    from app.models.onboarding_event import OnboardingEvent
+    from app.services.onboarding_funnel import (
+        FUNNEL_MILESTONES,
+        get_aggregate_funnel,
+    )
+
+    shop = "funnel-order-test.myshopify.com"
+    m = _make_merchant(db, shop=shop, status="ready")
+    m.installed_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=1)
+    db.flush()
+
+    # Insert milestones in REVERSE order (worst case for ordering bugs).
+    base = datetime.now(timezone.utc).replace(tzinfo=None)
+    for i, step in enumerate(reversed(FUNNEL_MILESTONES)):
+        db.add(OnboardingEvent(
+            shop_domain=shop,
+            event_type=step,
+            elapsed_seconds=float(10 + i),
+            created_at=base - timedelta(minutes=i),
+        ))
+    db.flush()
+
+    out = get_aggregate_funnel(db, days=30)
+
+    # Order MUST match FUNNEL_MILESTONES exactly
+    emitted = [s["step"] for s in out["funnel"]]
+    assert emitted == list(FUNNEL_MILESTONES), \
+        f"funnel order broken: got {emitted}"
+
+    # Every milestone has reached >= 1 (we inserted them all)
+    for s in out["funnel"]:
+        assert s["reached"] >= 1, f"step {s['step']} reached=0"
+
+
+def test_aggregate_funnel_handles_missing_steps(db):
+    """If a milestone has zero events, it must still appear with reached=0
+    and not crash (was prior behavior; preserve after collapse to GROUP BY)."""
+    from app.services.onboarding_funnel import (
+        FUNNEL_MILESTONES,
+        get_aggregate_funnel,
+    )
+    from app.models.onboarding_event import OnboardingEvent
+    from datetime import timedelta
+
+    shop = "funnel-partial-test.myshopify.com"
+    m = _make_merchant(db, shop=shop, status="ready")
+    m.installed_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=1)
+    db.flush()
+
+    # Only insert install_completed (first step) — all subsequent must be 0.
+    db.add(OnboardingEvent(
+        shop_domain=shop,
+        event_type="install_completed",
+        elapsed_seconds=1.0,
+    ))
+    db.flush()
+
+    out = get_aggregate_funnel(db, days=30)
+    emitted = {s["step"]: s["reached"] for s in out["funnel"]}
+
+    # All canonical steps present
+    for step in FUNNEL_MILESTONES:
+        assert step in emitted, f"missing step in output: {step}"
+
+    # install_completed has count, others may be 0 (or > 0 from other test
+    # merchants in shared db — only assert for this shop's expected zero
+    # absence by checking via a no-event step)
+    for missing_step in ("pixel_skipped",):  # interaction event, not in milestones
+        assert missing_step not in emitted
