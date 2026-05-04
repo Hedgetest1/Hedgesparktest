@@ -70,6 +70,7 @@ _METRICS_BG_PUSH_INTERVAL_S = 30.0  # background keepalive (< TTL/2)
 _last_push_ts: float = 0.0
 _push_lock = threading.Lock()  # multi-worker: accept-degrade — per-process push throttle
 _bg_pusher_started = False  # multi-worker: per-process — each worker starts its own pusher
+_bg_pusher_stop = threading.Event()  # multi-worker: accept-degrade — per-process; signals the daemon to exit (used by tests + graceful shutdown)
 
 
 class _Counter:
@@ -350,11 +351,12 @@ def start_background_pusher() -> None:
     if _bg_pusher_started:
         return
     _bg_pusher_started = True
+    _bg_pusher_stop.clear()
 
     def _loop() -> None:
         # First push immediately so the worker appears in the aggregate
         # before the first _METRICS_BG_PUSH_INTERVAL_S elapses.
-        while True:
+        while not _bg_pusher_stop.is_set():
             try:
                 _push_snapshot_to_redis(force=True)
             except Exception as exc:
@@ -362,7 +364,9 @@ def start_background_pusher() -> None:
                 # drop this worker from the fleet gauge forever. Log so the
                 # failure mode is visible instead of merely survived.
                 log.warning("metrics bg pusher: push failed: %s", exc)
-            time.sleep(_METRICS_BG_PUSH_INTERVAL_S)
+            # Sleep on the stop event so a stop signal interrupts the wait
+            # immediately (instead of waiting up to the full interval).
+            _bg_pusher_stop.wait(_METRICS_BG_PUSH_INTERVAL_S)
 
     t = threading.Thread(
         target=_loop,
@@ -370,6 +374,15 @@ def start_background_pusher() -> None:
         daemon=True,
     )
     t.start()
+
+
+def stop_background_pusher() -> None:
+    """Signal the daemon to exit. Production code never calls this (the
+    process exits and the daemon dies with it), but tests use it to
+    avoid daemon-thread accumulation across the suite."""
+    global _bg_pusher_started
+    _bg_pusher_stop.set()
+    _bg_pusher_started = False
 
 
 def _read_fleet_snapshots() -> list[dict]:

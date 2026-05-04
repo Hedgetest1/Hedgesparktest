@@ -588,5 +588,25 @@ def _process_shop_redact(db: Session, req: GdprRequest) -> str:
 
     deleted = {all_tables[i]: int(row[i] or 0) for i in range(len(all_tables))}
 
+    # Best-effort observability for the atomic Art. 17 erasure. Surfaces
+    # the bulk operation in Sentry so subsequent errors carry the trail.
+    try:
+        from app.core.sentry_init import pipeline_breadcrumb
+        total_rows = sum(deleted.values())
+        pipeline_breadcrumb(
+            "perf.bulk_op",
+            f"gdpr.shop_redact shop={shop} tables={len(all_tables)} "
+            f"rows_deleted={total_rows}",
+            level="info",
+            data={
+                "op": "gdpr_shop_redact",
+                "shop": shop,
+                "tables_count": len(all_tables),
+                "total_rows": total_rows,
+            },
+        )
+    except Exception:
+        pass  # SILENT-EXCEPT-OK: sentry breadcrumb best-effort observability; the GDPR erasure already committed atomically above and must return cleanly.
+
     db.commit()
     return json.dumps(deleted)

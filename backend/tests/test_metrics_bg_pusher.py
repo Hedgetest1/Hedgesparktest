@@ -22,19 +22,28 @@ from app.core.metrics import (
     _WORKER_PID,
     _push_snapshot_to_redis,
     start_background_pusher,
+    stop_background_pusher,
 )
 from app.core.redis_client import _client
 
 
 @pytest.fixture(autouse=True)
 def _reset_bg_pusher_state():
-    """Reset the start-once guard and flush any bg-pusher keys before each test."""
+    """Reset start-once guard, signal any prior daemon to exit, and
+    flush bg-pusher keys before each test. Cleanup repeats post-yield
+    so a flaky test cannot leak a stray daemon into the next test."""
+    stop_background_pusher()
     metrics._bg_pusher_started = False
     rc = _client()
     if rc is not None:
         for key in rc.scan_iter(match=f"{_METRICS_REDIS_PREFIX}:*", count=50):
             rc.delete(key)
+    # Give any running daemon time to observe the stop signal before
+    # the test starts spawning new ones (defence against flaky races
+    # where an old daemon's _push lands AFTER our pre-test cleanup).
+    time.sleep(0.1)
     yield
+    stop_background_pusher()
     metrics._bg_pusher_started = False
 
 

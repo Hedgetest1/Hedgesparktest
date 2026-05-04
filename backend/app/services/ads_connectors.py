@@ -327,6 +327,26 @@ def upsert_rows(db: Session, rows: Iterable[NormalizedSpendRow]) -> tuple[int, i
             else:
                 updated += 1
 
+    # Best-effort observability: breadcrumb for the bulk operation so a
+    # subsequent error capture has the trail of recent ad-spend ingests.
+    try:
+        from app.core.sentry_init import pipeline_breadcrumb
+        pipeline_breadcrumb(
+            "perf.bulk_op",
+            f"ads_connectors.upsert_rows rows={len(rows_list)} "
+            f"inserted={inserted} updated={updated}",
+            level="info",
+            data={
+                "op": "ads_upsert",
+                "rows": len(rows_list),
+                "inserted": inserted,
+                "updated": updated,
+                "chunks": (len(rows_list) + _UPSERT_CHUNK_SIZE - 1) // _UPSERT_CHUNK_SIZE,
+            },
+        )
+    except Exception:
+        pass  # SILENT-EXCEPT-OK: sentry breadcrumb best-effort observability; never raise from a successful bulk-op return path.
+
     return inserted, updated
 
 

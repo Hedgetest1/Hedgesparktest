@@ -453,6 +453,25 @@ def compute_post_execution_deltas(conn, shop_domain: str) -> int:
         },
     )
 
+    # Best-effort observability for the bulk delta computation. Surfaces
+    # in Sentry so subsequent capture has the recent execution trail.
+    try:
+        from app.core.sentry_init import pipeline_breadcrumb
+        pipeline_breadcrumb(
+            "perf.bulk_op",
+            f"execution_engine.compute_post_execution_deltas shop={shop_domain} "
+            f"updated={len(upd_eids)}",
+            level="info",
+            data={
+                "op": "execution_deltas",
+                "shop": shop_domain,
+                "updated": len(upd_eids),
+                "eligible": len(eligible),
+            },
+        )
+    except Exception:
+        pass  # SILENT-EXCEPT-OK: sentry breadcrumb best-effort observability; never raise from a successful bulk-op return path.
+
     return len(upd_eids)
 
 
