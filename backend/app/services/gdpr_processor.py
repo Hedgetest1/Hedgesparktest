@@ -561,28 +561,32 @@ def _process_shop_redact(db: Session, req: GdprRequest) -> str:
         "gdpr_requests",
     ]
 
-    for table in tables:
-        try:
-            r = db.execute(text(
-                f"DELETE FROM {table} WHERE shop_domain = :shop"
-            ), {"shop": shop})
-            deleted[table] = r.rowcount
-        except Exception as exc:
-            # Table may not exist (future schema changes) — log and continue
-            log.warning("gdpr_processor: skip %s for shop=%s — %s", table, shop, exc)
-            db.rollback()
-            deleted[table] = -1  # indicates error
+    # Append merchants as the FK root — the parent row goes last so any
+    # remaining FK from a child table satisfies the constraint at
+    # statement end.
+    all_tables = tables + ["merchants"]
 
-    # Final: delete the merchant row itself
-    try:
-        r = db.execute(text(
-            "DELETE FROM merchants WHERE shop_domain = :shop"
-        ), {"shop": shop})
-        deleted["merchants"] = r.rowcount
-    except Exception as exc:
-        log.warning("gdpr_processor: skip merchants for shop=%s — %s", shop, exc)
-        db.rollback()
-        deleted["merchants"] = -1
+    # Single multi-CTE statement: one DELETE ... RETURNING per table,
+    # final SELECT aggregates per-table rowcount. Executes as ONE
+    # transactional unit — the correct semantic for GDPR Art. 17
+    # (partial erasure = breach). Replaces the prior per-table loop
+    # whose `db.rollback()` on a missing table reset the entire
+    # transaction (silent partial-erasure failure mode). All table
+    # names are interpolated from the hardcoded `all_tables` list
+    # above; no user input. The :shop bind is the only parameterised
+    # value.
+    cte_clauses = ", ".join(
+        f"d_{i} AS (DELETE FROM {t} WHERE shop_domain = :shop RETURNING 1)"
+        for i, t in enumerate(all_tables)
+    )
+    select_clauses = ", ".join(
+        f"(SELECT COUNT(*) FROM d_{i}) AS c_{i}"
+        for i, _ in enumerate(all_tables)
+    )
+    sql = f"WITH {cte_clauses} SELECT {select_clauses}"
+    row = db.execute(text(sql), {"shop": shop}).fetchone()
+
+    deleted = {all_tables[i]: int(row[i] or 0) for i in range(len(all_tables))}
 
     db.commit()
     return json.dumps(deleted)

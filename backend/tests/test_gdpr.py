@@ -143,6 +143,81 @@ def test_shop_redact_deletes_all_data(db):
     assert m == 0
 
 
+def test_shop_redact_returns_per_table_counts(db):
+    """Multi-CTE refactor (2026-05-04 wave 8) must return per-table
+    rowcounts in the audit JSON for every table the request touched.
+    Regression guard: prior loop-based code returned per-table counts;
+    new bulk-CTE must do the same."""
+    _seed_customer_data(db)
+
+    # Add rows in additional categories the seed doesn't cover so we
+    # can assert per-table counts > 0 across multiple CTE clauses.
+    db.execute(text("""
+        INSERT INTO opportunity_signals (shop_domain, product_url, signal_type,
+            signal_strength, signal_confidence, detected_at, refreshed_at, expires_at)
+        VALUES (:s, '/p/x', 'high_intent', 0.9, 'high', NOW(), NOW(),
+                NOW() + INTERVAL '7 days')
+    """), {"s": SHOP_A})
+    db.execute(text("""
+        INSERT INTO ops_alerts (shop_domain, alert_type, severity, summary,
+            source, resolved, created_at)
+        VALUES (:s, 'test', 'info', 'test', 'test', false, NOW())
+    """), {"s": SHOP_A})
+    db.flush()
+
+    req = GdprRequest(
+        request_type="shop_redact",
+        shop_domain=SHOP_A,
+        status="pending",
+    )
+    db.add(req)
+    db.flush()
+    process_gdpr_request(db, req)
+
+    audit = db.execute(text(
+        "SELECT after_state FROM audit_log WHERE action_type = 'gdpr_shop_redact' ORDER BY id DESC LIMIT 1"
+    )).fetchone()
+    assert audit is not None
+    result = json.loads(audit[0])
+
+    # Per-table counts present and accurate for the seeded categories
+    assert result.get("events") == 3
+    assert result.get("shop_orders") == 1
+    assert result.get("visitors") == 1
+    assert result.get("opportunity_signals") == 1
+    assert result.get("ops_alerts") == 1
+    assert result.get("merchants") == 1
+
+    # Tables we did NOT seed should report 0 (not missing — the CTE
+    # always returns a key for every table)
+    assert "active_nudges" in result
+    assert result["active_nudges"] == 0
+
+
+def test_shop_redact_atomic_no_partial_state(db):
+    """Multi-CTE atomicity guard: shop_redact must leave NO orphan
+    rows under shop_domain after success. Replaces the prior per-table
+    rollback pattern that could silently corrupt partial-erasure state."""
+    _seed_customer_data(db)
+
+    req = GdprRequest(
+        request_type="shop_redact",
+        shop_domain=SHOP_A,
+        status="pending",
+    )
+    db.add(req)
+    db.flush()
+    process_gdpr_request(db, req)
+
+    # Probe a few representative tables that should have zero rows
+    # for SHOP_A after redaction.
+    for tbl in ("events", "shop_orders", "visitors", "merchants"):
+        n = db.execute(text(
+            f"SELECT COUNT(*) FROM {tbl} WHERE shop_domain = :s"
+        ), {"s": SHOP_A}).scalar()
+        assert n == 0, f"{tbl} still has rows for shop after shop_redact"
+
+
 def test_gdpr_creates_audit_log_entry(db):
     """GDPR processing must write an audit log entry."""
     _seed_customer_data(db)

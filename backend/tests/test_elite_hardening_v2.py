@@ -1060,10 +1060,11 @@ _RAW_SQL_FSTRING_ALLOWLIST: set[str] = {
     # filter strings joined with " OR ". Parameters are bound via the
     # second arg to execute().
     "app/services/gdpr_processor.py:282",
-    # gdpr_processor: {table} interpolated from hardcoded `tables` list
-    # used during Art. 17 erasure. Line shifted 2026-04-29 after further
-    # shop_redact list edits.
-    "app/services/gdpr_processor.py:566",
+    # gdpr_processor:566 removed 2026-05-04 — Art. 17 erasure refactored
+    # to single multi-CTE statement; SQL is built into a `sql` variable
+    # then passed to text(sql), so no inline `text(f"…")` site exists.
+    # All interpolated values are hardcoded table names from the in-source
+    # `all_tables` list (no user input); only `:shop` is bind-bound.
     # report_special_metrics: {bucket} interpolated from `_time_bucket_clause`
     # which returns one of 3 hardcoded `to_char(...)` strings selected by a
     # whitelisted `grain` ∈ {"day", "week", "month"}. Safe.
