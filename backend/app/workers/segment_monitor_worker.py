@@ -488,35 +488,40 @@ def run_cycle() -> None:
             log("no active Pro shops — nothing to scan")
             return
 
+        from app.core.query_count_monitor import worker_scope as _worker_scope
         for shop_domain in batch:
             # Honor the time budget — stop cleanly rather than miss the heartbeat
             if time.monotonic() - cycle_start > CYCLE_TIME_BUDGET_S:
                 log(f"time budget reached at shop {shops_scanned}/{len(batch)} — stopping")
                 break
             shops_scanned += 1
-            active_products = _get_active_products_for_shop(db, shop_domain)
-            log(
-                f"shop={shop_domain} active_products={len(active_products)} "
-                f"(unique_visitors_24h >= {MIN_ACTIVE_VISITORS_24H})"
-            )
+            # Per-shop scan = active_products lookup + N _process_product
+            # calls. worker_scope wraps the whole iteration so a future
+            # N+1 regression in either path surfaces at runtime.
+            with _worker_scope("segment_monitor.shop_scan", shop_domain):
+                active_products = _get_active_products_for_shop(db, shop_domain)
+                log(
+                    f"shop={shop_domain} active_products={len(active_products)} "
+                    f"(unique_visitors_24h >= {MIN_ACTIVE_VISITORS_24H})"
+                )
 
-            for product_url in active_products:
-                products_scanned += 1
-                result = _process_product(db, shop_domain, product_url)
+                for product_url in active_products:
+                    products_scanned += 1
+                    result = _process_product(db, shop_domain, product_url)
 
-                if result == "created":
-                    tasks_created += 1
-                elif result == "refreshed":
-                    tasks_refreshed += 1
-                elif result == "cooldown":
-                    tasks_cooldown += 1
-                elif result == "below_threshold":
-                    products_below += 1
-                elif result == "no_hot_visitors":
-                    products_no_hot += 1
-                elif result == "error":
-                    products_error += 1
-                    last_error = f"{shop_domain} | {product_url}"
+                    if result == "created":
+                        tasks_created += 1
+                    elif result == "refreshed":
+                        tasks_refreshed += 1
+                    elif result == "cooldown":
+                        tasks_cooldown += 1
+                    elif result == "below_threshold":
+                        products_below += 1
+                    elif result == "no_hot_visitors":
+                        products_no_hot += 1
+                    elif result == "error":
+                        products_error += 1
+                        last_error = f"{shop_domain} | {product_url}"
 
         # Advance cursor only on successful batch completion so a crash
         # re-runs the same range rather than skipping shops.

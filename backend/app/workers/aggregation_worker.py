@@ -734,92 +734,100 @@ def _run_cycle_inner() -> None:
                 exec_count = 0
                 _agg_budget_seconds = 240  # 4 min budget inside a 5 min cycle
                 _agg_start = time.monotonic()
+                from app.core.query_count_monitor import worker_scope as _worker_scope
                 for shop in all_shops:
                     if time.monotonic() - _agg_start > _agg_budget_seconds:
                         log(f"store_metrics: time budget exhausted ({_agg_budget_seconds}s) after {store_count} shops — yielding")
                         break
-                    try:
-                        sm = _compute_store_metrics(conn, shop)
-                        _upsert_store_metrics(conn, sm)
-                        conn.commit()
-
-                        # Generate/upsert execution opportunities + audiences
+                    # Per-shop iteration runs ~10 sub-ops (store_metrics,
+                    # process_execution_opportunities, _update_tracking_outcomes,
+                    # detect_holdout_leakage, compute_post_execution_deltas,
+                    # compute_sip, run_autonomous_cycle). Worker_scope wraps
+                    # the whole iteration so a future N+1 regression in any
+                    # sub-op surfaces at runtime as a per-shop alarm.
+                    with _worker_scope("aggregation_worker.store_metrics", shop):
                         try:
-                            n = process_execution_opportunities(
-                                conn, shop, sm["co_viewed_pairs"]
-                            )
+                            sm = _compute_store_metrics(conn, shop)
+                            _upsert_store_metrics(conn, sm)
                             conn.commit()
-                            exec_count += n
-                        except Exception as exc_e:
-                            conn.rollback()
-                            log(f"execution_engine error for {shop} (non-fatal): {exc_e}")
 
-                        # Update outcome tracking for existing audiences
-                        try:
-                            _update_tracking_outcomes(conn, shop)
-                            conn.commit()
-                        except Exception as exc_t:
-                            conn.rollback()
-                            log(f"execution tracking error for {shop} (non-fatal): {exc_t}")
-
-                        # Detect holdout leakage (before computing deltas)
-                        try:
-                            leaked = detect_holdout_leakage(conn, shop)
-                            conn.commit()
-                            if leaked > 0:
-                                log(f"holdout leakage: flagged {leaked} rows for {shop}")
-                        except Exception as exc_l:
-                            conn.rollback()
-                            log(f"leakage detection error for {shop} (non-fatal): {exc_l}")
-
-                        # Compute post-execution deltas for confirmed executions
-                        try:
-                            deltas = compute_post_execution_deltas(conn, shop)
-                            conn.commit()
-                            if deltas > 0:
-                                log(f"execution deltas: computed {deltas} for {shop}")
-                        except Exception as exc_d:
-                            conn.rollback()
-                            log(f"execution delta error for {shop} (non-fatal): {exc_d}")
-
-                        # Compute Store Intelligence Profile (SIP)
-                        try:
-                            from app.services.sip_engine import compute_sip, upsert_sip, maybe_snapshot
-                            sip_data = compute_sip(conn, shop)
-                            if sip_data:
-                                upsert_sip(conn, sip_data)
-                                maybe_snapshot(conn, sip_data)
-                                conn.commit()
-                        except Exception as exc_sip:
-                            conn.rollback()
-                            log(f"SIP error for {shop} (non-fatal): {exc_sip}")
-
-                        # Autonomous Revenue Loop (Pro merchants only)
-                        try:
-                            from app.services.autonomous_loop import run_autonomous_cycle
-                            db_session = SessionLocal()
+                            # Generate/upsert execution opportunities + audiences
                             try:
-                                # Gate: only run for Pro merchants with billing active
-                                from app.models.merchant import Merchant
-                                merchant = db_session.query(Merchant).filter(
-                                    Merchant.shop_domain == shop,
-                                    Merchant.plan == "pro",
-                                    Merchant.billing_active == True,  # noqa: E712
-                                    Merchant.install_status == "active",
-                                ).first()
-                                if merchant:
-                                    auto_count = run_autonomous_cycle(db_session, shop)
-                                    if auto_count > 0:
-                                        log(f"autonomous_loop: {auto_count} action(s) for {shop}")
-                            finally:
-                                db_session.close()
-                        except Exception as exc_auto:
-                            log(f"autonomous_loop error for {shop} (non-fatal): {exc_auto}")
+                                n = process_execution_opportunities(
+                                    conn, shop, sm["co_viewed_pairs"]
+                                )
+                                conn.commit()
+                                exec_count += n
+                            except Exception as exc_e:
+                                conn.rollback()
+                                log(f"execution_engine error for {shop} (non-fatal): {exc_e}")
 
-                        store_count += 1
-                    except Exception as exc:
-                        conn.rollback()
-                        log(f"store_metrics error for {shop} (non-fatal): {exc}")
+                            # Update outcome tracking for existing audiences
+                            try:
+                                _update_tracking_outcomes(conn, shop)
+                                conn.commit()
+                            except Exception as exc_t:
+                                conn.rollback()
+                                log(f"execution tracking error for {shop} (non-fatal): {exc_t}")
+
+                            # Detect holdout leakage (before computing deltas)
+                            try:
+                                leaked = detect_holdout_leakage(conn, shop)
+                                conn.commit()
+                                if leaked > 0:
+                                    log(f"holdout leakage: flagged {leaked} rows for {shop}")
+                            except Exception as exc_l:
+                                conn.rollback()
+                                log(f"leakage detection error for {shop} (non-fatal): {exc_l}")
+
+                            # Compute post-execution deltas for confirmed executions
+                            try:
+                                deltas = compute_post_execution_deltas(conn, shop)
+                                conn.commit()
+                                if deltas > 0:
+                                    log(f"execution deltas: computed {deltas} for {shop}")
+                            except Exception as exc_d:
+                                conn.rollback()
+                                log(f"execution delta error for {shop} (non-fatal): {exc_d}")
+
+                            # Compute Store Intelligence Profile (SIP)
+                            try:
+                                from app.services.sip_engine import compute_sip, upsert_sip, maybe_snapshot
+                                sip_data = compute_sip(conn, shop)
+                                if sip_data:
+                                    upsert_sip(conn, sip_data)
+                                    maybe_snapshot(conn, sip_data)
+                                    conn.commit()
+                            except Exception as exc_sip:
+                                conn.rollback()
+                                log(f"SIP error for {shop} (non-fatal): {exc_sip}")
+
+                            # Autonomous Revenue Loop (Pro merchants only)
+                            try:
+                                from app.services.autonomous_loop import run_autonomous_cycle
+                                db_session = SessionLocal()
+                                try:
+                                    # Gate: only run for Pro merchants with billing active
+                                    from app.models.merchant import Merchant
+                                    merchant = db_session.query(Merchant).filter(
+                                        Merchant.shop_domain == shop,
+                                        Merchant.plan == "pro",
+                                        Merchant.billing_active == True,  # noqa: E712
+                                        Merchant.install_status == "active",
+                                    ).first()
+                                    if merchant:
+                                        auto_count = run_autonomous_cycle(db_session, shop)
+                                        if auto_count > 0:
+                                            log(f"autonomous_loop: {auto_count} action(s) for {shop}")
+                                finally:
+                                    db_session.close()
+                            except Exception as exc_auto:
+                                log(f"autonomous_loop error for {shop} (non-fatal): {exc_auto}")
+
+                            store_count += 1
+                        except Exception as exc:
+                            conn.rollback()
+                            log(f"store_metrics error for {shop} (non-fatal): {exc}")
 
                 if store_count > 0:
                     log(f"store_metrics: updated {store_count} shop(s), {exec_count} opportunities")
