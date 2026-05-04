@@ -35,6 +35,7 @@ ingestion idempotent. `upsert_rows` uses ON CONFLICT DO UPDATE.
 from __future__ import annotations
 
 import logging
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -47,6 +48,11 @@ from sqlalchemy.orm import Session
 from app.models.ad_spend import AdConnection, AdSpendDaily
 
 log = logging.getLogger("ads_connectors")
+
+# Multi-row UPSERT chunk size. Postgres bind-param limit ~32K;
+# 11 cols × 500 rows = 5500 params (8% of cap). Env-tunable for
+# ops adjustment without code change.
+_UPSERT_CHUNK_SIZE = int(os.getenv("ADS_UPSERT_CHUNK_SIZE", "500"))
 
 
 # ---------------------------------------------------------------------------
@@ -285,9 +291,8 @@ def upsert_rows(db: Session, rows: Iterable[NormalizedSpendRow]) -> tuple[int, i
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     inserted = updated = 0
 
-    CHUNK = 500
-    for i in range(0, len(rows_list), CHUNK):
-        chunk = rows_list[i:i + CHUNK]
+    for i in range(0, len(rows_list), _UPSERT_CHUNK_SIZE):
+        chunk = rows_list[i:i + _UPSERT_CHUNK_SIZE]
         values = [{
             "shop_domain": r.shop_domain,
             "date": r.date,
