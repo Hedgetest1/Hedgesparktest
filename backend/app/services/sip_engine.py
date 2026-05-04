@@ -302,7 +302,7 @@ def upsert_sip(conn: Connection, sip: dict[str, Any]) -> None:
         if cur and int(cur[0] or 0) > new_autonomy:
             new_autonomy = int(cur[0])  # monotonic floor
     except Exception:
-        pass
+        pass  # SILENT-EXCEPT-OK: monotonic-floor read is best-effort; on miss we use the freshly-computed new_autonomy (no regression risk).
     sip["autonomy_level"] = new_autonomy
 
     conn.execute(

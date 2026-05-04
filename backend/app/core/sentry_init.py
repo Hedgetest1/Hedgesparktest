@@ -374,7 +374,7 @@ def pipeline_breadcrumb(
             data=data or {},
         )
     except Exception:
-        pass
+        pass  # SILENT-EXCEPT-OK: defensive — sentry_sdk may be absent or scope inactive; raising here would defeat the "never raises" guarantee in the docstring above.
 
 
 def cron_monitor(

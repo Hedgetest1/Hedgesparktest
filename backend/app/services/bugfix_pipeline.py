@@ -1596,7 +1596,7 @@ def _post_apply_retro_check(candidate: "BugFixCandidate", db: Session) -> None:
             },
         )
     except Exception:
-        pass
+        pass  # SILENT-EXCEPT-OK: sentry breadcrumb best-effort observability; raising would mask the post-apply retro-check finding being recorded.
 
     if not residual:
         log.info(
@@ -1647,7 +1647,7 @@ def _post_apply_retro_check(candidate: "BugFixCandidate", db: Session) -> None:
         try:
             db.rollback()
         except Exception:
-            pass
+            pass  # SILENT-EXCEPT-OK: rollback inside SINK-class except handler — if rollback itself raises, the session is already broken and the outer log.warning below still records the original exc.
         log.warning(
             "post_apply_retro_check: alert write failed (cand=%d): %s",
             candidate.id, exc,
@@ -3213,7 +3213,7 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
             },
         )
     except Exception:
-        pass
+        pass  # SILENT-EXCEPT-OK: sentry breadcrumb best-effort observability for analyze step; analysis state advance must not be blocked by telemetry failure.
 
     candidate.status = "analyzed"
 
@@ -3794,7 +3794,7 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
                     existing_ctx["intent_bag"] = sorted(intent_bag)
                     candidate.context_json = json.dumps(existing_ctx)
             except Exception:
-                pass
+                pass  # SILENT-EXCEPT-OK: intent_bag annotation on rejected candidate is best-effort similarity-corpus enrichment; rejection path must continue regardless.
             db.flush()
             return False
         # Stash the bag for future similarity checks (so when this
@@ -3805,7 +3805,7 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
                 existing_ctx["intent_bag"] = sorted(intent_bag)
                 candidate.context_json = json.dumps(existing_ctx)
         except Exception:
-            pass
+            pass  # SILENT-EXCEPT-OK: intent_bag stash for accepted candidate is best-effort similarity-corpus enrichment; patch_proposed advance must not depend on it.
 
     candidate.status = "patch_proposed"
 
@@ -5499,7 +5499,7 @@ def _apply_bugfix_candidate_impl(db: Session, candidate_id: int) -> ApplyResult:
                 },
             )
         except Exception:
-            pass
+            pass  # SILENT-EXCEPT-OK: sentry breadcrumb best-effort observability after successful apply; the apply already committed and Phase B retro-check below must run regardless.
 
         # Phase B (post-apply retro-grep verification): re-run sibling
         # sweep with the candidate's pre-apply pattern signatures.

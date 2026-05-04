@@ -566,7 +566,7 @@ def run_invariant_check(db: Session) -> dict:
                 },
             )
         except Exception:
-            pass
+            pass  # SILENT-EXCEPT-OK: sentry breadcrumb is best-effort observability; raising here would mask the audit-script failure being recorded.
 
         summary["failed"] += 1
         # Trim audit output to a reasonable detail size
