@@ -60,6 +60,10 @@ _HIGH_SPIKE_TABLES = frozenset({
     # (>90d pruned). Born 2026-05-04 from same audit cycle that caught
     # bugfix_candidates.
     "reviewer_assessments",
+    # sentry_incidents: pipeline-driven Sentry triage queue. Resolved
+    # incidents pruned >60d; active incidents (status != 'resolved')
+    # never pruned. Same growth-audit catch pattern; same fix.
+    "sentry_incidents",
 })
 _HIGH_SPIKE_THRESHOLD_PCT = 500
 

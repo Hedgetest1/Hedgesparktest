@@ -39,6 +39,10 @@ BUGFIX_CANDIDATE_RETENTION_DAYS = 30
 # not load-bearing past 90d. Keeps the table bounded for the audit
 # growth check.
 REVIEWER_ASSESSMENT_RETENTION_DAYS = 90
+# Sentry incident table is pipeline-driven; resolved incidents older
+# than 60d are analytical breadcrumbs not load-bearing. Active
+# incidents (resolved=False) are NEVER pruned.
+SENTRY_INCIDENT_RETENTION_DAYS = 60
 
 _RETENTION_INTERVAL_S = 86_400  # once per 24h
 
@@ -125,6 +129,29 @@ def run_worker_log_retention(conn) -> int:
     cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=WORKER_LOG_RETENTION_DAYS)
     result = conn.execute(
         text("DELETE FROM worker_log WHERE started_at < :cutoff"),
+        {"cutoff": cutoff},
+    )
+    return result.rowcount
+
+
+def run_sentry_incident_retention(conn) -> int:
+    """Delete RESOLVED sentry_incidents older than
+    SENTRY_INCIDENT_RETENTION_DAYS. Active incidents (any non-resolved
+    status) are NEVER pruned — they're load-bearing for the triage
+    pipeline. Born 2026-05-04 same audit_db_table_growth cycle that
+    caught bugfix_candidates + reviewer_assessments earlier this
+    session."""
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+        days=SENTRY_INCIDENT_RETENTION_DAYS
+    )
+    result = conn.execute(
+        text(
+            """
+            DELETE FROM sentry_incidents
+            WHERE status = 'resolved'
+              AND created_at < :cutoff
+            """
+        ),
         {"cutoff": cutoff},
     )
     return result.rowcount

@@ -964,8 +964,8 @@ refuses to start if prior `_loadtest_` shops exist unless --force).
 | `hs:survey:daily:{shop}:{date}` | Per-shop daily survey cap (10k/day) | 48h |
 | `hs:survey:pii_violations:{date}` | Daily PII-blocked counter | 30d |
 | `hs:survey:first_today:{shop}:{date}` | SETNX first-response flag | 24h |
-| `hs:mgroup:v1:dash:{group_id}:{lookback_days}` | Multi-store rollup cache | 5min |
-| `hs:agency:v1:dash:{agency_id}:{lookback_days}` | Agency rollup cache | 5min |
+| `hs:mgroup:v1:{group_id}:{lookback_days}` | Multi-store rollup cache | 5min |
+| `hs:agency:v1:{agency_id}:{lookback_days}` | Agency rollup cache | 5min |
 
 Curated list — backend uses ~150 prefixes total; rest tracked in
 owning modules. Verified by `audit_claude_md_redis_keys.py`

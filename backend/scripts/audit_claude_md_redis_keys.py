@@ -35,6 +35,12 @@ BACKEND_ROOT = Path(__file__).resolve().parent.parent
 REPO_ROOT = BACKEND_ROOT.parent
 APP_ROOT = BACKEND_ROOT / "app"
 CLAUDE_MD = REPO_ROOT / "CLAUDE.md"
+# Two-tier doc structure (born 2026-05-04 Item 7 closure): CLAUDE.md
+# §13 holds the curated subset of load-bearing keys; the catalog
+# below mirrors EVERY prefix used in app/. Audit passes if a prefix
+# appears in EITHER file (union semantics) — keeps CLAUDE.md
+# bounded ≤24KB while still enforcing 100% coverage.
+REDIS_CATALOG_MD = REPO_ROOT / "docs" / "REDIS_KEYS_CATALOG.md"
 
 # Redis key families we track. Extend only when a new system
 # introduces a new top-level namespace (don't sub-namespace existing
@@ -75,6 +81,21 @@ def _extract_doc_prefixes(md_text: str) -> set[str]:
         if not in_section:
             continue
         # Match first-cell inline-code: | `hs:foo:{x}` | ...
+        m = re.match(r"\s*\|\s*`([^`]+)`", line)
+        if not m:
+            continue
+        raw = m.group(1)
+        if raw.startswith(KEY_FAMILIES):
+            prefixes.add(_stable_prefix(raw))
+    return prefixes
+
+
+def _extract_catalog_prefixes(md_text: str) -> set[str]:
+    """Parse docs/REDIS_KEYS_CATALOG.md table — every row's first cell
+    is a backtick-wrapped Redis prefix. Same union-coverage semantics
+    as the CLAUDE.md §13 parser above."""
+    prefixes: set[str] = set()
+    for line in md_text.splitlines():
         m = re.match(r"\s*\|\s*`([^`]+)`", line)
         if not m:
             continue
@@ -177,6 +198,10 @@ def main(argv: list[str]) -> int:
         return 2
 
     doc_prefixes = _extract_doc_prefixes(CLAUDE_MD.read_text())
+    # Union-coverage: catalog file supplements §13 with the exhaustive
+    # list of prefixes that don't fit the curated CLAUDE.md subset.
+    if REDIS_CATALOG_MD.exists():
+        doc_prefixes |= _extract_catalog_prefixes(REDIS_CATALOG_MD.read_text())
     code_prefixes_map = _extract_code_prefixes(APP_ROOT)
     code_prefixes = set(code_prefixes_map.keys())
 
