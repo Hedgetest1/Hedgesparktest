@@ -54,6 +54,12 @@ _HIGH_SPIKE_TABLES = frozenset({
     # during burst-triage cycles. Retention task in retention_task.py
     # bounds growth (terminal status pruned at 30d).
     "bugfix_candidates",
+    # reviewer_assessments: append-only audit trail of every reviewer
+    # decision. Pipeline-driven; legitimately spikes during burst-
+    # propose cycles. Retention task in retention_task.py bounds growth
+    # (>90d pruned). Born 2026-05-04 from same audit cycle that caught
+    # bugfix_candidates.
+    "reviewer_assessments",
 })
 _HIGH_SPIKE_THRESHOLD_PCT = 500
 

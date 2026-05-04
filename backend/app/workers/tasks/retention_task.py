@@ -34,6 +34,11 @@ WORKER_LOG_RETENTION_DAYS = 30
 # Active candidates (open/analyzed/patch_proposed/applied/superseded)
 # are NEVER pruned by this task — only terminal failure/discarded rows.
 BUGFIX_CANDIDATE_RETENTION_DAYS = 30
+# Reviewer assessments are write-once audit trail of every reviewer
+# decision (propose/apply/promote). Useful for trend analysis but
+# not load-bearing past 90d. Keeps the table bounded for the audit
+# growth check.
+REVIEWER_ASSESSMENT_RETENTION_DAYS = 90
 
 _RETENTION_INTERVAL_S = 86_400  # once per 24h
 
@@ -120,6 +125,26 @@ def run_worker_log_retention(conn) -> int:
     cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=WORKER_LOG_RETENTION_DAYS)
     result = conn.execute(
         text("DELETE FROM worker_log WHERE started_at < :cutoff"),
+        {"cutoff": cutoff},
+    )
+    return result.rowcount
+
+
+def run_reviewer_assessment_retention(conn) -> int:
+    """Delete reviewer_assessments older than REVIEWER_ASSESSMENT_RETENTION_DAYS.
+
+    The table is append-only audit trail — every propose/apply/promote
+    cycle writes 1+ assessments. Bounded growth requires age-based pruning.
+    Born 2026-05-04: audit_db_table_growth caught the table at 50 → 270
+    rows (+440%) in a 24h window with no retention wired.
+    """
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+        days=REVIEWER_ASSESSMENT_RETENTION_DAYS
+    )
+    result = conn.execute(
+        text(
+            "DELETE FROM reviewer_assessments WHERE created_at < :cutoff"
+        ),
         {"cutoff": cutoff},
     )
     return result.rowcount
