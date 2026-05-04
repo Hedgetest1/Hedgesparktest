@@ -203,27 +203,49 @@ async def issue_request(
 
 async def run_merchant(
     client: httpx.AsyncClient, shop: str, token: str,
-    route: str, k: int,
+    route: str, k: int, *, think_ms: float = 0.0,
 ) -> list[RequestResult]:
     """Issue K sequential requests for one merchant (simulates the
-    merchant browsing the dashboard)."""
+    merchant browsing the dashboard). think_ms inserts inter-request
+    sleep — production merchants don't fire 10 requests instantly,
+    they browse over time. This makes the harness realistic for cache-
+    hit-ratio measurement (60s outer cache absorbs subsequent hits)."""
     results: list[RequestResult] = []
-    for _ in range(k):
+    for i in range(k):
         r = await issue_request(client, shop, route, token)
         results.append(r)
+        if think_ms > 0 and i < k - 1:
+            await asyncio.sleep(think_ms / 1000.0)
     return results
 
 
 async def run_harness(
     shops: list[str], tokens: dict[str, str], route: str,
     requests_per_merchant: int, base_url: str,
+    *, ramp_seconds: float = 0.0, think_ms: float = 0.0,
 ) -> HarnessReport:
-    """Top-level driver: asyncio.gather over all merchants concurrently."""
+    """Top-level driver. asyncio.gather over all merchants. When
+    ramp_seconds > 0, merchant START times are staggered uniformly
+    across the ramp window — this matches realistic production
+    arrival patterns (merchants browse throughout the day, not all
+    at the same instant). The synthetic worst-case is ramp_seconds=0
+    (all 100 fire cold-cache simultaneously); production-realistic
+    is ramp_seconds = duration of test (steady arrival rate)."""
     t0 = time.perf_counter()
+    delay_per = (ramp_seconds / max(len(shops) - 1, 1)) if ramp_seconds > 0 else 0.0
+
+    async def staged(idx: int, shop: str, token: str, client) -> list[RequestResult]:
+        if delay_per > 0 and idx > 0:
+            await asyncio.sleep(idx * delay_per)
+        return await run_merchant(
+            client, shop, token, route,
+            requests_per_merchant, think_ms=think_ms,
+        )
+
     async with httpx.AsyncClient(base_url=base_url) as client:
         tasks = [
-            run_merchant(client, s, tokens[s], route, requests_per_merchant)
-            for s in shops
+            staged(i, s, tokens[s], client)
+            for i, s in enumerate(shops)
         ]
         merchant_results = await asyncio.gather(*tasks)
     duration_s = time.perf_counter() - t0
@@ -334,6 +356,15 @@ def main() -> int:
                     help="Max acceptable error rate %% (default 1.0)")
     ap.add_argument("--max-query-count", type=int, default=30,
                     help="Max acceptable p95 X-Query-Count (default 30)")
+    ap.add_argument("--ramp-seconds", type=float, default=0.0,
+                    help=("Stagger merchant START times across N seconds. "
+                          "0 (default) = synthetic worst case (all cold "
+                          "simultaneously); set > 0 for production-realistic "
+                          "arrival pattern."))
+    ap.add_argument("--think-ms", type=float, default=0.0,
+                    help=("Sleep N ms between sequential requests within "
+                          "the same merchant. 0 = back-to-back (synthetic); "
+                          "1000-5000 = realistic browsing pace."))
     ap.add_argument("--force", action="store_true",
                     help="Wipe pre-existing _loadtest_ merchants and proceed")
     ap.add_argument("--keep", action="store_true",
@@ -359,9 +390,18 @@ def main() -> int:
         print(f"[run] hitting {args.route} ({args.requests} req × "
               f"{args.merchants} merchants = {args.requests * args.merchants} "
               f"total) concurrently against {args.base_url} ...")
+        scenario = "synthetic-worst-case"
+        if args.ramp_seconds > 0 or args.think_ms > 0:
+            scenario = (
+                f"production-realistic ramp={args.ramp_seconds}s "
+                f"think={args.think_ms}ms"
+            )
+        print(f"[run] scenario: {scenario}")
         report = asyncio.run(
             run_harness(shops, tokens, args.route,
-                        args.requests, args.base_url),
+                        args.requests, args.base_url,
+                        ramp_seconds=args.ramp_seconds,
+                        think_ms=args.think_ms),
         )
         passed = print_report(
             report,
