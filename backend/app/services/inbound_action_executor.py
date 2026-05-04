@@ -188,22 +188,28 @@ def run_low_severity_escalation(db: Session) -> dict:
         HAVING COUNT(*) >= :threshold
     """), {"cutoff": cutoff, "threshold": _LOW_BUG_ESCALATION_THRESHOLD}).fetchall()
 
+    # Bulk-fetch shops that already have an active escalation in the
+    # window — collapses N+1 dedup probe into a single query (was 1
+    # SELECT per shop). The agent_worker that calls this is a singleton
+    # (CLAUDE.md §6) so no race vs concurrent escalators is possible.
+    candidate_shops = [r[0] for r in rows]
+    already_escalated: set[str] = set()
+    if candidate_shops:
+        existing_rows = db.execute(text("""
+            SELECT DISTINCT shop_domain FROM ops_alerts
+            WHERE alert_type = 'merchant_bug_escalation'
+              AND shop_domain = ANY(:shops)
+              AND created_at >= :cutoff
+              AND resolved = false
+        """), {"shops": candidate_shops, "cutoff": cutoff}).fetchall()
+        already_escalated = {r[0] for r in existing_rows}
+
     escalated = 0
     for row in rows:
         shop = row[0]
         count = row[1]
 
-        # Dedup: check if escalation alert already exists this week
-        existing = db.execute(text("""
-            SELECT id FROM ops_alerts
-            WHERE alert_type = 'merchant_bug_escalation'
-              AND shop_domain = :shop
-              AND created_at >= :cutoff
-              AND resolved = false
-            LIMIT 1
-        """), {"shop": shop, "cutoff": cutoff}).first()
-
-        if existing:
+        if shop in already_escalated:
             continue
 
         from app.services.alerting import write_alert

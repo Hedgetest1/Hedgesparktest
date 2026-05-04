@@ -244,6 +244,61 @@ class TestLowSeverityEscalation:
         result = run_low_severity_escalation(db)
         assert result["escalated"] == 0
 
+    def test_bulk_dedup_skips_already_escalated_only(self, db):
+        """Bulk-dedup correctness: shop with active escalation is skipped,
+        sibling shops without active escalation are still escalated.
+        Regression guard for the N+1 collapse (was 1 SELECT per shop)."""
+        from app.models.inbound_email import InboundEmail
+        from app.services.alerting import write_alert
+        from app.services.inbound_action_executor import run_low_severity_escalation
+
+        already_shop = "already-esc.myshopify.com"
+        new_shop = "needs-esc.myshopify.com"
+
+        # Pre-existing active escalation for already_shop
+        write_alert(
+            db,
+            severity="warning",
+            source="test",
+            alert_type="merchant_bug_escalation",
+            summary="prior escalation",
+            shop_domain=already_shop,
+        )
+        db.flush()
+
+        # 4 bug reports each — both shops cross the threshold
+        for shop in (already_shop, new_shop):
+            for i in range(4):
+                db.add(InboundEmail(
+                    message_id=f"dedup-{shop}-{i}",
+                    from_email=f"x@{shop}",
+                    shop_domain=shop,
+                    classification="bug_report",
+                    routing_status="executed",
+                ))
+        db.flush()
+
+        with patch("app.services.inbound_action_executor._now", return_value=_now()):
+            result = run_low_severity_escalation(db)
+        db.flush()
+
+        # Exactly one new escalation for new_shop; already_shop is skipped
+        new_alerts = db.execute(text(
+            "SELECT shop_domain FROM ops_alerts "
+            "WHERE alert_type = 'merchant_bug_escalation' "
+            "AND shop_domain IN (:a, :b) "
+            "AND resolved = false"
+        ), {"a": already_shop, "b": new_shop}).fetchall()
+        shops_with_alert = {r[0] for r in new_alerts}
+        assert new_shop in shops_with_alert
+        # already_shop has exactly 1 alert (the pre-existing), not 2
+        already_count = db.execute(text(
+            "SELECT COUNT(*) FROM ops_alerts "
+            "WHERE alert_type = 'merchant_bug_escalation' "
+            "AND shop_domain = :s AND resolved = false"
+        ), {"s": already_shop}).scalar()
+        assert already_count == 1, f"expected 1 alert for already_shop, got {already_count}"
+
 
 # ---------------------------------------------------------------------------
 # H6: Per-merchant email diagnostics
