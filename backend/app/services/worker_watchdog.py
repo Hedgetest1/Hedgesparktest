@@ -10,6 +10,17 @@ worker whose last_run_at exceeds 2× its expected cadence. If stale,
 invoke `pm2 restart {name}` to resuscitate it. Rate-limited via Redis
 so a permanently-broken worker doesn't get restart-hammered.
 
+CRITICAL: the watchdog runs INSIDE agent_worker. If it tries to restart
+its own host (wishspark-agent-worker), `pm2 restart wishspark-agent-worker`
+sends SIGTERM to the same process running this code — subprocess hangs,
+then KeyboardInterrupt fires, crash. PM2 respawns agent_worker, which
+runs the watchdog, which sees itself stale (last_run_at not yet
+updated because the previous cycle was killed mid-run), tries restart
+again → infinite suicide loop. Bug surfaced 2026-05-04 evening: 131
+restart cycles before audit_worker_memory_growth caught the symptom
+(99MB module-load baseline misclassified as leak).
+Fix: SELF_HOST_PM2_NAME constant — watchdog refuses to restart itself.
+
 Thresholds (2× the normal cadence from CLAUDE.md):
   wishspark-worker             : 10 min → 20 min stale
   wishspark-agent-worker       : 15 min → 30 min stale
@@ -43,6 +54,11 @@ WORKER_THRESHOLDS: dict[str, tuple[int, str]] = {
 }
 
 _RESTART_COOLDOWN_S = 1800  # 30 min — don't hammer a broken worker
+
+# Watchdog runs inside agent_worker. It cannot restart its own host
+# without committing suicide (see module docstring). This constant
+# documents the host so the host-skip rule is explicit.
+SELF_HOST_PM2_NAME = "wishspark-agent-worker"
 
 
 def _restart_cooldown_key(worker: str) -> str:
@@ -131,6 +147,14 @@ def run_watchdog(db: Session) -> dict:
 
     for worker, (threshold_min, pm2_name) in WORKER_THRESHOLDS.items():
         report["checked"] += 1
+
+        # Suicide-prevention: skip self-restart. The watchdog runs inside
+        # agent_worker; restarting the host would crash the watchdog mid-
+        # subprocess.run() and trigger an infinite restart loop. An
+        # external monitor would be needed to recover a stuck agent_worker.
+        if pm2_name == SELF_HOST_PM2_NAME:
+            continue
+
         last_run = state_by_worker.get(worker)
         if last_run is None:
             # Worker has no state yet — skip

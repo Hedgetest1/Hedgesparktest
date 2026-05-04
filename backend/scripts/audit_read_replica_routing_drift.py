@@ -151,34 +151,128 @@ def audit_file(path: Path) -> list[tuple[int, str]]:
     return findings
 
 
+def _apply_fix(path: Path, decorator_lines: list[int]) -> int:
+    """Auto-switch flagged GET endpoints to Depends(get_read_db).
+
+    Returns count of switches applied. Idempotent — re-running on a
+    file that's already correct is a no-op.
+    """
+    import re
+
+    src = path.read_text()
+    src_lines = src.split("\n")
+    tree = ast.parse(src)
+
+    edits_count = 0
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        match = False
+        for dec in node.decorator_list:
+            if _is_get_route(dec) and dec.lineno in decorator_lines:
+                match = True
+                break
+        if not match:
+            continue
+        for default in (node.args.defaults or []):
+            if not (
+                isinstance(default, ast.Call)
+                and isinstance(default.func, ast.Name)
+                and default.func.id == "Depends"
+            ):
+                continue
+            if default.args and isinstance(default.args[0], ast.Name) and default.args[0].id == "get_db":
+                idx = default.lineno - 1
+                old = src_lines[idx]
+                new = old.replace("Depends(get_db)", "Depends(get_read_db)")
+                if old != new:
+                    src_lines[idx] = new
+                    edits_count += 1
+
+    if edits_count == 0:
+        return 0
+
+    new_src = "\n".join(src_lines)
+    # Ensure get_read_db imported. Check for explicit import name in
+    # the database-import line; do NOT just check global string presence
+    # (newly-inserted Depends(get_read_db) makes substring check unsafe).
+    has_import = re.search(
+        r"^from app\.core\.database import [^#\n]*\bget_read_db\b",
+        new_src, flags=re.M,
+    )
+    if not has_import:
+        if re.search(r"^from app\.core\.database import (.+)$", new_src, flags=re.M):
+            new_src = re.sub(
+                r"^(from app\.core\.database import )(.+)$",
+                lambda m: f"{m.group(1)}{m.group(2).strip()}, get_read_db",
+                new_src, count=1, flags=re.M,
+            )
+        else:
+            # File imports get_db from elsewhere (e.g. app.core.deps).
+            # Insert standalone import at the top imports block, after
+            # the first `from app.` line.
+            new_src = re.sub(
+                r"^(from app\.[^\n]+\n)",
+                r"\1from app.core.database import get_read_db\n",
+                new_src, count=1, flags=re.M,
+            )
+    path.write_text(new_src)
+    return edits_count
+
+
 def main() -> int:
     strict = "--strict" in sys.argv
+    fix_mode = "--fix" in sys.argv
 
     total_findings = 0
-    by_file: dict[str, list[tuple[int, str]]] = {}
+    by_file: dict[Path, list[tuple[int, str]]] = {}
     for f in sorted(API_DIR.glob("*.py")):
         if f.name == "__init__.py" or f.name in ALLOWLIST_FILES:
             continue
         findings = audit_file(f)
         if findings:
-            by_file[str(f.relative_to(REPO_ROOT))] = findings
+            by_file[f] = findings
             total_findings += len(findings)
 
     if total_findings == 0:
         print("✅ no read-replica routing drift — all pure-read GET endpoints route via get_read_db.")
         return 0
 
-    for file, findings in by_file.items():
+    if fix_mode:
+        total_fixed = 0
+        for fpath, findings in by_file.items():
+            decorator_lines = [line for line, _ in findings]
+            fixed = _apply_fix(fpath, decorator_lines)
+            if fixed:
+                rel = fpath.relative_to(REPO_ROOT)
+                print(f"  ✓ {rel}: switched {fixed} route(s) to get_read_db")
+                total_fixed += fixed
+        print(f"\nauto-fix applied: {total_fixed} route(s) switched.")
+        # Re-run audit to confirm clean
+        residual = 0
+        for f in sorted(API_DIR.glob("*.py")):
+            if f.name == "__init__.py" or f.name in ALLOWLIST_FILES:
+                continue
+            residual += len(audit_file(f))
+        if residual == 0:
+            print("✅ all drift resolved.")
+            return 0
+        print(f"⚠️  {residual} finding(s) remain after auto-fix — manual review needed.")
+        return 1
+
+    for fpath, findings in by_file.items():
+        rel = fpath.relative_to(REPO_ROOT)
         for line, name in findings:
             print(
-                f"  ⚠️  {file}:{line} — GET {name}() uses Depends(get_db) "
+                f"  ⚠️  {rel}:{line} — GET {name}() uses Depends(get_db) "
                 f"but appears pure-read"
             )
 
     print(
         f"\n{total_findings} pure-read GET endpoint(s) on primary instead of "
         f"read replica. Switch with: db: Session = Depends(get_read_db)\n"
-        f"Or annotate `# {OPT_OUT_MARKER} — <reason>` on the @router.get line."
+        f"Or annotate `# {OPT_OUT_MARKER} — <reason>` on the @router.get line.\n"
+        f"Auto-fix: re-run with `--fix` to switch all flagged routes."
     )
     return 1 if strict else 0
 

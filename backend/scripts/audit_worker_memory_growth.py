@@ -107,7 +107,26 @@ def main() -> int:
     ledger = _prune(ledger)
     _save_ledger(ledger)
 
-    # Compute per-worker min over the window
+    # Compute per-worker baseline over the window using the 10th
+    # percentile instead of absolute min. Rationale: absolute min is
+    # poisoned by init-crash snapshots (Python process caught
+    # mid-module-load reports sub-baseline memory). Empirical
+    # 2026-05-04: agent_worker history had values [14, 39, 69, 90, 90,
+    # ...178] MB — 14/39/69 were partial-init snapshots; 90 was true
+    # post-load baseline. P10 = 90 here, robust to a few outliers.
+    # Require _MIN_STABLE_SAMPLES (5) before trusting the baseline so
+    # newly-fixed workers (like agent_worker post-suicide-loop fix)
+    # don't trip on a too-small sample.
+    _MIN_STABLE_SAMPLES = 5
+
+    def _p10(values: list[int]) -> int:
+        """Return the 10th percentile of the sorted values list."""
+        if not values:
+            return 0
+        s = sorted(values)
+        idx = max(0, (len(s) - 1) // 10)
+        return s[idx]
+
     by_worker: dict[str, list[int]] = {}
     for ts, snap in ledger.items():
         for name, mem in snap.items():
@@ -115,8 +134,10 @@ def main() -> int:
 
     findings: list[str] = []
     for name, mem_now in snapshot.items():
-        history = by_worker.get(name) or [mem_now]
-        baseline_min = min(history)
+        history = by_worker.get(name) or []
+        if len(history) < _MIN_STABLE_SAMPLES:
+            continue
+        baseline_min = _p10(history)
         if baseline_min <= 0:
             continue
         growth_pct = ((mem_now - baseline_min) * 100) // baseline_min

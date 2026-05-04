@@ -149,33 +149,59 @@ def audit_file(path: Path) -> list[tuple[int, str]]:
 
 def main() -> int:
     strict = "--strict" in sys.argv
+    fix_mode = "--fix" in sys.argv
 
     files = sorted(WORKERS_DIR.glob("*.py")) + [
         f for f in SERVICE_FILES_WITH_PER_SHOP_LOOPS if f.exists()
     ]
 
     total_findings = 0
+    findings_by_file: dict[Path, list[tuple[int, str]]] = {}
     for f in files:
         if f.name == "__init__.py":
             continue
         findings = audit_file(f)
         if findings:
-            for line, target in findings:
-                rel = f.relative_to(REPO_ROOT)
-                print(
-                    f"  ⚠️  {rel}:{line} — for-loop over '{target}' issues "
-                    f"db.* calls without worker_scope wrap"
-                )
+            findings_by_file[f] = findings
             total_findings += len(findings)
 
     if total_findings == 0:
         print("✅ all per-shop worker loops are wrapped in worker_scope.")
         return 0
 
+    if fix_mode:
+        # Auto-fix is non-trivial — wrapping a for-body in `with worker_scope(...)`
+        # requires re-indenting every body statement. Doable but high
+        # regression risk if the body has comments / decorators / multi-
+        # line statements. Surface the structured suggestion instead so
+        # the operator (or pipeline) can apply a deterministic patch.
+        print("auto-fix mode: emitting structured suggestions (manual apply)")
+        for fpath, findings in findings_by_file.items():
+            rel = fpath.relative_to(REPO_ROOT)
+            for line, target in findings:
+                module = fpath.stem.replace("_worker", "")
+                print(
+                    f"  ⚠️  {rel}:{line} — wrap with:"
+                    f"\n      from app.core.query_count_monitor import worker_scope as _worker_scope"
+                    f"\n      ...for {target} in <iter>:"
+                    f"\n          with _worker_scope('{module}.<op>', {target}):"
+                    f"\n              ..."
+                )
+        return 1 if strict else 0
+
+    for fpath, findings in findings_by_file.items():
+        rel = fpath.relative_to(REPO_ROOT)
+        for line, target in findings:
+            print(
+                f"  ⚠️  {rel}:{line} — for-loop over '{target}' issues "
+                f"db.* calls without worker_scope wrap"
+            )
+
     print(
         f"\n{total_findings} unwrapped per-shop loop(s) found. "
         f"Wrap with: with worker_scope('module.op', shop_id): ...\n"
-        f"Or annotate with `{OPT_OUT_COMMENT}` if not actually per-shop."
+        f"Or annotate with `{OPT_OUT_COMMENT}` if not actually per-shop.\n"
+        f"Suggested wrapping: re-run with `--fix` for structured suggestions."
     )
     return 1 if strict else 0
 
