@@ -54,20 +54,33 @@ log = logging.getLogger("query_count")
 _SOFT_THRESHOLD = int(os.getenv("QUERY_COUNT_SOFT_THRESHOLD", "30"))
 _HARD_THRESHOLD = int(os.getenv("QUERY_COUNT_HARD_THRESHOLD", "100"))
 
-# Per-request count. ContextVar is the right primitive for FastAPI
-# async — task-local, no cross-request bleed even under concurrency.
-_query_count: contextvars.ContextVar[int] = contextvars.ContextVar(
-    "query_count", default=0,
+# Per-request count.
+#
+# IMPORTANT: we hold a MUTABLE dict in the contextvar, not an int. When
+# FastAPI dispatches a sync route handler it runs the body via
+# anyio.to_thread.run_sync() which COPIES the current context. Integer
+# `.set()` calls inside the worker thread don't propagate back to the
+# event-loop's view (the copy is, well, a copy). Holding a dict and
+# mutating it works because both copies hold the SAME object reference;
+# `state["count"] += 1` in the worker thread mutates the dict the
+# middleware then reads. ContextVar still gives task-local isolation
+# (each request's middleware creates a fresh dict via reset_count()).
+_query_state: contextvars.ContextVar[dict] = contextvars.ContextVar(
+    "query_state", default={"count": 0},
 )
 
 
 def reset_count() -> None:
-    _query_count.set(0)
+    """Replace the contextvar's dict with a fresh one. Must run at
+    request entry so a NEW shared object is in scope for both the
+    middleware (event loop) and the worker thread that runs the
+    sync route + DB execute."""
+    _query_state.set({"count": 0})
 
 
 def get_count() -> int:
     try:
-        return _query_count.get()
+        return _query_state.get()["count"]
     except LookupError:
         return 0
 
@@ -79,9 +92,11 @@ def install_listener(engine) -> None:
     @event.listens_for(engine, "after_cursor_execute")
     def _on_query(conn, cursor, statement, parameters, context, executemany):
         # Defensive: contextvar may not be set in non-request scopes
-        # (workers, scripts) — silently skip.
+        # (workers, scripts) — silently skip. In request scopes, mutating
+        # the dict in-place propagates back to the event-loop's reader.
         try:
-            _query_count.set(_query_count.get() + 1)
+            state = _query_state.get()
+            state["count"] = state.get("count", 0) + 1
         except LookupError:
             pass  # SILENT-EXCEPT-OK: contextvar lookup outside a request scope is expected for worker / script queries; runtime counting only meaningful for HTTP request scope.
 
