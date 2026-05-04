@@ -83,8 +83,8 @@ elif "sslmode=" in (DATABASE_URL or ""):
 # With PgBouncer in transaction mode the pool_size here can be reduced to
 # 2-3 since PgBouncer owns the real connection pool.
 # ---------------------------------------------------------------------------
-POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "5"))
-POOL_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "10"))
+POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "8"))
+POOL_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "15"))
 
 engine = create_engine(
     DATABASE_URL,

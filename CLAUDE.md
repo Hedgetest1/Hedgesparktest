@@ -537,13 +537,16 @@ mutable state would NOT share across them, so every such site in
 annotated `# multi-worker: accept-degrade` — enforced at preflight
 via `scripts/audit_multiworker_safety.py`.
 
-**DB pool math:** `DB_POOL_SIZE=5`, `DB_MAX_OVERFLOW=10` (ecosystem.
+**DB pool math:** `DB_POOL_SIZE=8`, `DB_MAX_OVERFLOW=15` (ecosystem.
 config.js env block for wishspark-backend, read by
-`app/core/database.py`). 4 workers × (5 + 10) = 60 conn ceiling from
+`app/core/database.py`). 4 workers × (8 + 15) = 92 conn ceiling from
 backend; + 7 singleton PM2 workers × ~2 = 14; + admin headroom ~10; =
-~84, well below Postgres `max_connections=200` (bumped from 100 during
+~116, well below Postgres `max_connections=200` (bumped from 100 during
 the 2026-04-23 scaling flip). Invariant monitor enforces `>= 200` via
 `_check_postgres_capacity` — env override `EXPECTED_PG_MAX_CONNECTIONS`.
+Pool bumped 2026-05-04 from 5+10=15 → 8+15=23 per worker after Item 8
+load-test surfaced p99 = 16s + 24% timeout under 100 concurrent merchants
+(pool exhaustion). The new ceiling gives 53% more headroom.
 
 **Singleton guarantee for workers:** the 7 `wishspark-*-worker` /
 `-monitor` / `-optimizer` processes MUST remain `instances: 1` —

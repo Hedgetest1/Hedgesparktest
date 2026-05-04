@@ -97,9 +97,13 @@ module.exports = {
     // worker pattern — setting PM2 `instances: 4` would launch 4 uvicorn
     // MASTERS all binding the same port, which fails.
     //
-    // DB pool is env-tuned in database.py (DB_POOL_SIZE=5,
-    // DB_MAX_OVERFLOW=10 in backend/.env for this config): 4×(5+10) = 60
-    // conn from backend, well below Postgres max_connections=100.
+    // DB pool is env-tuned in database.py (DB_POOL_SIZE=8,
+    // DB_MAX_OVERFLOW=15 in backend/.env for this config): 4×(8+15) = 92
+    // conn from backend, well below Postgres max_connections=200.
+    // Bumped 2026-05-04 from 5+10=15 to 8+15=23 per worker after Item 8
+    // load-test surfaced p99 = 16s + 24% timeout under 100 concurrent
+    // merchants. Pool exhaustion was the root cause; new ceiling 92
+    // gives 53% more headroom.
     // -------------------------------------------------------------------------
     {
       name:                "wishspark-backend",
@@ -121,11 +125,15 @@ module.exports = {
       env: {
         PYTHONPATH:        "/opt/wishspark/backend",
         // DB pool tuned for 4 uvicorn workers. Total backend conn:
-        // 4 × (5 + 10) = 60; + 7 singleton PM2 workers × ~2 = 14;
-        // + admin/psql headroom ~10; = ~84, below Postgres max_connections=100.
+        // 4 × (8 + 15) = 92; + 7 singleton PM2 workers × ~2 = 14;
+        // + admin/psql headroom ~10; = ~116, below Postgres max_connections=200.
+        // Bumped 2026-05-04 (Item 7-bis) from 5+10 → 8+15 after the
+        // load-test harness reported p99 = 16s and 24% timeout rate at
+        // 100 concurrent merchants (pool exhaustion). The new ceiling
+        // gives 53% more headroom for the cold-cache 18-query path.
         // See app/core/database.py for the env-read logic.
-        DB_POOL_SIZE:      "5",
-        DB_MAX_OVERFLOW:   "10",
+        DB_POOL_SIZE:      "8",
+        DB_MAX_OVERFLOW:   "15",
       },
     },
 
