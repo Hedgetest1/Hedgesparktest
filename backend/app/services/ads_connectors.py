@@ -40,7 +40,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Iterable
 
-from sqlalchemy import text
+from sqlalchemy import literal_column, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.models.ad_spend import AdConnection, AdSpendDaily
@@ -272,45 +273,55 @@ def upsert_rows(db: Session, rows: Iterable[NormalizedSpendRow]) -> tuple[int, i
     """
     Upsert NormalizedSpendRow into ad_spend_daily.
     Returns (inserted, updated).
+
+    Batched via Postgres multi-row INSERT ... ON CONFLICT DO UPDATE
+    RETURNING (xmax = 0). Chunked at 500 rows to stay well below
+    Postgres's ~32K bind-param limit (11 cols × 500 = 5500 params).
     """
+    rows_list = list(rows)
+    if not rows_list:
+        return 0, 0
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     inserted = updated = 0
-    for r in rows:
-        # Plain SQLAlchemy upsert with ON CONFLICT for Postgres
-        result = db.execute(text("""
-            INSERT INTO ad_spend_daily
-              (shop_domain, date, network, campaign_id, campaign_name,
-               spend_eur, impressions, clicks, conversions, revenue_attributed_eur,
-               ingested_at)
-            VALUES
-              (:shop, :date, :net, :cid, :cname,
-               :spend, :imp, :clk, :conv, :rev, :now)
-            ON CONFLICT (shop_domain, date, network, campaign_id) DO UPDATE SET
-              campaign_name = EXCLUDED.campaign_name,
-              spend_eur = EXCLUDED.spend_eur,
-              impressions = EXCLUDED.impressions,
-              clicks = EXCLUDED.clicks,
-              conversions = EXCLUDED.conversions,
-              revenue_attributed_eur = EXCLUDED.revenue_attributed_eur,
-              ingested_at = EXCLUDED.ingested_at
-            RETURNING xmax = 0 AS inserted
-        """), {
-            "shop": r.shop_domain,
+
+    CHUNK = 500
+    for i in range(0, len(rows_list), CHUNK):
+        chunk = rows_list[i:i + CHUNK]
+        values = [{
+            "shop_domain": r.shop_domain,
             "date": r.date,
-            "net": r.network,
-            "cid": r.campaign_id,
-            "cname": r.campaign_name,
-            "spend": r.spend_eur,
-            "imp": r.impressions,
-            "clk": r.clicks,
-            "conv": r.conversions,
-            "rev": r.revenue_attributed_eur,
-            "now": datetime.now(timezone.utc).replace(tzinfo=None),
-        })
-        row = result.first()
-        if row and row[0]:
-            inserted += 1
-        else:
-            updated += 1
+            "network": r.network,
+            "campaign_id": r.campaign_id,
+            "campaign_name": r.campaign_name,
+            "spend_eur": r.spend_eur,
+            "impressions": r.impressions,
+            "clicks": r.clicks,
+            "conversions": r.conversions,
+            "revenue_attributed_eur": r.revenue_attributed_eur,
+            "ingested_at": now,
+        } for r in chunk]
+
+        stmt = pg_insert(AdSpendDaily).values(values)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["shop_domain", "date", "network", "campaign_id"],
+            set_={
+                "campaign_name": stmt.excluded.campaign_name,
+                "spend_eur": stmt.excluded.spend_eur,
+                "impressions": stmt.excluded.impressions,
+                "clicks": stmt.excluded.clicks,
+                "conversions": stmt.excluded.conversions,
+                "revenue_attributed_eur": stmt.excluded.revenue_attributed_eur,
+                "ingested_at": stmt.excluded.ingested_at,
+            },
+        ).returning(literal_column("xmax = 0").label("inserted"))
+
+        for row in db.execute(stmt):
+            if row[0]:
+                inserted += 1
+            else:
+                updated += 1
+
     return inserted, updated
 
 

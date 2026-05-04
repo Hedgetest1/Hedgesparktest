@@ -122,6 +122,63 @@ def test_upsert_rows_insert_then_update(db):
     assert db_row.spend_eur == 150.0
 
 
+def test_upsert_rows_batch_mixed_insert_update(db):
+    """Multi-row batch with some new + some pre-existing rows must
+    return correct (inserted, updated) counts via xmax = 0 RETURNING.
+    Regression guard for the per-row → batched INSERT collapse."""
+    # Seed 2 rows already present
+    seed = [
+        NormalizedSpendRow(SHOP, date(2026, 4, 10), "meta", "k1", "old", 10.0),
+        NormalizedSpendRow(SHOP, date(2026, 4, 10), "meta", "k2", "old", 20.0),
+    ]
+    upsert_rows(db, seed)
+
+    # Now batch: 2 updates (k1, k2) + 3 new (k3, k4, k5)
+    batch = [
+        NormalizedSpendRow(SHOP, date(2026, 4, 10), "meta", "k1", "new", 11.0),
+        NormalizedSpendRow(SHOP, date(2026, 4, 10), "meta", "k2", "new", 22.0),
+        NormalizedSpendRow(SHOP, date(2026, 4, 10), "meta", "k3", "new", 33.0),
+        NormalizedSpendRow(SHOP, date(2026, 4, 10), "meta", "k4", "new", 44.0),
+        NormalizedSpendRow(SHOP, date(2026, 4, 10), "meta", "k5", "new", 55.0),
+    ]
+    ins, upd = upsert_rows(db, batch)
+    assert ins == 3, f"expected 3 inserts, got {ins}"
+    assert upd == 2, f"expected 2 updates, got {upd}"
+
+    # Verify update applied
+    k1 = db.query(AdSpendDaily).filter_by(shop_domain=SHOP, campaign_id="k1").one()
+    assert float(k1.spend_eur) == 11.0
+
+
+def test_upsert_rows_empty_returns_zero(db):
+    """Empty iterable must short-circuit to (0, 0) without DB call."""
+    ins, upd = upsert_rows(db, [])
+    assert ins == 0
+    assert upd == 0
+
+
+def test_upsert_rows_chunks_large_batch(db):
+    """Batch larger than CHUNK (500) must process all rows correctly
+    across multiple internal INSERT statements."""
+    # Hermeticity: clear any pre-existing rows for this shop+date before
+    # asserting on inserted/updated counts (audit_test_hermeticity).
+    db.query(AdSpendDaily).filter_by(
+        shop_domain=SHOP, date=date(2026, 4, 11)
+    ).delete()
+    db.flush()
+
+    rows = [
+        NormalizedSpendRow(SHOP, date(2026, 4, 11), "meta", f"chunk-{i}", f"c{i}",
+                           float(i), i * 100, i * 2, i // 2, float(i * 3))
+        for i in range(750)  # > 500 → 2 chunks
+    ]
+    ins, upd = upsert_rows(db, rows)
+    assert ins == 750
+    assert upd == 0
+    count = db.query(AdSpendDaily).filter_by(shop_domain=SHOP, date=date(2026, 4, 11)).count()
+    assert count == 750
+
+
 def test_ingest_for_shop_marks_connection_synced(db):
     connect_network(db, SHOP, "meta", "tok")
     rows = [NormalizedSpendRow(

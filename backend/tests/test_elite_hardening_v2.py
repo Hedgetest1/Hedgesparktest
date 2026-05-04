@@ -1051,7 +1051,7 @@ _RAW_SQL_FSTRING_ALLOWLIST: set[str] = {
     "app/services/simulation_engine.py:668",
     "app/services/nudge_rank.py:148",
     "app/services/nudge_rank.py:200",
-    "app/services/evolution_outcomes.py:625",
+    # evolution_outcomes.py:625 — removed: refactored to bind param
     "app/services/execution_engine.py:713",
     "app/services/execution_engine.py:722",
     "app/services/email_performance.py:63",

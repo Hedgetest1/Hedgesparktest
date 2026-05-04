@@ -622,10 +622,10 @@ def get_effectiveness_stats(db: Session, days: int = 90, *, product_only: bool =
     cutoff = _now() - timedelta(days=days)
 
     try:
-        source_filter = ""
-        if product_only:
-            source_filter = "AND evidence_source = 'real_merchant'"
-        rows = db.execute(text(f"""
+        # Conditional filter expressed as a bind param to avoid f-string SQL
+        # interpolation (audit_no_raw_sql_fstring). When product_only=False
+        # the predicate is always TRUE → no behavior change vs prior code.
+        rows = db.execute(text("""
             SELECT
                 source_type,
                 outcome_status,
@@ -634,10 +634,10 @@ def get_effectiveness_stats(db: Session, days: int = 90, *, product_only: bool =
             WHERE status = 'applied'
               AND outcome_status IS NOT NULL
               AND outcome_measured_at >= :cutoff
-              {source_filter}
+              AND (NOT :product_only OR evidence_source = 'real_merchant')
             GROUP BY source_type, outcome_status
             ORDER BY source_type, outcome_status
-        """), {"cutoff": cutoff}).fetchall()
+        """), {"cutoff": cutoff, "product_only": bool(product_only)}).fetchall()
     except Exception:
         return {"total_measured": 0, "by_source": {}}
 
