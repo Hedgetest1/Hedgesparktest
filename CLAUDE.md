@@ -1508,3 +1508,64 @@ If THIS section is violated in a future turn, the founder may
 quote §20 verbatim and demand the gate be re-run on the offending
 turn. There is no "skip this once" — the law applies to every
 non-trivial turn.
+
+### 20.7 Capillary scope law (born 2026-05-05)
+
+Founder feedback 2026-05-05 (verbatim): *"non posso ricordarmi io
+ogni pezzo del progetto cosa tocca: sei tu il CTO e dunque il
+conoscitore più esauriente e responsabile del sistema, nonchè in
+assenza di me manuale, anche il cervello di tutto HedgeSpark. Non
+possiamo permetterci scope ridotti e focus solo su una cosa unica,
+devi lavorare come un team di più occhi"*.
+
+The repeated failure pattern: I ship narrow work (e.g., Cloudflare
+TIER_1 origin-lock) and declare "10/10 closed" without verifying
+adjacent dimensions. On 2026-05-05 specifically, this missed:
+- 672 Telegram messages spamming weekly (ops_alerts table)
+- 3683 ghost alerts from `_loadtest_*` shops (DB hygiene)
+- agent_worker 13195 PM2 restarts (worker liveness)
+- LLM provider failures invisible to budget tracker
+- 9 fresh Sentry incidents I introduced same day
+- pipeline state stuck-critical for 7 days
+
+**The law:** any commit message containing a "close-claim" phrase —
+`10/10`, `11/10`, `killer`, `perfect`, `closed`, `complete`, `chiuso`,
+`elite`, `all green`, `tutto verde`, `fully done`, `tutto chiuso` —
+**must pass the capillary scope probe** OR include explicit
+acknowledgement of failing dimensions inline.
+
+**Enforcement:** `scripts/audit_capillary_scope_claim.py` is wired
+into the `commit-msg` hook. Forbidden phrase + RED probe +
+no acknowledgement = commit rejected. The probe
+(`scripts/probe_capillary_scope.py`) covers 11+ orthogonal
+dimensions: system_health, ops_alerts_volume, db_ghost_shops,
+workers_liveness, llm_budget, resend_domain, sentry_incidents,
+alembic_drift, disk_usage, test_recency, telegram_cooldown.
+
+**Acknowledgement format** (when probe is RED/YELLOW but the close
+claim is valid for explicit reasons):
+
+    probe RED: <named dim>: <reason why this is acceptable for the close>
+
+Example: `probe RED: ops_alerts_volume 102/24h is signal-not-actionable
+backlog (p95 + invariant warnings, founder reviews via /ops/system-health)`
+
+**Why mechanical not just doctrinal:** doctrine alone failed on
+2026-05-05 (this section §20 already existed, was ignored). Wiring it
+into the commit-msg hook makes the rule enforceable by tools, not
+memory.
+
+**Run the probe yourself any time:**
+
+    cd /opt/wishspark/backend
+    ./venv/bin/python scripts/probe_capillary_scope.py            # human
+    ./venv/bin/python scripts/probe_capillary_scope.py --json     # machine
+
+The verdict is RED, YELLOW, or GREEN. RED is the only state that
+blocks close-claims by default; YELLOW with explicit acknowledgement
+is allowed.
+
+**Pre-execution: §1.7 + §20.7 work together.** §1.7 governs the
+checklist BEFORE non-trivial code change; §20.7 governs the verdict
+BEFORE non-trivial close claim. Together they make capillary scope
+the default, not the exception.
