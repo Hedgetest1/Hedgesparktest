@@ -7,7 +7,9 @@ and record_usage() after a successful response.
 Budget enforcement:
     1. Monthly EUR scaled cap: floor MONTHLY_EUR_CAP (dev €10, env-configurable
        via LLM_MONTHLY_BUDGET_EUR), per-merchant scaling (_LLM_EUR_PER_MERCHANT),
-       ceiling _LLM_MAX_MONTHLY_EUR (€500). Source of truth for CLAUDE.md §8.1.
+       ceiling _LLM_MAX_MONTHLY_EUR (€50 — founder direttiva 2026-05-05; was
+       €500 long-term target, corrected to financial reality at this stage).
+       Source of truth for CLAUDE.md §8.1.
     2. Per-module daily call limits
     3. Global daily call limit
     4. Per-module cooldown between calls
@@ -255,9 +257,9 @@ BUDGET_LIMITS: dict[str, dict] = {
     # for each internal/investor/competitor CTO pass per candidate
     # passing through reviewer_layer. At 3 calls × ~1000 tokens per
     # candidate × ~30% of candidates-requiring-adversarial (TIER_1+)
-    # the empirical cost at 10k merchants is ~€13/mo (well within
-    # the €500 hard ceiling). Daily cap tuned so a burst of
-    # TIER_1 candidates can't exhaust budget in one day.
+    # the empirical cost at 10k merchants is ~€13/mo (within the
+    # €50 hard ceiling at the new lower cap). Daily cap tuned so
+    # a burst of TIER_1 candidates can't exhaust budget in one day.
     "adversarial_reviewer": {
         "max_calls_per_day": 300,   # 100 candidates/day × 3 lenses
         "max_calls_per_cycle": 300,
@@ -343,7 +345,11 @@ _MODULE_TIER: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 _LLM_EUR_PER_MERCHANT = float(_os.getenv("LLM_EUR_PER_MERCHANT", "0.10"))
-_LLM_MAX_MONTHLY_EUR = float(_os.getenv("LLM_MAX_MONTHLY_EUR", "500.0"))
+# Hard ceiling — founder direttiva 2026-05-05: max €50/month even at first
+# paying merchants. Was €500 historically (long-term scaling target);
+# corrected to €50 to match financial reality at this stage. Override via
+# LLM_MAX_MONTHLY_EUR env if/when scaling justifies higher.
+_LLM_MAX_MONTHLY_EUR = float(_os.getenv("LLM_MAX_MONTHLY_EUR", "50.0"))
 _effective_cap_cache: dict[str, object] = {"value": None, "computed_at": 0.0, "merchants": 0}
 
 

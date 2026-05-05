@@ -356,9 +356,11 @@ with any of them → the principle wins. Originates from
    flagged in advance with: estimated cost at 10k merchants, deterministic
    alternative considered, fallback when budget exhausted. Budget is
    **scaled**: dev-phase €10/month floor (`LLM_MONTHLY_BUDGET_EUR`),
-   per-merchant scaling (`_LLM_EUR_PER_MERCHANT`), €500 hard ceiling
-   (`_LLM_MAX_MONTHLY_EUR`). **Source of truth: `app/core/llm_budget.py`
-   constants** — this doctrine points to the code, not vice versa.
+   per-merchant scaling (`_LLM_EUR_PER_MERCHANT`), **€50 hard ceiling**
+   (`_LLM_MAX_MONTHLY_EUR` — founder direttiva 2026-05-05; was €500
+   long-term target, corrected to financial reality even with first paying
+   merchants). **Source of truth: `app/core/llm_budget.py` constants** —
+   this doctrine points to the code, not vice versa.
 10. **Scale only what's needed.** Profile first, scale second. Premature
     scaling = wasted complexity.
 11. **Maximum automation, maximum safety.** Every automatic action has a
@@ -625,7 +627,8 @@ quarantine. Scope is locked to safety/efficiency/cost/executability
 ### 8.1 LLM budget & router
 
 - **Cap (dev phase):** €10/month global floor, scales per-merchant
-  (`_LLM_EUR_PER_MERCHANT`) up to €500 hard ceiling. Enforced in
+  (`_LLM_EUR_PER_MERCHANT`) up to **€50 hard ceiling** (founder
+  direttiva 2026-05-05; was €500). Enforced in
   `app/core/llm_budget.py` (source of truth — constants
   `MONTHLY_EUR_CAP`, `_LLM_EUR_PER_MERCHANT`, `_LLM_MAX_MONTHLY_EUR`;
   env overrides `LLM_MONTHLY_BUDGET_EUR` / `LLM_MAX_MONTHLY_EUR`).
