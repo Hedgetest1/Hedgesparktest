@@ -6554,6 +6554,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ops/cf-ranges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cf Ranges State
+         * @description Inspect the Cloudflare IP-range cache.
+         *
+         *     Returns the count of loaded networks, last-refresh source/timestamp,
+         *     and bundled-snapshot fallback metrics. Use to verify the source-IP
+         *     gate has a sane list.
+         */
+        get: operations["cf_ranges_state_ops_cf_ranges_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ops/cf-ranges/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cf Ranges Refresh
+         * @description Force-refresh the CF IP-range cache from cloudflare.com.
+         *
+         *     Falls back to the bundled snapshot on network failure (degrade-open).
+         *     Returns the result of the refresh attempt.
+         */
+        post: operations["cf_ranges_refresh_ops_cf_ranges_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ops/features": {
         parameters: {
             query?: never;
@@ -21986,6 +22033,72 @@ export interface operations {
         };
     };
     echo_client_ip_ops_client_ip_echo_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cf_ranges_state_ops_cf_ranges_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cf_ranges_refresh_ops_cf_ranges_refresh_post: {
         parameters: {
             query?: never;
             header?: {

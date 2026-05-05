@@ -513,29 +513,37 @@ this?" If no, rewrite.
 
 **Reverse proxy:** Traefik (Docker) with Let's Encrypt TLS.
 Config lives at `/docker/traefik/dynamic/wishspark.yml` (hot-reload).
-Cloudflare CDN front-door prep shipped 2026-05-05 (backend code is
-Cloudflare-aware via `app/core/client_ip.py`); founder NS flip pending
-per `project_cloudflare_cdn_prep_2026_05_05.md` + runbook
-`/opt/wishspark/screenshots/CLOUDFLARE_SETUP.txt`. Once flipped:
-Cloudflare → Traefik → backend; client-IP precedence is
-CF-Connecting-IP → XFF first hop → socket peer.
+Cloudflare CDN **LIVE since 2026-05-05** (NS flipped, zone active,
+`CLOUDFLARE_FRONTED=true`). Wire: Cloudflare → Traefik → backend.
+Client-IP precedence: CF-Connecting-IP (gated) → XFF first hop →
+socket peer. 5 Cache Rules deployed and verified 5/5 (Next.js
+static + branding cache + tracker.js cache + 2 bypass rules) per
+runbook `screenshots/CLOUDFLARE_SETUP.txt` PART B.
 
 **Client-IP doctrine:** every site that needs the real client IP
 goes through `app/core/client_ip.py::extract_client_ip(request)`.
 Bare `request.client.host` and raw XFF/CF-Connecting-IP reads
 outside the helper are blocked at preflight by
 `audit_client_ip_unified.py` (hard step + invariant_monitor).
-This makes the Cloudflare flip a configuration event, not a code
-rewrite — without it, every rate-limit collapses onto a single CF
-POP IP under CDN. **`CLOUDFLARE_FRONTED` env (default `false`)**
-gates whether the helper trusts `CF-Connecting-IP`. Founder flips
-to `true` in `.env` AFTER NS propagation + `cf-ray` header
-verified on api responses, then `pm2 restart wishspark-backend`.
-Pre-flip default is byte-identical to pre-Cloudflare. Smoke
-endpoint `GET /ops/client-ip-echo` (auth-gated `OPS_API_KEY`)
-returns `{ip, source, cloudflare_fronted, cf_ray, interpretation}`
-for one-curl verification — runbook
-`screenshots/CLOUDFLARE_SETUP.txt` Part D step 0.
+**Two-stage CF trust gate** (TIER_1 origin-lock, 2026-05-05):
+  1. **Env gate:** `CLOUDFLARE_FRONTED=true` (currently true) —
+     deploy-time switch.
+  2. **Source-IP gate:** socket peer must be in published CF IP
+     ranges (see `app/core/cf_ip_ranges.py`, bundled snapshot of
+     15 v4 + 7 v6 CIDRs, refreshable via `/ops/cf-ranges/refresh`).
+Header is trusted only when BOTH hold; otherwise ignored, falls
+through to XFF/socket peer, per-worker spoof counter bumped.
+Defends against attackers bypassing CF and spoofing the header.
+Smoke endpoints (auth-gated `OPS_API_KEY`):
+- `GET /ops/client-ip-echo` — resolved IP + source + counters +
+  socket_peer_is_cf_range + interpretation
+- `GET /ops/cf-ranges` — membership cache state
+- `POST /ops/cf-ranges/refresh` — force fetch from cloudflare.com
+
+**Future hardening pending:** TIER_2 origin-lock (Authenticated
+Origin Pulls mTLS or Traefik IP whitelist) deferred 2026-05-07+
+per `project_tier2_origin_lock_pending_2026_05_07.md`. €0 cost,
+~1 min founder action.
 
 **Stack:** FastAPI + Postgres + Redis (Docker) + Next.js 16.2.3 + React 19.
 
@@ -813,11 +821,17 @@ Full model in `docs/EXECUTION_POLICY.md`. Summary:
 - `app/services/bugfix_pipeline.py`, `promotion_pipeline.py` — self-modification
 - `app/services/reviewer_layer.py`, `project_brain.py` — governance
 - `app/core/llm_budget.py`, `llm_router.py` — LLM infrastructure
-- `app/core/client_ip.py` — client-IP precedence + CLOUDFLARE_FRONTED gate.
-  Controls rate-limit, audit attribution, geo, tracker visitor identity.
-  A wrong-direction patch (e.g. removing XFF fallback or inverting CF
-  precedence) silently regresses 7 call sites. Pipeline must propose,
-  human approves.
+- `app/core/client_ip.py` — client-IP precedence + 2-stage CF trust gate
+  (env + source-IP). Controls rate-limit, audit attribution, geo,
+  tracker visitor identity. A wrong-direction patch (e.g. removing
+  XFF fallback, inverting CF precedence, weakening the source-IP gate)
+  silently regresses 7 call sites + the spoof defense. Pipeline must
+  propose, human approves.
+- `app/core/cf_ip_ranges.py` — Cloudflare IP membership for the
+  source-IP gate. Bundled CIDR snapshot + degrade-open refresh from
+  `cloudflare.com/ips-v[46]`. Modifying the bundled list or the
+  membership logic without verification could brick post-flip
+  CF traffic (rejects all as spoofed) — TIER_1 propose, human approves.
 - `app/models/*` — SQLAlchemy models
 - Multi-file refactors (6+ files)
 

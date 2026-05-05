@@ -1,5 +1,5 @@
 # WishSpark Server Context
-Auto-generated: 2026-04-28T17:00:01.646222 UTC
+Auto-generated: 2026-05-05T12:00:02.078175 UTC
 
 ## Base Path
 /opt/wishspark
@@ -37,6 +37,7 @@ Process Manager: PM2
 /backend/app/api/causal_lift.py
 /backend/app/api/chat_support.py
 /backend/app/api/click_insights.py
+/backend/app/api/client_ip_echo.py
 /backend/app/api/cohorts.py
 /backend/app/api/community_marketplace.py
 /backend/app/api/compliance_evidence.py
@@ -56,6 +57,7 @@ Process Manager: PM2
 /backend/app/api/frontend_errors.py
 /backend/app/api/funnel.py
 /backend/app/api/goals.py
+/backend/app/api/google_oauth.py
 /backend/app/api/health.py
 /backend/app/api/heatmap.py
 /backend/app/api/instant_intelligence.py
@@ -113,6 +115,7 @@ Process Manager: PM2
 /backend/app/api/revenue_autopsy.py
 /backend/app/api/revenue_genome.py
 /backend/app/api/revenue_radar.py
+/backend/app/api/rfm.py
 /backend/app/api/risk_forecast.py
 /backend/app/api/roi_hero.py
 /backend/app/api/roi_report.py
@@ -225,6 +228,7 @@ Process Manager: PM2
 /backend/app/services/gdpr_processor.py
 /backend/app/services/gdpr_sla.py
 /backend/app/services/goals.py
+/backend/app/services/google_sheets.py
 /backend/app/services/inbound_action_executor.py
 /backend/app/services/inbound_email_processor.py
 /backend/app/services/instant_onboarding.py
@@ -261,6 +265,7 @@ Process Manager: PM2
 /backend/app/services/model_upgrade_agent.py
 /backend/app/services/monthly_evolution_audit.py
 /backend/app/services/mta_engine.py
+/backend/app/services/multi_currency_rollup.py
 /backend/app/services/night_shift_agent.py
 /backend/app/services/night_shift_calibration.py
 /backend/app/services/nudge_composer.py
@@ -312,6 +317,7 @@ Process Manager: PM2
 /backend/app/services/revenue_loss.py
 /backend/app/services/revenue_metrics.py
 /backend/app/services/reviewer_layer.py
+/backend/app/services/rfm.py
 /backend/app/services/risk_forecast.py
 /backend/app/services/roi_report.py
 /backend/app/services/rule_engine.py
@@ -653,6 +659,9 @@ Process Manager: PM2
 /backend/app/api/goals.py :: @router.post(
 /backend/app/api/goals.py :: @router.delete("/pro/goals/{metric}", response_model=OkResponse)
 /backend/app/api/goals.py :: @router.get(
+/backend/app/api/client_ip_echo.py :: @router.get("/ops/client-ip-echo")
+/backend/app/api/client_ip_echo.py :: @router.get("/ops/cf-ranges")
+/backend/app/api/client_ip_echo.py :: @router.post("/ops/cf-ranges/refresh")
 /backend/app/api/customer_churn.py :: @router.get("/customer-churn")
 /backend/app/api/anomaly_fusion.py :: @router.get("/pro/anomalies/fusion", response_model=AnomalyFusionResponse)
 /backend/app/api/top_pages.py :: @router.get(
@@ -716,11 +725,11 @@ Process Manager: PM2
 /backend/app/api/causal_lift.py :: @router.get("/pro/causal-lift", response_model=CausalLiftResponse)
 /backend/app/api/causal_lift.py :: @router.get("/pro/recommendation-impact", response_model=RecommendationImpactResponse)
 /backend/app/api/shopify_refunds.py :: @router.post("/shopify/refunds")
-/backend/app/api/merchant_groups.py :: @router.post("/pro/groups", response_model=GroupCreateResponse)
-/backend/app/api/merchant_groups.py :: @router.get("/pro/groups", response_model=GroupListResponse)
-/backend/app/api/merchant_groups.py :: @router.post("/pro/groups/{group_id}/members", response_model=MemberAddResponse)
-/backend/app/api/merchant_groups.py :: @router.delete("/pro/groups/{group_id}/members/{shop_domain}", response_model=OkResponse)
-/backend/app/api/merchant_groups.py :: @router.get("/pro/groups/{group_id}/dashboard", response_model=GroupDashboardResponse)
+/backend/app/api/merchant_groups.py :: @router.post("/merchant/groups", response_model=GroupCreateResponse)
+/backend/app/api/merchant_groups.py :: @router.get("/merchant/groups", response_model=GroupListResponse)
+/backend/app/api/merchant_groups.py :: @router.post("/merchant/groups/{group_id}/members", response_model=MemberAddResponse)
+/backend/app/api/merchant_groups.py :: @router.delete("/merchant/groups/{group_id}/members/{shop_domain}", response_model=OkResponse)
+/backend/app/api/merchant_groups.py :: @router.get("/merchant/groups/{group_id}/dashboard", response_model=GroupDashboardResponse)
 /backend/app/api/revenue_radar.py :: @router.get("/top")
 /backend/app/api/visitor_scores.py :: @router.get("/visitor-scores")
 /backend/app/api/visitor_scores.py :: @router.get("/visitor-intent-classification", response_model=VisitorIntentCounts)
@@ -754,6 +763,11 @@ Process Manager: PM2
 /backend/app/api/product_trend.py :: @router.get("/trend", response_model=ProductTrendResponse)
 /backend/app/api/merchant_churn.py :: @router.get("/ops/churn-report")
 /backend/app/api/merchant_churn.py :: @router.get("/ops/churn-score/{shop_domain}")
+/backend/app/api/google_oauth.py :: @router.get("/merchant/google/status", response_model=GoogleStatusResponse)
+/backend/app/api/google_oauth.py :: @router.get("/auth/google/start")
+/backend/app/api/google_oauth.py :: @router.get("/auth/google/callback")
+/backend/app/api/google_oauth.py :: @router.post("/auth/google/disconnect")
+/backend/app/api/google_oauth.py :: @router.post("/analytics/export-to-sheets", response_model=ExportToSheetsResponse)
 /backend/app/api/consent_banner.py :: @router.get("/consent-banner.js")
 /backend/app/api/orders.py :: @router.get(
 /backend/app/api/orders.py :: @router.get(
@@ -763,6 +777,9 @@ Process Manager: PM2
 /backend/app/api/inventory.py :: @router.get("/merchant/inventory/kpis", response_model=InventoryKpisOut)
 /backend/app/api/inventory.py :: @router.get("/merchant/inventory/details", response_model=InventoryDetailsOut)
 /backend/app/api/inventory.py :: @router.get("/merchant/inventory/snapshot-status", response_model=SnapshotStatusOut)
+/backend/app/api/inventory.py :: @router.get("/merchant/inventory/settings", response_model=InventorySettingsOut)
+/backend/app/api/inventory.py :: @router.patch("/merchant/inventory/settings", response_model=InventorySettingsOut)
+/backend/app/api/heatmap.py :: @router.get(
 /backend/app/api/heatmap.py :: @router.get(
 /backend/app/api/heatmap.py :: @router.get(
 /backend/app/api/auth_posture.py :: @router.get("/ops/auth/posture")
@@ -786,8 +803,10 @@ Process Manager: PM2
 /backend/app/api/instant_intelligence.py :: @router.post("/instant-intelligence/refresh", response_model=InstantIntelligenceResponse)
 /backend/app/api/shopify_flow_schema.py :: @router.get("/shopify-flow/schema")
 /backend/app/api/roi_report.py :: @router.get(
+/backend/app/api/rfm.py :: @router.get("/analytics/rfm/segments", response_model=RfmSegmentsResponse)
 /backend/app/api/weekly_trend.py :: @router.get(
-/backend/app/api/cac_ltv.py :: @router.get("/cac-ltv", response_model=CacLtvResponse)
+/backend/app/api/cac_ltv.py :: @router.get("/analytics/cac-ltv", response_model=CacLtvResponse)
+/backend/app/api/cac_ltv.py :: @router.get("/pro/cac-ltv", response_model=CacLtvResponse, deprecated=True)
 /backend/app/api/margin_guard_api.py :: @router.get("/snapshot", response_model=MarginSnapshot)
 /backend/app/api/margin_guard_api.py :: @router.get("/check", response_model=MarginCheckResponse)
 /backend/app/api/feature_flags_admin.py :: @router.get("/ops/flags")
@@ -888,6 +907,8 @@ Process Manager: PM2
 /app/settings/cost-defaults
 /app/settings/costs
 /app/settings/currency
+/app/settings/google-sheets
+/app/settings/inventory
 /app/settings/klaviyo
 /app/settings/privacy
 /app/settings/slack
@@ -915,6 +936,7 @@ Process Manager: PM2
 /docs/INVENTORY_VISUAL_SPEC.md
 /docs/LITE_VISUAL_SPEC.md
 /docs/POST_PURCHASE_SURVEY_VISUAL_SPEC.md
+/docs/REDIS_KEYS_CATALOG.md
 /docs/RESEND_DNS_RUNBOOK.md
 /docs/SENTRY_OPS.md
 /docs/processors.md

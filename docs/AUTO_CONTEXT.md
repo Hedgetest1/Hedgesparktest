@@ -1,5 +1,5 @@
 # WishSpark Auto Context
-Auto-generated: 2026-04-28T17:00:01.649356 UTC
+Auto-generated: 2026-05-05T12:00:02.084376 UTC
 
 ## Project Root
 /opt/wishspark
@@ -38,6 +38,7 @@ Auto-generated: 2026-04-28T17:00:01.649356 UTC
 /backend/app/api/causal_lift.py
 /backend/app/api/chat_support.py
 /backend/app/api/click_insights.py
+/backend/app/api/client_ip_echo.py
 /backend/app/api/cohorts.py
 /backend/app/api/community_marketplace.py
 /backend/app/api/compliance_evidence.py
@@ -57,6 +58,7 @@ Auto-generated: 2026-04-28T17:00:01.649356 UTC
 /backend/app/api/frontend_errors.py
 /backend/app/api/funnel.py
 /backend/app/api/goals.py
+/backend/app/api/google_oauth.py
 /backend/app/api/health.py
 /backend/app/api/heatmap.py
 /backend/app/api/instant_intelligence.py
@@ -114,6 +116,7 @@ Auto-generated: 2026-04-28T17:00:01.649356 UTC
 /backend/app/api/revenue_autopsy.py
 /backend/app/api/revenue_genome.py
 /backend/app/api/revenue_radar.py
+/backend/app/api/rfm.py
 /backend/app/api/risk_forecast.py
 /backend/app/api/roi_hero.py
 /backend/app/api/roi_report.py
@@ -226,6 +229,7 @@ Auto-generated: 2026-04-28T17:00:01.649356 UTC
 /backend/app/services/gdpr_processor.py
 /backend/app/services/gdpr_sla.py
 /backend/app/services/goals.py
+/backend/app/services/google_sheets.py
 /backend/app/services/inbound_action_executor.py
 /backend/app/services/inbound_email_processor.py
 /backend/app/services/instant_onboarding.py
@@ -262,6 +266,7 @@ Auto-generated: 2026-04-28T17:00:01.649356 UTC
 /backend/app/services/model_upgrade_agent.py
 /backend/app/services/monthly_evolution_audit.py
 /backend/app/services/mta_engine.py
+/backend/app/services/multi_currency_rollup.py
 /backend/app/services/night_shift_agent.py
 /backend/app/services/night_shift_calibration.py
 /backend/app/services/nudge_composer.py
@@ -313,6 +318,7 @@ Auto-generated: 2026-04-28T17:00:01.649356 UTC
 /backend/app/services/revenue_loss.py
 /backend/app/services/revenue_metrics.py
 /backend/app/services/reviewer_layer.py
+/backend/app/services/rfm.py
 /backend/app/services/risk_forecast.py
 /backend/app/services/roi_report.py
 /backend/app/services/rule_engine.py
@@ -458,6 +464,8 @@ Auto-generated: 2026-04-28T17:00:01.649356 UTC
 /app/settings/cost-defaults
 /app/settings/costs
 /app/settings/currency
+/app/settings/google-sheets
+/app/settings/inventory
 /app/settings/klaviyo
 /app/settings/privacy
 /app/settings/slack
