@@ -129,13 +129,8 @@ _RATE_LIMIT_PER_MIN = 30
 
 
 def _client_ip(request: Request) -> str:
-    # Honor X-Forwarded-For when behind Traefik; fall back to request.client.host.
-    xff = request.headers.get("x-forwarded-for", "")
-    if xff:
-        return xff.split(",")[0].strip()[:64]
-    if request.client:
-        return request.client.host[:64]
-    return "unknown"
+    from app.core.client_ip import extract_client_ip
+    return extract_client_ip(request)
 
 
 def _rate_limit_check(ip: str) -> bool:

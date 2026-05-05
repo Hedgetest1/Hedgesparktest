@@ -126,13 +126,9 @@ def _hash_value(value: str | None, salt: str) -> str | None:
 
 
 def _client_ip(request: Request) -> str | None:
-    # X-Forwarded-For first hop wins (Traefik adds it)
-    fwd = request.headers.get("x-forwarded-for", "")
-    if fwd:
-        return fwd.split(",")[0].strip()
-    if request.client:
-        return request.client.host
-    return None
+    from app.core.client_ip import extract_client_ip
+    ip = extract_client_ip(request)
+    return ip if ip != "unknown" else None
 
 
 def _bump_pii_counter() -> None:

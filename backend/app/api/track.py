@@ -342,7 +342,8 @@ def _check_per_shop_rate(request, shop_domain: str) -> bool:
             from app.core.silent_fallback import record_silent_return
             record_silent_return("track.per_shop_rate")
             return True
-        ip = request.client.host if request.client else "unknown"
+        from app.core.client_ip import extract_client_ip
+        ip = extract_client_ip(request)
         key = f"hs:rl:track:{ip}:{shop_domain}"
         count = client.incr(key)
         if count == 1:

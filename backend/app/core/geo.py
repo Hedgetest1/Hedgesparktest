@@ -33,14 +33,10 @@ _VISITOR_GEO_TTL = 3600         # 1h — live visitors rotate
 
 
 def _extract_ip(request) -> str | None:
-    """Get real client IP, handling X-Forwarded-For from Traefik."""
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        # First IP in chain is the real client
-        return forwarded.split(",")[0].strip()
-    if request.client:
-        return request.client.host
-    return None
+    """Get real client IP — Cloudflare-aware via core.client_ip helper."""
+    from app.core.client_ip import extract_client_ip
+    ip = extract_client_ip(request)
+    return ip if ip != "unknown" else None
 
 
 def _lookup_ip_sync(ip: str) -> dict | None:

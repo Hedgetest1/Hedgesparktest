@@ -116,7 +116,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         max_requests, window = rule
-        ip = request.client.host if request.client else "unknown"
+        from app.core.client_ip import extract_client_ip
+        ip = extract_client_ip(request)
         bucket_key = f"{ip}|{key[0]}|{key[1]}"
 
         # Try Redis first

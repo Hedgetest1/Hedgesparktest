@@ -513,6 +513,21 @@ this?" If no, rewrite.
 
 **Reverse proxy:** Traefik (Docker) with Let's Encrypt TLS.
 Config lives at `/docker/traefik/dynamic/wishspark.yml` (hot-reload).
+Cloudflare CDN front-door prep shipped 2026-05-05 (backend code is
+Cloudflare-aware via `app/core/client_ip.py`); founder NS flip pending
+per `project_cloudflare_cdn_prep_2026_05_05.md` + runbook
+`/opt/wishspark/screenshots/CLOUDFLARE_SETUP.txt`. Once flipped:
+Cloudflare → Traefik → backend; client-IP precedence is
+CF-Connecting-IP → XFF first hop → socket peer.
+
+**Client-IP doctrine:** every site that needs the real client IP
+goes through `app/core/client_ip.py::extract_client_ip(request)`.
+Bare `request.client.host` and raw XFF/CF-Connecting-IP reads
+outside the helper are blocked at preflight by
+`audit_client_ip_unified.py` (also wired into invariant_monitor).
+This makes the Cloudflare flip a configuration event, not a code
+rewrite — without it, every rate-limit collapses onto a single CF
+POP IP under CDN.
 
 **Stack:** FastAPI + Postgres + Redis (Docker) + Next.js 16.2.3 + React 19.
 

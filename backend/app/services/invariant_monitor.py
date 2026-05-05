@@ -408,6 +408,14 @@ _AUDITS: list[tuple[str, str, str]] = [
     # the runtime N+1 detector for background workers (CLAUDE.md §12.1).
     # Drift here = silently lost N+1 visibility.
     ("audit_worker_scope_coverage.py", "invariant_regression", "invariant:worker_scope_coverage"),
+    # Client-IP unified extraction (added 2026-05-05). Pins that every
+    # site reading the real client IP routes via app/core/client_ip.py
+    # — no bare `request.client.host` or raw XFF/CF-Connecting-IP reads.
+    # Without this, the day Cloudflare goes in front of the API every
+    # rate-limit collapses onto CF POP IPs, audit logs lose attribution,
+    # and tracker visitor identity flattens to one per POP. Drift here
+    # is a silent latent regression that only fires AFTER the CDN flip.
+    ("audit_client_ip_unified.py", "invariant_regression", "invariant:client_ip_unified"),
     # Brutal-CTO-inspection follow-up (added 2026-05-02 evening).
     # 1. DB pool doctrine catches code-default drift from CLAUDE.md
     #    §6 (the bug that produced 20× QueuePool exhaustions live).

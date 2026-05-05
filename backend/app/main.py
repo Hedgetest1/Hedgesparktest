@@ -410,7 +410,8 @@ async def dashboard_rate_limit_middleware(request: Request, call_next):
             if rc is not None:
                 from app.core.merchant_session import SESSION_COOKIE_NAME
                 shop = request.cookies.get(SESSION_COOKIE_NAME, "")[:64]
-                ip = request.client.host if request.client else "anon"
+                from app.core.client_ip import extract_client_ip
+                ip = extract_client_ip(request) or "anon"
                 key = f"hs:rl:dash:{shop}:{ip}"
                 count = rc.incr(key)
                 if count == 1:
