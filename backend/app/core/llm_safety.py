@@ -313,11 +313,11 @@ def _audit(
         codes,
     )
     try:
-        from app.services.alerting import write_alert
+        from app.services.alerting import write_alert, resolve_alert
         from app.core.database import SessionLocal
         db = SessionLocal()
         try:
-            write_alert(
+            alert = write_alert(
                 db,
                 severity="warning" if blocked else "info",
                 source="llm_safety",
@@ -325,6 +325,15 @@ def _audit(
                 summary=f"LLM safety {'block' if blocked else 'flag'}: {', '.join(codes)}",
                 detail={"context": context, "violations": [v.to_dict() for v in violations]},
             )
+            # llm_safety alerts are discrete event-log entries — the
+            # injection attempt has already been blocked and there is no
+            # "still ongoing" condition for the operator to act on.
+            # Resolve immediately at write so the unresolved-alert table
+            # stays a signal of OPEN issues, not a security audit log.
+            # The detail/occurrence_count chain still preserves the
+            # event history; resolution does not delete the row.
+            if alert is not None and getattr(alert, "id", None):
+                resolve_alert(db, alert.id)
             db.commit()
         finally:
             db.close()

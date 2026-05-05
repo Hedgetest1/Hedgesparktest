@@ -610,6 +610,40 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Telegram strategic-only gate — pins the founder direttiva 2026-05-05
+# that operational alerts (invariant_regression / sentry / slo_burn /
+# circuit_breaker / pipeline_stall / etc.) NEVER reach the founder
+# Telegram channel; only strategic signals (memory / llm_usage / cost /
+# capacity / financial / breach) do. Two paths gated:
+#   - on_alert_responder._ping_founder_p0
+#   - system_health_synthesizer.send_telegram_signal
+# Regression here re-spams the founder — STRICT block.
+# ---------------------------------------------------------------------------
+step "Telegram strategic-only gate (audit_telegram_strategic_only.py)"
+if "$PY" scripts/audit_telegram_strategic_only.py > /tmp/preflight_telegram_strategic.log 2>&1; then
+    ok "$(head -1 /tmp/preflight_telegram_strategic.log)"
+else
+    bad "Telegram strategic-only gate broken — see /tmp/preflight_telegram_strategic.log"
+    tail -25 /tmp/preflight_telegram_strategic.log
+fi
+
+# ---------------------------------------------------------------------------
+# Alert-writer heal-detection — info-only baseline (founder direttiva
+# 2026-05-05 brain-autonomous sprint). Every condition-based write_alert
+# site must close the alert when the underlying state recovers, OR carry
+# an explicit `# heal-detection: <reason>` opt-out. Currently info-only
+# until the migration sweep closes the 52 historical writers; flips to
+# --strict once coverage > 95%.
+# ---------------------------------------------------------------------------
+step "Alert-writer heal-detection (audit_alert_writer_heal_detection.py — info only)"
+if "$PY" scripts/audit_alert_writer_heal_detection.py > /tmp/preflight_heal_detection.log 2>&1; then
+    ok "$(head -1 /tmp/preflight_heal_detection.log)"
+else
+    bad "heal-detection audit failed — see /tmp/preflight_heal_detection.log"
+    tail -25 /tmp/preflight_heal_detection.log
+fi
+
+# ---------------------------------------------------------------------------
 # 2b-bis. Data-truth audit — catches currency drift (hardcoded €/$, SUM
 # without currency filter), DST-unsafe timezone SQL, hardcoded DB creds.
 # Baseline 0-findings reached on 2026-04-17 after centralizing

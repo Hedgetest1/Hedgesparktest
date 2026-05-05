@@ -108,10 +108,22 @@ def run_onboarding(db: Session, merchant: Merchant) -> OnboardingResult:
             return _fail(db, merchant, result, "tracker_installation_failed")
         result.steps_completed.append("tracker_configured")
 
-        # All steps passed — mark ready
+        # All steps passed — mark ready + heal any prior onboarding_failed alert
         merchant.onboarding_status = "ready"
         merchant.onboarding_error = None
         db.flush()
+        try:
+            from app.services.alerting import auto_resolve_alerts
+            auto_resolve_alerts(
+                db,
+                source="onboarding",
+                alert_type="onboarding_failed",
+                shop_domain=merchant.shop_domain,
+            )
+        except Exception as exc:
+            log.warning(
+                "onboarding: heal-detection write failed (non-fatal): %s", exc
+            )
 
         write_audit_log(
             db,

@@ -222,6 +222,7 @@ def autofix_file(path: Path) -> tuple[int, list[tuple[int, str]]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--strict", action="store_true", help="compat shim for invariant_monitor — accepted but no-op")
     parser.add_argument("--fix", action="store_true", help="Auto-rewrite mechanical patterns; flag rest as human-needed")
     args = parser.parse_args()
 

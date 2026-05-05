@@ -281,10 +281,58 @@ def _write_triage_receipt(
         )
 
 
+_TELEGRAM_STRATEGIC_ALLOWLIST = frozenset({
+    # Founder direttiva 2026-05-05: Telegram surfaces ONLY strategic
+    # signals — memory state, merchant counts, RAM, LLM usage, capacity,
+    # cost, financial, breach (legal). Operational/technical alerts
+    # (invariant_regression, sentry_regression, slo_*, p95_slow_trend,
+    # circuit_breaker_tripped, pipeline_stall_*, session_anomaly,
+    # llm_safety_*, frontend_error*, onboarding_*, etc.) are handled
+    # autonomously by the brain — they never page the founder.
+    #
+    # The brain still SEES every alert via /ops/system-health and
+    # internal observability; Telegram is the strategic channel only.
+    #
+    # When adding a new alert_type that should reach the founder
+    # (a NEW class of strategic signal), add it here AND document the
+    # rationale in feedback_telegram_strategic_only_doctrine.md.
+    # `audit_telegram_strategic_only.py` blocks new operational types
+    # from reaching the Telegram path at preflight.
+    "breach_response_required",       # GDPR Art. 33/34 — legal duty 72h clock
+    "billing_payment_failure_critical",  # paying merchant card declined
+    "merchant_churn_critical",        # paying merchant about to cancel
+    "llm_budget_exhaustion_strategic",   # LLM credit out — capacity decision
+    "infrastructure_cost_breach",     # monthly infra cost > budget
+    "security_critical_external",     # external attack confirmed
+    "shopify_app_review_action_required",  # founder action at Shopify portal
+    "merchant_paying_first_install",  # celebrate-event: first paying merchant
+})
+
+
+def _is_strategic_alert(alert: dict) -> bool:
+    """Founder-doctrine strategic-only Telegram gate.
+    Operational alerts handled autonomously must NOT reach the founder."""
+    atype = (alert or {}).get("alert_type") or ""
+    return atype in _TELEGRAM_STRATEGIC_ALLOWLIST
+
+
 def _ping_founder_p0(alert: dict, verdict) -> bool:
     """Forward a P0 triage verdict to the operator Telegram channel.
     Returns True on successful dispatch. Never raises — Telegram
-    outages must not break the triage loop."""
+    outages must not break the triage loop.
+
+    Strategic-only gate (founder direttiva 2026-05-05): operational
+    alerts return False without sending. The autonomous brain handles
+    those; the founder sees them only in /ops/system-health when
+    actively investigating.
+    """
+    if not _is_strategic_alert(alert):
+        log.info(
+            "on_alert_responder: strategic-only gate suppressed Telegram "
+            "ping for non-strategic alert_type=%s id=%s",
+            alert.get("alert_type"), alert.get("id"),
+        )
+        return False
     try:
         from app.services.telegram_agent import (
             is_configured,

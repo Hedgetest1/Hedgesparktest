@@ -2763,7 +2763,21 @@ def _recover_stuck_candidates(db: Session):
             .limit(10)
             .all()
         )
+        source_key = f"bugfix_pipeline:stuck:{state}"
         if not stuck_rows:
+            # Heal — backlog cleared for this state, resolve any prior
+            # open pipeline_stall_<state> alert. Closes the heal-but-
+            # stay-open class for the bugfix-pipeline stuck-state writer.
+            try:
+                from app.services.alerting import auto_resolve_alerts
+                auto_resolve_alerts(
+                    db, source=source_key, alert_type=alert_type
+                )
+            except Exception as exc:
+                log.warning(
+                    "bugfix_triage: heal-detection failed for %s: %s",
+                    alert_type, exc,
+                )
             continue
 
         # Aggregate into a single alert per state — we escalate the backlog,

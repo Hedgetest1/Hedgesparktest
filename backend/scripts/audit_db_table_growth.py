@@ -125,6 +125,7 @@ def _median(xs: list[int]) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--strict", action="store_true", help="compat shim for invariant_monitor — accepted but no-op")
     ap.add_argument("--threshold", type=int, default=_DEFAULT_THRESHOLD_PCT)
     args = ap.parse_args()
 

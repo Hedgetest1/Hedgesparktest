@@ -416,6 +416,15 @@ _AUDITS: list[tuple[str, str, str]] = [
     # and tracker visitor identity flattens to one per POP. Drift here
     # is a silent latent regression that only fires AFTER the CDN flip.
     ("audit_client_ip_unified.py", "invariant_regression", "invariant:client_ip_unified"),
+    # Telegram strategic-only gate (added 2026-05-05 evening — founder
+    # direttiva "Telegram solo strategico, tutto il resto autonomo").
+    # Catches regression where someone removes the strategic_alert gate
+    # from on_alert_responder._ping_founder_p0 OR
+    # system_health_synthesizer.send_telegram_signal. Without the gate
+    # operational alerts (invariant_regression / sentry / slo /
+    # circuit_breaker) re-spam the founder — exactly the noise that
+    # 7dc3098 + this sprint closed.
+    ("audit_telegram_strategic_only.py", "invariant_regression", "invariant:telegram_strategic_only"),
     # Brutal-CTO-inspection follow-up (added 2026-05-02 evening).
     # 1. DB pool doctrine catches code-default drift from CLAUDE.md
     #    §6 (the bug that produced 20× QueuePool exhaustions live).
@@ -448,42 +457,17 @@ _TIMEOUT_SECONDS = 30
 
 
 def _auto_resolve_prior_invariant(db: Session, source: str) -> int:
-    """Mark any prior unresolved invariant_regression alert with this source
-    as resolved, since the audit/check just passed.
+    """Resolve prior unresolved invariant_regression alerts with this source.
 
-    Returns count of alerts auto-resolved. Best-effort — never raises.
-
-    Closes the bug class where invariant alerts piled up indefinitely once
-    fired: the original write_alert dedup was 24h, so a single audit
-    failing at 21:00 on day 1 + 02:00 on day 2 would create 2 alerts; if
-    the audit is then fixed by a commit on day 3, both alerts stayed
-    `resolved=false` forever, polluting `/ops/system-health` and
-    `probe_capillary_scope.py` ops_alerts_volume forever. This helper
-    closes the loop: when an audit transitions failed → ok, the prior
-    open alerts get explicitly resolved with audit-trail reason.
+    Thin shim that delegates to the generic
+    `app.services.alerting.auto_resolve_alerts` helper (born 2026-05-05).
+    Kept as named entry-point for the 9 ok-branches in run_invariant_check
+    + inline _check_* probes that were wired before the generic existed.
     """
-    try:
-        from sqlalchemy import text as _text
-        result = db.execute(
-            _text(
-                "UPDATE ops_alerts SET resolved=true, resolved_at=NOW() "
-                "WHERE alert_type='invariant_regression' "
-                "  AND source=:source "
-                "  AND resolved=false"
-            ),
-            {"source": source},
-        )
-        db.commit()
-        return result.rowcount or 0
-    except Exception as exc:
-        log.warning(
-            "invariant_monitor: auto-resolve failed for %s: %s", source, exc
-        )
-        try:
-            db.rollback()
-        except Exception:
-            pass  # SILENT-EXCEPT-OK: rollback after a failed auto-resolve UPDATE is best-effort cleanup; raising would mask the original auto-resolve error already logged above and could cascade-fail the surrounding invariant_monitor cycle.
-        return 0
+    from app.services.alerting import auto_resolve_alerts
+    return auto_resolve_alerts(
+        db, source=source, alert_type="invariant_regression"
+    )
 
 
 def run_invariant_check(db: Session) -> dict:
@@ -555,8 +539,20 @@ def run_invariant_check(db: Session) -> dict:
         if not spath.is_file():
             return triple, "missing", None
         try:
+            # Born 2026-05-05: do NOT pass --strict here. Each audit
+            # script has its own default-mode contract — passing
+            # --strict universally caused two failure modes:
+            #   1. Audits that don't accept --strict (no argparse flag)
+            #      exit 2 with "unrecognized arguments", registering as
+            #      a structural-invariant fail when nothing is broken.
+            #   2. Audits with a tolerated baseline (e.g. 22 model-
+            #      drift findings tracked separately, 184 uncovered
+            #      endpoints) flag the baseline as a regression under
+            #      --strict, polluting ops_alerts every cycle.
+            # Each audit's exit code under default invocation is the
+            # truth about structural drift.
             res = subprocess.run(
-                [_PYTHON_BIN, str(spath), "--strict"],
+                [_PYTHON_BIN, str(spath)],
                 capture_output=True,
                 text=True,
                 timeout=_TIMEOUT_SECONDS,

@@ -149,6 +149,7 @@ def _check_one_extension(toml_path: Path) -> list[str]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--strict", action="store_true", help="compat shim for invariant_monitor — accepted but no-op")
     ap.parse_args()
 
     tomls = sorted(REPO_ROOT.glob(EXT_GLOB))

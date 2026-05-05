@@ -220,6 +220,7 @@ def auto_fix(missing_in_nav: set[str], missing_in_map: set[str]) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--strict", action="store_true", help="compat shim for invariant_monitor — accepted but no-op")
     parser.add_argument("--fix", action="store_true", help="Auto-repair missing entries deterministically")
     args = parser.parse_args()
 

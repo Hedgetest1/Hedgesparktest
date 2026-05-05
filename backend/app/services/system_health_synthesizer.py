@@ -276,11 +276,38 @@ def format_telegram_signal(state: SystemHealthState) -> str:
     return "\n".join(lines)
 
 
+_STRATEGIC_DIMENSIONS = frozenset({"memory", "llm_usage", "cost"})
+
+
+def _is_strategic_critical(state: SystemHealthState) -> bool:
+    """Founder-doctrine strategic-only Telegram gate (2026-05-05).
+
+    A critical CTO signal reaches Telegram ONLY when at least one
+    *strategic* dimension (memory/llm_usage/cost — i.e. capacity or
+    spend) is critical. Operational dimensions (liveness, pipeline,
+    alerts) drive the overall_status indicator on /ops/system-health
+    but are handled autonomously by the brain — they never page the
+    founder.
+
+    `audit_telegram_strategic_only.py` blocks regressions of this gate.
+    """
+    for d in (state.dimensions or []):
+        if d.status == "critical" and d.name in _STRATEGIC_DIMENSIONS:
+            return True
+    return False
+
+
 def send_telegram_signal(state: SystemHealthState) -> bool:
     """
     Send CTO signal to Telegram with cooldown dedup.
     Returns True if sent, False if suppressed.
     """
+    if not _is_strategic_critical(state):
+        log.info(
+            "cto_signal: strategic-only gate suppressed Telegram — "
+            "no strategic dimension (memory/llm_usage/cost) is critical"
+        )
+        return False
     should_send, cooldown_type = _should_send_telegram(state.overall_status, state.previous_status)
     if not should_send:
         return False

@@ -541,12 +541,16 @@ def write_onboarding_alerts(db: Session) -> dict:
 
     Returns summary of alerts written.
     """
-    from app.services.alerting import write_alert
+    from app.services.alerting import write_alert, heal_per_shop_alerts
 
     written = 0
 
     # 1. Stuck merchants
     stuck = detect_stuck_merchants(db)
+    heal_per_shop_alerts(
+        db, "onboarding_health", "onboarding_stuck",
+        [m["shop_domain"] for m in stuck],
+    )
     for m in stuck[:5]:  # cap at 5 alerts per cycle
         write_alert(
             db,
@@ -566,6 +570,10 @@ def write_onboarding_alerts(db: Session) -> dict:
     # 2. Pixel abandonment (only alert after extended period)
     pixel_abandon = detect_pixel_abandonment(db)
     long_abandon = [p for p in pixel_abandon if (p.get("hours_since_install") or 0) > 72]
+    heal_per_shop_alerts(
+        db, "onboarding_health", "pixel_abandonment",
+        [m["shop_domain"] for m in long_abandon],
+    )
     for m in long_abandon[:3]:
         write_alert(
             db,
@@ -582,6 +590,10 @@ def write_onboarding_alerts(db: Session) -> dict:
     slow = detect_slow_activation(db)
     # Only alert if they have events but no signals (means intelligence worker isn't working)
     data_but_no_insights = [s for s in slow if (s.get("event_count") or 0) > 10 and s.get("signal_count") == 0]
+    heal_per_shop_alerts(
+        db, "onboarding_health", "slow_activation",
+        [m["shop_domain"] for m in data_but_no_insights],
+    )
     for m in data_but_no_insights[:3]:
         write_alert(
             db,
@@ -597,6 +609,10 @@ def write_onboarding_alerts(db: Session) -> dict:
     # 4. Drifting new installs — 1-7d post-install, no engagement with
     # any killer feature. Highest cancel-risk population.
     drifters = detect_drifting_new_installs(db)
+    heal_per_shop_alerts(
+        db, "onboarding_health", "onboarding_drift",
+        [m["shop_domain"] for m in drifters],
+    )
     for m in drifters[:5]:
         write_alert(
             db,

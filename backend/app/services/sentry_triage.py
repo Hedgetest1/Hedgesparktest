@@ -84,6 +84,30 @@ def ingest_email(
                 "recurrence_count": 0,
             }
 
+    # --- Step 1b: Noise denylist (founder direttiva 2026-05-05 0-error
+    # mandate). Drop known-false-positive titles at intake — they are
+    # expected dev-misconfiguration responses (e.g. /ops/* endpoints
+    # raising 500 when OPS_API_KEY isn't set), not real bugs. Filtering
+    # at intake prevents sentry_incidents accumulation, sentry_regression
+    # alerts, and bugfix-triage waste.
+    _SENTRY_NOISE_TITLES = (
+        "OPS_API_KEY not configured",
+        "OPS_API_KEY not configured on server",
+    )
+    composite_text = f"{subject or ''}\n{body or ''}"
+    if any(noise in composite_text for noise in _SENTRY_NOISE_TITLES):
+        log.info(
+            "sentry_triage: noise-denylist drop message_id=%s subject=%s",
+            message_id, (subject or "")[:80],
+        )
+        return {
+            "status": "noise_dropped",
+            "incident_id": None,
+            "fingerprint": None,
+            "family_head_id": None,
+            "recurrence_count": 0,
+        }
+
     # --- Step 2: Store raw (DB-first) ---
     incident = SentryIncident(
         source_message_id=message_id,

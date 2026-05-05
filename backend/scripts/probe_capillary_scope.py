@@ -323,9 +323,15 @@ def probe_recent_sentry_incidents() -> ProbeResult:
     from app.core.database import SessionLocal
     db = SessionLocal()
     try:
+        # Exclude noise-filtered + already-resolved-by-fix incidents from
+        # the "new today" count. Founder direttiva 2026-05-05: only
+        # actionable ungated incidents drive the probe verdict;
+        # noise (OPS_API_KEY config drops) and self-fixed (heal-detection
+        # cascade) statuses are out-of-scope for the operator signal.
         new_today = db.execute(text(
             "SELECT COUNT(*) FROM sentry_incidents "
-            "WHERE created_at >= NOW() - INTERVAL '24 hours'"
+            "WHERE created_at >= NOW() - INTERVAL '24 hours' "
+            "  AND status NOT IN ('noise_dropped', 'resolved_by_fix')"
         )).fetchone()[0] or 0
         if new_today < 3:
             status = "GREEN"

@@ -333,6 +333,129 @@ _AUTO_RESOLVE_NOISE_TYPES = frozenset({
 })
 
 
+def auto_resolve_alerts(
+    db: Session,
+    source: str | None = None,
+    alert_type: str | None = None,
+    shop_domain: str | None = None,
+) -> int:
+    """Generic heal-detection helper. Resolve prior unresolved alerts
+    matching the given criteria.
+
+    Use from any alert writer when the underlying condition has cleared:
+
+        from app.services.alerting import auto_resolve_alerts
+        if condition_now_healthy:
+            auto_resolve_alerts(db, source="onboarding_health",
+                                alert_type="slow_activation",
+                                shop_domain=shop)
+
+    At least one of (source, alert_type) MUST be supplied — passing
+    neither would resolve the entire unresolved set, which is almost
+    never what a writer wants. Returns count of alerts auto-resolved.
+
+    Best-effort: never raises (closure path must not cascade-fail the
+    surrounding probe/write loop). Born 2026-05-05 to close the heal-
+    but-stay-open class across 8 writers (onboarding_stuck,
+    pixel_abandonment, slow_activation, onboarding_failed,
+    llm_safety_input/output, pipeline_stall_analyzed/proposed) — same
+    pattern as invariant_monitor._auto_resolve_prior_invariant, which
+    now delegates here.
+    """
+    if not source and not alert_type:
+        log.warning(
+            "auto_resolve_alerts called without source or alert_type — refusing"
+        )
+        return 0
+    clauses = ["resolved=false"]
+    params: dict[str, Any] = {}
+    if source is not None:
+        clauses.append("source=:source")
+        params["source"] = source
+    if alert_type is not None:
+        clauses.append("alert_type=:alert_type")
+        params["alert_type"] = alert_type
+    if shop_domain is not None:
+        clauses.append("shop_domain=:shop_domain")
+        params["shop_domain"] = shop_domain
+    where = " AND ".join(clauses)
+    # Use SAVEPOINT so a failure in the heal UPDATE does not poison the
+    # caller's outer transaction (the caller may be in the middle of a
+    # multi-step writer flow). Born 2026-05-05 evening after Sentry
+    # surfaced "This Session's transaction has been rolled back due to
+    # a previous exception during flush" inside invariant_monitor —
+    # a sequential audit fail → audit ok pattern was poisoning the
+    # session because the previous failed write_alert had not been
+    # rolled back before the heal UPDATE ran.
+    try:
+        with db.begin_nested():
+            result = db.execute(
+                text(
+                    f"UPDATE ops_alerts SET resolved=true, resolved_at=NOW() "
+                    f"WHERE {where}"
+                ),
+                params,
+            )
+        return result.rowcount or 0
+    except Exception as exc:
+        log.warning(
+            "auto_resolve_alerts failed for source=%s type=%s shop=%s: %s",
+            source, alert_type, shop_domain, exc,
+        )
+        return 0
+
+
+def heal_per_shop_alerts(
+    db: Session,
+    source: str,
+    alert_type: str,
+    currently_affected_shops: list[str] | set[str] | None,
+) -> int:
+    """Per-shop heal helper for population-scanner writers.
+
+    Used by writers that periodically re-evaluate a merchant population
+    (onboarding_health, drifting installs, etc.) — any merchant no longer
+    in the currently-affected set has healed and their open alert should
+    auto-resolve.
+
+    Semantics:
+      - currently_affected_shops empty / None → ALL unresolved (source,
+        alert_type) alerts heal (the population is clean now).
+      - non-empty → unresolved alerts whose shop_domain is NOT in the
+        affected set heal.
+
+    Returns count auto-resolved. Best-effort — never raises.
+    """
+    if not source or not alert_type:
+        log.warning(
+            "heal_per_shop_alerts called without source or alert_type — refusing"
+        )
+        return 0
+    affected = sorted({s for s in (currently_affected_shops or []) if s})
+    if not affected:
+        return auto_resolve_alerts(db, source=source, alert_type=alert_type)
+    # SAVEPOINT-isolate to protect caller's outer transaction (same
+    # rationale as auto_resolve_alerts above).
+    try:
+        with db.begin_nested():
+            result = db.execute(
+                text(
+                    "UPDATE ops_alerts SET resolved=true, resolved_at=NOW() "
+                    "WHERE source=:source AND alert_type=:alert_type "
+                    "  AND resolved=false "
+                    "  AND (shop_domain IS NULL OR NOT (shop_domain = ANY(:affected)))"
+                ),
+                {"source": source, "alert_type": alert_type, "affected": affected},
+            )
+        return result.rowcount or 0
+    except Exception as exc:
+        log.warning(
+            "heal_per_shop_alerts failed for %s/%s: %s",
+            source, alert_type, exc,
+        )
+        return 0
+
+
 def resolve_stale_alerts(db: Session) -> int:
     """Tiered auto-resolution of stale alerts.
 

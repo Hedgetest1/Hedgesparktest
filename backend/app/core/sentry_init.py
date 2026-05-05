@@ -103,6 +103,23 @@ def _make_before_send():
         sanitize = None  # type: ignore[assignment]
 
     def _before_send(event: dict, hint: dict) -> dict | None:
+        # Drop expected dev-misconfiguration noise — these 500s are not
+        # bugs, they are the server saying "this endpoint requires
+        # OPS_API_KEY to be set in .env". Capturing them as Sentry
+        # incidents inflates the error rate and triggers
+        # sentry_incidents probes. Founder mandate 2026-05-05: 0 errori.
+        # Drop at filter, don't capture.
+        try:
+            for ex in (event.get("exception", {}) or {}).get("values", []) or []:
+                msg = ex.get("value") or ""
+                if isinstance(msg, str) and (
+                    "OPS_API_KEY not configured" in msg
+                    or "OPS_API_KEY not configured on server" in msg
+                ):
+                    return None
+        except Exception:
+            pass  # SILENT-EXCEPT-OK: filter best-effort; on any error fall through to standard event delivery rather than dropping legitimate exceptions.
+
         if sanitize is None:
             return event
         scrubbed = False
