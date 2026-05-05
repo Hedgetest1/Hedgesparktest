@@ -55,8 +55,15 @@ def test_echoes_xff_when_gate_off(client, ops_key, monkeypatch):
 
 
 def test_echoes_cf_when_gate_on_and_header_present(client, ops_key, monkeypatch):
-    """Gate on + CF header → source=cf (post-flip behavior)."""
+    """Gate on + CF header + CF socket peer → source=cf (post-flip behavior).
+
+    The TestClient socket peer is "testclient" (not a CF range) so the
+    source-IP gate would normally block. Monkeypatch the membership check
+    to simulate a real CF POP socket peer.
+    """
+    from app.core import cf_ip_ranges as cf_ip_ranges_mod
     monkeypatch.setattr(client_ip_mod, "CLOUDFLARE_FRONTED", True)
+    monkeypatch.setattr(cf_ip_ranges_mod, "is_from_cloudflare", lambda ip: True)
     r = client.get(
         "/ops/client-ip-echo",
         headers={
@@ -72,7 +79,34 @@ def test_echoes_cf_when_gate_on_and_header_present(client, ops_key, monkeypatch)
     assert body["source"] == "cf"
     assert body["cloudflare_fronted"] is True
     assert body["cf_ray"] == "abc123-FRA"
+    assert body["socket_peer_is_cf_range"] is True
     assert "✅" in body["interpretation"]
+
+
+def test_echoes_xff_when_cf_header_from_non_cf_peer(client, ops_key, monkeypatch):
+    """Source-IP gate: CF header from non-CF peer → header IGNORED, falls to XFF.
+
+    This is the TIER_1 origin-lock at app layer working: an attacker
+    bypassing CF cannot spoof CF-Connecting-IP because the gate verifies
+    the socket peer is in published CF ranges.
+    """
+    from app.core import cf_ip_ranges as cf_ip_ranges_mod
+    monkeypatch.setattr(client_ip_mod, "CLOUDFLARE_FRONTED", True)
+    monkeypatch.setattr(cf_ip_ranges_mod, "is_from_cloudflare", lambda ip: False)
+    r = client.get(
+        "/ops/client-ip-echo",
+        headers={
+            "X-API-Key": ops_key,
+            "CF-Connecting-IP": "203.0.113.7",  # spoofed
+            "X-Forwarded-For": "198.51.100.1",   # real upstream
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ip"] == "198.51.100.1"   # CF header ignored
+    assert body["source"] == "xff"
+    assert body["socket_peer_is_cf_range"] is False
+    assert "ignored" in body["interpretation"].lower() or "⚠️" in body["interpretation"]
 
 
 def test_interpretation_warns_on_gate_mismatch(client, ops_key, monkeypatch):

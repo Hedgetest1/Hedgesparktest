@@ -46,14 +46,26 @@ change.
 
 Spoof posture
 -------------
-The env gate is defense-in-depth, NOT a security panacea. Even
-post-flip, an attacker bypassing CF and hitting origin directly can
-spoof CF-Connecting-IP. The full mitigation is origin-lock at TIER_2
-(Cloudflare Authenticated Origin Pulls OR Traefik IP whitelist for
-CF source ranges). Documented in
-`screenshots/CLOUDFLARE_SETUP.txt` Part E. The helper never elevates
-trust beyond what the upstream layer guarantees — it just unifies
-the read site and gates the CF-header trust at deploy time.
+Two-stage trust gate:
+  1. **Env gate** (`CLOUDFLARE_FRONTED`) — deploy-time switch. Pre-flip
+     the helper ignores `CF-Connecting-IP` entirely.
+  2. **Source-IP gate** (TIER_1 origin-lock, 2026-05-05) — even with
+     the env gate open, the helper trusts `CF-Connecting-IP` only when
+     the request's socket peer is in published Cloudflare IP ranges
+     (see `cf_ip_ranges.py`). An attacker bypassing CF cannot spoof
+     the header from a non-CF source — the helper falls through to
+     XFF / socket peer.
+
+This second gate handles the residual risk that the env gate alone
+cannot: post-flip, an attacker reaching the origin directly (via
+direct-IP DNS, leaked origin IP, etc.) cannot impersonate a real CF
+proxy because their socket peer is not in CF ranges.
+
+Future hardening (TIER_2, deferred): Cloudflare Authenticated Origin
+Pulls (mTLS) OR Traefik IP whitelist on `/docker/traefik/dynamic/
+wishspark.yml`. Both block at the proxy layer rather than the app
+layer. App-layer gate is sufficient for current scale + threat model;
+TIER_2 mTLS is "defense in depth" for the future.
 
 Return shape
 ------------
@@ -86,6 +98,14 @@ _MAX_LEN = 64  # IPv6 max is 39; 64 covers truncation safely
 _unknown_warned = False  # multi-worker: thread-only — per-worker by design
 _unknown_warn_lock = Lock()  # multi-worker: thread-only — per-process lock
 
+# CF source-IP gate counters. Per-worker, in-memory — surfaced via
+# /ops/cf-ranges. Spike in `_cf_spoof_count` means an attacker (or a
+# misconfigured upstream) is sending CF-Connecting-IP from a non-CF
+# socket peer; the gate ignored it.
+_cf_spoof_count = 0  # multi-worker: accept-degrade — per-worker counter, trend over total fine
+_cf_trust_count = 0  # multi-worker: accept-degrade — per-worker counter, trend over total fine
+_cf_counter_lock = Lock()  # multi-worker: thread-only — per-worker counter lock
+
 
 def _warn_unknown_once() -> None:
     global _unknown_warned
@@ -98,6 +118,26 @@ def _warn_unknown_once() -> None:
         "peer absent. Indicates Traefik mis-config or test harness without "
         "client. This worker process logs once per lifetime."
     )
+
+
+def _bump_cf_counter(trusted: bool) -> None:
+    global _cf_spoof_count, _cf_trust_count
+    with _cf_counter_lock:
+        if trusted:
+            _cf_trust_count += 1
+        else:
+            _cf_spoof_count += 1
+
+
+def get_cf_gate_counters() -> dict:
+    """Return per-worker counters for /ops diagnostic.
+
+    Multi-worker note: each worker has its own counter; the ops endpoint
+    gives a single-worker view. Spike trend is what matters, not the
+    absolute total across workers.
+    """
+    with _cf_counter_lock:
+        return {"trusted": _cf_trust_count, "ignored_non_cf_source": _cf_spoof_count}
 
 
 def _read_cloudflare_fronted() -> bool:
@@ -119,14 +159,30 @@ def extract_client_ip_with_source(request) -> Tuple[str, IPSource]:
     layer. The returned IP is length-capped at 64 chars; storage call
     sites historically truncated, so preserving that contract.
 
-    `CF-Connecting-IP` is read only when `CLOUDFLARE_FRONTED=true`.
-    Pre-flip, the gate ensures we don't accept the spoofable CF header
-    just because somebody sent it.
+    Two-stage CF gate:
+      1. `CLOUDFLARE_FRONTED` env must be true (deploy-time switch).
+      2. The socket peer must be in a published Cloudflare IP range
+         (see `app/core/cf_ip_ranges.py`).
+    Both must hold to trust `CF-Connecting-IP`. If only (1) holds and
+    (2) fails, the header is ignored and the spoof counter is bumped —
+    this is the post-flip origin-lock at the app layer.
     """
     if CLOUDFLARE_FRONTED:
         cf = (request.headers.get("cf-connecting-ip") or "").strip()
         if cf:
-            return cf[:_MAX_LEN], "cf"
+            # Source-IP verification: trust CF-Connecting-IP only if the
+            # socket peer is actually a Cloudflare server. Defends against
+            # spoofed CF headers from origin-bypassing attackers.
+            from app.core.cf_ip_ranges import is_from_cloudflare
+            client = getattr(request, "client", None)
+            socket_peer = getattr(client, "host", None) if client else None
+            if socket_peer and is_from_cloudflare(socket_peer):
+                _bump_cf_counter(trusted=True)
+                return cf[:_MAX_LEN], "cf"
+            # Header present but socket peer not in CF ranges → spoof
+            # attempt or misconfigured upstream. Ignore the header,
+            # bump counter, fall through to XFF/socket.
+            _bump_cf_counter(trusted=False)
 
     xff = (request.headers.get("x-forwarded-for") or "").strip()
     if xff:
