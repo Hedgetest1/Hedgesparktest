@@ -151,6 +151,7 @@ from app.api.public_roi_counter import router as public_roi_counter_router
 from app.api.feature_flags_admin import router as feature_flags_admin_router
 from app.api.slo_api import router as slo_api_router
 from app.api.auth_posture import router as auth_posture_router
+from app.api.client_ip_echo import router as client_ip_echo_router
 from app.api.feature_usage_api import router as feature_usage_router
 from app.api.anomaly_replay import router as anomaly_replay_router
 from app.api.counterfactual import router as counterfactual_router
@@ -634,6 +635,7 @@ app.include_router(public_roi_counter_router)
 app.include_router(feature_flags_admin_router)
 app.include_router(slo_api_router)
 app.include_router(auth_posture_router)
+app.include_router(client_ip_echo_router)
 app.include_router(feature_usage_router)
 app.include_router(anomaly_replay_router)
 app.include_router(counterfactual_router)

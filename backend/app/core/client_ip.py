@@ -3,7 +3,8 @@ Single source of truth for extracting the real client IP from a request.
 
 Precedence (highest authority first):
   1. CF-Connecting-IP — Cloudflare sets this to the true client IP.
-     Cannot be chained or appended; if we are behind Cloudflare it is
+     **Read only when `CLOUDFLARE_FRONTED=true`** (see env-gate below).
+     Cannot be chained or appended; when CF is in front it is
      authoritative.
   2. X-Forwarded-For first hop — Traefik appends the client IP at the
      LEFT of the chain. When behind Cloudflare, CF prepends its own
@@ -21,16 +22,38 @@ visitor tracking flattens to one identity per POP. This helper makes
 the precedence uniform and makes the Cloudflare flip a configuration
 event rather than a code-rewrite event.
 
+CLOUDFLARE_FRONTED env gate
+---------------------------
+Pre-CDN-flip, `api.hedgesparkhq.com` is exposed directly to Internet.
+Anyone can send `CF-Connecting-IP: <victim>` and — without the gate —
+the helper would trust that header. Same family of issue as
+first-hop XFF spoofing, but the gate makes the deploy state explicit:
+the helper trusts the CF header ONLY when the env flag is truthy
+("1", "true", "yes", case-insensitive).
+
+Default: `CLOUDFLARE_FRONTED=false`. Founder flips to `true` in
+`.env` AFTER:
+  1. NS records propagated to Cloudflare
+  2. Verification curl shows `cf-ray:` header on api responses
+  3. Backend restarted (PM2 restart wishspark-backend)
+
+Until then, the helper behaves identically to pre-Cloudflare:
+XFF first-hop → request.client.host. No regression vs pre-commit.
+
+Read at MODULE LOAD time. Restart the worker after .env change for
+the new value to take effect — operationally the same as any env
+change.
+
 Spoof posture
 -------------
-`CF-Connecting-IP` is trustworthy ONLY when origin requests are gated
-to come from Cloudflare (Authenticated Origin Pulls or origin-IP
-whitelist on Traefik). Until that gate is in place, an attacker
-hitting api.hedgesparkhq.com directly can spoof the header. The
-runbook in `screenshots/CLOUDFLARE_SETUP.txt` documents the TIER_2
-origin-lock as a same-day-as-NS-flip step. The helper never elevates
-trust beyond what the upstream layer guarantees — it just unifies the
-read site.
+The env gate is defense-in-depth, NOT a security panacea. Even
+post-flip, an attacker bypassing CF and hitting origin directly can
+spoof CF-Connecting-IP. The full mitigation is origin-lock at TIER_2
+(Cloudflare Authenticated Origin Pulls OR Traefik IP whitelist for
+CF source ranges). Documented in
+`screenshots/CLOUDFLARE_SETUP.txt` Part E. The helper never elevates
+trust beyond what the upstream layer guarantees — it just unifies
+the read site and gates the CF-header trust at deploy time.
 
 Return shape
 ------------
@@ -43,11 +66,24 @@ sites that don't need the source tag.
 """
 from __future__ import annotations
 
+import os
 from typing import Literal, Tuple
 
 IPSource = Literal["cf", "xff", "client", "unknown"]
 
 _MAX_LEN = 64  # IPv6 max is 39; 64 covers truncation safely
+
+
+def _read_cloudflare_fronted() -> bool:
+    """Resolve the env-gate. Module-load by default; tests can monkeypatch
+    and call this to refresh."""
+    return os.getenv("CLOUDFLARE_FRONTED", "false").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
+# Module-load read. Workers re-read on restart.
+CLOUDFLARE_FRONTED: bool = _read_cloudflare_fronted()
 
 
 def extract_client_ip_with_source(request) -> Tuple[str, IPSource]:
@@ -56,10 +92,15 @@ def extract_client_ip_with_source(request) -> Tuple[str, IPSource]:
     Empty/whitespace headers are skipped — fall through to the next
     layer. The returned IP is length-capped at 64 chars; storage call
     sites historically truncated, so preserving that contract.
+
+    `CF-Connecting-IP` is read only when `CLOUDFLARE_FRONTED=true`.
+    Pre-flip, the gate ensures we don't accept the spoofable CF header
+    just because somebody sent it.
     """
-    cf = (request.headers.get("cf-connecting-ip") or "").strip()
-    if cf:
-        return cf[:_MAX_LEN], "cf"
+    if CLOUDFLARE_FRONTED:
+        cf = (request.headers.get("cf-connecting-ip") or "").strip()
+        if cf:
+            return cf[:_MAX_LEN], "cf"
 
     xff = (request.headers.get("x-forwarded-for") or "").strip()
     if xff:

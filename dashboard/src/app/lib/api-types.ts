@@ -215,6 +215,11 @@ export interface paths {
          *
          *     Cached in Redis for 60 seconds.  Dashboard data changes on aggregation
          *     worker cycles (5 min), so 60s staleness is imperceptible to merchants.
+         *
+         *     Cache hit path: zero DB queries.
+         *     Cache miss path: ~18 DB queries (delegated to build_lite_dashboard_overview).
+         *     The aggregation worker pre-warms this cache for active merchants every
+         *     5 min, so production cold-cache hits are rare.
          */
         get: operations["get_dashboard_overview_dashboard_overview_get"];
         put?: never;
@@ -6517,6 +6522,30 @@ export interface paths {
         };
         /** Get Posture */
         get: operations["get_posture_ops_auth_posture_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ops/client-ip-echo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Echo Client Ip
+         * @description Return the resolved client IP + source + env-gate state.
+         *
+         *     Reports the headers the helper consults so the founder can confirm
+         *     Cloudflare is actually setting them (and not just appearing to be
+         *     via DNS-only mode).
+         */
+        get: operations["echo_client_ip_ops_client_ip_echo_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -21943,6 +21972,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    echo_client_ip_ops_client_ip_echo_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */

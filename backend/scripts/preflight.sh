@@ -295,6 +295,24 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2c-ter. Client-IP unified extraction — pins that every site reading
+# the real client IP routes via app/core/client_ip.py. Bare
+# `request.client.host` and raw XFF/CF-Connecting-IP reads outside the
+# helper bypass the Cloudflare-aware precedence and silently regress
+# the moment Cloudflare goes in front of the API. Without this hard
+# step, drift would only fire AFTER the NS flip (rate-limit collapse,
+# audit attribution loss, tracker visitor flatten).
+# Born 2026-05-05 — Cloudflare CDN backend prep.
+# ---------------------------------------------------------------------------
+step "Client-IP unified extraction (audit_client_ip_unified.py)"
+if "$PY" scripts/audit_client_ip_unified.py > /tmp/preflight_client_ip_unified.log 2>&1; then
+    ok "$(tail -1 /tmp/preflight_client_ip_unified.log)"
+else
+    bad "client-IP extraction drift — see /tmp/preflight_client_ip_unified.log"
+    tail -20 /tmp/preflight_client_ip_unified.log
+fi
+
+# ---------------------------------------------------------------------------
 # 2d. Frontend never-crash architecture — verifies the 4-layer
 # error-boundary stack (global-error / app/error / SectionErrorBoundary
 # / ErrorReporterInstaller) plus Sentry config files are present AND
@@ -1383,7 +1401,7 @@ flagged_count=0
 for orphan in audit_dev_flag_leaks.py audit_timezone.py audit_claude_md_redis_keys.py \
               audit_empty_path_fields.py audit_n_plus_one.py audit_dead_endpoints.py \
               audit_models_without_migrations.py audit_worker_scope_coverage.py \
-              audit_read_replica_routing_drift.py audit_client_ip_unified.py; do
+              audit_read_replica_routing_drift.py; do
     if "$PY" "scripts/${orphan}" 2>/dev/null | head -1 | grep -qE "clean|OK|0 (findings|hits|drift)|^✓"; then
         clean_count=$((clean_count + 1))
     else
