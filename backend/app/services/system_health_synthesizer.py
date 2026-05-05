@@ -49,8 +49,8 @@ log = logging.getLogger("cto_signal")
 # ---------------------------------------------------------------------------
 
 _SIGNAL_COOLDOWN_SECONDS = 3600  # 1 hour between identical signals
-_TELEGRAM_COOLDOWN_TRANSITION_SECONDS = 300  # 5 min cooldown for state transitions
-_TELEGRAM_COOLDOWN_REPEAT_CRITICAL_SECONDS = 14400  # 4 hours for repeat CRITICAL
+_TELEGRAM_COOLDOWN_TRANSITION_SECONDS = 1800   # 30 min — debounce flapping (was 5min: too noisy under flap)
+_TELEGRAM_COOLDOWN_REPEAT_CRITICAL_SECONDS = 43200  # 12 hours for repeat CRITICAL (was 4h: 672 spam observed in 7d)
 
 
 def _now():
@@ -388,9 +388,19 @@ def _assess_pipeline_health(db: Session, now: datetime) -> HealthDimension:
     """), {"p": now - timedelta(days=14), "c": now - timedelta(days=7)}).fetchone()
     applied_p = int(applied_prev[0] or 0)
 
-    # Status: queue depth thresholds
+    # Status: queue depth thresholds — but downgrade to `degraded` if the
+    # depth is due to an external blocker (LLM not trying), same logic as
+    # _assess_pipeline_liveness. Critical is reserved for system fault.
     if total_q > 50:
         status = "critical"
+        try:
+            from app.core.llm_budget import get_usage_summary
+            usage = get_usage_summary()
+            if int(usage.get("global_calls_today") or 0) == 0:
+                # No LLM activity → external blocker, not system fault
+                status = "degraded"
+        except Exception:
+            pass
     elif total_q > 20:
         status = "degraded"
     else:
@@ -414,6 +424,13 @@ def _assess_pipeline_liveness(db: Session, now: datetime) -> HealthDimension:
 
     DEAD: candidates > 0 AND proposals_7d == 0 AND applied_7d == 0
     This catches: missing API keys, budget exhaustion, persistent LLM errors.
+
+    External-blocker awareness (added 2026-05-05): if `global_calls_today == 0`
+    AND no LLM activity in 7d, the pipeline is not failing — it's not
+    *trying*. That's an external dependency block (Anthropic credit
+    exhausted, OAuth revoked, etc.) — `degraded`, not `critical`. Critical
+    is reserved for "system actively broken"; this is "system parked,
+    awaiting external resource".
     """
     candidates = db.execute(text("""
         SELECT COUNT(*) FROM bugfix_candidates
@@ -439,8 +456,29 @@ def _assess_pipeline_liveness(db: Session, now: datetime) -> HealthDimension:
                                "No pending candidates")
 
     if proposals_7d == 0 and applied_7d == 0:
-        return HealthDimension("liveness", "critical", float(pending), "stable",
-                               f"Pipeline DEAD: {pending} candidates, 0 proposals/applied (7d) — check LLM keys")
+        # Distinguish "broken" (calls happen but fail) from "parked"
+        # (no calls happen at all = external dep blocker).
+        try:
+            from app.core.llm_budget import get_usage_summary
+            usage = get_usage_summary()
+            calls_today = int(usage.get("global_calls_today") or 0)
+            monthly_cost = float(usage.get("monthly_cost_eur") or 0.0)
+        except Exception:
+            calls_today, monthly_cost = -1, -1.0
+
+        if calls_today == 0 and monthly_cost == 0.0:
+            # Pipeline isn't trying → external dep block, not system fault
+            return HealthDimension(
+                "liveness", "degraded", float(pending), "stable",
+                f"Pipeline parked: {pending} candidates, 0 LLM calls today — "
+                f"awaiting external (likely Anthropic credit topup)",
+            )
+        # Calls happening but no proposals → genuinely broken
+        return HealthDimension(
+            "liveness", "critical", float(pending), "stable",
+            f"Pipeline DEAD: {pending} candidates, 0 proposals/applied (7d), "
+            f"{calls_today} LLM calls today — system fault",
+        )
 
     if applied_7d == 0 and proposals_7d > 0:
         return HealthDimension("liveness", "degraded", float(pending), "stable",
