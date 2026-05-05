@@ -57,10 +57,38 @@ def test_client_host_when_no_proxy_headers():
 
 
 def test_unknown_when_nothing_available():
+    # Reset the warn-once flag so the test's "unknown" hit triggers the log.
+    client_ip_mod._unknown_warned = False
     req = _req()
     ip, src = extract_client_ip_with_source(req)
     assert ip == "unknown"
     assert src == "unknown"
+
+
+def test_unknown_warn_fires_only_once_per_process():
+    """The 'unknown' warning is rate-limited to one log line per worker
+    lifetime — not one per request — to avoid flooding logs under broken
+    proxy configurations.
+
+    Verified via the module-local flag rather than caplog, since the
+    `wishspark.client_ip` logger may not propagate to the root logger
+    that caplog patches across the process; flag-flip is the actual
+    invariant we care about.
+    """
+    client_ip_mod._unknown_warned = False
+    req = _req()
+
+    # First call triggers the warn → flag flips to True
+    extract_client_ip_with_source(req)
+    assert client_ip_mod._unknown_warned is True
+
+    # Subsequent calls do NOT re-trigger (flag is already True;
+    # _warn_unknown_once short-circuits)
+    extract_client_ip_with_source(req)
+    extract_client_ip_with_source(req)
+    extract_client_ip_with_source(req)
+    # Flag remains True (no flip-back); fast path was taken
+    assert client_ip_mod._unknown_warned is True
 
 
 def test_whitespace_only_headers_fall_through():

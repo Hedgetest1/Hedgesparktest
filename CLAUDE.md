@@ -524,10 +524,18 @@ CF-Connecting-IP → XFF first hop → socket peer.
 goes through `app/core/client_ip.py::extract_client_ip(request)`.
 Bare `request.client.host` and raw XFF/CF-Connecting-IP reads
 outside the helper are blocked at preflight by
-`audit_client_ip_unified.py` (also wired into invariant_monitor).
+`audit_client_ip_unified.py` (hard step + invariant_monitor).
 This makes the Cloudflare flip a configuration event, not a code
 rewrite — without it, every rate-limit collapses onto a single CF
-POP IP under CDN.
+POP IP under CDN. **`CLOUDFLARE_FRONTED` env (default `false`)**
+gates whether the helper trusts `CF-Connecting-IP`. Founder flips
+to `true` in `.env` AFTER NS propagation + `cf-ray` header
+verified on api responses, then `pm2 restart wishspark-backend`.
+Pre-flip default is byte-identical to pre-Cloudflare. Smoke
+endpoint `GET /ops/client-ip-echo` (auth-gated `OPS_API_KEY`)
+returns `{ip, source, cloudflare_fronted, cf_ray, interpretation}`
+for one-curl verification — runbook
+`screenshots/CLOUDFLARE_SETUP.txt` Part D step 0.
 
 **Stack:** FastAPI + Postgres + Redis (Docker) + Next.js 16.2.3 + React 19.
 
@@ -805,6 +813,11 @@ Full model in `docs/EXECUTION_POLICY.md`. Summary:
 - `app/services/bugfix_pipeline.py`, `promotion_pipeline.py` — self-modification
 - `app/services/reviewer_layer.py`, `project_brain.py` — governance
 - `app/core/llm_budget.py`, `llm_router.py` — LLM infrastructure
+- `app/core/client_ip.py` — client-IP precedence + CLOUDFLARE_FRONTED gate.
+  Controls rate-limit, audit attribution, geo, tracker visitor identity.
+  A wrong-direction patch (e.g. removing XFF fallback or inverting CF
+  precedence) silently regresses 7 call sites. Pipeline must propose,
+  human approves.
 - `app/models/*` — SQLAlchemy models
 - Multi-file refactors (6+ files)
 

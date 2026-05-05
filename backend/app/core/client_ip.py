@@ -66,12 +66,38 @@ sites that don't need the source tag.
 """
 from __future__ import annotations
 
+import logging
 import os
+from threading import Lock
 from typing import Literal, Tuple
+
+_log = logging.getLogger("wishspark.client_ip")
 
 IPSource = Literal["cf", "xff", "client", "unknown"]
 
 _MAX_LEN = 64  # IPv6 max is 39; 64 covers truncation safely
+
+# Worker-local "unknown" rate-limit. The helper returns "unknown" only
+# when CF-Connecting-IP is absent (or gated), XFF is absent, AND the
+# socket peer is also absent. Under Traefik-fronted production this
+# should NEVER fire — it's a "proxy is misconfigured" smoke alarm.
+# Log once per worker process (4 workers = up to 4 lines per restart),
+# enough to fire the signal without flooding logs.
+_unknown_warned = False  # multi-worker: thread-only — per-worker by design
+_unknown_warn_lock = Lock()  # multi-worker: thread-only — per-process lock
+
+
+def _warn_unknown_once() -> None:
+    global _unknown_warned
+    with _unknown_warn_lock:
+        if _unknown_warned:
+            return
+        _unknown_warned = True
+    _log.warning(
+        "client_ip: returned 'unknown' — proxy headers missing AND socket "
+        "peer absent. Indicates Traefik mis-config or test harness without "
+        "client. This worker process logs once per lifetime."
+    )
 
 
 def _read_cloudflare_fronted() -> bool:
@@ -114,6 +140,7 @@ def extract_client_ip_with_source(request) -> Tuple[str, IPSource]:
         if host:
             return str(host)[:_MAX_LEN], "client"
 
+    _warn_unknown_once()
     return "unknown", "unknown"
 
 

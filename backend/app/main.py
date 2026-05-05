@@ -825,6 +825,24 @@ def _startup_env_audit() -> None:
             "install sentry-sdk[fastapi] to enable production error tracking."
         )
 
+    # Client-IP precedence posture — surface which mode the worker booted
+    # in. Founder reads this in pm2 logs to confirm the env-gate state
+    # matches the CDN deploy state. See screenshots/CLOUDFLARE_SETUP.txt
+    # Part A9 for the flip procedure.
+    from app.core import client_ip as _client_ip_mod
+    if _client_ip_mod.CLOUDFLARE_FRONTED:
+        _startup_log.info(
+            "CLIENT-IP: Cloudflare-fronted mode (CLOUDFLARE_FRONTED=true) — "
+            "helper trusts CF-Connecting-IP. Verify cf-ray header on api "
+            "responses and run /ops/client-ip-echo to confirm."
+        )
+    else:
+        _startup_log.info(
+            "CLIENT-IP: direct mode (CLOUDFLARE_FRONTED=false) — helper "
+            "ignores CF-Connecting-IP. Pre-Cloudflare behavior. Flip env "
+            "to true ONLY after Cloudflare NS active + cf-ray verified."
+        )
+
     # Dev-flag leak check — boot-time recognition for the bug class that
     # triggered the 2026-04-23 AUTO_DETECT leak. Deliberately non-fatal
     # (does not raise) so a mis-configured beta host can still boot —
