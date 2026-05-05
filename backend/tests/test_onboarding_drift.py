@@ -108,6 +108,7 @@ def test_write_onboarding_alerts_emits_drift_alert():
     db.execute.side_effect = execute_results
 
     with patch("app.services.alerting.write_alert") as mock_alert, \
+         patch("app.services.alerting.heal_per_shop_alerts") as _mock_heal, \
          patch("app.services.goals.get_goals", return_value=[]), \
          patch("app.services.signal_webhooks.list_webhooks", return_value=[]):
         result = write_onboarding_alerts(db)

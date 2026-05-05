@@ -202,16 +202,19 @@ def test_run_live_mode_triage_failed_still_writes_receipt():
 
 
 def test_run_live_mode_p0_triggers_telegram_ping():
-    """`requires_human_now=True` → founder gets a Telegram ping with
-    the triage summary. Ping must include alert_type + probable_cause
-    + triage steps."""
+    """`requires_human_now=True` + STRATEGIC alert_type → founder gets a
+    Telegram ping with the triage summary. Ping must include alert_type
+    + probable_cause + triage steps. Founder direttiva 2026-05-05:
+    only strategic-allowlist alert_types reach Telegram (operational
+    types are brain-handled). breach_response_required is on the
+    allowlist (Art. 33/34 legal duty)."""
     from app.services import on_alert_responder
 
-    alert = _make_alert(alert_type="tracker_down", summary="tracker CDN 5xx")
+    alert = _make_alert(alert_type="breach_response_required", summary="GDPR breach detected")
     verdict = _make_verdict(
         severity="P0",
-        probable_cause="cdn cache miss",
-        triage_steps=["check cloudflare", "purge cache"],
+        probable_cause="exfiltration via misconfigured CORS",
+        triage_steps=["lock down CORS", "audit access logs"],
         requires_human_now=True,
     )
     sent_texts: list[str] = []
@@ -234,9 +237,45 @@ def test_run_live_mode_p0_triggers_telegram_ping():
     assert len(sent_texts) == 1
     msg = sent_texts[0]
     assert "P0" in msg
-    assert "tracker_down" in msg
-    assert "cdn cache miss" in msg
-    assert "check cloudflare" in msg
+    assert "breach_response_required" in msg
+    assert "exfiltration" in msg
+    assert "lock down CORS" in msg
+
+
+def test_strategic_only_gate_suppresses_operational_alerts():
+    """Founder direttiva 2026-05-05: operational alert_types
+    (tracker_down, sentry_regression, slo_burn, etc.) MUST NOT reach
+    the founder Telegram even on P0/requires_human_now. The
+    autonomous brain handles those internally."""
+    from app.services import on_alert_responder
+
+    # Operational alert (NOT in the strategic allowlist)
+    alert = _make_alert(alert_type="tracker_down", summary="tracker CDN 5xx")
+    verdict = _make_verdict(
+        severity="P0",
+        requires_human_now=True,
+        probable_cause="cdn cache miss",
+        triage_steps=["check cloudflare"],
+    )
+    sent_texts: list[str] = []
+
+    def _capture_send(text, chat_id=None, parse_mode="HTML", reply_to=None):
+        sent_texts.append(text)
+        return True
+
+    with patch.dict(os.environ, {"ON_ALERT_RESPONDER_ENABLED": "1"}), \
+         patch.object(on_alert_responder, "_find_untrimmed_criticals", return_value=[alert]), \
+         patch.object(on_alert_responder, "build_context_packet", return_value={"alert": alert}), \
+         patch("app.services.on_alert_triage_llm.triage", return_value=verdict), \
+         patch("app.services.audit.write_audit_log", return_value=MagicMock()), \
+         patch("app.services.telegram_agent.is_configured", return_value=True), \
+         patch("app.services.telegram_agent.send_message", side_effect=_capture_send):
+        db = MagicMock()
+        report = on_alert_responder.run(db)
+
+    # Triage still runs (audit_log written, p0_pings counted as attempt)
+    # but Telegram message is suppressed by the strategic-only gate.
+    assert sent_texts == [], "operational alert reached Telegram — strategic-only gate broken"
 
 
 def test_run_live_mode_non_p0_does_not_ping():
