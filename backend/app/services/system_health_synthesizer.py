@@ -400,7 +400,7 @@ def _assess_pipeline_health(db: Session, now: datetime) -> HealthDimension:
                 # No LLM activity → external blocker, not system fault
                 status = "degraded"
         except Exception:
-            pass
+            pass  # SILENT-EXCEPT-OK: get_usage_summary best-effort enrichment on the degraded-status path; if the LLM-budget probe itself errors, the surrounding status synthesis must still complete and return a coherent payload — raising would 500 /ops/system-health.
     elif total_q > 20:
         status = "degraded"
     else:

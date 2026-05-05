@@ -116,6 +116,11 @@ ALLOWLIST: set[str] = {
     "services/share_engine.py",
     # Global stale-alert auto-resolver — resolves network-wide by severity
     "services/alerting.py",
+    # Invariant-monitor heal-detection — auto-resolves prior unresolved
+    # invariant_regression alerts cross-shop when the audit/check passes
+    # (added 2026-05-05 to close the heal-but-stay-open class). Same
+    # cross-shop-by-design rationale as alerting.resolve_stale_alerts.
+    "services/invariant_monitor.py",
     # Global dashboard is not a tenant surface — `dashboard_asset_drift`
     # alerts are shop_domain=NULL (infrastructure-wide). Auto-remediation
     # is inherently cross-tenant — a pm2 restart affects every merchant.

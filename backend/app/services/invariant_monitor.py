@@ -447,6 +447,45 @@ _AUDITS: list[tuple[str, str, str]] = [
 _TIMEOUT_SECONDS = 30
 
 
+def _auto_resolve_prior_invariant(db: Session, source: str) -> int:
+    """Mark any prior unresolved invariant_regression alert with this source
+    as resolved, since the audit/check just passed.
+
+    Returns count of alerts auto-resolved. Best-effort — never raises.
+
+    Closes the bug class where invariant alerts piled up indefinitely once
+    fired: the original write_alert dedup was 24h, so a single audit
+    failing at 21:00 on day 1 + 02:00 on day 2 would create 2 alerts; if
+    the audit is then fixed by a commit on day 3, both alerts stayed
+    `resolved=false` forever, polluting `/ops/system-health` and
+    `probe_capillary_scope.py` ops_alerts_volume forever. This helper
+    closes the loop: when an audit transitions failed → ok, the prior
+    open alerts get explicitly resolved with audit-trail reason.
+    """
+    try:
+        from sqlalchemy import text as _text
+        result = db.execute(
+            _text(
+                "UPDATE ops_alerts SET resolved=true, resolved_at=NOW() "
+                "WHERE alert_type='invariant_regression' "
+                "  AND source=:source "
+                "  AND resolved=false"
+            ),
+            {"source": source},
+        )
+        db.commit()
+        return result.rowcount or 0
+    except Exception as exc:
+        log.warning(
+            "invariant_monitor: auto-resolve failed for %s: %s", source, exc
+        )
+        try:
+            db.rollback()
+        except Exception:
+            pass  # SILENT-EXCEPT-OK: rollback after a failed auto-resolve UPDATE is best-effort cleanup; raising would mask the original auto-resolve error already logged above and could cascade-fail the surrounding invariant_monitor cycle.
+        return 0
+
+
 def run_invariant_check(db: Session) -> dict:
     """
     Run every registered audit once. Emit an ops_alert for each
@@ -566,9 +605,13 @@ def run_invariant_check(db: Session) -> dict:
             continue
 
         if status == "ok":
-            # Audit green — no action. The chronic-aggregation logic in
-            # write_alert handles the case where a previous failure has
-            # now healed (alert stays open until resolved explicitly).
+            # Audit green — auto-resolve any prior unresolved alert for
+            # this source. Closes the heal-but-stay-open class that
+            # left 38 stale alerts piled up across 4 days (5/2-5/5).
+            resolved = _auto_resolve_prior_invariant(db, source)
+            if resolved:
+                summary.setdefault("auto_resolved", 0)
+                summary["auto_resolved"] += resolved
             continue
 
         # Sentry breadcrumb — invariant audit fired. Lands on the active
@@ -652,6 +695,7 @@ def _check_fleet_workers_reporting(db: Session, summary: dict) -> None:
 
     summary["checked"] += 1
     if reporting >= expected_min:
+        _auto_resolve_prior_invariant(db, "invariant:fleet_workers_reporting")
         return
 
     summary["failed"] += 1
@@ -711,6 +755,7 @@ def _check_redis_durability(db: Session, summary: dict) -> None:
         problems.append(f"maxmemory_policy_unsafe={policy}")
 
     if not problems:
+        _auto_resolve_prior_invariant(db, "invariant:redis_durability")
         return
 
     summary["failed"] += 1
@@ -783,6 +828,7 @@ def _check_bugfix_proposal_provenance(db: Session, summary: dict) -> None:
 
     summary["checked"] += 1
     if not rows:
+        _auto_resolve_prior_invariant(db, "invariant:bugfix_proposal_provenance")
         return
 
     summary["failed"] += 1
@@ -839,6 +885,7 @@ def _check_postgres_capacity(db: Session, summary: dict) -> None:
 
     summary["checked"] += 1
     if current >= expected_min:
+        _auto_resolve_prior_invariant(db, "invariant:postgres_capacity")
         return
 
     summary["failed"] += 1
@@ -945,6 +992,7 @@ def _check_silent_audits(db: Session, summary: dict) -> None:
     reportable_never = never_observed if grace_window_passed else []
 
     if not silent_with_history and not reportable_never:
+        _auto_resolve_prior_invariant(db, "invariant:silent_audits")
         return
 
     summary["failed"] += 1
@@ -1062,6 +1110,7 @@ def _check_audit_findings_trend(db: Session, summary: dict) -> None:
 
     summary["checked"] += 1
     if not trending:
+        _auto_resolve_prior_invariant(db, "invariant:audit_findings_trend")
         return
 
     summary["failed"] += 1
@@ -1144,6 +1193,8 @@ def _check_reports_invariants(db: Session, summary: dict) -> None:
         log.warning("invariant_monitor: index reflection failed: %s", exc)
         return
     missing = _REPORTS_REQUIRED_INDEXES - present
+    if not missing:
+        _auto_resolve_prior_invariant(db, "invariant:reports_indexes")
     if missing:
         summary["failed"] += 1
         try:
@@ -1196,6 +1247,8 @@ def _check_reports_invariants(db: Session, summary: dict) -> None:
         .limit(5)
         .all()
     )
+    if not leak_rows:
+        _auto_resolve_prior_invariant(db, "invariant:reports_schedule_cap")
     if leak_rows:
         summary["failed"] += 1
         try:
@@ -1280,6 +1333,7 @@ def _check_inventory_snapshot_freshness(db: Session, summary: dict) -> None:
         return
 
     if not rows:
+        _auto_resolve_prior_invariant(db, "invariant:inventory_freshness")
         return
 
     # Don't fire for fresh installs (they need 24h to receive their first
