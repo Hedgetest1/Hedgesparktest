@@ -193,6 +193,33 @@ def write_alert(
     DB persist happens FIRST — the alert exists regardless of delivery outcome.
     External delivery is attempted SECOND — failure is logged but never raised.
     """
+    # Step 0 (preempt): synthetic test-shop guard.
+    # If the shop_domain matches a known test-fixture pattern, don't
+    # touch the DB. The caller is almost always a service path
+    # (risk_forecast / signal_webhooks / etc.) that opens its own
+    # SessionLocal() to persist outside the caller's transaction —
+    # which bypasses test SAVEPOINTs and leaks rows. 2026-05-06 audit
+    # found 1079 orphan rows accumulated this way.
+    # Return a fresh in-memory OpsAlert so the (rare) caller that uses
+    # the return value still gets a typed object (id stays None,
+    # callers that try to chain to DB ops see no-op semantics).
+    try:
+        from app.core.test_shop_blocklist import is_synthetic_test_shop
+        if shop_domain and is_synthetic_test_shop(shop_domain):
+            log.debug(
+                "alert: synthetic-test-shop guard suppressed [%s] %s shop=%s",
+                alert_type, source, shop_domain,
+            )
+            stub = OpsAlert(
+                severity=severity, source=source, alert_type=alert_type,
+                shop_domain=shop_domain, summary=summary,
+                detail=json.dumps(detail, default=str) if detail and not isinstance(detail, str) else detail,
+            )
+            return stub  # not added to session; never persisted
+    except Exception as exc:
+        log.warning("alerting: synthetic-shop guard failed: %s", exc)
+        # Fall through — fail-open so a guard bug never blocks real alerts.
+
     # Step 0a: Acute dedup — pure noise suppression within 5 minutes.
     # If an identical alert was raised in the last 5 minutes, drop this
     # one entirely. No state mutation — we don't even bump the counter,

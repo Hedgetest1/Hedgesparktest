@@ -670,6 +670,19 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Orphan-alert hygiene — synthetic-test-shop guard regression check
+# (2026-05-06 brutal audit close). Fails strict if the write_alert
+# guard regresses and synthetic-shop alerts start accumulating again.
+# ---------------------------------------------------------------------------
+step "Orphan-alert no-growth (audit_orphan_alerts_no_growth.py --strict)"
+if DATABASE_URL=$(grep "^DATABASE_URL=" "$BACKEND/.env" 2>/dev/null | cut -d= -f2-) "$PY" scripts/audit_orphan_alerts_no_growth.py --strict > /tmp/preflight_orphan_alerts.log 2>&1; then
+    ok "$(head -1 /tmp/preflight_orphan_alerts.log)"
+else
+    bad "synthetic-shop orphan growth detected — see /tmp/preflight_orphan_alerts.log"
+    tail -20 /tmp/preflight_orphan_alerts.log
+fi
+
+# ---------------------------------------------------------------------------
 # Alert-writer heal-detection — STRICT (founder direttiva 2026-05-05
 # brain-autonomous sprint, G6 close 2026-05-06). Every condition-based
 # write_alert site must close the alert when the underlying state

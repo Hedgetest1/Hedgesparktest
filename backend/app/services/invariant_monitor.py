@@ -443,6 +443,14 @@ _AUDITS: list[tuple[str, str, str]] = [
     # writer files that lack heal call OR opt-out comment — runtime
     # recognition of the heal-but-stay-open class regression.
     ("audit_alert_writer_heal_detection.py", "invariant_regression", "invariant:alert_writer_heal_detection"),
+    # Synthetic-test-shop alert guard (added 2026-05-06 after a brutal
+    # capillary audit found 1079 orphan rows leaked from test fixtures
+    # over 25 days). Catches regression of the write_alert synthetic-
+    # shop guard at runtime — agent_worker re-fires the audit
+    # periodically; if synthetic-shop orphans start growing again, the
+    # write_alert guard has been broken (refactored away, exception
+    # path bypass, or new test prefix not in test_shop_blocklist).
+    ("audit_orphan_alerts_no_growth.py", "invariant_regression", "invariant:orphan_alerts_no_growth"),
     # Brutal-CTO-inspection follow-up (added 2026-05-02 evening).
     # 1. DB pool doctrine catches code-default drift from CLAUDE.md
     #    §6 (the bug that produced 20× QueuePool exhaustions live).
