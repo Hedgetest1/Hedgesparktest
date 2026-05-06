@@ -398,6 +398,7 @@ def fuse(db: Session, shop_domain: str) -> dict:
     if extractor_failures >= 3:
         try:
             from app.services.alerting import write_alert
+            # heal-detection: 5-minute Redis cache_key cooldown — recovery = next scan finds no anomaly (no new alert), TTL closes new-alert path
             write_alert(
                 db,
                 severity="warning",

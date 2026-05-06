@@ -105,6 +105,7 @@ def _write_ops_alert(
 ) -> None:
     try:
         from app.services.alerting import write_alert
+        # heal-detection: fix attempt event — per-attempt log entry
         write_alert(
             db, severity=severity, source=source, alert_type=alert_type,
             summary=summary, detail=detail,

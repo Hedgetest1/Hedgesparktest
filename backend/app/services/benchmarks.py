@@ -339,6 +339,7 @@ def get_merchant_benchmark_report(db: Session, shop_domain: str) -> dict:
         # Emit an ops_alert so the self-healing pipeline catches repeated failures
         try:
             from app.services.alerting import write_alert
+            # heal-detection: benchmark run event — per-cycle completion log
             write_alert(
                 db,
                 severity="warning",

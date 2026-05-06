@@ -580,6 +580,7 @@ def emit_signal(
                 from app.services.alerting import write_alert
                 db = SessionLocal()
                 try:
+                    # heal-detection: webhook signal event — per-delivery log
                     write_alert(
                         db,
                         severity="warning",

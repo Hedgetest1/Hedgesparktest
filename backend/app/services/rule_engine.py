@@ -210,6 +210,7 @@ def _run_action(
 
         if kind == "emit_ops_alert":
             from app.services.alerting import write_alert
+            # heal-detection: rule fire event — per-trigger log
             write_alert(
                 db,
                 severity=action.get("severity", "info"),

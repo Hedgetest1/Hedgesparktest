@@ -232,6 +232,7 @@ def report_frontend_error(
     summary = f"[{component}] {error_type}: {message[:180]}"
 
     try:
+        # heal-detection: frontend exception event — per-error log
         write_alert(
             db,
             severity=payload.severity or "warning",

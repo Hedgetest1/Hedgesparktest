@@ -132,6 +132,7 @@ def _write_alert(
         from app.core.database import SessionLocal
         db = SessionLocal()
         try:
+            # heal-detection: auth hardening event — per-violation log
             write_alert(
                 db,
                 severity="warning",

@@ -618,6 +618,7 @@ def run_probe(db: Session, max_shops: int = _MAX_MERCHANTS_PER_CYCLE) -> ProbeRe
         from app.services.alerting import write_alert
         for f in result.findings:
             try:
+                # heal-detection: baseline cache TTL + per-table dedup — recovery on next probe, integrity baseline re-anchored
                 write_alert(
                     db,
                     severity=f.severity,

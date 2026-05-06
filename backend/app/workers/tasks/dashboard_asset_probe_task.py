@@ -130,6 +130,7 @@ def run() -> None:
 
     db = SessionLocal()
     try:
+        # heal-detection: asset-probe alert is fired once per detected chunk failure — auto-deploy-driven recovery is the heal mechanism (next deploy resolves)
         write_alert(
             db,
             severity="critical",

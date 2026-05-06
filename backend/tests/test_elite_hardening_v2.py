@@ -1048,7 +1048,7 @@ _RAW_SQL_FSTRING_ALLOWLIST: set[str] = {
     "app/services/evolution_business_outcomes.py:120",
     "app/services/utm_attribution.py:111",
     "app/services/simulation_engine.py:317",
-    "app/services/simulation_engine.py:668",
+    "app/services/simulation_engine.py:669",
     "app/services/nudge_rank.py:148",
     "app/services/nudge_rank.py:200",
     # evolution_outcomes.py:625 — removed: refactored to bind param
@@ -1059,7 +1059,7 @@ _RAW_SQL_FSTRING_ALLOWLIST: set[str] = {
     # gdpr_processor: where clause built from hardcoded ":cid"/":email"
     # filter strings joined with " OR ". Parameters are bound via the
     # second arg to execute().
-    "app/services/gdpr_processor.py:282",
+    "app/services/gdpr_processor.py:283",
     # gdpr_processor:566 removed 2026-05-04 — Art. 17 erasure refactored
     # to single multi-CTE statement; SQL is built into a `sql` variable
     # then passed to text(sql), so no inline `text(f"…")` site exists.

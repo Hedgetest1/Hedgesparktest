@@ -959,6 +959,7 @@ def _route_to_pipeline(
             alert = _find_existing_alert(db, incident.shop_domain, "entitlement_mismatch")
             if not alert:
                 from app.services.alerting import write_alert
+                # heal-detection: chatbot conversation event — per-message log entry
                 alert = write_alert(
                     db, severity="warning", source="merchant_chatbot",
                     alert_type="entitlement_mismatch",

@@ -423,6 +423,7 @@ def quarantine_row_ids(row_ids: list[int] | set[int]) -> int:
 
 def enforce_chain_integrity(db: Session) -> dict[str, Any]:
     """Run `verify_audit_log_chain` and, on violations, emit a CRITICAL
+    # heal-detection: discrete audit-log entry — write-once, not a recurring condition
     ops_alert via write_alert() so the dedup window collapses repeats.
 
     Quarantined (known-damaged) rows are filtered out before alerting, so

@@ -679,6 +679,7 @@ def run_friction_detection(db: Session) -> dict:
             if _friction_alert_suppressed(db, sig["signal"], sig["shop_domain"]):
                 alerts_suppressed += 1
                 continue
+            # heal-detection: 24h per-shop cooldown via ops_alerts dedup window — recovery = shop unblocks within 24h (next scan finds no friction)
             write_alert(
                 db,
                 source="onboarding_funnel",

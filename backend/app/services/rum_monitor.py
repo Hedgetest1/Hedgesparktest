@@ -307,6 +307,7 @@ def _emit_regression_alert(db: Session, route: str, findings: list[dict]) -> int
         for r in findings
     ]
     try:
+        # heal-detection: daily gate via _DAILY_GATE_KEY — one alert per route per day; recovery = next day's RUM data within budget
         write_alert(
             db,
             severity="warning",

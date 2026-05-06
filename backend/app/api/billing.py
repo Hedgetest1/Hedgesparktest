@@ -153,6 +153,7 @@ def _write_billing_alert(
                 summary_bits.append(f"status={http_status}")
             if exception_type:
                 summary_bits.append(f"exc={exception_type}")
+            # heal-detection: billing API failure event — per-call log entry
             write_alert(
                 _db,
                 severity=severity,

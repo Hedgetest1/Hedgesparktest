@@ -135,6 +135,7 @@ def _record_failure(shop_domain: str) -> None:
                 from app.services.alerting import write_alert
                 db = SessionLocal()
                 try:
+                    # heal-detection: klaviyo event forwarding failure — per-event log entry
                     write_alert(
                         db,
                         severity="warning",

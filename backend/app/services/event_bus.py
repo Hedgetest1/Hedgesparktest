@@ -220,6 +220,7 @@ def _record_emit_failure() -> None:
             from app.services.alerting import write_alert
             db = SessionLocal()
             try:
+                # heal-detection: event bus emits one alert per dispatched event — not condition-based
                 write_alert(
                     db,
                     severity="warning",

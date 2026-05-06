@@ -232,6 +232,7 @@ def _alert_parse_failure(db: Session, incident: SentryIncident) -> None:
     """Fire an ops_alert when email/webhook parsing fails. Never silent."""
     try:
         from app.services.alerting import write_alert
+        # heal-detection: triage event — per-incident log entry
         write_alert(
             db,
             severity="warning",

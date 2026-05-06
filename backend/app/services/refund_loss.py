@@ -250,6 +250,7 @@ def get_refund_loss_report(db: Session, shop_domain: str) -> dict:
         log.warning("refund_loss: compute failed shop=%s: %s", shop_domain, exc)
         try:
             from app.services.alerting import write_alert
+            # heal-detection: refund event log entry — discrete merchant transaction
             write_alert(
                 db,
                 severity="warning",

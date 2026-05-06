@@ -257,6 +257,7 @@ def get_risk_forecast(shop_domain: str) -> dict[str, Any]:
             db = SessionLocal()
             try:
                 currency = get_shop_currency(db, shop_domain)
+                # heal-detection: risk-forecast generation event — discrete log entry
                 write_alert(
                     db,
                     severity="info",  # projection, not an incident

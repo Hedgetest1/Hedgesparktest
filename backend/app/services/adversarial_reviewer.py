@@ -239,6 +239,7 @@ def _write_ops_alert(db: Session, severity: str, alert_type: str,
     """Best-effort ops_alert write — never raises into the caller."""
     try:
         from app.services.alerting import write_alert
+        # heal-detection: review event — per-pass log entry
         write_alert(
             db,
             severity=severity,

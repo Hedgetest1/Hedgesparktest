@@ -207,6 +207,7 @@ def rollback(flag: str, reason: str) -> dict:
         from app.core.database import SessionLocal
         db = SessionLocal()
         try:
+            # heal-detection: staged rollout event — per-phase log
             write_alert(
                 db,
                 severity="warning",

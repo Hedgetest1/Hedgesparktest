@@ -194,6 +194,7 @@ def run_watchdog(db: Session) -> dict:
         # Emit dedup'd ops_alert so operators see flapping patterns
         try:
             from app.services.alerting import write_alert
+            # heal-detection: worker_auto_restarted is fired ONCE per successful pm2 restart action — the event IS the recovery, no recurring condition to close
             write_alert(
                 db,
                 severity="warning",

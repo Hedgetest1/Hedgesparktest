@@ -339,6 +339,7 @@ def classify_active_shops_batch(
     if errors:
         try:
             from app.services.alerting import write_alert
+            # heal-detection: classifier run event — discrete log
             write_alert(
                 db,
                 severity="warning",

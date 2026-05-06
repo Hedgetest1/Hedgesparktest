@@ -196,6 +196,7 @@ def _maybe_alert_slow_cycle(db, duration_ms: int) -> None:
                 return
         severity = "critical" if duration_ms >= _CYCLE_SLOW_CRIT_MS else "warning"
         from app.services.alerting import write_alert
+        # heal-detection: aggregation_cycle_slow has a 1/hour Redis cooldown — alert is event-log per slow cycle, recovery = next non-slow cycle (no alert), TTL handles expiry
         write_alert(
             db,
             severity=severity,

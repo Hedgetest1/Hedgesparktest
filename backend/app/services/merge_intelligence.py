@@ -169,6 +169,7 @@ def evaluate_merge_outcomes(db: Session) -> dict:
         if status == "regressed":
             try:
                 from app.services.alerting import write_alert
+                # heal-detection: merge operation event — per-op log
                 write_alert(
                     db, severity="critical", source="merge_intelligence",
                     alert_type="post_merge_regression",

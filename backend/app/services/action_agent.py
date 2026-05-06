@@ -225,6 +225,7 @@ def _process_task(db: Session, task: ActionTask, summary: dict) -> None:
                 # trust-delegated executions.
                 try:
                     from app.services.alerting import write_alert
+                    # heal-detection: agent action event — per-decision log
                     write_alert(
                         db,
                         severity="warning",

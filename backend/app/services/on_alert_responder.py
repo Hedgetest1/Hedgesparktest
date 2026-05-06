@@ -324,6 +324,7 @@ _FUTURE_STRATEGIC_RESERVED = frozenset({
     "merchant_churn_critical",
     # LLM exhaustion — currently uses direct send_message() in
     # llm_budget._send_exhaustion_alert (bypasses on_alert_responder).
+    # heal-detection: responder forwards/routes alerts; does not own a recurring condition of its own
     # Wires when llm_budget is refactored to write_alert(); TIER_1.
     "llm_budget_exhaustion_strategic",
     # Infra cost — wires when cost-tracking emitter ships

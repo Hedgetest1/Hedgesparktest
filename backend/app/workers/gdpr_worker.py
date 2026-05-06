@@ -93,6 +93,7 @@ def _recover_stuck_processing(db) -> int:
     if recovered:
         try:
             from app.services.alerting import write_alert
+            # heal-detection: GDPR worker per-task event log
             write_alert(
                 db, severity="warning", source="gdpr_worker",
                 alert_type="gdpr_stuck_recovery",

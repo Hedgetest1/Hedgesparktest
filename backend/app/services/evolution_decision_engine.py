@@ -381,6 +381,7 @@ def escalate_failed_rollbacks(db: Session) -> dict:
 
         # write_alert dedups automatically on (source, alert_type, shop_domain)
         # within a 5-minute window, so repeated cycles won't spam.
+        # heal-detection: decision engine event — per-cycle log
         write_alert(
             db,
             severity="critical",

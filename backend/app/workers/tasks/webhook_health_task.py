@@ -101,6 +101,7 @@ def run() -> None:
 
                 if result.repaired:
                     _log.info("webhook health: repaired shop=%s topics=%s", m.shop_domain, result.repaired)
+                    # heal-detection: webhook_repaired / webhook_repair_failed are per-attempt event-log entries — fired only on the action transition, not as a recurring condition
                     write_alert(
                         db, severity="info", source="aggregation_worker",
                         alert_type="webhook_repaired", shop_domain=m.shop_domain,

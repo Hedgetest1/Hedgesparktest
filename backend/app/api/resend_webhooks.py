@@ -375,6 +375,7 @@ async def resend_event_webhook(
         try:
             from app.services.alerting import write_alert
             severity = "critical" if event_type == "complained" else "warning"
+            # heal-detection: Resend webhook event — per-delivery log
             write_alert(
                 db,
                 source=f"resend:{email_type_resolved or 'unknown'}",

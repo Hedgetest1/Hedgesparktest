@@ -113,6 +113,7 @@ def sweep_stuck_candidates(db: Session) -> int:
 
         try:
             from app.services.alerting import write_alert
+            # heal-detection: cleanup task runs once per cycle and emits a per-pass event log when failures occur — discrete event, not a recurring condition
             write_alert(
                 db, severity="warning", source="watchdog",
                 alert_type="stuck_candidate_recovered",

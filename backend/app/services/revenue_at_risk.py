@@ -455,6 +455,7 @@ def get_revenue_at_risk(db: Session, shop_domain: str, plan: str = "pro") -> dic
         log.warning("rars: component compute failed shop=%s: %s", shop_domain, exc)
         try:
             from app.services.alerting import write_alert
+            # heal-detection: RARS calculation event — discrete computation log
             write_alert(
                 db,
                 severity="warning",

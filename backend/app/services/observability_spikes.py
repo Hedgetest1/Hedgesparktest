@@ -139,6 +139,7 @@ def detect_tracker_error_spikes(db: Session) -> int:
             continue
         try:
             from app.services.alerting import write_alert
+            # heal-detection: every spike detector uses Redis SETEX cooldown (24h/1h depending on class) — cooldown TTL is the self-heal mechanism, alert closure tracked in observability/runtime, not in ops_alerts row
             write_alert(
                 db,
                 severity="warning",

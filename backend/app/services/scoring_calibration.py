@@ -944,6 +944,7 @@ def run_self_evaluation(db: Session) -> SelfEvalReport:
         # Fire ops_alert for degradation
         try:
             from app.services.alerting import write_alert
+            # heal-detection: calibration run event log — discrete completion record
             write_alert(
                 db,
                 severity="warning",

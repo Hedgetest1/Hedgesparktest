@@ -543,6 +543,7 @@ def _send_intent(db: Session, intent: EmailIntent) -> bool:
     # When Resend has the @hedgesparkhq.com domain in `failed` state,
     # `send_email()` short-circuits with DNS_SUPPRESSED and returns None —
     # which the downstream block then logs as generic `send_failed` AND
+    # heal-detection: email_send_failed is a per-attempt event log; retry path lives in orchestrator state machine, not alert lifecycle
     # fires a `write_alert(email_send_failed)` per intent. During a multi-
     # day DNS outage (2026-04-12 → 21) that pattern would dump one alert
     # per send attempt into ops_alerts, crowding out real signal. Catch

@@ -128,6 +128,7 @@ def _create_incident(db: Session, email: InboundEmail) -> None:
         return
 
     body_preview = (email.body_text or "")[:300]
+    # heal-detection: action executor event — per-action log
     write_alert(
         db,
         severity=severity,

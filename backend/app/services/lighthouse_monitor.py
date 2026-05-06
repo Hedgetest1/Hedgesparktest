@@ -309,6 +309,7 @@ def _emit_alerts(db: Session, route: str, regressions: list[dict], *, origin: st
     source_prefix = "lighthouse" if origin == "local" else f"lighthouse:{origin}"
     origin_note = "" if origin == "local" else f" [{origin}]"
     try:
+        # heal-detection: daily gate via _DAILY_GATE_TTL — one alert per origin per day; recovery = next day's run shows no regression (no new alert)
         write_alert(
             db,
             severity="warning",

@@ -645,6 +645,7 @@ def run_auto_promotion(db: Session, max_per_cycle: int = 1) -> dict:
             if ci_result == "failed":
                 try:
                     from app.services.alerting import write_alert
+                    # heal-detection: promotion outcome event — per-promotion log
                     write_alert(
                         db, severity="warning", source="promotion_pipeline",
                         alert_type="remote_ci_failed",

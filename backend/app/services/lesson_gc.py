@@ -196,6 +196,7 @@ def run_lesson_gc(db: Session) -> dict:
         # Create ops_alert for operator visibility
         try:
             from app.services.alerting import write_alert
+            # heal-detection: GC operation event log — fires once per pass
             write_alert(
                 db, severity="info", source="lesson_gc",
                 alert_type="lesson_pending_promotion",

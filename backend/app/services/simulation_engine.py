@@ -495,6 +495,7 @@ def _inject_synthetic_alerts(
     if archetype == "broken_tracking":
         # Tracking failure alert
         from app.services.alerting import write_alert
+        # heal-detection: simulation run event — discrete completion record
         write_alert(
             db, severity="warning", source="simulation_engine",
             alert_type="tracker_data_gap",

@@ -109,6 +109,7 @@ def process_gdpr_request(db: Session, req: GdprRequest) -> None:
             req.status = "failed"
             req.processed_at = _now()
             req.error_detail = str(exc)[:2000]
+            # heal-detection: GDPR request processing event — per-request log
             write_alert(
                 db, severity="critical", source="gdpr_processor",
                 alert_type="gdpr_failure", shop_domain=req_shop,

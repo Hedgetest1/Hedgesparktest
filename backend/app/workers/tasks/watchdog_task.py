@@ -72,6 +72,7 @@ def run() -> None:
                 if existing:
                     continue
 
+                # heal-detection: watchdog dispatch event log — fires when watchdog detects + restarts; mirrors worker_watchdog event-log semantics
                 write_alert(
                     db,
                     severity="warning",

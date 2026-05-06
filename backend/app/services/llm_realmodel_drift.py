@@ -629,6 +629,7 @@ def run_weekly_check(db, *, force: bool = False) -> dict:
     if summary.regressions:
         try:
             from app.services.alerting import write_alert
+            # heal-detection: weekly gate via _WEEKLY_GATE_KEY — one alert per ISO week per drift class; recovery = next week's run within tolerance
             write_alert(
                 db,
                 severity="warning",

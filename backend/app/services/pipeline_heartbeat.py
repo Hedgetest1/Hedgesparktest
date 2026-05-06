@@ -228,6 +228,7 @@ def _record_outcome(
         "status": status,
     }
     try:
+        # heal-detection: heartbeat_ok / heartbeat_failed are per-cycle event-log entries — the next cycle re-emits status, no separate close needed; synthetic-probe artifacts cleaned via _cleanup_synthetic_artifacts directly
         alert = write_alert(
             db,
             severity=severity,

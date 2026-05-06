@@ -61,7 +61,21 @@ def run_silence_detection(db: Session) -> dict:
     """), {"cutoff_ms": int(cutoff.timestamp() * 1000)}).fetchall()
 
     if not silent_shops:
+        # No currently-silent shops — every previously-alerted merchant
+        # has resumed activity. Heal any open merchant_silent alerts.
+        try:
+            from app.services.alerting import heal_per_shop_alerts
+            heal_per_shop_alerts(
+                db,
+                source="silence_detector",
+                alert_type="merchant_silent",
+                currently_affected_shops=set(),
+            )
+        except Exception as exc:
+            log.debug("silence_detector: heal_per_shop_alerts failed: %s", exc)
         return summary
+
+    currently_silent = {row[0] for row in silent_shops}
 
     for row in silent_shops:
         shop = row[0]
@@ -95,6 +109,20 @@ def run_silence_detection(db: Session) -> dict:
             log.info("silence_detector: detected silent merchant %s — alert + re-engagement sent", shop)
         except Exception as exc:
             log.warning("silence_detector: alert failed for %s: %s", shop, exc)
+
+    # Heal merchants that previously had merchant_silent alerts but
+    # are no longer silent — currently_silent is the ground-truth set
+    # of shops still failing the condition this scan cycle.
+    try:
+        from app.services.alerting import heal_per_shop_alerts
+        heal_per_shop_alerts(
+            db,
+            source="silence_detector",
+            alert_type="merchant_silent",
+            currently_affected_shops=currently_silent,
+        )
+    except Exception as exc:
+        log.debug("silence_detector: heal_per_shop_alerts failed: %s", exc)
 
     return summary
 

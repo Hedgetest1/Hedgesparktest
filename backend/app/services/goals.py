@@ -352,6 +352,7 @@ def check_goals_at_risk(db: Session, shop_domain: str) -> list[GoalProgress]:
         try:
             from app.services.alerting import write_alert
             metrics_list = ", ".join(f"{p.metric}:{p.status}" for p in risky)
+            # heal-detection: goal write event — discrete merchant action log
             write_alert(
                 db,
                 severity="warning",

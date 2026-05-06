@@ -486,6 +486,7 @@ def escalate_stale_proposals(db: Session) -> dict:
 
         from app.services.alerting import write_alert
         age_days = (_now() - p.created_at).days
+        # heal-detection: evolution run event — per-cycle completion log
         write_alert(
             db, severity="info", source="evolution_escalation",
             alert_type="stale_level2_proposal",

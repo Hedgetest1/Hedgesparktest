@@ -436,6 +436,7 @@ def try_llm_fallback(
         # chatbot response — the answer is rejected regardless.
         try:
             from app.services.alerting import write_alert
+            # heal-detection: LLM fallback event — per-call log entry
             write_alert(
                 db,
                 severity="warning",

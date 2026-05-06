@@ -690,6 +690,7 @@ def _run_entitlement_health_scan():
                         .first()
                     )
                     if not existing:
+                        # heal-detection: agent worker emits per-cycle event log alerts; cycle health tracked elsewhere
                         write_alert(
                             db, severity="warning", source="entitlement_scan",
                             alert_type="entitlement_mismatch",

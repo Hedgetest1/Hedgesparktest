@@ -213,6 +213,7 @@ def _calibrate_contracts(db: Session) -> int:
             # Emit alert so merchant knows
             try:
                 from app.services.alerting import write_alert
+                # heal-detection: outcome measurement event — discrete record
                 write_alert(
                     db,
                     severity="warning",

@@ -588,6 +588,7 @@ def detect_self_caused_regressions(db: Session) -> dict:
             # Write ops_alert for operator visibility
             try:
                 from app.services.alerting import write_alert
+                # heal-detection: outcome event — per-decision log
                 write_alert(
                     db, severity="warning", source="evolution_outcomes",
                     alert_type="possible_self_regression",
