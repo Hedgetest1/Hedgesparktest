@@ -759,6 +759,23 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Alert heal-detection coverage — STRICT.
+# Born 2026-05-06 (external CTO audit FINDING 1). Every NEW alert_type
+# written by `write_alert(...)` must register a heal contract OR sit
+# in the _KNOWN_HEAL_BACKLOG explicit-debt list. The 56 pre-existing
+# uncovered types are baseline-frozen 2026-05-06; any new addition
+# without heal fails preflight. Forces: alert ships with heal in
+# the same commit, never afterwards.
+# ---------------------------------------------------------------------------
+step "Alert heal-detection coverage (audit_alert_heal_coverage.py)"
+if "$PY" scripts/audit_alert_heal_coverage.py > /tmp/preflight_heal_coverage.log 2>&1; then
+    ok "$(head -1 /tmp/preflight_heal_coverage.log)"
+else
+    bad "new alert_type added without heal — see /tmp/preflight_heal_coverage.log"
+    tail -30 /tmp/preflight_heal_coverage.log
+fi
+
+# ---------------------------------------------------------------------------
 # Alert-writer heal-detection — STRICT (founder direttiva 2026-05-05
 # brain-autonomous sprint, G6 close 2026-05-06). Every condition-based
 # write_alert site must close the alert when the underlying state

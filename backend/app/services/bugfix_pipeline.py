@@ -1769,6 +1769,11 @@ def _post_apply_retro_check(candidate: "BugFixCandidate", db: Session) -> None:
 
 _PREVENTER_REDIS_PREFIX = "hs:brain:preventer"
 _PREVENTER_TTL_SECONDS = 86400  # 24h
+# §12 10k-merchant scale invariant: cap the per-tick scan + cap the
+# OpsAlert batch query. At 10k merchants with ~5% candidates active
+# in any 24h window, scan would balloon. Born 2026-05-06 from external
+# CTO audit FINDING 2.
+_PREVENTER_MAX_RECORDS_PER_TICK = 200
 
 
 def _attach_preventer(
@@ -1828,6 +1833,15 @@ def check_preventer_regressions(db: Session) -> int:
     applied_at. Match → emit CRITICAL `fix_regressed_24h` alert
     AND clear the record (avoid alert storms). Returns the
     number of regressions detected.
+
+    §12 scale invariant (born 2026-05-06 external audit FINDING 2):
+      * Cap scan at `_PREVENTER_MAX_RECORDS_PER_TICK` (200) so a
+        10k-merchant accumulation cannot exceed the
+        invariant_monitor `_TIMEOUT_SECONDS=30` budget.
+      * Batch the OpsAlert lookup with one query per (alert_type,
+        applied_at_floor) pair instead of one query per record.
+        At 200 active records sharing ~10 alert_types, that's 10
+        SQL queries instead of 200.
     """
     rc = _redis_safe()
     if rc is None:
@@ -1848,10 +1862,26 @@ def check_preventer_regressions(db: Session) -> int:
         return 0
     detected = 0
     try:
-        keys = list(rc.scan_iter(match=f"{_PREVENTER_REDIS_PREFIX}:*", count=100))
+        # Bounded scan: stop iterating after _PREVENTER_MAX_RECORDS_PER_TICK
+        keys: list = []
+        for k in rc.scan_iter(match=f"{_PREVENTER_REDIS_PREFIX}:*", count=100):
+            keys.append(k)
+            if len(keys) >= _PREVENTER_MAX_RECORDS_PER_TICK:
+                log.warning(
+                    "preventer: scan cap reached (%d) — remainder deferred to next tick",
+                    _PREVENTER_MAX_RECORDS_PER_TICK,
+                )
+                break
     except Exception as exc:
         log.debug("preventer: scan failed: %s", exc)
         return 0
+    if not keys:
+        return 0
+
+    # Decode all records first so we can group by alert_type for batch query
+    from datetime import datetime
+    records: list[dict] = []
+    valid_keys: list = []
     for key in keys:
         try:
             raw = rc.get(key)
@@ -1865,25 +1895,65 @@ def check_preventer_regressions(db: Session) -> int:
         if not alert_type or not applied_at_iso:
             continue
         try:
-            from datetime import datetime
             applied_at = datetime.fromisoformat(applied_at_iso)
         except Exception:
             continue
-        # Look for a fresh OpsAlert with the same alert_type
-        # written AFTER the fix landed.
-        regression = (
-            db.query(OpsAlert)
-            .filter(
-                OpsAlert.alert_type == alert_type,
-                OpsAlert.created_at > applied_at,
-                OpsAlert.alert_type != "fix_regressed_24h",
+        record["_applied_at_dt"] = applied_at
+        record["_redis_key"] = key
+        records.append(record)
+        valid_keys.append(key)
+
+    if not records:
+        return 0
+
+    # Batch query: ONE SQL per distinct alert_type, fetching alerts
+    # newer than the EARLIEST applied_at for that type. We then match
+    # in Python per-record. Reduces N queries to len(distinct_types).
+    by_type: dict[str, list[dict]] = {}
+    for r in records:
+        by_type.setdefault(r["alert_type"], []).append(r)
+    candidate_alerts: dict[str, list] = {}
+    for alert_type, recs in by_type.items():
+        earliest = min(r["_applied_at_dt"] for r in recs)
+        try:
+            rows = (
+                db.query(OpsAlert)
+                .filter(
+                    OpsAlert.alert_type == alert_type,
+                    OpsAlert.created_at > earliest,
+                    OpsAlert.alert_type != "fix_regressed_24h",
+                )
+                .order_by(OpsAlert.created_at.desc())
+                .limit(50)
+                .all()
             )
-            .order_by(OpsAlert.created_at.desc())
-            .first()
+            candidate_alerts[alert_type] = rows
+        except Exception as exc:
+            # DB-class: surface at WARNING so ops sees gate degradation;
+            # fail-open by design (regression detection skipped this
+            # tick for the affected alert_type, retried next tick).
+            log.warning("preventer: batch query failed for %s: %s", alert_type, exc)
+            candidate_alerts[alert_type] = []
+
+    # Per-record match against the batched results
+    for record in records:
+        alert_type = record["alert_type"]
+        applied_at = record["_applied_at_dt"]
+        regression = next(
+            (a for a in candidate_alerts.get(alert_type, []) if a.created_at > applied_at),
+            None,
         )
         if regression is None:
             continue
         try:
+            # heal-detection: terminal one-shot per candidate. The
+            # function deletes the Redis preventer key after writing
+            # this alert, so it cannot re-fire for the same
+            # candidate. Resolution path: the next triage cycle re-
+            # opens the candidate when a NEW source signal arrives,
+            # at which point this alert is operationally moot. Long-
+            # term cleanup: 7d acute_dedup window archives unresolved
+            # rows. Tracked in audit_alert_heal_coverage backlog.
             write_alert(
                 db,
                 severity="critical",
@@ -1898,7 +1968,7 @@ def check_preventer_regressions(db: Session) -> int:
                     "candidate_id": record.get("candidate_id"),
                     "title": record.get("title"),
                     "git_commit_sha": record.get("git_commit_sha"),
-                    "applied_at": applied_at_iso,
+                    "applied_at": record.get("applied_at"),
                     "regression_alert_id": regression.id,
                     "alert_type": alert_type,
                     "rule": (
@@ -1914,7 +1984,7 @@ def check_preventer_regressions(db: Session) -> int:
                 db.rollback()
             # Clear the record so we don't repeat the alert
             try:
-                rc.delete(key)
+                rc.delete(record["_redis_key"])
             except Exception:
                 pass  # SILENT-EXCEPT-OK: redis delete is best-effort cleanup; if it fails the key TTL (24h) cleans the record on its own — never blocks the regression alert that already wrote.
         except Exception as exc:
@@ -5501,6 +5571,36 @@ def run_governed_tier1_auto_apply(
                 "governed_tier1: FAILED id=%d status=%s reason=%s",
                 c.id, result.status, result.failure_reason,
             )
+            # FINDING 4 hardening (2026-05-06 external CTO audit):
+            # explicit audit_log on TIER_1 failure-path. Previously
+            # the success branch wrote write_audit_log inside
+            # apply_bugfix_candidate but the governed_tier1 failure
+            # path emitted only a log.warning + summary increment.
+            # Auditors needed the audit_log row to reconstruct
+            # autonomous-apply failures from the audit chain alone.
+            try:
+                write_audit_log(
+                    db, actor_type="system", actor_name="governed_tier1",
+                    action_type="bugfix_apply_failed", target_type="bugfix",
+                    target_id=str(c.id),
+                    after_state={
+                        "status": result.status,
+                        "test_passed": getattr(result, "test_passed", None),
+                        "health_ok": getattr(result, "health_ok", None),
+                        "rolled_back": getattr(result, "rolled_back", None),
+                    },
+                    status="failed",
+                    approval_mode="autonomous_governed",
+                    metadata={
+                        "tier": 1,
+                        "failure_reason": result.failure_reason,
+                        "domain": c.affected_domain,
+                        "confidence": c.fix_confidence,
+                    },
+                )
+                db.flush()
+            except Exception as exc:
+                log.warning("governed_tier1: failure audit_log write failed: %s", exc)
             break  # Halt on any failure — preserves the cooldown intent
 
     return summary

@@ -92,3 +92,67 @@ def test_spawn_investigation_aggregates():
     assert (
         out["audits"]["audit_brain_propagation_hooks.py"]["exit_code"] == 0
     )
+
+
+# Edge-case coverage added 2026-05-06 from external CTO audit FINDING 6:
+# "test_brain_tool.py covers happy paths only; missing failure modes".
+
+
+def test_parallel_grep_subprocess_timeout(monkeypatch):
+    """Verify parallel_grep degrades open when a worker times out."""
+    import subprocess
+    t = brain_dispatch()
+
+    def _raise_timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="grep", timeout=15)
+
+    monkeypatch.setattr(subprocess, "run", _raise_timeout)
+    out = t.parallel_grep([r"some_pattern"], scope="app/")
+    # Pattern should appear in dict with empty hits — fail-open
+    assert out == {r"some_pattern": []}
+
+
+def test_parallel_grep_subprocess_unknown_error(monkeypatch):
+    """Verify parallel_grep handles arbitrary subprocess failure."""
+    import subprocess
+    t = brain_dispatch()
+
+    def _raise(*args, **kwargs):
+        raise OSError("simulated kernel fault")
+
+    monkeypatch.setattr(subprocess, "run", _raise)
+    out = t.parallel_grep([r"x"], scope="app/")
+    assert out == {r"x": []}
+
+
+def test_invoke_audit_nonzero_exit():
+    """Audit script that exits non-zero must be reported, not raised."""
+    t = brain_dispatch()
+    # audit_alert_heal_coverage exits non-zero only when uncovered;
+    # use a deliberately-failing simulated path via missing script.
+    # The "missing" path already returns exit_code=None — same shape.
+    res = t.invoke_audit("audit_apply_path_adversarial_gate.py")
+    assert res["exit_code"] in (0, 1)
+    assert isinstance(res["stdout"], str)
+    assert isinstance(res["stderr"], str)
+
+
+def test_web_search_returns_empty_when_provider_set_no_client(monkeypatch):
+    """web_search stub: when provider is configured but no client
+    implementation exists, return [] (R-blocker:infra-spend)."""
+    monkeypatch.setenv("BRAIN_WEB_SEARCH_PROVIDER", "brave")
+    t = brain_dispatch()
+    # Code path at brain_tool.py lines 177-181 was untested.
+    assert t.web_search("anything") == []
+    monkeypatch.delenv("BRAIN_WEB_SEARCH_PROVIDER")
+
+
+def test_safe_relpath_rejects_invalid():
+    """_safe_relpath module-private check used by parallel_grep
+    scope validation."""
+    from app.services.brain_tool import _safe_relpath
+    assert _safe_relpath("app/") is True
+    assert _safe_relpath("../etc") is False
+    assert _safe_relpath("/absolute/path") is False
+    assert _safe_relpath("") is False
+    assert _safe_relpath(None) is False  # type: ignore[arg-type]

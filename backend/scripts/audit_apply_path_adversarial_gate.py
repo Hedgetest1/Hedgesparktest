@@ -67,18 +67,16 @@ APP = ROOT / "app"
 
 _TARGET_FUNC_NAME = "apply_bugfix_candidate"
 
-# Markers detected anywhere inside a function body that classify
-# the function as OPERATOR-driven (human-gated, exempt from the
-# autonomous adversarial gate).
-_OPERATOR_AUDIT_MARKERS = (
-    'actor_type="human"',
-    "actor_type='human'",
-    'approval_mode="human_approved"',
-    "approval_mode='human_approved'",
-    "telegram_operator",
-    "ops_admin",
-    "human_operator",
-)
+# Operator classifier (post-FINDING-3 hardening, 2026-05-06):
+# AST-verify a real `write_audit_log(..., actor_type="human", ...)`
+# Call node OR `actor_type="human"` keyword in any Call. Reject
+# string-substring matches in comments/docstrings/dead literals.
+# The previous text-only check was fakeable: a comment containing
+# `# actor_type="human"` would silently exempt an autonomous path.
+_OPERATOR_KWARG_NAME = "actor_type"
+_OPERATOR_KWARG_VALUE = "human"
+_OPERATOR_APPROVAL_KWARG_NAME = "approval_mode"
+_OPERATOR_APPROVAL_KWARG_VALUE = "human_approved"
 
 # Markers detected anywhere inside the function body that classify
 # the function as carrying the adversarial gate (any of the 4 forms
@@ -135,9 +133,43 @@ def _function_body_text(fn: ast.FunctionDef, source: str) -> str:
     return "\n".join(source.splitlines()[start:end])
 
 
+def _kwarg_constant_value(call: ast.Call, name: str) -> str | None:
+    """Return the string value of `<name>=<const>` keyword arg of a
+    Call, or None if the kwarg is absent / non-constant / non-string.
+    Comments and docstrings do not appear as Call kwargs in the AST,
+    so this is immune to substring-spoofing."""
+    for kw in call.keywords:
+        if kw.arg != name:
+            continue
+        v = kw.value
+        # Python 3.8+: ast.Constant supersedes ast.Str
+        if isinstance(v, ast.Constant) and isinstance(v.value, str):
+            return v.value
+        # Legacy fallback (ast.Str pre-3.8) — defensive only
+        if hasattr(ast, "Str") and isinstance(v, ast.Str):  # type: ignore[attr-defined]
+            return v.s  # type: ignore[attr-defined]
+    return None
+
+
 def _is_operator_function(fn: ast.FunctionDef, source: str) -> bool:
-    body = _function_body_text(fn, source)
-    return any(m in body for m in _OPERATOR_AUDIT_MARKERS)
+    """AST-verify the function contains a real Call node carrying
+    actor_type="human" OR approval_mode="human_approved" kwarg.
+
+    Pre-2026-05-06 this used substring matching on the function body
+    text, which was fakeable via comment / docstring / dead string
+    literal. External CTO audit FINDING 3 caught the gap — comments
+    do not produce Call nodes in the AST so this rewrite is immune.
+    """
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Call):
+            continue
+        v = _kwarg_constant_value(node, _OPERATOR_KWARG_NAME)
+        if v == _OPERATOR_KWARG_VALUE:
+            return True
+        v = _kwarg_constant_value(node, _OPERATOR_APPROVAL_KWARG_NAME)
+        if v == _OPERATOR_APPROVAL_KWARG_VALUE:
+            return True
+    return False
 
 
 def _function_has_gate(fn: ast.FunctionDef, source: str) -> bool:

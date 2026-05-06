@@ -1831,3 +1831,105 @@ These are NOT optional. A turn that closes without answering
 them is incomplete. Curiosity is enforced at REPLY level (the
 6 questions visible in the response); §21.5 audit gate is a
 floor, not a ceiling.
+
+---
+
+## 22. Self-application discipline (born 2026-05-06)
+
+> **Founder direttiva 2026-05-06 (verbatim):** *"considerando
+> dunque tutto ciò hai investigato che non esistano pattern
+> nascosti che attendono il mio OK su telegram, poichè il tutto
+> è da te magistralmente analizzato/sistemato e deployato?"* —
+> followed by *"cosa direbbe un CTO esterno, magari umano,
+> guardandoti lavorare ... mentire in continuazione facendo il
+> compitino e facendo claim 10/10 quando in realtà non lo
+> sono?"*.
+
+The brain audits (§21.6) hold the autonomous pipeline to a
+specific propagation/triple-DA/preventer/curiosity standard.
+This section codifies that **interactive Claude operates at
+the SAME standard as the brain** — never lower. Built audits
+that govern the pipeline must also govern me.
+
+### 22.1 Brain-vs-interactive parity
+
+For every `audit_*` script wired into preflight that governs
+the autonomous pipeline (`audit_brain_propagation_hooks`,
+`audit_apply_path_adversarial_gate`, `audit_alert_heal_coverage`,
+etc.), interactive Claude's commits are subject to the SAME
+gate. There is no "the brain must but I don't have to" carve-out.
+
+Consequence: if I edit `app/services/bugfix_pipeline.py` and add
+a new alert_type without heal coverage, the same audit that
+would block the brain from auto-applying that patch blocks my
+commit. Symmetry, not asymmetry.
+
+### 22.2 Score-floor invariant
+
+Every turn-close score starts at **7.0/10**. Each 0.5 above
+floor requires a cited line of evidence in the commit body /
+reply (Agent invocation output, audit GREEN diff, regression
+test, live grep, executed pre-mortem). Maximum floor+3.0 = 10.0.
+
+Detail: `feedback_default_score_7_until_agent_verified.md`.
+
+### 22.3 Pre-turn pending-state probe
+
+Architectural turns OPEN with the 5-query probe (CRITICAL
+alerts, action_approvals, frozen candidates, capillary scope,
+heal-coverage) BEFORE writing code. Every CRITICAL alert at
+session start is mine until R-blocker explicit. "Inherited
+backlog" / "noise floor" / "drains via TTL" without heal-
+coverage citation are forbidden as automatic skip.
+
+Detail: `feedback_pre_turn_pending_state_map_mandatory.md` +
+`feedback_no_noise_floor_shield.md`.
+
+### 22.4 Agent invocation mandatory
+
+Architectural / TIER_1 / TIER_2 turns require ≥1 invocation of
+`Agent(general-purpose)` (independent audit) OR `Agent(Explore)`
+(parallel cross-module mapping). Inline "Triple DA" via the same
+model role-playing three lenses **does NOT count** — has same
+blindspots as the original work.
+
+Detail: `feedback_agent_invocation_default_proactive.md`.
+
+### 22.5 Ritual marker evidence
+
+Every `Sibling sweep:` / `3-DA:` / `Pre-mortem:` / `§21.8
+curiosity:` header in the commit body must be FOLLOWED BY
+executable evidence pasted inline (grep command + output,
+Agent Task ID, psql query + result). Headers without evidence
+= performative ritual = audit FAIL.
+
+Detail: `feedback_ritual_marker_evidence_below.md`.
+
+### 22.6 Mechanical enforcement
+
+Doctrine alone failed in the 2026-05-06 session — the founder
+caught 3+ gaps (TIER_1 governed bypass, CLAUDE.md §13 Redis-
+keys doc-drift, heal-detection invariant_audit_timeout class)
+while §21 was already auto-loaded and explicitly cited. This
+section's preventers wire the rules into mechanical gates:
+
+  - `audit_alert_heal_coverage.py` (preflight + invariant_monitor)
+  - `audit_apply_path_adversarial_gate.py` (preflight + invariant_monitor)
+  - `audit_close_claim_evidence.py` (planned: commit-msg score gate)
+  - `audit_critical_alert_coverage.py` (planned: commit-msg active-alert gate)
+  - `audit_lateral_change_evidence.py` (existing, upgraded for evidence below markers)
+
+The §22 doctrine + §22.6 preventers operate as a unit. Removing
+one without the other restores the pre-2026-05-06 failure mode.
+
+### 22.7 The honesty test (sharpened)
+
+Before claiming any score ≥ 8.5, ask:
+
+> "Did I invoke an Agent this turn that could have found the
+> next gap, OR did I rely on inline self-roleplay?"
+
+If "inline self-roleplay only", the score is capped at 8.0
+regardless of the weighted math. The Agent invocation is the
+external lens; without it, my score is anchored to my own
+blindspots.

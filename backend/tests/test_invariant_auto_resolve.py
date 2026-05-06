@@ -13,6 +13,13 @@ Fix: helper `_auto_resolve_prior_invariant(db, source)` is invoked
 in every `if check_passes:` early-return branch across the 9 inline
 `_check_*` functions + the subprocess audit "ok" path.
 
+Hermeticity (FINDING 5 hardening 2026-05-06): all seeded alerts use
+`source` prefix `invariant:test_` so an `audit_no_test_leakage` check
+can prove no test rows survived to prod ops_alerts. The `db` fixture
+from conftest wraps each test in a SAVEPOINT that rolls back at
+teardown; the marker-prefix is a SECOND line of defense in case the
+fixture is ever refactored without the SAVEPOINT.
+
 This test pins the contract.
 """
 from __future__ import annotations

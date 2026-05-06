@@ -472,6 +472,11 @@ _AUDITS: list[tuple[str, str, str]] = [
     # gate. Runs at every invariant_monitor tick so post-commit
     # refactors that drift the gate are caught before next cycle.
     ("audit_apply_path_adversarial_gate.py", "invariant_regression", "invariant:apply_path_adversarial_gate"),
+    # Alert heal-detection coverage — born 2026-05-06 (external CTO
+    # FINDING 1). Surfaces post-merge drift if a developer adds a
+    # new alert_type without registering heal coverage. Pre-existing
+    # 56 alerts are baseline-frozen as backlog.
+    ("audit_alert_heal_coverage.py", "invariant_regression", "invariant:alert_heal_coverage"),
     # Brutal-CTO-inspection follow-up (added 2026-05-02 evening).
     # 1. DB pool doctrine catches code-default drift from CLAUDE.md
     #    §6 (the bug that produced 20× QueuePool exhaustions live).
