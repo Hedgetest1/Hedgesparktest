@@ -176,8 +176,10 @@ def get_vertical_benchmark_report(db: Session, shop_domain: str) -> dict:
             "generated_at": _now_iso(),
             "scope": "insufficient",
             "note": (
-                f"insufficient_peers: need >={_MIN_PEERS_PER_VERTICAL_BAND} "
-                f"in vertical={vertical} band={band}; have {len(bucket_vb)}"
+                f"Benchmarks unlock when your vertical reaches "
+                f"{_MIN_PEERS_PER_VERTICAL_BAND} peer stores in your revenue "
+                f"band (currently {len(bucket_vb)} in "
+                f"{profile.display_name}/{band})."
             ),
             "fallback_baselines": {
                 "cvr_baseline_pct": profile.cvr_baseline_pct,

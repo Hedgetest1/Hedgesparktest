@@ -228,7 +228,7 @@ export function VerticalBenchmarksCard({
           </div>
         )}
         <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
-          {data?.note || "We need a minimum of 8 stores in your specific vertical and revenue band to compare you fairly. Below that, no fake numbers."}
+          {data?.note || "Benchmarks unlock when your vertical reaches 30 peer stores in your revenue band. Below that, no fake numbers."}
         </p>
         {data?.fallback_baselines && (
           <div className="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 text-[11px] text-slate-400">

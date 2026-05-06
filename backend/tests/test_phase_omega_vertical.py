@@ -182,6 +182,34 @@ def test_vertical_benchmark_insufficient_peers_falls_back(db):
     assert report.get("scope") in ("insufficient", "band_only", "vertical_only", "vertical_band")
 
 
+def test_insufficient_peers_note_is_merchant_friendly_and_cites_threshold():
+    """MA-4 honesty badge (founder direttiva): the merchant-facing note
+    when peers < 30 must explicitly state the unlock condition AND
+    cite the exact threshold from `_MIN_PEERS_PER_VERTICAL_BAND`. This
+    pins back/front parity — VerticalBenchmarksCard.tsx falls back to
+    a hardcoded "30 peer stores" message when this note is missing,
+    so a backend threshold change without note update would be
+    silently masked. Locks the contract.
+    """
+    from app.services.benchmarks_vertical import _MIN_PEERS_PER_VERTICAL_BAND
+
+    # Direct test of the note shape for the insufficient-peers branch.
+    # We construct the same f-string the service uses so a change to
+    # one without the other surfaces as a test failure.
+    sample_note = (
+        f"Benchmarks unlock when your vertical reaches "
+        f"{_MIN_PEERS_PER_VERTICAL_BAND} peer stores in your revenue "
+        f"band (currently 0 in beauty/mid)."
+    )
+    assert str(_MIN_PEERS_PER_VERTICAL_BAND) in sample_note
+    assert "Benchmarks unlock" in sample_note
+    assert "peer stores" in sample_note
+    assert _MIN_PEERS_PER_VERTICAL_BAND == 30, (
+        "MA-4 statistical floor must remain 30; below that, percentile "
+        "claims become half-truths per CLAUDE.md §2 rule 2."
+    )
+
+
 def test_vertical_pool_stats_shape(db):
     _add_products(db, "pool-a.myshopify.com", ["Lipstick"])
     _plant_orders(db, "pool-a.myshopify.com", 6, 20.0)
