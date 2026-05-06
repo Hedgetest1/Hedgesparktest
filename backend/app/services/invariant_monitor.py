@@ -562,6 +562,17 @@ def run_invariant_check(db: Session) -> dict:
         _check_inventory_snapshot_freshness(db, summary)
     except Exception as exc:
         log.warning("invariant_monitor: inventory-snapshot check failed: %s", exc)
+    # brain-hook: preventer-after-fix runtime check (CLAUDE.md §21.6 #3).
+    # Scans active 24h regression-watch records and emits CRITICAL
+    # `fix_regressed_24h` if a fix's source signal re-fired post-apply.
+    try:
+        from app.services.bugfix_pipeline import check_preventer_regressions
+        regressions = check_preventer_regressions(db)
+        if regressions:
+            summary["fix_regressions_detected"] = regressions
+            summary["alerts_written"] = summary.get("alerts_written", 0) + regressions
+    except Exception as exc:
+        log.warning("invariant_monitor: preventer-regression check failed: %s", exc)
 
     # Run subprocess audits IN PARALLEL — sequential execution at 86 audits ×
     # 30s timeout = 2580s worst case > 15min cycle. Born 2026-05-02 from

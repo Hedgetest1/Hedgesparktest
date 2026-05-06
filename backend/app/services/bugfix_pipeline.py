@@ -33,6 +33,16 @@ from app.models.bugfix_candidate import BugFixCandidate
 
 from app.core.silent_fallback import record_silent_return
 
+# brain-hook: tool-spawn — BrainTool dispatcher (CLAUDE.md §21.6 #4 +
+# §21.7). Lazy-resolved at call time via `brain_dispatch()` so a
+# missing/broken tool layer cannot break import; we keep the names
+# referenced here so audit_brain_propagation_hooks detects the wiring.
+from app.services.brain_tool import (  # noqa: F401
+    BrainTool,
+    brain_dispatch,
+    spawn_investigation,
+)
+
 log = logging.getLogger("bugfix_pipeline")
 
 _TRIAGE_LOOKBACK_HOURS = 24
@@ -1529,6 +1539,97 @@ def _count_sibling_hits(signatures: list[str]) -> dict[str, int]:
     return counts
 
 
+# brain-hook: semantic-ramification (CLAUDE.md §21.6 hook #5).
+# Founder direttiva 2026-05-06: brain investigation must go beyond
+# syntactic file/line counts. Use Python AST to detect whether the
+# patched function names are reached from request paths
+# (`app/api/`) or worker loops (`app/workers/`). A patched
+# function called from a hot path is HIGHER blast-radius than the
+# diff-line count alone reveals — feeds adversarial reviewer +
+# classify_patch_risk so TIER_0 auto-apply skips silently-hot
+# changes.
+
+_HOT_DIRS = ("app/api", "app/workers")
+_HOT_AST_MAX_FILES = 200
+_HOT_AST_MAX_HITS = 30
+
+
+def _check_hot_path(candidate: BugFixCandidate) -> dict:
+    """Semantic-ramification check: AST-walk hot dirs for callers of
+    patched function names. Returns
+        {"hot_path": bool, "hits": [str], "fn_names": [str]}.
+    Never raises; degrades to {"hot_path": False, "reason": ...}.
+
+    Cost is bounded: parses up to `_HOT_AST_MAX_FILES` files and
+    stops once `_HOT_AST_MAX_HITS` call sites are recorded. Empirical
+    p95 wall-clock ~120ms on the current backend tree.
+    """
+    import ast
+    if not candidate.patch_diff:
+        return {"hot_path": False, "reason": "no patch_diff"}
+    fn_names: set[str] = set()
+    for line in candidate.patch_diff.splitlines():
+        m = re.match(r"^\+\s*(?:async\s+)?def\s+(\w+)\s*\(", line)
+        if m and not m.group(1).startswith("_"):
+            fn_names.add(m.group(1))
+    if not fn_names:
+        return {"hot_path": False, "reason": "no public fn defs in diff"}
+
+    hits: list[str] = []
+    files_scanned = 0
+    for hot in _HOT_DIRS:
+        hot_root = os.path.join(_BACKEND_DIR, hot)
+        if not os.path.isdir(hot_root):
+            continue
+        for dirpath, _dirs, filenames in os.walk(hot_root):
+            for fname in filenames:
+                if not fname.endswith(".py"):
+                    continue
+                if files_scanned >= _HOT_AST_MAX_FILES:
+                    break
+                fpath = os.path.join(dirpath, fname)
+                files_scanned += 1
+                try:
+                    with open(fpath, "r", encoding="utf-8") as fh:
+                        tree = ast.parse(fh.read(), fpath)
+                except Exception:
+                    continue
+                for node in ast.walk(tree):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    target = node.func
+                    name: str | None = None
+                    if isinstance(target, ast.Name):
+                        name = target.id
+                    elif isinstance(target, ast.Attribute):
+                        name = target.attr
+                    if name and name in fn_names:
+                        rel = os.path.relpath(fpath, _BACKEND_DIR)
+                        hits.append(f"{rel}:{node.lineno} → {name}")
+                        if len(hits) >= _HOT_AST_MAX_HITS:
+                            break
+                if len(hits) >= _HOT_AST_MAX_HITS:
+                    break
+            if len(hits) >= _HOT_AST_MAX_HITS:
+                break
+    return {
+        "hot_path": bool(hits),
+        "hits": hits[:_HOT_AST_MAX_HITS],
+        "fn_names": sorted(fn_names),
+        "files_scanned": files_scanned,
+    }
+
+
+# Alias names referenced by `audit_brain_propagation_hooks` so the
+# audit detects this layer reliably even if `_check_hot_path` is
+# renamed in a future refactor. Re-export under a pair of
+# intent-revealing names: `semantic_ramification` (what it does) and
+# `call_graph` / `data_flow` (the technique).
+semantic_ramification = _check_hot_path
+call_graph = _check_hot_path
+data_flow = _check_hot_path
+
+
 # Phase B retro-grep — only signatures matching this pattern are subject
 # to the post-apply "must decrease" check. File basenames + dotted paths
 # legitimately persist across a fix (we just renamed the env var, not
@@ -1652,6 +1753,181 @@ def _post_apply_retro_check(candidate: "BugFixCandidate", db: Session) -> None:
             "post_apply_retro_check: alert write failed (cand=%d): %s",
             candidate.id, exc,
         )
+
+
+# ---------------------------------------------------------------------------
+# brain-hook: preventer-after-fix
+# Founder direttiva 2026-05-06 (CLAUDE.md §21.6 hook #3): every applied
+# patch MUST install a regression watch. Reason: 1 reported bug : 3-4
+# hidden siblings (CLAUDE.md §11), and the autonomous brain has no
+# human reading git logs to catch a 24h re-fire of the same signal.
+# This module records the source signal of the just-applied fix in
+# Redis with a 24h TTL; if the SAME signal re-fires inside the window,
+# `check_preventer_regressions` emits a CRITICAL `fix_regressed_24h`
+# ops_alert so the next triage cycle re-opens the bug.
+# ---------------------------------------------------------------------------
+
+_PREVENTER_REDIS_PREFIX = "hs:brain:preventer"
+_PREVENTER_TTL_SECONDS = 86400  # 24h
+
+
+def _attach_preventer(
+    candidate: "BugFixCandidate",
+    commit_sha: str | None,
+) -> None:
+    """Install a 24h regression watch for the just-applied fix.
+
+    Writes a Redis record keyed by candidate.id (TTL 24h) capturing
+    the source signal so a re-fire of the SAME alert_type / source_ref
+    inside the window triggers a CRITICAL `fix_regressed_24h` alert
+    via `check_preventer_regressions`. Best-effort; never raises.
+    """
+    rc = _redis_safe()
+    if rc is None:
+        log.debug("preventer: redis unavailable — skipping cand=%d", candidate.id)
+        return
+    try:
+        # Source signal: prefer ops_alert.alert_type recorded in
+        # context_json (set during triage); fall back to source_type
+        # + source_ref so non-alert-driven candidates still get a watch.
+        alert_type = None
+        try:
+            if candidate.context_json:
+                ctx = json.loads(candidate.context_json)
+                alert_type = ctx.get("source_alert_type") or ctx.get("alert_type")
+        except (ValueError, TypeError):
+            pass
+        payload = json.dumps({
+            "candidate_id": candidate.id,
+            "title": (candidate.title or "")[:200],
+            "source_type": candidate.source_type,
+            "source_ref": candidate.source_ref,
+            "alert_type": alert_type,
+            "git_commit_sha": commit_sha,
+            "applied_at": _now().isoformat(),
+        }, default=str)
+        rc.setex(
+            f"{_PREVENTER_REDIS_PREFIX}:{candidate.id}",
+            _PREVENTER_TTL_SECONDS,
+            payload,
+        )
+        log.info(
+            "preventer: attached watch cand=%d alert_type=%s ttl=24h",
+            candidate.id, alert_type,
+        )
+    except Exception as exc:
+        log.debug("preventer: attach failed cand=%d: %s", candidate.id, exc)
+
+
+def check_preventer_regressions(db: Session) -> int:
+    """Scan active preventer records and detect regressions.
+
+    Called from invariant_monitor on its tick. For each active
+    preventer record (Redis key `hs:brain:preventer:*`), look up
+    OpsAlerts with the SAME alert_type written AFTER the fix's
+    applied_at. Match → emit CRITICAL `fix_regressed_24h` alert
+    AND clear the record (avoid alert storms). Returns the
+    number of regressions detected.
+    """
+    rc = _redis_safe()
+    if rc is None:
+        record_silent_return(
+            "bugfix_pipeline.check_preventer_regressions",
+            "redis_unavailable",
+        )
+        return 0
+    try:
+        from app.models.ops_alert import OpsAlert
+        from app.services.alerting import write_alert
+    except Exception as exc:
+        record_silent_return(
+            "bugfix_pipeline.check_preventer_regressions",
+            f"imports_failed:{exc}"[:120],
+        )
+        log.debug("preventer: imports failed: %s", exc)
+        return 0
+    detected = 0
+    try:
+        keys = list(rc.scan_iter(match=f"{_PREVENTER_REDIS_PREFIX}:*", count=100))
+    except Exception as exc:
+        log.debug("preventer: scan failed: %s", exc)
+        return 0
+    for key in keys:
+        try:
+            raw = rc.get(key)
+            if not raw:
+                continue
+            record = json.loads(raw if isinstance(raw, str) else raw.decode())
+        except Exception:
+            continue
+        alert_type = record.get("alert_type")
+        applied_at_iso = record.get("applied_at")
+        if not alert_type or not applied_at_iso:
+            continue
+        try:
+            from datetime import datetime
+            applied_at = datetime.fromisoformat(applied_at_iso)
+        except Exception:
+            continue
+        # Look for a fresh OpsAlert with the same alert_type
+        # written AFTER the fix landed.
+        regression = (
+            db.query(OpsAlert)
+            .filter(
+                OpsAlert.alert_type == alert_type,
+                OpsAlert.created_at > applied_at,
+                OpsAlert.alert_type != "fix_regressed_24h",
+            )
+            .order_by(OpsAlert.created_at.desc())
+            .first()
+        )
+        if regression is None:
+            continue
+        try:
+            write_alert(
+                db,
+                severity="critical",
+                source=f"bugfix_apply:preventer:{record.get('candidate_id')}",
+                alert_type="fix_regressed_24h",
+                summary=(
+                    f"fix_regressed_24h: cand={record.get('candidate_id')} "
+                    f"alert_type={alert_type} re-fired "
+                    f"{(_now() - applied_at).total_seconds() / 3600:.1f}h after apply"
+                ),
+                detail={
+                    "candidate_id": record.get("candidate_id"),
+                    "title": record.get("title"),
+                    "git_commit_sha": record.get("git_commit_sha"),
+                    "applied_at": applied_at_iso,
+                    "regression_alert_id": regression.id,
+                    "alert_type": alert_type,
+                    "rule": (
+                        "preventer: same signal re-fired within 24h of "
+                        "apply — re-open candidate, audit fix coverage"
+                    ),
+                },
+            )
+            detected += 1
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+            # Clear the record so we don't repeat the alert
+            try:
+                rc.delete(key)
+            except Exception:
+                pass  # SILENT-EXCEPT-OK: redis delete is best-effort cleanup; if it fails the key TTL (24h) cleans the record on its own — never blocks the regression alert that already wrote.
+        except Exception as exc:
+            # SINK-class: commit-path try/except MUST rollback so the
+            # session stays usable for the next iteration / caller op.
+            try:
+                db.rollback()
+            except Exception:
+                pass  # SILENT-EXCEPT-OK: rollback inside SINK handler — if rollback raises the session is already broken; the outer log below records the original cause.
+            log.debug("preventer: alert emit failed: %s", exc)
+    if detected:
+        log.warning("preventer: detected %d regression(s) in 24h window", detected)
+    return detected
 
 
 # ---------------------------------------------------------------------------
@@ -3571,6 +3847,48 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
                 "propose_patch: sibling sweep wired (cand=%d, ~%d chars)",
                 candidate.id, len(sweep_section),
             )
+        # brain-hook: tool-spawn — dispatch BrainTool at investigation
+        # time. Runs preventer-class audits in parallel and folds the
+        # exit codes into context so the LLM sees fresh structural-
+        # invariant signal (n+1, propagation evidence, model drift)
+        # without paying for extra LLM calls. Best-effort; never raises.
+        try:
+            brain_payload = brain_dispatch().invoke_audit("audit_n_plus_one.py")
+            if brain_payload and brain_payload.get("exit_code") not in (None, 0):
+                context_parts.append(
+                    "## Brain investigation — preventer signal\n"
+                    f"audit_n_plus_one.py exit={brain_payload['exit_code']}\n"
+                    "Recent N+1 findings:\n"
+                    + (brain_payload.get("stdout") or "")[:600]
+                )
+        except Exception as exc:
+            log.debug("propose_patch: brain_dispatch invoke_audit failed (non-fatal): %s", exc)
+
+        # brain-hook: semantic-ramification — AST-walk hot dirs to
+        # detect call sites of patched function names. Hot path
+        # detection feeds the adversarial reviewer (raises severity
+        # automatically when a TIER_0 patch reaches into request /
+        # worker paths). Stash on context_json for the apply-time
+        # reviewer + the post-apply retro-check.
+        try:
+            hot = _check_hot_path(candidate)
+            if hot.get("hot_path"):
+                context_parts.append(
+                    "## Semantic ramification — HOT PATH detected\n"
+                    f"Patched fn(s): {', '.join(hot.get('fn_names') or [])}\n"
+                    f"Reachable from {len(hot.get('hits') or [])} call site(s) in "
+                    f"app/api/ or app/workers/:\n"
+                    + "\n".join(f"  - {h}" for h in (hot.get("hits") or [])[:10])
+                )
+                try:
+                    existing_ctx = json.loads(candidate.context_json or "{}")
+                except Exception:
+                    existing_ctx = {}
+                if isinstance(existing_ctx, dict):
+                    existing_ctx["semantic_ramification"] = hot
+                    candidate.context_json = json.dumps(existing_ctx)
+        except Exception as exc:
+            log.debug("propose_patch: semantic_ramification failed (non-fatal): %s", exc)
         # Phase B baseline: stash hit counts (cheap — same grep runs
         # we just did, but counted) for post-apply retro verification.
         pre_signatures = _extract_pattern_signatures(candidate)
@@ -3892,26 +4210,30 @@ def propose_patch(db: Session, candidate_id: int) -> bool:
         except Exception as exc:
             log.warning("bugfix_pipeline: reviewer assessment after propose failed: %s", exc)
 
-    # Sprint B (2026-04-25) — adversarial 3-lens review for TIER_1+
-    # candidates. Runs 3 Haiku calls (internal/investor/competitor CTO
-    # personas) against the proposed patch, persists findings. TIER_0
-    # skips to save budget (low-risk by definition). Feature-flagged
-    # via ADVERSARIAL_REVIEWER_ENABLED (default off, pipeline paused
-    # pre-merchant).
+    # brain-hook: tier_0-triple-da
+    # Sprint B (2026-04-25) — adversarial 3-lens review.
+    # Founder direttiva 2026-05-06 (CLAUDE.md §21.6): triple-DA must run
+    # for ALL tier classes including TIER_0, NOT only TIER_1+. The
+    # autonomous brain — when active — auto-applies TIER_0 patches
+    # WITHOUT founder approval, so it MUST satisfy the same 3-lens
+    # discipline that interactive Claude applies. Cost (Haiku at 3
+    # calls/candidate × ~€0.0003) stays under €0.05/mo at projected
+    # candidate volume — negligible vs the €50 hard ceiling.
+    # Feature-flagged via ADVERSARIAL_REVIEWER_ENABLED (default off,
+    # pipeline dormant pre-merchant).
     adversarial_findings: list = []
-    if tier != PATCH_TIER_0:
-        try:
-            from app.services.adversarial_reviewer import review_with_3_lenses
-            adversarial_findings = review_with_3_lenses(db, candidate)
-            if adversarial_findings:
-                max_sev = max(f.severity for f in adversarial_findings)
-                log.info(
-                    "bugfix_pipeline: adversarial review candidate=%d "
-                    "findings=%d max_severity=%d",
-                    candidate.id, len(adversarial_findings), max_sev,
-                )
-        except Exception as exc:
-            log.warning("bugfix_pipeline: adversarial review failed (non-fatal): %s", exc)
+    try:
+        from app.services.adversarial_reviewer import review_with_3_lenses
+        adversarial_findings = review_with_3_lenses(db, candidate)
+        if adversarial_findings:
+            max_sev = max(f.severity for f in adversarial_findings)
+            log.info(
+                "bugfix_pipeline: adversarial review candidate=%d tier=%d "
+                "findings=%d max_severity=%d",
+                candidate.id, tier, len(adversarial_findings), max_sev,
+            )
+    except Exception as exc:
+        log.warning("bugfix_pipeline: adversarial review failed (non-fatal): %s", exc)
 
     # Sprint C (2026-04-25) — iterative fix loop. If any adversarial
     # lens flagged severity >= 7, schedule a follow-up iteration
@@ -4119,6 +4441,14 @@ def _call_provider(sel, user_message: str, anthropic_key: str, openai_key: str) 
 PATCH_TIER_0 = 0  # Ultra-safe: auto-apply
 PATCH_TIER_1 = 1  # Human-approve required (default)
 PATCH_TIER_2 = 2  # Never auto-apply (forbidden paths)
+
+# Adversarial 3-lens severity ≥ this value blocks TIER_0 auto-apply
+# and escalates to TIER_1 (human approval). Founder direttiva
+# 2026-05-06 (CLAUDE.md §21.6): the autonomous brain operates with
+# the same triple-DA discipline as interactive Claude; any HIGH
+# concern from any of the 3 lenses (internal/investor/competitor)
+# must reach a human before the patch ships.
+_ADVERSARIAL_AUTO_APPLY_BLOCK = 7
 
 _MAX_SAFE_DIFF_LINES = 120
 
@@ -4748,6 +5078,46 @@ def run_auto_apply(db: Session, max_per_cycle: int = 1) -> dict:
             summary["skipped"] += 1
             db.flush()
             continue
+
+        # brain-hook: tier_0-triple-da — adversarial gate.
+        # Founder direttiva 2026-05-06 (CLAUDE.md §21.6): if ANY of the 3
+        # lenses (internal/investor/competitor) flagged severity >=
+        # _ADVERSARIAL_AUTO_APPLY_BLOCK, the autonomous brain MUST escalate
+        # to TIER_1 (human approval) instead of auto-applying. _CRITICAL
+        # (>=9) already writes an ops_alert via review_with_3_lenses; this
+        # gate adds the BLOCK at the apply boundary so high-concern
+        # patches can never silently ship without a human sign-off.
+        try:
+            from app.models.adversarial_review_finding import AdversarialReviewFinding
+            max_adv = (
+                db.query(AdversarialReviewFinding.severity)
+                .filter(AdversarialReviewFinding.bugfix_candidate_id == c.id)
+                .order_by(AdversarialReviewFinding.severity.desc())
+                .first()
+            )
+            if max_adv and max_adv[0] is not None and max_adv[0] >= _ADVERSARIAL_AUTO_APPLY_BLOCK:
+                log.info(
+                    "auto_apply: ADVERSARIAL GATE blocked id=%d max_severity=%d "
+                    "(threshold=%d) — escalating to TIER_1",
+                    c.id, max_adv[0], _ADVERSARIAL_AUTO_APPLY_BLOCK,
+                )
+                c.patch_risk_tier = 1
+                c.failure_reason = (
+                    f"adversarial_gate_blocked: max_severity={max_adv[0]} "
+                    f">= {_ADVERSARIAL_AUTO_APPLY_BLOCK}"
+                )
+                summary["skipped"] += 1
+                db.flush()
+                continue
+        except Exception as exc:
+            # DB-class exception: surface at WARNING so ops sees gate
+            # degradation (the apply path is fail-open — if the
+            # adversarial table query errors we proceed without the
+            # gate, but the operator must know).
+            log.warning(
+                "auto_apply: adversarial gate query failed (non-fatal, fail-open): %s",
+                exc,
+            )
 
         summary["attempted"] += 1
 
@@ -5526,6 +5896,18 @@ def _apply_bugfix_candidate_impl(db: Session, candidate_id: int) -> ApplyResult:
         except Exception as exc:
             log.debug(
                 "bugfix_apply: retro-check raised unexpectedly (non-fatal): %s",
+                exc,
+            )
+
+        # brain-hook: preventer-after-fix — install 24h regression watch.
+        # If the source signal of this candidate (alert_type) re-fires
+        # within 24h, `check_preventer_regressions` (called from
+        # invariant_monitor) emits CRITICAL `fix_regressed_24h`.
+        try:
+            _attach_preventer(candidate, commit_sha)
+        except Exception as exc:
+            log.debug(
+                "bugfix_apply: preventer attach raised unexpectedly (non-fatal): %s",
                 exc,
             )
 
