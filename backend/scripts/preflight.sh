@@ -675,7 +675,7 @@ fi
 # guard regresses and synthetic-shop alerts start accumulating again.
 # ---------------------------------------------------------------------------
 step "Orphan-alert no-growth (audit_orphan_alerts_no_growth.py --strict)"
-if DATABASE_URL=$(grep "^DATABASE_URL=" "$BACKEND/.env" 2>/dev/null | cut -d= -f2-) "$PY" scripts/audit_orphan_alerts_no_growth.py --strict > /tmp/preflight_orphan_alerts.log 2>&1; then
+if "$PY" scripts/audit_orphan_alerts_no_growth.py --strict > /tmp/preflight_orphan_alerts.log 2>&1; then
     ok "$(head -1 /tmp/preflight_orphan_alerts.log)"
 else
     bad "synthetic-shop orphan growth detected — see /tmp/preflight_orphan_alerts.log"

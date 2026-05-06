@@ -35,30 +35,38 @@ import os
 import sys
 
 
-def _run_query() -> tuple[int, int, list[tuple[str, int]]]:
-    """Return (total_orphans, synthetic_orphans, breakdown_top_10).
+_PROBE_UNAVAILABLE = object()  # sentinel — distinct from "0 orphans"
 
-    Uses lightweight psycopg2 connection (no SQLAlchemy session
-    management overhead) so the audit is cheap at preflight time."""
+
+def _run_query():
+    """Return (total_orphans, synthetic_orphans, breakdown_top_10)
+    OR _PROBE_UNAVAILABLE if the DB connection itself can't be opened.
+
+    Uses `app.core.database.SessionLocal` to inherit the same
+    DATABASE_URL resolution path as the rest of the codebase
+    (handles `.env` loading via app.main side effects when invoked
+    through the venv). Fail-loud distinction between "no orphans"
+    and "couldn't probe" prevents the silent-fallback false-OK that
+    a simple `os.getenv("DATABASE_URL", "")` empty-default would
+    produce when the audit runs outside a PM2-loaded env."""
     try:
-        import psycopg2
-    except Exception:
-        # psycopg2 not in PATH — script is dev-only
-        return (0, 0, [])
-
-    db_url = os.getenv("DATABASE_URL", "")
-    if not db_url:
-        return (0, 0, [])
-
-    try:
-        conn = psycopg2.connect(db_url)
-        conn.autocommit = True
-    except Exception:
-        return (0, 0, [])
+        # Add backend root so `app.*` imports resolve.
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+        from app.core.database import SessionLocal
+        from sqlalchemy import text
+        from app.core.test_shop_blocklist import is_synthetic_test_shop
+    except Exception as exc:
+        print(f"audit_orphan_alerts_no_growth: skip — module import failed: {exc}")
+        return _PROBE_UNAVAILABLE
 
     try:
-        cur = conn.cursor()
-        cur.execute(
+        db = SessionLocal()
+    except Exception as exc:
+        print(f"audit_orphan_alerts_no_growth: skip — DB session failed: {exc}")
+        return _PROBE_UNAVAILABLE
+
+    try:
+        rows = db.execute(text(
             """
             SELECT a.shop_domain, COUNT(*) AS cnt
             FROM ops_alerts a
@@ -70,20 +78,18 @@ def _run_query() -> tuple[int, int, list[tuple[str, int]]]:
             ORDER BY cnt DESC
             LIMIT 100
             """
-        )
-        rows = cur.fetchall()
-        cur.close()
+        )).fetchall()
+    except Exception as exc:
+        print(f"audit_orphan_alerts_no_growth: skip — query failed: {exc}")
+        return _PROBE_UNAVAILABLE
     finally:
-        conn.close()
+        try:
+            db.close()
+        except Exception:
+            pass
 
     if not rows:
         return (0, 0, [])
-
-    try:
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-        from app.core.test_shop_blocklist import is_synthetic_test_shop
-    except Exception:
-        is_synthetic_test_shop = lambda _s: False  # noqa: E731
 
     total = sum(c for _, c in rows)
     synthetic = sum(c for s, c in rows if is_synthetic_test_shop(s))
@@ -96,7 +102,14 @@ def main() -> int:
                         help="Fail on synthetic-shop orphans (write_alert guard regression).")
     args = parser.parse_args()
 
-    total, synthetic, top10 = _run_query()
+    result = _run_query()
+    if result is _PROBE_UNAVAILABLE:
+        # Fail-loud per CLAUDE.md §11 + §2 rule 2 ("no half-truths"):
+        # don't pretend "0 orphans" when we couldn't actually probe.
+        # Strict mode treats unavailable as a regression to surface
+        # config issues; default mode passes (info-only).
+        return 1 if args.strict else 0
+    total, synthetic, top10 = result
 
     if synthetic > 0 and args.strict:
         print(
