@@ -105,18 +105,22 @@ def _make_before_send():
     def _before_send(event: dict, hint: dict) -> dict | None:
         # Drop expected dev-misconfiguration noise — these 500s are not
         # bugs, they are the server saying "this endpoint requires
-        # OPS_API_KEY to be set in .env". Capturing them as Sentry
-        # incidents inflates the error rate and triggers
-        # sentry_incidents probes. Founder mandate 2026-05-05: 0 errori.
-        # Drop at filter, don't capture.
+        # <SECRET> to be set in .env". Capturing them as Sentry incidents
+        # inflates the error rate and triggers sentry_incidents probes.
+        # Founder mandate 2026-05-05: 0 errori. Generalized 2026-05-06
+        # via app.core.sentry_noise_filter to cover ALL secret-class
+        # env vars (API_KEY/SECRET/TOKEN/WEBHOOK_URL/WEBHOOK_SECRET),
+        # not just OPS_API_KEY (G7 close).
         try:
+            from app.core.sentry_noise_filter import is_noise
             for ex in (event.get("exception", {}) or {}).get("values", []) or []:
-                msg = ex.get("value") or ""
-                if isinstance(msg, str) and (
-                    "OPS_API_KEY not configured" in msg
-                    or "OPS_API_KEY not configured on server" in msg
-                ):
+                if is_noise(ex.get("value")):
                     return None
+            top_msg = event.get("message")
+            if isinstance(top_msg, dict):
+                top_msg = top_msg.get("formatted")
+            if is_noise(top_msg):
+                return None
         except Exception:
             pass  # SILENT-EXCEPT-OK: filter best-effort; on any error fall through to standard event delivery rather than dropping legitimate exceptions.
 

@@ -89,13 +89,12 @@ def ingest_email(
     # expected dev-misconfiguration responses (e.g. /ops/* endpoints
     # raising 500 when OPS_API_KEY isn't set), not real bugs. Filtering
     # at intake prevents sentry_incidents accumulation, sentry_regression
-    # alerts, and bugfix-triage waste.
-    _SENTRY_NOISE_TITLES = (
-        "OPS_API_KEY not configured",
-        "OPS_API_KEY not configured on server",
-    )
+    # alerts, and bugfix-triage waste. Generalized 2026-05-06 via
+    # app.core.sentry_noise_filter to cover ALL secret-class env vars,
+    # not just OPS_API_KEY (G7 close).
+    from app.core.sentry_noise_filter import is_noise as _is_sentry_noise
     composite_text = f"{subject or ''}\n{body or ''}"
-    if any(noise in composite_text for noise in _SENTRY_NOISE_TITLES):
+    if _is_sentry_noise(composite_text):
         log.info(
             "sentry_triage: noise-denylist drop message_id=%s subject=%s",
             message_id, (subject or "")[:80],
