@@ -4450,6 +4450,29 @@ PATCH_TIER_2 = 2  # Never auto-apply (forbidden paths)
 # must reach a human before the patch ships.
 _ADVERSARIAL_AUTO_APPLY_BLOCK = 7
 
+
+def _check_adversarial_gate(db: "Session", candidate_id: int) -> tuple[bool, int | None]:
+    """brain-hook: tier_0-triple-da — DRY helper.
+
+    Returns (block, max_severity) where block=True means the
+    candidate must NOT auto-apply (escalate to TIER_1 / fail gate).
+    Fail-open on DB error (block=False, max_severity=None) so a
+    transient query failure does not stop the pipeline; callers
+    log at WARNING so ops sees the degradation.
+    """
+    from app.models.adversarial_review_finding import AdversarialReviewFinding
+    row = (
+        db.query(AdversarialReviewFinding.severity)
+        .filter(AdversarialReviewFinding.bugfix_candidate_id == candidate_id)
+        .order_by(AdversarialReviewFinding.severity.desc())
+        .first()
+    )
+    if row is None or row[0] is None:
+        return (False, None)
+    max_sev = int(row[0])
+    return (max_sev >= _ADVERSARIAL_AUTO_APPLY_BLOCK, max_sev)
+
+
 _MAX_SAFE_DIFF_LINES = 120
 
 # Paths that are explicitly safe for TIER_0 auto-apply
@@ -5083,27 +5106,21 @@ def run_auto_apply(db: Session, max_per_cycle: int = 1) -> dict:
         # Founder direttiva 2026-05-06 (CLAUDE.md §21.6): if ANY of the 3
         # lenses (internal/investor/competitor) flagged severity >=
         # _ADVERSARIAL_AUTO_APPLY_BLOCK, the autonomous brain MUST escalate
-        # to TIER_1 (human approval) instead of auto-applying. _CRITICAL
+        # to TIER_1 (human approval) instead of auto-applying. CRITICAL
         # (>=9) already writes an ops_alert via review_with_3_lenses; this
         # gate adds the BLOCK at the apply boundary so high-concern
         # patches can never silently ship without a human sign-off.
         try:
-            from app.models.adversarial_review_finding import AdversarialReviewFinding
-            max_adv = (
-                db.query(AdversarialReviewFinding.severity)
-                .filter(AdversarialReviewFinding.bugfix_candidate_id == c.id)
-                .order_by(AdversarialReviewFinding.severity.desc())
-                .first()
-            )
-            if max_adv and max_adv[0] is not None and max_adv[0] >= _ADVERSARIAL_AUTO_APPLY_BLOCK:
+            block, max_sev = _check_adversarial_gate(db, c.id)
+            if block:
                 log.info(
                     "auto_apply: ADVERSARIAL GATE blocked id=%d max_severity=%d "
                     "(threshold=%d) — escalating to TIER_1",
-                    c.id, max_adv[0], _ADVERSARIAL_AUTO_APPLY_BLOCK,
+                    c.id, max_sev, _ADVERSARIAL_AUTO_APPLY_BLOCK,
                 )
                 c.patch_risk_tier = 1
                 c.failure_reason = (
-                    f"adversarial_gate_blocked: max_severity={max_adv[0]} "
+                    f"adversarial_gate_blocked: max_severity={max_sev} "
                     f">= {_ADVERSARIAL_AUTO_APPLY_BLOCK}"
                 )
                 summary["skipped"] += 1
@@ -5400,6 +5417,32 @@ def run_governed_tier1_auto_apply(
         except Exception as exc:
             _fail_gate("reviewer_error", c, str(exc)[:80])
             continue
+
+        # brain-hook: tier_0-triple-da — adversarial gate (TIER_1 governed
+        # path). Same threshold as run_auto_apply: founder direttiva
+        # 2026-05-06 §21.6 applies a fortiori to TIER_1 governed apply,
+        # which is RISKIER than TIER_0 because it touches more code and
+        # bypasses tier escalation. Any 3-lens severity ≥
+        # _ADVERSARIAL_AUTO_APPLY_BLOCK skips the candidate (stays in
+        # patch_proposed for human review via /ops/bugfixes). DRY shared
+        # helper so structural-preventer audit guarantees both call sites
+        # invoke the same query.
+        try:
+            block, max_sev = _check_adversarial_gate(db, c.id)
+            if block:
+                _fail_gate(
+                    "adversarial_severity",
+                    c,
+                    f"max_severity={max_sev} >= {_ADVERSARIAL_AUTO_APPLY_BLOCK}",
+                )
+                continue
+        except Exception as exc:
+            # DB-class — surface at WARNING so ops sees gate degradation;
+            # fail-open by design (apply still gated by G1-G9 above).
+            log.warning(
+                "governed_tier1: adversarial gate query failed (non-fatal, fail-open): %s",
+                exc,
+            )
 
         # All gates passed — auto-approve + apply
         summary["attempted"] += 1

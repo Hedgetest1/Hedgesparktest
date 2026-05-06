@@ -743,6 +743,22 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Apply-path adversarial-gate structural preventer — STRICT.
+# Born 2026-05-06 after a real bypass shipped: the gate landed on
+# run_auto_apply (TIER_0) but not run_governed_tier1_auto_apply
+# (TIER_1). Founder caught the gap by asking "really 10/10?" — the
+# audit makes that class of regression mechanical so future call
+# sites of apply_bugfix_candidate cannot ship without the gate.
+# ---------------------------------------------------------------------------
+step "Apply-path adversarial gate (audit_apply_path_adversarial_gate.py)"
+if "$PY" scripts/audit_apply_path_adversarial_gate.py > /tmp/preflight_apply_gate.log 2>&1; then
+    ok "$(head -1 /tmp/preflight_apply_gate.log)"
+else
+    bad "apply-path adversarial gate missing — see /tmp/preflight_apply_gate.log"
+    tail -30 /tmp/preflight_apply_gate.log
+fi
+
+# ---------------------------------------------------------------------------
 # Alert-writer heal-detection — STRICT (founder direttiva 2026-05-05
 # brain-autonomous sprint, G6 close 2026-05-06). Every condition-based
 # write_alert site must close the alert when the underlying state

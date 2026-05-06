@@ -465,6 +465,13 @@ _AUDITS: list[tuple[str, str, str]] = [
     # audit flags missing hooks; goes from info to --strict before
     # pipeline reopens (first paying merchant landing).
     ("audit_brain_propagation_hooks.py", "invariant_regression", "invariant:brain_propagation_hooks"),
+    # Apply-path adversarial gate — born 2026-05-06 after a real
+    # bypass shipped (gate on TIER_0 path only, missing on TIER_1
+    # governed). Audit AST-walks bugfix_pipeline.py and verifies
+    # every autonomous apply_bugfix_candidate call site has the
+    # gate. Runs at every invariant_monitor tick so post-commit
+    # refactors that drift the gate are caught before next cycle.
+    ("audit_apply_path_adversarial_gate.py", "invariant_regression", "invariant:apply_path_adversarial_gate"),
     # Brutal-CTO-inspection follow-up (added 2026-05-02 evening).
     # 1. DB pool doctrine catches code-default drift from CLAUDE.md
     #    §6 (the bug that produced 20× QueuePool exhaustions live).
