@@ -109,15 +109,26 @@ def main() -> int:
     _save_ledger(ledger)
 
     # Compute per-worker baseline over the window using the 10th
-    # percentile instead of absolute min. Rationale: absolute min is
+    # percentile of the *cleaned* history. Rationale: absolute min is
     # poisoned by init-crash snapshots (Python process caught
-    # mid-module-load reports sub-baseline memory). Empirical
-    # 2026-05-04: agent_worker history had values [14, 39, 69, 90, 90,
-    # ...178] MB — 14/39/69 were partial-init snapshots; 90 was true
-    # post-load baseline. P10 = 90 here, robust to a few outliers.
-    # Require _MIN_STABLE_SAMPLES (5) before trusting the baseline so
-    # newly-fixed workers (like agent_worker post-suicide-loop fix)
-    # don't trip on a too-small sample.
+    # mid-module-load reports sub-baseline memory). Empirical:
+    # - 2026-05-04: agent_worker had [14, 39, 69, 90, 90, ...178] MB;
+    #   14/39/69 were partial-init.
+    # - 2026-05-06: wishspark-backend uvicorn 4-worker fork-master
+    #   model produces 24 MB samples (master alone, pre-child-spawn)
+    #   roughly half the time, then 130–180 MB once child workers
+    #   load. Raw P10 of [24,24,24,...,24,134,142,179,181] = 24.
+    #
+    # Two-stage cleaning:
+    #   1. Drop samples below 50% of the per-worker median — robust
+    #      to partial-init outliers without masking real leaks (a true
+    #      leak grows the max but the median still reflects the
+    #      stable baseline once enough samples accrue).
+    #   2. Compute P10 on the cleaned history.
+    #
+    # Require _MIN_STABLE_SAMPLES (5) cleaned samples before trusting
+    # the baseline so newly-restarted workers don't trip on a fresh
+    # ledger.
     _MIN_STABLE_SAMPLES = 5
 
     def _p10(values: list[int]) -> int:
@@ -128,6 +139,35 @@ def main() -> int:
         idx = max(0, (len(s) - 1) // 10)
         return s[idx]
 
+    def _median(values: list[int]) -> int:
+        if not values:
+            return 0
+        s = sorted(values)
+        return s[len(s) // 2]
+
+    # Partial-init absolute floor — any value below this is dropped
+    # before computing baseline. Empirically every wishspark-* worker
+    # (Python process post-import) lands above 50 MB once steady-state
+    # is reached; anything below indicates pm2 caught the master
+    # process pre-fork OR caught the worker mid-module-load. Median-
+    # based filtering fails when the bimodal distribution has the
+    # partial-init mode dominating >50% of samples (the wishspark-
+    # backend uvicorn 4-worker case where the pre-fork master is
+    # measured roughly half the time).
+    _PARTIAL_INIT_FLOOR_BYTES = 50 * 1024 * 1024  # 50 MB
+
+    def _clean_partial_init(values: list[int]) -> list[int]:
+        """Drop samples below the absolute partial-init floor (50 MB).
+        Returns the input unchanged if filtering would leave fewer than
+        _MIN_STABLE_SAMPLES — better to skip the worker than baseline
+        on a heavily-poisoned cleaned set."""
+        if not values:
+            return []
+        cleaned = [v for v in values if v >= _PARTIAL_INIT_FLOOR_BYTES]
+        if len(cleaned) < _MIN_STABLE_SAMPLES:
+            return values
+        return cleaned
+
     by_worker: dict[str, list[int]] = {}
     for ts, snap in ledger.items():
         for name, mem in snap.items():
@@ -135,7 +175,8 @@ def main() -> int:
 
     findings: list[str] = []
     for name, mem_now in snapshot.items():
-        history = by_worker.get(name) or []
+        raw_history = by_worker.get(name) or []
+        history = _clean_partial_init(raw_history)
         if len(history) < _MIN_STABLE_SAMPLES:
             continue
         baseline_min = _p10(history)

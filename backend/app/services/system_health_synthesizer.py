@@ -156,7 +156,10 @@ def synthesize_health(db: Session) -> SystemHealthState:
     issues = []
     evidence = 0
 
-    # --- 7 dimensions, each isolated, each non-fatal ---
+    # --- 10 dimensions, each isolated, each non-fatal ---
+    # Operational dims (workers..alerts) drive overall_status.
+    # Strategic dims (memory, llm_usage, cost) gate Telegram pings to founder
+    # via _STRATEGIC_DIMENSIONS — names must match those declared below.
     assessors = [
         _assess_worker_health,
         _assess_pipeline_health,
@@ -165,6 +168,9 @@ def synthesize_health(db: Session) -> SystemHealthState:
         _assess_data_freshness,
         _assess_fix_effectiveness,
         _assess_alert_pressure,
+        _assess_memory,
+        _assess_llm_usage,
+        _assess_cost,
     ]
 
     for fn in assessors:
@@ -237,7 +243,7 @@ def synthesize_health(db: Session) -> SystemHealthState:
 
     state.dimensions = dimensions
     state.top_issues = issues[:3]  # strict cap at 3
-    state.confidence = min(1.0, evidence / 7.0)
+    state.confidence = min(1.0, evidence / 10.0)
 
     return state
 
@@ -288,6 +294,12 @@ def _is_strategic_critical(state: SystemHealthState) -> bool:
     alerts) drive the overall_status indicator on /ops/system-health
     but are handled autonomously by the brain — they never page the
     founder.
+
+    Names in `_STRATEGIC_DIMENSIONS` MUST match the `name=` declared
+    by `_assess_memory`, `_assess_llm_usage`, `_assess_cost` (asserted
+    by `audit_strategic_dimension_names_match_emitters.py`) — otherwise
+    the gate suppresses every signal silently, which is the exact
+    silent-failure mode this audit prevents.
 
     `audit_telegram_strategic_only.py` blocks regressions of this gate.
     """
@@ -669,6 +681,158 @@ def _assess_alert_pressure(db: Session, now: datetime) -> HealthDimension:
         value=float(issues),
         trend=trend,
         detail=f"{issues} active issues ({crit_issues} critical), {new_r} new types (24h), {total_all} total rows",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Strategic dimension assessors — gate Telegram pings to the founder.
+# Names MUST match _STRATEGIC_DIMENSIONS exactly. audit_strategic_dimension_
+# names_match_emitters.py blocks regressions of this contract.
+# ---------------------------------------------------------------------------
+
+def _read_proc_meminfo() -> dict[str, int]:
+    """Parse /proc/meminfo into a dict of {key: kB} ints. Linux-only.
+    Empty dict on non-Linux or read failure (caller decides degrade)."""
+    out: dict[str, int] = {}
+    try:
+        with open("/proc/meminfo", "r") as fh:
+            for line in fh:
+                parts = line.split(":", 1)
+                if len(parts) != 2:
+                    continue
+                key = parts[0].strip()
+                val_part = parts[1].strip().split()
+                if not val_part:
+                    continue
+                try:
+                    out[key] = int(val_part[0])
+                except ValueError:
+                    continue
+    except Exception as exc:  # pragma: no cover — non-Linux / sandboxed
+        log.debug("system_health_synthesizer: meminfo read failed: %s", exc)
+    return out
+
+
+def _assess_memory(db: Session, now: datetime) -> HealthDimension:
+    """Linux RAM pressure via /proc/meminfo. Strategic dim — capacity
+    decision the founder must hear about (more RAM, scale up, defer
+    work). Operational pressure (heavy worker burst) does NOT count;
+    we read MemAvailable which excludes reclaimable buffers/caches.
+
+    Thresholds: critical >90% used, degraded >80% used.
+    Probe unavailable → name="memory" status="healthy" value=0 with
+    a clear detail string (degrade-open, never spam-page on missing data).
+    """
+    mi = _read_proc_meminfo()
+    total_kb = mi.get("MemTotal", 0)
+    avail_kb = mi.get("MemAvailable", 0)
+    if total_kb <= 0 or avail_kb <= 0:
+        return HealthDimension(
+            name="memory",
+            status="healthy",
+            value=0.0,
+            trend="stable",
+            detail="memory probe unavailable (non-Linux or permission)",
+        )
+    used_pct = max(0.0, 1.0 - (avail_kb / total_kb))
+    if used_pct >= 0.90:
+        status = "critical"
+    elif used_pct >= 0.80:
+        status = "degraded"
+    else:
+        status = "healthy"
+
+    return HealthDimension(
+        name="memory",
+        status=status,
+        value=round(used_pct, 3),
+        trend="stable",  # no historical baseline yet — keep stable
+        detail=f"RAM {used_pct:.0%} used ({(total_kb - avail_kb) // 1024} MB / {total_kb // 1024} MB)",
+    )
+
+
+def _assess_llm_usage(db: Session, now: datetime) -> HealthDimension:
+    """LLM monthly spend % of effective cap. Strategic dim —
+    capacity/cost decision the founder owns (top up, switch model,
+    cut traffic). Reads through llm_budget.get_usage_summary() so the
+    same source-of-truth feeds /ops/llm-budget.
+
+    Thresholds: critical >=90% of cap, degraded >=70% of cap.
+    """
+    try:
+        from app.core.llm_budget import get_usage_summary
+        summary = get_usage_summary()
+    except Exception as exc:
+        log.debug("system_health_synthesizer: llm summary failed: %s", exc)
+        return HealthDimension(
+            name="llm_usage",
+            status="healthy",
+            value=0.0,
+            trend="stable",
+            detail="llm budget probe unavailable",
+        )
+    cost = float(summary.get("monthly_cost_eur") or 0.0)
+    cap = float(summary.get("monthly_cap_eur") or 0.0)
+    pct = (cost / cap) if cap > 0 else 0.0
+    if pct >= 0.90:
+        status = "critical"
+    elif pct >= 0.70:
+        status = "degraded"
+    else:
+        status = "healthy"
+
+    return HealthDimension(
+        name="llm_usage",
+        status=status,
+        value=round(pct, 3),
+        trend="stable",
+        detail=f"LLM €{cost:.2f}/€{cap:.2f} ({pct:.0%} of monthly cap)",
+    )
+
+
+def _assess_cost(db: Session, now: datetime) -> HealthDimension:
+    """Projected total monthly outflow (LLM + infra baseline) vs
+    a configurable founder ceiling. Strategic dim — the signal that
+    fires when the org is approaching the total monthly budget the
+    founder set, regardless of which line item is responsible.
+
+    Sources:
+        LLM spend: get_usage_summary().monthly_cost_eur
+        Infra baseline: INFRA_MONTHLY_BASELINE_EUR (env, default €30)
+            covers VPS + Resend + Sentry + Anthropic creditless
+            infrastructure that runs whether merchants exist or not.
+
+    Thresholds: critical >=90% of TOTAL_COST_CAP_EUR (env, default
+    €80 → €30 infra + €50 LLM ceiling per founder direttiva 2026-05-05).
+    Degraded >=70% of cap.
+    """
+    try:
+        from app.core.llm_budget import get_usage_summary
+        summary = get_usage_summary()
+        llm_cost = float(summary.get("monthly_cost_eur") or 0.0)
+    except Exception as exc:
+        log.debug("system_health_synthesizer: llm summary failed: %s", exc)
+        llm_cost = 0.0
+
+    import os as _os
+    infra_baseline = float(_os.getenv("INFRA_MONTHLY_BASELINE_EUR", "30.0"))
+    total_cap = float(_os.getenv("TOTAL_COST_CAP_EUR", "80.0"))
+    total_cost = llm_cost + infra_baseline
+
+    pct = (total_cost / total_cap) if total_cap > 0 else 0.0
+    if pct >= 0.90:
+        status = "critical"
+    elif pct >= 0.70:
+        status = "degraded"
+    else:
+        status = "healthy"
+
+    return HealthDimension(
+        name="cost",
+        status=status,
+        value=round(pct, 3),
+        trend="stable",
+        detail=f"total €{total_cost:.2f}/€{total_cap:.2f} ({pct:.0%}; LLM €{llm_cost:.2f} + infra €{infra_baseline:.2f})",
     )
 
 

@@ -37,6 +37,9 @@ def _run_with_dims(
     freshness=("healthy", "stable", "ok"),
     fix_rate=("healthy", "stable", "ok"),
     alerts=("healthy", "stable", "ok"),
+    memory=("healthy", "stable", "ok"),
+    llm_usage=("healthy", "stable", "ok"),
+    cost=("healthy", "stable", "ok"),
 ):
     patches = [
         patch("app.services.system_health_synthesizer._assess_worker_health",
@@ -53,6 +56,12 @@ def _run_with_dims(
               side_effect=_mk("fix_rate", status=fix_rate[0], trend=fix_rate[1], detail=fix_rate[2])),
         patch("app.services.system_health_synthesizer._assess_alert_pressure",
               side_effect=_mk("alerts", status=alerts[0], trend=alerts[1], detail=alerts[2])),
+        patch("app.services.system_health_synthesizer._assess_memory",
+              side_effect=_mk("memory", status=memory[0], trend=memory[1], detail=memory[2])),
+        patch("app.services.system_health_synthesizer._assess_llm_usage",
+              side_effect=_mk("llm_usage", status=llm_usage[0], trend=llm_usage[1], detail=llm_usage[2])),
+        patch("app.services.system_health_synthesizer._assess_cost",
+              side_effect=_mk("cost", status=cost[0], trend=cost[1], detail=cost[2])),
         patch("app.core.redis_client.cache_get", return_value=None),
     ]
     for p in patches:

@@ -425,6 +425,13 @@ _AUDITS: list[tuple[str, str, str]] = [
     # circuit_breaker) re-spam the founder — exactly the noise that
     # 7dc3098 + this sprint closed.
     ("audit_telegram_strategic_only.py", "invariant_regression", "invariant:telegram_strategic_only"),
+    # Strategic-dim emitter parity (G3 close 2026-05-06). The
+    # _STRATEGIC_DIMENSIONS frozenset in system_health_synthesizer.py
+    # MUST match the `name=` field of each emitter. Mismatch silently
+    # suppresses every Telegram signal — founder gets ZERO pings on
+    # real capacity blowout. Static-parse audit; runtime-monitor here
+    # catches drift between emitter renames and constant updates.
+    ("audit_strategic_dimension_names_match_emitters.py", "invariant_regression", "invariant:strategic_dim_emitter_parity"),
     # Brutal-CTO-inspection follow-up (added 2026-05-02 evening).
     # 1. DB pool doctrine catches code-default drift from CLAUDE.md
     #    §6 (the bug that produced 20× QueuePool exhaustions live).

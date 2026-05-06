@@ -628,6 +628,20 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Strategic-dim emitter parity (G3 close — silent-gate prevention).
+# _STRATEGIC_DIMENSIONS in system_health_synthesizer.py MUST match the
+# `name=` field of every emitter (_assess_memory/_assess_llm_usage/
+# _assess_cost). Mismatch = silent suppression of every Telegram signal.
+# ---------------------------------------------------------------------------
+step "Strategic-dim emitter parity (audit_strategic_dimension_names_match_emitters.py)"
+if "$PY" scripts/audit_strategic_dimension_names_match_emitters.py > /tmp/preflight_strategic_dim_parity.log 2>&1; then
+    ok "$(head -1 /tmp/preflight_strategic_dim_parity.log)"
+else
+    bad "strategic-dim emitter parity broken — see /tmp/preflight_strategic_dim_parity.log"
+    tail -20 /tmp/preflight_strategic_dim_parity.log
+fi
+
+# ---------------------------------------------------------------------------
 # Alert-writer heal-detection — info-only baseline (founder direttiva
 # 2026-05-05 brain-autonomous sprint). Every condition-based write_alert
 # site must close the alert when the underlying state recovers, OR carry
