@@ -451,6 +451,13 @@ _AUDITS: list[tuple[str, str, str]] = [
     # write_alert guard has been broken (refactored away, exception
     # path bypass, or new test prefix not in test_shop_blocklist).
     ("audit_orphan_alerts_no_growth.py", "invariant_regression", "invariant:orphan_alerts_no_growth"),
+    # Operator/dev-shop no-outbound (founder direttiva 2026-05-06):
+    # `hedgespark-dev.myshopify.com` (founder's dev tenant) MUST NOT
+    # receive merchant-facing email. Catches regression of the
+    # email_orchestrator + send_email + merchant-resolution-query
+    # gates at runtime if any outbound channel ever ships an email
+    # to a known operator address/shop.
+    ("audit_operator_dev_shop_no_outbound.py", "invariant_regression", "invariant:operator_dev_shop_no_outbound"),
     # Brutal-CTO-inspection follow-up (added 2026-05-02 evening).
     # 1. DB pool doctrine catches code-default drift from CLAUDE.md
     #    §6 (the bug that produced 20× QueuePool exhaustions live).

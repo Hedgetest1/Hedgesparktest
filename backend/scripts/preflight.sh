@@ -683,6 +683,36 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Operator/dev-shop no-outbound (founder direttiva 2026-05-06).
+# The 7-day window currently includes pre-fix history (the 2026-05-03
+# weekly_digest leak that triggered this remediation). Wired info-only
+# until that window drains 2026-05-13, then flip to --strict so any
+# new operator-shop email is a hard preflight block.
+# ---------------------------------------------------------------------------
+step "Operator-shop no-outbound (audit_operator_dev_shop_no_outbound.py — info only until 2026-05-13)"
+if "$PY" scripts/audit_operator_dev_shop_no_outbound.py > /tmp/preflight_operator_outbound.log 2>&1; then
+    ok "$(head -1 /tmp/preflight_operator_outbound.log)"
+else
+    bad "operator-shop outbound audit failed — see /tmp/preflight_operator_outbound.log"
+    tail -20 /tmp/preflight_operator_outbound.log
+fi
+
+# ---------------------------------------------------------------------------
+# Service/worker test coverage (founder direttiva 2026-05-06).
+# Strict-by-default: a NEW service/worker without `tests/test_<name>.py`
+# OR `# test-coverage: <reason>` opt-out fails preflight. Existing
+# 93 uncovered modules captured in `_KNOWN_UNCOVERED_BACKLOG` as
+# debt-to-shrink.
+# ---------------------------------------------------------------------------
+step "Service/worker test coverage (audit_service_test_coverage.py)"
+if "$PY" scripts/audit_service_test_coverage.py > /tmp/preflight_service_coverage.log 2>&1; then
+    ok "$(head -1 /tmp/preflight_service_coverage.log)"
+else
+    bad "new uncovered service/worker — see /tmp/preflight_service_coverage.log"
+    tail -25 /tmp/preflight_service_coverage.log
+fi
+
+# ---------------------------------------------------------------------------
 # Alert-writer heal-detection — STRICT (founder direttiva 2026-05-05
 # brain-autonomous sprint, G6 close 2026-05-06). Every condition-based
 # write_alert site must close the alert when the underlying state

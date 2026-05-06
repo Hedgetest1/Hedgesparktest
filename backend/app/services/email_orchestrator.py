@@ -297,6 +297,38 @@ def _resolve_merchant(
     if not intents:
         return result
 
+    # ── Step 0: Operator/dev-shop guard ──
+    # Founder direttiva 2026-05-06: dev tenants (hedgespark-dev.myshopify.com,
+    # any future operator shops) MUST NEVER receive merchant-facing email.
+    # Belt-and-suspenders: check both shop_domain AND each intent's
+    # to_email — a dev tenant might be misconfigured (billing_active flip)
+    # but the founder's address is hardcoded in operator_blocklist.
+    from app.core.operator_blocklist import is_operator_dev_shop, is_operator_email
+    if is_operator_dev_shop(shop):
+        result["suppressed"] = len(intents)
+        for i in intents:
+            _log_suppressed(db, i, "operator_dev_shop_blocked")
+        log.info(
+            "email_orchestrator: blocked %d intent(s) for operator dev shop=%s",
+            len(intents), shop,
+        )
+        return result
+    # Address-level fallback gate (defense in depth)
+    leaked = [i for i in intents if is_operator_email(i.to_email)]
+    if leaked:
+        for i in leaked:
+            _log_suppressed(db, i, "operator_email_address_blocked")
+        log.warning(
+            "email_orchestrator: blocked %d intent(s) targeting operator "
+            "email(s) for shop=%s — review producer logic",
+            len(leaked), shop,
+        )
+        # Strip the leaked intents and continue with the rest
+        intents = [i for i in intents if not is_operator_email(i.to_email)]
+        result["suppressed"] += len(leaked)
+        if not intents:
+            return result
+
     # ── Step 1: Hard suppression (bounce/complaint — permanent) ──
     if _is_suppressed(db, shop):
         result["suppressed"] = len(intents)

@@ -22,6 +22,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from app.core.database import SessionLocal
+from app.core.operator_blocklist import (
+    is_operator_dev_shop,
+    is_operator_email,
+    operator_dev_shops,
+)
 from app.models.merchant import Merchant
 from app.services.weekly_digest import assemble_digest
 from app.services.digest_formatter import format_digest
@@ -35,15 +40,24 @@ def main() -> None:
 
     db = SessionLocal()
     try:
+        # Operator/dev tenant guard (founder direttiva 2026-05-06):
+        # this script previously skipped the orchestrator gate AND the
+        # billing_active filter; without the operator-shop NOT IN clause
+        # below, the founder's dev tenant (`hedgespark-dev.myshopify.com`)
+        # would receive the same email merchants get.
         merchants = (
             db.query(Merchant)
             .filter(
                 Merchant.install_status == "active",
                 Merchant.contact_email.isnot(None),
                 Merchant.contact_email != "",
+                Merchant.billing_active == True,  # Pro merchants only
+                ~Merchant.shop_domain.in_(operator_dev_shops()),
             )
             .all()
         )
+        # Address-level fallback (defence in depth)
+        merchants = [m for m in merchants if not is_operator_email(m.contact_email)]
 
         print(f"Eligible merchants: {len(merchants)}")
         sent = 0

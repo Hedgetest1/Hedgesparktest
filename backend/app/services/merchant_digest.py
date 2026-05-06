@@ -94,7 +94,9 @@ def run_merchant_digest_cycle(db: Session) -> dict:
 
     # Get eligible merchants — paginated to avoid memory spike at 10k+ merchants
     from app.services.onboarding import _ONBOARDING_BLOCKLIST
+    from app.core.operator_blocklist import operator_dev_shops, is_operator_email
     _BATCH_SIZE = 200
+    _OPERATOR_SHOPS = operator_dev_shops()
 
     offset = 0
     while True:
@@ -105,6 +107,10 @@ def run_merchant_digest_cycle(db: Session) -> dict:
                 Merchant.contact_email.isnot(None),
                 Merchant.contact_email != "",
                 Merchant.billing_active == True,
+                # Operator/dev tenant guard — defence in depth (orchestrator
+                # also gates, but query-time exclusion saves compute + makes
+                # logs clean for "real merchants only" audits)
+                ~Merchant.shop_domain.in_(_OPERATOR_SHOPS),
             )
             .order_by(Merchant.id)
             .offset(offset)
@@ -117,6 +123,12 @@ def run_merchant_digest_cycle(db: Session) -> dict:
 
         for m in merchants:
             if m.shop_domain in _ONBOARDING_BLOCKLIST:
+                continue
+            # Address-level operator gate (founder direttiva 2026-05-06):
+            # blocks any merchant row whose contact_email matches an
+            # operator address even if the shop_domain check missed
+            # (e.g. founder added an alias that's not in the dev-shop set).
+            if is_operator_email(m.contact_email):
                 continue
 
             summary["processed"] += 1

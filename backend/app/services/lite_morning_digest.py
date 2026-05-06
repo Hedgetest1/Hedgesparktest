@@ -537,12 +537,16 @@ def run_lite_morning_digest_cycle(db: Session) -> dict:
 
     offset = 0
     while True:
+        from app.core.operator_blocklist import operator_dev_shops, is_operator_email
+        _OPERATOR_SHOPS = operator_dev_shops()
         merchants = (
             db.query(Merchant)
             .filter(
                 Merchant.install_status == "active",
                 Merchant.contact_email.isnot(None),
                 Merchant.contact_email != "",
+                # Operator/dev tenant guard (founder direttiva 2026-05-06).
+                ~Merchant.shop_domain.in_(_OPERATOR_SHOPS),
             )
             .order_by(Merchant.id)
             .offset(offset)
@@ -555,6 +559,9 @@ def run_lite_morning_digest_cycle(db: Session) -> dict:
 
         for m in merchants:
             if m.shop_domain in _ONBOARDING_BLOCKLIST:
+                continue
+            # Address-level operator gate — defence in depth.
+            if is_operator_email(m.contact_email):
                 continue
 
             # Lite-only. Pro merchants get the weekly digest already;

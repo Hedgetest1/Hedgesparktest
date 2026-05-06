@@ -46,19 +46,31 @@ def run_silence_detection(db: Session) -> dict:
     cutoff = _now() - timedelta(days=_SILENCE_WINDOW_DAYS)
 
     # Find active, ready merchants with no events in the window
+    # Operator/dev tenant guard (founder direttiva 2026-05-06): the
+    # `NOT IN (:operator_shops)` clause ensures `hedgespark-dev` and
+    # any future operator tenant never trigger a re-engagement email.
+    from app.core.operator_blocklist import operator_dev_shops, is_operator_email
+    _operator_list = list(operator_dev_shops())
     silent_shops = db.execute(text("""
         SELECT m.shop_domain, m.contact_email
         FROM merchants m
         WHERE m.install_status = 'active'
           AND m.onboarding_status = 'ready'
           AND m.shop_domain != 'legacy.myshopify.com'
+          AND NOT (m.shop_domain = ANY(:operator_shops))
           AND NOT EXISTS (
               SELECT 1 FROM events e
               WHERE e.shop_domain = m.shop_domain
                 AND e.timestamp > :cutoff_ms
           )
         LIMIT 20
-    """), {"cutoff_ms": int(cutoff.timestamp() * 1000)}).fetchall()
+    """), {
+        "cutoff_ms": int(cutoff.timestamp() * 1000),
+        "operator_shops": _operator_list,
+    }).fetchall()
+    # Strip any merchant whose contact_email matches an operator address
+    # — defence in depth.
+    silent_shops = [r for r in silent_shops if not is_operator_email(r[1])]
 
     if not silent_shops:
         # No currently-silent shops — every previously-alerted merchant

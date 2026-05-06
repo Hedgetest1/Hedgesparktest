@@ -61,6 +61,27 @@ def send_email(
         )
         return None
 
+    # ── Operator-address last-line guard (founder direttiva 2026-05-06) ──
+    # Even after caller-enforcement + orchestrator gate + producer
+    # filtering, this is the FINAL stop before Resend ships the email.
+    # No legitimate merchant-facing send ever targets an operator/founder
+    # address; if we see one here, somebody bypassed every upstream filter.
+    # Test files exempt because some tests intentionally send to founder
+    # addresses to verify the operator path semantics.
+    if "test_" not in caller_file and "conftest.py" not in caller_file:
+        try:
+            from app.core.operator_blocklist import is_operator_email
+            if is_operator_email(to):
+                log.error(
+                    "email: OPERATOR-ADDRESS GUARD blocked — to=%s subject=%r "
+                    "(caller=%s:%s:%d) — every merchant-facing channel must "
+                    "filter operator emails upstream",
+                    to, subject, caller_file, caller.function, caller.lineno,
+                )
+                return None
+        except Exception as exc:
+            log.warning("email: operator-address guard failed (non-fatal): %s", exc)
+
     # ── Last-line governance: brand voice check ──
     try:
         from app.services.brand_voice import validate_email_text, validate_subject_line
