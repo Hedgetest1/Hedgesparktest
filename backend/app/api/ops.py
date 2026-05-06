@@ -2011,7 +2011,8 @@ def get_tracker_fleet_status(
         total += r[1]
         total_with_tag += r[2]
 
-    # Merchants with no script_tag_id (potentially broken)
+    # operator-filter: ops admin diagnostic — listing every merchant
+    # with broken script-tag is correct here, including operator shop.
     missing_tag = (
         db.query(Merchant.shop_domain)
         .filter(

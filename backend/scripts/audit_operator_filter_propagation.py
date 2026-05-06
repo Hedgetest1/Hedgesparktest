@@ -85,13 +85,12 @@ _ALLOWLIST: frozenset[str] = frozenset({
     "app/services/invariant_monitor.py",
 })
 
-# API files are per-tenant by definition — every endpoint takes a
-# shop session and queries Merchant for that one shop. NOT
-# aggregations. The whole `app/api/*` tree is allowlisted to avoid
-# the broad-regex false positives.
-_ALLOWLIST_PREFIXES: tuple[str, ...] = (
-    "app/api/",
-)
+# Some API surfaces are aggregations (public_roi_counter, ops). The
+# per-tenant heuristic lets per-endpoint queries pass; only true
+# aggregations land in findings. Keep the prefix allowlist EMPTY
+# so audit covers app/api too — then opt out per-file via the
+# `# operator-filter:` comment if needed.
+_ALLOWLIST_PREFIXES: tuple[str, ...] = ()
 
 
 _PER_TENANT_RE = re.compile(

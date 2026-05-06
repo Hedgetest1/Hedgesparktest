@@ -73,12 +73,21 @@ def _compute() -> dict:
                 log.warning("public_roi_counter: vertical_classifier import failed: %s", exc)
                 get_vertical = None  # type: ignore
 
+            # Operator/dev tenant exclusion (founder direttiva 2026-05-06):
+            # this counter is a PUBLIC marketing surface ("€X recovered
+            # for merchants this month"). Including the founder's dev
+            # tenant inflates the claim — direct violation of §0
+            # ("No false claims, ever. Every '+€X recovered' is holdout-
+            # measured with p<0.05"). The dev tenant's prevented_eur is
+            # not a real customer outcome.
+            from app.core.operator_blocklist import operator_dev_shops
             pro_merchants = (
                 db.query(Merchant)
                 .filter(
                     Merchant.plan == "pro",
                     Merchant.billing_active == True,  # noqa: E712
                     Merchant.install_status == "active",
+                    ~Merchant.shop_domain.in_(operator_dev_shops()),
                 )
                 .all()
             )

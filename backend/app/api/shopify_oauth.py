@@ -589,6 +589,12 @@ def detect_sole_merchant(db: Session = Depends(get_db)):
         if configured is not None:
             return {"shop_domain": configured.shop_domain}
 
+    # operator-filter: TIER_2 file (CLAUDE.md §10) — operator-shop
+    # exclusion on OAuth default-Pro-fallback is the correct fix
+    # (operator dev tenant should not be auto-selected as default
+    # Pro merchant) BUT requires fresh founder approval before
+    # modifying. Tracked in project_open_decisions_backlog.md as
+    # P-OAUTH-OPERATOR-FILTER pending decision.
     active_pro = (
         db.query(Merchant)
         .filter(
