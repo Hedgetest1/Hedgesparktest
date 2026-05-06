@@ -642,6 +642,20 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Telegram allowlist ground-truth (G2 close — phantom-entry prevention).
+# Every entry in _TELEGRAM_STRATEGIC_ALLOWLIST must have a real emitter.
+# Aspirational entries without an emitter live in _FUTURE_STRATEGIC_RESERVED
+# until wired. Forbids "we cover X" lies on founder-page coverage.
+# ---------------------------------------------------------------------------
+step "Telegram allowlist ground-truth (audit_telegram_allowlist_ground_truth.py)"
+if "$PY" scripts/audit_telegram_allowlist_ground_truth.py > /tmp/preflight_allowlist_ground_truth.log 2>&1; then
+    ok "$(head -1 /tmp/preflight_allowlist_ground_truth.log)"
+else
+    bad "Telegram allowlist phantom entries detected — see /tmp/preflight_allowlist_ground_truth.log"
+    tail -20 /tmp/preflight_allowlist_ground_truth.log
+fi
+
+# ---------------------------------------------------------------------------
 # Alert-writer heal-detection — info-only baseline (founder direttiva
 # 2026-05-05 brain-autonomous sprint). Every condition-based write_alert
 # site must close the alert when the underlying state recovers, OR carry

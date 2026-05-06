@@ -432,6 +432,11 @@ _AUDITS: list[tuple[str, str, str]] = [
     # real capacity blowout. Static-parse audit; runtime-monitor here
     # catches drift between emitter renames and constant updates.
     ("audit_strategic_dimension_names_match_emitters.py", "invariant_regression", "invariant:strategic_dim_emitter_parity"),
+    # Telegram allowlist ground-truth (G2 close 2026-05-06). Every
+    # entry in _TELEGRAM_STRATEGIC_ALLOWLIST must have a real emitter
+    # in app/. Phantom entries lie about founder-page coverage and
+    # violate principle §2 rule 2 (no half-truths).
+    ("audit_telegram_allowlist_ground_truth.py", "invariant_regression", "invariant:telegram_allowlist_ground_truth"),
     # Brutal-CTO-inspection follow-up (added 2026-05-02 evening).
     # 1. DB pool doctrine catches code-default drift from CLAUDE.md
     #    §6 (the bug that produced 20× QueuePool exhaustions live).

@@ -293,19 +293,50 @@ _TELEGRAM_STRATEGIC_ALLOWLIST = frozenset({
     # The brain still SEES every alert via /ops/system-health and
     # internal observability; Telegram is the strategic channel only.
     #
-    # When adding a new alert_type that should reach the founder
-    # (a NEW class of strategic signal), add it here AND document the
-    # rationale in feedback_telegram_strategic_only_doctrine.md.
+    # GROUND-TRUTH POLICY (G2 close 2026-05-06):
+    #     Every entry MUST have a real emitter — `audit_telegram_
+    #     allowlist_ground_truth.py` blocks phantom entries at preflight.
+    #     When a NEW class of strategic signal becomes real
+    #     (e.g. billing_payment_failure_critical when Stripe webhooks
+    #     ship), that PR lands the allowlist entry AND the emitter
+    #     atomically. Aspirational/reserved entries are kept in
+    #     `_FUTURE_STRATEGIC_RESERVED` (informational, not enforced).
+    #
+    # When adding a new alert_type that should reach the founder,
+    # land it here in the SAME commit as the emitter, AND document
+    # the rationale in feedback_telegram_strategic_only_doctrine.md.
     # `audit_telegram_strategic_only.py` blocks new operational types
     # from reaching the Telegram path at preflight.
     "breach_response_required",       # GDPR Art. 33/34 — legal duty 72h clock
-    "billing_payment_failure_critical",  # paying merchant card declined
-    "merchant_churn_critical",        # paying merchant about to cancel
-    "llm_budget_exhaustion_strategic",   # LLM credit out — capacity decision
-    "infrastructure_cost_breach",     # monthly infra cost > budget
-    "security_critical_external",     # external attack confirmed
-    "shopify_app_review_action_required",  # founder action at Shopify portal
-    "merchant_paying_first_install",  # celebrate-event: first paying merchant
+    # Emitter: app/services/breach_notification.py
+})
+
+# Reserved future strategic alert_types — NOT in the active allowlist
+# until their emitter ships. Tracking here keeps the founder-channel
+# vocabulary consistent without lying about coverage. Each entry must
+# pair with a project_*.md / sprint memo identifying the trigger that
+# activates the wiring.
+_FUTURE_STRATEGIC_RESERVED = frozenset({
+    # Pricing & billing — wires when first paying merchant lands
+    # (billing_failure detection in app/api/billing.py + Stripe webhooks).
+    "billing_payment_failure_critical",
+    # Merchant churn detection — wires when retention surface ships.
+    "merchant_churn_critical",
+    # LLM exhaustion — currently uses direct send_message() in
+    # llm_budget._send_exhaustion_alert (bypasses on_alert_responder).
+    # Wires when llm_budget is refactored to write_alert(); TIER_1.
+    "llm_budget_exhaustion_strategic",
+    # Infra cost — wires when cost-tracking emitter ships
+    # (system_health_synthesizer._assess_cost is in place; not yet
+    # firing as discrete write_alert).
+    "infrastructure_cost_breach",
+    # Security — wires when external attack detector ships.
+    "security_critical_external",
+    # Shopify app review — wires when app review portal monitor ships.
+    "shopify_app_review_action_required",
+    # Celebrate first paying merchant — wires alongside
+    # billing_payment_failure_critical (Stripe activation event).
+    "merchant_paying_first_install",
 })
 
 
