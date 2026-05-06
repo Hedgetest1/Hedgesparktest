@@ -458,6 +458,13 @@ _AUDITS: list[tuple[str, str, str]] = [
     # gates at runtime if any outbound channel ever ships an email
     # to a known operator address/shop.
     ("audit_operator_dev_shop_no_outbound.py", "invariant_regression", "invariant:operator_dev_shop_no_outbound"),
+    # §21.6 brain hooks (added 2026-05-06 founder follow-up):
+    # autonomous brain pipeline must operate with same discipline
+    # as interactive Claude — macchia d'olio + triple-DA TIER_0 +
+    # preventer-wiring + tool-spawn + semantic-ramification. The
+    # audit flags missing hooks; goes from info to --strict before
+    # pipeline reopens (first paying merchant landing).
+    ("audit_brain_propagation_hooks.py", "invariant_regression", "invariant:brain_propagation_hooks"),
     # Brutal-CTO-inspection follow-up (added 2026-05-02 evening).
     # 1. DB pool doctrine catches code-default drift from CLAUDE.md
     #    §6 (the bug that produced 20× QueuePool exhaustions live).

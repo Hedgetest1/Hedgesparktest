@@ -1727,11 +1727,106 @@ were ignored). §21 is wired into:
 
 - `feedback_founder_2026_05_06_top1_cto_mandate.md` — auto-loaded
   via MEMORY.md every session.
-- `audit_propagation_evidence_in_close_claim.py` — commit-msg
-  hook gate. Blocks close-claim commits without "Sibling sweep:",
-  "Triple DA:", "Preventer wiring:" sections in the body.
+- `audit_propagation_evidence.py` — commit-msg hook gate. Blocks
+  close-claim commits without "Sibling sweep:", "Triple DA:",
+  "Preventer wiring:" sections in the body.
+- `audit_brain_propagation_hooks.py` — preflight + invariant_
+  monitor. Verifies the autonomous brain has macchia d'olio
+  + triple-DA + preventer-wiring + curiosity hooks. Blocks the
+  pipeline-reopen transition until the brain has them.
 - This file (CLAUDE.md §21) — auto-loaded via the operational
   manual at session start.
 
 The founder will not need to remind me. I will not need to be
 reminded.
+
+### 21.6 Autonomous brain extension
+
+§21 applies BOTH to interactive Claude AND to the autonomous
+brain pipeline that runs without the founder. Brain components:
+
+  - `app/services/bugfix_pipeline.py` (alert → patch → apply)
+  - `app/services/autonomous_loop.py` (self-evolution)
+  - `app/services/evolution_engine.py` (closed-loop scanners)
+  - `app/services/agent_worker.py` (orchestrator phases)
+  - `app/services/reviewer_layer.py` (governance)
+  - `app/services/promotion_pipeline.py` (outcome measurement)
+  - `app/services/iterative_fix.py` (multi-iteration patches)
+
+Brain hooks required (per `audit_brain_propagation_hooks.py`):
+
+1. **Sibling sweep** ✓ already wired (`bugfix_pipeline._run_
+   sibling_sweep` + `_post_apply_retro_check`).
+2. **Triple-DA** — adversarial_reviewer must run for ALL tier
+   classes (TIER_0 included), not only TIER_1+. Founder
+   direttiva 2026-05-06: every patch through 3 lenses.
+3. **Preventer wiring after every applied fix** — auto-generate
+   regression test + register invariant_monitor entry.
+4. **Tool-spawn capability** — `BrainTool` interface to dispatch
+   parallel scans / invoke skills / web-search during
+   investigation. (R-blocker:sprint>1d for now; gap tracked.)
+5. **Semantic ramification** — beyond syntactic file/line count,
+   add hot-path detection + data-flow check + competitor-class
+   question.
+
+Pre-condition for pipeline-reopening (transition from dormant
+to active when first paying merchant lands per
+`project_pipeline_closed_until_merchants.md`): all 5 hooks must
+exist. The audit blocks the transition until then.
+
+### 21.7 Tool freedom mandate
+
+Founder direttiva 2026-05-06 verbatim: *"sei libero di usare
+agenti, di crearli, di potenziarli, di usare skill su di te,
+su di loro, di cercare in rete soluzioni"*. This is **default
+proactive**, not "if asked", not "if convenient".
+
+When work matches, USE THE TOOL — don't simulate, don't
+serialize, don't avoid:
+
+- **Agent (Explore)** for parallel investigation when blast
+  radius >2 sites. Spawn 2-3 in a single message for true
+  parallel coverage.
+- **Agent (general-purpose)** for research / multi-step
+  analysis / fresh-context bias-avoidance.
+- **Custom agent creation** if a recurring class of work
+  emerges. Don't keep doing it manually.
+- **Skills** (`hedgespark-design`, `frontend-design`,
+  `claude-code-guide`, `security-review`, etc.) when matched.
+  The skill being in the user-invocable list IS the permission.
+- **WebFetch / WebSearch** when the right answer might depend
+  on external best-practice / library docs / known patterns.
+  Don't reinvent.
+- **TaskCreate / TaskUpdate / TaskList** for >3-step multi-area
+  work. Structure like Linear.
+
+Anti-pattern (§21.7 violation): 5 sequential greps when 1
+parallel-Agent call would map the whole space; building from
+training-data when a 30-second WebSearch gives canonical
+references; NOT creating an agent for the 4th repeat of the
+same investigation pattern.
+
+### 21.8 Curiosity / ramification protocol
+
+For any non-trivial fix or hardening cycle, ask these questions
+explicitly and answer them in the reply OR commit body:
+
+1. **Upstream** — which surfaces/services/users depend on this?
+   Where will the change ripple?
+2. **Downstream** — what does this fix touch? Schema? API
+   contracts? Caches? UX?
+3. **Class-level** — is this an instance of a broader pattern?
+   If yes, where else does the pattern exist?
+4. **Adversarial** — if a competitor's CTO grep-audited this,
+   what would they find embarrassing or insufficient?
+5. **Future regression** — what change 6 months from now would
+   most likely re-introduce this bug class? What preventer
+   blocks that future change?
+6. **Untouched neighbors** — in the same file/module, what
+   adjacent code is in a similar shape and might have a similar
+   bug latent?
+
+These are NOT optional. A turn that closes without answering
+them is incomplete. Curiosity is enforced at REPLY level (the
+6 questions visible in the response); §21.5 audit gate is a
+floor, not a ceiling.

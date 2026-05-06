@@ -729,6 +729,20 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# §21.6 Brain propagation hooks (founder direttiva 2026-05-06).
+# Verifies the autonomous brain has macchia d'olio + triple-DA +
+# preventer-wiring + tool-spawn + semantic-ramification hooks. INFO-only
+# while pipeline is dormant; flips to --strict before pipeline reopens.
+# ---------------------------------------------------------------------------
+step "Brain propagation hooks (audit_brain_propagation_hooks.py — info only until pipeline-reopen)"
+if "$PY" scripts/audit_brain_propagation_hooks.py > /tmp/preflight_brain_hooks.log 2>&1; then
+    ok "$(head -1 /tmp/preflight_brain_hooks.log)"
+else
+    bad "brain hooks missing — see /tmp/preflight_brain_hooks.log"
+    tail -30 /tmp/preflight_brain_hooks.log
+fi
+
+# ---------------------------------------------------------------------------
 # Alert-writer heal-detection — STRICT (founder direttiva 2026-05-05
 # brain-autonomous sprint, G6 close 2026-05-06). Every condition-based
 # write_alert site must close the alert when the underlying state
