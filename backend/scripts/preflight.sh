@@ -656,6 +656,20 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Section error-boundary coverage (C-1 close 2026-05-06).
+# Every section anchor (`<section id="section-...">`) needs at least one
+# <SectionErrorBoundary> in the same file — otherwise a render crash inside
+# blanks the entire section. Heuristic: file-level boundary search.
+# ---------------------------------------------------------------------------
+step "Section error-boundary coverage (audit_section_error_boundary_coverage.py)"
+if "$PY" scripts/audit_section_error_boundary_coverage.py > /tmp/preflight_section_boundary.log 2>&1; then
+    ok "$(head -1 /tmp/preflight_section_boundary.log)"
+else
+    bad "section error-boundary gap — see /tmp/preflight_section_boundary.log"
+    tail -20 /tmp/preflight_section_boundary.log
+fi
+
+# ---------------------------------------------------------------------------
 # Alert-writer heal-detection — STRICT (founder direttiva 2026-05-05
 # brain-autonomous sprint, G6 close 2026-05-06). Every condition-based
 # write_alert site must close the alert when the underlying state

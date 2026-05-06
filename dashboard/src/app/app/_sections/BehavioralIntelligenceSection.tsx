@@ -13,6 +13,7 @@
  */
 
 import { SectionHeading } from "../_components/SectionHeading";
+import { SectionErrorBoundary } from "../../components/SectionErrorBoundary";
 import { formatDisplayMoney, type DisplayCurrency } from "../../lib/currency";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -172,6 +173,7 @@ export function BehavioralIntelligenceSection({
 
   return (
     <section id="section-behavioral-intelligence">
+      <SectionErrorBoundary name="Behavioral DNA">
       <SectionHeading
         eyebrow="Behavioral DNA"
         title="What separates your buyers from your browsers"
@@ -345,6 +347,7 @@ export function BehavioralIntelligenceSection({
           </span>
         </div>
       )}
+      </SectionErrorBoundary>
     </section>
   );
 }

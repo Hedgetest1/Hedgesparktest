@@ -26,6 +26,7 @@
  */
 
 import { RevenueTrendChart } from "./RevenueTrendChart";
+import { SectionErrorBoundary } from "./SectionErrorBoundary";
 import { FunnelVisualization, type FunnelStepShape } from "../app/_components/FunnelVisualization";
 import type { DisplayCurrency } from "../lib/currency";
 
@@ -48,6 +49,7 @@ export function LiteLast7DaysSection({
       aria-labelledby="lite-last7-heading"
       className="relative mb-8 overflow-hidden rounded-3xl border border-cyan-400/[0.15] bg-gradient-to-br from-[#0a121a] via-[#0a0a14] to-[#0b0c18] p-7 sm:p-9"
     >
+      <SectionErrorBoundary name="Last 7 days">
       <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#22d3ee] to-transparent opacity-50" />
       <div className="pointer-events-none absolute -right-32 -top-32 h-[340px] w-[340px] rounded-full bg-[#22d3ee]/[0.05] blur-[150px]" />
 
@@ -112,6 +114,7 @@ export function LiteLast7DaysSection({
           product-view, not five.
         </p>
       </div>
+      </SectionErrorBoundary>
     </section>
   );
 }

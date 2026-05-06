@@ -6,6 +6,7 @@
  */
 
 import { SectionHeading } from "../_components/SectionHeading";
+import { SectionErrorBoundary } from "../../components/SectionErrorBoundary";
 import { Sparkline } from "../../components/Sparkline";
 import {
   formatNumber,
@@ -38,6 +39,7 @@ export function ProductPerformanceSection(p: ProductPerformanceSectionProps) {
 
   return (
     <section id="section-product-performance">
+      <SectionErrorBoundary name="Product Performance">
       <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
         Product performance
       </h2>
@@ -242,6 +244,7 @@ export function ProductPerformanceSection(p: ProductPerformanceSectionProps) {
           </table>
         </div>
       </div>
+      </SectionErrorBoundary>
     </section>
   );
 }

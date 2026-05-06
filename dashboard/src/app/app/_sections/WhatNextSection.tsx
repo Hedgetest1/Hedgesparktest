@@ -8,6 +8,7 @@
 import Image from "next/image";
 
 import { SectionHeading } from "../_components/SectionHeading";
+import { SectionErrorBoundary } from "../../components/SectionErrorBoundary";
 import { formatDisplayMoney, type DisplayCurrency } from "../../lib/currency";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -23,6 +24,7 @@ export function WhatNextSection(p: WhatNextSectionProps) {
 
   return (
     <section id="section-what-next">
+      <SectionErrorBoundary name="What to do next">
       <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
         What to do next
       </h2>
@@ -163,6 +165,7 @@ export function WhatNextSection(p: WhatNextSectionProps) {
           </div>
         )}
       </div>
+      </SectionErrorBoundary>
     </section>
   );
 }

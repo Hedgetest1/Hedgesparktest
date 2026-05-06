@@ -25,6 +25,7 @@
 
 import { useMemo } from "react";
 import { CardSkeleton, CardError, useCardFetch } from "./_CardStates";
+import { SectionErrorBoundary } from "./SectionErrorBoundary";
 import { createMoneyFormatter, type DisplayCurrency } from "../lib/currency";
 
 type DayMetrics = {
@@ -172,6 +173,7 @@ export function LiteTodaySection({
       aria-labelledby="lite-today-heading"
       className="relative mb-8 overflow-hidden rounded-3xl border border-emerald-400/[0.15] bg-gradient-to-br from-[#0a1612] via-[#0a0a14] to-[#0b0c18] p-7 sm:p-9"
     >
+      <SectionErrorBoundary name="Today">
       <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#34d399] to-transparent opacity-50" />
       <div className="pointer-events-none absolute -right-32 -top-32 h-[340px] w-[340px] rounded-full bg-[#34d399]/[0.05] blur-[150px]" />
 
@@ -339,6 +341,7 @@ export function LiteTodaySection({
           </>
         )}
       </div>
+      </SectionErrorBoundary>
     </section>
   );
 }

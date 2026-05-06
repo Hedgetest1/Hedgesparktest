@@ -6,6 +6,7 @@
  */
 
 import { SectionHeading } from "../_components/SectionHeading";
+import { SectionErrorBoundary } from "../../components/SectionErrorBoundary";
 import { impactClass, prettyText } from "../_lib/formatters";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -25,6 +26,7 @@ export function SignalsSection(p: SignalsSectionProps) {
         Findings
       </h2>
       <SectionHeading eyebrow="Findings" title={strongSignals.length > 0 ? "What we found" : "Needs attention"} />
+      <SectionErrorBoundary name="Signals">
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {alerts.length === 0 ? (
@@ -94,6 +96,7 @@ export function SignalsSection(p: SignalsSectionProps) {
           </>
         )}
       </div>
+      </SectionErrorBoundary>
     </section>
   );
 }

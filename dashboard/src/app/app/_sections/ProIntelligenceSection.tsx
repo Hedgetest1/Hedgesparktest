@@ -434,61 +434,65 @@ export function ProIntelligenceSection(p: ProIntelligenceSectionProps) {
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div id="section-price-intelligence">
-          <div className="h-full rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
-            <div className="mb-4 text-[16px] font-bold text-[#e8a04e]">Price Intelligence</div>
-            {priceIntel.length === 0 ? (
-              <p className="text-[14px] text-slate-500">No pricing data yet.</p>
-            ) : (
-              <div className="space-y-3">
-                {priceIntel.slice(0, 3).map((item: any, i: number) => (
-                  <div key={`price-compact-${i}`} className="border-t border-white/[0.05] pt-3 first:border-0 first:pt-0">
-                    <div className="mb-1 flex flex-wrap items-center gap-1.5">
-                      {item.market_status && (
-                        <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-slate-400 ring-1 ring-white/10">
-                          {prettyText(String(item.market_status))}
-                        </span>
-                      )}
-                      {item.price_position && (
-                        <span className="rounded-full bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-300 ring-1 ring-cyan-400/20">
-                          {prettyText(String(item.price_position))}
-                        </span>
+          <SectionErrorBoundary name="Price Intelligence">
+            <div className="h-full rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
+              <div className="mb-4 text-[16px] font-bold text-[#e8a04e]">Price Intelligence</div>
+              {priceIntel.length === 0 ? (
+                <p className="text-[14px] text-slate-500">No pricing data yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {priceIntel.slice(0, 3).map((item: any, i: number) => (
+                    <div key={`price-compact-${i}`} className="border-t border-white/[0.05] pt-3 first:border-0 first:pt-0">
+                      <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                        {item.market_status && (
+                          <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-slate-400 ring-1 ring-white/10">
+                            {prettyText(String(item.market_status))}
+                          </span>
+                        )}
+                        {item.price_position && (
+                          <span className="rounded-full bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-300 ring-1 ring-cyan-400/20">
+                            {prettyText(String(item.price_position))}
+                          </span>
+                        )}
+                      </div>
+                      <div className="truncate text-[14px] font-medium text-white">{item.product_name || "—"}</div>
+                      {item.recommended_price_action && (
+                        <div className="mt-0.5 text-[13px] text-slate-400">{String(item.recommended_price_action)}</div>
                       )}
                     </div>
-                    <div className="truncate text-[14px] font-medium text-white">{item.product_name || "—"}</div>
-                    {item.recommended_price_action && (
-                      <div className="mt-0.5 text-[13px] text-slate-400">{String(item.recommended_price_action)}</div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </SectionErrorBoundary>
         </div>
         <div id="section-market-intelligence">
-          <div className="h-full rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
-            <div className="mb-4 text-[16px] font-bold text-[#e8a04e]">Market Intelligence</div>
-            {marketIntel.length === 0 ? (
-              <p className="text-[14px] text-slate-500">No market data yet.</p>
-            ) : (
-              <div className="space-y-3">
-                {marketIntel.slice(0, 3).map((item: any, i: number) => (
-                  <div key={`market-compact-${i}`} className="border-t border-white/[0.05] pt-3 first:border-0 first:pt-0">
-                    <div className="mb-1 flex flex-wrap items-center gap-1.5">
-                      {item.uniqueness_hint && (
-                        <span className="rounded-full bg-violet-500/10 px-2 py-0.5 text-[10px] text-violet-300 ring-1 ring-violet-400/20">
-                          {prettyText(String(item.uniqueness_hint))}
-                        </span>
+          <SectionErrorBoundary name="Market Intelligence">
+            <div className="h-full rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
+              <div className="mb-4 text-[16px] font-bold text-[#e8a04e]">Market Intelligence</div>
+              {marketIntel.length === 0 ? (
+                <p className="text-[14px] text-slate-500">No market data yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {marketIntel.slice(0, 3).map((item: any, i: number) => (
+                    <div key={`market-compact-${i}`} className="border-t border-white/[0.05] pt-3 first:border-0 first:pt-0">
+                      <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                        {item.uniqueness_hint && (
+                          <span className="rounded-full bg-violet-500/10 px-2 py-0.5 text-[10px] text-violet-300 ring-1 ring-violet-400/20">
+                            {prettyText(String(item.uniqueness_hint))}
+                          </span>
+                        )}
+                      </div>
+                      <div className="truncate text-[14px] font-medium text-white">{item.product_name || "—"}</div>
+                      {item.recommended_next_step && (
+                        <div className="mt-0.5 text-[13px] text-slate-400">{prettyText(String(item.recommended_next_step))}</div>
                       )}
                     </div>
-                    <div className="truncate text-[14px] font-medium text-white">{item.product_name || "—"}</div>
-                    {item.recommended_next_step && (
-                      <div className="mt-0.5 text-[13px] text-slate-400">{prettyText(String(item.recommended_next_step))}</div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </SectionErrorBoundary>
         </div>
       </div>
     </section>
