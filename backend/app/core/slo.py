@@ -162,12 +162,20 @@ CATALOGUE: list[SLO] = [
     # page-load is 99.9%; anything Pro-only but non-blocking is 99.0.
     # Latency targets are P95 — chosen to match merchant perception
     # thresholds (<300ms = instant, <800ms = fast, <1500ms = slow-ok).
-    SLO("pro_rars",             "/pro/rars",                     "GET",  99.5, 800),
+    # 2026-05-06 corrected: /pro/rars was renamed; the real route is
+    # /analytics/revenue-at-risk (with deprecated alias /pro/revenue-
+    # at-risk). The stale entry was producing insufficient_data
+    # forever — masking actual RARS latency drift. Same class for
+    # /webhooks/shopify which is only a prefix; real handler is
+    # /webhooks/shopify/orders. Caught by test_catalogue_routes_
+    # resolve_to_real_handlers preventer added in this commit.
+    SLO("rars_lite",            "/analytics/revenue-at-risk",    "GET",  99.5, 800),
+    SLO("rars_pro_legacy",      "/pro/revenue-at-risk",          "GET",  99.5, 800),
     SLO("pro_causal",           "/pro/causal/explain",           "GET",  99.0, 1500),
     SLO("pro_anomalies",        "/pro/anomalies/fusion",         "GET",  99.0, 1500),
     SLO("pro_night_shift",      "/pro/night-shift/latest",       "GET",  99.5, 800),
     SLO("track",                "/track",                        "POST", 99.9, 200),
-    SLO("webhooks",             "/webhooks/shopify",             "POST", 99.9, 400),
+    SLO("webhooks_orders",      "/webhooks/shopify/orders",      "POST", 99.9, 400),
     SLO("system_health",        "/system/health",                "GET",  99.9, 300),
     # Added 2026-04-18 (C-2): core dashboard load + high-traffic Pro
     # analytics endpoints. Each is rendered on /app every merchant
@@ -179,6 +187,18 @@ CATALOGUE: list[SLO] = [
     SLO("pro_revenue_autopsy",  "/pro/revenue-autopsy",          "GET",  99.0, 1200),
     SLO("pro_risk_forecast",    "/pro/risk-forecast",            "GET",  99.0, 1200),
     SLO("pro_nudges_rank",      "/pro/nudges/rank",              "GET",  99.0, 500),
+    # Added 2026-05-06 (C-2 extension): high-traffic dashboard +
+    # orders + behavioral + retention surfaces. Each fired
+    # p95_drift alerts in the 2026-05-06 morning probe — proxy for
+    # high merchant traffic. SLO contracts here promote them from
+    # passive observation (route_stats only) to explicit error-budget
+    # tracking with burn-rate alerting.
+    SLO("today_snapshot",       "/analytics/today-snapshot",     "GET",  99.5, 600),
+    SLO("orders_summary",       "/orders/summary",               "GET",  99.5, 600),
+    SLO("orders_daily_revenue", "/orders/daily-revenue",         "GET",  99.0, 800),
+    SLO("visitor_intent",       "/analytics/visitor-intent-classification", "GET", 99.0, 1000),
+    SLO("pro_cohorts_monthly",  "/pro/cohorts/monthly",          "GET",  99.0, 1200),
+    SLO("actions_candidates_pro","/actions/candidates/pro",      "GET",  99.5, 800),
 ]
 
 

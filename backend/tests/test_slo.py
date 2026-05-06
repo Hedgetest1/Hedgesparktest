@@ -73,6 +73,33 @@ def test_slo_report_classifies_insufficient_data():
         assert entry["observations"] == 0
 
 
+def test_catalogue_routes_resolve_to_real_handlers():
+    """C-2 preventer (2026-05-06): every SLO route must correspond to a
+    real FastAPI handler. A typo in the catalogue would silently
+    produce 'insufficient_data' forever (no observations on a
+    non-existent route) — masking SLO drift on the actual route.
+
+    Loaded from app.main to walk the full router tree."""
+    from app.main import app
+    registered = set()
+    for route in app.routes:
+        path = getattr(route, "path", None)
+        methods = getattr(route, "methods", None) or set()
+        if path and methods:
+            for m in methods:
+                if m in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
+                    registered.add((path, m))
+
+    missing: list[tuple[str, str, str]] = []
+    for entry in slo.CATALOGUE:
+        if (entry.route, entry.method) not in registered:
+            missing.append((entry.name, entry.route, entry.method))
+    assert not missing, (
+        f"SLO catalogue references {len(missing)} unregistered route(s) — "
+        f"typo or removed handler? {missing}"
+    )
+
+
 def test_record_timing_identical_duration_same_ms_does_not_coalesce():
     """Regression: 20 observations with identical duration fired in a
     tight loop must produce 20 distinct ZSET members, not 1.
