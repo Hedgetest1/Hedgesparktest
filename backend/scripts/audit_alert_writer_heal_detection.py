@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-# invariant-eligible: false
-# Reason: info-only baseline audit during the heal-detection migration
-# sweep (54 writers, 8 wired in initial sprint, 46 pending). Returns 0
-# even when findings exist (default mode), so periodic invariant_monitor
-# wiring would always see "ok" — defeats the runtime-recognition purpose.
-# Promoted to invariant-eligible once coverage > 95% and the audit flips
-# to --strict-by-default (blocking on any new writer without heal
-# branch). Tracking memo: feedback_brain_autonomous_alert_close_2026_05_05.md.
+# invariant-eligible: true
+# Promoted to invariant-eligible 2026-05-06 (G6 close) after the
+# heal-detection migration sweep reached 100% coverage (59 writers,
+# 7 heal-wired, 52 truthful opt-out). The audit now blocks new
+# writer files that lack either a heal call or a # heal-detection:
+# <reason> opt-out comment. Companion: feedback_brain_autonomous_
+# alert_close_2026_05_05.md.
 """audit_alert_writer_heal_detection.py — Pin every write_alert site to a
 heal-detection contract.
 
@@ -78,7 +77,13 @@ def scan_file(path: Path) -> tuple[bool, bool, bool]:
 
 
 def main(argv: list[str]) -> int:
-    strict = "--strict" in argv
+    # 2026-05-06 G6 close: strict-by-default after coverage reached
+    # 100%. The --strict flag is now a no-op shim retained for
+    # invariant_monitor / preflight compatibility. --info-only is the
+    # explicit operator opt-out for the rare case where a sprint
+    # legitimately introduces a new writer family before the
+    # opt-out / heal wiring lands (must close in the same PR).
+    info_only = "--info-only" in argv
     findings: list[tuple[str, str]] = []
     coverage = {"writers": 0, "with_heal": 0, "opt_out": 0}
 
@@ -99,7 +104,7 @@ def main(argv: list[str]) -> int:
         findings.append((rel, "no heal-detection and no opt-out comment"))
 
     if findings:
-        label = "❌" if strict else "ℹ"
+        label = "ℹ" if info_only else "❌"
         print(f"{label} heal-detection gap — {len(findings)} writer file(s):")
         for rel, reason in findings:
             print(f"   {rel}: {reason}")
@@ -114,11 +119,11 @@ def main(argv: list[str]) -> int:
             f"Coverage: {coverage['with_heal']}/{coverage['writers']} writers "
             f"have heal-detection, {coverage['opt_out']} explicitly opt-out."
         )
-        # Info-only mode (default) until the migration sweep closes the
-        # backlog of 52 writers. --strict flips to blocking once
-        # coverage > 95%. Updated by the same migration commit that
-        # closes the last opt-out gap.
-        return 1 if strict else 0
+        # Strict-by-default after G6 close (2026-05-06). --info-only
+        # operator opt-out for the rare case where a sprint introduces
+        # a new writer family before the heal wiring lands; that PR
+        # MUST close the gap in the same commit.
+        return 0 if info_only else 1
 
     print(
         f"✅ audit_alert_writer_heal_detection: {coverage['writers']} "

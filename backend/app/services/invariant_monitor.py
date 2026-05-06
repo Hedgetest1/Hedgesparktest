@@ -437,6 +437,12 @@ _AUDITS: list[tuple[str, str, str]] = [
     # in app/. Phantom entries lie about founder-page coverage and
     # violate principle §2 rule 2 (no half-truths).
     ("audit_telegram_allowlist_ground_truth.py", "invariant_regression", "invariant:telegram_allowlist_ground_truth"),
+    # Alert-writer heal-detection (G6 close 2026-05-06). Promoted to
+    # invariant-eligible after migration sweep reached 100% coverage
+    # (59 writers, 7 heal-wired, 52 truthful opt-out). Catches new
+    # writer files that lack heal call OR opt-out comment — runtime
+    # recognition of the heal-but-stay-open class regression.
+    ("audit_alert_writer_heal_detection.py", "invariant_regression", "invariant:alert_writer_heal_detection"),
     # Brutal-CTO-inspection follow-up (added 2026-05-02 evening).
     # 1. DB pool doctrine catches code-default drift from CLAUDE.md
     #    §6 (the bug that produced 20× QueuePool exhaustions live).

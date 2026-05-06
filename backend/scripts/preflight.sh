@@ -656,14 +656,16 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Alert-writer heal-detection — info-only baseline (founder direttiva
-# 2026-05-05 brain-autonomous sprint). Every condition-based write_alert
-# site must close the alert when the underlying state recovers, OR carry
-# an explicit `# heal-detection: <reason>` opt-out. Currently info-only
-# until the migration sweep closes the 52 historical writers; flips to
-# --strict once coverage > 95%.
+# Alert-writer heal-detection — STRICT (founder direttiva 2026-05-05
+# brain-autonomous sprint, G6 close 2026-05-06). Every condition-based
+# write_alert site must close the alert when the underlying state
+# recovers, OR carry an explicit `# heal-detection: <reason>` opt-out.
+# Migration sweep reached 100% coverage 2026-05-06 (59 scanned, 7
+# wired, 52 truthful opt-out); audit flipped strict-by-default.
+# Operator override --info-only for emergency new-writer-family
+# introduction (must close gap in same commit).
 # ---------------------------------------------------------------------------
-step "Alert-writer heal-detection (audit_alert_writer_heal_detection.py — info only)"
+step "Alert-writer heal-detection (audit_alert_writer_heal_detection.py)"
 if "$PY" scripts/audit_alert_writer_heal_detection.py > /tmp/preflight_heal_detection.log 2>&1; then
     ok "$(head -1 /tmp/preflight_heal_detection.log)"
 else
@@ -1516,7 +1518,9 @@ cd "$BACKEND"
 # full traceback lives in /tmp/preflight_pytest.log on failure.
 # ---------------------------------------------------------------------------
 step "Pre-commit pytest reflex (proactive — not reactive)"
-NEEDS_PYTEST="$(echo "$STAGED_PY" | grep -E '^(app/|tests/|scripts/)' || true)"
+# Match both `app/...` (when commit run from backend/) and
+# `backend/app/...` (when commit run from repo root, the common case).
+NEEDS_PYTEST="$(echo "$STAGED_PY" | grep -E '(^|/)(app|tests|scripts)/' || true)"
 if [ -z "$NEEDS_PYTEST" ]; then
     ok "no app/tests/scripts Python staged — skipping pytest gate"
 elif [ "${PREFLIGHT_SKIP_PYTEST:-0}" = "1" ]; then
