@@ -1234,6 +1234,16 @@ in one or two lines:
    ("degraded overall_status → top_issues must be non-empty"), audit
    script (scan for €5 hardcoded defaults next to LLM budget calls),
    pre-commit pattern (block `is_active` references on Merchant).
+
+   **Pre-commit pytest reflex (G4 close 2026-05-06).** Every
+   non-trivial commit MUST pass full `pytest tests/` BEFORE the
+   commit-msg gate. Wired into `preflight.sh` (Pre-commit pytest
+   reflex step), conditional on staged `app/` / `tests/` /
+   `scripts/` Python files (skip on doc-only commits). Operator
+   override `PREFLIGHT_SKIP_PYTEST=1` for emergency commits where
+   tests are red for an unrelated reason. Reactive pattern
+   (commit → tests fail post-merge → fix in next commit) is
+   forbidden — tests catch *previous* commits, not the current one.
 5. **Devil's advocate (every lens cites executable verification).**
    One paragraph minimum per lens: why THIS fix might be subtly
    wrong — new noise mode, ordering bug, interaction with another

@@ -1498,6 +1498,39 @@ fi
 cd "$BACKEND"
 
 # ---------------------------------------------------------------------------
+# Pre-commit pytest reflex (G4 close 2026-05-06).
+#
+# Doctrine: top-1 CTO discipline runs full pytest BEFORE commit, every
+# commit. The reactive pattern (commit → pytest fails post-merge → fix
+# in next commit) means tests catch regressions from the *previous*
+# commit, never the *current* one. This gate makes pytest-pass a hard
+# precondition for the commit-msg phase.
+#
+# Conditional on actual code change to keep doc-only / memo-only
+# commits fast: if no .py file under app/, tests/, or scripts/ is
+# staged, skip the gate. Operators can force-skip via
+# PREFLIGHT_SKIP_PYTEST=1 for emergency commits (e.g. doctrine fix
+# while tests are red for an unrelated reason).
+#
+# Uses --tb=line + -x (stop-at-first-failure) for tight feedback;
+# full traceback lives in /tmp/preflight_pytest.log on failure.
+# ---------------------------------------------------------------------------
+step "Pre-commit pytest reflex (proactive — not reactive)"
+NEEDS_PYTEST="$(echo "$STAGED_PY" | grep -E '^(app/|tests/|scripts/)' || true)"
+if [ -z "$NEEDS_PYTEST" ]; then
+    ok "no app/tests/scripts Python staged — skipping pytest gate"
+elif [ "${PREFLIGHT_SKIP_PYTEST:-0}" = "1" ]; then
+    ok "PREFLIGHT_SKIP_PYTEST=1 — operator override (not recommended)"
+else
+    if "$PY" -m pytest tests/ -q --tb=line -x > /tmp/preflight_pytest.log 2>&1; then
+        ok "$(tail -1 /tmp/preflight_pytest.log)"
+    else
+        bad "pytest failed — see /tmp/preflight_pytest.log"
+        tail -40 /tmp/preflight_pytest.log
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # 4. Result
 # ---------------------------------------------------------------------------
 if [ "$fail" -eq 0 ]; then
