@@ -106,4 +106,61 @@ def test_auto_resolve_only_touches_invariant_regression_type(db):
         {"s": src},
     ).scalar()
     # Helper must NOT touch other alert_types — only invariant_regression
+    # + invariant_audit_timeout (see test_auto_resolve_heals_audit_timeout below)
     assert other_count_after == other_count_before
+
+
+def test_auto_resolve_heals_audit_timeout(db):
+    """Lock the 2026-05-06 heal-detection fix: audit-timeout alerts must
+    auto-resolve when the audit subsequently exits 0 within budget.
+
+    Bug class context
+    -----------------
+    invariant_monitor.run_invariant_check writes a CRITICAL ops_alert with
+    `alert_type="invariant_audit_timeout"` whenever a registered audit
+    exceeds `_TIMEOUT_SECONDS`. Before this fix, `_auto_resolve_prior_
+    invariant` only cleared `invariant_regression` alerts on the OK-branch,
+    so timeout alerts piled up indefinitely under transient preflight load
+    even when the audit ran fine on subsequent ticks. Founder caught the
+    accumulation 2026-05-06 (alerts #123347 + #128244 stuck CRITICAL with
+    audits running GREEN manually).
+
+    Fix: helper resolves BOTH classes for the same source.
+    """
+    db_session = db
+    src = "invariant:test_audit_timeout_heal"
+    # Seed an audit-timeout alert
+    write_alert(
+        db_session,
+        severity="critical",
+        source=src,
+        alert_type="invariant_audit_timeout",
+        summary="seed timeout alert",
+        detail={"seed": True, "timeout": 30},
+    )
+    timeout_before = db_session.execute(
+        _sql_text(
+            "SELECT COUNT(*) FROM ops_alerts "
+            "WHERE source=:s AND alert_type='invariant_audit_timeout' "
+            "  AND resolved=false"
+        ),
+        {"s": src},
+    ).scalar()
+    assert timeout_before >= 1
+
+    # Helper invocation should resolve the timeout alert too
+    n = invariant_monitor._auto_resolve_prior_invariant(db_session, src)
+    assert n >= 1
+
+    timeout_after = db_session.execute(
+        _sql_text(
+            "SELECT COUNT(*) FROM ops_alerts "
+            "WHERE source=:s AND alert_type='invariant_audit_timeout' "
+            "  AND resolved=false"
+        ),
+        {"s": src},
+    ).scalar()
+    assert timeout_after == 0, (
+        "invariant_audit_timeout alert was NOT auto-resolved on audit "
+        "OK-branch — heal-detection regression."
+    )

@@ -504,17 +504,27 @@ _TIMEOUT_SECONDS = 30
 
 
 def _auto_resolve_prior_invariant(db: Session, source: str) -> int:
-    """Resolve prior unresolved invariant_regression alerts with this source.
+    """Resolve prior unresolved invariant alerts (regression OR timeout)
+    with this source.
 
     Thin shim that delegates to the generic
     `app.services.alerting.auto_resolve_alerts` helper (born 2026-05-05).
     Kept as named entry-point for the 9 ok-branches in run_invariant_check
     + inline _check_* probes that were wired before the generic existed.
+
+    Heals BOTH alert classes (born 2026-05-06 after a real
+    `invariant_audit_timeout` accumulated under preflight load and never
+    auto-healed because the prior version of this shim hardcoded
+    `invariant_regression`):
+      * `invariant_regression` — audit exited non-zero
+      * `invariant_audit_timeout` — audit exceeded _TIMEOUT_SECONDS
+    Both clear when the audit subsequently exits 0 within budget.
     """
     from app.services.alerting import auto_resolve_alerts
-    return auto_resolve_alerts(
-        db, source=source, alert_type="invariant_regression"
-    )
+    n = 0
+    for at in ("invariant_regression", "invariant_audit_timeout"):
+        n += auto_resolve_alerts(db, source=source, alert_type=at)
+    return n
 
 
 def run_invariant_check(db: Session) -> dict:
