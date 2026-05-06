@@ -272,6 +272,8 @@ def get_aggregate_funnel(db: Session, days: int = 30) -> dict:
             avg_sessions_to_complete: float,
         }
     """
+    # Operator/dev tenant exclusion (founder direttiva 2026-05-06).
+    from app.core.operator_blocklist import operator_dev_shops
     cutoff = _utcnow() - timedelta(days=days)
 
     # Count shops that started onboarding in this period
@@ -279,7 +281,8 @@ def get_aggregate_funnel(db: Session, days: int = 30) -> dict:
         SELECT COUNT(DISTINCT shop_domain)
         FROM onboarding_events
         WHERE event_type = 'install_completed' AND created_at >= :cutoff
-    """), {"cutoff": cutoff}).scalar() or 0
+          AND NOT (shop_domain = ANY(:operator_shops))
+    """), {"cutoff": cutoff, "operator_shops": list(operator_dev_shops())}).scalar() or 0
 
     if total_installs == 0:
         return {
@@ -297,6 +300,9 @@ def get_aggregate_funnel(db: Session, days: int = 30) -> dict:
     # Only count milestones recorded AFTER the cutoff (prevents stale
     # milestones from inflating conversion rates for shops that installed
     # within the window but had milestone events from a prior period).
+    # Operator/dev tenant exclusion (founder direttiva 2026-05-06).
+    from app.core.operator_blocklist import operator_dev_shops
+    _operator_shops = list(operator_dev_shops())
     rows = db.execute(text("""
         SELECT
             event_type,
@@ -310,9 +316,10 @@ def get_aggregate_funnel(db: Session, days: int = 30) -> dict:
           AND shop_domain IN (
               SELECT shop_domain FROM merchants
               WHERE install_status = 'active' AND installed_at >= :cutoff
+                AND NOT (shop_domain = ANY(:operator_shops))
           )
         GROUP BY event_type
-    """), {"steps": list(FUNNEL_MILESTONES), "cutoff": cutoff}).fetchall()
+    """), {"steps": list(FUNNEL_MILESTONES), "cutoff": cutoff, "operator_shops": _operator_shops}).fetchall()
 
     by_step = {row[0]: (int(row[1] or 0), row[2]) for row in rows}
 
@@ -357,11 +364,12 @@ def get_aggregate_funnel(db: Session, days: int = 30) -> dict:
             WHERE shop_domain IN (
                 SELECT shop_domain FROM merchants
                 WHERE install_status = 'active' AND installed_at >= :cutoff
+                  AND NOT (shop_domain = ANY(:operator_shops))
             )
             GROUP BY shop_domain
             HAVING MAX(CASE WHEN event_type = 'onboarding_complete' THEN 1 END) = 1
         ) sub
-    """), {"cutoff": cutoff}).scalar()
+    """), {"cutoff": cutoff, "operator_shops": _operator_shops}).scalar()
 
     median_total_seconds = None
     if median_total is not None:
@@ -380,10 +388,11 @@ def get_aggregate_funnel(db: Session, days: int = 30) -> dict:
               AND shop_domain IN (
                   SELECT shop_domain FROM merchants
                   WHERE install_status = 'active' AND installed_at >= :cutoff
+                    AND NOT (shop_domain = ANY(:operator_shops))
               )
             GROUP BY shop_domain
         ) sub
-    """), {"cutoff": cutoff}).scalar()
+    """), {"cutoff": cutoff, "operator_shops": _operator_shops}).scalar()
 
     return {
         "period_days": days,

@@ -45,11 +45,17 @@ def run() -> None:
 
     db = SessionLocal()
     try:
+        # Operator/dev tenant exclusion (founder direttiva 2026-05-06):
+        # webhook-health checks for hedgespark-dev would no-op anyway
+        # (its webhooks are configured manually), so excluding here
+        # avoids spurious "needs repair" noise on the operator shop.
+        from app.core.operator_blocklist import operator_dev_shops
         merchants = (
             db.query(Merchant)
             .filter(
                 Merchant.install_status == "active",
                 Merchant.access_token.isnot(None),
+                ~Merchant.shop_domain.in_(operator_dev_shops()),
             )
             .all()
         )

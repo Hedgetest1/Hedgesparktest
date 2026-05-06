@@ -85,6 +85,10 @@ def classify_evidence_source(db: Session | None = None) -> str:
         try:
             from app.models.merchant import Merchant
             from app.services.onboarding import _ONBOARDING_BLOCKLIST
+            # Operator/dev tenant exclusion (founder direttiva 2026-05-06):
+            # the dev tenant must not be classified as "real_merchant"
+            # for the learning-isolation gate.
+            from app.core.operator_blocklist import operator_dev_shops
 
             real_merchant = (
                 db.query(Merchant.id)
@@ -93,6 +97,7 @@ def classify_evidence_source(db: Session | None = None) -> str:
                     Merchant.access_token.isnot(None),
                     Merchant.is_synthetic == False,  # noqa: E712
                     Merchant.shop_domain.notin_(_ONBOARDING_BLOCKLIST | _DEV_SHOP_DOMAINS),
+                    ~Merchant.shop_domain.in_(operator_dev_shops()),
                 )
                 .first()
             )

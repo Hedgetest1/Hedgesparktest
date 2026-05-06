@@ -663,11 +663,15 @@ def _run_entitlement_health_scan():
     db = SessionLocal()
     try:
         from app.models.merchant import Merchant
+        from app.core.operator_blocklist import operator_dev_shops
         from app.services.merchant_chatbot import check_entitlement_health
 
         merchants = (
             db.query(Merchant)
-            .filter(Merchant.install_status == "active")
+            .filter(
+                Merchant.install_status == "active",
+                ~Merchant.shop_domain.in_(operator_dev_shops()),
+            )
             .all()
         )
 
@@ -1225,6 +1229,8 @@ def _run_lifecycle_emails():
         intents_queued = 0
 
         # --- 1. Setup incomplete: installed >24h ago, not ready ---
+        # Operator/dev tenant exclusion (founder direttiva 2026-05-06).
+        from app.core.operator_blocklist import operator_dev_shops
         install_cutoff = now - timedelta(hours=24)
         stuck_merchants = (
             db.query(Merchant)
@@ -1234,6 +1240,7 @@ def _run_lifecycle_emails():
                 Merchant.installed_at < install_cutoff,
                 Merchant.contact_email.isnot(None),
                 Merchant.contact_email != "",
+                ~Merchant.shop_domain.in_(operator_dev_shops()),
             )
             .limit(10)
             .all()
@@ -1299,6 +1306,7 @@ def _run_lifecycle_emails():
                 db.commit()
 
         # --- 3. Connection issue: stuck merchants (degraded/failed >2h) ---
+        # Operator/dev tenant exclusion (founder direttiva 2026-05-06).
         stuck_cutoff = now - timedelta(hours=2)
         degraded_merchants = (
             db.query(Merchant)
@@ -1307,6 +1315,7 @@ def _run_lifecycle_emails():
                 Merchant.onboarding_status.in_(["failed"]),
                 Merchant.contact_email.isnot(None),
                 Merchant.contact_email != "",
+                ~Merchant.shop_domain.in_(operator_dev_shops()),
             )
             .limit(5)
             .all()

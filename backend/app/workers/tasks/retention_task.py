@@ -84,6 +84,9 @@ def get_distinct_shops(conn) -> list[str]:
     retention-cleaned because we keep the row (with uninstalled_at set)
     rather than deleting it.
     """
+    # operator-filter: retention sweep MUST clean every merchant's
+    # events including operator/dev tenants — GDPR retention applies
+    # uniformly. Including operator shops here is correct.
     result = conn.execute(
         text("SELECT shop_domain FROM merchants WHERE shop_domain IS NOT NULL")
     )

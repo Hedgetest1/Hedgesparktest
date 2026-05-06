@@ -291,6 +291,8 @@ def _scan_support_patterns(db: Session) -> list[dict]:
     return proposals
 
 
+# operator-filter: this module queries support_incidents, not merchants —
+# the regex hits on the word "merchants" in docstrings, not actual aggregations.
 def _scan_feature_requests(db: Session) -> list[dict]:
     """
     Find repeated feature requests from merchants in the last 30 days.

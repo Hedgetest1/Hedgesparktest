@@ -176,6 +176,10 @@ def _resolve_merchant(db: Session, from_email: str) -> str | None:
     if not email_clean:
         return None
 
+    # operator-filter: per-tenant lookup by inbound email address —
+    # finds the single merchant whose contact_email matches the sender.
+    # If founder emails the system, this resolves to hedgespark-dev,
+    # which is correct: the founder IS the dev-tenant owner.
     from sqlalchemy import func
     merchant = (
         db.query(Merchant.shop_domain)

@@ -94,6 +94,7 @@ def is_shop_connected(db: Session, shop_domain: str) -> bool:
     """Cheap check: is Klaviyo connected + verified for this shop?"""
     try:
         from app.models.merchant import Merchant
+        # operator-filter: per-shop scoped — caller supplies shop_domain
         m = db.query(Merchant).filter(Merchant.shop_domain == shop_domain).first()
         if m is None:
             return False

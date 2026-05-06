@@ -165,11 +165,16 @@ def log(msg: str) -> None:
 
 def _get_pro_shops(db: Session) -> list[str]:
     """Return shop_domain list for all active Pro merchants (sorted for cursor stability)."""
+    # Operator/dev tenant exclusion (founder direttiva 2026-05-06): the
+    # founder's hedgespark-dev shop is plan=pro+billing_active=true,
+    # but it must not be processed by the segment-monitoring cycle.
+    from app.core.operator_blocklist import operator_dev_shops
     rows = (
         db.query(Merchant.shop_domain)
         .filter(
             Merchant.plan == "pro",
             Merchant.billing_active == True,  # noqa: E712
+            ~Merchant.shop_domain.in_(operator_dev_shops()),
         )
         .order_by(Merchant.shop_domain.asc())
         .all()

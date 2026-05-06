@@ -316,12 +316,15 @@ def classify_active_shops_batch(
 
     Returns {processed, by_vertical, errors}.
     """
+    # Operator/dev tenant exclusion (founder direttiva 2026-05-06).
+    from app.core.operator_blocklist import operator_dev_shops
     rows = db.execute(text("""
         SELECT shop_domain
         FROM merchants
         WHERE install_status = 'active'
+          AND NOT (shop_domain = ANY(:operator_shops))
         ORDER BY shop_domain
-    """)).fetchall()
+    """), {"operator_shops": list(operator_dev_shops())}).fetchall()
     shops = [r[0] for r in rows]
     by_vertical: dict[str, int] = {}
     errors = 0

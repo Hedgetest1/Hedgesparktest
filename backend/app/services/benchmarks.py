@@ -126,7 +126,15 @@ def _gather_merchant_metrics(db: Session, lookback_days: int = 30) -> dict[str, 
     metrics from shop_orders. Returns {shop_domain: {metric: value, ...}}.
 
     One pass through shop_orders → aggregates per shop. Cheap at SMB scale.
+
+    Operator/dev tenant exclusion (founder direttiva 2026-05-06): the
+    founder's dev tenant (`hedgespark-dev.myshopify.com`) is a real
+    merchant row used for /app interactive testing — NOT a real
+    customer. Including it in benchmark pools inflates `peer_count`
+    metrics that drive the MA-4 honesty badge ("benchmarks unlock at
+    30 peers"); excluding here ensures peer math is truthful.
     """
+    from app.core.operator_blocklist import operator_dev_shops
     now = _now()
     cutoff_recent = now - timedelta(days=lookback_days)
     cutoff_prior = now - timedelta(days=lookback_days * 2)
@@ -139,11 +147,13 @@ def _gather_merchant_metrics(db: Session, lookback_days: int = 30) -> dict[str, 
             COUNT(CASE WHEN o.created_at >= :recent_cut THEN 1 END) AS orders_recent
         FROM shop_orders o
         WHERE o.created_at >= :prior_cut
+          AND NOT (o.shop_domain = ANY(:operator_shops))
         GROUP BY o.shop_domain
         HAVING COUNT(CASE WHEN o.created_at >= :recent_cut THEN 1 END) >= 5
     """), {
         "recent_cut": cutoff_recent,
         "prior_cut": cutoff_prior,
+        "operator_shops": list(operator_dev_shops()),
     }).fetchall()
 
     per_shop: dict[str, dict] = {}

@@ -670,9 +670,16 @@ def run_nightly_for_all_pro(db: Session) -> int:
     """
     try:
         from app.models.merchant import Merchant
+        # Operator/dev tenant exclusion (founder direttiva 2026-05-06):
+        # the founder's hedgespark-dev is plan=pro+billing_active=true.
+        from app.core.operator_blocklist import operator_dev_shops
         shops = (
             db.query(Merchant.shop_domain)
-            .filter(Merchant.plan == "pro", Merchant.billing_active == True)  # noqa: E712
+            .filter(
+                Merchant.plan == "pro",
+                Merchant.billing_active == True,  # noqa: E712
+                ~Merchant.shop_domain.in_(operator_dev_shops()),
+            )
             .all()
         )
     except Exception as exc:

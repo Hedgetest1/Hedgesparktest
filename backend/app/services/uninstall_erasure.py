@@ -106,6 +106,9 @@ def run_uninstall_erasure_watchdog(db: Session) -> dict:
         "already_redacted": 0,
     }
 
+    # operator-filter: GDPR uninstall erasure must process every shop
+    # regardless of operator status — legal Art. 17 right-to-erasure
+    # applies uniformly. Including operator/dev shops here is correct.
     cutoff = _now() - timedelta(hours=_GRACE_PERIOD_HOURS)
     try:
         rows = (

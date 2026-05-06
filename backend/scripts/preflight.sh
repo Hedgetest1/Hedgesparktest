@@ -713,6 +713,22 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Operator-filter propagation (founder direttiva 2026-05-06).
+# Every merchant-pool aggregation must gate operator/dev shops via
+# operator_dev_shops() OR carry `# operator-filter: <reason>` opt-out.
+# Catches the class found while remediating the email leak — same
+# bug shape (operator merchant treated as real) but via aggregation
+# instead of email producer.
+# ---------------------------------------------------------------------------
+step "Operator-filter propagation (audit_operator_filter_propagation.py)"
+if "$PY" scripts/audit_operator_filter_propagation.py > /tmp/preflight_operator_propagation.log 2>&1; then
+    ok "$(head -1 /tmp/preflight_operator_propagation.log)"
+else
+    bad "merchant aggregation without operator filter — see /tmp/preflight_operator_propagation.log"
+    tail -25 /tmp/preflight_operator_propagation.log
+fi
+
+# ---------------------------------------------------------------------------
 # Alert-writer heal-detection — STRICT (founder direttiva 2026-05-05
 # brain-autonomous sprint, G6 close 2026-05-06). Every condition-based
 # write_alert site must close the alert when the underlying state

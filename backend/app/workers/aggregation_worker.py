@@ -720,8 +720,11 @@ def _run_cycle_inner() -> None:
                 if not all_shops:
                     # No active products this cycle — still refresh existing shops
                     try:
+                        # Operator/dev tenant exclusion (founder direttiva 2026-05-06).
+                        from app.core.operator_blocklist import operator_dev_shops as _op_shops
                         shop_rows = conn.execute(
-                            text("SELECT shop_domain FROM merchants WHERE install_status = 'active'")
+                            text("SELECT shop_domain FROM merchants WHERE install_status = 'active' AND NOT (shop_domain = ANY(:operator_shops))"),
+                            {"operator_shops": list(_op_shops())},
                         ).fetchall()
                         all_shops = {r[0] for r in shop_rows}
                     except Exception as exc:
