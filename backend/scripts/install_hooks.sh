@@ -27,6 +27,7 @@ UNRESOLVED_FLAGS_AUDIT="backend/scripts/audit_unresolved_flags.py"
 DA_EVIDENCE_AUDIT="backend/scripts/audit_da_evidence.py"
 NON_TRIVIAL_PROTOCOL_AUDIT="backend/scripts/audit_non_trivial_commit_protocol.py"
 CAPILLARY_CLAIM_AUDIT="backend/scripts/audit_capillary_scope_claim.py"
+TIER1_SURFACE_AUDIT="backend/scripts/audit_tier1_change_surfaced.py"
 AUTO_DEPLOY="backend/scripts/post_commit_auto_deploy.sh"
 
 if [ ! -d "$REPO_ROOT/.git" ]; then
@@ -42,6 +43,7 @@ chmod +x "$REPO_ROOT/$UNRESOLVED_FLAGS_AUDIT"
 chmod +x "$REPO_ROOT/$DA_EVIDENCE_AUDIT"
 chmod +x "$REPO_ROOT/$NON_TRIVIAL_PROTOCOL_AUDIT"
 chmod +x "$REPO_ROOT/$CAPILLARY_CLAIM_AUDIT"
+chmod +x "$REPO_ROOT/$TIER1_SURFACE_AUDIT"
 chmod +x "$REPO_ROOT/backend/scripts/probe_capillary_scope.py"
 chmod +x "$REPO_ROOT/backend/scripts/classify_commit_tier.py"
 
@@ -89,6 +91,7 @@ ROOT="\$(git rev-parse --show-toplevel)"
 "\$ROOT/$DA_EVIDENCE_AUDIT" --text-file "\$1"
 "\$ROOT/$NON_TRIVIAL_PROTOCOL_AUDIT" --msg-file "\$1"
 "\$ROOT/$CAPILLARY_CLAIM_AUDIT" --commit-msg-file "\$1"
+"\$ROOT/$TIER1_SURFACE_AUDIT" --msg-file "\$1"
 EOF
 chmod +x "$MSG_HOOK"
 

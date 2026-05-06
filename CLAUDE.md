@@ -203,6 +203,23 @@ fire either way.
    + rationale and wait. Session-scoped TIER_2 approvals
    (`feedback_session_scoped_tier_approval.md`) cover sprint
    bundles without re-asking per file.
+
+   **TIER_1 per-change disclosure (G5 close 2026-05-06).** TIER_1
+   files (§10) do NOT require fresh founder approval per change,
+   but every commit touching TIER_1 MUST disclose the modification
+   in the commit message via one of:
+       "TIER_1: <basename>"  — per-file marker
+       "TIER_1 modification surfaced: <reason>"  — broad declaration
+       "TIER_1 session-scoped approval: <sprint memo>"
+       "TIER_1 emergency override: <reason>"
+   The marker is required even under blanket session-scoped
+   approval — the founder reads `git log` and the disclosure makes
+   TIER_1 changes auditable without diff inspection.
+   `audit_tier1_change_surfaced.py` (commit-msg hook) blocks
+   undisclosed TIER_1 modifications. Reason: 2026-05-05 sprint
+   modified `bugfix_pipeline.py` (TIER_1) under stretch
+   interpretation of session-scoped approval without an explicit
+   marker — the audit closes that drift class.
 3. **Founder-domain decision** (§1.1, §1.5 exception). Brand voice,
    palette, visual taste, copy, pricing numbers, feature narrative,
    strategic positioning. Surface ONE proposal + tradeoffs.
