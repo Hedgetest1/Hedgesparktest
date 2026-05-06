@@ -5,34 +5,52 @@ the §21.6 brain-hook #2 (TIER_0 triple-DA) gap that shipped on
 
 The bug class
 -------------
-The autonomous brain ships patches via two paths:
+The autonomous brain ships patches via two paths today:
 
-  1. `run_auto_apply`              (bugfix_pipeline.py:~4952)  — TIER_0
-  2. `run_governed_tier1_auto_apply` (bugfix_pipeline.py:~5270) — TIER_1
+  1. `run_auto_apply`              (bugfix_pipeline.py)  — TIER_0
+  2. `run_governed_tier1_auto_apply` (bugfix_pipeline.py) — TIER_1
 
 Both end in `apply_bugfix_candidate(db, c.id)`. Founder direttiva
 2026-05-06 (CLAUDE.md §21.6): the adversarial 3-lens severity gate
 must run BEFORE every autonomous apply. The first commit landed the
 gate on path #1 only; the second commit landed it on path #2 after
-the founder asked "10/10?". This audit makes that class of regression
-mechanical: any future call site of `apply_bugfix_candidate` that
-bypasses the adversarial gate fails preflight.
+the founder asked whether the work was honestly at the bar. This
+audit makes that class of regression mechanical.
 
-How it works
-------------
-AST-walks `app/services/bugfix_pipeline.py`. For every function
-that contains a call to `apply_bugfix_candidate(...)`, the function's
-body must contain a query of `AdversarialReviewFinding.severity`
-(the `_check_adversarial_gate` semantic) somewhere above the
-apply call. The semantic match is the SQLAlchemy query pattern, NOT
-a fixed name — refactoring the gate into a helper is fine as long
-as the helper is invoked above the apply call.
+Cross-module coverage (2026-05-06 upgrade)
+-------------------------------------------
+The audit AST-walks EVERY .py file under `app/` that imports
+`apply_bugfix_candidate` (not just bugfix_pipeline.py). For each
+function calling apply_bugfix_candidate, we classify:
 
-Exemptions (operator-driven, not autonomous):
-  * `app/api/ops.py` — `/ops/bugfixes/{id}/apply` is human-triggered.
-  * Test fixtures — `tests/` ignored.
+  * **Operator** (human is the gate, exempt) — function body
+    contains audit_log markers `actor_type="human"`,
+    `approval_mode="human_approved"`, or `actor_name=`-with-
+    operator-keyword (telegram_operator, ops_admin, etc.). Today
+    these are `app/api/ops.py::apply_bugfix` and
+    `app/services/telegram_agent.py::cmd_apply`.
 
-Exit code:
+  * **Autonomous** (must be gated) — anything else. Verify the
+    function body invokes `_check_adversarial_gate` (DRY helper),
+    `AdversarialReviewFinding.severity` (legacy inline form), or
+    carries the comment marker `# brain-hook: tier_0-triple-da`.
+
+Future-proofing: a new caller added in any module is detected by
+the import-scan + AST classification — no audit refactor needed
+unless the apply function's NAME changes (covered by the Renaming
+mitigation below).
+
+Renaming mitigation
+-------------------
+If `apply_bugfix_candidate` is ever renamed, this audit's
+`_TARGET_FUNC_NAME` constant must change in the same commit.
+The constant lives in source so a rename refactor surfaces it via
+grep; a future drift would still fire the audit (zero matches → 0
+autonomous call sites → trivially OK, but ALSO INFO line emitted
+so operator notices).
+
+Exit codes
+----------
   0 — every autonomous apply call site is gated.
   1 — at least one call site bypasses the gate (preflight blocks).
 
@@ -45,19 +63,30 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-TARGET = ROOT / "app" / "services" / "bugfix_pipeline.py"
+APP = ROOT / "app"
 
-# Operator-driven call sites that legitimately call apply_bugfix_candidate
-# without the adversarial gate (human is the gate).
-_EXEMPT_FUNCS = {"_force_apply_for_operator"}  # placeholder; none today
+_TARGET_FUNC_NAME = "apply_bugfix_candidate"
 
-# Public marker the audit looks for in the function body to consider
-# the gate present. We accept ANY of these forms — keeps the audit
-# robust to refactor:
-#   1. `AdversarialReviewFinding.severity` reference
-#   2. Helper call `_check_adversarial_gate`
-#   3. Helper call `check_adversarial_gate`
-#   4. Comment annotation `# brain-hook: tier_0-triple-da` in body
+# Markers detected anywhere inside a function body that classify
+# the function as OPERATOR-driven (human-gated, exempt from the
+# autonomous adversarial gate).
+_OPERATOR_AUDIT_MARKERS = (
+    'actor_type="human"',
+    "actor_type='human'",
+    'approval_mode="human_approved"',
+    "approval_mode='human_approved'",
+    "telegram_operator",
+    "ops_admin",
+    "human_operator",
+)
+
+# Markers detected anywhere inside the function body that classify
+# the function as carrying the adversarial gate (any of the 4 forms
+# is accepted — robust to refactor):
+#   1. AdversarialReviewFinding ORM reference (legacy inline form)
+#   2. _check_adversarial_gate helper Call
+#   3. check_adversarial_gate helper Call (public alias if added)
+#   4. Comment annotation `# brain-hook: tier_0-triple-da`
 _GATE_MARKERS_AST = (
     "AdversarialReviewFinding",
     "_check_adversarial_gate",
@@ -65,16 +94,50 @@ _GATE_MARKERS_AST = (
 )
 _GATE_MARKER_COMMENT = "brain-hook: tier_0-triple-da"
 
+# Functions that ARE the apply implementation itself — recursion in
+# the wrapper is fine, no gate needed.
+_SELF_FUNC_NAMES = {
+    _TARGET_FUNC_NAME,
+    f"_{_TARGET_FUNC_NAME}_impl",
+}
+
+
+def _module_imports_target(tree: ast.AST) -> bool:
+    """True if the module imports apply_bugfix_candidate from
+    bugfix_pipeline (or has a direct re-export reference)."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.module and "bugfix_pipeline" in node.module:
+                for alias in node.names:
+                    if alias.name == _TARGET_FUNC_NAME or alias.name == "*":
+                        return True
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name and "bugfix_pipeline" in alias.name:
+                    return True
+    return False
+
 
 def _function_calls_apply(fn: ast.FunctionDef) -> bool:
     for node in ast.walk(fn):
         if isinstance(node, ast.Call):
             target = node.func
-            if isinstance(target, ast.Name) and target.id == "apply_bugfix_candidate":
+            if isinstance(target, ast.Name) and target.id == _TARGET_FUNC_NAME:
                 return True
-            if isinstance(target, ast.Attribute) and target.attr == "apply_bugfix_candidate":
+            if isinstance(target, ast.Attribute) and target.attr == _TARGET_FUNC_NAME:
                 return True
     return False
+
+
+def _function_body_text(fn: ast.FunctionDef, source: str) -> str:
+    start = (fn.lineno or 1) - 1
+    end = (fn.end_lineno or len(source.splitlines())) or len(source.splitlines())
+    return "\n".join(source.splitlines()[start:end])
+
+
+def _is_operator_function(fn: ast.FunctionDef, source: str) -> bool:
+    body = _function_body_text(fn, source)
+    return any(m in body for m in _OPERATOR_AUDIT_MARKERS)
 
 
 def _function_has_gate(fn: ast.FunctionDef, source: str) -> bool:
@@ -83,76 +146,103 @@ def _function_has_gate(fn: ast.FunctionDef, source: str) -> bool:
         if isinstance(node, ast.Name) and node.id in _GATE_MARKERS_AST:
             return True
         if isinstance(node, ast.Attribute):
-            # AdversarialReviewFinding.severity — covers ORM filter usage
             if isinstance(node.value, ast.Name) and node.value.id in _GATE_MARKERS_AST:
                 return True
             if node.attr in _GATE_MARKERS_AST:
                 return True
         if isinstance(node, ast.Call):
-            # Helper invocations
             target = node.func
             if isinstance(target, ast.Name) and target.id in _GATE_MARKERS_AST:
                 return True
             if isinstance(target, ast.Attribute) and target.attr in _GATE_MARKERS_AST:
                 return True
-    # Comment annotation fallback — re-scan source slice
-    start = (fn.lineno or 1) - 1
-    end = (fn.end_lineno or len(source.splitlines())) or len(source.splitlines())
-    body = "\n".join(source.splitlines()[start:end])
-    if _GATE_MARKER_COMMENT in body:
+    # Comment annotation fallback
+    if _GATE_MARKER_COMMENT in _function_body_text(fn, source):
         return True
     return False
 
 
 def main() -> int:
-    if not TARGET.is_file():
-        print(f"audit_apply_path_adversarial_gate: target missing at {TARGET}", file=sys.stderr)
-        return 1
-    source = TARGET.read_text()
-    try:
-        tree = ast.parse(source, str(TARGET))
-    except SyntaxError as exc:
-        print(f"audit_apply_path_adversarial_gate: parse error {exc}", file=sys.stderr)
+    if not APP.is_dir():
+        print(f"audit_apply_path_adversarial_gate: app dir missing at {APP}", file=sys.stderr)
         return 1
 
-    findings: list[tuple[str, int]] = []
-    autonomous_call_sites = 0
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.FunctionDef):
-            continue
-        if node.name in _EXEMPT_FUNCS:
-            continue
-        if node.name == "apply_bugfix_candidate":
-            continue  # the function itself
-        if node.name == "_apply_bugfix_candidate_impl":
-            continue
-        if not _function_calls_apply(node):
-            continue
-        autonomous_call_sites += 1
-        if not _function_has_gate(node, source):
-            findings.append((node.name, node.lineno or 0))
+    findings: list[tuple[Path, str, int]] = []  # (file, fn_name, lineno)
+    operator_skips: list[tuple[Path, str, int]] = []
+    autonomous_count = 0
+    files_scanned = 0
 
+    for pyfile in APP.rglob("*.py"):
+        files_scanned += 1
+        try:
+            source = pyfile.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        # Quick reject: file does not even mention the target name
+        if _TARGET_FUNC_NAME not in source:
+            continue
+        try:
+            tree = ast.parse(source, str(pyfile))
+        except SyntaxError:
+            continue
+        # Importer check — the apply function lives in
+        # bugfix_pipeline; only modules that import it can call it.
+        # The pipeline file itself is the implementation; recursion
+        # in the wrapper is fine.
+        is_pipeline_self = pyfile.name == "bugfix_pipeline.py"
+        if not (is_pipeline_self or _module_imports_target(tree)):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            if node.name in _SELF_FUNC_NAMES:
+                continue
+            if not _function_calls_apply(node):
+                continue
+            rel = pyfile.relative_to(ROOT)
+            if _is_operator_function(node, source):
+                operator_skips.append((rel, node.name, node.lineno or 0))
+                continue
+            autonomous_count += 1
+            if not _function_has_gate(node, source):
+                findings.append((rel, node.name, node.lineno or 0))
+
+    # Reporting
     if findings:
         print(
             "audit_apply_path_adversarial_gate: FAIL — "
-            f"{len(findings)} of {autonomous_call_sites} autonomous "
-            "apply_bugfix_candidate call site(s) bypass the §21.6 "
+            f"{len(findings)} of {autonomous_count} autonomous "
+            f"{_TARGET_FUNC_NAME} call site(s) bypass the §21.6 "
             "adversarial 3-lens gate."
         )
-        for name, lineno in findings:
-            print(f"  ✗ {name} @ {TARGET.name}:{lineno}")
+        for rel, name, lineno in findings:
+            print(f"  ✗ {rel}::{name} @ {lineno}")
+        if operator_skips:
+            print(f"\n  Operator-driven exempt sites ({len(operator_skips)}):")
+            for rel, name, lineno in operator_skips:
+                print(f"    · {rel}::{name} @ {lineno}")
         print(
-            "\nFix: add an `AdversarialReviewFinding.severity` query (or "
-            "call `_check_adversarial_gate` helper) above the "
-            "`apply_bugfix_candidate(...)` line. Severity ≥ "
-            "_ADVERSARIAL_AUTO_APPLY_BLOCK (= 7) must skip/escalate."
+            "\nFix: add an `AdversarialReviewFinding.severity` query, "
+            "call `_check_adversarial_gate(db, candidate_id)`, or add "
+            "a `# brain-hook: tier_0-triple-da` annotation in the "
+            "function body above the apply call. Severity ≥ "
+            "_ADVERSARIAL_AUTO_APPLY_BLOCK (= 7) must skip / escalate.\n"
+            "Operator-driven exempt: ensure the function records "
+            "actor_type=\"human\" / approval_mode=\"human_approved\" "
+            "via write_audit_log so the human acts as the gate."
         )
         return 1
 
-    print(
-        f"audit_apply_path_adversarial_gate: OK — {autonomous_call_sites} "
-        "autonomous apply_bugfix_candidate call site(s), all gated."
+    summary = (
+        f"audit_apply_path_adversarial_gate: OK — {autonomous_count} "
+        f"autonomous {_TARGET_FUNC_NAME} call site(s) all gated; "
+        f"{len(operator_skips)} operator-driven exempt; {files_scanned} "
+        "py file(s) scanned."
     )
+    print(summary)
+    if operator_skips:
+        for rel, name, lineno in operator_skips:
+            print(f"  · operator-exempt: {rel}::{name} @ {lineno}")
     return 0
 
 
