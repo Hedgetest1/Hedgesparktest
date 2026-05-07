@@ -201,6 +201,23 @@ def report_frontend_error(
         )
         return {"accepted": True, "source": f"synthetic:{component}", "note": "synthetic component — no triage"}
 
+    # Synthetic-UA guard. Born 2026-05-07 closing #124389: a headless
+    # Chrome test (pytest playwright cycle) hit a stale Next.js chunk
+    # 28h ago and fired ChunkLoadError → ops_alert that sat critical
+    # forever (audit_dashboard_live was OK, real merchants weren't
+    # affected). Same hermeticity class as the test_shop_blocklist
+    # guard on alerting.write_alert — synthetic test traffic must not
+    # pollute prod ops_alerts.
+    _SYNTHETIC_UA_MARKERS = ("headlesschrome", "playwright", "puppeteer",
+                              "phantomjs", "selenium", "cypress")
+    raw_ua = (payload.user_agent or "").lower()
+    if any(marker in raw_ua for marker in _SYNTHETIC_UA_MARKERS):
+        log.info(
+            "frontend_errors: synthetic UA suppressed (component=%s, ua=%s)",
+            component, raw_ua[:60],
+        )
+        return {"accepted": True, "source": f"synthetic_ua", "note": "synthetic browser — no triage"}
+
     # Fingerprint: collapse repeated reports of the same error into one
     # stable source_ref so triage dedup works across sessions/users.
     fingerprint_raw = f"{error_type}::{message}"
