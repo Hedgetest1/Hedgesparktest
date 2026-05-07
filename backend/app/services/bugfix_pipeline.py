@@ -1837,7 +1837,7 @@ def check_preventer_regressions(db: Session) -> int:
     §12 scale invariant (born 2026-05-06 external audit FINDING 2):
       * Cap scan at `_PREVENTER_MAX_RECORDS_PER_TICK` (200) so a
         10k-merchant accumulation cannot exceed the
-        invariant_monitor `_TIMEOUT_SECONDS=30` budget.
+        invariant_monitor `_TIMEOUT_SECONDS` budget (60s as of 2026-05-07).
       * Batch the OpsAlert lookup with one query per (alert_type,
         applied_at_floor) pair instead of one query per record.
         At 200 active records sharing ~10 alert_types, that's 10

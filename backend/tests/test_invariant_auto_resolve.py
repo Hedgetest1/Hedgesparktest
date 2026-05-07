@@ -171,3 +171,61 @@ def test_auto_resolve_heals_audit_timeout(db):
         "invariant_audit_timeout alert was NOT auto-resolved on audit "
         "OK-branch — heal-detection regression."
     )
+
+
+def test_subprocess_audit_timeout_budget_at_least_60s():
+    """Lock the 2026-05-07 timeout bump (30s → 60s).
+
+    Bug class context
+    -----------------
+    Alert #128658 (invariant_audit_timeout for audit_dead_endpoints.py)
+    fired under 4-way parallel contention. Empirical wall-clock with
+    ThreadPoolExecutor(max_workers=4) running 4 concurrent
+    audit_dead_endpoints subprocesses = ~28.7s steady-state (subprocess
+    startup + Python imports × CPU+DB pool pressure), right at the 30s
+    edge. Random variance pushed individual runs over 30s → timeout
+    alert fired even though the script itself runs <2s sequentially.
+
+    The ceiling MUST stay ≥ 60s. Lowering it back to 30s without an
+    architectural change (per-audit override map, subprocess pool with
+    cached Python imports, or rewriting hot audits as in-process Python
+    calls) reintroduces the timeout-edge regression.
+    """
+    assert invariant_monitor._TIMEOUT_SECONDS >= 60, (
+        f"_TIMEOUT_SECONDS={invariant_monitor._TIMEOUT_SECONDS} reintroduces "
+        "the 30s-edge regression that fired alert #128658. If you need a "
+        "shorter budget, ship a per-audit override map first."
+    )
+
+
+def test_audit_exception_sinks_runs_with_critical_only():
+    """Lock the 2026-05-07 fix for #129082.
+
+    Bug class context
+    -----------------
+    `audit_exception_sinks.py` has an inverse-contract severity model —
+    default mode blocks on INFO findings (bare_pass / catches_base),
+    `--critical-only` restricts blocking to CRITICAL kinds
+    (write_no_rollback / lying_return). preflight.sh has invoked it
+    with `--critical-only` since the 2026-04-24 SINK sweep, accepting
+    the 95 INFO baseline. invariant_monitor was running it WITHOUT
+    `--critical-only`, so the 95-finding baseline fired
+    `invariant_regression` every cycle and accumulated CRITICAL
+    ops_alerts (#123346 yesterday, #129082 today).
+
+    The per-audit `_AUDIT_ARGS_OVERRIDE` map MUST keep the
+    `--critical-only` flag for this audit. Removing it reintroduces
+    the cycle-pollution.
+    """
+    override = invariant_monitor._AUDIT_ARGS_OVERRIDE.get(
+        "audit_exception_sinks.py"
+    )
+    assert override is not None, (
+        "audit_exception_sinks.py missing from _AUDIT_ARGS_OVERRIDE — "
+        "default-mode invocation refloods CRITICAL ops_alerts with "
+        "the 95-finding INFO baseline."
+    )
+    assert "--critical-only" in override, (
+        f"audit_exception_sinks.py override = {override!r} but must "
+        "include --critical-only to match preflight.sh's contract."
+    )

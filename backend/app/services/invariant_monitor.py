@@ -505,7 +505,33 @@ _AUDITS: list[tuple[str, str, str]] = [
     ("audit_route_runtime_coverage.py", "invariant_regression", "invariant:route_runtime_coverage"),
 ]
 
-_TIMEOUT_SECONDS = 30
+# 60s budget per audit subprocess. Born 2026-05-07 after #128658
+# (invariant_audit_timeout for audit_dead_endpoints) fired under 4-way
+# parallel contention — empirical wall-clock at 4 concurrent audits
+# = ~28.7s (subprocess startup + Python import overhead × CPU+DB pool
+# pressure), right at the 30s edge. Bump to 60s gives 2× empirical
+# margin without per-audit-override scaffolding. If a second audit
+# class regresses past 60s in the future, switch to per-audit map
+# rather than another global bump.
+_TIMEOUT_SECONDS = 60
+
+# Per-audit args override. Born 2026-05-07 closing #129082:
+# `audit_exception_sinks.py` has an inverse-contract severity model —
+# default mode treats INFO findings (bare_pass / catches_base) as
+# blocking, --critical-only restricts blocking to CRITICAL kinds
+# (write_no_rollback / lying_return). preflight.sh already invokes
+# it with --critical-only (95 INFO baseline accepted post-2026-04-24
+# SINK sweep). invariant_monitor must use the same invocation,
+# otherwise the 95-finding baseline fires CRITICAL `invariant_
+# regression` every cycle and pollutes ops_alerts.
+#
+# This map is the surgical alternative to the universal --strict
+# removal of 2026-05-05 — most audits do NOT have this inverse
+# contract, so a global flag flip is wrong; a per-audit override
+# is right.
+_AUDIT_ARGS_OVERRIDE: dict[str, list[str]] = {
+    "audit_exception_sinks.py": ["--critical-only"],
+}
 
 
 def _auto_resolve_prior_invariant(db: Session, source: str) -> int:
@@ -624,8 +650,9 @@ def run_invariant_check(db: Session) -> dict:
             #      --strict, polluting ops_alerts every cycle.
             # Each audit's exit code under default invocation is the
             # truth about structural drift.
+            extra_args = _AUDIT_ARGS_OVERRIDE.get(sname, [])
             res = subprocess.run(
-                [_PYTHON_BIN, str(spath)],
+                [_PYTHON_BIN, str(spath), *extra_args],
                 capture_output=True,
                 text=True,
                 timeout=_TIMEOUT_SECONDS,
