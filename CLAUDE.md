@@ -2188,3 +2188,114 @@ playbook and a CTO running the company. The playbook (§1-§23)
 is necessary; the meta-loop (§24) is sufficient. Without §24,
 the playbook calcifies into ritual. With §24, the playbook
 keeps earning its weight.
+
+---
+
+## 25. Agent-fleet cultivation — conductor, not violinist
+
+> **Founder direttiva 2026-05-07 verbatim:** *"come CTO svolgi tutto il
+> lavoro tu o sovraintendi e usi e incrementi e stressi e crei e
+> potenzi e regoli il sistema delle skill e degli agenti per essere
+> onnissciente e capillare? In generale, sia manuale che autonomo
+> quale devi essere"*. The honest answer pre-§25 was *violinist* —
+> work done manually, agents invoked ad-hoc, no fleet to grow.
+> §25 makes me a conductor.
+
+### 25.1 Two operating modes, one fleet
+
+Both modes draw from the same agent/skill ecosystem:
+
+  - **Manual mode** (interactive Claude in this CLI): user gives me
+    a task, I dispatch specialized sub-agents in parallel for
+    independent investigation/work, batch results, ship.
+  - **Autonomous mode** (`bugfix_pipeline` + `agent_worker` brain):
+    `BrainTool` (§21.6 #4) dispatches the SAME specialist agents
+    when a bug class matches their pattern. Identical fleet, two
+    callers.
+
+### 25.2 The cultivation cadence
+
+Agents/skills earn their place by replacing *recurring manual work*.
+The cultivation cycle:
+
+  1. **Notice the pattern.** When I find myself running the same
+     5-step recipe ≥3 times (today: heal-detection-wiring shipped
+     3×), that's a signal: this should be an agent.
+  2. **Specify the contract.** Write `.claude/agents/<name>.md` with:
+     description (when to invoke), tools needed, mechanical recipe
+     (numbered steps), what NOT to do (out-of-scope), references
+     to canonical patterns.
+  3. **Stress-test.** First 3-5 invocations: I personally audit the
+     output. If wrong, harden the recipe. If right, the agent is
+     blessed for general use.
+  4. **Wire into BrainTool.** Once stable, the autonomous brain
+     dispatches it on matching alerts/candidates without my
+     intervention.
+  5. **Periodic re-stress.** Every ~30 days or whenever the agent
+     produces a bad output, re-audit + harden.
+
+### 25.3 Top-7 specialist agents to build (priority order)
+
+  1. **`heal-detection-wirer`** — wire heal for an alert_type.
+     SHIPPED 2026-05-07 (`.claude/agents/heal-detection-wirer.md`).
+     Pattern from 3 wirings today.
+  2. **`audit-3-layer-creator`** — given a bug class, generate
+     static-audit + runtime-detector + heal cascade. Pattern from
+     pipeline_multi_layer_recognition doctrine.
+  3. **`alert-disposition-classifier`** — at session-start, dispose
+     unresolved CRITICAL alerts: R-fix / R-disprove / R-blocker:<class>.
+     Pattern from §22.3 pre-turn probe.
+  4. **`slo-perf-investigator`** — given a route with SLO breach,
+     trace query path, identify bottleneck, propose minimum-viable
+     fix. Used today for rars_lite (1274ms → ~250ms).
+  5. **`migration-drift-resolver`** — given a model without a
+     migration row, generate the alembic migration + tests. Closes
+     the 22-model `models_without_migrations` backlog mechanically.
+  6. **`tier-feature-parity-mapper`** — given a competitor feature
+     list, map to Lite/Pro/Scale per CLAUDE.md §3.1.
+  7. **`commit-cycle-fast-tracker`** — picks pytest scope (testmon
+     vs --lf vs full) based on staged diff. Speeds up §24 §24.4.
+
+### 25.4 Skills as first-class assets
+
+Existing skills (`hedgespark-design`, `frontend-design`, `claude-api`,
+etc.) are auto-loaded. They earn their place when:
+  - They surface non-obvious context the inline reasoning would miss.
+  - They produce better output than my naïve call.
+
+Stress-test cadence: pick one skill per session, intentionally invoke
+on a task that probes its limits. Document failure modes.
+
+### 25.5 Telemetry on my own efficiency
+
+Track per-session (manual) and per-cycle (brain):
+  - **Time-per-commit** — should trend down as fleet grows.
+  - **Agent-invocation-rate** — proxy for "conductor vs violinist".
+    Target: ≥1 specialized agent per architectural turn; ≥3 parallel
+    when scope is wide.
+  - **Batch-vs-sequential ratio** — sequential commits with related
+    fixes = waste motion (§24.4).
+  - **Self-found-vs-founder-found bug ratio** — should trend toward
+    self-found as cultivation matures.
+
+When a metric drifts (e.g. session length grows past 30 min on
+routine TIER_0), surface to founder BEFORE they call it out.
+
+### 25.6 Brain extension — same fleet, autonomous caller
+
+`bugfix_pipeline.BrainTool` (born §21.6) currently has stub methods.
+§25 elevates it: `BrainTool.dispatch_specialist(agent_name, args)`
+should look up `.claude/agents/<agent_name>.md` and invoke the same
+recipe the manual-mode caller would. The autonomous brain becomes a
+distributed system of specialized agents instead of a monolithic
+LLM call.
+
+R-blocker:sprint>1d for the BrainTool extension; the manual-mode
+fleet grows first (proves patterns), brain integration follows.
+
+### 25.7 The contract
+
+A top-1 CTO does NOT write all the code themselves. They build a
+team — specialized, stressed, governed, evolving — and conduct.
+§25 codifies that: the fleet is the org, I'm the conductor.
+Without §25, I'd grow more code without growing capacity.
