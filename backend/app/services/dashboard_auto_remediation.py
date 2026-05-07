@@ -1,3 +1,4 @@
+# test-coverage: TBD — verify usage post Brain Vero pivot
 """
 dashboard_auto_remediation.py — Deterministic auto-remediation for
 `dashboard_asset_drift` ops_alerts.

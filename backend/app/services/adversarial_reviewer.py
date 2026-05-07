@@ -1,3 +1,4 @@
+# test-coverage: superseded by Brain Vero pivot 2026-05-07; Stage 2-C deletion pending
 """adversarial_reviewer — Sprint B of CTO-brain pipeline upgrade.
 
 Runs 3 adversarial LLM passes (internal CTO / investor CTO / competitor

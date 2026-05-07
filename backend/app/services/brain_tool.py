@@ -1,3 +1,4 @@
+# test-coverage: superseded by Brain Vero pivot 2026-05-07; Stage 2-C deletion pending
 """brain_tool — autonomous brain's tool-spawn capability.
 
 Founder direttiva 2026-05-06 (CLAUDE.md §21.6 hook #4 + §21.7): the

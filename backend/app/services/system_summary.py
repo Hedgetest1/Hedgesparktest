@@ -1,3 +1,4 @@
+# test-coverage: TBD — verify usage post Brain Vero pivot
 """
 system_summary.py — Lightweight infra + cost awareness.
 

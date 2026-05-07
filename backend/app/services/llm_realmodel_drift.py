@@ -1,3 +1,4 @@
+# test-coverage: superseded by Brain Vero pivot 2026-05-07; Stage 2-C deletion pending
 """
 llm_realmodel_drift.py — B2 weekly real-model LLM drift check.
 

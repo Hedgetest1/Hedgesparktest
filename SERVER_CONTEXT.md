@@ -1,5 +1,5 @@
 # WishSpark Server Context
-Auto-generated: 2026-05-05T12:00:02.078175 UTC
+Auto-generated: 2026-05-07T18:00:01.277188 UTC
 
 ## Base Path
 /opt/wishspark
@@ -176,6 +176,7 @@ Process Manager: PM2
 /backend/app/services/benchmarks.py
 /backend/app/services/benchmarks_vertical.py
 /backend/app/services/billing_sync.py
+/backend/app/services/brain_tool.py
 /backend/app/services/brand_voice.py
 /backend/app/services/breach_notification.py
 /backend/app/services/brief_engine.py
@@ -252,6 +253,7 @@ Process Manager: PM2
 /backend/app/services/margin_guard.py
 /backend/app/services/market_lookup_engine.py
 /backend/app/services/measurement_health.py
+/backend/app/services/merchant_brain.py
 /backend/app/services/merchant_chatbot.py
 /backend/app/services/merchant_churn_predictor.py
 /backend/app/services/merchant_digest.py
@@ -292,6 +294,7 @@ Process Manager: PM2
 /backend/app/services/p95_snapshot.py
 /backend/app/services/pipeline_heartbeat.py
 /backend/app/services/pipeline_self_upgrade.py
+/backend/app/services/pipeline_state.py
 /backend/app/services/pnl_engine.py
 /backend/app/services/prediction_log.py
 /backend/app/services/price_intelligence_engine.py
@@ -383,6 +386,7 @@ Process Manager: PM2
 /backend/app/models/audit_log.py
 /backend/app/models/autofix_promotion.py
 /backend/app/models/autonomous_action.py
+/backend/app/models/brain_decision.py
 /backend/app/models/bugfix_candidate.py
 /backend/app/models/cig.py
 /backend/app/models/community_template.py

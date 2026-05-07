@@ -1,3 +1,4 @@
+# test-coverage: TBD — verify usage post Brain Vero pivot
 """
 data_integrity_probe.py — Deterministic semantic drift detection.
 

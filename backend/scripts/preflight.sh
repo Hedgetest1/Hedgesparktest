@@ -190,13 +190,8 @@ fi
 # Drift fails until the golden is intentionally updated. Born from
 # the brutal-CTO sprint Gap G — "what verifies the verifier?".
 # ---------------------------------------------------------------------------
-step "Reviewer-layer integrity (audit_reviewer_layer_integrity.py)"
-if "$PY" scripts/audit_reviewer_layer_integrity.py > /tmp/preflight_reviewer_integrity.log 2>&1; then
-    ok "$(tail -1 /tmp/preflight_reviewer_integrity.log)"
-else
-    bad "reviewer-layer drift — see /tmp/preflight_reviewer_integrity.log"
-    tail -25 /tmp/preflight_reviewer_integrity.log
-fi
+# reviewer-layer integrity step REMOVED 2026-05-07 — old-brain audit
+# superseded by Brain Vero pivot (commit 6c5ecc0 Stage 1).
 
 # ---------------------------------------------------------------------------
 # 2c-pre-ter. DB pool doctrine. Verifies code defaults
@@ -734,29 +729,9 @@ fi
 # preventer-wiring + tool-spawn + semantic-ramification hooks. INFO-only
 # while pipeline is dormant; flips to --strict before pipeline reopens.
 # ---------------------------------------------------------------------------
-step "Brain propagation hooks (audit_brain_propagation_hooks.py — info only until pipeline-reopen)"
-if "$PY" scripts/audit_brain_propagation_hooks.py > /tmp/preflight_brain_hooks.log 2>&1; then
-    ok "$(head -1 /tmp/preflight_brain_hooks.log)"
-else
-    bad "brain hooks missing — see /tmp/preflight_brain_hooks.log"
-    tail -30 /tmp/preflight_brain_hooks.log
-fi
-
-# ---------------------------------------------------------------------------
-# Apply-path adversarial-gate structural preventer — STRICT.
-# Born 2026-05-06 after a real bypass shipped: the gate landed on
-# run_auto_apply (TIER_0) but not run_governed_tier1_auto_apply
-# (TIER_1). Founder caught the gap by asking "really 10/10?" — the
-# audit makes that class of regression mechanical so future call
-# sites of apply_bugfix_candidate cannot ship without the gate.
-# ---------------------------------------------------------------------------
-step "Apply-path adversarial gate (audit_apply_path_adversarial_gate.py)"
-if "$PY" scripts/audit_apply_path_adversarial_gate.py > /tmp/preflight_apply_gate.log 2>&1; then
-    ok "$(head -1 /tmp/preflight_apply_gate.log)"
-else
-    bad "apply-path adversarial gate missing — see /tmp/preflight_apply_gate.log"
-    tail -30 /tmp/preflight_apply_gate.log
-fi
+# brain-propagation-hooks + apply-path-adversarial-gate steps REMOVED
+# 2026-05-07 — old-brain audits superseded by Brain Vero pivot
+# (commit 6c5ecc0 Stage 1).
 
 # ---------------------------------------------------------------------------
 # Alert heal-detection coverage — STRICT.
@@ -783,13 +758,8 @@ fi
 # var, dormancy detection drifts and the breaker short-circuit silences
 # real degradation.
 # ---------------------------------------------------------------------------
-step "Brain dormant-flag coverage (audit_brain_dormant_flag_coverage.py)"
-if "$PY" scripts/audit_brain_dormant_flag_coverage.py > /tmp/preflight_dormant_coverage.log 2>&1; then
-    ok "$(head -1 /tmp/preflight_dormant_coverage.log)"
-else
-    bad "brain enricher unregistered in pipeline_state — see /tmp/preflight_dormant_coverage.log"
-    tail -30 /tmp/preflight_dormant_coverage.log
-fi
+# brain-dormant-flag-coverage step REMOVED 2026-05-07 — old-brain
+# enricher set superseded by Brain Vero MERCHANT_BRAIN_ENABLED gate.
 
 # ---------------------------------------------------------------------------
 # PM2 config drift — born 2026-05-07 after wishspark-backend was found

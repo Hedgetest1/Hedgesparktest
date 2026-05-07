@@ -1,3 +1,4 @@
+# test-coverage: superseded by Brain Vero pivot 2026-05-07; Stage 2-C deletion pending
 """
 pipeline_self_upgrade.py — D5: autonomous scan for security advisories
 on Python dependencies and conversion of each finding into a governed

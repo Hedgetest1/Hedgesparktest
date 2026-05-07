@@ -1,3 +1,4 @@
+# test-coverage: superseded by Brain Vero pivot 2026-05-07; Stage 2-C deletion pending
 """
 evolution_converter.py — Converts LEVEL_1 evolution proposals into bugfix candidates.
 

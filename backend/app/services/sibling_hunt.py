@@ -1,3 +1,4 @@
+# test-coverage: superseded by Brain Vero pivot 2026-05-07; Stage 2-C deletion pending
 """sibling_hunt — post-apply pipeline phase that finds sibling occurrences
 of a just-fixed bug pattern and queues them as child BugFixCandidates.
 

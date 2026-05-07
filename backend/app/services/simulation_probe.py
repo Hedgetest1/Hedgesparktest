@@ -1,3 +1,4 @@
+# test-coverage: superseded by Brain Vero pivot 2026-05-07; Stage 2-C deletion pending
 """
 simulation_probe.py — Lightweight HTTP ingestion probes for synthetic merchants.
 

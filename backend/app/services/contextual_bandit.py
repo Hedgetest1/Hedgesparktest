@@ -1,3 +1,4 @@
+# test-coverage: superseded by Brain Vero pivot 2026-05-07; Stage 2-C deletion pending
 """
 contextual_bandit.py — Per-visitor nudge variant selection via
 Thompson Sampling with a Beta-Bernoulli prior per (context, variant).

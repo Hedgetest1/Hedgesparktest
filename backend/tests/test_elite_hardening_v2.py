@@ -1045,17 +1045,17 @@ _RAW_SQL_FSTRING_PATTERN = re.compile(r'\btext\(\s*f["\']')
 _RAW_SQL_FSTRING_ALLOWLIST: set[str] = {
     "app/api/execution_actions.py:384",
     "app/services/weekly_digest.py:476",
-    "app/services/evolution_business_outcomes.py:120",
+    "app/services/evolution_business_outcomes.py:121",  # +1: opt-out marker prepended 2026-05-07 Stage 2-A
     "app/services/utm_attribution.py:111",
-    "app/services/simulation_engine.py:317",
-    "app/services/simulation_engine.py:669",
+    "app/services/simulation_engine.py:318",  # +1: opt-out marker prepended 2026-05-07 Stage 2-A
+    "app/services/simulation_engine.py:670",  # +1: same
     "app/services/nudge_rank.py:148",
     "app/services/nudge_rank.py:200",
     # evolution_outcomes.py:625 — removed: refactored to bind param
     "app/services/execution_engine.py:857",
     "app/services/execution_engine.py:866",
     "app/services/email_performance.py:63",
-    "app/services/scoring_calibration.py:558",
+    "app/services/scoring_calibration.py:558",  # NOTE: scoring_calibration is old-brain Stage 2-C delete
     # gdpr_processor: where clause built from hardcoded ":cid"/":email"
     # filter strings joined with " OR ". Parameters are bound via the
     # second arg to execute().

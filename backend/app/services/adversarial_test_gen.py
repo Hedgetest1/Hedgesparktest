@@ -1,3 +1,4 @@
+# test-coverage: superseded by Brain Vero pivot 2026-05-07; Stage 2-C deletion pending
 """
 adversarial_test_gen.py — D4: adversarial fragility analysis of bugfix diffs.
 

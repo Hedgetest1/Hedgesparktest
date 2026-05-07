@@ -389,12 +389,8 @@ _AUDITS: list[tuple[str, str, str]] = [
     # has zero os.getenv readers in app/. The original bug:
     # PIPELINE_AUTO_PROPOSE_DISABLED was doc-only, never wired.
     ("audit_kill_switches_wired.py", "invariant_regression", "invariant:kill_switches_wired"),
-    # Reviewer-layer integrity (added 2026-05-02 elite-tier sprint Gap G).
-    # Hashes the AST skeleton of the 5 critical reviewer methods and
-    # alerts if any drifts from the golden hash. The reviewer is the
-    # SCOPE-LOCK enforcer (principle 13) for the self-healing pipeline;
-    # silent drift in the reviewer = scope lock breached.
-    ("audit_reviewer_layer_integrity.py", "invariant_regression", "invariant:reviewer_layer_integrity"),
+    # reviewer_layer_integrity REMOVED 2026-05-07 — old-brain audit
+    # superseded by Brain Vero pivot.
     # Read-replica routing drift (added 2026-05-04 evening flag-closure
     # round). Walks app/api/*.py and flags pure-read GET endpoints still
     # using Depends(get_db) instead of Depends(get_read_db). Catches
@@ -464,26 +460,11 @@ _AUDITS: list[tuple[str, str, str]] = [
     # preventer-wiring + tool-spawn + semantic-ramification. The
     # audit flags missing hooks; goes from info to --strict before
     # pipeline reopens (first paying merchant landing).
-    ("audit_brain_propagation_hooks.py", "invariant_regression", "invariant:brain_propagation_hooks"),
-    # Apply-path adversarial gate — born 2026-05-06 after a real
-    # bypass shipped (gate on TIER_0 path only, missing on TIER_1
-    # governed). Audit AST-walks bugfix_pipeline.py and verifies
-    # every autonomous apply_bugfix_candidate call site has the
-    # gate. Runs at every invariant_monitor tick so post-commit
-    # refactors that drift the gate are caught before next cycle.
-    ("audit_apply_path_adversarial_gate.py", "invariant_regression", "invariant:apply_path_adversarial_gate"),
-    # Alert heal-detection coverage — born 2026-05-06 (external CTO
-    # FINDING 1). Surfaces post-merge drift if a developer adds a
-    # new alert_type without registering heal coverage. Pre-existing
-    # 56 alerts are baseline-frozen as backlog.
+    # brain_propagation_hooks + apply_path_adversarial_gate +
+    # brain_dormant_flag_coverage REMOVED 2026-05-07 — old-brain
+    # audits superseded by Brain Vero pivot. Heal-coverage audit
+    # KEPT — relevant for merchant-facing alerts.
     ("audit_alert_heal_coverage.py", "invariant_regression", "invariant:alert_heal_coverage"),
-    # Brain dormant-flag coverage — born 2026-05-07 closing #129083.
-    # Surfaces post-merge drift if a 4th brain enricher ships without
-    # registering its `*_ENABLED` env var in
-    # `pipeline_state._BRAIN_ENRICHER_ENV_VARS`. Without this audit,
-    # dormancy detection drifts and the agent_worker._check_circuit_
-    # breaker short-circuit could silence real degradation alerts.
-    ("audit_brain_dormant_flag_coverage.py", "invariant_regression", "invariant:brain_dormant_coverage"),
     # PM2 config drift — born 2026-05-07 after wishspark-backend ran
     # with stale args (no --workers 4) silently. Audit skips cleanly
     # when pm2/node absent (CI). HARD FAIL on drift triggers within

@@ -1,3 +1,4 @@
+# test-coverage: superseded by Brain Vero pivot 2026-05-07; Stage 2-C deletion pending
 """iterative_fix — Sprint C of CTO-brain pipeline upgrade.
 
 When the adversarial_reviewer flags a BugFixCandidate with severity
