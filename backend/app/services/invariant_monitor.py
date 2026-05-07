@@ -484,6 +484,11 @@ _AUDITS: list[tuple[str, str, str]] = [
     # dormancy detection drifts and the agent_worker._check_circuit_
     # breaker short-circuit could silence real degradation alerts.
     ("audit_brain_dormant_flag_coverage.py", "invariant_regression", "invariant:brain_dormant_coverage"),
+    # PM2 config drift — born 2026-05-07 after wishspark-backend ran
+    # with stale args (no --workers 4) silently. Audit skips cleanly
+    # when pm2/node absent (CI). HARD FAIL on drift triggers within
+    # 15 min of any config-vs-running divergence.
+    ("audit_pm2_config_drift.py", "invariant_regression", "invariant:pm2_config_drift"),
     # Telegram founder-digest scope — born 2026-05-07 closing the 2-
     # day-old "Revenue at risk" merchant-style content leak (founder
     # verbatim "Mi prendi per il culo?"). Ensures build_daily_digest

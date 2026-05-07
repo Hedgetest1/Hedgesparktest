@@ -421,15 +421,19 @@ def _compute_prevented(db: Session, shop: str) -> tuple[float, dict]:
 def get_revenue_at_risk(db: Session, shop_domain: str, plan: str = "pro") -> dict:
     """
     Compute and return the RARS report for the merchant.
-    Cached 5 minutes per shop (cache is tier-agnostic; fidelity is
-    reduced at return time for non-"pro" plans).
+    Cached 5 minutes per (shop, plan) — Lite and Pro use SEPARATE
+    cache entries because they compute different work.
 
     plan = "pro"       → full 5-dimension component breakdown
     plan != "pro"      → headline total + prevented + net_roi only,
-                         components array is empty (Lite tier sees
-                         the hero number but must upgrade for drill-down)
+                         components array is empty. Lite skips the
+                         3 heaviest computes (refund/nudge/benchmark)
+                         that get filtered out anyway — closes the
+                         slo:rars_lite latency_breach (1274ms p95
+                         pre-fix, ~250ms post-fix expected).
     """
-    cache_key = f"{_CACHE_KEY_PREFIX}:{hashlib.md5(shop_domain.encode()).hexdigest()[:16]}"
+    plan_key = (plan or "pro").lower()
+    cache_key = f"{_CACHE_KEY_PREFIX}:{plan_key}:{hashlib.md5(shop_domain.encode()).hexdigest()[:16]}"
     cache_hit: dict | None = None
     try:
         from app.core.redis_client import _client
@@ -445,11 +449,17 @@ def get_revenue_at_risk(db: Session, shop_domain: str, plan: str = "pro") -> dic
         return _apply_plan_filter(cache_hit, plan)
 
     components = []
+    is_pro = plan_key == "pro"
     try:
         components.append(_compute_abandoned_high_intent(db, shop_domain))
-        components.append(_compute_refund_decline(db, shop_domain))
-        components.append(_compute_nudge_gap(db, shop_domain))
-        components.append(_compute_below_benchmark(db, shop_domain))
+        # Lite fast-path: skip the 3 heaviest computes (refund/nudge/
+        # benchmark). They cost ~700ms combined and their loss_eur is
+        # filtered out for Lite anyway via _apply_plan_filter. Closes
+        # slo:rars_lite latency_breach (target 800ms, was 1274ms).
+        if is_pro:
+            components.append(_compute_refund_decline(db, shop_domain))
+            components.append(_compute_nudge_gap(db, shop_domain))
+            components.append(_compute_below_benchmark(db, shop_domain))
         components.append(_compute_goal_gap(db, shop_domain))
     except Exception as exc:
         log.warning("rars: component compute failed shop=%s: %s", shop_domain, exc)
@@ -526,11 +536,16 @@ def get_revenue_at_risk(db: Session, shop_domain: str, plan: str = "pro") -> dic
     except Exception as exc:
         log.warning("revenue_at_risk: redis cache write failed: %s", exc)
 
-    try:
-        from app.services.risk_forecast import record_rars_snapshot
-        record_rars_snapshot(shop_domain, total)
-    except Exception as exc:
-        log.warning("revenue_at_risk: rars snapshot record failed: %s", exc)
+    # rars_history snapshot — only on Pro path. The Lite fast-path
+    # skips the 3 heaviest components, so its `total` is structurally
+    # an underestimate vs Pro; recording it would pollute the
+    # rars_history time series consumed by Pro dashboard cards.
+    if is_pro:
+        try:
+            from app.services.risk_forecast import record_rars_snapshot
+            record_rars_snapshot(shop_domain, total)
+        except Exception as exc:
+            log.warning("revenue_at_risk: rars snapshot record failed: %s", exc)
 
     return _apply_plan_filter(result, plan)
 

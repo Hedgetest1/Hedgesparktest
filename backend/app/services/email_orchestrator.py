@@ -661,6 +661,17 @@ def _send_intent(db: Session, intent: EmailIntent) -> bool:
             intent.intent_id, intent.shop_domain, intent.email_type,
             intent.priority.name, resend_id, governance_hash,
         )
+        # heal-detection: success → resolve any prior email_send_failed
+        # alert for this email_type. Born 2026-05-07.
+        try:
+            from app.services.alerting import auto_resolve_alerts
+            auto_resolve_alerts(
+                db,
+                source=f"email_orchestrator:{intent.email_type}",
+                alert_type="email_send_failed",
+            )
+        except Exception as exc:
+            log.debug("email_orch: heal-detection failed: %s", exc)
         return True
 
     _log_suppressed(db, intent, "send_failed")

@@ -99,7 +99,9 @@ _KNOWN_HEAL_BACKLOG: dict[str, str] = {
     "deploy_rolled_back": _BASELINE_PREEXISTING_2026_05_06,
     "deploy_succeeded": _BASELINE_PREEXISTING_2026_05_06,
     "drift_chronic_escalation": _BASELINE_PREEXISTING_2026_05_06,
-    "email_send_failed": _BASELINE_PREEXISTING_2026_05_06,
+    # email_send_failed removed from backlog 2026-05-07: heal coverage
+    # shipped via auto_resolve_alerts on the SENT branch of
+    # email_orchestrator.orchestrate_send (line 663).
     "event_bus_emit_chronic_failure": _BASELINE_PREEXISTING_2026_05_06,
     "extractor_failures": _BASELINE_PREEXISTING_2026_05_06,
     "flag_rollback": _BASELINE_PREEXISTING_2026_05_06,
@@ -139,7 +141,9 @@ _KNOWN_HEAL_BACKLOG: dict[str, str] = {
     "trust_action_failed": _BASELINE_PREEXISTING_2026_05_06,
     "trust_contract_auto_paused": _BASELINE_PREEXISTING_2026_05_06,
     "ux_frustration_spike": _BASELINE_PREEXISTING_2026_05_06,
-    "webhook_delivery_failed": _BASELINE_PREEXISTING_2026_05_06,
+    # webhook_delivery_failed removed from backlog 2026-05-07: heal
+    # coverage shipped via auto_resolve_alerts in
+    # signal_webhooks.emit_signal "delivered" branch (line 561).
     "webhook_repair_failed": _BASELINE_PREEXISTING_2026_05_06,
     "worker_auto_restarted": _BASELINE_PREEXISTING_2026_05_06,
     "worker_repeated_failure": _BASELINE_PREEXISTING_2026_05_06,

@@ -792,6 +792,19 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# PM2 config drift — born 2026-05-07 after wishspark-backend was found
+# running with stale args (no --workers 4) for unknown duration. Skips
+# cleanly when pm2/node absent (CI). HARD FAIL on drift.
+# ---------------------------------------------------------------------------
+step "PM2 config drift (audit_pm2_config_drift.py)"
+if "$PY" scripts/audit_pm2_config_drift.py > /tmp/preflight_pm2_drift.log 2>&1; then
+    ok "$(head -1 /tmp/preflight_pm2_drift.log)"
+else
+    bad "pm2 args drift from ecosystem.config.js — see /tmp/preflight_pm2_drift.log"
+    tail -20 /tmp/preflight_pm2_drift.log
+fi
+
+# ---------------------------------------------------------------------------
 # Telegram founder-digest scope — born 2026-05-07 closing the 2-day-old
 # "Revenue at risk" merchant-style content leak. Founder verbatim "Mi
 # prendi per il culo? Io Founder che ricevo reveneu at risk come fossi

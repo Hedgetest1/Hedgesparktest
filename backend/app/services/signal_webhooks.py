@@ -560,6 +560,23 @@ def emit_signal(
         # Update circuit breaker based on outcome
         if delivered:
             _record_webhook_success(wh.id)
+            # heal-detection: success → resolve any prior failure alert
+            # for this webhook id. Born 2026-05-07.
+            try:
+                from app.core.database import SessionLocal
+                from app.services.alerting import auto_resolve_alerts
+                _heal_db = SessionLocal()
+                try:
+                    auto_resolve_alerts(
+                        _heal_db,
+                        source=f"signal_webhooks:{wh.id}",
+                        alert_type="webhook_delivery_failed",
+                    )
+                    _heal_db.commit()
+                finally:
+                    _heal_db.close()
+            except Exception as exc:
+                log.debug("signal_webhooks: heal-detection failed: %s", exc)
         else:
             _record_webhook_failure(wh.id)
 
