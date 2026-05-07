@@ -2320,121 +2320,36 @@ def build_daily_digest(db) -> str:
         "__STATUS_PLACEHOLDER__",  # replaced at the end
     ]
 
-    # ── 2. REVENUE ──
-    # Operator daily digest — the revenue aggregate spans the whole network
-    # on purpose (founder's personal view). We GROUP BY currency so the
-    # summary reports per-currency totals rather than silently adding €
-    # and $ together. Previously the code summed total_price across all
-    # currencies and picked a random "most recent order" currency symbol,
-    # which produced arithmetically wrong totals for any multi-currency
-    # network state.
-    try:
-        rows_tw = db.execute(sql_text(
-            "SELECT COALESCE(currency, 'EUR') AS ccy, "
-            "       COALESCE(SUM(total_price), 0) AS total, "
-            "       COUNT(*) AS orders "
-            "FROM shop_orders "
-            "WHERE created_at >= :c "
-            "GROUP BY 1 "
-            "ORDER BY total DESC"
-        ), {"c": cutoff_7d}).fetchall()
-        rows_lw = db.execute(sql_text(
-            "SELECT COALESCE(currency, 'EUR') AS ccy, "
-            "       COALESCE(SUM(total_price), 0) AS total, "
-            "       COUNT(*) AS orders "
-            "FROM shop_orders "
-            "WHERE created_at >= :s AND created_at < :e "
-            "GROUP BY 1"
-        ), {"s": cutoff_14d, "e": cutoff_7d}).fetchall()
+    # ── 2. (REVENUE removed 2026-05-07) ──
+    # Founder digest is OPERATOR/CTO scope only — no merchant-aggregate
+    # revenue framing.
+    #
+    # Rationale: founder explicit feedback 2026-05-07 verbatim "Mi
+    # prendi per il culo? Io Founder che ricevo reveneu at risk come
+    # fossi un merchant?!". Pre-merchant, the only "revenue" in
+    # shop_orders comes from dev/test shops — surfacing that as
+    # "Revenue €3,090 this week" / "€20,674 at risk" / "AOV €X" /
+    # "€Y prevented (holdout)" reads as a MERCHANT digest (your-store
+    # framing) rather than an operator one, which is misleading and
+    # CLAUDE.md §0 forbids ("no false claims").
+    #
+    # Network-revenue aggregates belong on:
+    #   - merchant_digest.py (per-merchant, operator-filtered)
+    #   - admin /status command (explicit query, framed network-scope)
+    #   - public_roi_counter.py (operator-filtered, public marketing)
+    # NOT on the founder's daily Telegram digest.
+    #
+    # NOTE: legacy revenue/AOV/RARS/proven-savings + merchants/churn
+    # blocks were physically REMOVED in this commit. The audit
+    # `audit_telegram_founder_digest_scope.py` (born same commit) blocks
+    # any re-introduction of merchant-aggregate `shop_orders` /
+    # `total_price` / `rars_history` / `compute_churn_report` calls in
+    # `build_daily_digest`.
 
-        # B5 — Founder-primary currency wins when it has data; else fall
-        # back to highest-volume currency. Default EUR (founder's mental
-        # model), overridable via FOUNDER_PRIMARY_CURRENCY env.
-        import os as _os_env
-        _founder_primary = _os_env.environ.get("FOUNDER_PRIMARY_CURRENCY", "EUR").upper()
-        primary_tw = None
-        for _r in rows_tw:
-            if str(_r[0]).upper() == _founder_primary:
-                primary_tw = _r
-                break
-        if primary_tw is None:
-            primary_tw = rows_tw[0] if rows_tw else None
-        rev_tw = float(primary_tw[1]) if primary_tw else 0.0
-        orders_tw = int(primary_tw[2]) if primary_tw else 0
-        primary_ccy_code = str(primary_tw[0]).upper() if primary_tw else "EUR"
-
-        # Match previous-window row for the same currency
-        rev_lw = 0.0
-        orders_lw = 0
-        for r in rows_lw:
-            if str(r[0]).upper() == primary_ccy_code:
-                rev_lw = float(r[1])
-                orders_lw = int(r[2])
-                break
-
-        currency = {"EUR": "\u20ac", "USD": "$", "GBP": "\u00a3"}.get(
-            primary_ccy_code, primary_ccy_code + " "
-        )
-
-        lines.append("")
-        lines.append(f"\U0001f4b0 *Revenue*")
-
-        if orders_tw > 0:
-            rev_line = f"  {currency}{rev_tw:,.0f} this week \u00b7 {orders_tw} orders"
-            if rev_lw > 0:
-                delta_pct = ((rev_tw - rev_lw) / rev_lw) * 100
-                arrow = "\u2191" if delta_pct > 0 else "\u2193"
-                color_emoji = "\U0001f7e2" if delta_pct >= 0 else "\U0001f534"
-                rev_line += f" {color_emoji} {arrow}{abs(delta_pct):.0f}%"
-            elif orders_lw == 0:
-                rev_line += " \U0001f389"
-            lines.append(rev_line)
-
-            if rev_lw > 0:
-                aov_tw = rev_tw / orders_tw if orders_tw else 0
-                lines.append(f"  AOV {currency}{aov_tw:,.0f}")
-        else:
-            lines.append("  No orders this week")
-
-        # RARS if available
-        try:
-            from app.core.redis_client import _client
-            rc = _client()
-            if rc is not None:
-                import json as _json
-                rars_keys = rc.keys("hs:rars_history:v1:*") or []
-                if rars_keys:
-                    rars_total = 0.0
-                    for k in rars_keys[:50]:
-                        raw = rc.get(k)
-                        if not raw:
-                            continue
-                        try:
-                            history = _json.loads(raw)
-                            if history:
-                                rars_total += float(history[-1].get("total_at_risk_eur") or 0)
-                        except Exception:
-                            continue
-                    if rars_total > 0:
-                        lines.append(f"  \u26a0\ufe0f {currency}{rars_total:,.0f} at risk")
-        except Exception as exc:
-            log.warning("telegram_agent: RARS digest fetch failed: %s", exc)
-
-        # Proven savings
-        try:
-            from app.services.fix_holdout_measurement import get_weekly_proven_savings
-            savings = get_weekly_proven_savings(week_offset=0)
-            if savings > 0:
-                lines.append(
-                    f"  \U0001f6e1 {currency}{savings:,.0f} prevented (holdout-proven)"
-                )
-        except Exception as exc:
-            log.warning("telegram_agent: proven savings fetch failed: %s", exc)
-    except Exception:
-        lines.append("")
-        lines.append("\U0001f4b0 *Revenue:* data unavailable")
-
-    # ── 3. MERCHANTS ──
+    # ── 3. NETWORK STATE — operator scope, not merchant scope ──
+    # Show installed-merchants COUNT only (operator metadata). NEVER
+    # per-shop revenue/AOV/at-risk/churn — those belong on per-merchant
+    # digests. Pre-merchant: expect "0 paying" — the truth, no framing.
     try:
         merch_row = db.execute(sql_text(
             "SELECT COUNT(*), COUNT(*) FILTER (WHERE billing_active = true) "
@@ -2443,26 +2358,21 @@ def build_daily_digest(db) -> str:
         if merch_row:
             active, paying = merch_row[0], merch_row[1]
             lines.append("")
-            lines.append(f"\U0001f465 *Merchants:* {active} active \u00b7 {paying} paying")
-
-            # Churn — only surface if there's real danger
-            try:
-                from app.services.merchant_churn_predictor import compute_churn_report
-                churn = compute_churn_report(db)
-                crit = churn.get("critical_count", 0)
-                high = churn.get("high_count", 0)
-                if crit > 0:
-                    lines.append(f"  \U0001f534 {crit} at critical churn risk")
-                    for m in churn.get("merchants", [])[:2]:
-                        if m["risk_level"] == "critical":
-                            shop = m["shop_domain"].replace(".myshopify.com", "")
-                            lines.append(f"    {shop}: {m['churn_risk_score']}/100")
-                elif high > 0:
-                    lines.append(f"  \U0001f7e1 {high} at elevated churn risk")
-            except Exception as exc:
-                log.warning("telegram_agent: churn report failed: %s", exc)
+            lines.append(
+                f"\U0001f465 *Network:* {active} merchant"
+                f"{'s' if active != 1 else ''} installed · "
+                f"{paying} paying"
+            )
     except Exception as exc:
-        log.warning("telegram_agent: merchant digest query failed: %s", exc)
+        log.warning("telegram_agent: network count failed: %s", exc)
+
+    # ── DEAD-CODE BLOCK INTENTIONALLY EXCISED ──
+    # The block previously starting here built per-currency revenue
+    # aggregates from `shop_orders`, computed AOV, summed rars_history,
+    # called `get_weekly_proven_savings`, queried `merchants` for churn,
+    # and pasted the 5-line merchant-style summary into the founder
+    # digest. Excised 2026-05-07 per founder feedback. The audit
+    # `audit_telegram_founder_digest_scope` is the structural preventer.
 
     # ── 4. SHIELD LINE — compliance + security in one line ──
     try:
@@ -2511,10 +2421,18 @@ def build_daily_digest(db) -> str:
             "WHERE created_at >= :c"
         ), {"c": cutoff_24h}).scalar() or 0
 
+        # Dormancy-aware framing: when parked by design (enrichers off
+        # pre-merchant), "in flight" misleads — nothing is moving. Show
+        # "queued (parked)" so founder knows count is by-design.
+        from app.services.pipeline_state import is_pipeline_dormant
+        _dormant = is_pipeline_dormant()
+
         lines.append("")
         pipe_parts = [f"{applied_24h} fixes shipped"]
         if triaged_24h > applied_24h:
-            pipe_parts.append(f"{triaged_24h - applied_24h} in flight")
+            queued = triaged_24h - applied_24h
+            label = "queued (parked)" if _dormant else "in flight"
+            pipe_parts.append(f"{queued} {label}")
         if rolled_24h > 0:
             pipe_parts.append(f"\U0001f534 {rolled_24h} rolled back")
             if overall_status == "OK":
@@ -2530,7 +2448,10 @@ def build_daily_digest(db) -> str:
             budget = get_usage_summary()
             spent = budget.get("monthly_cost_eur", 0)
             cap = budget.get("monthly_cap_eur", MONTHLY_EUR_CAP)
-            pipe_parts.append(f"LLM \u20ac{spent:.2f}/\u20ac{cap:.0f}")
+            # Founder feedback 2026-05-07: "0.00/10 EUR" was ambiguous
+            # (this-month metered vs lifetime/console-credits). Explicit
+            # "this month" frames it correctly.
+            pipe_parts.append(f"LLM \u20ac{spent:.2f}/\u20ac{cap:.0f} this month")
             if budget.get("monthly_cap_reached"):
                 pipe_parts.append("\u26a0\ufe0f CAP HIT")
                 if overall_status == "OK":
@@ -2600,8 +2521,14 @@ def build_daily_digest(db) -> str:
         log.warning("telegram_agent: spike attention failed: %s", exc)
 
     # B3c — Pipeline liveness stall (from cached health dimensions).
+    # Suppressed when pipeline is dormant by design (enrichers off pre-
+    # merchant) — surfacing "pipeline stalled: 88 candidates, 0 LLM
+    # calls, awaiting Anthropic top-up" every cycle is noise; the
+    # founder already knows the pipeline is parked. Reasserts when
+    # dormancy ends.
     try:
-        if health:
+        from app.services.pipeline_state import is_pipeline_dormant
+        if health and not is_pipeline_dormant():
             for _d in health.get("dimensions", []):
                 if _d.get("name") == "liveness" and _d.get("status") == "degraded":
                     _det = _d.get("detail") or "check /status"

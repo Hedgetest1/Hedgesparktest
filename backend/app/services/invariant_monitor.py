@@ -484,6 +484,12 @@ _AUDITS: list[tuple[str, str, str]] = [
     # dormancy detection drifts and the agent_worker._check_circuit_
     # breaker short-circuit could silence real degradation alerts.
     ("audit_brain_dormant_flag_coverage.py", "invariant_regression", "invariant:brain_dormant_coverage"),
+    # Telegram founder-digest scope — born 2026-05-07 closing the 2-
+    # day-old "Revenue at risk" merchant-style content leak (founder
+    # verbatim "Mi prendi per il culo?"). Ensures build_daily_digest
+    # never re-acquires merchant-aggregate revenue / RARS / churn /
+    # proven-savings symbols.
+    ("audit_telegram_founder_digest_scope.py", "invariant_regression", "invariant:telegram_digest_scope"),
     # Brutal-CTO-inspection follow-up (added 2026-05-02 evening).
     # 1. DB pool doctrine catches code-default drift from CLAUDE.md
     #    §6 (the bug that produced 20× QueuePool exhaustions live).

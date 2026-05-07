@@ -792,6 +792,20 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Telegram founder-digest scope — born 2026-05-07 closing the 2-day-old
+# "Revenue at risk" merchant-style content leak. Founder verbatim "Mi
+# prendi per il culo? Io Founder che ricevo reveneu at risk come fossi
+# un merchant?!". Ensures `build_daily_digest` stays operator-scope.
+# ---------------------------------------------------------------------------
+step "Telegram founder-digest scope (audit_telegram_founder_digest_scope.py)"
+if "$PY" scripts/audit_telegram_founder_digest_scope.py > /tmp/preflight_digest_scope.log 2>&1; then
+    ok "$(head -1 /tmp/preflight_digest_scope.log)"
+else
+    bad "merchant-aggregate symbols leaked back into founder digest — see /tmp/preflight_digest_scope.log"
+    tail -30 /tmp/preflight_digest_scope.log
+fi
+
+# ---------------------------------------------------------------------------
 # Alert-writer heal-detection — STRICT (founder direttiva 2026-05-05
 # brain-autonomous sprint, G6 close 2026-05-06). Every condition-based
 # write_alert site must close the alert when the underlying state
