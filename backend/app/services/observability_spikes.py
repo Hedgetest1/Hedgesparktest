@@ -819,9 +819,11 @@ def detect_slo_breaches(db: Session) -> int:
 
     now_hour = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
     fired = 0
+    healed = 0
     for slo in report:
         name = slo.get("name") or "unknown"
         health = slo.get("health") or "healthy"
+        source = f"slo:{name}"[:64]
         if health in _SLO_CRITICAL_HEALTHS:
             severity = "critical"
             alert_type = "slo_breach"
@@ -829,6 +831,23 @@ def detect_slo_breaches(db: Session) -> int:
             severity = "warning"
             alert_type = "slo_burn_warning"
         else:
+            # SLO is healthy / insufficient_data → heal any prior
+            # unresolved slo_breach + slo_burn_warning for this source.
+            # Born 2026-05-07 closing the load-induced 9-alert noise
+            # class from today's pytest+restart cycle. Without this,
+            # slo_breach alerts stay unresolved forever even after the
+            # SLO returns to green — polluting the founder digest's
+            # "Needs you" line and obscuring real merchant outages.
+            try:
+                from app.services.alerting import auto_resolve_alerts
+                for at in ("slo_breach", "slo_burn_warning"):
+                    healed += auto_resolve_alerts(
+                        db, source=source, alert_type=at,
+                    )
+            except Exception as exc:
+                log.warning(
+                    "slo heal-detection failed source=%s: %s", source, exc
+                )
             continue
 
         cooldown_key = f"hs:spike:slo:{alert_type}:{name}:{now_hour}"
@@ -849,14 +868,30 @@ def detect_slo_breaches(db: Session) -> int:
             write_alert(
                 db,
                 severity=severity,
-                source=f"slo:{name}"[:64],
+                source=source,
                 alert_type=alert_type,
                 summary=" · ".join(summary_bits),
                 detail=dict(slo),
             )
             fired += 1
+            # Cross-class heal: a SLO that escalated from
+            # warning→critical leaves a prior slo_burn_warning row
+            # stale (and vice-versa). Resolve the OTHER class so
+            # exactly one alert reflects current state.
+            try:
+                from app.services.alerting import auto_resolve_alerts
+                other = "slo_burn_warning" if alert_type == "slo_breach" else "slo_breach"
+                healed += auto_resolve_alerts(
+                    db, source=source, alert_type=other,
+                )
+            except Exception as exc:
+                log.warning(
+                    "slo cross-class heal failed source=%s: %s", source, exc
+                )
         except Exception as exc:
             log.warning("slo alert write failed name=%s: %s", name, exc)
+    if healed:
+        log.info("slo heal-detection: auto-resolved %d alert(s) this cycle", healed)
     return fired
 
 
