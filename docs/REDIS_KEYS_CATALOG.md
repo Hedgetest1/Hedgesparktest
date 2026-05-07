@@ -152,8 +152,7 @@ to validate every prefix in `app/` is documented somewhere.
 | `hs:public_transparency:v1` | `app/api/public_transparency.py:39` | TBD | TBD |
 | `hs:quarantine:cleared` | `app/services/bugfix_prompt_grounding.py:467` | TBD | TBD |
 | `hs:rars:v1` | `app/services/revenue_at_risk.py:50` | TBD | TBD |
-| `hs:rars_history:v1` | `app/api/roi_hero.py:250` | TBD | TBD |
-| `hs:rars_history:v1:*` | `app/services/telegram_agent.py:2405` | TBD | TBD |
+| `hs:rars_history:v1` | `app/api/roi_hero.py:250`, `app/services/chatbot_llm_fallback.py:317` | TBD | TBD |
 | `hs:reengage:drift` | `app/services/onboarding_health.py:61` | TBD | TBD |
 | `hs:refund_loss:v1` | `app/services/refund_loss.py:40` | TBD | TBD |
 | `hs:refunds:v1` | `app/services/refund_ingest.py:36` | TBD | TBD |

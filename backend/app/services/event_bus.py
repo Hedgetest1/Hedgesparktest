@@ -246,7 +246,37 @@ def _record_emit_success() -> None:
         log.warning("event_bus: emit success redis reset failed: %s", exc)
 
 
+def _is_test_leak(shop_domain: str | None) -> bool:
+    """Synthetic-test-shop guard for event_bus emitters.
+
+    Born 2026-05-07 closing the analytics_events SAVEPOINT-bypass leak
+    surfaced by audit_db_table_growth (88 → 541 row spike during pytest
+    run, all from `test-trust-suite.myshopify.com`). The structural
+    cause is the same as the alerting.write_alert leak class fixed
+    2026-05-06: services that open their OWN SessionLocal()
+    (here: `_get_db()` at line 252) bypass test SAVEPOINTs.
+
+    This guard mirrors `alerting.write_alert:206-220` — pattern-match
+    synthetic shops and no-op the emit. Fail-open on guard exception
+    so a guard bug never blocks real production emits.
+    """
+    if not shop_domain:
+        return False
+    try:
+        from app.core.test_shop_blocklist import is_synthetic_test_shop
+        return is_synthetic_test_shop(shop_domain)
+    except Exception:
+        return False  # fail-open
+
+
 def _emit_postgres(row: dict[str, Any], db: Session | None = None) -> bool:
+    if _is_test_leak(row.get("shop_domain")):
+        log.debug(
+            "event_bus: synthetic-test-shop guard suppressed %s (%s)",
+            row.get("event_name"), row.get("shop_domain"),
+        )
+        return True  # treat as success (no-op)
+
     close_after = False
     if db is None:
         db = _get_db()
@@ -287,6 +317,18 @@ def _emit_postgres(row: dict[str, Any], db: Session | None = None) -> bool:
 
 
 def _emit_postgres_bulk(rows: list[dict], db: Session | None = None) -> int:
+    # Synthetic-test-shop guard — drop test rows BEFORE the bulk insert.
+    # Born 2026-05-07 closing analytics_events leak class.
+    real_rows = [r for r in rows if not _is_test_leak(r.get("shop_domain"))]
+    suppressed = len(rows) - len(real_rows)
+    if suppressed:
+        log.debug(
+            "event_bus: bulk synthetic-test-shop guard suppressed %d row(s)",
+            suppressed,
+        )
+    if not real_rows:
+        return 0  # all rows were test fixtures; no-op
+
     close_after = False
     if db is None:
         db = _get_db()
@@ -307,11 +349,11 @@ def _emit_postgres_bulk(rows: list[dict], db: Session | None = None) -> int:
             ),
             [
                 {**r, "props": _json.dumps(r.get("props")) if r.get("props") else None}
-                for r in rows
+                for r in real_rows
             ],
         )
         db.commit()
-        return len(rows)
+        return len(real_rows)
     except Exception as exc:
         log.warning("event_bus: bulk emit failed: %s", exc)
         try:

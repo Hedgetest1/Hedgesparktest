@@ -2052,3 +2052,48 @@ TIER_0 fixes where the diff itself is the evidence.
 > class surfaces in production. The split is not permanent
 > contract — it's the right shape *today* for a pre-merchant,
 > small-team velocity profile.
+
+### 23.6 Explicit trade-offs of the trim (called out, not buried)
+
+The trim moved 8 audits to advisory. The §22.4 Agent audit on
+2026-05-07 surfaced 3 specific consequences worth naming so the
+founder isn't surprised by them later:
+
+**a) §20.7 capillary scope law is now opt-in.**
+The audit was hand-written by the founder after the 2026-05-05
+"non posso ricordarmi io ogni pezzo del progetto cosa tocca"
+session. The trim moved its commit-msg gate from blocking to
+advisory. Effect: a "10/10 / killer / closed" claim with
+`probe RED` now ships without inline acknowledgement unless
+the operator explicitly invokes `audit_capillary_scope_claim
+--strict`. **Re-tighten with `--strict` if any false-claim
+surfaces.**
+
+**b) Un-park grace is procedural, not code-enforced.**
+When the founder un-parks the pipeline (1st paying merchant
+lands), the 88+ stuck candidates accumulated during dormancy
+WILL trip the circuit breaker on cycle 1 if the enrichers are
+flipped without pre-cleanup. The ceremony lives in
+`scripts/unpark_pipeline.sh` (born 2026-05-07) — running it
+discards stuck candidates >7d old + auto-resolves stale
+breaker alerts atomically before the founder edits `.env`.
+**The breaker code does NOT auto-detect un-park transitions.**
+Skipping the script means the breaker pauses auto-apply on
+cycle 3 and the founder thinks the pipeline didn't reopen.
+
+**c) `audit_critical_alert_coverage` no longer blocks close-
+claims with unresolved CRITICAL alerts.**
+The audit over-fired on inherited backlog (parked-pipeline
+noise, load-induced slo_breach spikes). The trim made it
+advisory. Effect: tomorrow's daily Telegram digest still
+surfaces the 19+ unresolved CRITICAL alerts in `Needs you:`
+even after a clean commit, because the digest reads
+`ops_alerts` directly — not gated by this audit. The audit's
+removal as a blocker doesn't *remove* the alerts; it just
+stops blocking commits that don't dispose them per-ID.
+**Re-tighten with `--strict` if a real merchant outage
+appears in the alert list and goes unnoticed.**
+
+These 3 are documented HERE in CLAUDE.md (always loaded) so
+the founder reads them on every session start, not buried
+inside a commit body.

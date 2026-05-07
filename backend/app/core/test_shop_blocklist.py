@@ -72,6 +72,13 @@ _SYNTHETIC_PATTERNS: tuple[re.Pattern[str], ...] = (
     # Hedgespark dev tenant placeholder — blocklisted across the
     # codebase (CLAUDE.md §16). Mirrored here for completeness.
     re.compile(r"^legacy\.myshopify\.com$"),
+    # Trust-contracts test fixture (tests/test_trust_contracts.py:33
+    # SHOP="test-trust-suite.myshopify.com"). Service path:
+    # event_bus._emit_postgres opens its own SessionLocal via _get_db()
+    # to persist analytics_events outside caller transaction. Surfaced
+    # 2026-05-07 by audit_db_table_growth (88 → 541 row spike during
+    # pytest run; 542 orphan rows cleaned + guard added in same commit).
+    re.compile(r"^test-trust-suite\.myshopify\.com$"),
 )
 
 
