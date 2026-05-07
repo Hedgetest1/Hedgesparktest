@@ -1678,6 +1678,46 @@ _consecutive_unhealthy_cycles = 0
 _CIRCUIT_BREAKER_THRESHOLD = 3  # pause auto-apply after 3 consecutive unhealthy cycles
 
 
+def _heal_circuit_breaker_alerts() -> None:
+    """Auto-resolve unresolved `circuit_breaker_tripped` alerts when
+    the breaker is currently NOT tripped.
+
+    Born 2026-05-07 closing #129083. Without this, alerts written on
+    a prior unhealthy cycle stay unresolved indefinitely even after
+    the breaker resets — the same alert ID accumulates with `occurrence_
+    count++` until the alerting layer's 72h TTL kicks in.
+
+    Called from both early-return branches of `_check_circuit_breaker`:
+      * dormant path — pipeline structurally paused, breaker irrelevant
+      * healthy path — system recovered, breaker explicitly reset
+    """
+    db = SessionLocal()
+    try:
+        from app.services.alerting import auto_resolve_alerts
+        n = auto_resolve_alerts(
+            db,
+            source="agent_worker",
+            alert_type="circuit_breaker_tripped",
+        )
+        db.commit()
+        if n > 0:
+            log(
+                f"circuit_breaker: heal-detection resolved {n} "
+                f"prior circuit_breaker_tripped alert(s) — breaker "
+                f"is currently NOT tripped"
+            )
+    except Exception as exc:
+        log.warning(
+            "agent_worker: _heal_circuit_breaker_alerts failed: %s", exc
+        )
+        try:
+            db.rollback()
+        except Exception:
+            pass  # SILENT-EXCEPT-OK: rollback already failed; outer log.warning captured the original exc; no recovery action available.
+    finally:
+        db.close()
+
+
 def _check_circuit_breaker() -> bool:
     """
     Check loop health before proceeding with auto-apply.
@@ -1685,8 +1725,34 @@ def _check_circuit_breaker() -> bool:
 
     Circuit breaker trips after 3 consecutive unhealthy cycles.
     Resets when system returns to healthy.
+
+    Dormancy short-circuit (born 2026-05-07 closing #129083):
+    when the brain is structurally paused (all 3 enrichers off, see
+    `pipeline_state.is_pipeline_dormant`), auto-apply is already
+    paused by intent — the breaker is structurally redundant.
+    Skip the health check, reset the cycle counter, return False.
+    Without this short-circuit, parked candidates accumulate as
+    `stuck_items` and trip CRITICAL alerts every threshold-cycles
+    (~9-10h on the pre-merchant 88-candidate backlog), polluting
+    ops_alerts and inheriting a tripped state into the un-park
+    ceremony.
     """
     global _consecutive_unhealthy_cycles
+
+    from app.services.pipeline_state import is_pipeline_dormant
+    if is_pipeline_dormant():
+        if _consecutive_unhealthy_cycles > 0:
+            log(
+                f"circuit_breaker: pipeline dormant — resetting "
+                f"counter from {_consecutive_unhealthy_cycles} (no "
+                f"un-parked degradation to gate)"
+            )
+        _consecutive_unhealthy_cycles = 0
+        # heal-detection: dormant ⇒ breaker not tripped ⇒ any prior
+        # circuit_breaker_tripped alerts auto-resolve. Closes #129083
+        # noise class on the same cycle the brain identifies dormancy.
+        _heal_circuit_breaker_alerts()
+        return False
 
     db = SessionLocal()
     try:
@@ -1705,6 +1771,9 @@ def _check_circuit_breaker() -> bool:
             if _consecutive_unhealthy_cycles > 0:
                 log(f"circuit_breaker: system healthy again — resetting after {_consecutive_unhealthy_cycles} unhealthy cycles")
             _consecutive_unhealthy_cycles = 0
+            # heal-detection: healthy ⇒ breaker not tripped ⇒ any
+            # prior circuit_breaker_tripped alerts auto-resolve.
+            _heal_circuit_breaker_alerts()
             return False
 
         _consecutive_unhealthy_cycles += 1

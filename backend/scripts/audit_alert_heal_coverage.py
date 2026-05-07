@@ -89,7 +89,12 @@ _KNOWN_HEAL_BACKLOG: dict[str, str] = {
     "billing_api_failure": _BASELINE_PREEXISTING_2026_05_06,
     "bulk_classify_errors": _BASELINE_PREEXISTING_2026_05_06,
     "chatbot_llm_hallucination": _BASELINE_PREEXISTING_2026_05_06,
-    "circuit_breaker_tripped": _BASELINE_PREEXISTING_2026_05_06,
+    # circuit_breaker_tripped removed from backlog 2026-05-07: heal
+    # coverage shipped via `_heal_circuit_breaker_alerts()` invoked
+    # from both early-return branches of `agent_worker._check_circuit_
+    # breaker` (dormant short-circuit + healthy reset). Closes #129083
+    # noise class. Audit detects the auto_resolve_alerts call site
+    # automatically.
     "deploy_failed": _BASELINE_PREEXISTING_2026_05_06,
     "deploy_rolled_back": _BASELINE_PREEXISTING_2026_05_06,
     "deploy_succeeded": _BASELINE_PREEXISTING_2026_05_06,

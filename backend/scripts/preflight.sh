@@ -776,6 +776,22 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Brain dormant-flag coverage — ensures pipeline_state.is_pipeline_dormant()
+# stays in sync with every brain enricher's *_ENABLED env var. Born
+# 2026-05-07 closing #129083 (circuit_breaker_tripped on parked-pipeline
+# noise). If a 4th brain enricher ships and forgets to register its env
+# var, dormancy detection drifts and the breaker short-circuit silences
+# real degradation.
+# ---------------------------------------------------------------------------
+step "Brain dormant-flag coverage (audit_brain_dormant_flag_coverage.py)"
+if "$PY" scripts/audit_brain_dormant_flag_coverage.py > /tmp/preflight_dormant_coverage.log 2>&1; then
+    ok "$(head -1 /tmp/preflight_dormant_coverage.log)"
+else
+    bad "brain enricher unregistered in pipeline_state — see /tmp/preflight_dormant_coverage.log"
+    tail -30 /tmp/preflight_dormant_coverage.log
+fi
+
+# ---------------------------------------------------------------------------
 # Alert-writer heal-detection — STRICT (founder direttiva 2026-05-05
 # brain-autonomous sprint, G6 close 2026-05-06). Every condition-based
 # write_alert site must close the alert when the underlying state

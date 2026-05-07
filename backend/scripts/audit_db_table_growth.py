@@ -49,6 +49,17 @@ _RETENTION_DAYS = 30
 _HIGH_SPIKE_TABLES = frozenset({
     "events", "tracker_events", "shop_orders", "action_outcomes",
     "ops_alerts", "audit_log",
+    # analytics_events: ClickHouse-shaped event store. Bursts during
+    # campaigns / merchant onboarding; bounded by the 90d retention
+    # task in event_bus.purge_expired (see app/services/event_bus.py
+    # :436). Born in HIGH_SPIKE 2026-05-07 after a 88→541 spike
+    # surfaced — root was test-hermeticity bug (event_bus._emit_
+    # postgres bypasses pytest SAVEPOINT via _get_db() new session;
+    # writes leak to prod from `test-trust-suite.myshopify.com`).
+    # Cleaned 542 orphan rows in same commit; hermeticity fix tracked
+    # as separate sprint (R-blocker:sprint>1d — requires event_bus
+    # session-injection refactor).
+    "analytics_events",
     # bugfix_candidates: pipeline-driven analytical breadcrumb table.
     # Steady-state ~30/day × 30d retention = ~1000 rows; legitimate spikes
     # during burst-triage cycles. Retention task in retention_task.py

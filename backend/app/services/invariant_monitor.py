@@ -477,6 +477,13 @@ _AUDITS: list[tuple[str, str, str]] = [
     # new alert_type without registering heal coverage. Pre-existing
     # 56 alerts are baseline-frozen as backlog.
     ("audit_alert_heal_coverage.py", "invariant_regression", "invariant:alert_heal_coverage"),
+    # Brain dormant-flag coverage — born 2026-05-07 closing #129083.
+    # Surfaces post-merge drift if a 4th brain enricher ships without
+    # registering its `*_ENABLED` env var in
+    # `pipeline_state._BRAIN_ENRICHER_ENV_VARS`. Without this audit,
+    # dormancy detection drifts and the agent_worker._check_circuit_
+    # breaker short-circuit could silence real degradation alerts.
+    ("audit_brain_dormant_flag_coverage.py", "invariant_regression", "invariant:brain_dormant_coverage"),
     # Brutal-CTO-inspection follow-up (added 2026-05-02 evening).
     # 1. DB pool doctrine catches code-default drift from CLAUDE.md
     #    §6 (the bug that produced 20× QueuePool exhaustions live).
