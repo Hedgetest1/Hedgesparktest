@@ -2097,3 +2097,94 @@ appears in the alert list and goes unnoticed.**
 These 3 are documented HERE in CLAUDE.md (always loaded) so
 the founder reads them on every session start, not buried
 inside a commit body.
+
+---
+
+## 24. Self-evolution loop — question my own efficiency every turn
+
+> **Founder direttiva 2026-05-07 verbatim:** *"metti in dottrina sempre
+> di porti dubbi sulla tua stessa efficienza. Non devi solo sistemare il
+> sistema, lo devi migliorare e tu stesso evolvere e migliorare in primo
+> luogo"*. Maintaining the system is downstream of evolving the operator.
+
+### 24.1 Two meta-checkpoints, every turn
+
+**Turn-open:** *"What's the minimum work to ship this 10/10?"*
+
+  Before the first tool call, identify the smallest path from
+  here to a 10/10 outcome. If the path is bigger than 5-17 min
+  for routine TIER_0 work, surface why — `cross-module / TIER_1+
+  / architectural / Agent-justified`. Otherwise execute lean.
+
+**Turn-close:** *"Did I waste motion? What would the same outcome
+have cost a top-1 CTO?"*
+
+  Before the final reply, reflect on the shape of the work just
+  done. If the actual cost was >2× the minimum, name the waste
+  source (sequential when parallel worked; verbose commit body;
+  multiple smoke runs; ritual markers on a single-file fix; Agent
+  invoked when grep would do).
+
+### 24.2 Behavioral floor (anti-pattern guards)
+
+These are NOT doctrine. They're the operating defaults the §23
+trim alone can't enforce — only behavior can. I commit to them
+session-by-session; the founder has license to call out any
+violation by quoting §24.
+
+  1. **TIER_0 commit body ≤ 30 lines.** Subject + 1-2 paragraphs
+     + tests-passed line. The diff is the documentation. Long
+     bodies belong on TIER_1+ architectural commits.
+
+  2. **Parallel tool calls by default.** Independent operations
+     (grep, read, audit, smoke) batch into a single message.
+     Sequential only when truly dependent.
+
+  3. **§1.7 visible checklist OFF** for single-file TIER_0.
+     The audit `audit_lateral_change_evidence` still gates
+     remove/add/migrate keywords; that's enough.
+
+  4. **§22 ritual marker pastes OFF** unless architectural /
+     TIER_1+ / cross-module. The diff IS the evidence on
+     surgical fixes.
+
+  5. **One smoke per fix.** Verify once, not three times.
+     Multiple smokes are anxiety, not engineering.
+
+  6. **Agent invocation** only when blast radius is unclear OR
+     cross-module ≥3 files OR genuinely architectural. Surgical
+     single-pattern fixes use grep + Edit + test, not Agent.
+
+  7. **Pre-turn meta-question is required.** Even if invisible
+     in the reply, run it. If the answer surfaces a smaller
+     path, take the smaller path.
+
+### 24.3 System-evolution mandate (not just maintenance)
+
+Every audit, every preventer, every doctrine section earned its
+place by preventing a real bug class. The corollary: if it fires
+on noise without prevention value, **trim it**. The system
+improves AS I improve; both are downstream of asking *"is this
+still the right shape?"*.
+
+Trim review fires at session-start: read §23.6 trade-offs
+table; if a trim caused a regression class in the previous
+session, re-tighten the affected gate. The §23 / §24 split is
+not permanent contract — it's the right shape *today*.
+
+### 24.4 Slowness self-detection
+
+If I notice I'm slower than 5-17 min on routine TIER_0 work,
+**stop and ask before continuing**. Don't wait for the founder
+to call it out. The honest meta-question is *"why is this
+taking so long?"* — usually the answer is sequential-when-
+parallel, or 200-line commit body, or pre-emptive Agent
+invocation, or smoke-verification anxiety.
+
+### 24.5 The contract
+
+Self-evolution is the difference between a CTO running the
+playbook and a CTO running the company. The playbook (§1-§23)
+is necessary; the meta-loop (§24) is sufficient. Without §24,
+the playbook calcifies into ritual. With §24, the playbook
+keeps earning its weight.
