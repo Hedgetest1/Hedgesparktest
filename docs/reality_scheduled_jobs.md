@@ -49,6 +49,7 @@ Listed here in execution order with the actual gate.
 | `_run_email_dns_status_check` | in-process 1h `should_run()` | Phase 0-pre-1c — refreshes Resend `hedgesparkhq.com` domain verification cache; flip-detects verified ↔ failed against `hs:email:last_verified:v1` and fires 🟢 / 🔴 Telegram alert on change. Cannot repair DNS (registrar-side) — only surface state + pair with `send_email()` runtime suppression gate. Companion: `docs/RESEND_DNS_RUNBOOK.md`. |
 | `_run_worker_watchdog` | no gate (Phase 0-pre0, runs FIRST in cycle) | every 15min cycle — resurrects stale PM2 workers |
 | `_run_orchestrator` | no gate | every 15min cycle |
+| `_run_merchant_brain_tick` | env `MERCHANT_BRAIN_ENABLED=1` (default off; un-park ceremony flips on) | every 15min cycle — Brain Vero v0.1 per-merchant SENSE→SYNTHESIZE→DECIDE→COORDINATE→LEARN; bounded at 100 shops/cycle + 6h decision cooldown per shop |
 | `_run_onboarding` | no gate | every 15min cycle |
 | `_run_onboarding_health` | no gate | every 15min cycle |
 | `_run_bug_triage` | in-process cooldown | as fast as cooldown allows |

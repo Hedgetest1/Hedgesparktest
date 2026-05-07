@@ -11,6 +11,7 @@ from app.models.analytics_event import AnalyticsEvent
 from app.models.audit_log import AuditLog
 from app.models.autofix_promotion import AutoFixPromotion
 from app.models.autonomous_action import AutonomousAction
+from app.models.brain_decision import BrainDecision
 from app.models.bugfix_candidate import BugFixCandidate
 from app.models.cig import CigCohort, CigMerchantMapping
 from app.models.community_template import CommunityTemplate, CommunityTemplateClone

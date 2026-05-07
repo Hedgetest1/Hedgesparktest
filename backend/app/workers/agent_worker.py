@@ -212,6 +212,42 @@ def _run_orchestrator():
         db.close()
 
 
+def _run_merchant_brain_tick():
+    """MerchantBrain v0.1 — per-merchant coordination cycle.
+    Default OFF; flipped on by MERCHANT_BRAIN_ENABLED=1 in the
+    pre-merchant un-park ceremony. Bounded: max 100 shops per cycle.
+
+    Born 2026-05-07 closing founder direttiva "shippa Brain Vero"
+    — the conductor pivots brain from immune-system-on-self to
+    merchant-outcome loop. The 5-step cycle (sense → synthesize →
+    decide → coordinate → learn) lives in
+    `app.services.merchant_brain`; this worker phase runs the tick
+    across active shops + closes pending outcome windows.
+    """
+    db = SessionLocal()
+    try:
+        from app.services.merchant_brain import (
+            is_brain_enabled,
+            tick_all_active_merchants,
+            evaluate_pending_outcomes as brain_evaluate_pending,
+        )
+        if not is_brain_enabled():
+            return
+        result = tick_all_active_merchants(db, max_shops=100)
+        if result.get("ticks", 0) > 0:
+            by_action = result.get("by_action", {})
+            log(f"merchant_brain: ticks={result['ticks']} {dict(by_action)}")
+        # Close LEARN loop for decisions whose outcome window elapsed
+        eval_result = brain_evaluate_pending(db, max_evaluate=50)
+        if eval_result.get("evaluated", 0) > 0:
+            log(f"merchant_brain: outcomes_evaluated={eval_result['evaluated']}")
+    except Exception as exc:
+        log(f"merchant_brain error (non-fatal): {exc}")
+        db.rollback()
+    finally:
+        db.close()
+
+
 def _run_onboarding():
     """Run pending merchant onboarding."""
     db = SessionLocal()
@@ -2295,6 +2331,15 @@ def run_cycle():
 
     # Phase 1: Orchestrator — reads alerts/state, executes safe actions
     _run_orchestrator()
+
+    # Phase 1b: MerchantBrain — Brain Vero v0.1. Per-merchant
+    # sense→synthesize→decide→coordinate→learn cycle. Default OFF
+    # via MERCHANT_BRAIN_ENABLED=0 (un-park ceremony flips on).
+    # Bounded: max 100 shops per cycle, decision cooldown 6h per shop.
+    # Born 2026-05-07 closing founder direttiva "shippa Brain Vero"
+    # — the conductor pivots brain from immune-system-on-self
+    # (bugfix_pipeline 0.13% apply rate) to merchant-outcome loop.
+    _run_merchant_brain_tick()
 
     # Phase 2: Onboarding — ensure new merchants reach "ready" state
     _run_onboarding()

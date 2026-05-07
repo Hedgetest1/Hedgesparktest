@@ -505,6 +505,10 @@ def _process_shop_redact(db: Session, req: GdprRequest) -> str:
         "opportunity_signals",
         "product_opportunities",
         "store_intelligence_profiles",
+        # Brain Vero v0.1 ledger — per-shop decision history
+        # (sense_snapshot can contain churn classification + RAR + event
+        # counts that aggregate to PII-adjacent insight under Art. 17).
+        "brain_decisions",
         "sip_snapshots",
         "prediction_log",
         # Inventory daily snapshots (Gap #4, 2026-04-28). Product-level
