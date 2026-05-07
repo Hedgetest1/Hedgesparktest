@@ -1,5 +1,5 @@
 # WishSpark Auto Context
-Auto-generated: 2026-05-07T18:00:01.289654 UTC
+Auto-generated: 2026-05-07T20:00:01.250905 UTC
 
 ## Project Root
 /opt/wishspark
@@ -161,8 +161,6 @@ Auto-generated: 2026-05-07T18:00:01.289654 UTC
 /backend/app/services/activation.py
 /backend/app/services/adaptive_governance.py
 /backend/app/services/ads_connectors.py
-/backend/app/services/adversarial_reviewer.py
-/backend/app/services/adversarial_test_gen.py
 /backend/app/services/agency.py
 /backend/app/services/alerting.py
 /backend/app/services/analytics_assistant.py
@@ -177,12 +175,10 @@ Auto-generated: 2026-05-07T18:00:01.289654 UTC
 /backend/app/services/benchmarks.py
 /backend/app/services/benchmarks_vertical.py
 /backend/app/services/billing_sync.py
-/backend/app/services/brain_tool.py
 /backend/app/services/brand_voice.py
 /backend/app/services/breach_notification.py
 /backend/app/services/brief_engine.py
 /backend/app/services/bugfix_pipeline.py
-/backend/app/services/bugfix_prompt_grounding.py
 /backend/app/services/candidate_scoring.py
 /backend/app/services/causal_explainer.py
 /backend/app/services/causal_intervention_engine.py
@@ -192,10 +188,8 @@ Auto-generated: 2026-05-07T18:00:01.289654 UTC
 /backend/app/services/cohort_engine.py
 /backend/app/services/community_marketplace.py
 /backend/app/services/compliance_score.py
-/backend/app/services/contextual_bandit.py
 /backend/app/services/conversion_metrics.py
 /backend/app/services/conversion_service.py
-/backend/app/services/cross_pollination.py
 /backend/app/services/customer_churn_scorer.py
 /backend/app/services/dashboard_auto_remediation.py
 /backend/app/services/dashboard_drift_scope.py
@@ -216,7 +210,6 @@ Auto-generated: 2026-05-07T18:00:01.289654 UTC
 /backend/app/services/evolution_causal_attribution.py
 /backend/app/services/evolution_converter.py
 /backend/app/services/evolution_decision_engine.py
-/backend/app/services/evolution_engine.py
 /backend/app/services/evolution_gc.py
 /backend/app/services/evolution_outcomes.py
 /backend/app/services/evolution_proposal_outcomes.py
@@ -238,13 +231,11 @@ Auto-generated: 2026-05-07T18:00:01.289654 UTC
 /backend/app/services/invariant_monitor.py
 /backend/app/services/inventory_snapshot_fetcher.py
 /backend/app/services/inventory_snapshot_runner.py
-/backend/app/services/iterative_fix.py
 /backend/app/services/klaviyo_connection.py
 /backend/app/services/klaviyo_events.py
 /backend/app/services/klaviyo_export.py
 /backend/app/services/knowledge_graph.py
 /backend/app/services/learning_isolation.py
-/backend/app/services/lesson_gc.py
 /backend/app/services/lighthouse_monitor.py
 /backend/app/services/lite_morning_digest.py
 /backend/app/services/llm_benchmark_monitor.py
@@ -265,8 +256,6 @@ Auto-generated: 2026-05-07T18:00:01.289654 UTC
 /backend/app/services/merge_intelligence.py
 /backend/app/services/meta_reviewer.py
 /backend/app/services/model_config.py
-/backend/app/services/model_upgrade_agent.py
-/backend/app/services/monthly_evolution_audit.py
 /backend/app/services/mta_engine.py
 /backend/app/services/multi_currency_rollup.py
 /backend/app/services/night_shift_agent.py
@@ -284,7 +273,6 @@ Auto-generated: 2026-05-07T18:00:01.289654 UTC
 /backend/app/services/onboarding.py
 /backend/app/services/onboarding_funnel.py
 /backend/app/services/onboarding_health.py
-/backend/app/services/operator_prediction.py
 /backend/app/services/opportunity_engine.py
 /backend/app/services/orchestrator.py
 /backend/app/services/orchestrator_context.py
@@ -293,8 +281,6 @@ Auto-generated: 2026-05-07T18:00:01.289654 UTC
 /backend/app/services/outbound_webhooks.py
 /backend/app/services/outcome_evaluator.py
 /backend/app/services/p95_snapshot.py
-/backend/app/services/pipeline_heartbeat.py
-/backend/app/services/pipeline_self_upgrade.py
 /backend/app/services/pipeline_state.py
 /backend/app/services/pnl_engine.py
 /backend/app/services/prediction_log.py
@@ -342,12 +328,10 @@ Auto-generated: 2026-05-07T18:00:01.289654 UTC
 /backend/app/services/shopify_admin.py
 /backend/app/services/shopify_auth.py
 /backend/app/services/shopify_cogs_sync.py
-/backend/app/services/sibling_hunt.py
 /backend/app/services/signal_text.py
 /backend/app/services/signal_webhooks.py
 /backend/app/services/silence_detector.py
 /backend/app/services/simulation_engine.py
-/backend/app/services/simulation_probe.py
 /backend/app/services/sip_engine.py
 /backend/app/services/slack_dispatcher.py
 /backend/app/services/soc2_controls.py

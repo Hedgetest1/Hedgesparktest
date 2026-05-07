@@ -40,3 +40,4 @@ backups/
 *.swp
 .DS_Store
 Thumbs.db
+.testmondata
