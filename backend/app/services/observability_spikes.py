@@ -656,6 +656,45 @@ def detect_sentry_regressions(db: Session) -> int:
             fired += 1
         except Exception as exc:
             log.warning("sentry regression alert write failed fp=%s: %s", fingerprint, exc)
+
+    # Heal-detection — born 2026-05-07. Any unresolved sentry_regression
+    # alert whose fingerprint has NO recent incidents (last 30 min) is
+    # closed: the underlying issue stopped firing, the fix held. Without
+    # this, alerts pile up indefinitely (4 stuck alerts from the
+    # 2026-05-04 → 2026-05-07 window were the trigger).
+    try:
+        unresolved = db.execute(
+            sql_text(
+                "SELECT id, source FROM ops_alerts "
+                "WHERE alert_type='sentry_regression' AND resolved=false"
+            )
+        ).fetchall()
+        from app.services.alerting import auto_resolve_alerts
+        healed = 0
+        for _aid, src in unresolved:
+            if not src or not src.startswith("sentry_regression:"):
+                continue
+            fp_prefix = src.split(":", 1)[1]
+            # Source format pins fingerprint to first 32 chars; match
+            # by prefix in sentry_incidents.
+            recent = db.execute(
+                sql_text(
+                    "SELECT COUNT(*) FROM sentry_incidents "
+                    "WHERE fingerprint LIKE :p AND created_at >= :cutoff"
+                ),
+                {"p": fp_prefix + "%", "cutoff": recent_cutoff},
+            ).scalar() or 0
+            if not recent:
+                healed += auto_resolve_alerts(
+                    db, source=src, alert_type="sentry_regression",
+                )
+        if healed:
+            log.info(
+                "sentry_regression heal-detection: auto-resolved %d alert(s)",
+                healed,
+            )
+    except Exception as exc:
+        log.warning("sentry_regression heal-detection failed: %s", exc)
     return fired
 
 
