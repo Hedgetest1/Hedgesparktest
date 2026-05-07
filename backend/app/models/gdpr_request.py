@@ -9,7 +9,7 @@ Request types (from Shopify GDPR mandatory webhooks):
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Index, Integer, String, Text
+from sqlalchemy import Column, DateTime, Index, Integer, String, Text, text
 
 from app.core.database import Base
 
@@ -43,7 +43,7 @@ class GdprRequest(Base):
     # Raw Shopify webhook payload for audit trail
     payload = Column(Text, nullable=True)
 
-    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default=text("now()"))
     processed_at = Column(DateTime, nullable=True)
 
     # Populated on failure — stores exception message for operator review

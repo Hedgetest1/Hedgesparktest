@@ -75,8 +75,8 @@ class MerchantRule(Base):
     fired_count = Column(Integer, nullable=False, default=0, server_default="0")
     last_fired_at = Column(DateTime, nullable=True)
 
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
-    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"), onupdate=utc_now_naive)
     created_by = Column(String, nullable=True)
 
     __table_args__ = (

@@ -6,7 +6,7 @@ Flow: pending → branch_created → ci_pending → ci_passed|ci_failed
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, Index
+from sqlalchemy import Column, DateTime, Index, Integer, String, Text, text
 
 from app.core.database import Base
 
@@ -19,7 +19,7 @@ class AutoFixPromotion(Base):
     __tablename__ = "autofix_promotions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default=text("now()"))
     bugfix_candidate_id = Column(Integer, nullable=False)
     git_commit_sha = Column(String(64), nullable=False)
     branch_name = Column(String(128), nullable=True)

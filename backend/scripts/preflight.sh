@@ -805,6 +805,20 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# server_default literal-string drift — born 2026-05-07 closing the bug
+# class memoized in project_server_default_now_literal_bug. Blocks any
+# new `server_default="<sql_func>()"` literal that would render as
+# DEFAULT 'literal' instead of DEFAULT <func>() in DDL.
+# ---------------------------------------------------------------------------
+step "server_default literal-string (audit_server_default_literal_strings.py)"
+if "$PY" scripts/audit_server_default_literal_strings.py > /tmp/preflight_sd_literal.log 2>&1; then
+    ok "$(head -1 /tmp/preflight_sd_literal.log)"
+else
+    bad "literal-string SQL-function server_default — see /tmp/preflight_sd_literal.log"
+    tail -20 /tmp/preflight_sd_literal.log
+fi
+
+# ---------------------------------------------------------------------------
 # Telegram founder-digest scope — born 2026-05-07 closing the 2-day-old
 # "Revenue at risk" merchant-style content leak. Founder verbatim "Mi
 # prendi per il culo? Io Founder che ricevo reveneu at risk come fossi

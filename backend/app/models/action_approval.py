@@ -5,7 +5,7 @@ Append-only status transitions: pending → approved | rejected | expired
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, Index
+from sqlalchemy import Column, DateTime, Index, Integer, String, Text, text
 
 from app.core.database import Base
 
@@ -23,7 +23,7 @@ class ActionApproval(Base):
     target_id = Column(String(256), nullable=True)
     shop_domain = Column(String, nullable=True)
     status = Column(String(16), nullable=False, default="pending", server_default="pending")
-    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default=text("now()"))
     expires_at = Column(DateTime, nullable=False)
     decided_at = Column(DateTime, nullable=True)
     decided_by = Column(String(128), nullable=True)

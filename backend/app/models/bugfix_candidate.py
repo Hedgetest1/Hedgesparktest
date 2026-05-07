@@ -10,7 +10,7 @@ Outcome tracking (post-apply):
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, Index
+from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, Text, text
 
 from app.core.database import Base
 
@@ -23,7 +23,7 @@ class BugFixCandidate(Base):
     __tablename__ = "bugfix_candidates"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default=text("now()"))
     status = Column(String(32), nullable=False, default="open", server_default="open")
 
     # Source of the bug signal

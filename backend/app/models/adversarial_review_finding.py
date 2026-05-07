@@ -20,7 +20,14 @@ status:
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Column, DateTime, ForeignKey, Index, Integer, String, Text,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    text,
 )
 
 from app.core.database import Base
@@ -35,7 +42,7 @@ class AdversarialReviewFinding(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     created_at = Column(
-        DateTime, nullable=False, default=_now_utc, server_default="now()",
+        DateTime, nullable=False, default=_now_utc, server_default=text("now()"),
     )
 
     bugfix_candidate_id = Column(

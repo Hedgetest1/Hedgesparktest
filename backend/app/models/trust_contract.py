@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, Numeric, String, Text, text
 
 from app.core.database import Base
 from app.core.time_utils import utc_now_naive
@@ -72,8 +72,8 @@ class TrustContract(Base):
 
     # --- Lifecycle ---
     status = Column(String, nullable=False, default="active", server_default="active")  # active | paused | revoked | expired
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
-    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"), onupdate=utc_now_naive)
     revoked_at = Column(DateTime, nullable=True)
     revoked_reason = Column(String, nullable=True)  # 'panic' | 'auto_pause:rev_drop' | 'merchant' | ...
 
@@ -100,7 +100,7 @@ class TrustExecutionLog(Base):
     action_type = Column(String, nullable=False)
     target_url = Column(String, nullable=True)  # product/collection affected
 
-    executed_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", index=True)
+    executed_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"), index=True)
 
     # Snapshot of the decision
     confidence = Column(Float, nullable=True)

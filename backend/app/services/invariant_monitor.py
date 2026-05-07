@@ -489,6 +489,11 @@ _AUDITS: list[tuple[str, str, str]] = [
     # when pm2/node absent (CI). HARD FAIL on drift triggers within
     # 15 min of any config-vs-running divergence.
     ("audit_pm2_config_drift.py", "invariant_regression", "invariant:pm2_config_drift"),
+    # server_default literal-string drift — born 2026-05-07 closing
+    # the `DEFAULT 'now()'` literal-string bug class. Catches any
+    # SQLAlchemy model that re-introduces `server_default="<func>()"`
+    # without text() wrapping (would break fresh deploys).
+    ("audit_server_default_literal_strings.py", "invariant_regression", "invariant:server_default_literal"),
     # Telegram founder-digest scope — born 2026-05-07 closing the 2-
     # day-old "Revenue at risk" merchant-style content leak (founder
     # verbatim "Mi prendi per il culo?"). Ensures build_daily_digest

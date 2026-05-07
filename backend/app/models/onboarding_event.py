@@ -27,7 +27,7 @@ Interaction events (non-milestone, allow duplicates):
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, Index, Float
+from sqlalchemy import Column, DateTime, Float, Index, Integer, String, Text, text
 
 from app.core.database import Base
 
@@ -40,7 +40,7 @@ class OnboardingEvent(Base):
     __tablename__ = "onboarding_events"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default=text("now()"))
 
     shop_domain = Column(String, nullable=False)
     event_type = Column(String(64), nullable=False)

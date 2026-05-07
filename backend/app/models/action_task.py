@@ -38,7 +38,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, Index, Integer, String, Text
+from sqlalchemy import Column, DateTime, Float, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
@@ -75,8 +75,8 @@ class ActionTask(Base):
     confidence    = Column(Float, nullable=True)
     urgency       = Column(Float, nullable=True)
 
-    created_at   = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
-    updated_at   = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)
+    created_at   = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))
+    updated_at   = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"), onupdate=utc_now_naive)
     executed_at  = Column(DateTime, nullable=True)   # set when status → executing
     completed_at = Column(DateTime, nullable=True)   # set when status → done | failed | dismissed
 

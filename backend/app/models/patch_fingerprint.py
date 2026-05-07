@@ -10,7 +10,7 @@ This catches "same fix from different source" scenarios that source_ref dedup mi
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Float, Index, Integer, String, Text
+from sqlalchemy import Column, DateTime, Float, Index, Integer, String, Text, text
 
 from app.core.database import Base
 
@@ -23,7 +23,7 @@ class PatchFingerprint(Base):
     __tablename__ = "patch_fingerprints"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default=text("now()"))
 
     # SHA-256 hash of normalized patch identity (title + files + diff prefix)
     fingerprint = Column(String(64), nullable=False)

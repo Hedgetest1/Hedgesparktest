@@ -5,7 +5,7 @@ status: pending | evaluating | evaluated | blocked | approved | rejected | activ
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, Index, Boolean
+from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, Text, text
 
 from app.core.database import Base
 
@@ -18,7 +18,7 @@ class ModelUpgradeProposal(Base):
     __tablename__ = "model_upgrade_proposals"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default=text("now()"))
 
     # Current vs candidate
     current_provider = Column(String(32), nullable=False)

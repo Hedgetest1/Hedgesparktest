@@ -9,7 +9,7 @@ shop_domain is resolved at ingestion time via merchant_emails lookup.
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, Index
+from sqlalchemy import Column, DateTime, Index, Integer, String, Text, text
 
 from app.core.database import Base
 
@@ -22,7 +22,7 @@ class EmailEvent(Base):
     __tablename__ = "email_events"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default=text("now()"))
 
     # Resend event fields
     resend_email_id = Column(String(128), nullable=False)

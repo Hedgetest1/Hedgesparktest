@@ -7,7 +7,7 @@ status: open | accepted | rejected | applied | expired
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Float, Integer, String, Text, Index, Boolean
+from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String, Text, text
 
 from app.core.database import Base
 
@@ -37,7 +37,7 @@ class EvolutionProposal(Base):
     __tablename__ = "evolution_proposals"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default=text("now()"))
     proposal_type = Column(String(32), nullable=False)     # refactor | reliability | performance | security
     target_file = Column(String(256), nullable=True)
     risk_level = Column(String(16), nullable=False)        # LEVEL_1 | LEVEL_2 | LEVEL_3

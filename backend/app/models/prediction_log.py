@@ -26,6 +26,7 @@ from sqlalchemy import (
     Numeric,
     String,
     UniqueConstraint,
+    text,
 )
 
 from app.core.database import Base
@@ -40,7 +41,7 @@ class PredictionLog(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     created_at = Column(
-        DateTime, nullable=False, default=_now_utc, server_default="now()"
+        DateTime, nullable=False, default=_now_utc, server_default=text("now()")
     )
 
     shop_domain = Column(String, nullable=False)

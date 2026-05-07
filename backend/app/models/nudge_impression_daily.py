@@ -40,7 +40,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Column, Date, DateTime, Index, Integer, String, UniqueConstraint
+from sqlalchemy import Column, Date, DateTime, Index, Integer, String, UniqueConstraint, text
 
 from app.core.database import Base
 from app.core.time_utils import utc_now_naive
@@ -65,7 +65,7 @@ class NudgeImpressionDaily(Base):
     impression_date = Column(Date, nullable=False)
 
     # Row creation timestamp — used for retention cleanup
-    created_at      = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    created_at      = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))
 
     __table_args__ = (
         # Dedup constraint — enforces one-impression-per-day at DB level.

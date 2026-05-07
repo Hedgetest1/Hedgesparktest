@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String, UniqueConstraint, text
 
 from app.core.database import Base
 from app.core.time_utils import utc_now_naive
@@ -52,7 +52,7 @@ class ShopConversionCalibration(Base):
     is_empirical = Column(Boolean, nullable=False, default=False, server_default="false")
 
     # Last training timestamp — used for staleness check in get_or_train_model()
-    trained_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    trained_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))
 
     __table_args__ = (
         UniqueConstraint("shop_domain", name="uq_scc_shop_domain"),

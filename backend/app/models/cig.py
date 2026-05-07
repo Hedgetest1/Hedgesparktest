@@ -14,7 +14,7 @@ shop_domains appear in CigCohort. Only aggregated, weighted statistics.
 """
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, Integer, String, UniqueConstraint
+from sqlalchemy import Column, DateTime, Float, Integer, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
@@ -68,9 +68,9 @@ class CigCohort(Base):
     total_data_points = Column(Integer, nullable=False, default=0, server_default="0")
     confidence_level = Column(String(8), nullable=False, default="low", server_default="low")
 
-    computed_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
-    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)
+    computed_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"), onupdate=utc_now_naive)
 
 
 class CigMerchantMapping(Base):
@@ -96,5 +96,5 @@ class CigMerchantMapping(Base):
     # Store fingerprint used for matching (snapshot for audit)
     fingerprint = Column(JSONB, nullable=True)
 
-    computed_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
-    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)
+    computed_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"), onupdate=utc_now_naive)

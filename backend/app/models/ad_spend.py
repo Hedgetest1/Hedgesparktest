@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Column, Date, DateTime, Float, Index, Integer, Numeric, String, UniqueConstraint
+from sqlalchemy import Column, Date, DateTime, Float, Index, Integer, Numeric, String, UniqueConstraint, text
 
 from app.core.database import Base
 from app.core.time_utils import utc_now_naive
@@ -32,7 +32,7 @@ class AdSpendDaily(Base):
     conversions = Column(Integer, nullable=False, default=0, server_default="0")
     revenue_attributed_eur = Column(Numeric(18, 2), nullable=False, default=0, server_default="0")
 
-    ingested_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    ingested_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))
 
     __table_args__ = (
         UniqueConstraint("shop_domain", "date", "network", "campaign_id",
@@ -62,8 +62,8 @@ class AdConnection(Base):
     last_synced_at = Column(DateTime, nullable=True)
     last_error = Column(String(500), nullable=True)
 
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
-    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"), onupdate=utc_now_naive)
 
     __table_args__ = (
         UniqueConstraint("shop_domain", "network", name="uq_ad_conn_shop_network"),

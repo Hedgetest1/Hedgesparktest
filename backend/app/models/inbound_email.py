@@ -17,7 +17,7 @@ routing_status tracks the processing pipeline:
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, Index
+from sqlalchemy import Column, DateTime, Index, Integer, String, Text, text
 
 from app.core.database import Base
 
@@ -30,7 +30,7 @@ class InboundEmail(Base):
     __tablename__ = "inbound_emails"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default=text("now()"))
 
     # Dedup
     message_id = Column(String(256), nullable=True, unique=True)

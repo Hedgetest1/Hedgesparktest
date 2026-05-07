@@ -86,7 +86,7 @@ class ShopOrder(Base):
     created_at  = Column(DateTime, nullable=False)
 
     # Server-side ingestion timestamp — use for dedup auditing, not analytics
-    ingested_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    ingested_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))
 
     # Ingestion source: "pixel" (client-side Custom Pixel) or "webhook" (Shopify Admin API)
     # Pixel rows have line_items=[] and customer_id/email=None.

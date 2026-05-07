@@ -46,8 +46,8 @@ class OutboundWebhookSubscription(Base):
     auto_disabled = Column(Boolean, nullable=False, default=False, server_default="false")
 
     description = Column(String(200), nullable=True)
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
-    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"), onupdate=utc_now_naive)
     created_by = Column(String, nullable=True)
 
     __table_args__ = (
@@ -70,7 +70,7 @@ class OutboundWebhookDelivery(Base):
     response_status = Column(Integer, nullable=True)
     response_body = Column(Text, nullable=True)
 
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))
     last_attempted_at = Column(DateTime, nullable=True)
     delivered_at = Column(DateTime, nullable=True)
 

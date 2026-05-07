@@ -26,7 +26,7 @@ class WorkerLog(Base):
 
     worker_name = Column(String, nullable=False)
 
-    started_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    started_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))
     finished_at = Column(DateTime, nullable=True)
 
     # Counts for the completed cycle.

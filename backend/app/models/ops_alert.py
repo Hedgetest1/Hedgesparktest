@@ -13,7 +13,7 @@ Severity levels:
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, Index, Boolean
+from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, Text, text
 
 from app.core.database import Base
 
@@ -26,7 +26,7 @@ class OpsAlert(Base):
     __tablename__ = "ops_alerts"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default=text("now()"))
 
     severity = Column(String(16), nullable=False)      # critical | warning | info
     source = Column(String(64), nullable=False)         # component that raised it

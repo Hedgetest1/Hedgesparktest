@@ -6,7 +6,7 @@ indicates infrastructure or capacity changes may be needed.
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Float, Integer, Numeric, String, Text, Index
+from sqlalchemy import Column, DateTime, Float, Index, Integer, Numeric, String, Text, text
 
 from app.core.database import Base
 
@@ -19,7 +19,7 @@ class ScalingRecommendation(Base):
     __tablename__ = "scaling_recommendations"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default=text("now()"))
 
     resource_type = Column(String(64), nullable=False)  # vps, redis, llm_budget, email, database
     title = Column(String(255), nullable=False)

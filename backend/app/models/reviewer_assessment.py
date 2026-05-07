@@ -9,7 +9,7 @@ automatically execute — operator decisions.
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, Boolean, Index
+from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, Text, text
 
 from app.core.database import Base
 
@@ -35,7 +35,7 @@ class ReviewerAssessment(Base):
     __tablename__ = "reviewer_assessments"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default=text("now()"))
 
     # What was reviewed
     entity_type = Column(String(64), nullable=False)          # bugfix_candidate | evolution_proposal | action_approval | model_upgrade | scaling_recommendation

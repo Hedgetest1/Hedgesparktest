@@ -5,7 +5,7 @@ evaluation_status: pending | healthy | regressed | unknown
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, Index
+from sqlalchemy import Column, DateTime, Index, Integer, String, Text, text
 
 from app.core.database import Base
 
@@ -20,7 +20,7 @@ class MergeOutcome(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     promotion_id = Column(Integer, nullable=False)
     bugfix_candidate_id = Column(Integer, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default=text("now()"))
     merge_commit_sha = Column(String(64), nullable=True)
     evaluation_status = Column(String(16), nullable=False, default="pending", server_default="pending")
     evaluated_at = Column(DateTime, nullable=True)

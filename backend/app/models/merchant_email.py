@@ -24,7 +24,7 @@ class MerchantEmail(Base):
     __tablename__ = "merchant_emails"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default=text("now()"))
 
     shop_domain = Column(String, nullable=False)
     email_type = Column(String(64), nullable=False)

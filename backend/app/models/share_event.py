@@ -6,7 +6,7 @@ Enables viral coefficient measurement and attribution.
 """
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, Integer, String
+from sqlalchemy import Column, DateTime, Float, Integer, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
@@ -39,7 +39,7 @@ class PublicProofShare(Base):
     installs_attributed = Column(Integer, nullable=False, default=0, server_default="0")
 
     expires_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))
 
 
 class ShareEvent(Base):
@@ -51,4 +51,4 @@ class ShareEvent(Base):
     event_type = Column(String(16), nullable=False)  # "share", "view", "click_cta", "install"
     channel = Column(String(32), nullable=True)       # "twitter", "copy", "direct"
     referrer = Column(String(512), nullable=True)
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))

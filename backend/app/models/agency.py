@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Index, Integer, String, UniqueConstraint, text
 
 from app.core.database import Base
 from app.core.time_utils import utc_now_naive
@@ -35,8 +35,8 @@ class Agency(Base):
     # Default revenue-share applied when adding a client
     default_revshare_pct = Column(Float, nullable=False, default=20.0, server_default="20.0")
 
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
-    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"), onupdate=utc_now_naive)
 
 
 class AgencyClient(Base):
@@ -50,7 +50,7 @@ class AgencyClient(Base):
     revshare_pct = Column(Float, nullable=False, default=20.0, server_default="20.0")
 
     status = Column(String(16), nullable=False, default="active", server_default="active")  # active|paused|removed
-    onboarded_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    onboarded_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))
 
     __table_args__ = (
         UniqueConstraint("agency_id", "shop_domain", name="uq_agency_client_agency_shop"),

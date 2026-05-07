@@ -30,8 +30,8 @@ class MerchantGroup(Base):
     # Currency for consolidated reporting — defaults to EUR.
     base_currency = Column(String(8), nullable=False, default="EUR", server_default="EUR")
 
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
-    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"), onupdate=utc_now_naive)
 
 
 class MerchantGroupMember(Base):
@@ -45,7 +45,7 @@ class MerchantGroupMember(Base):
     label = Column(String(120), nullable=True)
 
     is_primary = Column(Boolean, nullable=False, default=False, server_default="false")
-    added_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    added_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))
 
     __table_args__ = (
         UniqueConstraint("group_id", "shop_domain", name="uq_mgm_group_shop"),

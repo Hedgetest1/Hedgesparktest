@@ -6,7 +6,7 @@ and operational health. Used by scaling intelligence for forecasting.
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Date, Float, Integer, Numeric, String, Index
+from sqlalchemy import Column, Date, DateTime, Float, Index, Integer, Numeric, String, text
 
 from app.core.database import Base
 
@@ -19,7 +19,7 @@ class SystemSnapshot(Base):
     __tablename__ = "system_snapshots"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default=text("now()"))
     date_bucket = Column(Date, nullable=False, unique=True)
 
     # Merchant counts

@@ -5,7 +5,7 @@ One active row per module at a time. Router reads this instead of in-memory dict
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Integer, String, Boolean, Index
+from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, text
 
 from app.core.database import Base
 
@@ -22,7 +22,7 @@ class ActiveModelConfig(Base):
     provider = Column(String(32), nullable=False)
     model_name = Column(String(128), nullable=False)
     is_active = Column(Boolean, nullable=False, default=True, server_default="true")
-    activated_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
+    activated_at = Column(DateTime, nullable=False, default=_now_utc, server_default=text("now()"))
     activated_by = Column(String(128), nullable=False)
     deactivated_at = Column(DateTime, nullable=True)
     replaced_by_id = Column(Integer, nullable=True)    # points to the row that replaced this one

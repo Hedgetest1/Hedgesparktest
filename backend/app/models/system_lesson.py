@@ -19,7 +19,7 @@ Quality control:
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Float, Index, Integer, String, Text
+from sqlalchemy import Column, DateTime, Float, Index, Integer, String, Text, text
 
 from app.core.database import Base
 
@@ -32,7 +32,7 @@ class SystemLesson(Base):
     __tablename__ = "system_lessons"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default=text("now()"))
 
     # Domain this lesson applies to (from project_brain classifier)
     # e.g., "webhooks", "tracking", "auth", "billing", "intelligence"

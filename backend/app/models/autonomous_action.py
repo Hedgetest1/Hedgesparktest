@@ -77,5 +77,5 @@ class AutonomousAction(Base):
     # Bootstrap flag: manually-forced experiments are excluded from SIP learning
     is_bootstrap = Column(Boolean, nullable=False, default=False, server_default="false")
 
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
-    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"), onupdate=utc_now_naive)

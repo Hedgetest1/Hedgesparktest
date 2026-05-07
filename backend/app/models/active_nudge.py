@@ -140,8 +140,8 @@ class ActiveNudge(Base):
 
     # Lifecycle
     status        = Column(String,  nullable=False, default="active", server_default="active")
-    created_at    = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
-    updated_at    = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()")
+    created_at    = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))
+    updated_at    = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"))
     expires_at    = Column(DateTime, nullable=False)
     deactivated_at = Column(DateTime, nullable=True)
 

@@ -35,4 +35,4 @@ class StoreMetrics(Base):
     new_visitor_cart_rate = Column(Float, nullable=True)
     returning_visitor_cart_rate = Column(Float, nullable=True)
 
-    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default="now()", onupdate=utc_now_naive)
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, server_default=text("now()"), onupdate=utc_now_naive)

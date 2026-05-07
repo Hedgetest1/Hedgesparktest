@@ -24,7 +24,7 @@ Fingerprint:
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, Index
+from sqlalchemy import Column, DateTime, Index, Integer, String, Text, text
 
 from app.core.database import Base
 
@@ -37,7 +37,7 @@ class SentryIncident(Base):
     __tablename__ = "sentry_incidents"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default="now()")
+    created_at = Column(DateTime, nullable=False, default=_now_utc, server_default=text("now()"))
 
     # --- Source tracking ---
     # Resend message ID or email Message-ID header — exact dedup key
