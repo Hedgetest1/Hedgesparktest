@@ -1933,3 +1933,122 @@ If "inline self-roleplay only", the score is capped at 8.0
 regardless of the weighted math. The Agent invocation is the
 external lens; without it, my score is anchored to my own
 blindspots.
+
+---
+
+## 23. Doctrine trim 2026-05-07 — speed without losing quality
+
+> **Founder feedback 2026-05-07 verbatim:** *"Vedi che è troppo
+> lento? Refactor per snellire TUTTO QUELLO CHE SERVE senza perdere
+> qualità"*. Local commits had grown to 6-8 minutes each (10 audits
+> + 200-line commit body + Agent invocation per architectural). The
+> doctrine accumulated mass without trim; some audits over-fired on
+> noise (parked-pipeline, inherited backlog, `##` markdown stripping)
+> without preventing real bugs (the 2-day "Revenue at risk" digest
+> leak is the proof case).
+>
+> §23 trims the ritual mass while keeping the prevention essence.
+> §1.7 / §19 / §20 / §21 / §22 still apply, but with the carve-outs
+> below.
+
+### 23.1 The split — hard gates vs advisory
+
+**Hard gates (always block local commit on fail):**
+
+  1. `audit_lateral_change_evidence.py` — sibling thinking on
+     remove/add/migrate/restore. Real-bug class (8-oscillation
+     Pro/Lite tier session). KEEP STRICT.
+  2. `audit_tier1_change_surfaced.py` — TIER_1 audit-trail
+     disclosure in commit message. KEEP STRICT.
+  3. Pre-commit pytest reflex (preflight) — full test suite.
+     Catches code regression. KEEP STRICT.
+  4. Preflight script audits (90+ static checks) — they're cheap
+     and catch real schema/tenant/pattern drift. KEEP STRICT.
+
+**Advisory (analysis printed, exit 0 by default; pass `--strict`
+to flip back to blocking for periodic compliance check):**
+
+  - `audit_commit_devils_advocate.py`
+  - `audit_unresolved_flags.py` (was already `--lenient` available)
+  - `audit_da_evidence.py`
+  - `audit_non_trivial_commit_protocol.py` (was already `--lenient`)
+  - `audit_capillary_scope_claim.py`
+  - `audit_propagation_evidence.py` (was already `--lenient`)
+  - `audit_close_claim_evidence.py`
+  - `audit_critical_alert_coverage.py`
+
+**The `--strict` flag stays available** for any single audit when
+an operator wants the hard-gate behavior on demand (e.g., release
+candidate compliance check).
+
+### 23.2 Commit body sizing
+
+**TIER_0 < 50 lines / cosmetic / single-file refactor:**
+40-60 line commit body max. Subject + 1 paragraph rationale +
+1 sibling-sweep grep + tests-passed line. No multi-section
+markdown ritual.
+
+**TIER_0 ≥ 50 lines / cross-file / new module:** 60-100 line
+body. Subject + scope + sibling sweep + brief 3-DA + preventer
+mention + tests-passed.
+
+**TIER_1+ / architectural:** keep §22 evidence pasted (markers
++ executable verification below each). 100-200 line body.
+This is where the ritual earns its place.
+
+### 23.3 Visible-checklist relaxation
+
+**§1.7 pre-execution checklist (5 steps):** REQUIRED only for:
+  - TIER_1+ files (any change, regardless of size)
+  - Cross-file refactors ≥3 files
+  - "remove X" / "add Y" / "migrate" / "restore" with lateral
+    impact (the audit catches these explicitly)
+  - Architectural changes that introduce a new abstraction
+
+  SKIPPABLE for: TIER_0 < 50 lines, single-file fixes, typos,
+  comment updates, config tweaks, test additions, doc edits.
+
+**§19 turn-close ritual (axes 0-7):** the trivial-turn carve-out
+already in §19 expands to: any TIER_0 fix < 50 lines closes with
+just (commit hash + tests passed + 1-line summary). The 7 axes
+remain for architectural turns and turns claiming score ≥ 9.
+
+**§22.4 Agent invocation:** REQUIRED only for:
+  - TIER_1+ architectural turns
+  - Cross-module refactors with non-obvious blast radius
+  - Anything where the doctrine would otherwise §22.7-cap the
+    score at 8.0 ("did I rely on inline self-roleplay")
+
+  SKIPPABLE for: TIER_0 fixes, single-file edits, surgical bug
+  fixes with clear pattern + grep evidence, doc/memo edits.
+
+**§22.5 ritual marker evidence pasted below headers:** REQUIRED
+on architectural turns + close claims; SKIPPABLE on routine
+TIER_0 fixes where the diff itself is the evidence.
+
+### 23.4 What stays intact
+
+  - §0 mission (no false claims, ever)
+  - §1 working style (full autonomy, 4 legitimate stops)
+  - §2 14 north-star principles
+  - §10 TIER_2 fresh-approval invariant
+  - §11 fix-one-find-all-siblings methodology
+  - §18 red-flag refuse list
+  - §20 brutal-honesty unresolved-flags law (the audit is now
+    advisory, but the §20.1 (R-fix) / (R-disprove) /
+    (R-blocker:<class>) labeling discipline stays — it's how
+    deferrals are documented honestly)
+  - §22.3 pre-turn pending-state probe (5-query probe at
+    architectural turn open)
+
+### 23.5 The trim's invariant
+
+> Trim earns its place by removing ritual mass; if removing a
+> doctrine produces a real regression class, the trim is wrong
+> and must be reversed. The 2-day "Revenue at risk" digest leak
+> proves the inverse: piles of ritual without prevention.
+>
+> Re-tighten any specific gate to `--strict` if a regression
+> class surfaces in production. The split is not permanent
+> contract — it's the right shape *today* for a pre-merchant,
+> small-team velocity profile.

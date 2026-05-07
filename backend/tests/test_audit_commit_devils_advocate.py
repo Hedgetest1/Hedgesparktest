@@ -21,10 +21,17 @@ AUDIT = REPO_ROOT / "backend" / "scripts" / "audit_commit_devils_advocate.py"
 
 
 def _run_audit(message: str, tmp_path: Path) -> int:
+    """Invoke audit in --strict mode. Per CLAUDE.md §23 doctrine trim
+    2026-05-07, the audit defaults to lenient (analysis printed, exit
+    0); --strict flag flips back to blocking. These tests validate
+    the strict-mode discipline contract — the trim moved the DEFAULT
+    invocation from blocking to advisory but the strict path remains
+    available for periodic compliance checks and is what these tests
+    pin."""
     msg_file = tmp_path / "commit_msg.txt"
     msg_file.write_text(message)
     out = subprocess.run(
-        [sys.executable, str(AUDIT), str(msg_file)],
+        [sys.executable, str(AUDIT), str(msg_file), "--strict"],
         capture_output=True,
         text=True,
     )

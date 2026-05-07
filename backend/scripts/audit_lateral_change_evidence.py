@@ -60,10 +60,23 @@ TRIVIAL_PATTERNS = re.compile(
 
 
 def _read_msg_file(path: str) -> str:
+    """Strip git's auto-comment lines (`# Please enter the commit message...`)
+    but PRESERVE markdown headers (`## Sibling sweep:`, `### 3-DA:`).
+    Born 2026-05-07: prior version stripped any line starting with `#`,
+    which deleted markdown evidence headers and made the audit fire
+    false-positives on commits that DID have evidence."""
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             raw = f.read()
-        lines = [ln for ln in raw.split("\n") if not ln.lstrip().startswith("#")]
+        lines = []
+        for ln in raw.split("\n"):
+            stripped = ln.lstrip()
+            # Keep markdown headers (## or ###...) and inline `#` content.
+            # Strip ONLY pure git auto-comment lines: `# foo` (single #
+            # followed by space) or bare `#` line.
+            if stripped.startswith("# ") or stripped.rstrip() == "#":
+                continue
+            lines.append(ln)
         return "\n".join(lines).strip()
     except Exception:
         return ""

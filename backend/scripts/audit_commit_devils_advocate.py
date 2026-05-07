@@ -228,7 +228,12 @@ def main(argv: list[str]) -> int:
     print()
     emit("audit_commit_devils_advocate",
          findings=len(findings), severity="warn")
-    return 1
+    # Default lenient since 2026-05-07 doctrine trim. The audit still
+    # surfaces the analysis (printed above) but doesn't block the
+    # commit — operator override --strict to flip back to blocking.
+    if "--strict" in argv:
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

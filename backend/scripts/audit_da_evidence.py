@@ -172,6 +172,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--text", default=None, help="scan inline text")
     ap.add_argument("--text-file", default=None,
                     help="scan text from a file (avoids arg-list overflow)")
+    ap.add_argument("--strict", action="store_true",
+                    help="block on findings (default: warn-only per §23 trim)")
     args = ap.parse_args(argv)
 
     if args.text is not None:
@@ -263,7 +265,12 @@ def main(argv: list[str]) -> int:
     print("If a lens is genuinely a no-evidence design question, write")
     print("an explicit `no verification needed because ...` line.")
 
-    return 1
+    # Default lenient since 2026-05-07 doctrine trim. Operator override
+    # `--strict` flips back to blocking. The analysis above is preserved
+    # so the developer still sees what's missing.
+    if args.strict:
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

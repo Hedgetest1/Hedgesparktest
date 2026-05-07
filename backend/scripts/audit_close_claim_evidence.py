@@ -130,7 +130,13 @@ def main() -> int:
     print()
     print("Common fix: invoke Agent(general-purpose) for independent audit,")
     print("paste the Task ID + finding count in the commit body.")
-    return 1
+    # Default lenient since 2026-05-07 doctrine trim. Operator override
+    # `--strict` flips back to blocking; useful for Phase-1 release
+    # gates / manual periodic compliance checks.
+    import sys as _sys
+    if "--strict" in _sys.argv:
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

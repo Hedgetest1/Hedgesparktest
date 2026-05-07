@@ -191,7 +191,9 @@ def test_run_main_with_text_file(tmp_path, audit):
         "## Devil's advocate\n\nLens 1: prose only, no verification.\n",
         encoding="utf-8",
     )
-    rc = audit.main(["--text-file", str(fp)])
+    # --strict per §23 trim 2026-05-07: audit defaults to lenient
+    # (analysis printed, exit 0); strict flag pins blocking contract.
+    rc = audit.main(["--text-file", str(fp), "--strict"])
     assert rc == 1
 
 
@@ -220,7 +222,9 @@ def test_lens_outside_formal_DA_section_is_caught(tmp_path, audit):
         "Lens 2: prose claim about Y.\n",
         encoding="utf-8",
     )
-    rc = audit.main(["--text-file", str(fp)])
+    # --strict per §23 trim 2026-05-07: audit defaults to lenient
+    # (analysis printed, exit 0); strict flag pins blocking contract.
+    rc = audit.main(["--text-file", str(fp), "--strict"])
     assert rc == 1
 
 
