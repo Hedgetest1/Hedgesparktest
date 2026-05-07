@@ -2347,67 +2347,24 @@ def run_cycle():
     # Phase 2b: Onboarding health — detect stuck merchants, pixel abandonment, slow activation
     _run_onboarding_health()
 
-    # === CIRCUIT BREAKER CHECK ===
-    # If system is unhealthy for 3+ cycles, pause auto-apply but continue
-    # triage/outcome evaluation (detection must continue even when action pauses).
-    auto_apply_paused = _check_circuit_breaker()
-
-    # Phase 3: Bug triage — scan alerts/outcomes for code-fix candidates
-    if not standby:
-        _run_bug_triage(auto_apply_paused=auto_apply_paused)
-    else:
-        log("run_cycle[standby]: skipping bug_triage / auto_propose / auto_apply")
-
-    # Phase 3b: Bugfix outcome evaluation (closed-loop learning) — read-only, always runs
-    _run_bugfix_outcome_eval()
-
-    # Phase 4: Evolution audit (weekly) + meta-review + convert eligible proposals + model upgrade scan
-    if not standby:
-        _run_evolution_audit()
-        _run_meta_review()
-        _run_evolution_conversion()
-        _run_model_upgrade_scan()
-
-    # Phase 4b: Evolution GC (daily) — clean stale/duplicate/resolved proposals
-    _run_evolution_gc()
-
-    # Phase 4c: Escalate stale LEVEL_2/3 proposals (prevent dead letters)
-    try:
-        db = SessionLocal()
-        from app.services.evolution_engine import escalate_stale_proposals
-        esc = escalate_stale_proposals(db)
-        db.commit()
-        if esc.get("escalated", 0) > 0:
-            log(f"evolution_escalation: escalated={esc['escalated']}")
-    except Exception as exc:
-        log(f"evolution_escalation error (non-fatal): {exc}")
-    finally:
-        try:
-            db.close()
-        except Exception as exc:
-            log.warning("agent_worker: run_cycle failed: %s", exc)
-
-    # Phase 4d: Lesson GC — decay, retirement, contradiction detection, promotion
-    try:
-        from app.services.lesson_gc import should_run_gc, run_lesson_gc, mark_gc_run
-        if should_run_gc():
-            db = SessionLocal()
-            try:
-                gc_result = run_lesson_gc(db)
-                db.commit()
-                mark_gc_run()
-                if any(v > 0 for v in gc_result.values()):
-                    log(f"lesson_gc: {gc_result}")
-            except Exception as exc:
-                log(f"lesson_gc error (non-fatal): {exc}")
-                db.rollback()
-            finally:
-                db.close()
-    except Exception as exc:
-        log(f"lesson_gc import error (non-fatal): {exc}")
-
-    # Phase 5: Monthly Opus evolution audit (30-day cooldown)
-    _run_monthly_evolution_audit()
+    # ── PHASES 3, 4, 5 SUPERSEDED ──────────────────────────────────
+    # The immune-system-on-self brain (bugfix_pipeline + adversarial
+    # reviewer + sibling_hunt + iterative_fix + evolution_engine +
+    # meta_reviewer + monthly_evolution_audit + lesson_gc +
+    # circuit_breaker) was supplanted on 2026-05-07 by Brain Vero
+    # (`merchant_brain.py`, Phase 1b above). Per founder direttiva
+    # "il nuovo VERO BRAIN soppianta quello precedente che funzionava
+    # male": the old brain was applying patches at 0.13% rate with
+    # 93% no_effect outcomes, regulating itself instead of merchants.
+    #
+    # Stage 1 (this commit): phase calls stripped from run_cycle. The
+    # function definitions + service files persist temporarily so
+    # historical references in tests / ops endpoints / telegram
+    # commands don't error mid-rewire.
+    # Stage 2 (next commit): file deletion sweep — services, tests,
+    # ops endpoints, telegram commands, model files. Tables retained
+    # for historical data.
+    # ─────────────────────────────────────────────────────────────
 
     # Phase 6: Entitlement health scan
     _run_entitlement_health_scan()
@@ -2415,8 +2372,9 @@ def run_cycle():
     # Phase 7: Daily snapshot + scaling recommendations
     _run_scaling_intelligence()
 
-    # Phase 7b: Project brain refresh (daily)
-    _run_brain_refresh()
+    # Phase 7b SUPERSEDED — _run_brain_refresh refreshed the
+    # project_brain RAG snapshot consumed only by bugfix_pipeline LLM
+    # patch generation. Brain Vero doesn't use it. Stage-2 deletion.
 
     # Phase 7c: Daily health digest to Telegram (24h cooldown)
     _run_daily_digest()
@@ -2429,11 +2387,11 @@ def run_cycle():
     # to see it. Closes Gap A of the €39-ready sprint.
     _run_lite_morning_digest()
 
-    # Phase 7d-bis: Pipeline self-upgrade scan (D5) — weekly pip-audit
-    # sweep that surfaces CVEs as TIER_2 dep_upgrade candidates. Gated
-    # to Monday 04:00-05:00 UTC so at most one run per week.
-    if not standby:
-        _run_pipeline_self_upgrade()
+    # Phase 7d-bis SUPERSEDED — _run_pipeline_self_upgrade routed
+    # CVE findings into bugfix_pipeline as dep_upgrade candidates.
+    # Brain Vero handles dependency hygiene out-of-band (founder-
+    # owned, R-blocker:sprint>1d for the merchant-outcome-irrelevant
+    # operations doctrine). Stage-2 deletion.
 
     # Phase 7d-ter: GDPR data retention sweep — daily, Europe/Rome.
     # Deletes events/visitor_purchase_sessions past their retention TTL.

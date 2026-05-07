@@ -629,13 +629,20 @@ OAuth install → `ensure_orders_webhook` (only app/uninstalled — orders/updat
 needs Shopify PCD approval). Aggregation worker checks webhook health daily,
 auto-repairs, `webhook_monitor` tracks status.
 
-**Self-healing pipeline:**
-ops_alert → bugfix_pipeline.run_bug_triage → BugFixCandidate (TIER 0/1/2)
-→ preflight_ground_candidate (LLM PII guard + failure history grounding)
-→ LLM propose patch → reviewer_layer → governed auto-apply (TIER_0, or
-TIER_1 under confidence gate) → holdout measurement → promotion or
-quarantine. Scope is locked to safety/efficiency/cost/executability
-(principle 13).
+**Brain Vero (born 2026-05-07, replaces the old self-healing pipeline):**
+For each active merchant per agent_worker cycle:
+SENSE (RAR + churn + orders + events + last action) →
+SYNTHESIZE (1-paragraph cross-subsystem narrative) →
+DECIDE (rule-table v0.1; LLM-driven v0.2) →
+COORDINATE (dispatch existing limbs: orchestrator, email_orchestrator,
+nudge_composer, klaviyo_export, merchant_chatbot) →
+LEARN (brain_decisions ledger + holdout-measured outcome window).
+Default OFF via `MERCHANT_BRAIN_ENABLED=0`; un-park ceremony flips on.
+The old immune-system-on-self brain (bugfix_pipeline + adversarial_
+reviewer + sibling_hunt + iterative_fix + evolution_engine +
+promotion_pipeline + project_brain) was supplanted (§21.6) — it
+regulated itself at 0.13% apply rate; Brain Vero regulates merchant
+outcomes.
 
 ---
 
@@ -1741,39 +1748,31 @@ were ignored). §21 is wired into:
 The founder will not need to remind me. I will not need to be
 reminded.
 
-### 21.6 Autonomous brain extension
+### 21.6 ⚰️ SUPERSEDED 2026-05-07 — old immune-system brain replaced by Brain Vero
 
-§21 applies BOTH to interactive Claude AND to the autonomous
-brain pipeline that runs without the founder. Brain components:
+This section described the old immune-system-on-self brain
+(bugfix_pipeline + adversarial_reviewer + sibling_hunt + iterative_fix
++ evolution_engine + meta_reviewer + promotion_pipeline + project_brain).
+Founder direttiva 2026-05-07 verbatim: *"il nuovo VERO BRAIN soppianta
+quello precedente che funzionava male"*. The old brain was applying
+patches at 0.13% rate with 93% no_effect outcomes — regulating itself
+instead of merchants. **Replaced by `app/services/merchant_brain.py`**
+(commit 74e78e2) — the per-merchant SENSE→SYNTHESIZE→DECIDE→COORDINATE
+→LEARN coordinator.
 
-  - `app/services/bugfix_pipeline.py` (alert → patch → apply)
-  - `app/services/autonomous_loop.py` (self-evolution)
-  - `app/services/evolution_engine.py` (closed-loop scanners)
-  - `app/services/agent_worker.py` (orchestrator phases)
-  - `app/services/reviewer_layer.py` (governance)
-  - `app/services/promotion_pipeline.py` (outcome measurement)
-  - `app/services/iterative_fix.py` (multi-iteration patches)
+§21 (top-1 CTO mandate, macchia d'olio, triple-DA, curiosity, tool
+freedom) **still applies** to interactive Claude — it's the universal
+operator discipline. Only the autonomous-brain-pipeline embodiment of
+§21 changed.
 
-Brain hooks required (per `audit_brain_propagation_hooks.py`):
+Stage 1 (commit landing this section): worker phases stripped from
+`agent_worker.run_cycle`. Stage 2 (next commit): file deletion sweep
+(services / tests / ops endpoints / telegram commands / model
+imports). Tables retained for historical data.
 
-1. **Sibling sweep** ✓ already wired (`bugfix_pipeline._run_
-   sibling_sweep` + `_post_apply_retro_check`).
-2. **Triple-DA** — adversarial_reviewer must run for ALL tier
-   classes (TIER_0 included), not only TIER_1+. Founder
-   direttiva 2026-05-06: every patch through 3 lenses.
-3. **Preventer wiring after every applied fix** — auto-generate
-   regression test + register invariant_monitor entry.
-4. **Tool-spawn capability** — `BrainTool` interface to dispatch
-   parallel scans / invoke skills / web-search during
-   investigation. (R-blocker:sprint>1d for now; gap tracked.)
-5. **Semantic ramification** — beyond syntactic file/line count,
-   add hot-path detection + data-flow check + competitor-class
-   question.
-
-Pre-condition for pipeline-reopening (transition from dormant
-to active when first paying merchant lands per
-`project_pipeline_closed_until_merchants.md`): all 5 hooks must
-exist. The audit blocks the transition until then.
+Pre-condition for un-park ceremony (replaces the old "5-hooks
+required" gate): MERCHANT_BRAIN_ENABLED=1 + merchant_brain
+adversarial-review-before-dispatch contract (v0.2 sprint scope).
 
 ### 21.7 Tool freedom mandate
 
