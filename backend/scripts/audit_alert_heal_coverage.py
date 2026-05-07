@@ -118,11 +118,19 @@ _KNOWN_HEAL_BACKLOG: dict[str, str] = {
     "merchant_bug_escalation": _BASELINE_PREEXISTING_2026_05_06,
     "merchant_reported_bug": _BASELINE_PREEXISTING_2026_05_06,
     "merchant_silent": _BASELINE_PREEXISTING_2026_05_06,
-    "onboarding_drift": _BASELINE_PREEXISTING_2026_05_06,
-    "onboarding_stuck": _BASELINE_PREEXISTING_2026_05_06,
+    # onboarding_drift, onboarding_stuck, slow_activation removed from
+    # backlog 2026-05-07: heal coverage shipped via heal_per_shop_alerts
+    # in onboarding_health.write_onboarding_alerts (lines 550, 596, 615).
+    # Audit scanner extended same commit to recognize positional
+    # alert_type in heal_per_shop_alerts calls (4-entry close from a
+    # 10-line audit patch).
     "p95_slow_trend": _BASELINE_PREEXISTING_2026_05_06,
     "perf_network_layer_drift": _BASELINE_PREEXISTING_2026_05_06,
-    "pixel_abandonment": _BASELINE_PREEXISTING_2026_05_06,
+    # pixel_abandonment removed from backlog 2026-05-07: heal coverage
+    # shipped via heal_per_shop_alerts in
+    # onboarding_health.write_onboarding_alerts (line 573-576) — population
+    # scan over long_abandon (>72h, top-3 alerted) auto-resolves any prior
+    # alert whose shop_domain is no longer in the active set.
     "rars_compute_failed": _BASELINE_PREEXISTING_2026_05_06,
     "rars_volatility_projected": _BASELINE_PREEXISTING_2026_05_06,
     "refund_loss_compute_failed": _BASELINE_PREEXISTING_2026_05_06,
@@ -153,7 +161,20 @@ _HEAL_HELPER_NAMES = (
     "auto_resolve_alerts",
     "_auto_resolve_prior_invariant",
     "auto_heal",
+    # Population-scanner heal helper. Signature
+    # `heal_per_shop_alerts(db, source, alert_type, currently_affected)`.
+    # The alert_type is the 3rd positional argument; the scanner below
+    # special-cases this name to inspect args[2] when no kwarg matches.
+    # Added 2026-05-07 from heal-detection-wirer stress-test #1
+    # friction-finding #2 (closes onboarding_stuck / onboarding_drift /
+    # slow_activation / pixel_abandonment in one extension).
+    "heal_per_shop_alerts",
 )
+# Helpers whose alert_type is positional (not kwarg). Scanner inspects
+# args[<N>] for these. Maps fname → positional index.
+_HEAL_HELPER_POSITIONAL_AT = {
+    "heal_per_shop_alerts": 2,
+}
 _HEAL_COMMENT_MARKER = "heal-detection:"
 
 
@@ -221,6 +242,13 @@ def _scan_heal_calls(target: Path) -> set[str]:
                 )
                 if fname not in _HEAL_HELPER_NAMES:
                     continue
+                # Positional alert_type lookup for helpers that take it
+                # as a non-kwarg argument (e.g. heal_per_shop_alerts).
+                pos_idx = _HEAL_HELPER_POSITIONAL_AT.get(fname)
+                if pos_idx is not None and len(node.args) > pos_idx:
+                    pos_arg = node.args[pos_idx]
+                    if isinstance(pos_arg, ast.Constant) and isinstance(pos_arg.value, str):
+                        healed.add(pos_arg.value)
                 for kw in node.keywords:
                     if kw.arg != "alert_type":
                         continue

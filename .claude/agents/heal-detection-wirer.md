@@ -24,6 +24,23 @@ grep -rn 'alert_type="<NAME>"\|alert_type=.<NAME>.' app/ | grep -v __pycache__
 Identify the file:line where `write_alert(... alert_type="<NAME>" ...)`
 fires. Read 30 lines around it to understand the trigger condition.
 
+## Step 1.5 — Check if heal already exists (added 2026-05-07 from stress-test #1)
+
+BEFORE going to Step 2, check if a heal helper is ALREADY wired for
+this alert_type:
+
+```bash
+grep -n '<NAME>' app/services/*.py | grep -E 'heal_per_shop_alerts|auto_resolve_alerts|_auto_resolve_prior_invariant'
+```
+
+If a hit shows the alert_type as a positional or kwarg arg to a
+known helper (`auto_resolve_alerts`, `heal_per_shop_alerts`,
+`_auto_resolve_prior_invariant`), the heal is **already shipped**.
+Your only remaining work:
+  - Step 4: remove from `_KNOWN_HEAL_BACKLOG` (or leave if still
+    listed — verify with `audit_alert_heal_coverage.py`).
+  - Skip Step 2-3-5 except for the audit-removal commit.
+
 ## Step 2 — Identify the healthy-state branch
 
 Find the corresponding "no problem" path. Three patterns:
@@ -54,6 +71,13 @@ auto_resolve_alerts(
 ```
 
 Critical:
+- **Comment-marker placement** (added 2026-05-07 from stress-test #1):
+  if you choose Strategy 4 (`# heal-detection: <reason>` comment) for
+  alert_types that self-clear via TTL or are one-shot terminal, the
+  comment MUST sit either INSIDE the `write_alert(...)` kwargs OR
+  within 5 lines of the `write_alert(` token. The audit's AST scan
+  uses the call's lineno; placement above a wrapping for-loop or
+  3+ lines above `write_alert` will be missed.
 - The `source` MUST match the writer's source format byte-for-byte.
   If the writer uses `f"slo:{name}"[:64]` for source, the heal call
   must use the same expression.

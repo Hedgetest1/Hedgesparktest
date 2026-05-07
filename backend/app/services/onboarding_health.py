@@ -579,6 +579,9 @@ def write_onboarding_alerts(db: Session) -> dict:
             db,
             source="onboarding_health",
             alert_type="pixel_abandonment",
+            # heal-detection: heal_per_shop_alerts above auto-resolves any
+            # prior pixel_abandonment alert whose shop is no longer in
+            # long_abandon (pixel started firing OR merchant uninstalled).
             severity="info",
             shop_domain=m["shop_domain"],
             summary=f"Pixel not connected after {m['hours_since_install']}h",
