@@ -659,9 +659,13 @@ def detect_sentry_regressions(db: Session) -> int:
 
     # Heal-detection — born 2026-05-07. Any unresolved sentry_regression
     # alert whose fingerprint has NO recent incidents (last 30 min) is
-    # closed: the underlying issue stopped firing, the fix held. Without
-    # this, alerts pile up indefinitely (4 stuck alerts from the
-    # 2026-05-04 → 2026-05-07 window were the trigger).
+    # closed: the underlying issue stopped firing, the fix held.
+    #
+    # Anti-N+1: ONE query fetches all distinct active fingerprints in
+    # the cutoff window, then membership-check each unresolved alert's
+    # fingerprint-prefix against that set in Python. Without this the
+    # detect cycle would issue one query per unresolved alert (caught
+    # by audit_n_plus_one).
     try:
         unresolved = db.execute(
             sql_text(
@@ -669,25 +673,28 @@ def detect_sentry_regressions(db: Session) -> int:
                 "WHERE alert_type='sentry_regression' AND resolved=false"
             )
         ).fetchall()
+        active_prefixes: set[str] = set()
+        if unresolved:
+            for (fp,) in db.execute(
+                sql_text(
+                    "SELECT DISTINCT fingerprint FROM sentry_incidents "
+                    "WHERE created_at >= :cutoff AND fingerprint IS NOT NULL"
+                ),
+                {"cutoff": recent_cutoff},
+            ).fetchall():
+                active_prefixes.add((fp or "")[:32])
+
         from app.services.alerting import auto_resolve_alerts
         healed = 0
         for _aid, src in unresolved:
             if not src or not src.startswith("sentry_regression:"):
                 continue
             fp_prefix = src.split(":", 1)[1]
-            # Source format pins fingerprint to first 32 chars; match
-            # by prefix in sentry_incidents.
-            recent = db.execute(
-                sql_text(
-                    "SELECT COUNT(*) FROM sentry_incidents "
-                    "WHERE fingerprint LIKE :p AND created_at >= :cutoff"
-                ),
-                {"p": fp_prefix + "%", "cutoff": recent_cutoff},
-            ).scalar() or 0
-            if not recent:
-                healed += auto_resolve_alerts(
-                    db, source=src, alert_type="sentry_regression",
-                )
+            if fp_prefix in active_prefixes:
+                continue  # fingerprint still firing, leave alert open
+            healed += auto_resolve_alerts(
+                db, source=src, alert_type="sentry_regression",
+            )
         if healed:
             log.info(
                 "sentry_regression heal-detection: auto-resolved %d alert(s)",
