@@ -163,6 +163,96 @@ def test_brain_vero_outcome_eval_runs_when_window_elapsed(db):
             os.environ["MERCHANT_BRAIN_ENABLED"] = prev
 
 
+def test_brain_vero_eval_unknown_metric_returns_evaluation_failed(db):
+    """Defensive: when _measure() encounters a metric it doesn't know,
+    it must return `evaluation_failed` (visible to audit), NOT `neutral`
+    (silent masking).
+
+    Bug 2026-05-08: Rule 4 of _decide() set `cvr_delta_7d` but _measure
+    had no implementation → fell through to `return "neutral"` → every
+    proactive_nudge_compose decision was stamped neutral regardless of
+    whether the nudge worked. The LEARN limb couldn't distinguish working
+    rules from broken ones."""
+    import os
+    from datetime import datetime, timedelta, timezone
+    from app.services.merchant_brain import _measure
+    from app.models.brain_decision import BrainDecision
+
+    prev = os.environ.get("MERCHANT_BRAIN_ENABLED")
+    os.environ["MERCHANT_BRAIN_ENABLED"] = "1"
+    try:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        decision = BrainDecision(
+            shop_domain="_brain_unknown_metric_test_.myshopify.com",
+            decision_at=now - timedelta(hours=48),
+            sense_snapshot={},
+            synthesis="test",
+            action_kind="test_unknown",
+            action_payload={},
+            rationale="test",
+            limb_dispatched=None,
+            limb_response={},
+            expected_outcome_metric="totally_made_up_metric_xyz",
+            outcome_window_hours=24,
+        )
+        db.add(decision)
+        db.flush()
+
+        result = _measure(db, decision)
+        assert result == "evaluation_failed", (
+            f"unknown metric must return evaluation_failed (visible), "
+            f"NOT silent fallthrough. Got: {result!r}"
+        )
+    finally:
+        if prev is None:
+            os.environ.pop("MERCHANT_BRAIN_ENABLED", None)
+        else:
+            os.environ["MERCHANT_BRAIN_ENABLED"] = prev
+
+
+def test_brain_vero_eval_cvr_delta_7d_evaluation_failed_when_no_baseline(db):
+    """Rule 4 sets `cvr_delta_7d` with `baseline_value=None`. _measure
+    must return `evaluation_failed` honestly when baseline is missing
+    (cannot compute delta without baseline). Closes the silent-neutral
+    bug: previously cvr_delta_7d fell through to default `neutral`."""
+    import os
+    from datetime import datetime, timedelta, timezone
+    from app.services.merchant_brain import _measure
+    from app.models.brain_decision import BrainDecision
+
+    prev = os.environ.get("MERCHANT_BRAIN_ENABLED")
+    os.environ["MERCHANT_BRAIN_ENABLED"] = "1"
+    try:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        decision = BrainDecision(
+            shop_domain="_brain_cvr_test_.myshopify.com",
+            decision_at=now - timedelta(hours=48),
+            sense_snapshot={},
+            synthesis="test",
+            action_kind="proactive_nudge_compose",
+            action_payload={},
+            rationale="test",
+            limb_dispatched=None,
+            limb_response={},
+            expected_outcome_metric="cvr_delta_7d",
+            outcome_window_hours=168,
+            baseline_value=None,  # Rule 4 sets this to None today
+        )
+        db.add(decision)
+        db.flush()
+
+        result = _measure(db, decision)
+        assert result == "evaluation_failed", (
+            f"cvr_delta_7d with no baseline must return evaluation_failed "
+            f"(visible), NOT silent neutral. Got: {result!r}"
+        )
+    finally:
+        if prev is None:
+            os.environ.pop("MERCHANT_BRAIN_ENABLED", None)
+        else:
+            os.environ["MERCHANT_BRAIN_ENABLED"] = prev
+
+
 def test_brain_vero_eval_metric_events_24h_resumed_runs(db):
     """Regression test: previous outcome eval test used `cooldown_pending`
     which short-circuits before any DB query. The `events_24h_resumed`

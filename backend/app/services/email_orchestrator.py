@@ -347,15 +347,33 @@ def _resolve_merchant(
         return result
 
     # ── Step 3: Adaptive engagement check ──
+    # should_send_email returns (False, reason) for FOUR cases — all of
+    # which must suppress the send, not just `complained`:
+    #   - "complained"               (Resend complaint, hard block)
+    #   - "never_opened"             (after threshold, blocked)
+    #   - "low_open_rate:X%"         (after threshold, blocked)
+    #   - "new_merchant_weekly_cap"  (rate-limit during onboarding)
+    # Bug 2026-05-08 brutal audit: previous code only honored "complained"
+    # — the other three were silently ignored. Bypass intents (in
+    # _BYPASS_RATE_LIMIT, e.g. auto-responses) skip this gate by design,
+    # so we only check the gate against the top NON-bypass intent.
     from app.services.email_performance import should_send_email
     intents.sort(key=lambda i: i.priority)
     top = intents[0]
-    should, reason = should_send_email(db, shop, top.email_type)
-    if not should and reason == "complained":
-        result["suppressed"] = len(intents)
-        for i in intents:
-            _log_suppressed(db, i, f"adaptive:{reason}")
-        return result
+    if top.email_type not in _BYPASS_RATE_LIMIT:
+        should, reason = should_send_email(db, shop, top.email_type)
+        if not should:
+            # All non-bypass intents get suppressed; bypass intents (if any)
+            # still get a chance below.
+            non_bypass = [i for i in intents if i.email_type not in _BYPASS_RATE_LIMIT]
+            for i in non_bypass:
+                _log_suppressed(db, i, f"adaptive:{reason}")
+            result["suppressed"] = len(non_bypass)
+            # Filter out non-bypass so subsequent steps only process
+            # bypass intents (auto-responses, transactional, etc).
+            intents = [i for i in intents if i.email_type in _BYPASS_RATE_LIMIT]
+            if not intents:
+                return result
 
     # ── Step 4: Intent validation — reject and downgrade ──
     bypass = [i for i in intents if i.email_type in _BYPASS_RATE_LIMIT]

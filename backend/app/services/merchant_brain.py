@@ -1194,8 +1194,56 @@ def _measure(db: Session, decision) -> str:
             base = decision.baseline_value or 0
             return "effective" if n > base else (
                 "ineffective" if n < base else "neutral")
-        # Unknown / not-yet-implemented metric
-        return "neutral"
+        if metric == "cvr_delta_7d":
+            # Conversion-rate delta over the 7d outcome window.
+            # CVR = orders / sessions (proxy: events with event_type='page_view').
+            # baseline_value must be set at SENSE time for this metric to
+            # work. If it isn't, mark evaluation_failed honestly rather
+            # than masquerading as `neutral` (the bug 2026-05-08 brutal
+            # audit caught: silent "neutral" verdicts hid the fact that
+            # Rule 4 outcomes were never measurable).
+            base = decision.baseline_value
+            if base is None:
+                return "evaluation_failed"
+            window_start_ms = int(decision.decision_at.replace(
+                tzinfo=timezone.utc
+            ).timestamp() * 1000)
+            sessions = int(db.execute(
+                text("SELECT COUNT(DISTINCT visitor_id) FROM events "
+                     "WHERE shop_domain=:s AND timestamp >= :c"),
+                {"s": decision.shop_domain, "c": window_start_ms},
+            ).scalar() or 0)
+            orders = int(db.execute(
+                text("SELECT COUNT(*) FROM shop_orders WHERE shop_domain=:s "
+                     "AND created_at >= :c"),
+                {"s": decision.shop_domain, "c": decision.decision_at},
+            ).scalar() or 0)
+            if sessions <= 0:
+                # No traffic post-decision → cannot measure CVR
+                return "neutral"
+            current_cvr = orders / sessions
+            decision.measured_value = current_cvr
+            if base <= 0:
+                # Pre-decision CVR was 0 — any post-decision conversion
+                # is a positive lift.
+                return "effective" if current_cvr > 0 else "neutral"
+            delta_pct = ((current_cvr - base) / base) * 100
+            return "effective" if delta_pct > 5 else (
+                "ineffective" if delta_pct < -5 else "neutral")
+        if metric == "none":
+            # Rule "no_action_no_signal" — no action taken, nothing to measure.
+            # `none` is a coherent terminal state, not a missing impl.
+            return "neutral"
+        # Unknown / not-yet-implemented metric — fail HONESTLY rather
+        # than masquerading as `neutral`. This makes the bug class visible
+        # at audit time: an evaluation_failed row is a flag to investigate,
+        # whereas neutral hides it.
+        log.warning(
+            "brain._measure: unknown metric=%s on decision=%s — "
+            "returning evaluation_failed (was silently 'neutral' before fix)",
+            metric, decision.id,
+        )
+        return "evaluation_failed"
     except Exception as exc:
         log.warning("brain.measure failed decision=%s: %s", decision.id, exc)
         return "evaluation_failed"
