@@ -103,6 +103,25 @@ class FrontendErrorPayload(BaseModel):
     severity: str | None = Field("warning", max_length=16)
     extra: dict[str, Any] | None = Field(None, max_length=32)
 
+    @field_validator("extra")
+    @classmethod
+    def _check_extra_size(cls, v):
+        # Defense vs payload amplification: max_length=32 caps key count
+        # but each value can be megabytes. Validate total serialized size
+        # at parse time so json.dumps downstream doesn't burn CPU+memory
+        # on unsalvageable adversarial payloads. 16KB ceiling is generous
+        # for legitimate frontend error context (component state snapshots).
+        if v is None:
+            return v
+        try:
+            import json as _json
+            raw = _json.dumps(v, default=str)
+        except Exception:
+            return None
+        if len(raw) > 16 * 1024:
+            return None
+        return v
+
     @field_validator("severity")
     @classmethod
     def _check_severity(cls, v: str | None) -> str:

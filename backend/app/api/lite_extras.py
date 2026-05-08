@@ -1895,9 +1895,15 @@ def get_customer_churn_forecast(
         except Exception:
             lock_acquired = True  # fail-open: better to compute than block
         if not lock_acquired:
-            # Another worker is filling — poll cache for up to 10s
-            for _ in range(20):  # 20 × 0.5s = 10s budget
-                time.sleep(0.5)
+            # Another worker is filling — poll cache briefly (3s budget,
+            # was 10s). At 10k concurrent merchants, every concurrent
+            # caller blocks an uvicorn worker for the poll duration; 10s
+            # × 1000 callers = 1000 worker-seconds burn on cache stampede.
+            # 3s keeps the worker pool free; lock holder usually fills
+            # in <1s (single CTE, indexed). On lock-holder timeout the
+            # caller falls through to compute (rare).
+            for _ in range(15):  # 15 × 0.2s = 3s budget
+                time.sleep(0.2)
                 cached2 = cache_get(cache_key)
                 if cached2:
                     return CustomerChurnForecastResponse(**cached2)

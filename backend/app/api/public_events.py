@@ -38,7 +38,7 @@ import logging
 import time
 
 from fastapi import APIRouter, Header, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text as sql_text
 
 from app.core.database import SessionLocal
@@ -73,6 +73,25 @@ class PublicEventPayload(BaseModel):
     product_url: str | None = Field(None, max_length=512)
     revenue_eur: float | None = None
     properties: dict | None = None
+
+    @field_validator("properties")
+    @classmethod
+    def _check_properties_size(cls, v):
+        # Defense vs payload amplification: even with HMAC gating, a
+        # compromised shop secret should not allow a single POST to
+        # generate a 100MB row in `events_metadata` or burn worker
+        # memory. 8KB ceiling covers legitimate properties (cart line
+        # items, custom flow context) without enabling abuse.
+        if v is None:
+            return v
+        try:
+            import json as _json
+            raw = _json.dumps(v, default=str)
+        except Exception:
+            return None
+        if len(raw) > 8 * 1024:
+            return None
+        return v
 
 
 def _verify_signature(body: bytes, signature: str, secret: str) -> bool:
