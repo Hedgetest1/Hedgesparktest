@@ -379,6 +379,67 @@ _BRAIN_DISPATCH_COOLDOWN_HOURS = 24
 # decisions, not only across same-template repeats.
 _BRAIN_ANY_EMAIL_COOLDOWN_HOURS = 20
 
+# Holdout (control-arm) percentage. The brain DECIDES for every active
+# merchant but DISPATCHES for only (1 - _HOLDOUT_PCT) of them per day.
+# Deterministic by (shop_domain, decision_at.date()) hash — the same
+# merchant stays in the same arm within a calendar day so cooldown
+# semantics survive (no within-day flip).
+#
+# Why holdout matters: without a control group, "rars_delta_7d" or
+# "events_24h_resumed" outcomes are unattributable — could be brain
+# action, could be organic shop activity, could be season/marketing.
+# A 10% holdout produces statistical lift signal at low traffic cost.
+#
+# Override via env: BRAIN_HOLDOUT_PCT (string fraction, e.g. "0.15").
+# 0.0 disables holdout (every merchant gets treatment); validated tests
+# pin the default to 0.10. Born 2026-05-08 closing the Competitor-CTO
+# v0.4 gap "no A/B for outcome measurement".
+_HOLDOUT_PCT_DEFAULT = 0.10
+
+
+def _holdout_pct() -> float:
+    """Read holdout pct from env at decision time (so a run-time override
+    via `BRAIN_HOLDOUT_PCT=0` is respected without restart). Clamped to
+    [0.0, 1.0]. Values outside range fall back to default. Production
+    safety: founder-set env should stay <=0.5; tests may set 1.0 to
+    force every merchant into the control arm."""
+    raw = os.getenv("BRAIN_HOLDOUT_PCT", "").strip()
+    if not raw:
+        return _HOLDOUT_PCT_DEFAULT
+    try:
+        v = float(raw)
+        if 0.0 <= v <= 1.0:
+            return v
+    except ValueError:
+        pass
+    return _HOLDOUT_PCT_DEFAULT
+
+
+def _is_holdout(shop_domain: str, decision_at: datetime | None = None) -> bool:
+    """Deterministic per-shop-per-day holdout assignment. Same merchant
+    on the same day → same arm, so within-day cooldown semantics hold.
+
+    Hash space: SHA1 of f"{shop_domain}|{date}" → first 8 hex chars →
+    int → mod 1000 → compare against pct * 1000. Stable across restarts
+    and Python versions. Brain ledger records the arm in limb_response
+    so analysis can compare treatment vs. control.
+
+    Returns False when brain is disabled — defensive so a direct
+    `_coordinate` call with brain disabled still routes through the
+    adversarial-review brain-disabled gate."""
+    if not is_brain_enabled():
+        return False
+    pct = _holdout_pct()
+    if pct <= 0.0:
+        return False
+    when = decision_at or datetime.now(timezone.utc)
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    key = f"{shop_domain}|{when.strftime('%Y-%m-%d')}"
+    import hashlib as _h
+    bucket = int(_h.sha1(key.encode("utf-8")).hexdigest()[:8], 16) % 1000
+    return bucket < int(pct * 1000)
+
 
 def _adversarial_review(
     db: Session, state: MerchantState, decision: BrainDecisionDraft,
@@ -818,6 +879,17 @@ def _coordinate(
     if decision.action_kind in ("no_action_cooldown", "no_action_no_signal"):
         return None, {}
 
+    # Holdout (control arm) — brain decides but does NOT dispatch. Records
+    # the arm in limb_response so outcome measurement can compare
+    # treatment vs control. Born 2026-05-08 closing the Competitor-CTO
+    # gap "no A/B for outcome measurement".
+    if _is_holdout(state.shop_domain):
+        return None, {
+            "arm": "control_holdout",
+            "holdout_pct": _holdout_pct(),
+            "would_dispatch_action_kind": decision.action_kind,
+        }
+
     email_type = _ACTION_EMAIL_MAP.get(decision.action_kind)
 
     # Email-driven: run adversarial review + dispatch via email_orchestrator.
@@ -943,6 +1015,89 @@ def tick_all_active_merchants(db: Session, max_shops: int = 100) -> dict:
             log.warning("brain.tick failed for %s: %s", shop, exc)
             db.rollback()
     return {"ticks": len(shops), "by_action": actions}
+
+
+def enrich_dispatched_decisions(db: Session, max_enrich: int = 100) -> dict:
+    """Post-flush enrichment: walk recent brain_decisions where the brain
+    dispatched via email_orchestrator but limb_response is missing the
+    `resend_id` (the orchestrator queues intents and flushes them async,
+    so resend_id is only known after the actual Resend send completes).
+
+    Joins brain_decisions ↔ merchant_emails by (shop_domain, email_type,
+    decision_at +/- 30 min). Stamps `resend_id`, `send_status`, and
+    `merchant_email_id` into limb_response so downstream observability
+    answers "did the brain's email actually arrive?".
+
+    The brain's per-(shop, email_type) 24h cooldown + brain-wide 20h
+    cooldown together guarantee at most ONE matching merchant_emails
+    row in the 30-min window, so the join is unambiguous.
+
+    Called from agent_worker on its cycle. Bounded at max_enrich rows
+    per call. Born 2026-05-08 closing the Competitor-CTO v0.4 gap
+    "no observability link from brain decision → actual delivery".
+    """
+    if not is_brain_enabled():
+        return {"skipped": "brain_disabled", "enriched": 0}
+
+    from app.models.brain_decision import BrainDecision
+    from app.models.merchant_email import MerchantEmail
+    from sqlalchemy.orm.attributes import flag_modified
+    from datetime import timedelta as _td
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    # Walk decisions dispatched in last 24h that don't yet have resend_id.
+    pending = (
+        db.query(BrainDecision)
+        .filter(
+            BrainDecision.limb_dispatched == "email_orchestrator",
+            BrainDecision.decision_at >= now - _td(hours=24),
+            BrainDecision.decision_at <= now - _td(minutes=2),  # allow flush
+        )
+        .order_by(BrainDecision.decision_at.desc())
+        .limit(max_enrich)
+        .all()
+    )
+
+    enriched = 0
+    for d in pending:
+        resp = d.limb_response or {}
+        if "resend_id" in resp or "send_status" in resp:
+            continue  # already enriched (or no email row to find)
+        email_type = resp.get("email_type")
+        if not email_type:
+            continue
+
+        # Match merchant_emails row by (shop, email_type, time-window).
+        match = (
+            db.query(MerchantEmail)
+            .filter(
+                MerchantEmail.shop_domain == d.shop_domain,
+                MerchantEmail.email_type == email_type,
+                MerchantEmail.created_at >= d.decision_at,
+                MerchantEmail.created_at <= d.decision_at + _td(minutes=30),
+            )
+            .order_by(MerchantEmail.created_at.asc())
+            .first()
+        )
+        if match is None:
+            # No row yet — orchestrator may flush later. Skip; we'll
+            # retry on next cycle within 24h window.
+            continue
+
+        resp["merchant_email_id"] = int(match.id)
+        resp["send_status"] = match.status  # sent | suppressed | failed
+        if match.resend_id:
+            resp["resend_id"] = match.resend_id
+        if match.suppressed_by:
+            resp["suppressed_by"] = match.suppressed_by
+
+        d.limb_response = resp
+        flag_modified(d, "limb_response")
+        enriched += 1
+
+    if enriched > 0:
+        db.commit()
+    return {"enriched": enriched}
 
 
 def evaluate_pending_outcomes(db: Session, max_evaluate: int = 50) -> dict:

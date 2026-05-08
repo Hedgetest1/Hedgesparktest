@@ -230,6 +230,7 @@ def _run_merchant_brain_tick():
             is_brain_enabled,
             tick_all_active_merchants,
             evaluate_pending_outcomes as brain_evaluate_pending,
+            enrich_dispatched_decisions as brain_enrich_dispatched,
         )
         if not is_brain_enabled():
             return
@@ -237,6 +238,12 @@ def _run_merchant_brain_tick():
         if result.get("ticks", 0) > 0:
             by_action = result.get("by_action", {})
             log(f"merchant_brain: ticks={result['ticks']} {dict(by_action)}")
+        # Enrich dispatched decisions with merchant_emails resend_id +
+        # send_status. Closes the brain → actual-delivery observability
+        # gap (Competitor-CTO audit, 2026-05-08).
+        enrich_result = brain_enrich_dispatched(db, max_enrich=100)
+        if enrich_result.get("enriched", 0) > 0:
+            log(f"merchant_brain: enriched={enrich_result['enriched']}")
         # Close LEARN loop for decisions whose outcome window elapsed
         eval_result = brain_evaluate_pending(db, max_evaluate=50)
         if eval_result.get("evaluated", 0) > 0:

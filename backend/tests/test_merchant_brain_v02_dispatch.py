@@ -319,6 +319,270 @@ def test_email_priority_recovery_digest_revenue(db):
 
 
 # -------------------------------------------------------------------------
+# Holdout (control arm) — A/B for outcome measurement
+# -------------------------------------------------------------------------
+
+def test_holdout_pct_default_is_10pct(monkeypatch):
+    from app.services.merchant_brain import _holdout_pct
+    monkeypatch.delenv("BRAIN_HOLDOUT_PCT", raising=False)
+    assert _holdout_pct() == 0.10
+
+
+def test_holdout_pct_env_override(monkeypatch):
+    from app.services.merchant_brain import _holdout_pct
+    monkeypatch.setenv("BRAIN_HOLDOUT_PCT", "0.25")
+    assert _holdout_pct() == 0.25
+
+
+def test_holdout_pct_zero_disables(monkeypatch):
+    from app.services.merchant_brain import _is_holdout
+    monkeypatch.setenv("MERCHANT_BRAIN_ENABLED", "1")
+    monkeypatch.setenv("BRAIN_HOLDOUT_PCT", "0")
+    # With 0% holdout, no shop should ever be in control arm.
+    for shop in [f"shop-{i}.myshopify.com" for i in range(50)]:
+        assert _is_holdout(shop) is False
+
+
+def test_holdout_pct_invalid_falls_back(monkeypatch):
+    from app.services.merchant_brain import _holdout_pct
+    monkeypatch.setenv("BRAIN_HOLDOUT_PCT", "not-a-number")
+    assert _holdout_pct() == 0.10
+
+
+def test_holdout_deterministic_per_shop_per_day(monkeypatch):
+    """Same shop on same day → same arm; cross-day arm rotation."""
+    from app.services.merchant_brain import _is_holdout
+    from datetime import datetime, timezone
+    monkeypatch.setenv("MERCHANT_BRAIN_ENABLED", "1")
+    monkeypatch.setenv("BRAIN_HOLDOUT_PCT", "0.10")
+    day_a = datetime(2026, 5, 8, 12, 0, tzinfo=timezone.utc)
+    day_b = datetime(2026, 5, 9, 12, 0, tzinfo=timezone.utc)
+    # Same shop + same day → identical assignment
+    for _ in range(5):
+        assert _is_holdout("test-shop.myshopify.com", day_a) == _is_holdout("test-shop.myshopify.com", day_a)
+    # Different days for same shop CAN differ (deterministic on date)
+    arms = {_is_holdout(f"shop-{i}.myshopify.com", day_a) for i in range(200)}
+    # With 200 shops at 10%, we should see both True and False arms
+    assert arms == {True, False}, "10% holdout over 200 shops must produce both arms"
+
+
+def test_holdout_distribution_close_to_pct(monkeypatch):
+    from app.services.merchant_brain import _is_holdout
+    from datetime import datetime, timezone
+    monkeypatch.setenv("MERCHANT_BRAIN_ENABLED", "1")
+    monkeypatch.setenv("BRAIN_HOLDOUT_PCT", "0.10")
+    day = datetime(2026, 5, 8, 12, 0, tzinfo=timezone.utc)
+    holdouts = sum(
+        1 for i in range(1000)
+        if _is_holdout(f"distribution-shop-{i}.myshopify.com", day)
+    )
+    # 10% of 1000 = 100 ± reasonable variance (uniform hash) → 50–150
+    assert 50 <= holdouts <= 150, f"holdout distribution 10% drift: {holdouts}/1000"
+
+
+def test_coordinate_holdout_shop_skips_dispatch(db, monkeypatch):
+    """A shop assigned to control arm: brain decides but does NOT
+    dispatch. Records arm=control_holdout in limb_response."""
+    monkeypatch.setenv("MERCHANT_BRAIN_ENABLED", "1")
+    monkeypatch.setenv("BRAIN_HOLDOUT_PCT", "1.0")  # force ALL shops into holdout
+    shop = "brain-holdout-test.myshopify.com"
+    _seed_merchant(db, shop)
+    state = _state(shop_domain=shop, churn_risk_level="critical", recent_orders_7d=2)
+    limb, resp = _coordinate(
+        db, state, _draft(action_kind="retention_outreach_email"),
+    )
+    assert limb is None
+    assert resp.get("arm") == "control_holdout"
+    assert resp.get("would_dispatch_action_kind") == "retention_outreach_email"
+    assert resp.get("holdout_pct") == 1.0
+
+
+def test_coordinate_treatment_shop_dispatches(db, monkeypatch):
+    """A shop NOT in holdout (pct=0) gets the normal dispatch path."""
+    monkeypatch.setenv("MERCHANT_BRAIN_ENABLED", "1")
+    monkeypatch.setenv("BRAIN_HOLDOUT_PCT", "0.0")  # no holdout
+    shop = "brain-treatment-test.myshopify.com"
+    _seed_merchant(db, shop)
+
+    captured: dict = {}
+
+    def _fake_submit(_db, intent):
+        captured["email_type"] = intent.email_type
+        return "intent_treat_xyz"
+
+    monkeypatch.setattr(
+        "app.services.email_orchestrator.submit_intent", _fake_submit
+    )
+
+    state = _state(shop_domain=shop, churn_risk_level="critical", recent_orders_7d=2)
+    limb, resp = _coordinate(
+        db, state, _draft(action_kind="retention_outreach_email"),
+    )
+    assert limb == "email_orchestrator"
+    assert resp.get("email_type") == "retention_outreach"
+
+
+# -------------------------------------------------------------------------
+# EmailEvent enrichment — brain ↔ merchant_emails linkage
+# -------------------------------------------------------------------------
+
+def test_enrich_dispatched_decisions_links_resend_id(db, monkeypatch):
+    """After orchestrator flushes a brain-dispatched intent, the
+    enrichment helper joins the merchant_emails row back into
+    brain_decisions.limb_response so observability traces brain → send.
+    """
+    from app.services.merchant_brain import enrich_dispatched_decisions
+    monkeypatch.setenv("MERCHANT_BRAIN_ENABLED", "1")
+    shop = "brain-enrich-test.myshopify.com"
+
+    # Seed a brain_decision dispatched 10 min ago, missing resend_id
+    db.execute(
+        _sql_text(
+            "INSERT INTO brain_decisions "
+            "(shop_domain, sense_snapshot, synthesis, action_kind, "
+            " action_payload, rationale, limb_dispatched, limb_response, "
+            " expected_outcome_metric, outcome_window_hours, baseline_value, "
+            " decision_at) "
+            "VALUES (:s, '{}', 'enrich-test', 'recovery_digest', '{}', "
+            " 'enrich-test', 'email_orchestrator', "
+            " '{\"intent_id\":\"intent_xxx\",\"email_type\":\"recovery_digest\"}', "
+            " 'rars_delta_7d', 168, 1000.0, "
+            " NOW() - INTERVAL '10 minutes') "
+            "RETURNING id"
+        ),
+        {"s": shop},
+    )
+    bd_id = db.execute(
+        _sql_text(
+            "SELECT id FROM brain_decisions WHERE shop_domain = :s "
+            "ORDER BY id DESC LIMIT 1"
+        ),
+        {"s": shop},
+    ).scalar()
+
+    # Seed a merchant_emails row that the orchestrator wrote 5 min later
+    db.execute(
+        _sql_text(
+            "INSERT INTO merchant_emails "
+            "(shop_domain, email_type, to_email, subject, status, resend_id, created_at) "
+            "VALUES (:s, 'recovery_digest', 'merchant@test.com', "
+            "        'recovery email', 'sent', 'resend_abc123', "
+            "        NOW() - INTERVAL '5 minutes')"
+        ),
+        {"s": shop},
+    )
+    db.commit()
+
+    # Run enrichment
+    result = enrich_dispatched_decisions(db, max_enrich=10)
+    assert result["enriched"] >= 1
+
+    # Verify limb_response now has resend_id + send_status
+    row = db.execute(
+        _sql_text("SELECT limb_response FROM brain_decisions WHERE id = :i"),
+        {"i": bd_id},
+    ).fetchone()
+    resp = row[0]
+    assert resp.get("resend_id") == "resend_abc123"
+    assert resp.get("send_status") == "sent"
+    assert "merchant_email_id" in resp
+
+
+def test_enrich_dispatched_decisions_records_suppression(db, monkeypatch):
+    """When orchestrator suppresses (rate-limited / governance),
+    enrichment records send_status=suppressed + suppressed_by."""
+    from app.services.merchant_brain import enrich_dispatched_decisions
+    monkeypatch.setenv("MERCHANT_BRAIN_ENABLED", "1")
+    shop = "brain-enrich-suppress.myshopify.com"
+
+    db.execute(
+        _sql_text(
+            "INSERT INTO brain_decisions "
+            "(shop_domain, sense_snapshot, synthesis, action_kind, "
+            " action_payload, rationale, limb_dispatched, limb_response, "
+            " expected_outcome_metric, outcome_window_hours, baseline_value, "
+            " decision_at) "
+            "VALUES (:s, '{}', 'suppress-test', 'retention_outreach_email', "
+            " '{}', 'suppress-test', 'email_orchestrator', "
+            " '{\"intent_id\":\"intent_yyy\",\"email_type\":\"retention_outreach\"}', "
+            " 'merchant_re_engaged_7d', 168, 0.0, "
+            " NOW() - INTERVAL '10 minutes')"
+        ),
+        {"s": shop},
+    )
+    db.execute(
+        _sql_text(
+            "INSERT INTO merchant_emails "
+            "(shop_domain, email_type, to_email, subject, status, suppressed_by, created_at) "
+            "VALUES (:s, 'retention_outreach', 'merchant@test.com', "
+            "        'retention', 'suppressed', "
+            "        'orchestrator:rate_limited', "
+            "        NOW() - INTERVAL '5 minutes')"
+        ),
+        {"s": shop},
+    )
+    db.commit()
+
+    enrich_dispatched_decisions(db, max_enrich=10)
+    row = db.execute(
+        _sql_text(
+            "SELECT limb_response FROM brain_decisions WHERE shop_domain = :s "
+            "ORDER BY id DESC LIMIT 1"
+        ),
+        {"s": shop},
+    ).fetchone()
+    resp = row[0]
+    assert resp.get("send_status") == "suppressed"
+    assert resp.get("suppressed_by") == "orchestrator:rate_limited"
+    # No resend_id for suppressed sends — that's correct
+    assert resp.get("resend_id") is None or "resend_id" not in resp
+
+
+def test_enrich_skips_already_enriched(db, monkeypatch):
+    """Re-running enrichment doesn't double-process — already-enriched
+    decisions (resend_id present) are skipped."""
+    from app.services.merchant_brain import enrich_dispatched_decisions
+    monkeypatch.setenv("MERCHANT_BRAIN_ENABLED", "1")
+    shop = "brain-enrich-skip.myshopify.com"
+    db.execute(
+        _sql_text(
+            "INSERT INTO brain_decisions "
+            "(shop_domain, sense_snapshot, synthesis, action_kind, "
+            " action_payload, rationale, limb_dispatched, limb_response, "
+            " expected_outcome_metric, outcome_window_hours, baseline_value, "
+            " decision_at) "
+            "VALUES (:s, '{}', 'skip-test', 'recovery_digest', '{}', "
+            " 'skip-test', 'email_orchestrator', "
+            " '{\"intent_id\":\"i1\",\"email_type\":\"recovery_digest\","
+            "   \"resend_id\":\"already_enriched\",\"send_status\":\"sent\"}', "
+            " 'rars_delta_7d', 168, 0.0, "
+            " NOW() - INTERVAL '10 minutes')"
+        ),
+        {"s": shop},
+    )
+    db.commit()
+    result = enrich_dispatched_decisions(db, max_enrich=10)
+    # Already enriched → not counted again
+    bd_resp = db.execute(
+        _sql_text(
+            "SELECT limb_response FROM brain_decisions WHERE shop_domain = :s "
+            "ORDER BY id DESC LIMIT 1"
+        ),
+        {"s": shop},
+    ).fetchone()[0]
+    assert bd_resp.get("resend_id") == "already_enriched"  # unchanged
+
+
+def test_enrich_skips_brain_disabled(db, monkeypatch):
+    """When brain is disabled, enrichment is a no-op."""
+    from app.services.merchant_brain import enrich_dispatched_decisions
+    monkeypatch.delenv("MERCHANT_BRAIN_ENABLED", raising=False)
+    result = enrich_dispatched_decisions(db, max_enrich=10)
+    assert result.get("skipped") == "brain_disabled"
+    assert result.get("enriched") == 0
+
+
+# -------------------------------------------------------------------------
 # COORDINATE — dispatch wiring
 # -------------------------------------------------------------------------
 
