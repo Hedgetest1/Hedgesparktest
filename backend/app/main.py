@@ -93,12 +93,8 @@ from app.models.ops_alert import OpsAlert             # noqa: F401 — ensures t
 from app.models.action_outcome import ActionOutcome   # noqa: F401 — ensures table is created
 from app.models.action_approval import ActionApproval # noqa: F401 — ensures table is created
 from app.models.autofix_promotion import AutoFixPromotion # noqa: F401 — ensures table is created
-from app.models.merge_outcome import MergeOutcome       # noqa: F401 — ensures table is created
-from app.models.evolution_proposal import EvolutionProposal # noqa: F401 — ensures table is created
-from app.models.model_upgrade import ModelUpgradeProposal  # noqa: F401 — ensures table is created
 from app.models.active_model_config import ActiveModelConfig  # noqa: F401 — ensures table is created
 from app.models.support_incident import SupportIncident       # noqa: F401 — ensures table is created
-from app.models.meta_review import MetaReview                 # noqa: F401 — ensures table is created
 from app.models.system_snapshot import SystemSnapshot         # noqa: F401 — ensures table is created
 from app.models.scaling_recommendation import ScalingRecommendation  # noqa: F401 — ensures table is created
 from app.models.bugfix_candidate import BugFixCandidate # noqa: F401 — ensures table is created

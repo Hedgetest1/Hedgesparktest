@@ -235,6 +235,10 @@ def _build_scarcity_nudge_payload(candidate: dict) -> dict:
     cvr_estimate     = candidate.get("cvr_estimate")
     calibration      = candidate.get("calibration_state", "unknown")
     trigger_source   = candidate.get("trigger_source")
+    # Currency may be populated by the candidate producer (hot_segment_monitor)
+    # via get_shop_currency. Fallback to USD only when candidate didn't
+    # carry it (e.g. legacy producers / synthetic test fixtures).
+    currency         = candidate.get("currency") or "USD"
 
     checklist = [
         {
@@ -285,11 +289,12 @@ def _build_scarcity_nudge_payload(candidate: dict) -> dict:
         })
 
     if revenue_window and revenue_window >= 1.0:
+        from app.core.currency import format_money
         suggested_fixes.append({
             "priority": 2,
             "fix": (
                 f"Add a limited-time offer to capture the "
-                f"${revenue_window:.0f} estimated revenue window"
+                f"{format_money(revenue_window, currency)} estimated revenue window"
             ),
             "impact": "HIGH",
             "signal": "HOT_SEGMENT",

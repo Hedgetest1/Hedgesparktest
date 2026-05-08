@@ -74,6 +74,10 @@ def is_brain_enabled() -> bool:
 @dataclass
 class MerchantState:
     shop_domain: str
+    # Despite the legacy `_eur` suffix this carries the shop's NATIVE
+    # currency total (revenue_at_risk doesn't convert). Pair with
+    # `currency` below for honest rendering. Renaming the field is a
+    # cross-module change deferred to v0.5.
     rars_total_eur: float
     churn_risk_level: str   # "critical"/"high"/"medium"/"low"/"unknown"
     recent_orders_7d: int
@@ -83,6 +87,7 @@ class MerchantState:
     last_chat_age_hours: float | None
     last_brain_decision_age_hours: float | None
     has_email_in_queue: bool
+    currency: str = "USD"
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +189,13 @@ def _sense(db: Session, shop_domain: str) -> MerchantState:
     except Exception:
         has_email_in_queue = False
 
+    # Shop currency for honest rendering of the rars_total field.
+    try:
+        from app.services.revenue_metrics import get_shop_currency
+        shop_currency = get_shop_currency(db, shop_domain) or "USD"
+    except Exception:
+        shop_currency = "USD"
+
     return MerchantState(
         shop_domain=shop_domain,
         rars_total_eur=rars_total,
@@ -195,6 +207,7 @@ def _sense(db: Session, shop_domain: str) -> MerchantState:
         last_chat_age_hours=None,  # v0.2 wires chat history
         last_brain_decision_age_hours=last_brain_age,
         has_email_in_queue=has_email_in_queue,
+        currency=shop_currency,
     )
 
 
@@ -207,7 +220,8 @@ def _synthesize(state: MerchantState) -> str:
     cross-signal synthesis grounded on the same state dict."""
     parts = []
     if state.rars_total_eur > 0:
-        parts.append(f"€{state.rars_total_eur:,.0f} at risk")
+        from app.core.currency import format_money
+        parts.append(f"{format_money(state.rars_total_eur, state.currency)} at risk")
     if state.churn_risk_level in ("critical", "high"):
         parts.append(f"{state.churn_risk_level} churn risk")
     if state.recent_orders_7d == 0 and state.hours_since_install > 168:

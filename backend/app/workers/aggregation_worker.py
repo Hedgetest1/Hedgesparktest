@@ -294,7 +294,6 @@ _run_worker_watchdog = _watchdog_task.run
 _should_run_data_integrity_probe = _data_integrity_task.should_run
 _run_data_integrity_probe = _data_integrity_task.run
 _sweep_stale_tasks = _cleanup_task_module.sweep_stale_tasks
-_sweep_stuck_candidates = _cleanup_task_module.sweep_stuck_candidates
 
 # Phase Ω⁶ split — nudge compose in workers/tasks/nudge_compose_task.py
 from app.workers.tasks import nudge_compose_task as _nudge_compose_task  # noqa: E402
@@ -368,16 +367,6 @@ def _run_cycle_inner() -> None:
                 log(f"stale-task sweep: released {released} stale tasks")
         except Exception as exc:
             log(f"stale-task sweep error (non-fatal): {exc}")
-
-        # Stuck candidate sweep — recover candidates stuck in 'applying'
-        try:
-            recovered = _sweep_stuck_candidates(db)
-            if recovered > 0:
-                db.commit()
-                log(f"stuck-candidate sweep: recovered {recovered} candidates")
-        except Exception as exc:
-            db.rollback()
-            log(f"stuck-candidate sweep error (non-fatal): {exc}")
 
         # AI nudge compose upgrade — merchants' Pro nudges are created with
         # baseline variants synchronously (request never blocks on OpenAI).

@@ -56,7 +56,11 @@ class ReviewerAssessment(Base):
 
     # Provenance
     reviewer_mode = Column(String(16), nullable=False)        # deterministic | llm_assisted
-    brain_snapshot_id = Column(Integer, nullable=True)        # FK to project_brain_snapshots
+    # brain_snapshot_id was a soft FK to project_brain_snapshots, deleted
+    # in Stage 2-E supersession 2026-05-08. Column kept on the table for
+    # historical rows; migration to drop the column is deferred since
+    # no live writer references it.
+    brain_snapshot_id = Column(Integer, nullable=True)
 
     __table_args__ = (
         Index("ix_reviewer_entity", "entity_type", "entity_id"),

@@ -1,13 +1,16 @@
 """
-cleanup_task.py — Stale/stuck sweeps for action_tasks and bugfix candidates.
+cleanup_task.py — Stale-task sweep for action_tasks.
 
-Extracted from aggregation_worker.py (Phase Ω⁶ split). Two sweeps that
-run every cycle:
+Extracted from aggregation_worker.py (Phase Ω⁶ split). One sweep that
+runs every cycle:
 
   sweep_stale_tasks(db)         — release action_tasks stuck in 'executing'
-  sweep_stuck_candidates(db)    — recover bugfix candidates stuck in 'applying'
 
-Neither function takes a `log` callback — they use the module logger.
+The function uses the module logger (no `log` callback).
+
+Removed 2026-05-08: sweep_stuck_candidates — Stage 2-E supersession
+deleted bugfix_pipeline (the only producer of `applying` candidates).
+With no writers, the watchdog had nothing to recover.
 """
 from __future__ import annotations
 
@@ -22,7 +25,6 @@ from app.services.action_executor import release_task
 _log = logging.getLogger("worker.aggregation.cleanup")
 
 _STALE_TASK_THRESHOLD_MINUTES = 10
-_STUCK_CANDIDATE_THRESHOLD_MINUTES = 10
 
 
 def sweep_stale_tasks(db: Session) -> int:
@@ -79,51 +81,3 @@ def sweep_stale_tasks(db: Session) -> int:
     return released
 
 
-def sweep_stuck_candidates(db: Session) -> int:
-    """
-    Find bugfix_candidates stuck in 'applying' > threshold. Recover them
-    to 'apply_failed' and release locks.
-    """
-    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=_STUCK_CANDIDATE_THRESHOLD_MINUTES)
-
-    from app.models.bugfix_candidate import BugFixCandidate
-    stuck = (
-        db.query(BugFixCandidate)
-        .filter(
-            BugFixCandidate.status == "applying",
-            BugFixCandidate.decided_at < cutoff,
-        )
-        .all()
-    )
-
-    if not stuck:
-        return 0
-
-    recovered = 0
-    for c in stuck:
-        c.status = "apply_failed"
-        c.failure_reason = "stuck_in_applying: process crash or timeout — recovered by watchdog"
-        recovered += 1
-
-        try:
-            from app.core.telegram_safety import release_execution_lock
-            release_execution_lock("bugfix", str(c.id))
-        except Exception as exc:
-            _log.warning("cleanup: execution lock release failed for candidate #%s: %s", c.id, exc)
-
-        try:
-            from app.services.alerting import write_alert
-            # heal-detection: cleanup task runs once per cycle and emits a per-pass event log when failures occur — discrete event, not a recurring condition
-            write_alert(
-                db, severity="warning", source="watchdog",
-                alert_type="stuck_candidate_recovered",
-                summary=f"Bugfix #{c.id} stuck in 'applying' for >10min — recovered to 'apply_failed'",
-                detail={"candidate_id": c.id, "title": c.title},
-            )
-        except Exception as exc:
-            _log.warning("cleanup: alert write failed for candidate #%s: %s", c.id, exc)
-
-        _log.info("stuck-candidate sweep: recovered #%s from 'applying' → 'apply_failed'", c.id)
-
-    db.flush()
-    return recovered

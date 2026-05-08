@@ -286,8 +286,17 @@ def get_behavioral_cohort_analysis(
         if members
     ]
 
-    # Step 6: Generate insights
-    insights = _generate_insights(engagement_segments, visit_segments, source_segments, total_customers)
+    # Step 6: Generate insights — pass shop currency so revenue strings
+    # render in the merchant's native symbol (was hardcoded `$`).
+    try:
+        from app.services.revenue_metrics import get_shop_currency
+        _currency = get_shop_currency(db, shop_domain) or "USD"
+    except Exception:
+        _currency = "USD"
+    insights = _generate_insights(
+        engagement_segments, visit_segments, source_segments,
+        total_customers, currency=_currency,
+    )
 
     return {
         "window_days": days,
@@ -306,8 +315,12 @@ def get_behavioral_cohort_analysis(
     }
 
 
-def _generate_insights(engagement: list, visit: list, source: list, total: int) -> list[str]:
+def _generate_insights(
+    engagement: list, visit: list, source: list, total: int,
+    currency: str = "USD",
+) -> list[str]:
     """Generate actionable interpretive insights from segment data."""
+    from app.core.currency import format_money
     insights = []
 
     if total == 0:
@@ -336,8 +349,9 @@ def _generate_insights(engagement: list, visit: list, source: list, total: int) 
     if repeat and single and repeat["customers"] >= 2 and single["customers"] >= 2:
         if repeat["avg_revenue"] > single["avg_revenue"] * 1.2:
             insights.append(
-                f"Repeat visitors before purchase spend ${repeat['avg_revenue']:.0f}/customer vs "
-                f"${single['avg_revenue']:.0f} for single-visit buyers. "
+                f"Repeat visitors before purchase spend "
+                f"{format_money(repeat['avg_revenue'], currency)}/customer vs "
+                f"{format_money(single['avg_revenue'], currency)} for single-visit buyers. "
                 "Retargeting browsers who haven't bought yet could capture this value."
             )
         if single["repeat_rate"] < repeat["repeat_rate"] - 0.05:

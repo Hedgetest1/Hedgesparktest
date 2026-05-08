@@ -5,7 +5,6 @@ from app.models.action_task import ActionTask
 from app.models.active_model_config import ActiveModelConfig
 from app.models.active_nudge import ActiveNudge
 from app.models.ad_spend import AdConnection, AdSpendDaily
-from app.models.adversarial_review_finding import AdversarialReviewFinding
 from app.models.agency import Agency, AgencyClient
 from app.models.analytics_event import AnalyticsEvent
 from app.models.audit_log import AuditLog
@@ -18,7 +17,6 @@ from app.models.community_template import CommunityTemplate, CommunityTemplateCl
 from app.models.daily_brief import DailyBrief
 from app.models.email_event import EmailEvent
 from app.models.event import Event
-from app.models.evolution_proposal import EvolutionProposal
 from app.models.execution import (
     ExecutionAudience,
     ExecutionBaseline,
@@ -35,9 +33,6 @@ from app.models.merchant_group import MerchantGroup, MerchantGroupMember
 from app.models.merchant_journey_state import MerchantJourneyState
 from app.models.merchant_rule import MerchantRule
 from app.models.merchant_saved_report import MerchantSavedReport
-from app.models.merge_outcome import MergeOutcome
-from app.models.meta_review import MetaReview
-from app.models.model_upgrade import ModelUpgradeProposal
 from app.models.night_shift_report import NightShiftReport
 from app.models.nudge_event import NudgeEvent
 from app.models.nudge_impression_daily import NudgeImpressionDaily
@@ -45,7 +40,6 @@ from app.models.onboarding_event import OnboardingEvent
 from app.models.ops_alert import OpsAlert
 from app.models.opportunity_signal import OpportunitySignal
 from app.models.outbound_webhook import OutboundWebhookDelivery, OutboundWebhookSubscription
-from app.models.patch_fingerprint import PatchFingerprint
 from app.models.prediction_log import PredictionLog
 from app.models.price_intelligence import PriceIntelligence
 from app.models.price_watch import PriceWatch
@@ -53,7 +47,6 @@ from app.models.product import Product
 from app.models.product_cost import ProductCost
 from app.models.product_metrics import ProductMetrics
 from app.models.product_opportunity import ProductOpportunity
-from app.models.project_brain_snapshot import ProjectBrainSnapshot
 from app.models.reviewer_assessment import ReviewerAssessment
 from app.models.scaling_recommendation import ScalingRecommendation
 from app.models.sentry_incident import SentryIncident
@@ -99,7 +92,6 @@ __all__ = [
     "DailyBrief",
     "EmailEvent",
     "Event",
-    "EvolutionProposal",
     "ExecutionAudience",
     "ExecutionBaseline",
     "ExecutionOpportunity",
@@ -113,9 +105,6 @@ __all__ = [
     "MerchantGroupMember",
     "MerchantJourneyState",
     "MerchantRule",
-    "MergeOutcome",
-    "MetaReview",
-    "ModelUpgradeProposal",
     "NightShiftReport",
     "NudgeEvent",
     "NudgeImpressionDaily",
@@ -124,14 +113,12 @@ __all__ = [
     "OpportunitySignal",
     "OutboundWebhookDelivery",
     "OutboundWebhookSubscription",
-    "PatchFingerprint",
     "PriceIntelligence",
     "PriceWatch",
     "Product",
     "ProductCost",
     "ProductMetrics",
     "ProductOpportunity",
-    "ProjectBrainSnapshot",
     "PublicProofShare",
     "ReviewerAssessment",
     "ScalingRecommendation",
