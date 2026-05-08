@@ -79,7 +79,6 @@ to validate every prefix in `app/` is documented somewhere.
 | `hs:email_suppressed` | `app/api/resend_webhooks.py:358` | TBD | TBD |
 | `hs:event_bus:cleanup_today` | `app/workers/agent_worker.py:2063` | TBD | TBD |
 | `hs:event_bus:emit_fail_count` | `app/services/event_bus.py:203` | TBD | TBD |
-| `hs:evolution:rollback_daily` | `app/services/evolution_decision_engine.py:72` | TBD | TBD |
 | `hs:fe_errors` | `app/api/frontend_errors.py:150` | TBD | TBD |
 | `hs:filelock` | `app/core/file_lock.py:42` | TBD | TBD |
 | `hs:filelock:*` | `app/core/file_lock.py:315` | TBD | TBD |
@@ -95,7 +94,6 @@ to validate every prefix in `app/` is documented somewhere.
 | `hs:geoip` | `app/core/geo.py:54` | TBD | TBD |
 | `hs:goals:v1` | `app/services/goals.py:44` | TBD | TBD |
 | `hs:google_oauth_state` | `app/api/google_oauth.py:89` | TBD | TBD |
-| `hs:heartbeat:last_run_ts` | `app/services/pipeline_heartbeat.py:64` | TBD | TBD |
 | `hs:holdout:assignment` | `app/services/fix_holdout_measurement.py:58` | TBD | TBD |
 | `hs:holdout:measurement` | `app/services/fix_holdout_measurement.py:59` | TBD | TBD |
 | `hs:holdout:savings` | `app/services/fix_holdout_measurement.py:60` | TBD | TBD |
@@ -178,7 +176,6 @@ to validate every prefix in `app/` is documented somewhere.
 | `hs:security_heartbeat:last_results` | `app/services/security_heartbeat.py:51` | TBD | TBD |
 | `hs:security_heartbeat:last_run` | `app/services/security_heartbeat.py:50` | TBD | TBD |
 | `hs:self_heal_standby` | `app/workers/agent_worker.py:1993` | TBD | TBD |
-| `hs:self_upgrade:week` | `app/workers/agent_worker.py:1087` | TBD | TBD |
 | `hs:sentry:quota:v1` | `app/services/sentry_quota.py:34` | TBD | TBD |
 | `hs:sentry_poller:cooldown` | `app/services/sentry_poller.py:51` | TBD | TBD |
 | `hs:shopify_rl` | `app/core/shopify_client.py:114` | TBD | TBD |
