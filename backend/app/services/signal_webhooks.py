@@ -248,28 +248,97 @@ def get_or_create_secret(shop_domain: str) -> str:
         return ""
 
 
+_BLOCKED_HOSTS = frozenset({
+    # loopback
+    "localhost", "127.0.0.1", "0.0.0.0", "[::1]", "::1",
+    # cloud metadata services (every major cloud)
+    "metadata.google.internal",      # GCP
+    "metadata.goog",                  # GCP alt
+    "169.254.169.254",                # AWS / Azure / GCP / DigitalOcean / Hetzner
+    "100.100.100.200",                # Alibaba Cloud
+    "100.100.100.250",                # Alibaba Cloud alt
+    "fd00:ec2::254",                  # AWS IPv6 metadata
+})
+
+
+def _is_private_or_blocked_ip(ip_str: str) -> bool:
+    """True if the IP is loopback/private/link-local/reserved/blocked."""
+    # Explicit-string match first — covers public-routable IPs that
+    # Python's ipaddress doesn't classify as private (e.g. Alibaba
+    # metadata 100.100.100.200, 100.100.100.250 which sit in the
+    # 100.64.0.0/10 CGNAT range that's technically public).
+    if ip_str in _BLOCKED_HOSTS:
+        return True
+    import ipaddress
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+        return True
+    if ip.is_multicast or ip.is_unspecified:
+        return True
+    # IPv6 site-local (deprecated but still relevant)
+    if isinstance(ip, ipaddress.IPv6Address) and ip.is_site_local:
+        return True
+    return False
+
+
 def _validate_webhook_url(url: str) -> None:
-    """Block SSRF — prevent webhooks to internal/cloud metadata services."""
+    """Block SSRF — prevent webhooks to internal/cloud metadata services.
+
+    Runs at create-webhook time. Pair with `_resolve_and_check_at_delivery`
+    which re-resolves the hostname every send to defeat DNS-rebinding.
+    """
     if not url.startswith("https://"):
         raise ValueError("webhook URL must use https://")
     parsed = urlparse(url)
     hostname = (parsed.hostname or "").lower()
     if not hostname:
         raise ValueError("webhook URL has no hostname")
-    # Block loopback, link-local, cloud metadata, and RFC 1918 private ranges
-    _BLOCKED_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "[::1]", "metadata.google.internal"}
     if hostname in _BLOCKED_HOSTS:
         raise ValueError("webhook URL must not point to internal services")
-    # Block IP ranges: 10.x, 172.16-31.x, 192.168.x, 169.254.x (link-local/metadata)
-    import ipaddress
+    if _is_private_or_blocked_ip(hostname):
+        raise ValueError("webhook URL must not point to private/internal IP addresses")
+
+
+def _resolve_and_check_at_delivery(url: str) -> None:
+    """SSRF DNS-rebind defense: re-resolve the hostname AT DELIVERY TIME
+    and reject if the resolved IP is private/blocked. Closes the gap where
+    a webhook URL passed `_validate_webhook_url` at creation but the DNS
+    record was later flipped to point at AWS metadata (169.254.169.254)
+    or RFC 1918 ranges.
+
+    Note: there is a small TOCTOU window between the IP check here and
+    httpx's own connect, where a malicious DNS server with a tiny TTL
+    could still flip records. The check still raises the bar
+    significantly; a full custom-transport pinning the IP we resolved
+    is a deeper fix (R-blocker:sprint>1d).
+    """
+    import socket
+    parsed = urlparse(url)
+    hostname = (parsed.hostname or "").lower()
+    if not hostname:
+        raise ValueError("webhook URL has no hostname")
+    if hostname in _BLOCKED_HOSTS:
+        raise ValueError("webhook hostname is blocked")
+    # Resolve all A/AAAA records and check each — getaddrinfo follows
+    # CNAMEs so the result is the actual destination IP set.
     try:
-        ip = ipaddress.ip_address(hostname)
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-            raise ValueError("webhook URL must not point to private/internal IP addresses")
-    except ValueError as exc:
-        if "must not point" in str(exc):
-            raise
-        # Not an IP address — hostname is fine, continue
+        addr_info = socket.getaddrinfo(hostname, None)
+    except socket.gaierror as exc:
+        raise ValueError(f"webhook hostname does not resolve: {exc}")
+    seen_ips = set()
+    for entry in addr_info:
+        ip_str = entry[4][0]
+        if ip_str in seen_ips:
+            continue
+        seen_ips.add(ip_str)
+        if _is_private_or_blocked_ip(ip_str):
+            raise ValueError(
+                f"webhook hostname {hostname} resolves to a "
+                f"private/blocked IP ({ip_str}) — SSRF prevention"
+            )
 
 
 def create_webhook(shop_domain: str, *, url: str, events: list[str]) -> WebhookConfig | None:
@@ -523,22 +592,38 @@ def emit_signal(
         http_status: int | None = None
         attempts = 0
 
-        for attempt in (1, 2):  # single retry on failure
-            attempts = attempt
-            try:
-                import httpx
-                resp = httpx.post(wh.url, content=body, headers=headers, timeout=30.0)
-                http_status = resp.status_code
-                if 200 <= resp.status_code < 300:
-                    delivered = True
-                    break
-                last_err = f"http_{resp.status_code}"
-                if resp.status_code < 500:
-                    # 4xx won't be fixed by retry
-                    break
-            except Exception as exc:
-                last_err = f"{type(exc).__name__}: {str(exc)[:200]}"
-                continue
+        # SSRF DNS-rebind defense: re-resolve the hostname every send
+        # and abort if it now resolves to a private/blocked IP. Closes
+        # the create-time vs delivery-time TOCTOU.
+        try:
+            _resolve_and_check_at_delivery(wh.url)
+        except ValueError as exc:
+            last_err = f"ssrf_blocked: {str(exc)[:160]}"
+            log.warning(
+                "signal_webhooks: SSRF block at delivery shop=%s url=%s reason=%s",
+                shop_domain, wh.url, last_err,
+            )
+            attempts = 1
+            # Fall through to outcome recording without sending.
+            for attempt in ():  # skip the retry loop
+                pass
+        else:
+            for attempt in (1, 2):  # single retry on failure
+                attempts = attempt
+                try:
+                    import httpx
+                    resp = httpx.post(wh.url, content=body, headers=headers, timeout=30.0)
+                    http_status = resp.status_code
+                    if 200 <= resp.status_code < 300:
+                        delivered = True
+                        break
+                    last_err = f"http_{resp.status_code}"
+                    if resp.status_code < 500:
+                        # 4xx won't be fixed by retry
+                        break
+                except Exception as exc:
+                    last_err = f"{type(exc).__name__}: {str(exc)[:200]}"
+                    continue
 
         # Record outcome on the webhook config
         try:

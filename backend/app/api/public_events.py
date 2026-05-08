@@ -51,6 +51,17 @@ _CLOCK_SKEW_SECONDS = 300   # 5 min — replay window
 _RATE_LIMIT_PER_MIN = 120   # per shop
 _DEDUP_TTL_S = 3600         # 1h
 
+# In-process sliding-window counter — used as fail-CLOSED fallback when
+# Redis is unavailable. Pre-2026-05-08 the rate-limit returned True on
+# Redis hiccup ("fail-open"), which combined with the per-shop secret
+# fallback (#5) allowed unlimited event flooding during a Redis blip.
+# Deque per shop, bounded by _RATE_LIMIT_PER_MIN; the deque length never
+# exceeds the cap so memory is O(shops × cap) which is bounded.
+from collections import defaultdict as _defaultdict, deque as _deque
+import threading as _threading
+_LOCAL_RATE_BUCKETS: dict[str, "deque[float]"] = _defaultdict(_deque)
+_LOCAL_RATE_LOCK = _threading.Lock()
+
 
 ALLOWED_PUBLIC_EVENTS = frozenset({
     "klaviyo_email_opened",
@@ -105,9 +116,13 @@ def _verify_signature(body: bytes, signature: str, secret: str) -> bool:
 def _lookup_secret(db, shop_domain: str) -> str | None:
     """Fetch the public API secret for a shop.
 
-    Schema adds `public_api_key_hash` to merchants later; for now we
-    read an optional column if present, else fall back to a shared
-    dev secret from env. Production must store per-shop encrypted keys.
+    Schema: `merchants.public_api_key_hash` per row.
+
+    Pre-2026-05-08 this fell back to a shared `PUBLIC_EVENTS_DEV_SECRET`
+    env var when the per-shop column was empty — meaning ONE leaked dev
+    secret would forge events for EVERY shop without a configured key.
+    The fallback is removed: shops without a configured secret are
+    rejected at signature verification (caller path returns 401).
     """
     try:
         row = db.execute(
@@ -120,28 +135,52 @@ def _lookup_secret(db, shop_domain: str) -> str | None:
             return str(row[0])
     except Exception as exc:
         log.warning("public_events: secret lookup failed: %s", exc)  # column may not exist yet
+    return None
 
-    import os as _os
-    return _os.getenv("PUBLIC_EVENTS_DEV_SECRET", "") or None
+
+def _local_rate_allow(shop_domain: str) -> bool:
+    """In-process sliding-window check — used when Redis is unavailable.
+    Each shop has a bounded deque of timestamps within the last 60s.
+    """
+    now = time.monotonic()
+    cutoff = now - 60.0
+    with _LOCAL_RATE_LOCK:
+        bucket = _LOCAL_RATE_BUCKETS[shop_domain]
+        # evict expired
+        while bucket and bucket[0] < cutoff:
+            bucket.popleft()
+        if len(bucket) >= _RATE_LIMIT_PER_MIN:
+            return False
+        bucket.append(now)
+        return True
 
 
 def _rate_allow(shop_domain: str) -> bool:
+    """Rate-limit check. Tries Redis first; falls back to in-process
+    sliding-window when Redis is unavailable. Pre-2026-05-08 this
+    returned True on any exception (fail-open), allowing unlimited
+    event flooding during Redis hiccups. Now fail-CLOSED-with-fallback.
+    """
     try:
         from app.core.redis_client import _client
         rc = _client()
         if rc is None:
             from app.core.silent_fallback import record_silent_return
-            record_silent_return("public_events.rate_limit")
-            return True  # fail-open: redis down, allow the request
+            record_silent_return("public_events.rate_limit.local_fallback")
+            return _local_rate_allow(shop_domain)
         key = f"hs:pub_events:rate:{shop_domain}:{int(time.time() // 60)}"
         count = rc.incr(key)
         rc.expire(key, 75)
         return int(count) <= _RATE_LIMIT_PER_MIN
     except Exception as exc:
-        # fail-open: better to over-accept legitimate events than to
-        # 429 the merchant on a transient Redis hiccup.
-        log.warning("public_events: rate limit check failed: %s", exc)
-        return True
+        # Fail-CLOSED-with-fallback: Redis hiccup → check in-process
+        # sliding window instead of unconditionally allowing. Bounds the
+        # blast radius of a Redis outage to per-shop cap × #workers.
+        log.warning(
+            "public_events: rate limit redis check failed, using local "
+            "in-process fallback: %s", exc
+        )
+        return _local_rate_allow(shop_domain)
 
 
 def _is_duplicate(shop_domain: str, event_id: str) -> bool:

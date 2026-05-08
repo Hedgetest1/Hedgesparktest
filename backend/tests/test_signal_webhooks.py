@@ -117,7 +117,10 @@ def test_emit_signal_delivers_with_signature():
         pytest.skip("redis unavailable")
 
     mock_response = MagicMock(status_code=200)
-    with patch("httpx.post", return_value=mock_response) as mock_post:
+    # Stub the DNS-rebind defense — `catch.example.com` may not resolve.
+    # Real production hostnames will go through the live check.
+    with patch("httpx.post", return_value=mock_response) as mock_post, \
+         patch("app.services.signal_webhooks._resolve_and_check_at_delivery"):
         results = emit_signal(
             shop, event_type="test_ping", payload={"t": 1},
         )
