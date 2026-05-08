@@ -333,39 +333,239 @@ def _decide(state: MerchantState) -> BrainDecisionDraft:
 
 
 # ---------------------------------------------------------------------------
-# COORDINATE — dispatch to existing limbs
+# COORDINATE — dispatch to existing limbs (v0.2)
 # ---------------------------------------------------------------------------
+#
+# v0.2 contract:
+#   - 4 action_kinds: re_engagement_check (WIRED), retention_outreach_email,
+#     recovery_digest, proactive_nudge_compose (3 latter DEFERRED — need
+#     founder-approved email copy for retention/recovery/proactive context;
+#     existing reengagement_drift template only fits the post-install dark-
+#     tracker case 1:1).
+#   - Adversarial-review-before-dispatch gate (`_adversarial_review`):
+#     deterministic preflight that blocks dispatch when (a) merchant has no
+#     contact email, (b) brain dispatched to same email_type within last 24h,
+#     (c) onboarding_health drift loop already covered this shop within its
+#     own weekly cooldown window.
+#   - email_orchestrator.submit_intent is the only limb wired in v0.2; its
+#     governance layer (rate-limit + suppression + per-(shop,email_type)
+#     dedup) provides defense-in-depth on top of the brain's adversarial
+#     review.
+#
+# Why only re_engagement_check is wired:
+#   - Existing reengagement_drift template is a perfect 1:1 semantic match
+#     (silent post-install merchant; "0 events/24h post-install — tracker
+#     dark" maps directly to the template's "installed N days ago, no goal
+#     set" copy).
+#   - retention_outreach_email (critical churn) and recovery_digest (high
+#     RAR + stale) need DIFFERENT copy semantics — the existing reengagement
+#     template would confuse merchants in those contexts. Adding new
+#     templates is FOUNDER-DOMAIN copy work (CLAUDE.md §1.5).
+#   - proactive_nudge_compose targets nudge_composer not email; nudge_
+#     composer wiring is a separate sprint.
+# ---------------------------------------------------------------------------
+
+# Per (shop, email_type) brain dispatch cooldown — defense-in-depth on top
+# of the orchestrator's own per-(shop, email_type) dedup window. Born to
+# block the case where two consecutive brain ticks (across worker restarts
+# that bypass _decide's 6h cooldown) would both reach _coordinate.
+_BRAIN_DISPATCH_COOLDOWN_HOURS = 24
+
+
+def _adversarial_review(
+    db: Session, state: MerchantState, decision: BrainDecisionDraft,
+    *, email_type: str | None = None,
+) -> str | None:
+    """Deterministic preflight — returns reason-string if dispatch must be
+    blocked, None if approved.
+
+    Born 2026-05-08 with v0.2 limb wiring. The contract is the merchant-
+    brain analog of bugfix_pipeline's adversarial-review-before-apply
+    gate (CLAUDE.md §21.6 #2): the brain may decide an action correctly
+    yet still be wrong to dispatch *right now* (already-fired, no contact,
+    another producer covers this case). The review is intentionally
+    deterministic — LLM-driven critique lives in v0.3.
+
+    Checks (in order — first failure wins):
+      1. brain disabled → block (defense in depth; tick() also gates).
+      2. action_kind in no_action_* → no dispatch path (caller skips).
+      3. email_type required for email-driven actions; missing → block.
+      4. merchant has contact_email + email_paused=false → required.
+      5. brain already dispatched same (shop, email_type) within
+         _BRAIN_DISPATCH_COOLDOWN_HOURS → block.
+
+    The orchestrator's own dedup catches subsequent races; this gate
+    short-circuits BEFORE submit_intent so brain_decisions.limb_response
+    records `blocked_by_review` honestly instead of forcing the
+    orchestrator to swallow the duplicate silently.
+    """
+    if not is_brain_enabled():
+        return "brain_disabled"
+    if decision.action_kind in ("no_action_cooldown", "no_action_no_signal"):
+        return None  # caller skips dispatch entirely
+    if email_type is None:
+        return "no_email_type_for_action_kind"
+
+    contact = _lookup_contact_email(db, state.shop_domain)
+    if not contact:
+        return "no_contact_email_or_paused"
+
+    last_dispatched = _last_brain_dispatch_age_hours(
+        db, state.shop_domain, email_type
+    )
+    if (last_dispatched is not None
+            and last_dispatched < _BRAIN_DISPATCH_COOLDOWN_HOURS):
+        return f"brain_dispatch_cooldown_{int(last_dispatched)}h"
+
+    return None
+
+
+def _lookup_contact_email(db: Session, shop_domain: str) -> str | None:
+    try:
+        row = db.execute(
+            text(
+                "SELECT contact_email FROM merchants "
+                "WHERE shop_domain = :shop "
+                "  AND email_paused = false "
+                "LIMIT 1"
+            ),
+            {"shop": shop_domain},
+        ).fetchone()
+        return row[0] if row and row[0] else None
+    except Exception as exc:
+        log.warning(
+            "merchant_brain: contact lookup failed for %s: %s",
+            shop_domain, exc,
+        )
+        return None
+
+
+def _last_brain_dispatch_age_hours(
+    db: Session, shop_domain: str, email_type: str,
+) -> float | None:
+    """Walk brain_decisions for prior dispatched limb_response with the
+    same email_type. Returns hours since the last successful dispatch
+    or None if never dispatched."""
+    try:
+        row = db.execute(
+            text(
+                "SELECT MAX(decision_at) FROM brain_decisions "
+                "WHERE shop_domain = :shop "
+                "  AND limb_dispatched IS NOT NULL "
+                "  AND limb_response ->> 'email_type' = :email_type"
+            ),
+            {"shop": shop_domain, "email_type": email_type},
+        ).fetchone()
+        if not row or not row[0]:
+            return None
+        last = row[0]
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        delta = datetime.now(timezone.utc) - last
+        return delta.total_seconds() / 3600.0
+    except Exception as exc:
+        log.warning(
+            "merchant_brain: last-dispatch lookup failed for %s/%s: %s",
+            shop_domain, email_type, exc,
+        )
+        return None
+
+
+def _dispatch_re_engagement_email(
+    db: Session, state: MerchantState, decision: BrainDecisionDraft,
+) -> tuple[str | None, dict]:
+    """Submit a reengagement_drift EmailIntent for a brain-driven
+    re_engagement_check. Reuses onboarding_health's existing template
+    + email lookup so brain dispatches use the same merchant-tested copy
+    instead of forking a parallel template."""
+    try:
+        from app.services.email_orchestrator import EmailIntent, submit_intent
+        from app.services.onboarding_health import _build_reengagement_email
+    except Exception as exc:
+        log.warning(
+            "merchant_brain: limb import failed (email_orch/onboarding): %s",
+            exc,
+        )
+        return None, {"error": f"limb_unavailable:{exc.__class__.__name__}"}
+
+    contact = _lookup_contact_email(db, state.shop_domain)
+    if not contact:
+        return None, {"skipped": "no_contact_email_or_paused"}
+
+    drifter_ctx = {
+        "shop_domain": state.shop_domain,
+        "hours_since_install": state.hours_since_install,
+    }
+    try:
+        subject, html, plain = _build_reengagement_email(drifter_ctx)
+        intent = EmailIntent(
+            shop_domain=state.shop_domain,
+            email_type="reengagement_drift",
+            to_email=contact,
+            subject=subject,
+            html=html,
+            plain_text=plain,
+            producer="merchant_brain",
+            context={
+                "brain_decision": decision.action_kind,
+                "hours_since_install": state.hours_since_install,
+            },
+        )
+        intent_id = submit_intent(db, intent)
+    except Exception as exc:
+        log.warning(
+            "merchant_brain: re_engagement_check dispatch failed for %s: %s",
+            state.shop_domain, exc,
+        )
+        return None, {"error": f"submit_failed:{exc.__class__.__name__}"}
+
+    return "email_orchestrator", {
+        "intent_id": intent_id,
+        "email_type": "reengagement_drift",
+    }
+
+
+# action_kind → email_type registry; None means non-email or copy-pending.
+_ACTION_EMAIL_MAP: dict[str, str | None] = {
+    "re_engagement_check": "reengagement_drift",
+    # Below: deferred until founder-approved copy lands (v0.3 sprint).
+    "retention_outreach_email": None,
+    "recovery_digest": None,
+    "proactive_nudge_compose": None,
+}
+
 
 def _coordinate(
     db: Session, state: MerchantState, decision: BrainDecisionDraft
 ) -> tuple[str | None, dict]:
-    """Dispatch to the limb. Returns (limb_name, response_dict). v0.1
-    is conservative: every limb call is wrapped in try/except + the
-    brain records the response so failures are observable in
-    brain_decisions, not as silent ops_alerts.
-
-    LIMBS USED:
-      - email_orchestrator.submit_intent → retention/recovery/re-engagement
-      - nudge_composer.compose (deferred — v0.2 wiring)
-      - orchestrator.execute_action (deferred — v0.2 wiring)
+    """Dispatch to the limb. Returns (limb_name, response_dict). Every
+    limb call is wrapped in try/except so a limb crash records as a
+    structured response in brain_decisions, never as silent failure.
     """
     if decision.action_kind in ("no_action_cooldown", "no_action_no_signal"):
         return None, {}
 
-    # v0.1 RECORDS decisions; LIMB DISPATCH deferred to v0.2.
-    #
-    # Rationale: shipping the SENSE→SYNTHESIZE→DECIDE→LEARN spine first
-    # gives us a measurable substrate. Limb wiring (email_orchestrator
-    # for retention_outreach, nudge_composer, orchestrator action_tasks)
-    # requires per-action template registration + per-action holdout
-    # contract. v0.2 sprint scope: register email templates, wire
-    # nudge_composer, plumb action_tasks dispatch.
-    #
-    # The brain_decisions ledger captures every decision with rationale
-    # so we can audit "would this have actioned correctly?" before
-    # turning on dispatch — same pattern as the bugfix_pipeline's
-    # adversarial-review-before-apply gate.
-    return None, {"deferred_to": "v0.2_limb_wiring"}
+    email_type = _ACTION_EMAIL_MAP.get(decision.action_kind)
+
+    # action_kinds without an email mapping (retention_outreach_email,
+    # recovery_digest, proactive_nudge_compose) defer to v0.3 — they need
+    # founder-approved copy or a different limb (nudge_composer).
+    if email_type is None:
+        return None, {
+            "deferred_to": "v0.3_copy_or_limb_pending",
+            "action_kind": decision.action_kind,
+        }
+
+    blocked = _adversarial_review(db, state, decision, email_type=email_type)
+    if blocked:
+        return None, {"blocked_by_review": blocked}
+
+    if decision.action_kind == "re_engagement_check":
+        return _dispatch_re_engagement_email(db, state, decision)
+
+    # Defensive fallback — _ACTION_EMAIL_MAP added a new wiring without a
+    # dispatch handler. Surface honestly.
+    return None, {"error": f"no_dispatcher_for_action_kind:{decision.action_kind}"}
 
 
 # ---------------------------------------------------------------------------
