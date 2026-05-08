@@ -70,22 +70,39 @@ OPENAI_MONTHLY_CAP = float(_os.getenv("OPENAI_MONTHLY_BUDGET_EUR", "10.0"))
 # afford richer LLM usage without inflating the aggregate cap.
 # Values in EUR / merchant / month.
 # ---------------------------------------------------------------------------
+# Per-merchant per-tier monthly LLM caps (€/month).
+# Founder direttiva 2026-05-08: each merchant has a tier-based monthly LLM
+# budget that protects unit economics from a runaway rule. The product
+# claim "system gets smarter every week" + chatbot is delivered WITHIN
+# this cap; if a buggy iteration tries to exceed, the call is blocked
+# and the producer falls back to deterministic / cached output.
+#
+# These are the LIVE plan names (per CLAUDE.md §3 + project_brutal_feature_pricing_matrix):
+#   lite    — €39/mo plan, €5/mo LLM cap (~13% of revenue)
+#   pro     — €99/mo plan, €10/mo LLM cap (~10% of revenue)
+#   scale   — €249+/mo plan, €50/mo LLM cap (bigger workload, still bounded)
+#   free    — trial / dev / inactive — €0.50/mo (minimal allowance, fail-closed)
+#
+# Aliases retained for legacy plan labels in the merchant DB (some rows
+# pre-2026-05-08 use "core" / "plus"). New merchants land on lite/pro/scale.
 PLAN_MONTHLY_BUDGETS_EUR: dict[str, float] = {
-    "free":  0.00,   # no LLM — deterministic only
-    "trial": 0.10,   # discovery tier, tight cap
-    "core":  0.30,   # entry (€49) — occasional LLM chatbot fallback
-    "plus":  1.00,   # Pro (€99) — richer chatbot, more aggressive fallbacks
-    "pro":   1.00,   # alias for plus (legacy plan label)
-    "agency": 5.00,  # Agency (€999) — full autonomy, LLM-rich workflows
+    "free":   0.50,   # trial / dev / inactive — minimal allowance
+    "trial":  0.50,   # alias
+    "lite":   5.00,   # €39/mo plan
+    "core":   5.00,   # legacy alias for lite
+    "pro":   10.00,   # €99/mo plan
+    "plus":  10.00,   # legacy alias for pro
+    "scale": 50.00,   # €249+/mo plan
+    "agency": 50.00,  # legacy alias for scale
 }
 
 
 def get_plan_budget_eur(plan: str | None) -> float:
     """Return per-merchant per-month LLM budget for the given plan.
-    Unknown plans fall back to 'core'."""
+    Unknown plans fall back to 'free' (€0.50, fail-closed)."""
     if plan is None:
         return PLAN_MONTHLY_BUDGETS_EUR["free"]
-    return PLAN_MONTHLY_BUDGETS_EUR.get(plan.lower(), PLAN_MONTHLY_BUDGETS_EUR["core"])
+    return PLAN_MONTHLY_BUDGETS_EUR.get(plan.lower(), PLAN_MONTHLY_BUDGETS_EUR["free"])
 
 
 def can_charge_merchant(db, shop_domain: str, estimated_cost_eur: float) -> tuple[bool, str]:
@@ -352,6 +369,90 @@ _LLM_EUR_PER_MERCHANT = float(_os.getenv("LLM_EUR_PER_MERCHANT", "0.10"))
 _LLM_MAX_MONTHLY_EUR = float(_os.getenv("LLM_MAX_MONTHLY_EUR", "50.0"))
 _effective_cap_cache: dict[str, object] = {"value": None, "computed_at": 0.0, "merchants": 0}
 
+# ---------------------------------------------------------------------------
+# Per-merchant tier resolution + budget visibility
+# ---------------------------------------------------------------------------
+#
+# Per-merchant cap is enforced via the existing can_charge_merchant() +
+# record_merchant_charge() pair (Redis key `hs:llm:merchant:{shop}:{month}`).
+# These helpers add: (a) tier resolution with 1h cache so check_budget()
+# can do per-merchant gating without a per-call DB hit, (b) operator
+# visibility on per-merchant spend.
+_MERCHANT_PLAN_CACHE_TTL_S = 3600  # 1h — plan changes propagate within an hour
+# multi-worker: accept-degrade — per-worker cache, plan changes propagate
+# within 1h on each worker independently; no cross-process consistency
+# needed because budget enforcement reads the authoritative Redis spend
+# counter (`hs:llm:merchant:{shop}:{month}`) on every call. Worst-case
+# divergence: 4 workers cache "lite" while DB row is now "pro" → 1h
+# stale read at most, then auto-refreshes on TTL expiry.
+_merchant_plan_cache: dict[str, tuple[str, float]] = {}  # shop -> (plan, expires_at)
+
+
+def _get_merchant_plan(shop_domain: str) -> str:
+    """Resolve merchant tier with 1h cache. Returns 'free' if unknown.
+
+    Defensive: any error in the lookup defaults to 'free' (€0.5/mo cap)
+    rather than 'lite' or 'pro' — fail-closed for a budget gate."""
+    now = time.monotonic()
+    cached = _merchant_plan_cache.get(shop_domain)
+    if cached and cached[1] > now:
+        return cached[0]
+    plan = "free"
+    try:
+        from app.core.database import SessionLocal
+        from app.models.merchant import Merchant
+        db = SessionLocal()
+        try:
+            row = db.query(Merchant.plan).filter(
+                Merchant.shop_domain == shop_domain
+            ).first()
+            if row and row[0]:
+                plan = str(row[0]).lower()
+        finally:
+            db.close()
+    except Exception as exc:
+        log.warning("llm_budget: merchant plan lookup failed for %s: %s", shop_domain, exc)
+    _merchant_plan_cache[shop_domain] = (plan, now + _MERCHANT_PLAN_CACHE_TTL_S)
+    return plan
+
+
+def _merchant_monthly_key(shop_domain: str, month: str | None = None) -> str:
+    """Same Redis key as can_charge_merchant / record_merchant_charge."""
+    return f"hs:llm:merchant:{shop_domain}:{month or _this_month()}"
+
+
+def get_merchant_usage(shop_domain: str) -> dict:
+    """Operator visibility: per-merchant monthly spend + tier cap + remaining."""
+    plan = _get_merchant_plan(shop_domain)
+    cap = get_plan_budget_eur(plan)
+    spent = _redis_get_float(_merchant_monthly_key(shop_domain))
+    return {
+        "shop_domain": shop_domain,
+        "plan": plan,
+        "monthly_cap_eur": cap,
+        "monthly_spent_eur": round(spent, 4),
+        "monthly_remaining_eur": round(max(cap - spent, 0.0), 4),
+        "cap_reached": spent >= cap,
+    }
+
+
+def _check_merchant_budget(shop_domain: str) -> tuple[bool, str]:
+    """Lightweight per-merchant cap check used by check_budget().
+    Reads the same Redis key + plan as can_charge_merchant() but skips
+    the per-call DB hit by using the 1h plan cache. Returns (allowed,
+    reason). Fail-closed on lookup errors (free tier €0.5)."""
+    plan = _get_merchant_plan(shop_domain)
+    cap = get_plan_budget_eur(plan)
+    if cap <= 0:
+        return False, f"plan_no_llm:{plan}"
+    spent = _redis_get_float(_merchant_monthly_key(shop_domain))
+    if spent >= cap:
+        return False, (
+            f"merchant_tier_cap_reached: {plan} €{spent:.3f}/€{cap:.2f} "
+            f"({shop_domain})"
+        )
+    return True, "ok"
+
 
 def _today() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -593,16 +694,22 @@ def is_provider_backed_off(provider: str) -> bool:
 # Public API
 # ---------------------------------------------------------------------------
 
-def check_budget(module: str) -> tuple[bool, str]:
+def check_budget(module: str, shop_domain: str | None = None) -> tuple[bool, str]:
     """
     Check if an LLM call is allowed for this module.
     Returns (allowed, reason).
 
     Checks in order:
-        1. Monthly EUR cap
-        2. Per-module cooldown
-        3. Per-module daily limit
-        4. Global daily limit
+        1. Per-merchant per-tier monthly cap (when shop_domain given)
+        2. Operator mode override
+        3. Global monthly EUR cap
+        4. Per-provider monthly caps
+        5. Per-module cooldown / daily / global daily
+
+    Per-merchant cap is checked FIRST when shop_domain is provided —
+    a Lite merchant who exhausts their €5/mo cap is blocked even if
+    the network has global budget remaining. This protects per-merchant
+    unit economics.
     """
     _ensure_day()
     _ensure_month()
@@ -610,6 +717,13 @@ def check_budget(module: str) -> tuple[bool, str]:
     today = _today()
     month = _this_month()
     tier = _get_module_tier(module)
+
+    # Per-merchant per-tier cap — checked FIRST. A buggy rule on a
+    # Lite shop must not blow Pro/Scale margins.
+    if shop_domain:
+        ok, reason = _check_merchant_budget(shop_domain)
+        if not ok:
+            return False, reason
 
     # Check operator mode override
     mode = _get_mode_override()
@@ -679,8 +793,19 @@ def check_budget(module: str) -> tuple[bool, str]:
     return True, "allowed"
 
 
-def record_usage(module: str, tokens_used: int = 0, provider: str = "", model: str = ""):
-    """Record a successful LLM call with cost tracking + budget threshold alerts."""
+def record_usage(
+    module: str,
+    tokens_used: int = 0,
+    provider: str = "",
+    model: str = "",
+    shop_domain: str | None = None,
+):
+    """Record a successful LLM call with cost tracking + budget threshold alerts.
+
+    When shop_domain is provided, also increments the per-merchant
+    monthly counter — this is what the per-tier cap (TIER_LLM_MONTHLY_CAP_EUR)
+    reads on the next check_budget call. Producers with shop context
+    SHOULD pass shop_domain so per-merchant unit economics are tracked."""
     global _monthly_cost_eur
     _ensure_day()
     _ensure_month()
@@ -701,6 +826,12 @@ def record_usage(module: str, tokens_used: int = 0, provider: str = "", model: s
     if provider:
         _provider_cost_eur[provider] = _provider_cost_eur.get(provider, 0.0) + cost
         _redis_incrbyfloat(f"llm:monthly_cost:{provider}:{month}", cost)
+
+    # Cost tracking (per-merchant) — gates the next check_budget call
+    # for this shop. Best-effort: a Redis error here doesn't fail the
+    # call (cost is still tracked globally + per-provider).
+    if shop_domain and cost > 0:
+        record_merchant_charge(shop_domain, cost)
 
     # Redis persistence
     _redis_incr(f"llm:daily:{module}:{today}")

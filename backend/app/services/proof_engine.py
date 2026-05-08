@@ -32,7 +32,7 @@ from app.services.nudge_measurement import (
     get_nudge_lift_report,
 )
 from app.services.action_proof import get_proof_summary
-from app.services.revenue_metrics import get_shop_aov, get_shop_currency
+from app.services.revenue_metrics import FALLBACK_AOV, get_shop_aov, get_shop_currency
 
 log = logging.getLogger(__name__)
 
@@ -209,7 +209,15 @@ def _build_holdout_proof(
     nudge_details = []
     valid = 0
 
-    aov = get_shop_aov(db, shop_domain)
+    # § §0 false-claim guard: only multiply CVR-delta × AOV when the AOV is
+    # REAL (computed from this merchant's own orders), never the FALLBACK
+    # constant. A brand-new Pro merchant with 0 orders but an active
+    # holdout would otherwise see a fabricated "incremental revenue"
+    # number derived from a generic €50 fallback — a direct violation of
+    # CLAUDE.md §0 "every euro number comes from a real query".
+    aov_raw = get_shop_aov(db, shop_domain)
+    aov_is_real = aov_raw != FALLBACK_AOV
+    aov = aov_raw if aov_is_real else 0.0
 
     for row in nudge_rows:
         nudge_id = int(row[0])
@@ -239,7 +247,9 @@ def _build_holdout_proof(
         curr = str(rev_lift.get("currency", "USD"))
 
         # If the lift report didn't compute incremental, estimate from CVR
-        if est_incremental == 0 and exp_cvr > hld_cvr and exp_count > 0:
+        # but ONLY when we have a real AOV (skip the fabrication path for
+        # 0-order merchants — see §0 false-claim guard above).
+        if est_incremental == 0 and exp_cvr > hld_cvr and exp_count > 0 and aov_is_real:
             cvr_delta = exp_cvr - hld_cvr
             est_incremental = cvr_delta * exp_count * aov
 

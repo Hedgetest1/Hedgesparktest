@@ -406,11 +406,16 @@ def try_llm_fallback(
     # so aggregate LLM spend across modules cannot exceed the ceiling.
     try:
         from app.core.llm_budget import check_budget, record_blocked
-        allowed, gate_reason = check_budget("chatbot_fallback")
+        # Per-merchant + global gate: passes shop_domain so the Lite €5 /
+        # Pro €10 / Scale €50 monthly cap is respected BEFORE the global
+        # cap. A Lite merchant who exhausts €5 is blocked here even if
+        # the network has global headroom remaining.
+        allowed, gate_reason = check_budget("chatbot_fallback", shop_domain=shop_domain)
         if not allowed:
             record_blocked("chatbot_fallback", gate_reason)
             log.info(
-                "chatbot_llm_fallback: blocked by global budget: %s", gate_reason
+                "chatbot_llm_fallback: blocked by budget: shop=%s reason=%s",
+                shop_domain, gate_reason,
             )
             return LlmFallbackResult(
                 success=False, answer=None, cost_eur=0.0,
@@ -459,12 +464,10 @@ def try_llm_fallback(
             success=False, answer=None, cost_eur=actual_cost, reason=f"invalid:{vreason}",
         )
 
-    # Record per-merchant spend
-    try:
-        from app.core.llm_budget import record_merchant_charge
-        record_merchant_charge(shop_domain, actual_cost or _ESTIMATED_COST_EUR)
-    except Exception as exc:
-        log.warning("chatbot_llm_fallback: record_merchant_charge failed: %s", exc)
+    # Per-merchant spend is recorded by record_usage() below
+    # (passes shop_domain). Old explicit record_merchant_charge call
+    # removed 2026-05-08 to dedup — was double-charging since
+    # record_usage was extended to accept shop_domain.
 
     # Record global-budget usage with GROUND-TRUTH token counts from
     # Anthropic's usage struct (2026-04-23: threaded through from
@@ -473,11 +476,17 @@ def try_llm_fallback(
     try:
         from app.core.llm_budget import record_usage
         tokens_used = (in_tokens + out_tokens) or (len(answer) // 4)
+        # shop_domain threading: record_usage updates the per-merchant
+        # monthly counter so the next check_budget call sees the cost.
+        # Note: record_merchant_charge call above (line 465) is now
+        # redundant — record_usage handles it. Kept for now to maintain
+        # call-site compatibility; will dedup in a follow-up cleanup.
         record_usage(
             "chatbot_fallback",
             tokens_used=tokens_used,
             provider="anthropic",
             model=_HAIKU_MODEL,
+            shop_domain=shop_domain,
         )
     except Exception as exc:
         log.warning("chatbot_llm_fallback: record_usage failed: %s", exc)

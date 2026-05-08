@@ -296,9 +296,13 @@ async def compose_nudge_variants(
             fallback_used=True, rejection_reason="OPENAI_API_KEY not configured"
         )
 
-    # ── Budget guard — respect scaled monthly cap (see llm_budget.py) + provider backoff ──────
+    # ── Budget guard — per-merchant tier cap + global cap + provider backoff ──
+    # shop_domain threading: when present, check_budget enforces the
+    # tier cap (€5 Lite / €10 Pro / €50 Scale) BEFORE the global cap.
+    # A Lite merchant whose €5 cap is exhausted falls back to the
+    # rule-based deterministic composer.
     from app.core.llm_budget import check_budget, record_blocked, is_provider_backed_off
-    allowed, reason = check_budget("nudge_composer")
+    allowed, reason = check_budget("nudge_composer", shop_domain=shop_domain)
     if not allowed:
         record_blocked("nudge_composer", reason)
         log.info("nudge_composer: budget blocked (%s) — using rule-based fallback", reason)
@@ -655,10 +659,18 @@ async def _call_openai_with_retry(messages: list[dict]) -> str:
                         response=resp,
                     )
 
-                # Record successful usage for budget tracking
+                # Record successful usage for budget tracking — passes
+                # shop_domain so the per-merchant tier counter is updated
+                # alongside the global cost.
                 from app.core.llm_budget import record_usage
                 tokens = data.get("usage", {}).get("total_tokens", _OPENAI_MAX_TOKENS)
-                record_usage("nudge_composer", tokens_used=tokens, provider="openai", model=_OPENAI_MODEL)
+                record_usage(
+                    "nudge_composer",
+                    tokens_used=tokens,
+                    provider="openai",
+                    model=_OPENAI_MODEL,
+                    shop_domain=shop_domain,
+                )
 
                 return choice["message"]["content"]
 

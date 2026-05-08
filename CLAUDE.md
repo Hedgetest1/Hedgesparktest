@@ -1003,6 +1003,7 @@ refuses to start if prior `_loadtest_` shops exist unless --force).
 | `hs:segmon:cursor` | segment monitor round-robin cursor | 24h |
 | `hs:merchant_opt_out:{shop}` | Art. 21 opt-out flag | none |
 | `llm:monthly_cost:{month}` | LLM spend | 35d |
+| `hs:llm:merchant_monthly:{shop}:{month}` | per-merchant per-tier monthly LLM spend (€5 Lite / €10 Pro / €50 Scale cap) | 35d |
 | `llm:daily:{module}:{date}` | LLM calls per module | 7d |
 | `hs:shop_ccy:v1:{shop}` | shop currency cache | 1h |
 | `hs:shop_tz:v1:{shop}` | shop timezone cache | 1h |

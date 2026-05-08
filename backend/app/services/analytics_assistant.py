@@ -247,16 +247,20 @@ def _fallback_answer(context: str, sources: list[str]) -> AnalyticsAnswer:
     )
 
 
-def _call_anthropic(prompt: str) -> str:
+def _call_anthropic(prompt: str, shop_domain: str | None = None) -> str:
     """Call Claude with the assistant system prompt. Returns empty
-    string on any failure — caller falls back to deterministic."""
+    string on any failure — caller falls back to deterministic.
+
+    `shop_domain` is threaded into check_budget + record_usage so the
+    per-merchant tier cap (€5 Lite / €10 Pro / €50 Scale) is enforced
+    in addition to the global cap."""
     import httpx
     from app.core.llm_budget import (
         check_budget, is_provider_backed_off, record_429, record_usage,
     )
     from app.core.llm_pii_guard import check_for_pii
 
-    can_proceed, reason = check_budget("analytics_assistant")
+    can_proceed, reason = check_budget("analytics_assistant", shop_domain=shop_domain)
     if not can_proceed:
         log.info("analytics_assistant: budget gate blocked (%s)", reason)
         return ""
@@ -313,6 +317,7 @@ def _call_anthropic(prompt: str) -> str:
                 tokens_used=total_tokens,
                 provider="anthropic",
                 model=_MODEL,
+                shop_domain=shop_domain,
             )
             return text
         if resp.status_code == 429:
@@ -393,7 +398,7 @@ def answer(
         f"\n\nQUESTION: {q}"
     )
 
-    raw = _call_anthropic(prompt)
+    raw = _call_anthropic(prompt, shop_domain=shop)
     if not raw:
         return _fallback_answer(context, sources)
 

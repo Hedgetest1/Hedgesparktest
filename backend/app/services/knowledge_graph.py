@@ -245,13 +245,20 @@ def _pull_nudges(db: Session, kg: MerchantKG, lookback_days: int = 30) -> None:
 
 
 def _pull_anomalies(db: Session, kg: MerchantKG, lookback_days: int = 14) -> None:
-    """ops_alerts represent system-detected anomalies for this shop."""
+    """ops_alerts represent system-detected anomalies for this shop.
+
+    Tenant isolation: only alerts scoped to THIS shop are pulled.
+    System-wide alerts (shop_domain IS NULL) are operator-pipeline state
+    (LLM budget, Redis health, infra) and must NEVER surface in a
+    merchant-facing knowledge graph — would leak operator context AND
+    mis-attribute system-wide signals to one merchant.
+    """
     cutoff = _now() - timedelta(days=lookback_days)
     try:
         rows = db.execute(text("""
             SELECT id, source, alert_type, severity, summary, created_at
             FROM ops_alerts
-            WHERE (shop_domain = :shop OR shop_domain IS NULL)
+            WHERE shop_domain = :shop
               AND created_at >= :cut
             ORDER BY created_at DESC
             LIMIT 300
@@ -502,7 +509,7 @@ def _h_revenue_today(kg: MerchantKG, q: str) -> dict:
     todays_orders = [
         n for n in kg.nodes.values()
         if n.entity_type == "order"
-        and n.attrs.get("created_at", "").startswith(str(today))
+        and (n.attrs.get("created_at") or "").startswith(str(today))
     ]
     total = sum(o.attrs.get("total_price", 0) or 0 for o in todays_orders)
     return {
@@ -523,14 +530,14 @@ def _h_why_revenue_drop(kg: MerchantKG, q: str) -> dict:
         n.attrs.get("total_price", 0) or 0
         for n in kg.nodes.values()
         if n.entity_type == "order"
-        and n.attrs.get("created_at", "").startswith(str(_now().date()))
+        and (n.attrs.get("created_at") or "").startswith(str(_now().date()))
     )
     yesterday = (_now().date() - timedelta(days=1))
     yesterday_value = sum(
         n.attrs.get("total_price", 0) or 0
         for n in kg.nodes.values()
         if n.entity_type == "order"
-        and n.attrs.get("created_at", "").startswith(str(yesterday))
+        and (n.attrs.get("created_at") or "").startswith(str(yesterday))
     )
     delta = today_orders_value - yesterday_value
     suspects = []

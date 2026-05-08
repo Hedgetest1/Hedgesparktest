@@ -1,16 +1,21 @@
-"""Chatbot LLM fallback — global budget governance.
+"""Chatbot LLM fallback — global + per-merchant budget governance.
 
-Regression pin for the 2026-04-23 audit: `try_llm_fallback` was missing
-both `check_budget` AND `record_usage` calls, producing a budget-bypass
-where merchant-paid Haiku volume never rolled up into the monthly cap.
+Regression pin for:
+  - 2026-04-23 audit: `try_llm_fallback` was missing both `check_budget`
+    AND `record_usage` calls, producing a budget-bypass where Haiku
+    volume never rolled up into the monthly cap.
+  - 2026-05-08 founder direttiva: per-merchant per-tier budget (€5 Lite,
+    €10 Pro, €50 Scale) must gate the call AND increment the per-shop
+    counter — done by passing shop_domain to check_budget + record_usage.
+    The explicit record_merchant_charge call was removed (record_usage
+    handles per-merchant tracking when shop_domain is provided), so the
+    test contract updated to pin shop_domain threading instead.
 
-Contract:
-1. check_budget("chatbot_fallback") MUST gate the call; exhaustion
-   short-circuits to `reason=budget_exhausted:*` without hitting the API.
-2. record_usage("chatbot_fallback", ...) MUST fire on every successful
-   answer so aggregate spend is visible to /ops/llm-budget.
-3. record_merchant_charge continues to fire (per-merchant accounting,
-   unchanged).
+Contract (post 2026-05-08):
+1. check_budget("chatbot_fallback", shop_domain=X) MUST gate the call.
+2. record_usage("chatbot_fallback", ..., shop_domain=X) MUST fire on
+   successful answers — record_usage handles BOTH global tracking AND
+   per-merchant counter increment when shop_domain is provided.
 """
 from __future__ import annotations
 
@@ -47,7 +52,10 @@ def test_budget_exhaustion_short_circuits_without_api_call(db):
 
 
 def test_successful_call_records_global_usage(db):
-    """Successful answer must fire record_usage for global accounting."""
+    """Successful answer must fire record_usage with shop_domain.
+    Per 2026-05-08 contract change: record_usage(shop_domain=X) handles
+    both global tracking AND per-merchant counter — no separate
+    record_merchant_charge call."""
     with patch.object(cb, "_should_use_llm", return_value=(True, "ok")), \
          patch.object(cb, "_build_rag_context", return_value=_make_rag_context()), \
          patch("app.core.llm_budget.check_budget", return_value=(True, "ok")), \
@@ -58,8 +66,7 @@ def test_successful_call_records_global_usage(db):
              37,    # output_tokens
          )), \
          patch.object(cb, "_validate_response", return_value=(True, "ok")), \
-         patch("app.core.llm_budget.record_usage") as mock_record, \
-         patch("app.core.llm_budget.record_merchant_charge") as mock_merchant:
+         patch("app.core.llm_budget.record_usage") as mock_record:
         result = cb.try_llm_fallback(db, shop_domain="fixture.myshopify.com", message="how are my orders?")
 
     assert result.success is True
@@ -67,18 +74,13 @@ def test_successful_call_records_global_usage(db):
     args, kwargs = mock_record.call_args
     assert args[0] == "chatbot_fallback"
     assert kwargs.get("provider") == "anthropic"
-    assert kwargs.get("model", "").startswith("claude-haiku"), (
-        f"model must be a Haiku variant, got {kwargs.get('model')!r}"
-    )
-    # Ground-truth token count: sum of Anthropic's input + output (2026-04-23).
-    # Previously the caller approximated with len(answer)//4 which drifts
-    # badly on prompts with heavy system context.
-    assert kwargs.get("tokens_used") == 450 + 37, (
-        f"tokens_used must equal input_tokens + output_tokens from Anthropic "
-        f"usage struct, got {kwargs.get('tokens_used')!r}"
-    )
-    assert mock_merchant.call_count == 1, (
-        "record_merchant_charge must continue firing (unchanged contract)"
+    assert kwargs.get("model", "").startswith("claude-haiku")
+    assert kwargs.get("tokens_used") == 450 + 37
+    # NEW (2026-05-08): shop_domain MUST be threaded so record_usage
+    # increments the per-merchant tier counter (€5 Lite / €10 Pro cap).
+    assert kwargs.get("shop_domain") == "fixture.myshopify.com", (
+        f"shop_domain must be threaded for per-merchant tier tracking, "
+        f"got {kwargs.get('shop_domain')!r}"
     )
 
 

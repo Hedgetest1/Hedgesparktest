@@ -48,6 +48,15 @@ log = logging.getLogger("revenue_at_risk")
 
 _CACHE_TTL_SECONDS = 5 * 60  # 5 minutes — cheap live updates
 _CACHE_KEY_PREFIX = "hs:rars:v1"
+# Stampede protection: when the 5-min cache expires under load (10k Pro
+# merchants, weekly digest fan-out), every concurrent caller for the same
+# shop would re-run the 5-component compute (700ms+ end-to-end). SETNX
+# claim with a 40s TTL serializes the recompute; waiters poll for the
+# fresh cache fill, then fall through to compute themselves on lock-
+# holder timeout (rare).
+_STAMPEDE_LOCK_TTL_SECONDS = 40
+_STAMPEDE_POLL_BUDGET = 15  # 15 × 0.2s = 3s wait before fallthrough
+_STAMPEDE_POLL_INTERVAL_S = 0.2
 
 
 def _now():
@@ -434,7 +443,9 @@ def get_revenue_at_risk(db: Session, shop_domain: str, plan: str = "pro") -> dic
     """
     plan_key = (plan or "pro").lower()
     cache_key = f"{_CACHE_KEY_PREFIX}:{plan_key}:{hashlib.md5(shop_domain.encode()).hexdigest()[:16]}"
+    lock_key = f"hs:rars:lock:v1:{plan_key}:{hashlib.md5(shop_domain.encode()).hexdigest()[:16]}"
     cache_hit: dict | None = None
+    rc = None
     try:
         from app.core.redis_client import _client
         rc = _client()
@@ -447,6 +458,27 @@ def get_revenue_at_risk(db: Session, shop_domain: str, plan: str = "pro") -> dic
 
     if cache_hit is not None:
         return _apply_plan_filter(cache_hit, plan)
+
+    # Stampede protection: try to acquire the recompute lock. If another
+    # worker already holds it, poll the cache briefly — usually 1-2s is
+    # enough for the lock holder to fill. On timeout, fall through and
+    # compute (rare, lock holder slow/dead).
+    lock_acquired = True  # fail-open: better to compute than block
+    if rc is not None:
+        try:
+            lock_acquired = bool(rc.set(lock_key, "1", nx=True, ex=_STAMPEDE_LOCK_TTL_SECONDS))
+        except Exception:
+            lock_acquired = True
+        if not lock_acquired:
+            import time as _time
+            for _ in range(_STAMPEDE_POLL_BUDGET):
+                _time.sleep(_STAMPEDE_POLL_INTERVAL_S)
+                try:
+                    cached2 = rc.get(cache_key)
+                    if cached2:
+                        return _apply_plan_filter(json.loads(cached2), plan)
+                except Exception:
+                    break
 
     components = []
     is_pro = plan_key == "pro"
@@ -529,12 +561,25 @@ def get_revenue_at_risk(db: Session, shop_domain: str, plan: str = "pro") -> dic
     result["currency"] = currency or "USD"
 
     try:
-        from app.core.redis_client import _client
-        rc = _client()
+        if rc is None:
+            from app.core.redis_client import _client
+            rc = _client()
         if rc is not None:
             rc.setex(cache_key, _CACHE_TTL_SECONDS, json.dumps(result, default=str))
     except Exception as exc:
         log.warning("revenue_at_risk: redis cache write failed: %s", exc)
+    finally:
+        # Release stampede lock so the next 5-min refresh can proceed.
+        # Best-effort: lock TTL (40s) is the hard ceiling so a missed
+        # release here can't deadlock — just slows the next cycle.
+        if rc is not None and lock_acquired:
+            try:
+                rc.delete(lock_key)
+            except Exception as exc:  # noqa: BLE001
+                # SILENT-EXCEPT-OK: lock release is best-effort; the
+                # 40s TTL bounds any leak and a stale lock only delays
+                # the next recompute by ≤40s.
+                log.debug("revenue_at_risk: lock release failed: %s", exc)
 
     # rars_history snapshot — only on Pro path. The Lite fast-path
     # skips the 3 heaviest components, so its `total` is structurally
