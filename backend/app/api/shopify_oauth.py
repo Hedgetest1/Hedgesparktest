@@ -199,9 +199,24 @@ def _validate_hmac_from_request(request: Request) -> bool:
 
     valid = _hmac_module.compare_digest(digest, provided_hmac)
     if not valid:
+        # Redact OAuth `code=...` from log message before truncating —
+        # the code is single-use + ~10 min TTL but is bearer-equivalent
+        # during that window, and operator log aggregation (Sentry,
+        # Datadog) may surface it. Pre-2026-05-08 the raw `message[:200]`
+        # leaked it. We log only structural metadata (param keys,
+        # message length) for debugging.
+        import re as _re
+        redacted = _re.sub(
+            r"(code|state|hmac)=[^&]*",
+            r"\1=<REDACTED>",
+            message[:200],
+        )
+        param_keys = sorted({p.split("=", 1)[0] for p in message.split("&") if "=" in p})
         log.warning(
-            "shopify_oauth: HMAC mismatch — message=%r digest=%s provided=%s",
-            message[:200], digest[:16], provided_hmac[:16],
+            "shopify_oauth: HMAC mismatch — message_len=%d keys=%s "
+            "redacted=%r digest=%s provided=%s",
+            len(message), param_keys, redacted,
+            digest[:16], provided_hmac[:16],
         )
     return valid
 
