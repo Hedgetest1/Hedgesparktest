@@ -402,18 +402,31 @@ _STRICT_API_CSP = (
 
 @app.middleware("http")
 async def dashboard_rate_limit_middleware(request: Request, call_next):
-    """Rate limit /pro/ and /merchant/ endpoints: 120 req/min per (shop, IP)."""
+    """Rate limit /pro/ and /merchant/ endpoints: 120 req/min per (shop, IP).
+
+    Bucket key is `md5(token)`, NOT `token[:64]`. JWT tokens share a
+    36-char header + ~12-char payload prefix (`{"shop":"...`), so a
+    64-char slice was identical for shops with matching name prefixes
+    (e.g. `_loadtest_00017.myshopify.com` vs `_loadtest_00018...`
+    collide on chars 0-63). Production rarely hits this because real
+    shop names diverge early in base64, but the bug is real: any two
+    Pro merchants whose shop names share a long common prefix would
+    share one rate-limit bucket. md5 of the full token guarantees
+    unique buckets per session.
+    """
     path = request.url.path
     if path.startswith(("/pro/", "/merchant/")):
         try:
             from app.core.redis_client import _client
             rc = _client()
             if rc is not None:
+                import hashlib
                 from app.core.merchant_session import SESSION_COOKIE_NAME
-                shop = request.cookies.get(SESSION_COOKIE_NAME, "")[:64]
+                token = request.cookies.get(SESSION_COOKIE_NAME, "")
+                shop_fp = hashlib.md5(token.encode("utf-8")).hexdigest()[:16] if token else "anon"
                 from app.core.client_ip import extract_client_ip
                 ip = extract_client_ip(request) or "anon"
-                key = f"hs:rl:dash:{shop}:{ip}"
+                key = f"hs:rl:dash:{shop_fp}:{ip}"
                 count = rc.incr(key)
                 if count == 1:
                     rc.expire(key, 60)
