@@ -445,13 +445,23 @@ def _last_brain_dispatch_age_hours(
 ) -> float | None:
     """Walk brain_decisions for prior dispatched limb_response with the
     same email_type. Returns hours since the last successful dispatch
-    or None if never dispatched."""
+    or None if never dispatched.
+
+    Filter rationale (future-proof per Agent audit 2026-05-08):
+    `limb_response ->> 'email_type' = :email_type` is the *specific*
+    invariant — only successfully-dispatched email rows populate that
+    JSON field. Deferred / blocked / no_action rows never set
+    `email_type` in limb_response (they store `deferred_to`,
+    `blocked_by_review`, or empty `{}`). So the email_type filter
+    alone correctly excludes non-dispatched rows, regardless of which
+    limb identity (`email_orchestrator`, future `nudge_composer`, etc.)
+    is recorded in `limb_dispatched`. NO `limb_dispatched IS NOT NULL`
+    coupling here — that would over-couple to current limb identity."""
     try:
         row = db.execute(
             text(
                 "SELECT MAX(decision_at) FROM brain_decisions "
                 "WHERE shop_domain = :shop "
-                "  AND limb_dispatched IS NOT NULL "
                 "  AND limb_response ->> 'email_type' = :email_type"
             ),
             {"shop": shop_domain, "email_type": email_type},
