@@ -412,8 +412,16 @@ def _run_cycle_inner() -> None:
             from app.services.observability_spikes import run_all_spike_detectors
             spike_summary = run_all_spike_detectors(db)
             total_spikes = sum(spike_summary.values())
+            # Commit unconditionally: detectors that fire 0 alerts may
+            # still have run heal-detection (auto_resolve_alerts inside
+            # detect_slo_breaches / detect_sentry_regressions) which
+            # uses SAVEPOINT — the outer transaction must commit or a
+            # later step's db.rollback() drops the heal UPDATEs.
+            # 2026-05-08: discovered 3 slo_breach alerts stuck unresolved
+            # 16h after p95 returned to insufficient_data because
+            # `if total_spikes > 0` skipped commit when fired=0+healed>0.
+            db.commit()
             if total_spikes > 0:
-                db.commit()
                 log(f"observability_spikes: {spike_summary}")
         except Exception as exc:
             db.rollback()
