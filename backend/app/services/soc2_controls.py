@@ -49,10 +49,14 @@ CATALOG: list[SOC2Control] = [
     SOC2Control(
         id="CC1.4",
         category="Control Environment",
-        description="Engineering team competence — code review, testing pipeline",
+        description="Engineering competence — pre-commit preflight gates + pytest suite + commit-msg hooks enforce review on every change",
         status="implemented",
-        evidence=["pytest_suite_2050_tests", "self_healing_pipeline"],
-        artefact_paths=["app/services/bugfix_pipeline.py", "app/services/reviewer_layer.py"],
+        evidence=["pytest_suite_2400_tests", "preflight_gate_chain"],
+        artefact_paths=[
+            "backend/scripts/preflight.sh",
+            "backend/scripts/install_hooks.sh",
+            "backend/tests/",
+        ],
     ),
 
     # --- Common Criteria — Communication & Information ---
@@ -93,10 +97,13 @@ CATALOG: list[SOC2Control] = [
     SOC2Control(
         id="CC3.4",
         category="Risk Assessment",
-        description="Identification of changes — diff fingerprinting + lesson validation",
+        description="Identification of changes — every commit captured in audit_log with hash chain integrity verification",
         status="implemented",
-        evidence=["patch_fingerprint_count"],
-        artefact_paths=["app/services/lesson_gc.py", "app/models/patch_fingerprint.py"],
+        evidence=["audit_log_chain_integrity", "preflight_change_classifier"],
+        artefact_paths=[
+            "app/services/audit.py",
+            "backend/scripts/classify_commit_tier.py",
+        ],
     ),
 
     # --- Monitoring Activities ---
@@ -111,13 +118,14 @@ CATALOG: list[SOC2Control] = [
     SOC2Control(
         id="CC4.2",
         category="Monitoring",
-        description="Self-healing pipeline detects + remediates deviations automatically",
+        description="Continuous monitoring — invariant audits + alerting fleet detect deviations; operator + Brain Vero remediate",
         status="implemented",
-        evidence=["bugfix_promotion_count", "merge_outcomes"],
+        evidence=["invariant_audit_pass_rate", "ops_alerts_24h_count"],
         artefact_paths=[
-            "app/services/bugfix_pipeline.py",
-            "app/services/promotion_pipeline.py",
+            "app/services/invariant_monitor.py",
+            "app/services/alerting.py",
             "app/services/system_health_synthesizer.py",
+            "app/services/merchant_brain.py",
         ],
     ),
 
@@ -125,10 +133,14 @@ CATALOG: list[SOC2Control] = [
     SOC2Control(
         id="CC5.1",
         category="Control Activities",
-        description="Tier-based execution policy with TIER_2 protection of sensitive code",
+        description="Tier-based execution policy — CLAUDE.md §10 defines TIER_0/1/2; commit-msg hooks enforce TIER_1 disclosure + TIER_2 fresh approval",
         status="implemented",
-        evidence=["execution_policy_md"],
-        artefact_paths=["EXECUTION_POLICY.md", "app/services/project_brain.py"],
+        evidence=["tier_policy_documented", "tier1_disclosure_audit"],
+        artefact_paths=[
+            "CLAUDE.md",
+            "backend/scripts/audit_tier1_change_surfaced.py",
+            "backend/scripts/audit_lateral_change_evidence.py",
+        ],
     ),
 
     # --- Logical Access ---
@@ -177,12 +189,13 @@ CATALOG: list[SOC2Control] = [
     SOC2Control(
         id="CC7.1",
         category="System Operations",
-        description="Vulnerability identification — adversarial test generation + benchmark suite",
+        description="Vulnerability identification — Sentry triage pipeline + LLM PII guard + Cloudflare CDN front + 90+ static-analysis audits in preflight",
         status="implemented",
-        evidence=["adversarial_test_runs", "benchmark_suite"],
+        evidence=["sentry_incident_throughput", "preflight_audit_pass_rate"],
         artefact_paths=[
-            "app/services/adversarial_test_gen.py",
-            "tests/test_llm_grounding_benchmark.py",
+            "app/services/sentry_triage.py",
+            "app/core/llm_pii_guard.py",
+            "backend/scripts/preflight.sh",
         ],
     ),
     SOC2Control(
@@ -204,12 +217,13 @@ CATALOG: list[SOC2Control] = [
     SOC2Control(
         id="CC7.4",
         category="System Operations",
-        description="Recovery — pipeline self-upgrade + bugfix auto-apply with revert capability",
+        description="Recovery — post-commit auto-deploy with health verification; git revert as rollback path; Brain Vero per-merchant decision audit trail",
         status="implemented",
-        evidence=["pipeline_self_upgrade"],
+        evidence=["post_commit_deploy_log", "brain_decision_audit"],
         artefact_paths=[
-            "app/services/pipeline_self_upgrade.py",
-            "app/services/bugfix_pipeline.py",
+            "backend/scripts/post_commit_auto_deploy.sh",
+            "app/services/merchant_brain.py",
+            "app/services/audit.py",
         ],
     ),
 
@@ -217,12 +231,13 @@ CATALOG: list[SOC2Control] = [
     SOC2Control(
         id="CC8.1",
         category="Change Management",
-        description="Change tracking — every code change goes through the bugfix pipeline with audit trail",
+        description="Change tracking — every commit passes preflight (90+ static audits + full pytest reflex) and writes to audit_log via post-commit hook",
         status="implemented",
-        evidence=["bugfix_candidate_history", "audit_log_summary"],
+        evidence=["preflight_gate_pass", "audit_log_summary"],
         artefact_paths=[
-            "app/models/bugfix_candidate.py",
-            "app/services/bugfix_pipeline.py",
+            "backend/scripts/preflight.sh",
+            "app/services/audit.py",
+            "backend/scripts/post_commit_auto_deploy.sh",
         ],
     ),
 
