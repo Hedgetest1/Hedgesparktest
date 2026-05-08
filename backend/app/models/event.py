@@ -69,4 +69,9 @@ class Event(Base):
             postgresql_where=text("utm_campaign IS NOT NULL"),
         ),
         Index("ix_events_shop_visitor", "shop_domain", "visitor_id"),
+        # Added 2026-05-08 (perf hunt): covers MIN(timestamp) GROUP BY
+        # visitor_id queries used by /pro/cohorts/behavioral and
+        # /pro/instant-intelligence. Index Only Scan path. See
+        # migration aa1_pro_perf_composite_indexes.
+        Index("ix_events_shop_visitor_ts", "shop_domain", "visitor_id", text("timestamp DESC")),
     )

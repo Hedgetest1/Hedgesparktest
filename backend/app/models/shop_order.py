@@ -112,4 +112,9 @@ class ShopOrder(Base):
         # Time-scoped revenue queries: WHERE shop_domain = X AND created_at > Y
         Index("ix_shop_orders_shop_created", "shop_domain", "created_at"),
         Index("ix_shop_orders_customer_email", "shop_domain", "customer_email"),
+        # Added 2026-05-08 (perf hunt): covers /orders/forecast/pro and
+        # /analytics/top-variants which filter by all 3 columns. Existing
+        # (shop_domain, created_at) forced filter thrashing on multi-currency
+        # shops. See migration aa1_pro_perf_composite_indexes.
+        Index("ix_shop_orders_shop_currency_created", "shop_domain", "currency", text("created_at DESC")),
     )

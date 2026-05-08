@@ -1,4 +1,3 @@
-# test-coverage: orchestration entry point — exercised end-to-end via Brain Vero (test_merchant_brain.py) + per-phase tests (test_orchestrator.py, test_action_learning.py, test_silence_detector.py, test_scoring_calibration.py, etc). The 5 prior direct-import tests (test_pipeline_state, test_execution_mode, test_telegram_operator, test_tier2_weekly_review, test_governed_tier1_auto_apply) were all OB and deleted in Stage 2-E. Re-cover with a Brain Vero integration test if/when the brain framework calls multiply.
 import logging
 log = logging.getLogger("agent_worker")
 import os

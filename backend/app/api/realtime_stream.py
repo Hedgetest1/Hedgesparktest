@@ -93,33 +93,50 @@ def _build_snapshot(shop: str) -> dict:
 
     db: Session = SessionLocal()
     try:
-        try:
-            from app.services.anomaly_fusion import fuse
-            fusion = fuse(db, shop)
-        except Exception as exc:
-            fusion = {"error": str(exc)[:200]}
-
-        try:
-            from app.services.causal_explainer import explain
-            causal = explain(db, shop)
-            top = (causal.get("hypotheses") or [None])[0]
-            causal_narrative = causal.get("narrative")
-        except Exception:
-            top = None
-            causal_narrative = None
-
-        # Vertical benchmarks — just a lightweight signature (total recovery
-        # potential) so the card knows when to re-pull the full payload.
-        try:
-            from app.services.benchmarks_vertical import get_vertical_benchmark_report
-            vb = get_vertical_benchmark_report(db, shop) or {}
-            vb_sig = {
-                "total_recovery_eur": float(vb.get("total_recovery_potential_eur") or 0),
-                "peer_count": int(vb.get("peer_count") or 0),
-                "scope": vb.get("scope"),
-            }
-        except Exception:
-            vb_sig = None
+        # Parallel I/O: fuse + explain + get_vertical_benchmark_report
+        # each hit independent SQL paths and tally up to ~800ms sequentially.
+        # Running concurrently in a bounded ThreadPool brings p95 closer to
+        # max-of-3 (~480ms). Each thread gets an isolated DB session —
+        # sharing the request session across threads is undefined-behavior.
+        from concurrent.futures import ThreadPoolExecutor
+        def _isolated(svc_call):
+            _db = SessionLocal()
+            try:
+                return svc_call(_db)
+            finally:
+                _db.close()
+        def _do_fusion(_db):
+            try:
+                from app.services.anomaly_fusion import fuse
+                return fuse(_db, shop)
+            except Exception as exc:
+                return {"error": str(exc)[:200]}
+        def _do_causal(_db):
+            try:
+                from app.services.causal_explainer import explain
+                return explain(_db, shop) or {}
+            except Exception:
+                return {}
+        def _do_vb(_db):
+            try:
+                from app.services.benchmarks_vertical import get_vertical_benchmark_report
+                vb = get_vertical_benchmark_report(_db, shop) or {}
+                return {
+                    "total_recovery_eur": float(vb.get("total_recovery_potential_eur") or 0),
+                    "peer_count": int(vb.get("peer_count") or 0),
+                    "scope": vb.get("scope"),
+                }
+            except Exception:
+                return None
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            f_fusion = ex.submit(_isolated, _do_fusion)
+            f_causal = ex.submit(_isolated, _do_causal)
+            f_vb = ex.submit(_isolated, _do_vb)
+            fusion = f_fusion.result()
+            causal_data = f_causal.result()
+            vb_sig = f_vb.result()
+        top = (causal_data.get("hypotheses") or [None])[0] if causal_data else None
+        causal_narrative = causal_data.get("narrative") if causal_data else None
 
         # Night shift status — cheap read from Redis only
         try:

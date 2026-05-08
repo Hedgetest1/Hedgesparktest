@@ -109,4 +109,14 @@ class ProductMetrics(Base):
             "shop_domain",
             text("unique_visitors_24h DESC"),
         ),
+        # Added 2026-05-08 (perf hunt): covers /pro/price-sensitivity which
+        # filters WHERE shop_domain=:s AND views_7d >= 3. Partial index
+        # (views_7d >= 3) keeps it small. See migration
+        # aa1_pro_perf_composite_indexes.
+        Index(
+            "ix_product_metrics_shop_views_7d",
+            "shop_domain",
+            "views_7d",
+            postgresql_where=text("views_7d >= 3"),
+        ),
     )

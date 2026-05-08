@@ -93,7 +93,7 @@ _KNOWN_UNCOVERED_BACKLOG: frozenset[str] = frozenset({
     # services/ (78 — `lite_morning_digest` was added in the same
     # commit + has its own test, so it's NOT in this set)
     "action_candidates_engine", "action_executor", "action_proof",
-    "activation", "adaptive_governance", "agency", "analytics_assistant",
+    "activation", "agency", "analytics_assistant",
     "audience_segments", "autonomous_loop", "behavioral_cohorts",
     "brand_voice", "brief_engine", "chat_voice", "chatbot_llm_fallback",
     "cig_engine", "cohort_engine", "community_marketplace",
