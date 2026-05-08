@@ -962,6 +962,123 @@ def _render_followup_noopen(ctx: dict) -> tuple[str, str, str]:
 
 
 # ---------------------------------------------------------------------------
+# Brain Vero v0.3 — retention + recovery templates (born 2026-05-08)
+# ---------------------------------------------------------------------------
+# Both templates dispatch from `merchant_brain._coordinate` when the brain's
+# rule-table fires `retention_outreach_email` (critical churn risk) or
+# `recovery_digest` (high RAR + stale). Copy follows CLAUDE.md §5 four
+# filters: narrative flow, idiot-proof, visual hierarchy, loss-prevention
+# framing. Numbers + named pattern + single CTA per email.
+# ---------------------------------------------------------------------------
+
+def _render_retention_outreach(ctx: dict) -> tuple[str, str, str]:
+    """Critical-churn retention nudge — fired when the brain detects a
+    merchant whose churn signals went red (no orders 7d, was previously
+    active). Loss-prevention framing + soft CTA to re-engage."""
+    shop_name = ctx.get("shop_name", "your store")
+    orders_7d = int(ctx.get("orders_7d") or 0)
+
+    body = (
+        _heading("Your customers are quieter than usual")
+        + _p(
+            f"On <strong style='color:#f1f5f9;'>{shop_name}</strong>, "
+            f"order volume has dropped to <strong style='color:#fb7185;'>"
+            f"{orders_7d} orders in the last 7 days</strong>."
+        )
+        + _p(
+            "When buying activity stalls, the cost of inaction compounds: "
+            "every quiet day represents revenue that competitors pick up while "
+            "you wait. HedgeSpark surfaces exactly which segments went silent "
+            "and the cheapest action to bring them back.",
+            color="#94a3b8",
+        )
+        + _p(
+            "Open your dashboard — the retention panel highlights the top 3 "
+            "audience clusters that drifted in the last week, with a measured "
+            "win-back action for each.",
+            color="#94a3b8",
+        )
+        + _button("Review retention signals", _DASHBOARD_URL)
+        + '<p style="margin:20px 0 0 0;font-size:12px;color:#475569;">'
+        + "Want help reading the signals? Reply to this email."
+        + "</p>"
+    )
+
+    subject = f"{shop_name}: customers quieter than usual"
+
+    plain = (
+        f"Your customers are quieter than usual\n\n"
+        f"On {shop_name}, order volume has dropped to {orders_7d} orders "
+        f"in the last 7 days.\n\n"
+        f"When buying activity stalls, the cost of inaction compounds. "
+        f"HedgeSpark surfaces exactly which segments went silent and the "
+        f"cheapest action to bring them back.\n\n"
+        f"Open the retention panel: {_DASHBOARD_URL}\n\n"
+        f"Want help? Reply to this email.\n\n"
+        f"— HedgeSpark"
+    )
+
+    return subject, _wrap_html(subject, body), plain
+
+
+def _render_recovery_digest(ctx: dict) -> tuple[str, str, str]:
+    """High-RAR recovery digest — fired when the brain detects significant
+    revenue at risk on a shop that hasn't had a recovery action in 72h+.
+    Numbers-first, action-oriented, single CTA."""
+    shop_name = ctx.get("shop_name", "your store")
+    rars_eur = float(ctx.get("rars_eur") or 0)
+    last_action_h = ctx.get("last_action_hours")
+    rars_str = f"€{int(rars_eur):,}".replace(",", ".") if rars_eur >= 1 else "€0"
+
+    if last_action_h is None:
+        action_line = "no recovery action has run yet"
+    else:
+        days = max(1, int(float(last_action_h) // 24))
+        action_line = f"the last recovery action ran {days} day{'s' if days != 1 else ''} ago"
+
+    body = (
+        _heading(f"{rars_str} sitting at risk on {shop_name}")
+        + _p(
+            f"HedgeSpark measures the revenue your store could be losing this "
+            f"week — abandoned high-intent visits, refund-trend slips, "
+            f"benchmark gaps. Right now that figure is "
+            f"<strong style='color:#fb7185;'>{rars_str}</strong>, and "
+            f"{action_line}."
+        )
+        + _p(
+            "Each component breaks down in the dashboard with the exact action "
+            "to neutralise it. Most actions take under five minutes and pay back "
+            "the same week.",
+            color="#94a3b8",
+        )
+        + _p(
+            "Loss prevention is the cheapest revenue you'll ever earn. The "
+            "longer the figure sits unreviewed, the more compounds against it.",
+            color="#94a3b8",
+        )
+        + _button("Open the recovery panel", _DASHBOARD_URL)
+        + '<p style="margin:20px 0 0 0;font-size:12px;color:#475569;">'
+        + "Reply to this email if any of these numbers don't match what you see."
+        + "</p>"
+    )
+
+    subject = f"{rars_str} at risk on {shop_name}"
+
+    plain = (
+        f"{rars_str} sitting at risk on {shop_name}\n\n"
+        f"HedgeSpark measures the revenue your store could be losing this "
+        f"week. Right now that figure is {rars_str}, and {action_line}.\n\n"
+        f"Each component breaks down in the dashboard with the exact action "
+        f"to neutralise it. Most actions take under five minutes.\n\n"
+        f"Open the recovery panel: {_DASHBOARD_URL}\n\n"
+        f"Reply if the numbers don't match what you see.\n\n"
+        f"— HedgeSpark"
+    )
+
+    return subject, _wrap_html(subject, body), plain
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -974,6 +1091,8 @@ _RENDERERS = {
     "setup_incomplete": _render_setup_incomplete,
     "first_insight": _render_first_insight,
     "connection_issue": _render_connection_issue,
+    "retention_outreach": _render_retention_outreach,
+    "recovery_digest": _render_recovery_digest,
 }
 
 

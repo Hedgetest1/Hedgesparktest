@@ -81,25 +81,36 @@ def _seed_merchant(db, shop: str, *, email: str | None = "merchant@test.com",
 # Action map invariants
 # -------------------------------------------------------------------------
 
-def test_action_email_map_only_re_engagement_wired():
-    """v0.2 wires exactly 1 of 4 action_kinds. Adding a new wiring
-    without copy review = silent merchant impact = test must catch it.
+def test_action_email_map_v03_full_wiring():
+    """v0.3 (2026-05-08) wires 3 of 4 action_kinds via email_orchestrator.
+    The 4th (proactive_nudge_compose) dispatches via action_task_queue
+    so its email_type entry is None by design — that's NOT a deferral.
+
+    If a refactor unmaps any of the 3 email-driven action_kinds (or maps
+    proactive_nudge_compose to an email_type), this test catches it.
     """
-    wired = {k for k, v in _ACTION_EMAIL_MAP.items() if v is not None}
-    assert wired == {"re_engagement_check"}, (
-        f"v0.2 must wire ONLY re_engagement_check (got {wired}). "
-        "retention_outreach_email/recovery_digest/proactive_nudge_compose "
-        "need founder-approved copy or a different limb — see merchant_brain "
-        "_coordinate docstring + CLAUDE.md §1.5."
-    )
+    wired_email = {k for k, v in _ACTION_EMAIL_MAP.items() if v is not None}
+    assert wired_email == {
+        "re_engagement_check",
+        "retention_outreach_email",
+        "recovery_digest",
+    }, f"unexpected email-driven action_kinds: {wired_email}"
+    # proactive_nudge_compose is intentionally non-email
+    assert _ACTION_EMAIL_MAP["proactive_nudge_compose"] is None
 
 
-def test_action_email_map_re_engagement_uses_existing_template():
-    """re_engagement_check must dispatch via existing reengagement_drift —
-    NOT a parallel template. Anti-fork guard: if someone adds a new
-    'brain_re_engagement' email_type, the audit_email_registry would
-    flag it but THIS test catches it earlier."""
-    assert _ACTION_EMAIL_MAP["re_engagement_check"] == "reengagement_drift"
+def test_action_email_map_email_types_match_governance():
+    """Each wired email_type must exist in TEMPLATE_REGISTRY (governance
+    invariant — no ghost email types in the brain dispatch map)."""
+    from app.services.email_governance import TEMPLATE_REGISTRY
+    for action_kind, email_type in _ACTION_EMAIL_MAP.items():
+        if email_type is None:
+            continue
+        assert email_type in TEMPLATE_REGISTRY, (
+            f"{action_kind} maps to {email_type!r} but it's not registered "
+            f"in TEMPLATE_REGISTRY — audit_email_registry would catch this "
+            f"at preflight, but the brain dispatch lock catches it earlier."
+        )
 
 
 # -------------------------------------------------------------------------
@@ -225,14 +236,146 @@ def test_coordinate_no_action_kinds_skip(db, monkeypatch):
         assert resp == {}
 
 
-def test_coordinate_unwired_kinds_defer_to_v03(db, monkeypatch):
+def test_coordinate_retention_outreach_dispatches(db, monkeypatch):
+    """v0.3: retention_outreach_email dispatches via email_orchestrator
+    using the new retention_outreach template."""
     monkeypatch.setenv("MERCHANT_BRAIN_ENABLED", "1")
-    for kind in ("retention_outreach_email", "recovery_digest",
-                 "proactive_nudge_compose"):
-        limb, resp = _coordinate(db, _state(), _draft(action_kind=kind))
-        assert limb is None
-        assert resp.get("deferred_to") == "v0.3_copy_or_limb_pending"
-        assert resp.get("action_kind") == kind
+    shop = "brain-retention.myshopify.com"
+    _seed_merchant(db, shop)
+
+    captured: dict = {}
+
+    def _fake_submit(_db, intent):
+        captured["email_type"] = intent.email_type
+        captured["producer"] = intent.producer
+        captured["context"] = intent.context
+        return "intent_retention_xyz"
+
+    monkeypatch.setattr(
+        "app.services.email_orchestrator.submit_intent", _fake_submit
+    )
+
+    state = _state(
+        shop_domain=shop, churn_risk_level="critical", recent_orders_7d=2,
+    )
+    limb, resp = _coordinate(
+        db, state, _draft(action_kind="retention_outreach_email"),
+    )
+    assert limb == "email_orchestrator"
+    assert resp == {
+        "intent_id": "intent_retention_xyz",
+        "email_type": "retention_outreach",
+    }
+    assert captured["email_type"] == "retention_outreach"
+    assert captured["producer"] == "merchant_brain"
+    assert captured["context"]["churn_risk_level"] == "critical"
+
+
+def test_coordinate_recovery_digest_dispatches(db, monkeypatch):
+    """v0.3: recovery_digest dispatches via email_orchestrator using
+    the new recovery_digest template."""
+    monkeypatch.setenv("MERCHANT_BRAIN_ENABLED", "1")
+    shop = "brain-recovery.myshopify.com"
+    _seed_merchant(db, shop)
+
+    captured: dict = {}
+
+    def _fake_submit(_db, intent):
+        captured["email_type"] = intent.email_type
+        captured["producer"] = intent.producer
+        captured["context"] = intent.context
+        return "intent_recovery_xyz"
+
+    monkeypatch.setattr(
+        "app.services.email_orchestrator.submit_intent", _fake_submit
+    )
+
+    state = _state(
+        shop_domain=shop, rars_total_eur=5000, last_action_age_hours=80,
+    )
+    limb, resp = _coordinate(
+        db, state, _draft(action_kind="recovery_digest"),
+    )
+    assert limb == "email_orchestrator"
+    assert resp == {
+        "intent_id": "intent_recovery_xyz",
+        "email_type": "recovery_digest",
+    }
+    assert captured["email_type"] == "recovery_digest"
+    assert captured["context"]["rars_eur"] == 5000
+
+
+def test_coordinate_proactive_nudge_queues_action_task(db, monkeypatch):
+    """v0.3: proactive_nudge_compose queues an ActionTask with
+    action_type=SCARCITY_NUDGE for the top-at-risk product."""
+    from sqlalchemy import text as _sql_text
+    from app.models.action_task import ActionTask
+    monkeypatch.setenv("MERCHANT_BRAIN_ENABLED", "1")
+    shop = "brain-nudge.myshopify.com"
+    _seed_merchant(db, shop)
+
+    # Seed product_metrics so _pick_top_at_risk_product returns something.
+    # last_event_at is bigint epoch_ms (not timestamp).
+    db.execute(
+        _sql_text(
+            "INSERT INTO product_metrics "
+            "(shop_domain, product_url, views_24h, cart_conversions_24h, last_event_at, updated_at) "
+            "VALUES (:s, :u, 100, 1, "
+            "        EXTRACT(EPOCH FROM NOW())::bigint * 1000, NOW()) "
+            "ON CONFLICT (shop_domain, product_url) DO UPDATE SET "
+            "  views_24h = EXCLUDED.views_24h, "
+            "  cart_conversions_24h = EXCLUDED.cart_conversions_24h"
+        ),
+        {"s": shop, "u": "/products/brain-test-target"},
+    )
+    db.flush()
+
+    state = _state(
+        shop_domain=shop, rars_total_eur=2000, recent_events_24h=120,
+    )
+    limb, resp = _coordinate(
+        db, state, _draft(action_kind="proactive_nudge_compose"),
+    )
+    assert limb == "action_task_queue"
+    assert resp.get("product_url") == "/products/brain-test-target"
+    assert resp.get("action_type") == "SCARCITY_NUDGE"
+    assert isinstance(resp.get("action_task_id"), int)
+
+    # Verify ActionTask row landed
+    task = db.get(ActionTask, resp["action_task_id"])
+    assert task is not None
+    assert task.shop_domain == shop
+    assert task.action_type == "SCARCITY_NUDGE"
+    assert task.triggered_by == "merchant_brain"
+
+
+def test_coordinate_proactive_nudge_no_top_product_skips(db, monkeypatch):
+    """When the shop has no product_metrics rows, the brain skips the
+    dispatch with structured `skipped: no_top_product`. No ActionTask
+    row is created."""
+    monkeypatch.setenv("MERCHANT_BRAIN_ENABLED", "1")
+    shop = "brain-nudge-empty.myshopify.com"
+    _seed_merchant(db, shop)
+    state = _state(shop_domain=shop)
+    limb, resp = _coordinate(
+        db, state, _draft(action_kind="proactive_nudge_compose"),
+    )
+    assert limb is None
+    assert resp.get("skipped") == "no_top_product"
+
+
+def test_coordinate_proactive_nudge_brain_disabled_blocks(db, monkeypatch):
+    """Brain disabled → proactive_nudge_compose blocks at the gate
+    (defense in depth on top of tick()'s own check)."""
+    monkeypatch.delenv("MERCHANT_BRAIN_ENABLED", raising=False)
+    shop = "brain-nudge-disabled.myshopify.com"
+    _seed_merchant(db, shop)
+    state = _state(shop_domain=shop)
+    limb, resp = _coordinate(
+        db, state, _draft(action_kind="proactive_nudge_compose"),
+    )
+    assert limb is None
+    assert resp.get("blocked_by_review") == "brain_disabled"
 
 
 def test_coordinate_re_engagement_dispatches_via_orchestrator(

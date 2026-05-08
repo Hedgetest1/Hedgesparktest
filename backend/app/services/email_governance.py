@@ -211,6 +211,34 @@ TEMPLATE_REGISTRY = {
         "show_logo": False,
         "max_sends_per_merchant": 3,  # per day
     },
+
+    # SIGNAL — Brain Vero retention outreach (critical churn risk).
+    # Dispatched by `merchant_brain._dispatch_retention_outreach_email`
+    # when the rule-table fires `retention_outreach_email`. 2026-05-08.
+    "retention_outreach": {
+        "type": "signal",
+        "renderer": "email_templates._render_retention_outreach",
+        "sender": "dev@hedgesparkhq.com",
+        "sender_display": "HedgeSpark",
+        "has_signature": False,
+        "uses_wrap_html": True,
+        "show_logo": False,
+        "max_sends_per_merchant": 4,  # quarterly cap; brain has its own 24h cooldown
+    },
+
+    # SIGNAL — Brain Vero recovery digest (high RAR + stale state).
+    # Dispatched by `merchant_brain._dispatch_recovery_digest_email`
+    # when the rule-table fires `recovery_digest`. 2026-05-08.
+    "recovery_digest": {
+        "type": "signal",
+        "renderer": "email_templates._render_recovery_digest",
+        "sender": "dev@hedgesparkhq.com",
+        "sender_display": "HedgeSpark",
+        "has_signature": False,
+        "uses_wrap_html": True,
+        "show_logo": False,
+        "max_sends_per_merchant": 4,  # quarterly cap; brain has its own 24h cooldown
+    },
 }
 
 
@@ -229,7 +257,8 @@ IDENTITY_RULES = {
     "dev@hedgesparkhq.com": {
         "display_name": "HedgeSpark",
         "allowed_types": {"setup_incomplete", "first_insight", "connection_issue",
-                          "reengagement", "reengagement_drift", "auto_response"},
+                          "reengagement", "reengagement_drift", "auto_response",
+                          "retention_outreach", "recovery_digest"},
         "tone": "system intelligence, factual, guiding",
         "never_sends": {"welcome", "beta_welcome", "followup_*",
                         "weekly_digest", "lite_morning_digest"},
@@ -306,6 +335,8 @@ ALLOWED_FIELDS = {
     "auto_response": {"classification", "response_text"},
     "lite_morning_digest": {"signals_count", "top_product"},
     "gdpr_export": {"request_id"},
+    "retention_outreach": {"shop_name", "orders_7d"},
+    "recovery_digest": {"shop_name", "rars_eur", "last_action_hours"},
 }
 
 
@@ -338,6 +369,8 @@ _TEMPLATE_BASELINES = {
     "followup_clicked": "21ce507882a904a6",
     "followup_noopen": "d94dd86490047275",
     "beta_welcome": "b62953ae377e29f9",
+    "retention_outreach": "0f4030b745c9e759",
+    "recovery_digest": "39b1c9b73db30a6d",
 }
 
 _BASELINE_CONTEXTS = {
@@ -349,6 +382,8 @@ _BASELINE_CONTEXTS = {
     "followup_clicked": {"merchant_name": "BASELINE"},
     "followup_noopen": {"merchant_name": "BASELINE"},
     "beta_welcome": {"shop_name": "BASELINE", "merchant_name": "BASELINE"},
+    "retention_outreach": {"shop_name": "BASELINE", "orders_7d": 1},
+    "recovery_digest": {"shop_name": "BASELINE", "rars_eur": 1000, "last_action_hours": 96},
 }
 
 

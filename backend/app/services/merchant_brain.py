@@ -535,13 +535,209 @@ def _dispatch_re_engagement_email(
     }
 
 
-# action_kind → email_type registry; None means non-email or copy-pending.
+def _shop_pretty_name(shop_domain: str) -> str:
+    """Strip the .myshopify.com suffix for human-readable templates."""
+    return shop_domain.replace(".myshopify.com", "")
+
+
+def _dispatch_retention_outreach_email(
+    db: Session, state: MerchantState, decision: BrainDecisionDraft,
+) -> tuple[str | None, dict]:
+    """Submit a retention_outreach EmailIntent for a brain-driven
+    retention_outreach_email decision (critical churn risk). Uses the
+    shared `email_templates._render_retention_outreach` template."""
+    try:
+        from app.services.email_orchestrator import EmailIntent, submit_intent
+        from app.services.email_templates import render_email
+    except Exception as exc:
+        log.warning(
+            "merchant_brain: retention limb import failed: %s", exc,
+        )
+        return None, {"error": f"limb_unavailable:{exc.__class__.__name__}"}
+
+    contact = _lookup_contact_email(db, state.shop_domain)
+    if not contact:
+        return None, {"skipped": "no_contact_email_or_paused"}
+
+    try:
+        subject, html, plain = render_email("retention_outreach", {
+            "shop_name": _shop_pretty_name(state.shop_domain),
+            "orders_7d": state.recent_orders_7d,
+        })
+        intent = EmailIntent(
+            shop_domain=state.shop_domain,
+            email_type="retention_outreach",
+            to_email=contact,
+            subject=subject,
+            html=html,
+            plain_text=plain,
+            producer="merchant_brain",
+            context={
+                "brain_decision": decision.action_kind,
+                "churn_risk_level": state.churn_risk_level,
+                "orders_7d": state.recent_orders_7d,
+            },
+        )
+        intent_id = submit_intent(db, intent)
+    except Exception as exc:
+        log.warning(
+            "merchant_brain: retention dispatch failed for %s: %s",
+            state.shop_domain, exc,
+        )
+        return None, {"error": f"submit_failed:{exc.__class__.__name__}"}
+
+    return "email_orchestrator", {
+        "intent_id": intent_id,
+        "email_type": "retention_outreach",
+    }
+
+
+def _dispatch_recovery_digest_email(
+    db: Session, state: MerchantState, decision: BrainDecisionDraft,
+) -> tuple[str | None, dict]:
+    """Submit a recovery_digest EmailIntent for a brain-driven
+    recovery_digest decision (high RAR + stale state)."""
+    try:
+        from app.services.email_orchestrator import EmailIntent, submit_intent
+        from app.services.email_templates import render_email
+    except Exception as exc:
+        log.warning(
+            "merchant_brain: recovery limb import failed: %s", exc,
+        )
+        return None, {"error": f"limb_unavailable:{exc.__class__.__name__}"}
+
+    contact = _lookup_contact_email(db, state.shop_domain)
+    if not contact:
+        return None, {"skipped": "no_contact_email_or_paused"}
+
+    try:
+        subject, html, plain = render_email("recovery_digest", {
+            "shop_name": _shop_pretty_name(state.shop_domain),
+            "rars_eur": state.rars_total_eur,
+            "last_action_hours": state.last_action_age_hours,
+        })
+        intent = EmailIntent(
+            shop_domain=state.shop_domain,
+            email_type="recovery_digest",
+            to_email=contact,
+            subject=subject,
+            html=html,
+            plain_text=plain,
+            producer="merchant_brain",
+            context={
+                "brain_decision": decision.action_kind,
+                "rars_eur": state.rars_total_eur,
+                "last_action_hours": state.last_action_age_hours,
+            },
+        )
+        intent_id = submit_intent(db, intent)
+    except Exception as exc:
+        log.warning(
+            "merchant_brain: recovery dispatch failed for %s: %s",
+            state.shop_domain, exc,
+        )
+        return None, {"error": f"submit_failed:{exc.__class__.__name__}"}
+
+    return "email_orchestrator", {
+        "intent_id": intent_id,
+        "email_type": "recovery_digest",
+    }
+
+
+def _pick_top_at_risk_product(db: Session, shop_domain: str) -> str | None:
+    """Pick the highest-leak product for a shop — used by the brain's
+    proactive_nudge_compose limb to target a real product when emitting
+    the ActionTask. Ranks by leak proxy (views_24h - cart_conversions_24h)
+    DESC, then falls back to views_24h DESC. Returns None if the shop has
+    no measurable product activity (in which case the brain dispatch
+    records `skipped: no_top_product`).
+    """
+    try:
+        row = db.execute(
+            text(
+                "SELECT product_url FROM product_metrics "
+                "WHERE shop_domain = :s "
+                "  AND COALESCE(views_24h, 0) > 0 "
+                "ORDER BY (COALESCE(views_24h,0) - COALESCE(cart_conversions_24h,0)) DESC, "
+                "         COALESCE(views_24h,0) DESC "
+                "LIMIT 1"
+            ),
+            {"s": shop_domain},
+        ).fetchone()
+        if row and row[0]:
+            return str(row[0])
+    except Exception as exc:
+        log.warning(
+            "merchant_brain: top-product lookup failed for %s: %s",
+            shop_domain, exc,
+        )
+    return None
+
+
+def _dispatch_proactive_nudge_compose(
+    db: Session, state: MerchantState, decision: BrainDecisionDraft,
+) -> tuple[str | None, dict]:
+    """Brain-driven proactive nudge: pick the top-at-risk product for the
+    shop and queue an ActionTask with action_type=SCARCITY_NUDGE. The
+    existing action_executor / nudge_compose_task picks it up, runs
+    `compose_nudge_variants`, and creates the active_nudge.
+
+    Records `limb_dispatched=action_task_queue` so the brain ledger
+    reflects which downstream system actually composed the nudge.
+    Adversarial gate already checked the brain-side cooldown; the
+    action_executor handles its own per-(shop, product, action_type)
+    dedup downstream.
+    """
+    product_url = _pick_top_at_risk_product(db, state.shop_domain)
+    if product_url is None:
+        return None, {"skipped": "no_top_product"}
+
+    try:
+        from app.models.action_task import ActionTask
+        task = ActionTask(
+            shop_domain=state.shop_domain,
+            product_url=product_url,
+            action_type="SCARCITY_NUDGE",
+            status="pending",
+            triggered_by="merchant_brain",
+            source_candidate={
+                "origin": "merchant_brain.proactive_nudge_compose",
+                "rars_total_eur": state.rars_total_eur,
+                "recent_events_24h": state.recent_events_24h,
+            },
+            task_payload={
+                "shop_domain": state.shop_domain,
+                "product_url": product_url,
+                "action_type": "SCARCITY_NUDGE",
+                "trigger_source": "merchant_brain",
+            },
+        )
+        db.add(task)
+        db.flush()
+        task_id = int(task.id)
+    except Exception as exc:
+        log.warning(
+            "merchant_brain: proactive_nudge_compose ActionTask insert "
+            "failed for %s: %s",
+            state.shop_domain, exc,
+        )
+        return None, {"error": f"action_task_insert_failed:{exc.__class__.__name__}"}
+
+    return "action_task_queue", {
+        "action_task_id": task_id,
+        "product_url": product_url,
+        "action_type": "SCARCITY_NUDGE",
+    }
+
+
+# action_kind → email_type registry. Email-driven action_kinds map to a
+# real email_type; non-email action_kinds (proactive_nudge_compose) map
+# to None and are dispatched via a non-email limb in `_coordinate`.
 _ACTION_EMAIL_MAP: dict[str, str | None] = {
-    "re_engagement_check": "reengagement_drift",
-    # Below: deferred until founder-approved copy lands (v0.3 sprint).
-    "retention_outreach_email": None,
-    "recovery_digest": None,
-    "proactive_nudge_compose": None,
+    "re_engagement_check":      "reengagement_drift",
+    "retention_outreach_email": "retention_outreach",
+    "recovery_digest":          "recovery_digest",
+    "proactive_nudge_compose":  None,  # non-email — uses action_task_queue limb
 }
 
 
@@ -551,31 +747,50 @@ def _coordinate(
     """Dispatch to the limb. Returns (limb_name, response_dict). Every
     limb call is wrapped in try/except so a limb crash records as a
     structured response in brain_decisions, never as silent failure.
+
+    v0.3 (2026-05-08) wires all 4 action_kinds:
+      - re_engagement_check     → email_orchestrator (reengagement_drift)
+      - retention_outreach_email → email_orchestrator (retention_outreach)
+      - recovery_digest          → email_orchestrator (recovery_digest)
+      - proactive_nudge_compose  → action_task_queue (SCARCITY_NUDGE)
     """
     if decision.action_kind in ("no_action_cooldown", "no_action_no_signal"):
         return None, {}
 
     email_type = _ACTION_EMAIL_MAP.get(decision.action_kind)
 
-    # action_kinds without an email mapping (retention_outreach_email,
-    # recovery_digest, proactive_nudge_compose) defer to v0.3 — they need
-    # founder-approved copy or a different limb (nudge_composer).
-    if email_type is None:
+    # Email-driven: run adversarial review + dispatch via email_orchestrator.
+    if email_type is not None:
+        blocked = _adversarial_review(
+            db, state, decision, email_type=email_type,
+        )
+        if blocked:
+            return None, {"blocked_by_review": blocked}
+
+        if decision.action_kind == "re_engagement_check":
+            return _dispatch_re_engagement_email(db, state, decision)
+        if decision.action_kind == "retention_outreach_email":
+            return _dispatch_retention_outreach_email(db, state, decision)
+        if decision.action_kind == "recovery_digest":
+            return _dispatch_recovery_digest_email(db, state, decision)
+
         return None, {
-            "deferred_to": "v0.3_copy_or_limb_pending",
-            "action_kind": decision.action_kind,
+            "error": f"no_dispatcher_for_action_kind:{decision.action_kind}"
         }
 
-    blocked = _adversarial_review(db, state, decision, email_type=email_type)
-    if blocked:
-        return None, {"blocked_by_review": blocked}
+    # Non-email limbs.
+    if decision.action_kind == "proactive_nudge_compose":
+        # Adversarial review for non-email path: brain enabled + contact
+        # email exist (still required because action_executor may surface
+        # the nudge via an email path); skip the email_type cooldown
+        # check (no email_type maps to this action).
+        if not is_brain_enabled():
+            return None, {"blocked_by_review": "brain_disabled"}
+        return _dispatch_proactive_nudge_compose(db, state, decision)
 
-    if decision.action_kind == "re_engagement_check":
-        return _dispatch_re_engagement_email(db, state, decision)
-
-    # Defensive fallback — _ACTION_EMAIL_MAP added a new wiring without a
-    # dispatch handler. Surface honestly.
-    return None, {"error": f"no_dispatcher_for_action_kind:{decision.action_kind}"}
+    return None, {
+        "error": f"no_dispatcher_for_action_kind:{decision.action_kind}"
+    }
 
 
 # ---------------------------------------------------------------------------
