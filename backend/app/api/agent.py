@@ -3,12 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import sessionmaker
 
 from app.core.ai_router import route_to_dict
 from app.core.task_planner import plan_to_dict
 from app.core.database import engine
+from app.core.deps import require_operator
 from app.sandbox.sandbox_executor import (
     create_sandbox_run,
     update_sandbox_status,
@@ -24,7 +25,19 @@ from app.api.dashboard import (
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-router = APIRouter(prefix="/agent", tags=["agent"])
+# /agent/* is operator-only diagnostic surface (project-context, daily-brief
+# across all merchants, sandbox runner). Pre-2026-05-08 this router shipped
+# UNGATED — every endpoint readable by anyone hitting api.hedgesparkhq.com.
+# Daily-brief leaks cross-merchant summary + top products + price intel,
+# project-context discloses internal architecture files, sandbox endpoints
+# accept arbitrary payload. The router-level dependency gates EVERY route
+# (current + future) behind X-API-Key, fail-closed when DASHBOARD_API_KEY
+# unset (returns 503 from require_operator).
+router = APIRouter(
+    prefix="/agent",
+    tags=["agent"],
+    dependencies=[Depends(require_operator)],
+)
 
 BASE_PATH = Path("/opt/wishspark")
 DOCS_PATH = BASE_PATH / "docs"

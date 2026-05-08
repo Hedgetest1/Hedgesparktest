@@ -54,11 +54,23 @@ def _verify_sentry_signature(payload: bytes, signature: str) -> None:
     Verify Sentry webhook signature.
 
     Sentry sends: sentry-hook-signature header = HMAC-SHA256(secret, body).
+
+    Fail-closed: if SENTRY_WEBHOOK_SECRET is not configured, return 503
+    rather than accepting unsigned payloads. Mirrors the telegram_webhook
+    contract (`_verify_telegram_signature` raises 503 when secret unset).
+    Pre-2026-05-08 this returned silently, allowing forged Sentry payloads
+    to poison sentry_triage.ingest_webhook + incident state.
     """
     secret = _get_webhook_secret()
     if not secret:
-        log.warning("sentry_webhooks: SENTRY_WEBHOOK_SECRET not set — skipping verification (UNSAFE)")
-        return
+        log.error(
+            "sentry_webhooks: SENTRY_WEBHOOK_SECRET not configured — "
+            "rejecting webhook (fail-closed)"
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="sentry_webhook_secret_not_configured",
+        )
 
     expected = hmac.new(
         secret.encode("utf-8"),
