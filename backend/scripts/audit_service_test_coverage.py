@@ -114,7 +114,7 @@ _KNOWN_UNCOVERED_BACKLOG: frozenset[str] = frozenset({
     "shopify_auth", "shopify_cogs_sync", "signal_text", "sip_engine",
     "slack_dispatcher", "soc2_controls", "store_context",
     "store_insight_engine", "storefront_preview", "system_diagnostic",
-    "trust_outcome_measurement", "unique_product_engine", "utm_attribution",
+    "unique_product_engine", "utm_attribution",
     "webhook_monitor", "weekly_digest", "worker_watchdog",
     # workers/ (16)
     "gdpr_worker", "intelligence_worker", "nudge_optimization_worker",

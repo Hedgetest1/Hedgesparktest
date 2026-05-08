@@ -181,30 +181,6 @@ def test_nudge_compose_full_batch_when_ok(db, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# agent_worker monthly audit refuses under LLM pressure
-# ---------------------------------------------------------------------------
-
-def test_agent_worker_monthly_audit_skipped_under_llm_pressure():
-    """_run_monthly_evolution_audit returns early when LLM optional is skipped."""
-    from app.workers.agent_worker import _run_monthly_evolution_audit
-
-    # If protection says skip LLM, the function MUST return before touching
-    # SessionLocal, should_run_monthly_audit, mark_monthly_audit_run, or
-    # run_monthly_opus_audit.
-    with patch("app.core.protection_state.should_skip_optional_llm", return_value=True), \
-         patch("app.core.protection_state.protection_state", return_value={"level": "DEGRADED"}), \
-         patch("app.workers.agent_worker.SessionLocal") as mock_session_cls, \
-         patch("app.services.monthly_evolution_audit.should_run_monthly_audit") as mock_should_run, \
-         patch("app.services.monthly_evolution_audit.run_monthly_opus_audit") as mock_run:
-        _run_monthly_evolution_audit()
-
-    # No DB session opened, no cooldown check, no audit executed
-    mock_session_cls.assert_not_called()
-    mock_should_run.assert_not_called()
-    mock_run.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
 # deploy.sh integration — preflight + postdeploy commands present
 # ---------------------------------------------------------------------------
 

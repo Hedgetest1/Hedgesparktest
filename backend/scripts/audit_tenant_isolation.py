@@ -110,7 +110,6 @@ ALLOWLIST: set[str] = {
     "services/simulation_engine.py",      # test/simulation cleanup
     # Ops-scope alert handling — ops_alerts are cross-shop by design
     "services/evolution_outcomes.py",
-    "services/pipeline_heartbeat.py",
     "services/learning_isolation.py",
     # Public proof shares — tenancy gate is the unguessable share_token PK
     "services/share_engine.py",

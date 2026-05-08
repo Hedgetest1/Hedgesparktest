@@ -44,11 +44,6 @@ APP = REPO / "app"
 # kill switch is doctrine-only, which is a lie a brutal CTO catches.
 _KILL_SWITCHES: list[tuple[str, str]] = [
     (
-        "PIPELINE_AUTO_PROPOSE_DISABLED",
-        "Founder break-glass for the entire bugfix pipeline. Setting it "
-        "must hard-disable triage, propose, apply, promote — all phases.",
-    ),
-    (
         "ALLOW_INSECURE_DEV",
         "Dev-mode relaxation of security enforcement (FATAL on missing "
         "secret production crashes are downgraded). Required check at "

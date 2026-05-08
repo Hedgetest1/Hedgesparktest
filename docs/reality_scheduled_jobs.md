@@ -52,17 +52,8 @@ Listed here in execution order with the actual gate.
 | `_run_merchant_brain_tick` | env `MERCHANT_BRAIN_ENABLED=1` (default off; un-park ceremony flips on) | every 15min cycle — Brain Vero v0.1 per-merchant SENSE→SYNTHESIZE→DECIDE→COORDINATE→LEARN; bounded at 100 shops/cycle + 6h decision cooldown per shop |
 | `_run_onboarding` | no gate | every 15min cycle |
 | `_run_onboarding_health` | no gate | every 15min cycle |
-| `_run_bug_triage` | in-process cooldown | as fast as cooldown allows |
-| `_run_bugfix_outcome_eval` | `worker_state` dedup | ~hourly effective |
-| `_run_evolution_audit` | `should_run_audit()` monotonic cooldown | per cooldown constant |
-| `_run_model_upgrade_scan` | `should_run_scan()` monotonic cooldown | per cooldown |
-| `_run_meta_review` | `should_run_meta_review()` monotonic cooldown | per cooldown |
-| `_run_evolution_conversion` | no gate | every cycle |
-| `_run_evolution_gc` | `should_run_gc()` monotonic cooldown | per cooldown |
-| `_run_monthly_evolution_audit` | `should_run_monthly_audit(db)` — 1st of month, OPUS call | monthly, Opus budget |
 | `_run_scaling_intelligence` | no gate | every cycle |
 | `_run_entitlement_health_scan` | no gate | every cycle |
-| `_run_brain_refresh` | no gate | every cycle |
 | `_run_daily_digest` | **Rome hour ≥ 8 AND `worker_state.last_digest_date != today_rome`** | **once per Rome day, first cycle after 08:00 Rome** (this IS the daily brief — see memory reality_founder_messaging.md system #1) |
 | `_run_breach_classifier` | `worker_state` dedup | per cadence |
 | `_run_audit_log_integrity_check` | `worker_state` dedup | per cadence |
@@ -71,7 +62,6 @@ Listed here in execution order with the actual gate.
 | `_run_security_heartbeat` | self-rate-limited via `_should_run()` (hourly) | hourly |
 | `_run_gdpr_sla_enforcement` | no gate | every cycle |
 | `_run_data_retention` | `worker_state` dedup daily | once per day |
-| `_run_pipeline_self_upgrade` | **Monday 04:00-05:00 UTC only** + `worker_state.last_self_upgrade_week` | weekly, kill switch `SELF_UPGRADE_PAUSED=1` |
 | `_run_merchant_digest` | **Monday only, Europe/Rome** — sends weekly merchant emails | weekly |
 | `_run_lite_morning_digest` | **08:00–09:59 Europe/Rome** + Redis dedup `hs:lite_digest:{shop}:{YYYY-MM-DD}` (35h TTL) | **daily morning push for Lite merchants** — email_type `lite_morning_digest`, Gap A of €39-ready sprint (2026-04-20) |
 | `_run_lifecycle_emails` | dedup per-email-kind | per cadence |
@@ -181,9 +171,7 @@ Contains embedded opportunity-detection logic only.
 |---|---|---|
 | Rome-hour ≥ 8 | `agent_worker._run_daily_digest:751` | digest is the DAILY BRIEF (B1 equivalent) |
 | Rome-hour == any Monday | `agent_worker._run_merchant_digest` | weekly merchant digest + TIER_2 weekly review |
-| UTC Monday 04:00-05:00 | `agent_worker._run_pipeline_self_upgrade:984` | weekly self-upgrade run, `SELF_UPGRADE_PAUSED` kill switch |
 | UTC Sunday | `agent_worker._run_scoring_self_eval` | weekly scoring self-evaluation |
-| 1st of month | `_run_monthly_evolution_audit` | Monthly Opus Audit (paid OPUS call) |
 
 **⚠️ No job runs at a "true" wall-clock time — all fire on the FIRST
 cycle that passes the gate after the boundary.** For 15-min
