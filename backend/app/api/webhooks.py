@@ -551,6 +551,17 @@ async def shopify_shop_redact(
             merchant.install_status = "uninstalled"
             merchant.uninstalled_at = merchant.uninstalled_at or now
             merchant.billing_active = False
+            # Invalidate the auth-session cache (mirrors the pattern in the
+            # primary uninstall handler above). Cache stores tier since
+            # 2026-05-08 — without this delete, a 30s window leaves stale
+            # billing_active=true post-redact.
+            try:
+                from app.core.redis_client import _client as _rc
+                rc = _rc()
+                if rc is not None:
+                    rc.delete(f"hs:auth:msv:v1:{shop_domain}")
+            except Exception:
+                pass  # SILENT-EXCEPT-OK: cache invalidation best-effort
             try:
                 db.commit()
                 log.info(

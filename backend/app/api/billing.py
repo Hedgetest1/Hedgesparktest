@@ -508,6 +508,19 @@ async def billing_callback(
             db.rollback()
             return _redirect(f"/?billing=error&shop={shop}", shop=shop)
 
+        # Invalidate the auth-session cache so the next request sees the
+        # new plan + billing_active immediately. The cache (hs:auth:msv:v1:*)
+        # stores tier alongside session_version since 2026-05-08; without
+        # this delete, a 30s window would still authorize the merchant
+        # via the stale Lite cache value, blocking Pro-gated endpoints.
+        try:
+            from app.core.redis_client import _client as _rc
+            rc = _rc()
+            if rc is not None:
+                rc.delete(f"hs:auth:msv:v1:{shop}")
+        except Exception:
+            pass  # SILENT-EXCEPT-OK: cache invalidation best-effort; 30s TTL bounds stale window
+
         return _redirect(f"/?billing=activated&shop={shop}", shop=shop)
 
     elif status == "declined":

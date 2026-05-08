@@ -129,7 +129,25 @@ def require_merchant_session(
                         detail="Session invalid. Please reinstall HedgeSpark.",
                     )
                 db_sv = int(getattr(merchant, "session_version", None) or 0)
-                cached_validation = {"exists": True, "sv": db_sv}
+                # Cache extended 2026-05-08 to include plan + billing_active
+                # so require_pro_session / require_scale_session can read
+                # tier from the same cache instead of issuing a duplicate
+                # Merchant query per request. Empirical: dashboard's
+                # Promise.allSettled fires 6 Pro endpoints simultaneously;
+                # without this, each pays an extra DB hop in the auth chain
+                # under PgBouncer pool contention (p95 measured 975ms on
+                # /pro/cohorts/monthly with consistent traffic over 4h).
+                # Mutation sites that MUST invalidate the cache (delete the
+                # key): app/api/billing.py (Pro upgrade), app/api/webhooks.py
+                # (uninstall + shop-redact), app/services/billing_sync.py
+                # (charge deactivate). 30s TTL bounds stale-window if any
+                # site forgets.
+                cached_validation = {
+                    "exists": True,
+                    "sv": db_sv,
+                    "plan": merchant.plan or "lite",
+                    "billing_active": bool(merchant.billing_active),
+                }
                 if rc is not None:
                     try:
                         rc.setex(cache_key, 30, json.dumps(cached_validation))
@@ -158,6 +176,32 @@ def require_merchant_session(
     raise HTTPException(status_code=401, detail="Authentication required.")
 
 
+def _read_tier_from_auth_cache(shop_domain: str) -> tuple[str, bool]:
+    """Read (plan, billing_active) from the auth cache populated by
+    require_merchant_session. Returns ("lite", False) on cache miss /
+    Redis down / corrupt cache / old format ({exists,sv}-only) so the
+    caller falls back to a DB query.
+
+    Born 2026-05-08 — tier-cache extension for require_pro/scale_session.
+    """
+    from app.core.redis_client import _client as _redis_client
+    from app.core.silent_fallback import record_silent_return
+    import json
+    rc = _redis_client()
+    if rc is None:
+        record_silent_return("deps.tier_cache.no_client")
+        return "lite", False
+    try:
+        raw = rc.get(f"hs:auth:msv:v1:{shop_domain}")
+        if raw is None:
+            return "lite", False
+        cached = json.loads(raw)
+        return cached.get("plan") or "lite", bool(cached.get("billing_active"))
+    except Exception:
+        record_silent_return("deps.tier_cache.exception")
+        return "lite", False
+
+
 def require_pro_session(
     request: Request,
     db: Session = Depends(get_db),
@@ -170,9 +214,25 @@ def require_pro_session(
     matching the tier rank (lite < pro < scale).
 
     Returns shop_domain on success. Raises 401 or 403 on failure.
+
+    Tier read is served from the auth cache (populated by
+    require_merchant_session) when warm — eliminates the duplicate
+    Merchant query that was the dashboard-burst bottleneck under
+    PgBouncer pool contention. Defensive DB fallback covers cache
+    miss / old format / Redis down — auth is NEVER bypassed; the
+    cache only fast-paths the positive case.
     """
     shop = require_merchant_session(request, db)
 
+    plan, billing_active = _read_tier_from_auth_cache(shop)
+    if plan in ("pro", "scale") and billing_active:
+        return shop
+
+    # Cache miss / stale / Redis down → defensive DB fallback.
+    # The DB fallback is the same query the pre-fix code did
+    # unconditionally; with the cache, it runs only on the
+    # negative / cold path, which is rare for Pro merchants
+    # actively browsing the dashboard.
     from app.models.merchant import Merchant
     row = db.query(Merchant).filter(Merchant.shop_domain == shop).first()
     if row is None or row.plan not in ("pro", "scale") or not row.billing_active:
@@ -196,8 +256,15 @@ def require_scale_session(
     Autopsy + Genome, Nudge DNA, Lift Report, Night Shift Agent).
 
     Returns shop_domain on success. Raises 401 or 403 on failure.
+
+    Same tier-cache fast-path as require_pro_session — defensive DB
+    fallback on miss / stale / Redis down.
     """
     shop = require_merchant_session(request, db)
+
+    plan, billing_active = _read_tier_from_auth_cache(shop)
+    if plan == "scale" and billing_active:
+        return shop
 
     from app.models.merchant import Merchant
     row = db.query(Merchant).filter(Merchant.shop_domain == shop).first()

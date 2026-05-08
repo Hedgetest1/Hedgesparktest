@@ -124,6 +124,16 @@ def _deactivate(db: Session, merchant: Merchant, reason: str) -> None:
     """Deactivate a merchant's billing and log it."""
     merchant.billing_active = False
     db.flush()
+    # Invalidate the auth-session cache so the next request sees the
+    # deactivated state immediately. Cache (hs:auth:msv:v1:*) stores
+    # tier alongside session_version since 2026-05-08.
+    try:
+        from app.core.redis_client import _client as _rc
+        rc = _rc()
+        if rc is not None:
+            rc.delete(f"hs:auth:msv:v1:{merchant.shop_domain}")
+    except Exception:
+        pass  # SILENT-EXCEPT-OK: cache invalidation best-effort; 30s TTL bounds stale window
 
     # Audit log
     from app.services.audit import write_audit_log
