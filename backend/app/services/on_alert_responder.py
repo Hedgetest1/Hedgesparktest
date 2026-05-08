@@ -23,8 +23,8 @@ Flow when enabled:
 
 Scope restrictions (§10 TIER_1 — propose only; NEVER relax without
 founder review):
-    - TRIAGE ONLY. No bugfix proposals — those go through the
-      existing bugfix_pipeline (governed TIER_1 auto-apply).
+    - TRIAGE ONLY. Produces an explanation paragraph for the operator,
+      never a code patch.
     - Read-only on system state. No writes except audit_log row.
     - Never modifies alert.resolved — triage is analysis, not closure.
 

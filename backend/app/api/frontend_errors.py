@@ -9,9 +9,8 @@ frontend regressions lived until a merchant complained.
 This endpoint is the bridge: the dashboard calls POST /ops/frontend-errors
 whenever its global error boundary, window.onerror, or unhandledrejection
 handler fires. Each report is normalized, fingerprinted, and written to
-ops_alerts with alert_type='frontend_error'. The existing bugfix triage
-pipeline then picks it up (see bugfix_pipeline.run_bug_triage Rule 5) and
-the standard triage → propose → apply loop runs — no separate codepath.
+ops_alerts with alert_type='frontend_error'. Operators see the entry via
+/ops/system-health and the digest pipeline.
 
 Contract
 --------

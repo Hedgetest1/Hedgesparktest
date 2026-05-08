@@ -27,7 +27,7 @@ on the next cycle. Never raises.
 
 Scope restrictions (§10 TIER_1 — propose only):
     - READ-ONLY on system state.
-    - Never proposes code patches (those go through bugfix_pipeline).
+    - Never proposes code patches (operator surface only).
     - Writes only `audit_log` in the caller, not here.
 """
 from __future__ import annotations

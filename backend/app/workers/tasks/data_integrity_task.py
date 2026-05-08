@@ -30,7 +30,7 @@ def run() -> None:
     """
     Sweep active merchants and flag semantic drift: attribution collapse,
     order collapse, AOV drift, nudge lift decay. Findings are written to
-    ops_alerts and picked up by bugfix_pipeline.run_bug_triage Rule 6.
+    ops_alerts and surfaced via /ops/system-health + the digest pipeline.
     """
     from app.core.database import SessionLocal
     db = SessionLocal()

@@ -11,9 +11,8 @@ an alert, and the pipeline would never learn about it.
 This probe runs a small, curated set of **per-shop semantic health checks**
 against real merchant data. Each check compares a recent window (7 days)
 against a baseline window (8–30 days) and flags statistically meaningful
-regressions. When a check fails, we write a `semantic_drift` ops_alert;
-bugfix_pipeline.run_bug_triage Rule 6 then promotes it to a candidate like
-any other incident.
+regressions. When a check fails, we write a `semantic_drift` ops_alert
+that the operator surfaces via /ops/system-health and the digest pipeline.
 
 Principles
 ----------

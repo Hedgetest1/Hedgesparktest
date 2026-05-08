@@ -405,7 +405,8 @@ def _run_cycle_inner() -> None:
         # ------------------------------------------------------------------ #
         # Observability spikes — elevate high-volume low-severity signals     #
         # (tracker runtime errors, dashboard frontend errors, p95 drift)      #
-        # into single ops_alert events the bugfix_pipeline can triage.        #
+        # into single ops_alert events the operator can triage via            #
+        # /ops/system-health and the daily digest.                            #
         # Each detector is independently try/except'd inside the service.     #
         # ------------------------------------------------------------------ #
         try:

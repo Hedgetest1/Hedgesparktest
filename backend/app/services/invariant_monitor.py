@@ -21,8 +21,8 @@ takes it from there.
 Design constraints
 ------------------
 - Read-only: this module MUST NOT attempt to fix anything. Only
-  detect + alert. Fix proposals go through the standard bugfix
-  pipeline (LLM propose → reviewer_layer → governed apply).
+  detect + alert. Fixes are operator-driven through the standard
+  preflight + commit-msg hook chain.
 - Cheap: subprocess to existing audit scripts. No new LLM calls.
 - Fail-safe: if the audit script itself errors, log but don't
   raise — never take down the worker loop.

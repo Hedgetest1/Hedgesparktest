@@ -1733,13 +1733,12 @@ def run_cycle():
     # Phase 1: Orchestrator — reads alerts/state, executes safe actions
     _run_orchestrator()
 
-    # Phase 1b: MerchantBrain — Brain Vero v0.1. Per-merchant
-    # sense→synthesize→decide→coordinate→learn cycle. Default OFF
-    # via MERCHANT_BRAIN_ENABLED=0 (un-park ceremony flips on).
-    # Bounded: max 100 shops per cycle, decision cooldown 6h per shop.
-    # Born 2026-05-07 closing founder direttiva "shippa Brain Vero"
-    # — the conductor pivots brain from immune-system-on-self
-    # (bugfix_pipeline 0.13% apply rate) to merchant-outcome loop.
+    # Phase 1b: Brain Vero — per-merchant SENSE→SYNTHESIZE→DECIDE→
+    # COORDINATE→LEARN cycle (`app/services/merchant_brain.py`).
+    # Default OFF via MERCHANT_BRAIN_ENABLED=0 (un-park ceremony flips
+    # on). Bounded: max 100 shops per cycle, 6h decision cooldown per
+    # shop. Replaces the old immune-system-on-self brain (Stage 2-E
+    # supersession 2026-05-07).
     _run_merchant_brain_tick()
 
     # Phase 2: Onboarding — ensure new merchants reach "ready" state
@@ -1748,34 +1747,11 @@ def run_cycle():
     # Phase 2b: Onboarding health — detect stuck merchants, pixel abandonment, slow activation
     _run_onboarding_health()
 
-    # ── PHASES 3, 4, 5 SUPERSEDED ──────────────────────────────────
-    # The immune-system-on-self brain (bugfix_pipeline + adversarial
-    # reviewer + sibling_hunt + iterative_fix + evolution_engine +
-    # meta_reviewer + monthly_evolution_audit + lesson_gc +
-    # circuit_breaker) was supplanted on 2026-05-07 by Brain Vero
-    # (`merchant_brain.py`, Phase 1b above). Per founder direttiva
-    # "il nuovo VERO BRAIN soppianta quello precedente che funzionava
-    # male": the old brain was applying patches at 0.13% rate with
-    # 93% no_effect outcomes, regulating itself instead of merchants.
-    #
-    # Stage 1 (this commit): phase calls stripped from run_cycle. The
-    # function definitions + service files persist temporarily so
-    # historical references in tests / ops endpoints / telegram
-    # commands don't error mid-rewire.
-    # Stage 2 (next commit): file deletion sweep — services, tests,
-    # ops endpoints, telegram commands, model files. Tables retained
-    # for historical data.
-    # ─────────────────────────────────────────────────────────────
-
     # Phase 6: Entitlement health scan
     _run_entitlement_health_scan()
 
     # Phase 7: Daily snapshot + scaling recommendations
     _run_scaling_intelligence()
-
-    # Phase 7b SUPERSEDED — _run_brain_refresh refreshed the
-    # project_brain RAG snapshot consumed only by bugfix_pipeline LLM
-    # patch generation. Brain Vero doesn't use it. Stage-2 deletion.
 
     # Phase 7c: Daily health digest to Telegram (24h cooldown)
     _run_daily_digest()
@@ -1787,12 +1763,6 @@ def run_cycle():
     # Rome) — pushes the brief so Lite merchants don't have to log in
     # to see it. Closes Gap A of the €39-ready sprint.
     _run_lite_morning_digest()
-
-    # Phase 7d-bis SUPERSEDED — _run_pipeline_self_upgrade routed
-    # CVE findings into bugfix_pipeline as dep_upgrade candidates.
-    # Brain Vero handles dependency hygiene out-of-band (founder-
-    # owned, R-blocker:sprint>1d for the merchant-outcome-irrelevant
-    # operations doctrine). Stage-2 deletion.
 
     # Phase 7d-ter: GDPR data retention sweep — daily, Europe/Rome.
     # Deletes events/visitor_purchase_sessions past their retention TTL.
