@@ -233,15 +233,11 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
             }
         )
 
-    # --- 3. Bugfix + self-heal savings (system-wide prevention) ---
-    try:
-        from app.services.fix_holdout_measurement import get_weekly_proven_savings
-        weekly_system = get_weekly_proven_savings(week_offset=0)
-    except Exception as exc:
-        log.warning("roi_hero: weekly proven savings failed: %s", exc)
-        weekly_system = 0.0
-
-    # --- 4. RARS prevented — from RARS history ---
+    # --- 3. RARS prevented — from RARS history ---
+    # (former section #3 "bugfix self-heal savings" removed 2026-05-08:
+    # `get_weekly_proven_savings` queried Redis keys never populated
+    # since Stage 2-E supersession, so the value was structurally
+    # always 0.0 AND the assignment was never used downstream.)
     prevented_rars_30d = 0.0
     try:
         from app.core.redis_client import _client
@@ -270,7 +266,7 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
             }
         )
 
-    # --- 5. 7d savings (current vs previous week, for delta trend) ---
+    # --- 4. 7d savings (current vs previous week, for delta trend) ---
     # Re-use the same autonomous_actions → CVR lift → € formula for two
     # windows so the delta badge reflects real week-over-week momentum.
     def _cvr_lift_eur_window(c_start, c_end=None):
@@ -343,7 +339,7 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
 
     total_30d = saved_30d_actions + saved_30d_trust + prevented_rars_30d
 
-    # --- 6. All-time total (observational — cheaper query) ---
+    # --- 5. All-time total (observational — cheaper query) ---
     # autonomous_actions is the canonical measured-nudge-lift source.
     # The former query used action_outcomes.revenue_delta_eur which
     # never existed on that table.
@@ -421,7 +417,7 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
 
     total_all_time = max(total_all_time + total_all_time_trust, total_30d)
 
-    # --- 7. Top win (single biggest effective action in last 30d) ---
+    # --- 6. Top win (single biggest effective action in last 30d) ---
     # Source: autonomous_actions rows with the highest (treatment_cvr -
     # control_cvr) * visitors_measured product. AOV multiplier turns
     # the visitor-lift count into an € estimate.
@@ -487,7 +483,7 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
     except Exception as exc:
         log.warning("roi_hero: top win query failed: %s", exc)
 
-    # --- 8. Plan cost + ROI ratio ---
+    # --- 7. Plan cost + ROI ratio ---
     plan_cost = 49.0  # default — could look up merchant plan
     try:
         plan_row = db.execute(
@@ -501,7 +497,7 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
 
     roi_ratio = (total_30d / plan_cost) if plan_cost > 0 else 0.0
 
-    # --- 9. Headline message ---
+    # --- 8. Headline message ---
     if total_30d <= 0:
         headline = "HedgeSpark is collecting your data — savings start this week."
     elif roi_ratio >= 20:

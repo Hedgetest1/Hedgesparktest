@@ -104,10 +104,9 @@ def holdout_lift_for_shop_window(
         if len(exposed) < _MIN_PER_COHORT or len(holdout) < _MIN_PER_COHORT:
             return None
 
-        from app.services.fix_holdout_measurement import _welch_t_test
-        t_abs, df = _welch_t_test(exposed, holdout)
-        from app.services.fix_holdout_measurement import _two_sided_t_pvalue
-        p_value = _two_sided_t_pvalue(t_abs, df) if df > 0 else 1.0
+        from app.core.stats import welch_t_test, two_sided_t_pvalue
+        t_abs, df = welch_t_test(exposed, holdout)
+        p_value = two_sided_t_pvalue(t_abs, df) if df > 0 else 1.0
 
         mean_e = sum(exposed) / len(exposed) if exposed else 0
         mean_h = sum(holdout) / len(holdout) if holdout else 0
