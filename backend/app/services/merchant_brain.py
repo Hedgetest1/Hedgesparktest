@@ -371,6 +371,14 @@ def _decide(state: MerchantState) -> BrainDecisionDraft:
 # that bypass _decide's 6h cooldown) would both reach _coordinate.
 _BRAIN_DISPATCH_COOLDOWN_HOURS = 24
 
+# Brain-wide cooldown across ALL email types — prevents the brain from
+# spamming a merchant with retention_outreach + recovery_digest +
+# re_engagement_check in 3 consecutive days (each would individually pass
+# the per-email_type 24h cooldown). Born 2026-05-08 from Competitor-CTO
+# audit lens: a real "brain" must protect inbox volume across its own
+# decisions, not only across same-template repeats.
+_BRAIN_ANY_EMAIL_COOLDOWN_HOURS = 20
+
 
 def _adversarial_review(
     db: Session, state: MerchantState, decision: BrainDecisionDraft,
@@ -417,6 +425,14 @@ def _adversarial_review(
             and last_dispatched < _BRAIN_DISPATCH_COOLDOWN_HOURS):
         return f"brain_dispatch_cooldown_{int(last_dispatched)}h"
 
+    # Brain-wide cooldown: prevent spam across DIFFERENT email_types.
+    # If the brain dispatched ANY email-driven action_kind to this shop
+    # within _BRAIN_ANY_EMAIL_COOLDOWN_HOURS, hold off this dispatch.
+    last_any = _last_brain_any_email_dispatch_age_hours(db, state.shop_domain)
+    if (last_any is not None
+            and last_any < _BRAIN_ANY_EMAIL_COOLDOWN_HOURS):
+        return f"brain_any_email_cooldown_{int(last_any)}h"
+
     return None
 
 
@@ -435,6 +451,42 @@ def _lookup_contact_email(db: Session, shop_domain: str) -> str | None:
     except Exception as exc:
         log.warning(
             "merchant_brain: contact lookup failed for %s: %s",
+            shop_domain, exc,
+        )
+        return None
+
+
+def _last_brain_any_email_dispatch_age_hours(
+    db: Session, shop_domain: str,
+) -> float | None:
+    """Walk brain_decisions for ANY prior dispatched email-driven decision
+    (any email_type). Returns hours since the last successful email
+    dispatch or None if never dispatched.
+
+    Used by `_adversarial_review` to enforce brain-wide inbox volume cap
+    — prevents the brain from sending 3 different email types to the same
+    merchant in 3 consecutive days, each individually passing the
+    per-email_type 24h cooldown.
+    """
+    try:
+        row = db.execute(
+            text(
+                "SELECT MAX(decision_at) FROM brain_decisions "
+                "WHERE shop_domain = :shop "
+                "  AND limb_response ? 'email_type'"
+            ),
+            {"shop": shop_domain},
+        ).fetchone()
+        if not row or not row[0]:
+            return None
+        last = row[0]
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        delta = datetime.now(timezone.utc) - last
+        return delta.total_seconds() / 3600.0
+    except Exception as exc:
+        log.warning(
+            "merchant_brain: any-email-dispatch lookup failed for %s: %s",
             shop_domain, exc,
         )
         return None
@@ -649,20 +701,29 @@ def _pick_top_at_risk_product(db: Session, shop_domain: str) -> str | None:
     proactive_nudge_compose limb to target a real product when emitting
     the ActionTask. Ranks by leak proxy (views_24h - cart_conversions_24h)
     DESC, then falls back to views_24h DESC. Returns None if the shop has
-    no measurable product activity (in which case the brain dispatch
-    records `skipped: no_top_product`).
+    no measurable RECENT product activity (in which case the brain
+    dispatch records `skipped: no_top_product`).
+
+    Filters by `last_event_at >= NOW() - 7d` (epoch_ms) so the brain does
+    not target ghost products that haven't been viewed in weeks. Born
+    2026-05-08 from Competitor-CTO audit: a naive top-pick would queue
+    SCARCITY_NUDGE on a product the merchant deactivated months ago.
     """
     try:
+        # last_event_at is bigint epoch_ms. Compute the 7d-ago cutoff.
+        from time import time as _time
+        cutoff_ms = int((_time() - 7 * 86400) * 1000)
         row = db.execute(
             text(
                 "SELECT product_url FROM product_metrics "
                 "WHERE shop_domain = :s "
                 "  AND COALESCE(views_24h, 0) > 0 "
+                "  AND COALESCE(last_event_at, 0) >= :cutoff "
                 "ORDER BY (COALESCE(views_24h,0) - COALESCE(cart_conversions_24h,0)) DESC, "
                 "         COALESCE(views_24h,0) DESC "
                 "LIMIT 1"
             ),
-            {"s": shop_domain},
+            {"s": shop_domain, "cutoff": cutoff_ms},
         ).fetchone()
         if row and row[0]:
             return str(row[0])

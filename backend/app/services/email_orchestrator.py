@@ -87,6 +87,9 @@ class Priority(IntEnum):
             # P4 — Winback
             "reengagement":           cls.WINBACK,
             "reengagement_drift":     cls.WINBACK,
+            "retention_outreach":     cls.WINBACK,   # Brain Vero — critical churn outreach
+            # P1 — Revenue (money-at-risk frame)
+            "recovery_digest":        cls.REVENUE,   # Brain Vero — RAR-focused recovery
         }
         return _MAP.get(email_type, cls.LIFECYCLE)
 

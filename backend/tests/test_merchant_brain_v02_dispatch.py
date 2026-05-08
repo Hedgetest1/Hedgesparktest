@@ -224,6 +224,100 @@ def test_adversarial_review_passes_after_cooldown(db, monkeypatch):
     assert blocked is None
 
 
+def test_adversarial_review_brain_wide_cooldown_blocks_other_email(
+    db, monkeypatch,
+):
+    """The brain-wide cooldown blocks a DIFFERENT email_type within 20h
+    of any prior brain email dispatch — prevents inbox spam across
+    action_kinds. Born 2026-05-08 (Competitor-CTO audit lens)."""
+    monkeypatch.setenv("MERCHANT_BRAIN_ENABLED", "1")
+    shop = "brain-cross-cooldown.myshopify.com"
+    _seed_merchant(db, shop)
+    # Seed: brain dispatched retention_outreach 5h ago for this shop.
+    db.execute(
+        _sql_text(
+            "INSERT INTO brain_decisions "
+            "(shop_domain, sense_snapshot, synthesis, action_kind, "
+            " action_payload, rationale, limb_dispatched, limb_response, "
+            " expected_outcome_metric, outcome_window_hours, baseline_value, "
+            " decision_at) "
+            "VALUES (:s, '{}', 'prior', 'retention_outreach_email', '{}', "
+            " 'prior', 'email_orchestrator', "
+            " '{\"intent_id\":\"X1\",\"email_type\":\"retention_outreach\"}', "
+            " 'merchant_re_engaged_7d', 168, 0.0, "
+            " NOW() - INTERVAL '5 hours')"
+        ),
+        {"s": shop},
+    )
+    db.flush()
+    # Now check: would the brain be allowed to dispatch a DIFFERENT
+    # email_type (recovery_digest) right now? It must be BLOCKED by the
+    # brain-wide cooldown even though per-(shop, recovery_digest) cooldown
+    # is clean.
+    blocked = _adversarial_review(
+        db, _state(shop_domain=shop), _draft(action_kind="recovery_digest"),
+        email_type="recovery_digest",
+    )
+    assert blocked is not None
+    assert blocked.startswith("brain_any_email_cooldown_"), blocked
+
+
+def test_pick_top_at_risk_product_filters_stale_products(db, monkeypatch):
+    """The top-product picker must filter products with no event in
+    last 7 days — born 2026-05-08 (Competitor-CTO audit lens) so the
+    brain doesn't queue SCARCITY_NUDGE on a long-deactivated product."""
+    from app.services.merchant_brain import _pick_top_at_risk_product
+    shop = "brain-stale-product.myshopify.com"
+    db.execute(
+        _sql_text("DELETE FROM product_metrics WHERE shop_domain = :s"),
+        {"s": shop},
+    )
+    # Seed a product with high views but last_event_at 30 days ago — should
+    # be filtered out.
+    db.execute(
+        _sql_text(
+            "INSERT INTO product_metrics "
+            "(shop_domain, product_url, views_24h, cart_conversions_24h, "
+            " last_event_at, updated_at) "
+            "VALUES (:s, '/products/stale', 9999, 0, "
+            "        EXTRACT(EPOCH FROM NOW() - INTERVAL '30 days')::bigint * 1000, "
+            "        NOW()) "
+        ),
+        {"s": shop},
+    )
+    db.flush()
+    # Stale product → picker returns None
+    assert _pick_top_at_risk_product(db, shop) is None
+
+    # Now seed a fresh product with lower views — should be picked.
+    db.execute(
+        _sql_text(
+            "INSERT INTO product_metrics "
+            "(shop_domain, product_url, views_24h, cart_conversions_24h, "
+            " last_event_at, updated_at) "
+            "VALUES (:s, '/products/fresh', 50, 1, "
+            "        EXTRACT(EPOCH FROM NOW())::bigint * 1000, NOW()) "
+        ),
+        {"s": shop},
+    )
+    db.flush()
+    assert _pick_top_at_risk_product(db, shop) == "/products/fresh"
+
+
+def test_email_priority_retention_outreach_winback(db):
+    """retention_outreach must map to WINBACK priority (urgent winback),
+    not LIFECYCLE (default fallback). Competitor-CTO audit catch."""
+    from app.services.email_orchestrator import Priority
+    assert Priority.from_email_type("retention_outreach") == Priority.WINBACK
+
+
+def test_email_priority_recovery_digest_revenue(db):
+    """recovery_digest must map to REVENUE priority (money-at-risk frame),
+    not LIFECYCLE. Competitor-CTO audit catch."""
+    from app.services.email_orchestrator import Priority
+    assert Priority.from_email_type("recovery_digest") == Priority.REVENUE
+
+
 # -------------------------------------------------------------------------
 # COORDINATE — dispatch wiring
 # -------------------------------------------------------------------------
