@@ -511,19 +511,21 @@ def _time_remaining(expires_at) -> str:
 
 # Commands that modify state — require authorized chat
 _WRITE_COMMANDS = {
-    "/approve", "/reject", "/bugfix_approve", "/bugfix_apply",
-    "/merge", "/cleanup", "/rollback",
+    "/approve", "/reject", "/cleanup",
 }
 
-# All known commands
+# All known commands. Stage 2-E supersession (2026-05-08) deleted the
+# old immune-system pipeline; the bugfix/promotion/review/rollback
+# command family pointed at deleted models and is removed here. The
+# /evolution + /meta_review + /loop_health + /weakness commands were
+# orphaned at the same time (no handlers); removed from the listed
+# set so unknown-command warnings fire correctly.
 _ALL_COMMANDS = {
-    "/status", "/evolution", "/costs", "/merchants", "/scaling",
+    "/status", "/costs", "/merchants", "/scaling",
     "/approvals", "/approve", "/reject",
-    "/bugfixes", "/bugfix_approve", "/bugfix_apply",
-    "/promotions", "/merge",
-    "/review",
-    "/incidents", "/meta_review", "/digest", "/webhooks",
+    "/incidents", "/digest", "/webhooks",
     "/dashboard_restart",
+    "/cleanup", "/cleanup_confirm", "/cleanup_cancel", "/cleanup_safe",
     "/help",
 }
 
@@ -560,7 +562,6 @@ def handle_command(command: str, db=None, chat_id: str | None = None) -> str:
         "/approvals": lambda: _cmd_approvals(db),
         "/approve": lambda: _cmd_approve(db, args),
         "/reject": lambda: _cmd_reject(db, args),
-        "/review": lambda: _cmd_review(db, args),
         "/incidents": lambda: _cmd_incidents(db),
         "/digest": lambda: _cmd_digest(db),
         "/webhooks": lambda: _cmd_webhooks(db),
@@ -568,7 +569,6 @@ def handle_command(command: str, db=None, chat_id: str | None = None) -> str:
         "/cleanup_confirm": lambda: _cmd_cleanup_confirm(db, chat_id=chat_id),
         "/cleanup_cancel": lambda: _cmd_cleanup_cancel(db, chat_id=chat_id),
         "/cleanup_safe": lambda: _cmd_cleanup_safe(db, chat_id=chat_id),
-        "/rollback": lambda: _cmd_rollback(db, args),
         "/dashboard_restart": lambda: _cmd_dashboard_restart(db, chat_id=chat_id),
         "/help": lambda: _cmd_help(db),
     }
@@ -962,125 +962,6 @@ def _cmd_reject(db, args: list[str]) -> str:
     )
 
 
-def _cmd_rollback(db, args: list[str]) -> str:
-    """Rollback an applied bugfix. Requires confirmation + locked + idempotent."""
-    if db is None:
-        return "No DB session available."
-    if not args:
-        return "Usage: /rollback <candidate_id>"
-
-    try:
-        candidate_id = int(args[0])
-    except ValueError:
-        return "Invalid candidate ID."
-
-    from app.core.telegram_safety import (
-        check_idempotency, validate_transition,
-        acquire_execution_lock, release_execution_lock,
-        request_confirmation, check_confirmation,
-        send_progress,
-    )
-    from app.models.bugfix_candidate import BugFixCandidate
-    import subprocess
-
-    c = db.get(BugFixCandidate, candidate_id)
-    if not c:
-        return f"Candidate #{candidate_id} not found."
-
-    # State machine
-    allowed, err = validate_transition(c.status, "rolled_back")
-    if not allowed:
-        return f"❌ {err}"
-
-    if not c.git_commit_sha:
-        return f"❌ #{candidate_id} has no recorded commit SHA."
-
-    # Confirmation flow — first tap asks, second tap executes
-    if not check_confirmation("rollback", str(candidate_id)):
-        request_confirmation("rollback", str(candidate_id))
-        send_message_with_buttons(
-            f"⚠️ *Confirm rollback #{candidate_id}?*\n\n"
-            f"This will revert commit {c.git_commit_sha[:8]} and restart the backend.\n\n"
-            f"Tap again within 2 minutes to confirm:",
-            [[{"text": f"🔄 CONFIRM Rollback #{candidate_id}", "callback_data": f"/rollback {candidate_id}"}]],
-        )
-        return ""  # sent via button message
-
-    # Idempotency
-    if not check_idempotency("rollback", str(candidate_id)):
-        return f"⏳ Rollback #{candidate_id} already in progress."
-
-    # Concurrency lock
-    if not acquire_execution_lock("bugfix", str(candidate_id)):
-        return f"🔒 Another operation on #{candidate_id} in progress."
-
-    # best-effort: this function is invoked from the Telegram webhook
-    # handler. If db.commit() raises mid-flow, the session is implicitly
-    # rolled back when the FastAPI request dependency teardown closes
-    # it after this function returns. The handler returns an error
-    # string; the caller (handle_command) does not re-use the session.
-    try:
-        progress_id = send_progress(
-            f"⏳ *Rolling back #{candidate_id}...*\n→ Reverting commit {c.git_commit_sha[:8]}..."
-        )
-
-        revert = subprocess.run(
-            ["git", "revert", "--no-edit", c.git_commit_sha],
-            capture_output=True, text=True, timeout=30,
-            cwd="/opt/wishspark",
-        )
-        if revert.returncode != 0:
-            send_message(f"❌ Git revert failed:\n{_safe_html(revert.stderr[:200])}", reply_to=progress_id)
-            return ""
-
-        send_progress("→ Restarted backend...", reply_to=progress_id)
-        subprocess.run(["pm2", "restart", "wishspark-backend"], capture_output=True, timeout=15)
-        import time as _time
-        _time.sleep(4)
-
-        try:
-            import httpx
-            health = httpx.get("http://127.0.0.1:8000/system/health", timeout=8.0)
-            health_ok = health.status_code == 200
-        except Exception:
-            health_ok = False
-
-        c.status = "rolled_back"
-        c.failure_reason = "operator_rollback via Telegram"
-
-        from app.services.audit import write_audit_log
-        write_audit_log(
-            db,
-            actor_type="human",
-            actor_name="telegram_operator",
-            action_type="bugfix_rollback",
-            target_type="bugfix",
-            target_id=str(candidate_id),
-            after_state={"reverted_sha": c.git_commit_sha, "health_ok": health_ok},
-            status="completed",
-            metadata={"channel": "telegram"},
-        )
-        db.commit()
-
-        send_message(
-            f"✅ *Bugfix #{candidate_id} rolled back*\n\n"
-            f"Reverted: {c.git_commit_sha[:8]}\n"
-            f"Health: {'ok ✓' if health_ok else '⚠️ degraded — /status'}\n"
-            f"Backend restarted.",
-            reply_to=progress_id,
-        )
-        return ""
-
-    # best-effort error reporting: session cleanup is handled by the
-    # FastAPI dependency teardown after this handler returns.
-    except subprocess.TimeoutExpired:
-        return f"❌ Rollback timed out. Manual intervention needed."
-    except Exception as exc:
-        return f"❌ Rollback failed: {_safe_html(str(exc)[:200])}"
-    finally:
-        release_execution_lock("bugfix", str(candidate_id))
-
-
 def _cmd_dashboard_restart(db, *, chat_id: str | None = None) -> str:
     """Operator-initiated `pm2 restart wishspark-dashboard` for the stale
     Next.js manifest bug class. Honors the same hourly rate limit the
@@ -1124,50 +1005,6 @@ def _cmd_dashboard_restart(db, *, chat_id: str | None = None) -> str:
         "Not a manifest-drift bug — investigate build output + "
         "pm2 logs."
     )
-
-
-def _cmd_review(db, args: list[str]) -> str:
-    """Fetch compact reviewer verdict for any supported entity."""
-    if db is None:
-        return "No DB session available."
-    if len(args) < 2:
-        return (
-            "Usage: /review <entity\\_type> <id>\n\n"
-            "Types: bugfix, approval, promotion, evolution, model\\_upgrade, scaling"
-        )
-
-    entity_type_map = {
-        "bugfix": "bugfix_candidate",
-        "approval": "action_approval",
-        "promotion": "bugfix_candidate",  # promotions reviewed via their linked bugfix
-        "evolution": "evolution_proposal",
-        "model_upgrade": "model_upgrade",
-        "scaling": "scaling_recommendation",
-    }
-
-    raw_type = args[0].lower()
-    entity_type = entity_type_map.get(raw_type)
-    if not entity_type:
-        return f"Unknown entity type: {raw_type}. Use: bugfix, approval, promotion, evolution, model\\_upgrade, scaling"
-
-    try:
-        entity_id = int(args[1])
-    except ValueError:
-        return "Invalid entity ID."
-
-    # For promotions, resolve the bugfix_candidate_id
-    if raw_type == "promotion":
-        from app.models.autofix_promotion import AutoFixPromotion
-        p = db.get(AutoFixPromotion, entity_id)
-        if not p:
-            return f"Promotion #{entity_id} not found."
-        entity_id = p.bugfix_candidate_id
-
-    ctx = _get_reviewer_context(db, entity_type, entity_id)
-    if not ctx:
-        return f"No reviewer assessment found for {raw_type} #{args[1]}."
-
-    return f"*Reviewer Assessment* \u2014 {raw_type} #{args[1]}\n\n{ctx}"
 
 
 def _cmd_incidents(db) -> str:
@@ -1452,33 +1289,18 @@ def _cmd_help(db) -> str:
         "*HedgeSpark Operator Bot*\n\n"
         "*Status & Info:*\n"
         "/status \u2014 system health summary\n"
-        "/evolution \u2014 last monthly audit proposals\n"
         "/costs \u2014 cost estimation breakdown\n"
         "/merchants \u2014 merchant summary\n"
         "/scaling \u2014 scaling forecast + recommendations\n"
         "/incidents \u2014 active support incidents\n"
-        "/meta_review \u2014 latest strategic meta-review\n"
         "/digest \u2014 daily health digest\n"
         "/webhooks \u2014 webhook fleet status\n\n"
         "*Approvals:*\n"
         "/approvals \u2014 list pending action approvals\n"
         "/approve <id> \u2014 approve and execute\n"
         "/reject <id> [reason] \u2014 reject with optional reason\n\n"
-        "*Bugfixes:*\n"
-        "/bugfixes \u2014 list bugfixes needing action\n"
-        "/bugfix_approve <id> \u2014 approve a proposed patch\n"
-        "/bugfix_apply <id> \u2014 apply approved patch\n\n"
-        "*Promotions:*\n"
-        "/promotions \u2014 list active promotions\n"
-        "/merge <id> \u2014 merge eligible promotion PR\n\n"
-        "*Review:*\n"
-        "/review <type> <id> \u2014 reviewer verdict\n"
-        "  types: bugfix, approval, promotion, evolution, model\\_upgrade, scaling\n\n"
-        "*Loop Intelligence:*\n"
-        "/loop_health \u2014 autonomous loop health snapshot\n"
-        "/weakness \u2014 subsystem weakness ranking\n\n"
+        "*Operations:*\n"
         "/cleanup \u2014 resolve all alerts + dismiss all incidents\n"
-        "/rollback <id> \u2014 revert an applied bugfix\n"
         "/dashboard_restart \u2014 force pm2 restart wishspark-dashboard + asset probe\n"
         "/help \u2014 this message"
     )
