@@ -1,4 +1,4 @@
-"""RARS cache stampede protection — pin the 2026-05-08 fix.
+"""RARS + KG + proof_engine cache stampede protection — pin the 2026-05-08 fix.
 
 Pre-fix: when the 5-min cache expired under load, every concurrent
 caller for the same shop would re-run the 5-component compute
@@ -119,3 +119,50 @@ def test_concurrent_caller_uses_cache_when_lock_held(db):
         f"cache hit must skip compute entirely, got {compute_calls['count']} calls"
     )
     assert result["total_at_risk_eur"] == 100.0
+
+
+def test_proof_engine_returns_from_cache_when_warm(db):
+    """proof_engine: warm cache must short-circuit the full rebuild."""
+    import json
+    from app.services import proof_engine
+
+    fake = _FakeRedis()
+    shop = "_test_proof_warm_cache_.myshopify.com"
+    import hashlib
+    cache_key = (
+        f"{proof_engine._PROOF_CACHE_KEY_PREFIX}:"
+        f"{hashlib.md5(shop.encode()).hexdigest()[:16]}:168"
+    )
+    pre_cached = {"has_proof": True, "total_incremental_revenue": 42.0,
+                  "headline": "cached", "currency": "EUR"}
+    fake.setex(cache_key, 300, json.dumps(pre_cached))
+
+    build_calls = {"count": 0}
+    def _spy(*a, **k):
+        build_calls["count"] += 1
+        return {"has_data": False, "currency": "EUR", "incremental_revenue": 0}
+
+    with patch("app.core.redis_client._client", return_value=fake), \
+         patch.object(proof_engine, "_build_holdout_proof", side_effect=_spy):
+        result = proof_engine.get_proof_report(db, shop, window_hours=168)
+
+    assert build_calls["count"] == 0, "warm cache must skip rebuild"
+    assert result["total_incremental_revenue"] == 42.0
+
+
+def test_kg_build_graph_releases_lock_after_build(db):
+    """KG: stampede lock must release after build completes."""
+    from app.services import knowledge_graph as kg
+    fake = _FakeRedis()
+    shop = "_test_kg_lock_release_.myshopify.com"
+
+    with patch("app.core.redis_client._client", return_value=fake), \
+         patch.object(kg, "_pull_orders"), \
+         patch.object(kg, "_pull_refunds"), \
+         patch.object(kg, "_pull_nudges"), \
+         patch.object(kg, "_pull_anomalies"), \
+         patch.object(kg, "_pull_ad_spend"):
+        kg.build_graph(db, shop)
+
+    lock_keys = [k for k in fake._locks if "kg:lock" in k]
+    assert lock_keys == [], f"KG lock must be released, found {lock_keys}"

@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_read_db
 from app.core.deps import require_pro_session
 
 log = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ class KGStatsResponse(BaseModel):
 def post_kg_query(
     payload: KGQueryIn,
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """Natural-language query against the merchant's knowledge graph."""
     from app.services.knowledge_graph import query
@@ -59,7 +59,7 @@ def post_kg_query(
 @router.get("/pro/kg/stats", response_model=KGStatsResponse)
 def get_kg_stats(
     shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """Return composition of the merchant's knowledge graph (debug + UI)."""
     from app.services.knowledge_graph import build_graph

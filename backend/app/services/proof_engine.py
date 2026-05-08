@@ -26,6 +26,9 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+import hashlib
+import json
+
 from app.services.nudge_measurement import (
     DEFAULT_ATTRIBUTION_WINDOW_HOURS,
     MIN_SAMPLE_PER_GROUP,
@@ -35,6 +38,17 @@ from app.services.action_proof import get_proof_summary
 from app.services.revenue_metrics import FALLBACK_AOV, get_shop_aov, get_shop_currency
 
 log = logging.getLogger(__name__)
+
+# 10k-readiness: every Pro merchant pinging /pro/proof-report on weekly
+# digest produces a thundering herd. Full report rebuild costs:
+#   - 1 active_nudges scan (LIMIT 20)
+#   - 20× get_nudge_lift_report (each ~3 nudge_events queries)
+#   - 1 action_proof scan
+#   - 1 store_revenue scan
+# Cache the fully-built report 5min keyed by (shop, window). Hot-path
+# becomes 1 Redis GET (~1ms) instead of ~60 DB queries.
+_PROOF_CACHE_KEY_PREFIX = "hs:proof:v1"
+_PROOF_CACHE_TTL_SECONDS = 5 * 60
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +117,43 @@ def get_proof_report(
     """
     window_hours = max(1, min(window_hours, 168))
 
+    # 10k-readiness cache + stampede protection. The full report
+    # rebuild is ~60 DB queries; serving from Redis is 1.
+    cache_key = (
+        f"{_PROOF_CACHE_KEY_PREFIX}:"
+        f"{hashlib.md5(shop_domain.encode()).hexdigest()[:16]}:"
+        f"{window_hours}"
+    )
+    lock_key = f"hs:proof:lock:v1:{hashlib.md5(shop_domain.encode()).hexdigest()[:16]}:{window_hours}"
+    rc = None
+    lock_acquired = True
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            cached = rc.get(cache_key)
+            if cached:
+                return json.loads(cached)
+            # Stampede: serialize concurrent rebuilds.
+            try:
+                lock_acquired = bool(rc.set(lock_key, "1", nx=True, ex=30))
+            except Exception as exc:
+                log.debug("proof_engine: lock set err: %s", exc)
+                lock_acquired = True
+            if not lock_acquired:
+                import time as _time
+                for _ in range(10):  # 10 × 0.2s = 2s wait
+                    _time.sleep(0.2)
+                    try:
+                        cached2 = rc.get(cache_key)
+                        if cached2:
+                            return json.loads(cached2)
+                    except Exception as exc:
+                        log.debug("proof_engine: cache poll err: %s", exc)
+                        break
+    except Exception as exc:
+        log.warning("proof_engine: redis cache read failed: %s", exc)
+
     holdout_proof = _build_holdout_proof(db, shop_domain, window_hours)
     action_proof_data = get_proof_summary(db, shop_domain, days=30)
 
@@ -134,7 +185,7 @@ def get_proof_report(
         or len(action_proof_data.get("improvements", [])) > 0
     )
 
-    return {
+    result = {
         "has_proof": has_proof,
         "holdout_proof": holdout_proof,
         "action_proof": {
@@ -152,6 +203,25 @@ def get_proof_report(
         "store_revenue_7d": round(store_revenue_7d, 2),
         "generated_at": _now().isoformat() + "Z",
     }
+
+    # Cache write + stampede lock release.
+    try:
+        if rc is None:
+            from app.core.redis_client import _client
+            rc = _client()
+        if rc is not None:
+            rc.setex(cache_key, _PROOF_CACHE_TTL_SECONDS, json.dumps(result, default=str))
+    except Exception as exc:
+        log.warning("proof_engine: redis cache write failed: %s", exc)
+    finally:
+        if rc is not None and lock_acquired:
+            try:
+                rc.delete(lock_key)
+            except Exception as exc:
+                # SILENT-EXCEPT-OK: 30s lock TTL bounds any leak.
+                log.debug("proof_engine: lock release failed: %s", exc)
+
+    return result
 
 
 # ---------------------------------------------------------------------------

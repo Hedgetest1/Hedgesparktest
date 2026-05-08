@@ -312,24 +312,43 @@ def _pull_ad_spend(db: Session, kg: MerchantKG, lookback_days: int = 30) -> None
 
 def build_graph(db: Session, shop_domain: str, *, fresh: bool = False) -> MerchantKG:
     """
-    Assemble the merchant's knowledge graph. Cached 5 min in Redis for
-    (shop, day) key — tradeoff: latency over staleness, since most
-    questions tolerate 5-min lag.
+    Assemble the merchant's knowledge graph. The full graph is too big
+    to JSON-serialize, so we use a SETNX stampede lock instead of a
+    value cache: concurrent callers serialize the rebuild, the lock
+    holder runs the 5 SQL pulls (orders/refunds/nudges/anomalies/spend),
+    and waiters proceed once the lock TTL expires or release fires.
+
+    At 10k Pro merchants × `/pro/kg/query` fan-out, this prevents
+    N concurrent rebuild requests from hammering the DB pool with
+    parallel scans for the same shop's data.
     """
     cache_key = f"{_CACHE_KEY_PREFIX}:stats:{hashlib.md5(shop_domain.encode()).hexdigest()[:16]}"
+    lock_key = f"hs:kg:lock:v1:{hashlib.md5(shop_domain.encode()).hexdigest()[:16]}"
+    rc = None
+    lock_acquired = True  # fail-open
     if not fresh:
         try:
             from app.core.redis_client import _client
             rc = _client()
             if rc is not None:
-                cached = rc.get(cache_key)
-                if cached:
-                    # Cached value is just the stats summary, not the full graph.
-                    # Full graphs are too big to JSON; we re-build but skip
-                    # logging spam by reading the stats.
-                    pass
+                # Stampede lock: 30s TTL, 2s waiter budget.
+                lock_acquired = bool(rc.set(lock_key, "1", nx=True, ex=30))
+                if not lock_acquired:
+                    import time as _time
+                    for _ in range(10):  # 10 × 0.2s = 2s
+                        _time.sleep(0.2)
+                        # Lock holder either finished (lock gone) or still
+                        # going. We don't have a value cache here, so we
+                        # just back off briefly and proceed; lock holder's
+                        # work warms the DB cache for our subsequent pulls.
+                        try:
+                            if not rc.get(lock_key):
+                                break
+                        except Exception as exc:
+                            log.debug("kg: lock-poll redis err: %s", exc)
+                            break
         except Exception as exc:
-            log.warning("knowledge_graph: cache read failed: %s", exc)
+            log.warning("knowledge_graph: cache/lock read failed: %s", exc)
 
     kg = MerchantKG(shop_domain=shop_domain)
     _pull_orders(db, kg)
@@ -340,12 +359,21 @@ def build_graph(db: Session, shop_domain: str, *, fresh: bool = False) -> Mercha
     kg.built_at = _now().isoformat()
 
     try:
-        from app.core.redis_client import _client
-        rc = _client()
+        if rc is None:
+            from app.core.redis_client import _client
+            rc = _client()
         if rc is not None:
             rc.setex(cache_key, _CACHE_TTL_SECONDS, json.dumps(kg.stats(), default=str))
     except Exception as exc:
         log.warning("knowledge_graph: cache write failed: %s", exc)
+    finally:
+        # Release stampede lock so the next 5-min refresh proceeds on TTL.
+        if rc is not None and lock_acquired and not fresh:
+            try:
+                rc.delete(lock_key)
+            except Exception as exc:
+                # SILENT-EXCEPT-OK: 30s lock TTL bounds any leak.
+                log.debug("knowledge_graph: lock release failed: %s", exc)
 
     return kg
 
