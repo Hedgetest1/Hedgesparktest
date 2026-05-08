@@ -106,7 +106,7 @@ _KNOWN_UNCOVERED_BACKLOG: frozenset[str] = frozenset({
     "merchant_digest", "multi_currency_rollup", "night_shift_calibration",
     "nudge_composer", "nudge_dna", "nudge_gating", "nudge_measurement",
     "nudge_optimizer", "nudge_rank", "order_ingestion", "p95_snapshot",
-    "price_intelligence_engine", "price_radar_service", "price_sensitivity",
+    "price_intelligence_engine", "price_sensitivity",
     "proactive_chat", "product_intelligence_engine", "proof_engine",
     "report_special_metrics", "revenue_autopsy", "revenue_forecast",
     "revenue_loss", "revenue_metrics", "rule_engine", "scoring_calibration",

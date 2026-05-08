@@ -387,14 +387,18 @@ class TestEmailDiagnostics:
         assert isinstance(data["diagnosis"], list)
 
     def test_trace_unknown_merchant(self, client):
-        """GET /ops/merchant/{shop}/email-trace for unknown merchant returns error."""
+        """GET /ops/merchant/{shop}/email-trace for unknown merchant must 404.
+
+        Pre-2026-05-08 returned 200 with `{"error": "merchant_not_found"}`
+        — REST drift the audit flagged. Now correctly 404.
+        """
         _key = os.environ.get("DASHBOARD_API_KEY", "test-operator-key-for-ci")
         resp = client.get(
             "/ops/merchant/nonexistent.myshopify.com/email-trace",
             headers={"X-API-Key": _key},
         )
-        assert resp.status_code == 200
-        assert resp.json()["error"] == "merchant_not_found"
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "merchant_not_found"
 
 
 # ---------------------------------------------------------------------------

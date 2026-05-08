@@ -258,6 +258,11 @@ def set_flag(
         if not updates:
             return True
         rc.hset(key, mapping=updates)
+        # REDIS-PERSIST-OK: feature_flags state IS load-bearing across
+        # deploys (the founder turns a flag ON via /ops endpoint and it
+        # must persist until they turn it OFF). No TTL is the correct
+        # behavior — but we annotate to satisfy the silent-redis-growth
+        # auditor.
         return True
     except Exception as exc:
         log.warning("feature_flags: write failed for %s: %s", name, exc)

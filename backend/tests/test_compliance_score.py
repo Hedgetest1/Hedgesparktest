@@ -101,11 +101,6 @@ def test_learning_isolation_component(db):
     assert c["score"] == c["weight"]
 
 
-def test_security_guard_wall_component():
-    c = cs._score_security_guard_wall()
-    assert c["score"] == c["weight"]
-
-
 def test_pii_masking_coverage_scan():
     c = cs._score_pii_masking_coverage()
     # Must either be full credit or report a specific offender

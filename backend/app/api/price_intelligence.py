@@ -48,7 +48,6 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db, get_read_db
 from app.core.deps import require_pro_session
 from app.models.price_intelligence import PriceIntelligence
-from app.services.price_radar_service import evaluate_price
 
 router = APIRouter()
 
@@ -99,7 +98,3 @@ def top_price_intelligence(
     ]
 
 
-@router.post("/price-radar")
-def price_radar(data: dict):
-    result = evaluate_price(data.get("product_name"))
-    return result

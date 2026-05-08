@@ -900,9 +900,6 @@ _SECRET_ALLOWLIST = {
     # test fixtures ("sk-ABCDE...", "sk-ant-api03-DEADBEEF..."). The
     # PII guard's own test CANNOT run without these.
     "backend/tests/test_llm_pii_guard.py",
-    # Security preflight guard test — contains a fake "sk-1234..."
-    # literal as an adversarial input fixture.
-    "backend/tests/test_security_preflight_guard.py",
 }
 
 
@@ -1084,11 +1081,6 @@ def test_no_new_raw_sql_fstring_interpolation():
     hits: list[str] = []
     for file in (_BACKEND / "app").rglob("*.py"):
         if "__pycache__" in file.parts:
-            continue
-        # Skip the security guard itself — it contains the pattern in
-        # a docstring and a comment as documentation of the bad shape
-        # it blocks.
-        if file.name == "security_preflight_guard.py":
             continue
         rel = file.relative_to(_BACKEND).as_posix()
         try:

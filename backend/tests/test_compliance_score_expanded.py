@@ -1,12 +1,19 @@
-"""Tests for the expanded compliance score with 11 components."""
+"""Tests for the compliance score components.
+
+2026-05-08: dropped from 11 → 10 components after `security_guard_wall`
+was deleted (its 8 weight points reabsorbed into `security_probes`).
+The deleted component scored "is the security_preflight_guard module
+importable" — a compliance-theater check tied to the old self-modification
+pipeline (also deleted in Stage 2-E).
+"""
 import pytest
 from unittest.mock import patch, MagicMock
 
 
-def test_compliance_score_has_11_components():
-    """Compliance score must have 11 weighted components summing to 100."""
+def test_compliance_score_has_10_components():
+    """Compliance score must have 10 weighted components summing to 100."""
     from app.services.compliance_score import _WEIGHTS
-    assert len(_WEIGHTS) == 11
+    assert len(_WEIGHTS) == 10
     assert sum(_WEIGHTS.values()) == 100
 
 
@@ -115,7 +122,7 @@ def test_telegram_webhook_security_present():
 
 
 def test_compute_compliance_score_includes_new_components(db):
-    """Full score computation must include all 11 components."""
+    """Full score computation must include all 10 components."""
     from app.services.compliance_score import compute_compliance_score
     with patch("app.services.compliance_score._redis", return_value=None):
         result = compute_compliance_score(db)

@@ -81,7 +81,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_read_db
 from app.core.deps import require_merchant_session, require_pro_session
 from app.core.url_utils import normalize_product_url
 from app.services.audience_segments import segment_product_visitors
@@ -171,7 +171,7 @@ def get_audience_segments(
         le=168,
         description="Active visitor window in hours. Default 72 (3 days). Max 168 (7 days).",
     ),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """
     Live behavioral audience segments for a single product.
@@ -237,7 +237,7 @@ def get_audience_segments_lite(
         le=168,
         description="Active visitor window in hours. Default 72 (3 days). Max 168 (7 days).",
     ),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     """Lite-accessible audience segmentation (founder directive 2026-04-26).
     Same service + response shape as /pro/segments. Lifetimely Free + Peel

@@ -66,11 +66,10 @@ _CACHE_TTL_S = 15 * 60
 
 
 _WEIGHTS = {
-    "security_probes":          20,
+    "security_probes":          28,  # +8 reabsorbed from security_guard_wall (2026-05-08 cleanup)
     "gdpr_sla":                 15,
     "consent_rate":             10,
     "retention_sweep":           8,
-    "security_guard_wall":       8,
     "learning_isolation":        7,
     "pii_masking_coverage":      7,
     # New worldwide-compliance components (2026-04-12)
@@ -247,26 +246,6 @@ def _score_retention_sweep() -> dict:
         "score": 0,
         "detail": "no recent retention sweep marker",
     }
-
-
-def _score_security_guard_wall() -> dict:
-    """A non-zero block count is GOOD (the pipeline tried to regress
-    and we caught it). A raw blocks count isn't enough to score — what
-    we're testing is that the guard is present and working. We give
-    full credit as long as the guard module is importable."""
-    try:
-        from app.services.security_preflight_guard import guard_candidate  # noqa: F401
-        return {
-            "weight": _WEIGHTS["security_guard_wall"],
-            "score": _WEIGHTS["security_guard_wall"],
-            "detail": "preflight guard present",
-        }
-    except Exception as exc:
-        return {
-            "weight": _WEIGHTS["security_guard_wall"],
-            "score": 0,
-            "detail": f"guard import failed: {type(exc).__name__}",
-        }
 
 
 def _score_learning_isolation(db: Session) -> dict:
@@ -523,7 +502,6 @@ def compute_compliance_score(db: Session) -> dict:
         "gdpr_sla":                 _score_gdpr_sla(db),
         "consent_rate":             _score_consent_rate(),
         "retention_sweep":          _score_retention_sweep(),
-        "security_guard_wall":      _score_security_guard_wall(),
         "learning_isolation":       _score_learning_isolation(db),
         "pii_masking_coverage":     _score_pii_masking_coverage(),
         "audit_log_integrity":      _score_audit_log_integrity(),

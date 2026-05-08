@@ -112,6 +112,12 @@ def _record_ring_change(flag: str, ring: int) -> None:
             record_silent_return("staged_rollout.ring_write")
             return
         rc.hset(_RING_HIST_KEY, f"{flag}:{ring}", str(int(time.time())))
+        # REDIS-PERSIST-OK: ring-transition history is load-bearing
+        # for dwell-time enforcement. A flag in ring 1 has its
+        # `flag:1` field set to the timestamp of when it entered ring 1;
+        # promotion gates read this to verify min-dwell elapsed.
+        # Bounded by the number of (flag, ring) pairs (~50 flags × 4
+        # rings = 200 entries) — no growth concern.
     except Exception as exc:
         log.warning("staged_rollout: _record_ring_change failed: %s", exc)
 

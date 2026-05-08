@@ -325,5 +325,7 @@ class TestOpsEndpoints:
             "/ops/merchant/nonexistent.myshopify.com/profile",
             headers={"X-API-Key": _key},
         )
-        assert resp.status_code == 200
-        assert resp.json()["error"] == "merchant_not_found"
+        # Pre-2026-05-08 returned 200 with `{"error": "merchant_not_found"}`
+        # in the body — REST drift the audit flagged. Now correctly 404.
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "merchant_not_found"

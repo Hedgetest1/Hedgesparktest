@@ -522,6 +522,23 @@ def generate_store_brief(db: Session, shop_domain: str) -> StoreBrief | None:
     if wow.visitors_this == 0 and wow.orders_this == 0 and wow.orders_last == 0:
         return None
 
+    # Resolve shop currency upfront so signal strings render in the
+    # merchant's native symbol. Pre-2026-05-08 this resolution happened
+    # AFTER the signals were built, so all revenue strings shipped as
+    # "$X" regardless of EU/UK/etc. shop locale.
+    try:
+        from app.core.currency import format_money
+        from app.services.revenue_metrics import get_shop_currency
+        _currency = get_shop_currency(db, shop_domain) or "USD"
+    except Exception:
+        format_money = None  # type: ignore[assignment]
+        _currency = "USD"
+
+    def _money(amount: float) -> str:
+        if format_money is None:
+            return f"${amount:,.0f}"
+        return format_money(amount, _currency)
+
     brief = StoreBrief(
         shop_domain=shop_domain,
         generated_at=now.isoformat() + "Z",
@@ -561,19 +578,19 @@ def generate_store_brief(db: Session, shop_domain: str) -> StoreBrief | None:
         if rev_change is not None and wow.revenue_last >= 10:
             if rev_change >= 20:
                 brief.signals.append(SignalStatus("revenue", "up",
-                    f"${wow.revenue_this:,.0f} (+{rev_change:.0f}% vs last week)",
+                    f"{_money(wow.revenue_this)} (+{rev_change:.0f}% vs last week)",
                     wow.revenue_this, wow.revenue_last))
             elif rev_change <= -20:
                 brief.signals.append(SignalStatus("revenue", "down",
-                    f"${wow.revenue_this:,.0f} ({rev_change:.0f}% vs last week)",
+                    f"{_money(wow.revenue_this)} ({rev_change:.0f}% vs last week)",
                     wow.revenue_this, wow.revenue_last))
             else:
                 brief.signals.append(SignalStatus("revenue", "stable",
-                    f"${wow.revenue_this:,.0f} ({wow.orders_this} orders)",
+                    f"{_money(wow.revenue_this)} ({wow.orders_this} orders)",
                     wow.revenue_this, wow.revenue_last))
         elif wow.revenue_this > 0:
             brief.signals.append(SignalStatus("revenue", "up",
-                f"${wow.revenue_this:,.0f} ({wow.orders_this} orders)",
+                f"{_money(wow.revenue_this)} ({wow.orders_this} orders)",
                 wow.revenue_this, 0))
 
     # --- Multi-signal diagnosis ---

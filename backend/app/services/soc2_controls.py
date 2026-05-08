@@ -308,7 +308,7 @@ CATALOG: list[SOC2Control] = [
         description="Output validation — preflight validator on every code change before merge",
         status="implemented",
         evidence=["preflight_validator_runs"],
-        artefact_paths=["app/services/security_preflight_guard.py"],
+        artefact_paths=["backend/scripts/preflight.sh"],
     ),
 
     # --- Privacy ---

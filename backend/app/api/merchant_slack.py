@@ -291,7 +291,7 @@ if (window.opener && !window.opener.closed) {{
 
 
 @router.get("/oauth/callback", include_in_schema=False)  # ui-exempt: oauth-callback  # test-exempt: oauth-callback
-def oauth_callback(
+async def oauth_callback(
     code: str | None = Query(default=None),
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
@@ -343,10 +343,12 @@ def oauth_callback(
             ok=False,
         )
 
-    # Exchange code for token + webhook URL.
+    # Exchange code for token + webhook URL. Async client so the 15s
+    # Slack POST doesn't block the event loop (4 uvicorn workers ×
+    # blocked-by-Slack = entire pool stalls during a Slack outage).
     try:
-        with httpx.Client(timeout=15.0) as client:
-            resp = client.post(
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
                 "https://slack.com/api/oauth.v2.access",
                 data={
                     "client_id": client_id,

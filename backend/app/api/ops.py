@@ -1227,7 +1227,10 @@ def ops_tier_check(
     from app.core.tier_check import check_tier
     file_list = [f.strip() for f in files.split(",") if f.strip()]
     if not file_list:
-        return {"error": "No files provided. Use ?files=path1,path2"}
+        raise HTTPException(
+            status_code=400,
+            detail="No files provided. Use ?files=path1,path2",
+        )
     result = check_tier(file_list)
     return {
         "tier": result.tier,
@@ -1520,7 +1523,14 @@ def ops_merchant_score(
     try:
         return asdict(score_merchant(db, shop_domain))
     except Exception as exc:
-        return {"error": str(exc), "shop_domain": shop_domain}
+        log.warning(
+            "ops: score_merchant failed shop=%s: %s",
+            shop_domain, exc,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="score_merchant_failed",
+        )
 
 
 @router.get("/feedback/themes")
@@ -1560,7 +1570,7 @@ def ops_merchant_profile(
 
     merchant = db.query(Merchant).filter(Merchant.shop_domain == shop_domain).first()
     if not merchant:
-        return {"error": "merchant_not_found"}
+        raise HTTPException(status_code=404, detail="merchant_not_found")
 
     # Merchant identity + status
     identity = {
@@ -1746,7 +1756,7 @@ def ops_merchant_email_trace(
     # 1. Merchant basics
     merchant = db.query(Merchant).filter(Merchant.shop_domain == shop_domain).first()
     if not merchant:
-        return {"error": "merchant_not_found", "shop_domain": shop_domain}
+        raise HTTPException(status_code=404, detail="merchant_not_found")
 
     merchant_info = {
         "shop_domain": merchant.shop_domain,

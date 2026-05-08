@@ -369,7 +369,6 @@ _AUDITS: list[tuple[str, str, str]] = [
     ("audit_pro_nav_section_parity.py", "invariant_regression", "invariant:pro_nav_section_parity"),
     ("audit_redis_client_imports.py", "invariant_regression", "invariant:redis_client_imports"),
     ("audit_response_models.py", "invariant_regression", "invariant:response_models"),
-    ("audit_safety_check_fail_closed.py", "invariant_regression", "invariant:safety_check_fail_closed"),
     ("audit_scheduled_jobs_map.py", "invariant_regression", "invariant:scheduled_jobs_map"),
     ("audit_session_hook_centralization.py", "invariant_regression", "invariant:session_hook_centralization"),
     ("audit_sidebar_floor_hardcoding.py", "invariant_regression", "invariant:sidebar_floor_hardcoding"),

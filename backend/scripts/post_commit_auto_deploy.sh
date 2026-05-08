@@ -201,12 +201,7 @@ else
     log "independent review exited non-zero (non-fatal)"
 fi
 
-# LLM-side adversarial review (Phase C, gated by ADVERSARIAL_REVIEW_LLM=1
-# env var). Default OFF — the script self-skips with a single log line.
-# When founder enables the env, the script gates further by classify-
-# commit-tier (TIER_1+ only) + LLM budget. Cost-bound: ~€0.05/call,
-# ~€2/month at 1k merchants. Findings flow to ops_alert(adversarial_
-# review_finding) which run_bug_triage Rule recognises.
-log "running LLM adversarial review (gated)..."
-"$BACKEND/venv/bin/python" "$BACKEND/scripts/post_commit_llm_adversarial_review.py" >> "$LOG" 2>&1 || \
-    log "LLM adversarial review exited non-zero (non-fatal)"
+# LLM adversarial review was removed 2026-05-08: it wrote findings to
+# ops_alert(adversarial_review_finding) for run_bug_triage Rule (deleted
+# in Stage 2-E supersession). Without a consumer, the script produced
+# alerts no one processed and burned LLM budget for no signal.

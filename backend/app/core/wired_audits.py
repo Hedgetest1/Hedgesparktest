@@ -63,7 +63,6 @@ WIRED_AUDITS: frozenset[str] = frozenset({
     "audit_redis_footprint.py",
     "audit_response_models.py",
     "audit_route_runtime_coverage.py",
-    "audit_safety_check_fail_closed.py",
     "audit_scheduled_jobs_map.py",
     "audit_sentry_alert_rules_drift.py",
     "audit_sentry_invariants.py",

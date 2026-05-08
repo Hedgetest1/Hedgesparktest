@@ -345,15 +345,6 @@ def _check_compliance_score_active(db: Session) -> bool:
         return False
 
 
-def _check_security_preflight_guard(db: Session) -> bool:
-    """Self-debugging pipeline must have security preflight guard."""
-    try:
-        from app.services.security_preflight_guard import guard_candidate  # noqa: F401
-        return True
-    except ImportError:
-        return False
-
-
 # -----------------------------------------------------------------------
 # The Registry
 # -----------------------------------------------------------------------
@@ -526,15 +517,6 @@ REGULATORY_RULES: list[RegRule] = [
         check_fn=_check_compliance_score_active,
         version=1,
     ),
-    RegRule(
-        rule_id="PIPELINE-preflight-guard",
-        regulation="Governance",
-        article="Security Guard",
-        description="Security preflight guard blocks regressions in self-debugging",
-        check_fn=_check_security_preflight_guard,
-        version=1,
-    ),
-
     # Legal pages
     RegRule(
         rule_id="LEGAL-privacy-policy",

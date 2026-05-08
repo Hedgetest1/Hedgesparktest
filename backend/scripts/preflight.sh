@@ -1201,23 +1201,10 @@ else
     tail -20 /tmp/preflight_gdpr.log || true
 fi
 
-# ---------------------------------------------------------------------------
-# 2o-septies-quinquies. Safety-check fail-closed audit. Born 2026-04-23
-# after reviewer_layer was found with 2 silent-skip safety try/except
-# blocks: the try body appended to `blocking` on condition, but the
-# except body only logged without blocking-append — a failing check
-# silently passed through. This audit walks AST on reviewer_layer,
-# bugfix_pipeline, promotion_pipeline, invariant_monitor, orchestrator
-# and flags any try/except where the try body has a safety signal
-# (blocking.append or raise) but the except body does not.
-# ---------------------------------------------------------------------------
-step "Safety-check fail-closed (audit_safety_check_fail_closed.py)"
-if "$PY" "$BACKEND/scripts/audit_safety_check_fail_closed.py" --strict > /tmp/preflight_safety_check.log 2>&1; then
-    ok "every safety-check try/except is fail-closed or opt-out annotated"
-else
-    bad "silent-skip safety-check pattern — see /tmp/preflight_safety_check.log"
-    tail -20 /tmp/preflight_safety_check.log || true
-fi
+# Safety-check fail-closed audit was deleted 2026-05-08: it scanned
+# reviewer_layer / bugfix_pipeline / promotion_pipeline (all deleted in
+# Stage 2-E supersession). The audit was passing vacuously and the
+# script + this preflight step were both dead.
 
 # ---------------------------------------------------------------------------
 # 2o-septies-sexies. Telegram destructive-command audit_log enforcement.
