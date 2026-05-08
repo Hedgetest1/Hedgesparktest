@@ -1145,12 +1145,22 @@ def _measure(db: Session, decision) -> str:
         if metric == "cooldown_pending":
             return "neutral"
         if metric == "events_24h_resumed":
-            # events table column is `timestamp` (not `created_at`)
+            # events.timestamp is BigInteger (epoch ms), NOT a Postgres
+            # timestamp. The naive `timestamp >= :datetime` compare fails
+            # with `operator does not exist: bigint >= timestamp without
+            # time zone`, aborting the whole eval transaction. Convert
+            # decision_at to epoch ms for the compare.
+            #
+            # Bug found 2026-05-08 when running evaluate_pending_outcomes
+            # against live brain_decisions (was masked by unit test using
+            # cooldown_pending metric which bypasses DB query).
+            cutoff_ms = int(decision.decision_at.replace(
+                tzinfo=timezone.utc
+            ).timestamp() * 1000)
             n = int(db.execute(
                 text("SELECT COUNT(*) FROM events WHERE shop_domain=:s "
                      "AND timestamp >= :c"),
-                {"s": decision.shop_domain,
-                 "c": decision.decision_at},
+                {"s": decision.shop_domain, "c": cutoff_ms},
             ).scalar() or 0)
             decision.measured_value = float(n)
             return "effective" if n > 0 else "ineffective"

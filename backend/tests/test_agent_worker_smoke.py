@@ -161,3 +161,63 @@ def test_brain_vero_outcome_eval_runs_when_window_elapsed(db):
             os.environ.pop("MERCHANT_BRAIN_ENABLED", None)
         else:
             os.environ["MERCHANT_BRAIN_ENABLED"] = prev
+
+
+def test_brain_vero_eval_metric_events_24h_resumed_runs(db):
+    """Regression test: previous outcome eval test used `cooldown_pending`
+    which short-circuits before any DB query. The `events_24h_resumed`
+    metric path queries `events.timestamp >= :decision_at` — and was
+    BROKEN: events.timestamp is BigInteger (epoch ms), not a Postgres
+    timestamp. Comparison `bigint >= timestamp` aborts the transaction.
+
+    Discovered 2026-05-08 by running evaluate_pending_outcomes against
+    LIVE brain_decisions. This test exercises the code path that was
+    actually firing in prod, not just the cooldown shortcut."""
+    import os
+    from datetime import datetime, timedelta, timezone
+    from app.services.merchant_brain import evaluate_pending_outcomes
+    from app.models.brain_decision import BrainDecision
+
+    prev = os.environ.get("MERCHANT_BRAIN_ENABLED")
+    os.environ["MERCHANT_BRAIN_ENABLED"] = "1"
+    try:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        # Forge a decision 48h old, 24h window, REAL DB-querying metric.
+        forged = BrainDecision(
+            shop_domain="_brain_eval_query_test_.myshopify.com",
+            decision_at=now - timedelta(hours=48),
+            sense_snapshot={"rar_eur": 0.0, "churn_score": 0.5, "orders_24h": 0, "events_24h": 0},
+            synthesis="forged for events_24h_resumed eval test",
+            action_kind="re_engagement_check",
+            action_payload={},
+            rationale="test",
+            limb_dispatched=None,
+            limb_response={},
+            expected_outcome_metric="events_24h_resumed",
+            outcome_window_hours=24,
+            baseline_value=0.0,
+        )
+        db.add(forged)
+        db.flush()
+
+        result = evaluate_pending_outcomes(db, max_evaluate=10)
+        assert result.get("evaluated", 0) >= 1, (
+            f"events_24h_resumed metric must evaluate without DB error, got {result}"
+        )
+        db.refresh(forged)
+        # `evaluation_failed` is what we used to get on the bug. With
+        # the fix, we must get an honest verdict (effective/ineffective/
+        # neutral), never `evaluation_failed`.
+        assert forged.outcome_status != "evaluation_failed", (
+            f"events_24h_resumed query must succeed, got outcome_status="
+            f"{forged.outcome_status} — likely the BigInteger cast bug "
+            f"resurfaced"
+        )
+        assert forged.outcome_status in ("effective", "ineffective", "neutral"), (
+            f"unexpected outcome_status: {forged.outcome_status}"
+        )
+    finally:
+        if prev is None:
+            os.environ.pop("MERCHANT_BRAIN_ENABLED", None)
+        else:
+            os.environ["MERCHANT_BRAIN_ENABLED"] = prev
