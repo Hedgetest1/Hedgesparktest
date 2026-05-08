@@ -845,8 +845,7 @@ Full model in `docs/EXECUTION_POLICY.md`. Summary:
 **TIER_1 — Propose only, human approves:**
 - `tracker/*.js` — storefront scripts (runs in merchant browsers)
 - `app/services/orchestrator*.py` — action execution
-- `app/services/bugfix_pipeline.py`, `promotion_pipeline.py` — self-modification
-- `app/services/reviewer_layer.py`, `project_brain.py` — governance
+- `app/services/merchant_brain.py` — Brain Vero per-merchant SENSE→SYNTHESIZE→DECIDE→COORDINATE→LEARN coordinator (replaced bugfix_pipeline + reviewer_layer + project_brain + promotion_pipeline 2026-05-08 Stage 2-E supersession)
 - `app/core/llm_budget.py`, `llm_router.py` — LLM infrastructure
 - `app/core/client_ip.py` — client-IP precedence + 2-stage CF trust gate
   (env + source-IP). Controls rate-limit, audit attribution, geo,

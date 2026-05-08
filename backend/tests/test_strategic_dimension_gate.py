@@ -68,8 +68,7 @@ def test_gate_blocks_when_only_operational_critical():
     """workers/pipeline/merchants/etc. must NOT trip the founder Telegram.
     They drive overall_status (visible in /ops/system-health) but the
     brain handles them autonomously — strategic-only doctrine."""
-    for op_name in ("workers", "pipeline", "liveness", "merchants",
-                    "freshness", "fix_rate", "alerts"):
+    for op_name in ("workers", "merchants", "freshness", "alerts"):
         state = _mk_state(_crit(op_name))
         assert _is_strategic_critical(state) is False, (
             f"operational dim '{op_name}' wrongly tripped strategic gate"

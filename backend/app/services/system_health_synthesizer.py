@@ -162,11 +162,8 @@ def synthesize_health(db: Session) -> SystemHealthState:
     # via _STRATEGIC_DIMENSIONS — names must match those declared below.
     assessors = [
         _assess_worker_health,
-        _assess_pipeline_health,
-        _assess_pipeline_liveness,
         _assess_merchant_health,
         _assess_data_freshness,
-        _assess_fix_effectiveness,
         _assess_alert_pressure,
         _assess_memory,
         _assess_llm_usage,
@@ -189,7 +186,7 @@ def synthesize_health(db: Session) -> SystemHealthState:
     # Alert accumulation and fix success rate are operational signals that
     # should not wake the founder — they are visible in /status and the
     # daily digest instead.
-    _OPS_ONLY_DIMENSIONS = {"alerts", "fix_rate"}
+    _OPS_ONLY_DIMENSIONS = {"alerts"}
     actionable_dims = [d for d in dimensions if d.name not in _OPS_ONLY_DIMENSIONS]
     ops_dims = [d for d in dimensions if d.name in _OPS_ONLY_DIMENSIONS]
 
@@ -407,126 +404,6 @@ def _assess_worker_health(db: Session, now: datetime) -> HealthDimension:
     )
 
 
-def _assess_pipeline_health(db: Session, now: datetime) -> HealthDimension:
-    """Bugfix pipeline queue depth + throughput + thrashing."""
-    queued = db.execute(text("""
-        SELECT COUNT(*) FROM bugfix_candidates
-        WHERE status IN ('open', 'analyzed', 'patch_proposed', 'approved')
-    """)).fetchone()
-    total_q = int(queued[0] or 0)
-
-    applied_7d = db.execute(text("""
-        SELECT COUNT(*) FROM bugfix_candidates
-        WHERE status = 'applied' AND applied_at >= :c
-    """), {"c": now - timedelta(days=7)}).fetchone()
-    applied = int(applied_7d[0] or 0)
-
-    applied_prev = db.execute(text("""
-        SELECT COUNT(*) FROM bugfix_candidates
-        WHERE status = 'applied' AND applied_at >= :p AND applied_at < :c
-    """), {"p": now - timedelta(days=14), "c": now - timedelta(days=7)}).fetchone()
-    applied_p = int(applied_prev[0] or 0)
-
-    # Status: queue depth thresholds — but downgrade to `degraded` if the
-    # depth is due to an external blocker (LLM not trying), same logic as
-    # _assess_pipeline_liveness. Critical is reserved for system fault.
-    if total_q > 50:
-        status = "critical"
-        try:
-            from app.core.llm_budget import get_usage_summary
-            usage = get_usage_summary()
-            if int(usage.get("global_calls_today") or 0) == 0:
-                # No LLM activity → external blocker, not system fault
-                status = "degraded"
-        except Exception:
-            pass  # SILENT-EXCEPT-OK: get_usage_summary best-effort enrichment on the degraded-status path; if the LLM-budget probe itself errors, the surrounding status synthesis must still complete and return a coherent payload — raising would 500 /ops/system-health.
-    elif total_q > 20:
-        status = "degraded"
-    else:
-        status = "healthy"
-
-    # Trend: throughput comparison
-    trend = _compute_trend(applied, applied_p, 1)  # more applied = better
-
-    return HealthDimension(
-        name="pipeline",
-        status=status,
-        value=float(total_q),
-        trend=trend,
-        detail=f"{total_q} queued, {applied} applied (7d)",
-    )
-
-
-def _assess_pipeline_liveness(db: Session, now: datetime) -> HealthDimension:
-    """
-    Detect if the LLM pipeline is dead (candidates exist but nothing processes).
-
-    DEAD: candidates > 0 AND proposals_7d == 0 AND applied_7d == 0
-    This catches: missing API keys, budget exhaustion, persistent LLM errors.
-
-    External-blocker awareness (added 2026-05-05): if `global_calls_today == 0`
-    AND no LLM activity in 7d, the pipeline is not failing — it's not
-    *trying*. That's an external dependency block (Anthropic credit
-    exhausted, OAuth revoked, etc.) — `degraded`, not `critical`. Critical
-    is reserved for "system actively broken"; this is "system parked,
-    awaiting external resource".
-    """
-    candidates = db.execute(text("""
-        SELECT COUNT(*) FROM bugfix_candidates
-        WHERE status IN ('open', 'analyzed')
-    """)).fetchone()
-    pending = int(candidates[0] or 0)
-
-    proposals = db.execute(text("""
-        SELECT COUNT(*) FROM bugfix_candidates
-        WHERE proposal_attempted_at >= :c AND patch_diff IS NOT NULL
-          AND status NOT IN ('discarded', 'rejected')
-    """), {"c": now - timedelta(days=7)}).fetchone()
-    proposals_7d = int(proposals[0] or 0)
-
-    applied = db.execute(text("""
-        SELECT COUNT(*) FROM bugfix_candidates
-        WHERE status = 'applied' AND applied_at >= :c
-    """), {"c": now - timedelta(days=7)}).fetchone()
-    applied_7d = int(applied[0] or 0)
-
-    if pending == 0:
-        return HealthDimension("liveness", "healthy", 0, "stable",
-                               "No pending candidates")
-
-    if proposals_7d == 0 and applied_7d == 0:
-        # Distinguish "broken" (calls happen but fail) from "parked"
-        # (no calls happen at all = external dep blocker).
-        try:
-            from app.core.llm_budget import get_usage_summary
-            usage = get_usage_summary()
-            calls_today = int(usage.get("global_calls_today") or 0)
-            monthly_cost = float(usage.get("monthly_cost_eur") or 0.0)
-        except Exception:
-            calls_today, monthly_cost = -1, -1.0
-
-        if calls_today == 0 and monthly_cost == 0.0:
-            # Pipeline isn't trying → external dep block, not system fault
-            return HealthDimension(
-                "liveness", "degraded", float(pending), "stable",
-                f"Pipeline parked: {pending} candidates, 0 LLM calls today — "
-                f"awaiting external (likely Anthropic credit topup)",
-            )
-        # Calls happening but no proposals → genuinely broken
-        return HealthDimension(
-            "liveness", "critical", float(pending), "stable",
-            f"Pipeline DEAD: {pending} candidates, 0 proposals/applied (7d), "
-            f"{calls_today} LLM calls today — system fault",
-        )
-
-    if applied_7d == 0 and proposals_7d > 0:
-        return HealthDimension("liveness", "degraded", float(pending), "stable",
-                               f"Pipeline stalled: {proposals_7d} proposals but 0 applied (7d)")
-
-    return HealthDimension("liveness", "healthy", float(pending), "stable",
-                           f"{pending} pending, {proposals_7d} proposed, {applied_7d} applied (7d)")
-
-
 def _assess_merchant_health(db: Session, now: datetime) -> HealthDimension:
     """High/critical support incidents: 24h recent vs 24-48h previous."""
     cutoff_24h = now - timedelta(hours=24)
@@ -591,36 +468,6 @@ def _assess_data_freshness(db: Session, now: datetime) -> HealthDimension:
         value=round(age_min, 1),
         trend="stable",
         detail=f"Last aggregation {age_min:.0f}m ago",
-    )
-
-
-def _assess_fix_effectiveness(db: Session, now: datetime) -> HealthDimension:
-    """30-day fix success rate."""
-    result = db.execute(text("""
-        SELECT COUNT(*) AS total,
-               COALESCE(SUM(CASE WHEN outcome_status = 'effective' THEN 1 ELSE 0 END), 0) AS eff,
-               COALESCE(SUM(CASE WHEN outcome_status = 'ineffective' THEN 1 ELSE 0 END), 0) AS ineff
-        FROM bugfix_candidates
-        WHERE outcome_measured_at >= :c AND outcome_status IS NOT NULL
-    """), {"c": now - timedelta(days=30)}).fetchone()
-
-    total = int(result.total or 0)
-    eff = int(result.eff or 0)
-    rate = eff / max(total, 1)
-
-    if total < 3:
-        status, trend = "healthy", "stable"  # insufficient data
-    elif rate < 0.3:
-        status, trend = "degraded", "worsening"
-    else:
-        status, trend = "healthy", "stable"
-
-    return HealthDimension(
-        name="fix_rate",
-        status=status,
-        value=round(rate, 3),
-        trend=trend,
-        detail=f"{eff}/{total} effective (30d)",
     )
 
 

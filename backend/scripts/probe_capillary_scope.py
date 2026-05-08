@@ -288,22 +288,36 @@ def probe_llm_budget_state() -> ProbeResult:
 
 
 def probe_resend_domain_verified() -> ProbeResult:
-    """Email deliverability — Resend domain must be verified for sends."""
+    """Email deliverability — Resend domain must be verified for sends.
+
+    Two Redis keys (per email_deliverability.py contract):
+      - hs:email:domain_status:v1: cached API response (dict, TTL 600s)
+      - hs:email:last_verified:v1: sticky flip-detection ("1" or "0")
+    """
     try:
         from app.core.redis_client import cache_get
         v1 = cache_get("hs:email:domain_status:v1")
         last_verified = cache_get("hs:email:last_verified:v1")
-        if v1 and v1.get("verified"):
+        if isinstance(v1, dict) and v1.get("verified"):
             return ProbeResult(
                 "resend_domain", "GREEN", v1.get("domain"),
                 f"domain {v1.get('domain')} verified",
                 "GREEN: domain status cached as verified",
             )
-        if last_verified:
+        # last_verified is a stringified bool ("1"|"0") or int per
+        # email_deliverability._mark_verified_state. GREEN if last
+        # observation was verified — covers fresh-cache-miss windows.
+        if str(last_verified) in ("1", "True"):
             return ProbeResult(
-                "resend_domain", "YELLOW", last_verified.get("domain"),
-                f"current cache empty but last-known verified at {last_verified.get('verified_at')}",
-                "YELLOW: stale cache, network probe needed",
+                "resend_domain", "GREEN", "hedgesparkhq.com",
+                "domain verified (sticky last-known)",
+                "GREEN: sticky last-verified flag set",
+            )
+        if last_verified is not None:
+            return ProbeResult(
+                "resend_domain", "YELLOW", last_verified,
+                f"sticky last-known state = {last_verified} (not verified)",
+                "YELLOW: domain in unverified state",
             )
         return ProbeResult(
             "resend_domain", "RED", None,
