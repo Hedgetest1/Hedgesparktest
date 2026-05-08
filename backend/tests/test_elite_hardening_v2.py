@@ -1045,10 +1045,7 @@ _RAW_SQL_FSTRING_PATTERN = re.compile(r'\btext\(\s*f["\']')
 _RAW_SQL_FSTRING_ALLOWLIST: set[str] = {
     "app/api/execution_actions.py:384",
     "app/services/weekly_digest.py:476",
-    "app/services/evolution_business_outcomes.py:121",  # +1: opt-out marker prepended 2026-05-07 Stage 2-A
     "app/services/utm_attribution.py:111",
-    "app/services/simulation_engine.py:318",  # +1: opt-out marker prepended 2026-05-07 Stage 2-A
-    "app/services/simulation_engine.py:670",  # +1: same
     "app/services/nudge_rank.py:148",
     "app/services/nudge_rank.py:200",
     # evolution_outcomes.py:625 — removed: refactored to bind param

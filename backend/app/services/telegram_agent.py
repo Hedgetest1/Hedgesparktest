@@ -554,25 +554,16 @@ def handle_command(command: str, db=None, chat_id: str | None = None) -> str:
     # Route to handlers
     handlers = {
         "/status": lambda: _cmd_status(db),
-        "/evolution": lambda: _cmd_evolution(db),
         "/costs": lambda: _cmd_costs(db),
         "/merchants": lambda: _cmd_merchants(db),
         "/scaling": lambda: _cmd_scaling(db),
         "/approvals": lambda: _cmd_approvals(db),
         "/approve": lambda: _cmd_approve(db, args),
         "/reject": lambda: _cmd_reject(db, args),
-        "/bugfixes": lambda: _cmd_bugfixes(db),
-        "/bugfix_approve": lambda: _cmd_bugfix_approve(db, args),
-        "/bugfix_apply": lambda: _cmd_bugfix_apply(db, args),
-        "/promotions": lambda: _cmd_promotions(db),
-        "/merge": lambda: _cmd_merge(db, args),
         "/review": lambda: _cmd_review(db, args),
         "/incidents": lambda: _cmd_incidents(db),
-        "/meta_review": lambda: _cmd_meta_review(db),
         "/digest": lambda: _cmd_digest(db),
         "/webhooks": lambda: _cmd_webhooks(db),
-        "/loop_health": lambda: _cmd_loop_health(db),
-        "/weakness": lambda: _cmd_weakness(db),
         "/cleanup": lambda: _cmd_cleanup(db, chat_id=chat_id),
         "/cleanup_confirm": lambda: _cmd_cleanup_confirm(db, chat_id=chat_id),
         "/cleanup_cancel": lambda: _cmd_cleanup_cancel(db, chat_id=chat_id),
@@ -657,39 +648,6 @@ def _cmd_status(db) -> str:
         lines.append(f"RAM: {ram.get('usage_pct', '?')}% | CPU: {s['infra']['cpu'].get('load_5m', '?')}")
     except Exception as exc:
         log.warning("telegram_agent: system summary fetch failed: %s", exc)
-
-    return "\n".join(lines)
-
-
-def _cmd_evolution(db) -> str:
-    """Return last monthly Opus audit summary."""
-    if db is None:
-        return "Evolution data unavailable (no DB session)"
-
-    from app.models.evolution_proposal import EvolutionProposal
-    from sqlalchemy import desc
-
-    proposals = (
-        db.query(EvolutionProposal)
-        .filter(EvolutionProposal.audit_cycle.like("%-M%"))  # monthly audits use YYYY-MM format
-        .order_by(desc(EvolutionProposal.created_at))
-        .limit(10)
-        .all()
-    )
-
-    if not proposals:
-        return "No monthly evolution proposals found yet."
-
-    cycle = proposals[0].audit_cycle
-    lines = [f"*Monthly Evolution Audit* \u2014 {cycle}", ""]
-
-    for i, p in enumerate(proposals, 1):
-        if p.audit_cycle != cycle:
-            break
-        status_icon = {"open": "\U0001f4cb", "accepted": "\u2705", "rejected": "\u274c"}.get(p.status, "\U0001f4cb")
-        lines.append(f"{i}. {status_icon} [{p.risk_level}] {p.reason[:80]}")
-        if p.expected_impact:
-            lines.append(f"   Impact: {p.expected_impact[:60]}")
 
     return "\n".join(lines)
 
@@ -1004,212 +962,6 @@ def _cmd_reject(db, args: list[str]) -> str:
     )
 
 
-def _cmd_bugfixes(db) -> str:
-    """List bugfix candidates needing operator action."""
-    if db is None:
-        return "No DB session available."
-
-    from app.models.bugfix_candidate import BugFixCandidate
-
-    candidates = (
-        db.query(BugFixCandidate)
-        .filter(BugFixCandidate.status.in_(["patch_proposed", "approved"]))
-        .order_by(BugFixCandidate.created_at.desc())
-        .limit(10)
-        .all()
-    )
-
-    if not candidates:
-        return "No bugfix candidates needing action."
-
-    lines = [f"\U0001f41b *Bugfix candidates:* {len(candidates)}", ""]
-
-    for c in candidates:
-        assessment = _get_reviewer_assessment(db, "bugfix_candidate", c.id)
-        r_inline = _format_reviewer_inline(assessment) if assessment else ""
-
-        lines.append(f"*#{c.id}* {c.title[:60]}")
-        lines.append(f"  Status: {c.status}")
-        if r_inline:
-            lines.append(f"  {r_inline}")
-        if c.status == "patch_proposed":
-            lines.append(f"  \U0001f449 /bugfix_approve {c.id}")
-        elif c.status == "approved":
-            lines.append(f"  \U0001f449 /bugfix_apply {c.id}")
-        lines.append("")
-
-    return "\n".join(lines)
-
-
-def _cmd_bugfix_approve(db, args: list[str]) -> str:
-    """Approve a proposed bugfix candidate. Idempotent + state-guarded."""
-    if db is None:
-        return "No DB session available."
-    if not args:
-        return "Usage: /bugfix_approve <id>"
-
-    try:
-        candidate_id = int(args[0])
-    except ValueError:
-        return "Invalid bugfix ID."
-
-    from app.core.telegram_safety import check_idempotency, validate_transition
-    from app.models.bugfix_candidate import BugFixCandidate
-    from app.services.audit import write_audit_log
-
-    # Idempotency check — blocks double-taps
-    if not check_idempotency("bugfix_approve", str(candidate_id)):
-        return f"Already processed — bugfix #{candidate_id} approve is in progress."
-
-    now = _now()
-
-    c = db.get(BugFixCandidate, candidate_id)
-    if not c:
-        return f"Bugfix #{candidate_id} not found."
-
-    # State machine validation
-    allowed, err = validate_transition(c.status, "approved")
-    if not allowed:
-        return f"❌ {err}"
-
-    c.status = "approved"
-    c.decided_by = "telegram_operator"
-    c.decided_at = now
-
-    write_audit_log(
-        db,
-        actor_type="human",
-        actor_name="telegram_operator",
-        action_type="bugfix_approved",
-        target_type="bugfix",
-        target_id=str(c.id),
-        status="completed",
-        approval_mode="human_approved",
-        metadata={
-            "channel": "telegram",
-            "title": c.title,
-            "patch_risk_tier": c.patch_risk_tier,
-            "reviewer_assessment_id": getattr(c, "reviewer_assessment_id", None),
-        },
-    )
-    db.commit()
-
-    reviewer_ctx = _get_reviewer_for_display(db, "bugfix_candidate", candidate_id)
-
-    return (
-        f"\u2705 *Bugfix approved* #{candidate_id}\n"
-        f"Title: {c.title[:80]}\n"
-        f"Next: /bugfix_apply {candidate_id}"
-        f"{reviewer_ctx}"
-    )
-
-
-def _cmd_bugfix_apply(db, args: list[str]) -> str:
-    """Apply an approved bugfix. Idempotent + locked + state-guarded + traced."""
-    if db is None:
-        return "No DB session available."
-    if not args:
-        return "Usage: /bugfix_apply <id>"
-
-    try:
-        candidate_id = int(args[0])
-    except ValueError:
-        return "Invalid bugfix ID."
-
-    from app.core.telegram_safety import (
-        check_idempotency, validate_transition,
-        acquire_execution_lock, release_execution_lock,
-        send_progress,
-    )
-    from app.models.bugfix_candidate import BugFixCandidate
-
-    # 1. Idempotency — FAIL-CLOSED: blocks if Redis down (critical operation)
-    if not check_idempotency("bugfix_apply", str(candidate_id), critical=True):
-        return f"⏳ Already processing — bugfix #{candidate_id} apply is in progress. (If Redis is down, critical actions are blocked for safety.)"
-
-    c = db.get(BugFixCandidate, candidate_id)
-    if not c:
-        return f"Bugfix #{candidate_id} not found."
-
-    # 2. State machine — only approved → applying is allowed
-    allowed, err = validate_transition(c.status, "applying")
-    if not allowed:
-        return f"❌ {err}"
-
-    # 3. Concurrency lock — prevents apply + rollback overlap
-    if not acquire_execution_lock("bugfix", str(candidate_id)):
-        return f"🔒 Another operation on #{candidate_id} is in progress. Wait and retry."
-
-    try:
-        # 4. Progress trace — immediate feedback
-        progress_id = send_progress(
-            f"⏳ *Applying bugfix #{candidate_id}...*\n\n"
-            f"→ git apply...\n"
-            f"→ pytest (120s timeout)...\n"
-            f"→ PM2 restart + health check\n\n"
-            f"Files: {_safe_html(c.patch_files or '[]')}\n"
-            f"Risk: TIER_{c.patch_risk_tier or '?'}"
-        )
-
-        # 5. Run pipeline
-        from app.services.bugfix_pipeline import apply_bugfix_candidate
-        from app.services.audit import write_audit_log
-
-        result = apply_bugfix_candidate(db, candidate_id)
-
-        write_audit_log(
-            db,
-            actor_type="human",
-            actor_name="telegram_operator",
-            action_type="bugfix_apply_triggered",
-            target_type="bugfix",
-            target_id=str(candidate_id),
-            after_state={
-                "status": result.status,
-                "test_passed": result.test_passed,
-                "health_ok": result.health_ok,
-            },
-            status="completed" if result.status == "applied" else "failed",
-            approval_mode="human_approved",
-            metadata={"channel": "telegram"},
-        )
-        db.flush()
-
-        # 6. Result — threaded reply to progress message
-        reply_to = progress_id
-
-        if result.status == "applied":
-            # Refresh to get commit SHA
-            db.refresh(c)
-            msg = (
-                f"✅ *Bugfix applied* #{candidate_id}\n\n"
-                f"Tests: {('passed' if result.test_passed else 'failed')}\n"
-                f"Health: {'ok' if result.health_ok else 'degraded'}\n"
-                f"Commit: {c.git_commit_sha or 'n/a'}\n\n"
-                f"Outcome measurement starts in 48h."
-            )
-            send_message(msg, reply_to=reply_to)
-            # Add rollback button
-            send_message_with_buttons(
-                f"Rollback available:",
-                [[{"text": f"🔄 Rollback #{candidate_id}", "callback_data": f"/rollback {candidate_id}"}]],
-                reply_to=reply_to,
-            )
-            return msg
-        else:
-            msg = (
-                f"❌ *Bugfix #{candidate_id} failed*\n\n"
-                f"Status: {result.status}\n"
-                f"Reason: {result.failure_reason or 'unknown'}\n\n"
-                f"Patch was auto-reverted. No code changed."
-            )
-            send_message(msg, reply_to=reply_to)
-            return msg
-
-    finally:
-        release_execution_lock("bugfix", str(candidate_id))
-
-
 def _cmd_rollback(db, args: list[str]) -> str:
     """Rollback an applied bugfix. Requires confirmation + locked + idempotent."""
     if db is None:
@@ -1374,132 +1126,6 @@ def _cmd_dashboard_restart(db, *, chat_id: str | None = None) -> str:
     )
 
 
-def _cmd_promotions(db) -> str:
-    """List promotions needing operator action."""
-    if db is None:
-        return "No DB session available."
-
-    from app.models.autofix_promotion import AutoFixPromotion
-    from app.models.bugfix_candidate import BugFixCandidate
-
-    # Only show promotions whose candidate is still in an actionable state.
-    # Exclude candidates that have been rejected, rolled back, or discarded —
-    # their promotions are no longer relevant. Use outerjoin so promotions
-    # with missing candidates still appear (edge case / data cleanup).
-    from sqlalchemy import or_
-    promotions = (
-        db.query(AutoFixPromotion)
-        .outerjoin(BugFixCandidate, BugFixCandidate.id == AutoFixPromotion.bugfix_candidate_id)
-        .filter(
-            AutoFixPromotion.status.notin_(["merged", "rejected", "failed"]),
-            or_(
-                BugFixCandidate.id.is_(None),  # no candidate linked
-                BugFixCandidate.status.notin_(["rejected", "rolled_back", "discarded"]),
-            ),
-        )
-        .order_by(AutoFixPromotion.created_at.desc())
-        .limit(10)
-        .all()
-    )
-
-    if not promotions:
-        return "No active promotions."
-
-    lines = [f"\U0001f680 *Active promotions:* {len(promotions)}", ""]
-
-    for p in promotions:
-        pr_info = ""
-        if getattr(p, "pr_url", None):
-            pr_info = f" | PR #{getattr(p, 'pr_number', '?')}"
-        ci_info = ""
-        if getattr(p, "remote_ci_status", None):
-            ci_info = f" | CI: {p.remote_ci_status}"
-
-        assessment = _get_reviewer_assessment(db, "bugfix_candidate", p.bugfix_candidate_id)
-        r_inline = _format_reviewer_inline(assessment) if assessment else ""
-
-        lines.append(f"*#{p.id}* candidate #{p.bugfix_candidate_id}")
-        lines.append(f"  Status: {p.status}{pr_info}{ci_info}")
-        if r_inline:
-            lines.append(f"  {r_inline}")
-        lines.append(f"  \U0001f449 /merge {p.id}")
-        lines.append("")
-
-    return "\n".join(lines)
-
-
-def _cmd_merge(db, args: list[str]) -> str:
-    """Merge a promotion PR through the existing gated merge path."""
-    if db is None:
-        return "No DB session available."
-    if not args:
-        return "Usage: /merge <id>"
-
-    try:
-        promo_id = int(args[0])
-    except ValueError:
-        return "Invalid promotion ID."
-
-    from app.models.autofix_promotion import AutoFixPromotion
-    from app.services.audit import write_audit_log
-
-    p = db.get(AutoFixPromotion, promo_id)
-    if not p:
-        return f"Promotion #{promo_id} not found."
-
-    # Check merge recommendation first
-    merge_rec = None
-    try:
-        from app.services.merge_intelligence import compute_merge_recommendation
-        merge_rec = compute_merge_recommendation(db, promo_id)
-    except Exception as exc:
-        log.warning("telegram_agent: merge recommendation failed: %s", exc)
-
-    if merge_rec and not merge_rec.recommend:
-        reasons = "\n".join(f"  - {r}" for r in merge_rec.reasons[:5])
-        return (
-            f"\U0001f6ab *Cannot merge* #{promo_id}\n"
-            f"Merge recommendation: NO\n"
-            f"Reasons:\n{reasons}"
-        )
-
-    # Use existing merge pipeline
-    from app.services.promotion_pipeline import merge_promotion
-
-    result = merge_promotion(db, promo_id)
-
-    write_audit_log(
-        db,
-        actor_type="human",
-        actor_name="telegram_operator",
-        action_type="promotion_merge_triggered",
-        target_type="promotion",
-        target_id=str(promo_id),
-        after_state={"result": result, "bugfix_candidate_id": p.bugfix_candidate_id},
-        status="completed" if result == "merged" else "failed",
-        approval_mode="human_approved",
-        metadata={"channel": "telegram"},
-    )
-    db.commit()
-
-    reviewer_ctx = _get_reviewer_for_display(db, "bugfix_candidate", p.bugfix_candidate_id)
-
-    if result == "merged":
-        rec_info = ""
-        if merge_rec:
-            rec_info = "\nMerge recommendation: YES"
-        return (
-            f"\u2705 *Merged* promotion #{promo_id}\n"
-            f"Candidate: #{p.bugfix_candidate_id}{rec_info}"
-            f"{reviewer_ctx}"
-        )
-    else:
-        return (
-            f"\u274c *Merge failed* #{promo_id}\n"
-            f"Reason: {result}"
-        )
-
-
 def _cmd_review(db, args: list[str]) -> str:
     """Fetch compact reviewer verdict for any supported entity."""
     if db is None:
@@ -1575,51 +1201,6 @@ def _cmd_incidents(db) -> str:
         return "\n".join(lines)
     except Exception as exc:
         return f"Error loading incidents: {exc}"
-
-
-def _cmd_meta_review(db) -> str:
-    """Show the latest meta-review summary."""
-    try:
-        from app.services.meta_reviewer import get_latest_meta_review
-
-        review = get_latest_meta_review(db)
-        if not review:
-            return "No meta-review available yet. Runs weekly."
-
-        meta = review.get("_meta", {})
-        focus = review.get("weekly_focus_area", "unknown")
-        priorities = review.get("priorities", [])
-        conflicts = review.get("conflicts", [])
-        summary = review.get("summary", "")
-        budget = review.get("budget_guidance", "")
-
-        lines = [
-            f"*Meta-Review* ({meta.get('review_window', '?')})",
-            f"Focus: *{focus}*",
-            f"Proposals ranked: {len(priorities)}",
-            f"Conflicts: {len(conflicts)}",
-        ]
-
-        if summary:
-            lines.append(f"\n{summary[:300]}")
-        if budget:
-            lines.append(f"\nBudget: {budget[:200]}")
-
-        # Top 5 priorities
-        if priorities:
-            lines.append("\n*Top priorities:*")
-            for p in priorities[:5]:
-                lines.append(
-                    f"  #{p['proposal_id']} score={p['priority_score']} "
-                    f"\u2192 {p['recommendation']}"
-                )
-
-        model = meta.get("model_used") or "deterministic"
-        lines.append(f"\nModel: {model}")
-
-        return "\n".join(lines)
-    except Exception as exc:
-        return f"Error loading meta-review: {exc}"
 
 
 def _cmd_digest(db) -> str:
@@ -1730,14 +1311,7 @@ def _cmd_cleanup_confirm(db, chat_id: str | None = None) -> str:
     """))
     incidents_dismissed = len(incident_result.fetchall())
 
-    # Discard stuck bugfix candidates (failed, not applied)
-    candidate_result = db.execute(_text("""
-        UPDATE bugfix_candidates SET status = 'discarded',
-        failure_reason = 'operator_cleanup'
-        WHERE status IN ('open', 'analyzed', 'apply_failed')
-        RETURNING id
-    """))
-    candidates_discarded = len(candidate_result.fetchall())
+    candidates_discarded = 0
 
     db.commit()
 
@@ -1872,66 +1446,6 @@ def _cmd_cleanup_safe(db, chat_id: str | None = None) -> str:
     )
 
 
-def _cmd_loop_health(db) -> str:
-    """Autonomous loop health snapshot."""
-    from app.services.loop_health import get_loop_health
-    h = get_loop_health(db)
-
-    healthy = "healthy" if h["is_healthy"] else "NEEDS ATTENTION"
-    lines = [
-        f"*Loop Health* — {healthy}",
-        "",
-        f"*Throughput (7d):*",
-        f"  Applied: {h['throughput_7d'].get('bugfixes_applied_7d', 0)}",
-        f"  Proposed: {h['throughput_7d'].get('patches_proposed_7d', 0)}",
-        f"  Evolutions: {h['throughput_7d'].get('evolutions_converted_7d', 0)}",
-        f"  Failure rate: {h['failure_rate_30d_pct']}%",
-    ]
-
-    outcomes = h.get("outcomes_30d", {})
-    if outcomes:
-        lines.append(f"\n*Outcomes (30d):*")
-        for k, v in outcomes.items():
-            lines.append(f"  {k}: {v}")
-
-    stuck = h.get("stuck_items", [])
-    if stuck:
-        lines.append(f"\n*Stuck ({len(stuck)}):*")
-        for s in stuck[:5]:
-            lines.append(f"  {s['count']}x {s['status']} (>{s['threshold_hours']}h)")
-
-    thrashing = h.get("thrashing_sources", [])
-    if thrashing:
-        lines.append(f"\n*Thrashing ({len(thrashing)}):*")
-        for t in thrashing[:3]:
-            lines.append(f"  {t['source_ref']} ({t['failure_count']}x fails)")
-
-    weak = h.get("weakest_subsystems", [])
-    if weak:
-        lines.append(f"\n*Weakest:*")
-        for w in weak[:3]:
-            lines.append(f"  {w['domain']} — score {w['score']} [{w['criticality']}]")
-
-    return "\n".join(lines)
-
-
-def _cmd_weakness(db) -> str:
-    """Subsystem weakness ranking."""
-    from app.services.loop_health import score_subsystem_weakness
-    ranking = score_subsystem_weakness(db, lookback_days=30)
-
-    if not ranking:
-        return "*Subsystem Weakness* — No weakness signals detected. All systems healthy."
-
-    lines = ["*Subsystem Weakness* (30d, weakest first)", ""]
-    for i, w in enumerate(ranking[:10], 1):
-        reasons = ", ".join(w["reasons"][:3])
-        lines.append(f"{i}. *{w['domain']}* — score {w['score']} [{w['criticality']}]")
-        lines.append(f"   {reasons}")
-
-    return "\n".join(lines)
-
-
 def _cmd_help(db) -> str:
     """Full command list."""
     return (
@@ -1977,167 +1491,6 @@ def _cmd_unknown(db) -> str:
 # ---------------------------------------------------------------------------
 # Monthly report message
 # ---------------------------------------------------------------------------
-
-def send_monthly_report(proposals: list[dict], system_summary: dict) -> bool:
-    """
-    Send the monthly evolution report to Telegram.
-    Called after monthly Opus audit completes.
-    """
-    ram = system_summary["infra"]["ram"]
-    workers = system_summary["infra"]["workers"]
-    llm = system_summary["llm_usage"]
-    cost = system_summary["cost_estimate"]
-
-    lines = [
-        "*Monthly Evolution Report \u2014 HedgeSpark*",
-        "",
-        "Opus audit completed.",
-        "",
-    ]
-
-    if proposals:
-        lines.append("*Top improvements proposed:*")
-        for i, p in enumerate(proposals[:5], 1):
-            lines.append(f"{i}. [{p.get('type', '?')}] {p.get('title', 'Untitled')}")
-        lines.append("")
-
-    lines.extend([
-        "*System status:*",
-        f"\u2022 RAM: {ram.get('usage_pct', '?')}% ({ram.get('used_mb', '?')}MB / {ram.get('total_mb', '?')}MB)",
-        f"\u2022 Worker health: {workers.get('error_rate_pct', 0)}% error rate ({workers.get('cycles_24h', 0)} cycles/24h)",
-        f"\u2022 LLM usage: {llm.get('global_calls_today', 0)} calls today",
-        "",
-        "*Estimated monthly cost:*",
-        f"\u2022 LLM: \u20ac{cost.get('llm_monthly_eur', 0):.2f}",
-        f"\u2022 Server: \u20ac{cost['fixed_monthly_eur'].get('server_vps', 0):.2f}",
-        f"\u2022 Total: \u20ac{cost.get('total_monthly_eur', 0):.2f}",
-    ])
-
-    warnings = system_summary.get("warnings", [])
-    if warnings:
-        lines.append("")
-        lines.append("*Recommendations:*")
-        for w in warnings[:3]:
-            lines.append(f"\u2022 {w}")
-
-    # Market intelligence from AI Lab (fail-soft)
-    try:
-        import psycopg2
-        import psycopg2.extras
-        ailab_conn = psycopg2.connect(_ailab_dsn(), connect_timeout=3)
-        try:
-            cur = ailab_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cur.execute("""
-                SELECT title, hedgespark_action, relevance_score
-                FROM market_ideas
-                WHERE status = 'new'
-                ORDER BY relevance_score DESC, evidence_count DESC
-                LIMIT 5
-            """)
-            ideas = cur.fetchall()
-
-            cur.execute("""
-                SELECT pain_category, COUNT(*) as cnt
-                FROM pain_points
-                WHERE hedgespark_relevant
-                  AND created_at > NOW() - INTERVAL '30 days'
-                GROUP BY pain_category
-                ORDER BY cnt DESC LIMIT 5
-            """)
-            pains = cur.fetchall()
-
-            cur.close()
-        finally:
-            ailab_conn.close()
-
-        if ideas or pains:
-            lines.append("")
-            lines.append("*Market Intelligence (AI Lab):*")
-            if pains:
-                pain_str = ", ".join(f"{p['pain_category']}({p['cnt']})" for p in pains[:3])
-                lines.append(f"\u2022 Top pain areas: {pain_str}")
-            if ideas:
-                lines.append("\u2022 Top opportunities:")
-                for idea in ideas[:3]:
-                    lines.append(f"  [{idea['relevance_score']}/100] {idea['title']}")
-
-            # Mark reported
-            try:
-                mark_conn = psycopg2.connect(_ailab_dsn(), connect_timeout=3)
-                try:
-                    mark_cur = mark_conn.cursor()
-                    idea_titles = [i["title"] for i in ideas]
-                    if idea_titles:
-                        mark_cur.execute(
-                            "UPDATE market_ideas SET status = 'reported', reported_at = NOW() "
-                            "WHERE title = ANY(%s) AND status = 'new'",
-                            (idea_titles,),
-                        )
-                        mark_conn.commit()
-                    mark_cur.close()
-                finally:
-                    mark_conn.close()
-            except Exception as exc:
-                log.warning("telegram_agent: ailab idea mark failed: %s", exc)
-
-    except Exception as exc:
-        log.warning("telegram_agent: ailab market intel unavailable: %s", exc)
-
-    lines.extend([
-        "",
-        "Reply with:",
-        "/evolution \u2014 full proposal list",
-        "/status \u2014 live system status",
-        "/costs \u2014 cost breakdown",
-    ])
-
-    return send_message("\n".join(lines))
-
-
-def send_reviewer_verdict(assessment, entity_title: str | None = None) -> bool:
-    """
-    Send a decision-first reviewer verdict to Telegram WITH action buttons.
-
-    Buttons solve the Telegram limitation where tapping a /command in text
-    only sends the command without arguments. Inline keyboard buttons carry
-    the full command as callback_data.
-    """
-    title = entity_title or f"{assessment.entity_type} #{assessment.entity_id}"
-    etype = assessment.entity_type
-    eid = assessment.entity_id
-
-    # Build text
-    action_hint = None
-    buttons = []
-
-    if assessment.verdict == "reject" or assessment.risk_level in ("high", "critical"):
-        action_hint = "Do not apply this change."
-    elif etype == "bugfix_candidate":
-        action_hint = f"Step 1: Approve | Step 2: Apply"
-        buttons = [
-            [
-                {"text": f"Approve #{eid}", "callback_data": f"/bugfix_approve {eid}"},
-                {"text": f"Apply #{eid}", "callback_data": f"/bugfix_apply {eid}"},
-            ],
-        ]
-    elif etype == "action_approval":
-        action_hint = f"Tap to approve:"
-        buttons = [
-            [{"text": f"Approve #{eid}", "callback_data": f"/approve {eid}"}],
-        ]
-
-    decision_block = _format_reviewer_decision(assessment, action_hint=action_hint)
-
-    lines = [
-        f"*{title[:120]}*",
-        "",
-        decision_block,
-    ]
-
-    if buttons:
-        return send_message_with_buttons("\n".join(lines), buttons)
-    return send_message("\n".join(lines))
-
 
 def send_scaling_alert(recommendation: dict, forecast: dict) -> bool:
     """
@@ -2222,16 +1575,6 @@ def is_digest_quiet(db) -> bool:
 
     try:
         if (db.execute(sql_text(
-            "SELECT COUNT(*) FROM bugfix_candidates "
-            "WHERE status='patch_proposed' AND patch_risk_tier=2"
-        )).scalar() or 0) > 0:
-            return False
-        if (db.execute(sql_text(
-            "SELECT COUNT(*) FROM bugfix_candidates "
-            "WHERE status='rolled_back' AND applied_at >= :c"
-        ), {"c": cutoff_24h}).scalar() or 0) > 0:
-            return False
-        if (db.execute(sql_text(
             "SELECT COUNT(*) FROM ops_alerts "
             "WHERE severity='critical' AND resolved=false AND created_at >= :c"
         ), {"c": cutoff_24h}).scalar() or 0) > 0:
@@ -2287,7 +1630,6 @@ def build_daily_digest(db) -> str:
     # ── Determine overall status ──
     overall_status = "OK"
     attention_lines: list[str] = []
-    rolled_24h = 0  # set early so attention section can reference it
 
     try:
         from app.core.redis_client import cache_get
@@ -2392,98 +1734,23 @@ def build_daily_digest(db) -> str:
     except Exception as exc:
         log.warning("telegram_agent: compliance score fetch failed: %s", exc)
 
-    # ── 5. PIPELINE — one compact line ──
+    # ── 5. LLM SPEND — compact (was Pipeline; old-brain pipeline removed Stage 2-E) ──
     try:
-        applied_24h = db.execute(sql_text(
-            "SELECT COUNT(*) FROM bugfix_candidates "
-            "WHERE status = 'applied' AND applied_at >= :c"
-        ), {"c": cutoff_24h}).scalar() or 0
-        rolled_24h = db.execute(sql_text(
-            "SELECT COUNT(*) FROM bugfix_candidates "
-            "WHERE status = 'rolled_back' AND applied_at >= :c"
-        ), {"c": cutoff_24h}).scalar() or 0
-
-        # Phase B retro-grep alerts in last 24h — counts cases where
-        # the pipeline applied a "fix" that did NOT strictly decrease
-        # an UPPER_SNAKE pattern signature. Surfaces silent fix-
-        # incomplete to the founder so multidim discipline stays
-        # visible day to day.
-        retro_alerts_24h = db.execute(sql_text(
-            "SELECT COUNT(*) FROM ops_alerts "
-            "WHERE alert_type = 'fix_incomplete' AND created_at >= :c"
-        ), {"c": cutoff_24h}).scalar() or 0
-
-        # Triage activity in 24h — open/in-flight candidates created
-        # during the window. Triaged > applied = pipeline producing
-        # without converging; useful health signal.
-        triaged_24h = db.execute(sql_text(
-            "SELECT COUNT(*) FROM bugfix_candidates "
-            "WHERE created_at >= :c"
-        ), {"c": cutoff_24h}).scalar() or 0
-
-        # Dormancy-aware framing: when parked by design (enrichers off
-        # pre-merchant), "in flight" misleads — nothing is moving. Show
-        # "queued (parked)" so founder knows count is by-design.
-        from app.services.pipeline_state import is_pipeline_dormant
-        _dormant = is_pipeline_dormant()
-
+        from app.core.llm_budget import MONTHLY_EUR_CAP, get_usage_summary
+        budget = get_usage_summary()
+        spent = budget.get("monthly_cost_eur", 0)
+        cap = budget.get("monthly_cap_eur", MONTHLY_EUR_CAP)
         lines.append("")
-        pipe_parts = [f"{applied_24h} fixes shipped"]
-        if triaged_24h > applied_24h:
-            queued = triaged_24h - applied_24h
-            label = "queued (parked)" if _dormant else "in flight"
-            pipe_parts.append(f"{queued} {label}")
-        if rolled_24h > 0:
-            pipe_parts.append(f"\U0001f534 {rolled_24h} rolled back")
+        llm_line = f"\U0001f916 *LLM:* \u20ac{spent:.2f}/\u20ac{cap:.0f} this month"
+        if budget.get("monthly_cap_reached"):
+            llm_line += " \u26a0\ufe0f CAP HIT"
             if overall_status == "OK":
                 overall_status = "WARNING"
-        if retro_alerts_24h > 0:
-            pipe_parts.append(f"\U0001f7e0 {retro_alerts_24h} fix\\_incomplete")
-            if overall_status == "OK":
-                overall_status = "WARNING"
-
-        # LLM spend — compact
-        try:
-            from app.core.llm_budget import MONTHLY_EUR_CAP, get_usage_summary
-            budget = get_usage_summary()
-            spent = budget.get("monthly_cost_eur", 0)
-            cap = budget.get("monthly_cap_eur", MONTHLY_EUR_CAP)
-            # Founder feedback 2026-05-07: "0.00/10 EUR" was ambiguous
-            # (this-month metered vs lifetime/console-credits). Explicit
-            # "this month" frames it correctly.
-            pipe_parts.append(f"LLM \u20ac{spent:.2f}/\u20ac{cap:.0f} this month")
-            if budget.get("monthly_cap_reached"):
-                pipe_parts.append("\u26a0\ufe0f CAP HIT")
-                if overall_status == "OK":
-                    overall_status = "WARNING"
-        except Exception as exc:
-            log.warning("telegram_agent: digest LLM budget fetch failed: %s", exc)
-
-        lines.append(f"\U0001f916 *Pipeline:* {' \u00b7 '.join(pipe_parts)}")
+        lines.append(llm_line)
     except Exception as exc:
-        log.warning("telegram_agent: digest pipeline section failed: %s", exc)
+        log.warning("telegram_agent: digest LLM budget fetch failed: %s", exc)
 
     # ── 6. ATTENTION — only things that truly need the founder ──
-    # TIER_2 review
-    try:
-        tier2_count = db.execute(sql_text(
-            "SELECT COUNT(*) FROM bugfix_candidates "
-            "WHERE status = 'patch_proposed' AND patch_risk_tier = 2"
-        )).scalar() or 0
-        if tier2_count > 0:
-            attention_lines.append(
-                f"\U0001f512 {tier2_count} TIER\\_2 fix{'es' if tier2_count > 1 else ''} "
-                f"awaiting your review"
-            )
-    except Exception as exc:
-        log.warning("telegram_agent: tier2 review count failed: %s", exc)
-
-    # Rollbacks
-    if rolled_24h > 0:
-        attention_lines.append(
-            f"\u21a9\ufe0f {rolled_24h} rollback{'s' if rolled_24h > 1 else ''} in the last 24h"
-        )
-
     # B3a — Critical unresolved ops_alerts (24h). Max 3 distinct types.
     try:
         crit_rows = db.execute(sql_text(
@@ -2519,23 +1786,6 @@ def build_daily_digest(db) -> str:
             attention_lines.append(f"\u26a0\ufe0f spike: {_name} \u00d7{_n} in 24h")
     except Exception as exc:
         log.warning("telegram_agent: spike attention failed: %s", exc)
-
-    # B3c — Pipeline liveness stall (from cached health dimensions).
-    # Suppressed when pipeline is dormant by design (enrichers off pre-
-    # merchant) — surfacing "pipeline stalled: 88 candidates, 0 LLM
-    # calls, awaiting Anthropic top-up" every cycle is noise; the
-    # founder already knows the pipeline is parked. Reasserts when
-    # dormancy ends.
-    try:
-        from app.services.pipeline_state import is_pipeline_dormant
-        if health and not is_pipeline_dormant():
-            for _d in health.get("dimensions", []):
-                if _d.get("name") == "liveness" and _d.get("status") == "degraded":
-                    _det = _d.get("detail") or "check /status"
-                    attention_lines.append(f"\U0001f504 pipeline stalled: {_det}")
-                    break
-    except Exception as exc:
-        log.warning("telegram_agent: liveness attention failed: %s", exc)
 
     if attention_lines:
         lines.append("")
@@ -2593,135 +1843,3 @@ def send_daily_digest(db) -> bool:
 # B4 — Weekly TIER_2 batch review (Monday morning, single message)
 # ---------------------------------------------------------------------------
 
-def build_tier2_weekly_review(db) -> tuple[str, list[list[dict]]]:
-    """Compose the Monday-morning TIER_2 batch review.
-
-    Lists every BugFixCandidate(patch_risk_tier=2, status='patch_proposed')
-    of the past 7 days with a one-line summary + the reviewer assessment
-    risk_level. Provides ONE batch-approve and ONE batch-reject button
-    for the entire group, plus dashboard links for individual review.
-    """
-    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
-    from sqlalchemy import text as sql_text
-    from zoneinfo import ZoneInfo
-
-    rome_now = _dt.now(ZoneInfo("Europe/Rome"))
-    # Naive-UTC so it matches TIMESTAMP WITHOUT TIME ZONE columns.
-    cutoff = _dt.now(_tz.utc).replace(tzinfo=None) - _td(days=7)
-
-    try:
-        rows = db.execute(sql_text("""
-            SELECT bc.id, bc.title, bc.affected_domain, bc.created_at,
-                   bc.fix_confidence, ra.risk_level, ra.verdict
-            FROM bugfix_candidates bc
-            LEFT JOIN reviewer_assessments ra ON ra.id = bc.reviewer_assessment_id
-            WHERE bc.patch_risk_tier = 2
-              AND bc.status = 'patch_proposed'
-              AND bc.created_at >= :cutoff
-            ORDER BY bc.created_at DESC
-            LIMIT 20
-        """), {"cutoff": cutoff}).fetchall()
-    except Exception as exc:
-        log.warning("tier2_weekly_review: query failed: %s", exc)
-        return "", []
-
-    if not rows:
-        return "", []
-
-    lines = [
-        "*TIER\\_2 Weekly Review* \u2014 HedgeSpark",
-        f"{rome_now.strftime('%A %d %B, %H:%M')} (Rome)",
-        f"\U0001f512 *{len(rows)} TIER\\_2 candidate{'s' if len(rows) != 1 else ''} pending* (last 7d)",
-        "",
-        "These touch sensitive paths (auth, billing, encryption, webhooks, migrations).",
-        "Review each one, then batch-approve or batch-reject.",
-        "",
-    ]
-
-    candidate_ids: list[int] = []
-    try:
-        from app.services.operator_prediction import predict_decision_for_candidate
-        from app.models.bugfix_candidate import BugFixCandidate
-    except Exception:
-        predict_decision_for_candidate = None  # type: ignore[assignment]
-        BugFixCandidate = None  # type: ignore[assignment]
-
-    for r in rows:
-        cid = r[0]
-        title = (r[1] or "")[:80]
-        domain = r[2] or "?"
-        confidence = r[4] or 0
-        risk = (r[5] or "?")
-        verdict = (r[6] or "?")
-        candidate_ids.append(cid)
-
-        risk_emoji = {
-            "low": "\U0001f7e2",
-            "medium": "\U0001f7e1",
-            "high": "\U0001f534",
-        }.get(risk, "\u26aa")
-
-        # D6 — operator answer prediction. Query the historical audit-log
-        # distribution for this file-pattern / domain and surface the
-        # suggested action inline so the founder can read down the list
-        # and tap batch-approve with confidence.
-        prediction_badge = ""
-        if predict_decision_for_candidate and BugFixCandidate is not None:
-            try:
-                bc = db.get(BugFixCandidate, cid)
-                if bc is not None:
-                    pred = predict_decision_for_candidate(db, bc)
-                    rec = pred.get("recommendation", "unknown")
-                    if rec == "approve":
-                        prediction_badge = (
-                            f" \u2192 \u2705 likely approve "
-                            f"({int(pred['posterior_mean'] * 100)}%, n={pred['sample_size']})"
-                        )
-                    elif rec == "reject":
-                        prediction_badge = (
-                            f" \u2192 \u274c likely reject "
-                            f"({int((1 - pred['posterior_mean']) * 100)}%, n={pred['sample_size']})"
-                        )
-            except Exception as exc:
-                log.warning("telegram_agent: decision prediction failed: %s", exc)
-
-        lines.append(
-            f"  {risk_emoji} *#{cid}* [{domain}] conf={confidence}% \u00b7 reviewer={verdict}{prediction_badge}"
-        )
-        lines.append(f"     {title}")
-
-    lines.append("")
-    lines.append("_Tap a button to act on the batch, or open dashboard for individual review._")
-    lines.append("[Open dashboard \u2192](https://app.hedgesparkhq.com/ops/bugfixes?filter=tier2)")
-
-    # ONE batch-approve + ONE batch-reject button covering all listed ids.
-    # Individual review still happens via the dashboard link.
-    ids_csv = ",".join(str(c) for c in candidate_ids)
-    buttons = [[
-        {
-            "text": f"\u2705 Batch approve all ({len(candidate_ids)})",
-            "callback_data": f"/tier2_batch_approve {ids_csv}",
-        },
-        {
-            "text": f"\u274c Batch reject all",
-            "callback_data": f"/tier2_batch_reject {ids_csv}",
-        },
-    ]]
-
-    return "\n".join(lines), buttons
-
-
-def send_tier2_weekly_review(db) -> bool:
-    """Build and send the TIER_2 weekly batch. Returns True if a message
-    was sent, False if there was nothing pending or send failed."""
-    try:
-        message, buttons = build_tier2_weekly_review(db)
-        if not message:
-            log.info("tier2_weekly_review: nothing to send")
-            return False
-        if buttons:
-            return send_message_with_buttons(message, buttons)
-        return send_message(message)
-    except Exception as exc:
-        log.warning("tier2_weekly_review: failed: %s", exc)
-        return False

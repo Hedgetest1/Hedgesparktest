@@ -1,3 +1,4 @@
+# test-coverage: orchestration entry point — exercised end-to-end via Brain Vero (test_merchant_brain.py) + per-phase tests (test_orchestrator.py, test_action_learning.py, test_silence_detector.py, test_scoring_calibration.py, etc). The 5 prior direct-import tests (test_pipeline_state, test_execution_mode, test_telegram_operator, test_tier2_weekly_review, test_governed_tier1_auto_apply) were all OB and deleted in Stage 2-E. Re-cover with a Brain Vero integration test if/when the brain framework calls multiply.
 import logging
 log = logging.getLogger("agent_worker")
 import os
@@ -199,12 +200,6 @@ def _run_orchestrator():
         if eval_result.evaluated > 0:
             log(f"outcomes: evaluated={eval_result.evaluated} success={eval_result.success} no_effect={eval_result.no_effect}")
 
-        # Phase B2: Evaluate merge outcomes
-        from app.services.merge_intelligence import evaluate_merge_outcomes
-        merge_eval = evaluate_merge_outcomes(db)
-        db.commit()
-        if merge_eval["evaluated"] > 0:
-            log(f"merge_eval: healthy={merge_eval['healthy']} regressed={merge_eval['regressed']}")
     except Exception as exc:
         log(f"orchestrator error (non-fatal): {exc}")
         db.rollback()
@@ -347,24 +342,13 @@ def _run_scaling_intelligence():
             # Notify via Telegram for significant recommendations (with reviewer context)
             if recs:
                 try:
-                    from app.services.telegram_agent import send_scaling_alert, send_reviewer_verdict, is_configured
+                    from app.services.telegram_agent import send_scaling_alert, is_configured
                     if is_configured():
                         forecast = build_forecast(db)
                         # Only send full alert if forecast has real data
                         if forecast.get("status") == "ok":
                             for r in recs[:2]:  # max 2 notifications
                                 send_scaling_alert(r, forecast)
-                                # Attach reviewer assessment
-                                try:
-                                    from app.services.reviewer_layer import review_entity
-                                    rec_id = r.get("id")
-                                    if rec_id:
-                                        assessment = review_entity(db, "scaling_recommendation", rec_id)
-                                        if assessment:
-                                            db.flush()
-                                            send_reviewer_verdict(assessment, entity_title=r.get("title"))
-                                except Exception as exc:
-                                    log.warning("agent_worker: _run_scaling_intelligence failed: %s", exc)
                         else:
                             from app.services.telegram_agent import send_message
                             send_message(
@@ -828,37 +812,6 @@ def _run_lite_morning_digest():
     finally:
         db.close()
 
-    # B4 — TIER_2 weekly batch review (same Monday gate as merchant digest).
-    # Single Telegram message with the operator's pending TIER_2 candidates.
-    # Redis dedup key prevents double-sends if the worker cycles twice on
-    # Monday morning.
-    db2 = SessionLocal()
-    try:
-        from app.services.telegram_agent import send_tier2_weekly_review
-        from app.core.redis_client import _client
-        rc = _client()
-        from datetime import datetime as _dt
-        from zoneinfo import ZoneInfo as _Zi
-        rome_now = _dt.now(_Zi("Europe/Rome"))
-        week_key = rome_now.strftime("%G-W%V")
-        dedup_key = f"hs:tier2_weekly:{week_key}"
-        # Atomic week-claim — two worker cycles on Monday morning would
-        # previously both see the key missing and double-send.
-        if rc is not None:
-            try:
-                if not rc.set(dedup_key, "1", nx=True, ex=8 * 24 * 3600):
-                    return
-            except Exception as exc:
-                log.warning("agent_worker: _run_merchant_digest failed: %s", exc)
-        sent = send_tier2_weekly_review(db2)
-        if sent:
-            log("tier2_weekly_review: sent")
-    except Exception as exc:
-        log(f"tier2_weekly_review error (non-fatal): {exc}")
-    finally:
-        db2.close()
-
-
 def _run_lifecycle_emails():
     """
     Send lifecycle emails for merchants needing attention.
@@ -1267,13 +1220,14 @@ def _run_sentry_poller():
 
 
 def _run_sentry_triage():
-    """Generate AI triage packets, consume into candidates, re-evaluate skipped."""
-    # Phase 0: Pull fresh Sentry issues into SentryIncident before
-    # generation runs — closes the gap where the founder receives an
-    # alert email for an issue the pipeline has never seen.
+    """Pull fresh Sentry issues + generate diagnostic triage packets.
+    The bugfix-candidate creation phases (consume_triage_queue +
+    reevaluate_skipped_families) were dropped with the old-brain
+    Stage 2-E supersession — Sentry incidents are still ingested
+    and analyzed for /ops view, but no longer feed the dead
+    auto-fix pipeline."""
     _run_sentry_poller()
 
-    # Phase A: Generate triage packets for newly parsed incidents
     db = SessionLocal()
     try:
         from app.services.sentry_triage import run_triage_generation
@@ -1284,182 +1238,6 @@ def _run_sentry_triage():
     except Exception as exc:
         log(f"sentry_triage generation error (non-fatal): {exc}")
         db.rollback()
-    finally:
-        db.close()
-
-    # Phase B: Consume ready triage packets into bugfix candidates
-    db2 = SessionLocal()
-    try:
-        from app.services.sentry_triage import consume_triage_queue
-        result = consume_triage_queue(db2)
-        db2.commit()
-        if result["consumed"] > 0 or result["errors"] > 0:
-            log(
-                f"sentry_consume: consumed={result['consumed']} "
-                f"deduped={result['deduped']} skipped={result['skipped']} "
-                f"suppressed={result['suppressed']} errors={result['errors']}"
-            )
-    except Exception as exc:
-        log(f"sentry_consume error (non-fatal): {exc}")
-        db2.rollback()
-    finally:
-        db2.close()
-
-    # Phase C: Re-evaluate previously skipped incidents that gained recurrences
-    db3 = SessionLocal()
-    try:
-        from app.services.sentry_triage import reevaluate_skipped_families
-        result = reevaluate_skipped_families(db3)
-        db3.commit()
-        if result["promoted"] > 0:
-            log(f"sentry_reevaluate: promoted={result['promoted']}")
-    except Exception as exc:
-        log(f"sentry_reevaluate error (non-fatal): {exc}")
-        db3.rollback()
-    finally:
-        db3.close()
-
-
-# ---------------------------------------------------------------------------
-# Circuit breaker — pause auto-apply when system is unhealthy
-# ---------------------------------------------------------------------------
-
-_consecutive_unhealthy_cycles = 0
-_CIRCUIT_BREAKER_THRESHOLD = 3  # pause auto-apply after 3 consecutive unhealthy cycles
-
-
-def _heal_circuit_breaker_alerts() -> None:
-    """Auto-resolve unresolved `circuit_breaker_tripped` alerts when
-    the breaker is currently NOT tripped.
-
-    Born 2026-05-07 closing #129083. Without this, alerts written on
-    a prior unhealthy cycle stay unresolved indefinitely even after
-    the breaker resets — the same alert ID accumulates with `occurrence_
-    count++` until the alerting layer's 72h TTL kicks in.
-
-    Called from both early-return branches of `_check_circuit_breaker`:
-      * dormant path — pipeline structurally paused, breaker irrelevant
-      * healthy path — system recovered, breaker explicitly reset
-    """
-    db = SessionLocal()
-    try:
-        from app.services.alerting import auto_resolve_alerts
-        n = auto_resolve_alerts(
-            db,
-            source="agent_worker",
-            alert_type="circuit_breaker_tripped",
-        )
-        db.commit()
-        if n > 0:
-            log(
-                f"circuit_breaker: heal-detection resolved {n} "
-                f"prior circuit_breaker_tripped alert(s) — breaker "
-                f"is currently NOT tripped"
-            )
-    except Exception as exc:
-        log.warning(
-            "agent_worker: _heal_circuit_breaker_alerts failed: %s", exc
-        )
-        try:
-            db.rollback()
-        except Exception:
-            pass  # SILENT-EXCEPT-OK: rollback already failed; outer log.warning captured the original exc; no recovery action available.
-    finally:
-        db.close()
-
-
-def _check_circuit_breaker() -> bool:
-    """
-    Check loop health before proceeding with auto-apply.
-    Returns True if auto-apply should be PAUSED.
-
-    Circuit breaker trips after 3 consecutive unhealthy cycles.
-    Resets when system returns to healthy.
-
-    Dormancy short-circuit (born 2026-05-07 closing #129083):
-    when the brain is structurally paused (all 3 enrichers off, see
-    `pipeline_state.is_pipeline_dormant`), auto-apply is already
-    paused by intent — the breaker is structurally redundant.
-    Skip the health check, reset the cycle counter, return False.
-    Without this short-circuit, parked candidates accumulate as
-    `stuck_items` and trip CRITICAL alerts every threshold-cycles
-    (~9-10h on the pre-merchant 88-candidate backlog), polluting
-    ops_alerts and inheriting a tripped state into the un-park
-    ceremony.
-    """
-    global _consecutive_unhealthy_cycles
-
-    from app.services.pipeline_state import is_pipeline_dormant
-    if is_pipeline_dormant():
-        if _consecutive_unhealthy_cycles > 0:
-            log(
-                f"circuit_breaker: pipeline dormant — resetting "
-                f"counter from {_consecutive_unhealthy_cycles} (no "
-                f"un-parked degradation to gate)"
-            )
-        _consecutive_unhealthy_cycles = 0
-        # heal-detection: dormant ⇒ breaker not tripped ⇒ any prior
-        # circuit_breaker_tripped alerts auto-resolve. Closes #129083
-        # noise class on the same cycle the brain identifies dormancy.
-        _heal_circuit_breaker_alerts()
-        return False
-
-    db = SessionLocal()
-    try:
-        from app.services.loop_health import get_loop_health
-        health = get_loop_health(db)
-
-        # Get adaptive circuit breaker threshold (bounded, evidence-aware)
-        try:
-            from app.services.adaptive_governance import get_adaptive_thresholds
-            cb_threshold = get_adaptive_thresholds(db).circuit_breaker_threshold
-        except Exception as exc:
-            log.warning("agent_worker: _check_circuit_breaker failed: %s", exc)
-            cb_threshold = _CIRCUIT_BREAKER_THRESHOLD
-
-        if health["is_healthy"]:
-            if _consecutive_unhealthy_cycles > 0:
-                log(f"circuit_breaker: system healthy again — resetting after {_consecutive_unhealthy_cycles} unhealthy cycles")
-            _consecutive_unhealthy_cycles = 0
-            # heal-detection: healthy ⇒ breaker not tripped ⇒ any
-            # prior circuit_breaker_tripped alerts auto-resolve.
-            _heal_circuit_breaker_alerts()
-            return False
-
-        _consecutive_unhealthy_cycles += 1
-        log(
-            f"circuit_breaker: UNHEALTHY cycle {_consecutive_unhealthy_cycles}/{cb_threshold} — "
-            f"stuck={len(health.get('stuck_items', []))} thrashing={len(health.get('thrashing_sources', []))} "
-            f"failure_rate={health.get('failure_rate_30d_pct', 0)}% "
-            f"trend={health.get('trend', {}).get('direction', 'unknown')}"
-        )
-
-        if _consecutive_unhealthy_cycles >= cb_threshold:
-            log("circuit_breaker: TRIPPED — pausing auto-apply until system stabilizes")
-            try:
-                from app.services.alerting import write_alert
-                write_alert(
-                    db, severity="critical", source="agent_worker",
-                    alert_type="circuit_breaker_tripped",
-                    summary=f"Auto-apply paused: system unhealthy for {_consecutive_unhealthy_cycles} consecutive cycles",
-                    detail={
-                        "consecutive_unhealthy": _consecutive_unhealthy_cycles,
-                        "failure_rate": health.get("failure_rate_30d_pct"),
-                        "stuck_items": len(health.get("stuck_items", [])),
-                        "thrashing_sources": len(health.get("thrashing_sources", [])),
-                        "trend": health.get("trend", {}).get("direction"),
-                    },
-                )
-                db.commit()
-            except Exception as exc:
-                log.warning("agent_worker: _check_circuit_breaker failed: %s", exc)
-                db.rollback()
-            return True
-
-        return False
-    except Exception as exc:
-        log(f"circuit_breaker: health check failed (non-fatal): {exc}")
-        return False  # don't block on health check failure
     finally:
         db.close()
 

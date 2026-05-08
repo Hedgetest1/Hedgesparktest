@@ -23,31 +23,6 @@ def _reset_cache():
 
 
 # ---------------------------------------------------------------------------
-# monthly_evolution_audit._call_opus is gated by protection_state
-# ---------------------------------------------------------------------------
-
-def test_call_opus_refused_when_llm_degraded(monkeypatch):
-    """Opus call returns '' when protection_state says skip optional LLM."""
-    from app.services import monthly_evolution_audit as mea
-
-    with patch("app.core.protection_state.should_skip_optional_llm", return_value=True), \
-         patch("app.core.protection_state.protection_state", return_value={"level": "DEGRADED"}):
-        result = mea._call_opus("any context")
-    assert result == ""
-
-
-def test_call_opus_proceeds_when_ok(monkeypatch):
-    """Opus call proceeds past the protection gate when system is OK."""
-    from app.services import monthly_evolution_audit as mea
-
-    with patch("app.core.protection_state.should_skip_optional_llm", return_value=False), \
-         patch("app.core.llm_budget.check_budget", return_value=(False, "no_budget_test")), \
-         patch("app.core.llm_budget.record_blocked"):
-        # Budget blocks next (fake), so we reach that code path — meaning
-        # the protection_state gate was NOT the blocker.
-        result = mea._call_opus("any context")
-    assert result == ""  # budget-blocked, not protection-blocked
-
 
 # ---------------------------------------------------------------------------
 # _run_ai_nudge_compose reduces batch under DEGRADED, skips under CRITICAL

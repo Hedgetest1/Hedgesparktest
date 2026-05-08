@@ -363,17 +363,6 @@ def measure_outcome(
 
     if verdict == "proven_effective":
         _bump_weekly_savings(signed_lift)
-        # D2 — cross-pollinate the proven fix to other shops matching the
-        # same precondition. Only fires when a db session is provided; the
-        # pure-math call path (unit tests, ad-hoc analysis) remains unchanged.
-        if db is not None:
-            try:
-                from app.services.cross_pollination import (
-                    cross_pollinate_from_proven_fix,
-                )
-                cross_pollinate_from_proven_fix(db, candidate_id)
-            except Exception as exc:
-                log.debug("measure_outcome: cross-pollination skipped: %s", exc)
 
     return result
 

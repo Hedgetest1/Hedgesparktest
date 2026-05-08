@@ -158,11 +158,6 @@ def _reset_redis_state():
     except Exception:
         pass
     try:
-        from app.services.promotion_pipeline import _auto_push_cooldown
-        _auto_push_cooldown.clear()
-    except Exception:
-        pass
-    try:
         from app.core.llm_budget import _provider_429
         _provider_429.clear()
     except Exception:
@@ -205,15 +200,8 @@ def db():
         if transaction_inner.nested and not transaction_inner.parent.nested:
             nested = connection.begin_nested()
 
-    # Make evolution_engine weakness scoring use the test session
-    # so test data is visible to _sort_by_weakness
-    import app.services.evolution_engine as _ee
-    _prev_override = _ee._weakness_db_override
-    _ee._weakness_db_override = session
-
     yield session
 
-    _ee._weakness_db_override = _prev_override
     session.close()
     transaction.rollback()
     connection.close()

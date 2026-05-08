@@ -270,17 +270,11 @@ def _classify_diff(patch_diff: str | None) -> tuple[int, list[str]]:
 
 
 def _get_domains(files: list[str]) -> list[str]:
-    """Get the set of affected domains using project_brain's classifier."""
-    domains = set()
-    try:
-        from app.services.project_brain import classify_file as brain_classify
-        for f in files:
-            result = brain_classify(f)
-            domains.add(result["domain"])
-    except ImportError:
-        # Fallback if project_brain not available (e.g., in tests)
-        pass
-    return sorted(domains)
+    """Domain classification was project_brain.classify_file (deleted with old
+    brain Stage 2-E supersession). Domains aren't load-bearing for tier_check
+    correctness — TIER_0/1/2 enforcement comes from the explicit file lists,
+    not the inferred domain. Returning empty is the safe degrade."""
+    return []
 
 
 # ---------------------------------------------------------------------------

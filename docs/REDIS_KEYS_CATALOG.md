@@ -26,7 +26,6 @@ to validate every prefix in `app/` is documented somewhere.
 |---|---|---|---|
 | `hs:abndntrnd:v1` | `app/api/lite_extras.py:475` | TBD | TBD |
 | `hs:action_cooldown:v1` | `app/services/orchestrator.py:82` | TBD | TBD |
-| `hs:adversarial_probes` | `app/services/bugfix_pipeline.py:572` | TBD | TBD |
 | `hs:auth:msv:v1` | `app/core/deps.py:115` | 30s | merchant session-version + existence cache (auth fast-path; eliminates per-request DB query under load) |
 | `hs:agency:v1` | `app/services/agency.py:22` | TBD | TBD |
 | `hs:agg_cursor` | `app/workers/aggregation_worker.py:605` | TBD | TBD |
@@ -36,7 +35,6 @@ to validate every prefix in `app/` is documented somewhere.
 | `hs:alert:agg_cycle_slow` | `app/workers/aggregation_worker.py:178` | TBD | TBD |
 | `hs:alock` | `app/core/distributed_lock.py:123` | TBD | TBD |
 | `hs:annotations:v1` | `app/services/annotations.py:28` | TBD | TBD |
-| `hs:antigen` | `app/services/bugfix_pipeline.py:261` | TBD | TBD |
 | `hs:approval_reminder` | `app/workers/agent_worker.py:1915` | TBD | TBD |
 | `hs:approved_reminder` | `app/workers/agent_worker.py:1880` | TBD | TBD |
 | `hs:audit_log:chain_head` | `app/services/audit.py:44` | TBD | TBD |
@@ -45,8 +43,6 @@ to validate every prefix in `app/` is documented somewhere.
 | `hs:audit_log_tampering:active` | `app/services/compliance_score.py:334` | TBD | TBD |
 | `hs:auth:known_fp` | `app/core/auth_hardening.py:94` | TBD | TBD |
 | `hs:auth:vel` | `app/core/auth_hardening.py:87` | TBD | TBD |
-| `hs:auto_merge_cooldown` | `app/services/promotion_pipeline.py:491` | TBD | TBD |
-| `hs:auto_push_cooldown:v1` | `app/services/promotion_pipeline.py:488` | TBD | TBD |
 | `hs:auto_remediation:dashboard_drift:cooldown` | `app/services/dashboard_auto_remediation.py:90` | TBD | TBD |
 | `hs:auto_remediation:dashboard_drift:count` | `app/services/dashboard_auto_remediation.py:86` | TBD | TBD |
 | `hs:auto_resp` | `app/services/auto_responder.py:95` | TBD | TBD |
@@ -63,15 +59,11 @@ to validate every prefix in `app/` is documented somewhere.
 | `hs:compliance:auto_pause` | `app/services/compliance_score.py:63` | TBD | TBD |
 | `hs:compliance:last_score` | `app/services/compliance_score.py:64` | TBD | TBD |
 | `hs:consent` | `app/api/track.py:322` | TBD | TBD |
-| `hs:cooldown:evolution_audit` | `app/services/evolution_engine.py:74` | TBD | TBD |
-| `hs:cooldown:meta_review` | `app/services/meta_reviewer.py:42` | TBD | TBD |
-| `hs:cooldown:monthly_audit` | `app/services/monthly_evolution_audit.py:44` | TBD | TBD |
 | `hs:cto_signal_cooldown` | `app/services/system_health_synthesizer.py:294` | TBD | TBD |
 | `hs:daily_revenue` | `app/api/webhooks.py:226` | TBD | TBD |
 | `hs:dash` | `app/core/redis_client.py:62` | TBD | TBD |
 | `hs:data_retention:day` | `app/workers/agent_worker.py:1039` | TBD | TBD |
 | `hs:demo_lock` | `app/services/storefront_preview.py:34` | TBD | TBD |
-| `hs:deploy:promotion` | `app/services/promotion_pipeline.py:962` | TBD | TBD |
 | `hs:dev_brk:v1` | `app/api/lite_extras.py:334` | TBD | TBD |
 | `hs:disc:v1` | `app/api/lite_extras.py:1227` | TBD | TBD |
 | `hs:email_escalation` | `app/services/inbound_email_processor.py:242` | TBD | TBD |
@@ -82,8 +74,6 @@ to validate every prefix in `app/` is documented somewhere.
 | `hs:fe_errors` | `app/api/frontend_errors.py:150` | TBD | TBD |
 | `hs:filelock` | `app/core/file_lock.py:42` | TBD | TBD |
 | `hs:filelock:*` | `app/core/file_lock.py:315` | TBD | TBD |
-| `hs:fix_template` | `app/services/bugfix_pipeline.py:425` | TBD | TBD |
-| `hs:fix_template_hits` | `app/services/bugfix_pipeline.py:427` | TBD | TBD |
 | `hs:flag` | `app/core/feature_flags.py:48` | TBD | TBD |
 | `hs:followup_guard` | `app/services/followup_worker.py:38` | TBD | TBD |
 | `hs:fusage` | `app/core/feature_usage.py:33` | TBD | TBD |
@@ -134,7 +124,6 @@ to validate every prefix in `app/` is documented somewhere.
 | `hs:order_geo` | `app/api/lite_extras.py:746` | TBD | TBD |
 | `hs:orders_summary` | `app/api/webhooks.py:225` | TBD | TBD |
 | `hs:p95:*` | `app/services/p95_snapshot.py:144` | TBD | TBD |
-| `hs:patchfp:skeleton` | `app/services/bugfix_pipeline.py:246` | TBD | TBD |
 | `hs:pixel_secret` | `app/api/track.py:431` | TBD | TBD |
 | `hs:pmnt:v1` | `app/api/lite_extras.py:1536` | TBD | TBD |
 | `hs:preflight:last_ok` | `app/api/public_transparency.py:224` | TBD | TBD |
@@ -148,7 +137,6 @@ to validate every prefix in `app/` is documented somewhere.
 | `hs:public_roi_counter:v1` | `app/api/public_roi_counter.py:41` | TBD | TBD |
 | `hs:public_status:v1` | `app/api/public_status.py:25` | TBD | TBD |
 | `hs:public_transparency:v1` | `app/api/public_transparency.py:39` | TBD | TBD |
-| `hs:quarantine:cleared` | `app/services/bugfix_prompt_grounding.py:467` | TBD | TBD |
 | `hs:rars:v1` | `app/services/revenue_at_risk.py:50` | TBD | TBD |
 | `hs:rars_history:v1` | `app/api/roi_hero.py:250`, `app/services/chatbot_llm_fallback.py:317` | TBD | TBD |
 | `hs:reengage:drift` | `app/services/onboarding_health.py:61` | TBD | TBD |
@@ -172,7 +160,6 @@ to validate every prefix in `app/` is documented somewhere.
 | `hs:rum:samples` | `app/services/rum_monitor.py:74` | TBD | TBD |
 | `hs:rum:samples:*` | `app/services/rum_monitor.py:175` | TBD | TBD |
 | `hs:rum_rl` | `app/api/rum.py:99` | TBD | TBD |
-| `hs:security_guard_blocks` | `app/services/bugfix_pipeline.py:635` | TBD | TBD |
 | `hs:security_heartbeat:last_results` | `app/services/security_heartbeat.py:51` | TBD | TBD |
 | `hs:security_heartbeat:last_run` | `app/services/security_heartbeat.py:50` | TBD | TBD |
 | `hs:self_heal_standby` | `app/workers/agent_worker.py:1993` | TBD | TBD |
@@ -198,7 +185,6 @@ to validate every prefix in `app/` is documented somewhere.
 | `hs:tg_idem` | `app/core/telegram_safety.py:38` | TBD | TBD |
 | `hs:tg_lock` | `app/core/telegram_safety.py:76` | TBD | TBD |
 | `hs:tg_ratelimit:v1` | `app/core/telegram_safety.py:216` | TBD | TBD |
-| `hs:tier2_weekly` | `app/workers/agent_worker.py:1189` | TBD | TBD |
 | `hs:today_snapshot:v1` | `app/api/today_snapshot.py:294` | TBD | TBD |
 | `hs:topltv:v1` | `app/api/lite_extras.py:412` | TBD | TBD |
 | `hs:topprod:v1` | `app/api/lite_extras.py:1115` | TBD | TBD |

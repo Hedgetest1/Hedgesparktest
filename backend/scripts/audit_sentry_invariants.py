@@ -92,15 +92,10 @@ def _check_sentry_api_module(failures: list[str]) -> None:
                     "def is_configured"):
         if needed not in src:
             failures.append(f"{p.relative_to(ROOT)}: {needed} not exported")
-    # Wire-in check: sentry_triage must call notify_triage_outcome on the
-    # terminal "linked" transition. Without this the bidirectional loop
-    # is half-built — Sentry never learns we acted on the issue.
-    triage = _read(BACKEND / "app/services/sentry_triage.py")
-    if triage and "notify_triage_outcome" not in triage:
-        failures.append(
-            "backend/app/services/sentry_triage.py: notify_triage_outcome() not invoked "
-            "after candidate creation — bidirectional Sentry loop broken (SENTRY-2)"
-        )
+    # Wire-in check removed Stage 2-E supersession: sentry_triage no longer
+    # creates BugFixCandidate rows (old-brain auto-fix pipeline deleted),
+    # so the terminal "linked" transition no longer fires. notify_triage_outcome
+    # remains exported for any future bidirectional flow.
 
 
 def _check_alert_rules_iac(failures: list[str]) -> None:

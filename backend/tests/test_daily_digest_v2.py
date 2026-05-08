@@ -84,38 +84,6 @@ def test_digest_no_approve_buttons_for_tier0_or_tier1():
     assert not any("/approve" in c for c in callback_data)
 
 
-def test_digest_includes_pipeline_section():
-    with _hermetic_digest_mocks() as db:
-        db.execute.return_value.scalar.return_value = 5
-        msg = ta.build_daily_digest(db)
-    assert "Pipeline" in msg
-    assert "fixes shipped" in msg
-
-
-def test_digest_renders_tier2_review_section_when_present():
-    """A TIER_2 candidate must produce a TIER_2 attention line."""
-    with _hermetic_digest_mocks() as db:
-        def _execute(sql, *args, **kwargs):
-            result = MagicMock()
-            sql_str = str(sql).lower() if hasattr(sql, "__str__") else ""
-            if "patch_risk_tier = 2" in sql_str and "patch_proposed" in sql_str:
-                result.scalar.return_value = 3
-                result.fetchall.return_value = []
-            else:
-                result.fetchall.return_value = []
-                result.scalar.return_value = 0
-            result.fetchone.return_value = (0, 0)
-            return result
-
-        db.execute.side_effect = _execute
-        msg = ta.build_daily_digest(db)
-    assert "TIER" in msg
-    assert "review" in msg.lower()
-    # Still no Telegram action button
-    flat = [b for row in ta._digest_buttons_cache for b in row]
-    assert not any("/approve" in str(b.get("callback_data", "")) for b in flat)
-
-
 def test_digest_attention_section_only_when_needed():
     """No attention section when everything is healthy."""
     with _hermetic_digest_mocks() as db:

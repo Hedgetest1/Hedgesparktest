@@ -1044,7 +1044,6 @@ refuses to start if prior `_loadtest_` shops exist unless --force).
 | `hs:survey:first_today:{shop}:{date}` | SETNX first-response flag | 24h |
 | `hs:mgroup:v1:{group_id}:{lookback_days}` | Multi-store rollup cache | 5min |
 | `hs:agency:v1:{agency_id}:{lookback_days}` | Agency rollup cache | 5min |
-| `hs:brain:preventer:{candidate_id}` | §21.6 hook #3 — 24h regression-watch on applied bugfix's source signal | 24h |
 
 Curated list — backend uses ~150 prefixes total; rest tracked in
 owning modules. Verified by `audit_claude_md_redis_keys.py`

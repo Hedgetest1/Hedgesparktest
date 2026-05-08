@@ -149,30 +149,3 @@ def test_assert_clean_counter_increments():
     assert after == before + 1
 
 
-# ---------- Integration with _call_llm ----------
-
-def test_call_llm_blocks_when_payload_has_pii(monkeypatch):
-    """bugfix_pipeline._call_llm must return empty when PII is detected."""
-    from app.services import bugfix_pipeline as bp
-
-    # Prevent the budget + router path from running — the guard must
-    # fire before either of them get a chance.
-    def _fail_budget(*a, **kw):
-        raise AssertionError("budget should not be checked after pii block")
-
-    monkeypatch.setattr("app.core.llm_budget.check_budget", lambda *a, **kw: (True, "ok"))
-    # If the guard fails to fire, the test will try to reach this
-    # provider call — force it to raise so we notice.
-    monkeypatch.setattr(bp, "_call_provider",
-                       lambda *a, **kw: (_ for _ in ()).throw(
-                           AssertionError("provider should not be called")))
-
-    text, provider, _model = bp._call_llm(
-        "Debug context: customer alice@example.com requested refund",
-        patch_risk_tier=0,
-        file_count=1,
-    )
-    assert text == ""
-    # PII block records a sentinel provider so the caller can distinguish
-    # "PII-blocked" from "budget-exhausted" from "HTTP-call-failed".
-    assert provider == "pii_blocked"
