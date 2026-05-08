@@ -349,14 +349,23 @@ _STALE_WARNING_AGE_HOURS = 24     # warning: 1 day to act before noise
 _STALE_CRITICAL_AGE_HOURS = 72    # critical: 3 days — enough for response
 
 # Alert types that are known-harmless telemetry and should be auto-resolved
-# aggressively. These are observation-only signals (heartbeats, usage logs)
-# that pile up in the unresolved table and inflate the alert pressure metric
-# without representing actionable incidents.
+# aggressively. These are observation-only signals (heartbeats, usage logs,
+# snapshot-style drift comparators) that pile up in the unresolved table and
+# inflate the alert pressure metric without representing actionable incidents.
+#
+# p95_slow_trend semantics: each alert is a snapshot comparing the last 24h
+# vs prior 7d for a single hour-bucket of a single route. If the route is
+# *still* slow on the next snapshot it will fire again — the alert represents
+# a moment of drift, not an ongoing condition. Without this auto-resolve
+# entry, 24h of normal drift events accumulate to ~30 unresolved rows that
+# misrepresent live system state. Auto-resolved with 1h grace per the same
+# logic as heartbeat_ok / deploy_succeeded.
 _AUTO_RESOLVE_NOISE_TYPES = frozenset({
     "heartbeat_ok",
     "deploy_succeeded",
     "positive_feedback",
     "product_feedback",
+    "p95_slow_trend",
 })
 
 
