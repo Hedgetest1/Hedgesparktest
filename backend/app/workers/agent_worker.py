@@ -594,8 +594,18 @@ def _run_audit_log_integrity_check():
             if not rc.set(redis_key, "1", nx=True, ex=48 * 3600):
                 return
         except Exception as exc:
-            log.warning("agent_worker: _run_audit_log_integrity_check failed: %s", exc)
-            pass  # Redis hiccup — proceed (fail-open on the rate limit)
+            # FAIL-CLOSED on Redis hiccup. Pre-2026-05-08 this proceeded
+            # (fail-open) which meant during a Redis outage every worker
+            # cycle could re-run the expensive enforce_chain_integrity()
+            # walk. With 4 workers + a 15-min cycle that's 96 chain walks/day
+            # vs the intended 1/day. Skip this cycle; next 15-min tick
+            # will retry. Audit-log integrity is daily-grain and
+            # tolerates 15-min slip.
+            log.warning(
+                "agent_worker: _run_audit_log_integrity_check Redis claim "
+                "failed; SKIPPING this cycle (fail-CLOSED): %s", exc,
+            )
+            return
 
     db = SessionLocal()
     try:

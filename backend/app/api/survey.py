@@ -146,14 +146,49 @@ def _bump_pii_counter() -> None:
         record_silent_return("survey.pii_counter")
 
 
+_SURVEY_RL_LOCAL_BUCKETS: dict[str, "deque[float]"] = {}
+_SURVEY_RL_LOCAL_LOCK = None  # lazy init
+
+
+def _survey_rl_local_check(ip_hash: str) -> bool:
+    """In-process sliding-window fallback for survey rate-limit.
+    60s window, 3 hits per ip_hash. Used only when Redis is unavailable.
+    """
+    global _SURVEY_RL_LOCAL_LOCK
+    if _SURVEY_RL_LOCAL_LOCK is None:
+        import threading as _t
+        _SURVEY_RL_LOCAL_LOCK = _t.Lock()
+    from collections import deque as _deque
+    import time as _time
+    now = _time.monotonic()
+    cutoff = now - _RATE_LIMIT_WINDOW
+    with _SURVEY_RL_LOCAL_LOCK:
+        bucket = _SURVEY_RL_LOCAL_BUCKETS.get(ip_hash)
+        if bucket is None:
+            bucket = _deque()
+            _SURVEY_RL_LOCAL_BUCKETS[ip_hash] = bucket
+        while bucket and bucket[0] < cutoff:
+            bucket.popleft()
+        if len(bucket) >= _RATE_LIMIT_MAX_HITS:
+            return False
+        bucket.append(now)
+        return True
+
+
 def _rate_limit_check(ip_hash: str | None) -> bool:
-    """Return True when the request is permitted; False on rate-limit hit."""
+    """Return True when the request is permitted; False on rate-limit hit.
+
+    Fail-CLOSED-with-fallback (2026-05-08): pre-fix returned True on any
+    Redis exception, opening a flooding window during Redis outages.
+    Now uses an in-process sliding-window fallback bounded by per-IP
+    cap × #workers.
+    """
     if not ip_hash:
         return True
     rc = _redis_client()
     if rc is None:
-        record_silent_return("survey.rate_limit")
-        return True
+        record_silent_return("survey.rate_limit.local_fallback")
+        return _survey_rl_local_check(ip_hash)
     key = _RATE_LIMIT_KEY.format(ip_hash=ip_hash)
     try:
         # INCR + EXPIRE: first hit creates the counter; subsequent hits
@@ -163,9 +198,12 @@ def _rate_limit_check(ip_hash: str | None) -> bool:
             rc.expire(key, _RATE_LIMIT_WINDOW)
         return n <= _RATE_LIMIT_MAX_HITS
     except Exception as exc:  # noqa: BLE001
-        log.warning("survey: rate-limit check failed: %s — fail-open", exc)
-        record_silent_return("survey.rate_limit")
-        return True
+        log.warning(
+            "survey: rate-limit redis check failed, using local fallback: %s",
+            exc,
+        )
+        record_silent_return("survey.rate_limit.local_fallback")
+        return _survey_rl_local_check(ip_hash)
 
 
 def _daily_cap_check(shop: str) -> bool:

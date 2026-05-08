@@ -404,29 +404,39 @@ _STRICT_API_CSP = (
 async def dashboard_rate_limit_middleware(request: Request, call_next):
     """Rate limit /pro/ and /merchant/ endpoints: 120 req/min per (shop, IP).
 
-    Bucket key is `md5(token)`, NOT `token[:64]`. JWT tokens share a
-    36-char header + ~12-char payload prefix (`{"shop":"...`), so a
-    64-char slice was identical for shops with matching name prefixes
-    (e.g. `_loadtest_00017.myshopify.com` vs `_loadtest_00018...`
-    collide on chars 0-63). Production rarely hits this because real
-    shop names diverge early in base64, but the bug is real: any two
-    Pro merchants whose shop names share a long common prefix would
-    share one rate-limit bucket. md5 of the full token guarantees
-    unique buckets per session.
+    Bucket key is `md5(token)`, NOT `token[:64]` (see commit 6f2e16c
+    for the prefix-collision history).
+
+    Fail-CLOSED-with-fallback: when Redis is unavailable, the limiter
+    falls through to an in-process sliding-window counter rather than
+    unconditionally allowing every request (pre-2026-05-08 was
+    "fail-open"). A Redis outage with fail-open opens an unauthenticated
+    flooding window; the in-process counter bounds blast radius to
+    per-bucket cap × #workers.
     """
     path = request.url.path
     if path.startswith(("/pro/", "/merchant/")):
+        shop_fp = "anon"
+        ip = "anon"
+        try:
+            import hashlib
+            from app.core.merchant_session import SESSION_COOKIE_NAME
+            token = request.cookies.get(SESSION_COOKIE_NAME, "")
+            shop_fp = hashlib.md5(token.encode("utf-8")).hexdigest()[:16] if token else "anon"
+            from app.core.client_ip import extract_client_ip
+            ip = extract_client_ip(request) or "anon"
+        except Exception as exc:
+            _middleware_log.warning("dashboard_rate_limit: identity-derive failed: %s", exc)
+
+        bucket_key = f"{shop_fp}:{ip}"
+        used_local_fallback = False
         try:
             from app.core.redis_client import _client
             rc = _client()
-            if rc is not None:
-                import hashlib
-                from app.core.merchant_session import SESSION_COOKIE_NAME
-                token = request.cookies.get(SESSION_COOKIE_NAME, "")
-                shop_fp = hashlib.md5(token.encode("utf-8")).hexdigest()[:16] if token else "anon"
-                from app.core.client_ip import extract_client_ip
-                ip = extract_client_ip(request) or "anon"
-                key = f"hs:rl:dash:{shop_fp}:{ip}"
+            if rc is None:
+                used_local_fallback = True
+            else:
+                key = f"hs:rl:dash:{bucket_key}"
                 count = rc.incr(key)
                 if count == 1:
                     rc.expire(key, 60)
@@ -434,8 +444,41 @@ async def dashboard_rate_limit_middleware(request: Request, call_next):
                     from fastapi.responses import JSONResponse
                     return JSONResponse({"detail": "Too many requests."}, status_code=429)
         except Exception as exc:
-            _middleware_log.warning("dashboard_rate_limit: fail-open: %s", exc)
+            _middleware_log.warning("dashboard_rate_limit: redis check failed, using local fallback: %s", exc)
+            used_local_fallback = True
+
+        if used_local_fallback:
+            allowed = _dashboard_rl_local_allow(bucket_key)
+            if not allowed:
+                from fastapi.responses import JSONResponse
+                return JSONResponse(
+                    {"detail": "Too many requests."},
+                    status_code=429,
+                )
     return await call_next(request)
+
+
+# In-process sliding-window fallback for the dashboard rate limit.
+# Bounded: O(buckets × 120). Used only when Redis is unavailable.
+import threading as _dash_rl_threading  # noqa: E402
+from collections import defaultdict as _dash_rl_defaultdict, deque as _dash_rl_deque  # noqa: E402
+_DASH_RL_BUCKETS: dict[str, "_dash_rl_deque[float]"] = _dash_rl_defaultdict(_dash_rl_deque)
+_DASH_RL_LOCK = _dash_rl_threading.Lock()
+
+
+def _dashboard_rl_local_allow(bucket_key: str) -> bool:
+    """In-process sliding-window: 60s window, 120-call cap per bucket."""
+    import time as _time
+    now = _time.monotonic()
+    cutoff = now - 60.0
+    with _DASH_RL_LOCK:
+        bucket = _DASH_RL_BUCKETS[bucket_key]
+        while bucket and bucket[0] < cutoff:
+            bucket.popleft()
+        if len(bucket) >= 120:
+            return False
+        bucket.append(now)
+        return True
 
 
 @app.middleware("http")

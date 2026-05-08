@@ -647,7 +647,40 @@ def _send_intent(db: Session, intent: EmailIntent) -> bool:
             _log_suppressed(db, intent, "email_budget_exhausted")
             return False
     except Exception as exc:
-        log.warning("email_orchestrator: budget check failed (fail-open): %s", exc)
+        # FAIL-CLOSED: budget infrastructure failure must NOT trigger
+        # uncapped email sending. The Resend monthly limit is real money;
+        # an over-spend incident is unrecoverable, while a transient
+        # budget-check outage is a 5-minute fix. Pre-2026-05-08 this
+        # logged "fail-open" and proceeded — the exact class of bug §2.9
+        # (every LLM/email cap is a north-star invariant) forbids.
+        log.error(
+            "email_orchestrator: budget check failed — REJECTING send "
+            "(fail-CLOSED for cost protection): %s", exc,
+        )
+        try:
+            from app.services.alerting import write_alert
+            write_alert(
+                db,
+                severity="warning",
+                source="email_orchestrator",
+                alert_type="budget_check_failed_fail_closed",
+                summary=(
+                    "Resend budget check failed; email sends paused on "
+                    "fail-closed semantics. Investigate & restore."
+                ),
+                shop_domain=intent.shop_domain,
+                detail={"error": str(exc)[:300]},
+            )
+        except Exception as alert_exc:
+            # Best-effort alert path; the load-bearing fix is the
+            # `return False` below — refusing to send is the primary
+            # behavior. Don't let an alerting failure block that.
+            log.debug(
+                "email_orchestrator: budget-failure alert write failed "
+                "(non-fatal): %s", alert_exc,
+            )
+        _log_suppressed(db, intent, "email_budget_check_unavailable")
+        return False
 
     # ── Atomic send guard — prevent duplicate sends on parallel execution ──
     if not _claim_send_slot(intent.shop_domain, intent.email_type):
