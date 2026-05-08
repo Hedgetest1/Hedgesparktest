@@ -1032,6 +1032,13 @@ refuses to start if prior `_loadtest_` shops exist unless --force).
 | `hs:llm_realmodel_drift:history` | B2 weekly drift 8-week history | 90d |
 | `hs:vint:v1:{shop_md5_16}` | Visitor Intent aggregate cache | 60s |
 | `hs:liveopps:v1:{shop_md5_16}` | Live Opportunities aggregate cache | 60s |
+| `hs:rars:v1:{plan}:{shop_md5_16}` | RARS report cache | 5min |
+| `hs:rars:lock:v1:{plan}:{shop_md5_16}` | RARS stampede lock | 40s |
+| `hs:proof:v1:{shop_md5_16}:{window_h}` | Proof report cache | 5min |
+| `hs:proof:lock:v1:{shop_md5_16}:{window_h}` | Proof stampede lock | 30s |
+| `hs:kg:v1:stats:{shop_md5_16}` | Knowledge-graph stats cache | 5min |
+| `hs:kg:lock:v1:{shop_md5_16}` | Knowledge-graph stampede lock | 30s |
+| `hs:llm:merchant:{shop}:{month}` | Per-merchant LLM spend (€5/€10/€50 tier cap) | 35d |
 | `hs:hmap:{shop}:{url_md5_16}:{event_type}` | Lite spatial heatmap 10×10 buckets — HASH field `{x}:{y}` (0-9 each), event_type ∈ {click, mousemove}; populated by `_bump_heatmap_bucket` at every click + mousemove ingest | 30d |
 | `hs:email:domain_status:v1` | Resend domain verification cache | 10min |
 | `hs:email:last_verified:v1` | Sticky last-known verified state | 30d |
