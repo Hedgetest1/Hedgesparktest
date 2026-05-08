@@ -1668,6 +1668,116 @@ def project_brain_constitution(
 
 
 # ---------------------------------------------------------------------------
+# Merchant Brain (Brain Vero) — supersedes the old immune-system brain.
+# See CLAUDE.md §21.6 + app/services/merchant_brain.py.
+# ---------------------------------------------------------------------------
+
+@router.get("/merchant-brain/summary")
+def merchant_brain_summary(
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Aggregated state for the merchant brain (Brain Vero):
+      - feature flag state
+      - decision counts (last 24h, last 7d)
+      - per-action_kind breakdown (dispatched / deferred / blocked / no_action)
+      - per-shop tick activity
+    Useful for operator visibility before/after un-park ceremony.
+    """
+    from app.services.merchant_brain import is_brain_enabled
+    from sqlalchemy import text as _text
+    rows_24h = db.execute(_text("""
+        SELECT action_kind,
+               COUNT(*) AS total,
+               COUNT(*) FILTER (WHERE limb_dispatched IS NOT NULL) AS dispatched,
+               COUNT(*) FILTER (
+                 WHERE limb_response ? 'blocked_by_review'
+               ) AS blocked,
+               COUNT(*) FILTER (
+                 WHERE limb_response ? 'deferred_to'
+               ) AS deferred
+        FROM brain_decisions
+        WHERE decision_at > NOW() - INTERVAL '24 hours'
+        GROUP BY action_kind
+        ORDER BY total DESC
+    """)).fetchall()
+    rows_7d = db.execute(_text("""
+        SELECT COUNT(*) AS total,
+               COUNT(DISTINCT shop_domain) AS shops,
+               COUNT(*) FILTER (WHERE limb_dispatched IS NOT NULL) AS dispatched_total
+        FROM brain_decisions
+        WHERE decision_at > NOW() - INTERVAL '7 days'
+    """)).fetchone()
+    return {
+        "enabled": is_brain_enabled(),
+        "window_24h": [
+            {
+                "action_kind": r[0],
+                "total": r[1],
+                "dispatched": r[2],
+                "blocked": r[3],
+                "deferred": r[4],
+            }
+            for r in rows_24h
+        ],
+        "window_7d": {
+            "total_decisions": rows_7d[0] if rows_7d else 0,
+            "active_shops": rows_7d[1] if rows_7d else 0,
+            "dispatched_total": rows_7d[2] if rows_7d else 0,
+        },
+    }
+
+
+@router.get("/merchant-brain/decisions")
+def merchant_brain_decisions(
+    shop: str | None = Query(default=None),
+    action_kind: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """List recent brain_decisions rows with optional filters. Operator
+    audit trail for un-park verification + outcome inspection."""
+    from sqlalchemy import text as _text
+    clauses = ["1=1"]
+    params: dict = {"limit": limit}
+    if shop:
+        clauses.append("shop_domain = :shop")
+        params["shop"] = shop
+    if action_kind:
+        clauses.append("action_kind = :action_kind")
+        params["action_kind"] = action_kind
+    sql = f"""
+        SELECT id, decision_at, shop_domain, action_kind, synthesis,
+               rationale, limb_dispatched, limb_response,
+               expected_outcome_metric, outcome_status, outcome_evaluated_at
+        FROM brain_decisions
+        WHERE {" AND ".join(clauses)}
+        ORDER BY decision_at DESC
+        LIMIT :limit
+    """
+    rows = db.execute(_text(sql), params).fetchall()
+    return [
+        {
+            "id": r[0],
+            "decision_at": r[1].isoformat() + "Z" if r[1] else None,
+            "shop_domain": r[2],
+            "action_kind": r[3],
+            "synthesis": r[4],
+            "rationale": r[5],
+            "limb_dispatched": r[6],
+            "limb_response": r[7],
+            "expected_outcome_metric": r[8],
+            "outcome_status": r[9],
+            "outcome_evaluated_at": (
+                r[10].isoformat() + "Z" if r[10] else None
+            ),
+        }
+        for r in rows
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Reviewer
 # ---------------------------------------------------------------------------
 
