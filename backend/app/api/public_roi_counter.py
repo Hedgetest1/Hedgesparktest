@@ -39,7 +39,11 @@ router = APIRouter(tags=["public_roi"])
 log = logging.getLogger("public_roi_counter")
 
 _CACHE_KEY = "hs:public_roi_counter:v1"
-_CACHE_TTL = 600  # 10 min
+_CACHE_KEY_LAST_GOOD = "hs:public_roi_counter:last_good:v1"  # no TTL — survives cache flush
+_CACHE_KEY_REFRESH_LOCK = "hs:public_roi_counter:refresh_lock"
+_CACHE_TTL = 600  # 10 min — fresh threshold
+_LAST_GOOD_TTL = 86400  # 24h — stale-but-serveable
+_REFRESH_LOCK_TTL = 60  # 1 min — single in-flight refresh
 
 
 def _now_iso() -> str:
@@ -156,24 +160,95 @@ def _compute() -> dict:
         db.close()
 
 
+def _trigger_async_refresh(rc) -> None:
+    """Fire-and-forget background refresh — caps user-facing latency at
+    cache-read speed even on cold start. Single in-flight refresh enforced
+    via Redis SETNX lock."""
+    import threading
+
+    if rc is None:
+        from app.core.silent_fallback import record_silent_return
+        record_silent_return("public_roi_counter.refresh_no_redis")
+        return
+    try:
+        # SETNX claim — first thread to set the lock wins; others bail.
+        if not rc.set(_CACHE_KEY_REFRESH_LOCK, "1", nx=True, ex=_REFRESH_LOCK_TTL):
+            return
+    except Exception:
+        from app.core.silent_fallback import record_silent_return
+        record_silent_return("public_roi_counter.refresh_lock_set")
+        return
+
+    def _refresh():
+        try:
+            doc = _compute()
+            try:
+                payload = json.dumps(doc, default=str)
+                rc.setex(_CACHE_KEY, _CACHE_TTL, payload)
+                rc.setex(_CACHE_KEY_LAST_GOOD, _LAST_GOOD_TTL, payload)
+            except Exception as exc:
+                log.warning("public_roi_counter: cache write failed: %s", exc)
+        except Exception as exc:
+            log.warning("public_roi: async refresh failed: %s", exc)
+        finally:
+            try:
+                rc.delete(_CACHE_KEY_REFRESH_LOCK)
+            except Exception:
+                from app.core.silent_fallback import record_silent_return
+                record_silent_return("public_roi_counter.refresh_lock_delete")
+
+    t = threading.Thread(target=_refresh, daemon=True, name="public-roi-refresh")
+    t.start()
+
+
 def _get_cached_or_compute() -> dict:
-    """Read from Redis; fall back to compute + refresh on miss."""
+    """Stale-while-revalidate pattern.
+
+    Hot path (cache fresh):  return immediately, no compute.
+    Stale path (last_good):  return stale + trigger async refresh.
+    Cold path (no last_good): compute sync once. Subsequent requests
+                              hit the warm cache.
+
+    Eliminates the cache-miss-stampede pattern that caused 365ms p95 on
+    /public/roi-counter — only the FIRST request after Redis flush ever
+    pays the full ~200-shop iteration cost; everyone else sees stale-but-
+    serveable while a single background thread refreshes."""
     try:
         from app.core.redis_client import _client
         rc = _client()
-        if rc is not None:
-            raw = rc.get(_CACHE_KEY)
-            if raw:
-                try:
-                    return json.loads(raw)
-                except Exception as exc:
-                    log.warning("public_roi_counter: cache parse failed: %s", exc)
-        doc = _compute()
-        if rc is not None:
+        if rc is None:
+            # No Redis → unavoidable sync compute.
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("public_roi_counter.no_redis_sync_compute")
+            return _compute()
+
+        raw = rc.get(_CACHE_KEY)
+        if raw:
             try:
-                rc.setex(_CACHE_KEY, _CACHE_TTL, json.dumps(doc, default=str))
+                return json.loads(raw)
             except Exception as exc:
-                log.warning("public_roi_counter: cache write failed: %s", exc)
+                log.warning("public_roi_counter: cache parse failed: %s", exc)
+
+        # Cache MISS — try last-good before paying the full compute.
+        last_good_raw = rc.get(_CACHE_KEY_LAST_GOOD)
+        if last_good_raw:
+            try:
+                last_good = json.loads(last_good_raw)
+                # Mark as stale so callers can render with confidence.
+                last_good["_stale"] = True
+                _trigger_async_refresh(rc)
+                return last_good
+            except Exception as exc:
+                log.warning("public_roi_counter: last_good parse failed: %s", exc)
+
+        # No last-good either — sync compute (cold-cold path).
+        doc = _compute()
+        try:
+            payload = json.dumps(doc, default=str)
+            rc.setex(_CACHE_KEY, _CACHE_TTL, payload)
+            rc.setex(_CACHE_KEY_LAST_GOOD, _LAST_GOOD_TTL, payload)
+        except Exception as exc:
+            log.warning("public_roi_counter: cache write failed: %s", exc)
         return doc
     except Exception as exc:
         log.warning("public_roi: cache/compute failed: %s", exc)

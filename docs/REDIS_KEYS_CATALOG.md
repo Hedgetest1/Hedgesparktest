@@ -134,7 +134,9 @@ to validate every prefix in `app/` is documented somewhere.
 | `hs:product_conversions` | `app/api/webhooks.py:229` | TBD | TBD |
 | `hs:pub_events:dedup` | `app/api/public_events.py:138` | TBD | TBD |
 | `hs:pub_events:rate` | `app/api/public_events.py:117` | TBD | TBD |
-| `hs:public_roi_counter:v1` | `app/api/public_roi_counter.py:41` | TBD | TBD |
+| `hs:public_roi_counter:v1` | `app/api/public_roi_counter.py:41` | 10min | fresh ROI counter cache |
+| `hs:public_roi_counter:last_good:v1` | `app/api/public_roi_counter.py:42` | 24h | stale-but-serveable last-good ROI counter (SWR pattern) |
+| `hs:public_roi_counter:refresh_lock` | `app/api/public_roi_counter.py:43` | 60s | SETNX single in-flight async refresh lock |
 | `hs:public_status:v1` | `app/api/public_status.py:25` | TBD | TBD |
 | `hs:public_transparency:v1` | `app/api/public_transparency.py:39` | TBD | TBD |
 | `hs:rars:v1` | `app/services/revenue_at_risk.py:50` | TBD | TBD |

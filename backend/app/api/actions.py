@@ -85,6 +85,41 @@ router = APIRouter(prefix="/actions", tags=["actions"])
 # Entire endpoint is Pro-only. No Lite subset exists — see module docstring.
 # ---------------------------------------------------------------------------
 
+_CANDIDATES_CACHE_PREFIX = "hs:action_candidates:v1"
+_CANDIDATES_CACHE_TTL = 60  # 60s — candidates derive from data that changes slowly
+
+
+def _get_action_candidates_cached(shop: str, db: Session) -> list[dict]:
+    """60s cache eliminates the 1300ms per-request recompute. Action
+    candidates rank shifts on minute-scale signal changes, not request-scale
+    — 60s staleness is invisible to merchants. Read-only path; cache write
+    is best-effort."""
+    import json as _json
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+    except Exception:
+        rc = None
+
+    cache_key = f"{_CANDIDATES_CACHE_PREFIX}:{shop}"
+    if rc is not None:
+        try:
+            raw = rc.get(cache_key)
+            if raw:
+                return _json.loads(raw)
+        except Exception:
+            pass  # SILENT-EXCEPT-OK: cache best-effort, fall through to compute
+
+    candidates = generate_action_candidates(shop_domain=shop, db=db)
+
+    if rc is not None:
+        try:
+            rc.setex(cache_key, _CANDIDATES_CACHE_TTL, _json.dumps(candidates, default=str))
+        except Exception:
+            pass  # SILENT-EXCEPT-OK: cache write failure does not affect the response
+    return candidates
+
+
 @router.get("/candidates/pro")
 def action_candidates_pro(
     shop: str = Depends(require_pro_session),
@@ -98,13 +133,14 @@ def action_candidates_pro(
     pair ranked by a composite of urgency, confidence, and expected revenue loss.
 
     This is a read-only surface. No actions are executed, no state is written.
-    The response is recomputed on every request (no caching in v1).
+    Cached 60s per-shop in Redis (closes 1300ms p95 baseline; candidates rank
+    only shifts on minute-scale signal updates).
 
     Backend-enforced: require_pro_plan raises HTTP 403 if the shop does not
     have an active Pro plan (merchants.plan != "pro" or billing_active == False).
     API key and shop-domain validation are composed inside require_pro_plan.
     """
-    candidates = generate_action_candidates(shop_domain=shop, db=db)
+    candidates = _get_action_candidates_cached(shop, db)
 
     return {
         "shop_domain":      shop,
