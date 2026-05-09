@@ -158,6 +158,7 @@ from app.models.outbound_webhook import OutboundWebhookSubscription, OutboundWeb
 from app.models.ad_spend import AdSpendDaily, AdConnection  # noqa: F401
 from app.api.refund_loss import router as refund_loss_router
 from app.api.revenue_autopsy import router as revenue_autopsy_router
+from app.api.store_profile import router as store_profile_router
 from app.api.abandoned_intent import router as abandoned_intent_router
 from app.api.price_sensitivity import router as price_sensitivity_router
 from app.api.causal_lift import router as causal_lift_router
@@ -700,6 +701,7 @@ app.include_router(roi_report_router)
 app.include_router(signal_webhooks_router)
 app.include_router(team_router)
 app.include_router(revenue_autopsy_router)
+app.include_router(store_profile_router)
 app.include_router(abandoned_intent_router)
 app.include_router(price_sensitivity_router)
 app.include_router(causal_lift_router)

@@ -275,6 +275,22 @@ class TestProEndpointSmoke:
         assert resp.status_code in (401, 403)
 
     # ------------------------------------------------------------------
+    # 15. GET /pro/store-profile — Sprint 4 #7 per-shop intelligence state
+    # ------------------------------------------------------------------
+
+    def test_store_profile_200(self, client, merchant_a, auth_a):
+        resp = client.get("/pro/store-profile", cookies=auth_a)
+        _assert_shape(
+            resp, "shop_domain", "profile_version", "data_points",
+            "confidence_level", "trust_score", "autonomy_level",
+            "top_nudge_scores", "generated_at",
+        )
+
+    def test_store_profile_unauth(self, client):
+        resp = client.get("/pro/store-profile")
+        assert resp.status_code in (401, 403)
+
+    # ------------------------------------------------------------------
     # 15. GET /pro/pnl — P&L statement
     # ------------------------------------------------------------------
 
