@@ -64,7 +64,7 @@ def _get_at_path(data: dict, path: str):
 CURRENCY_GUARDED_ENDPOINTS = [
     # Migrated in the 2026-04-17 sweep (13 endpoints)
     ("GET", "/pro/daily-narrative",          "currency"),
-    ("GET", "/pro/night-shift/latest",       "currency"),
+    ("GET", "/scale/night-shift/latest",     "currency"),
     ("GET", "/pro/counterfactual/signals",   "currency"),
     ("GET", "/pro/customer-churn",           "currency"),
     ("GET", "/pro/visitor-journeys",         "currency"),

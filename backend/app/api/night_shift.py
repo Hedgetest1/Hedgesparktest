@@ -1,10 +1,15 @@
 """
-night_shift.py — Phase Ω⁵ Night Shift Agent API.
+night_shift.py — Night Shift Agent API (Scale tier — moved 2026-05-09).
 
-  GET  /pro/night-shift/latest        — latest cached report
-  GET  /pro/night-shift/timeline      — autonomous actions taken while you slept
-  POST /pro/night-shift/run            — force re-run for the caller (debug)
-  POST /pro/night-shift/apply          — mark the suggested action as accepted
+  GET  /scale/night-shift/latest        — latest cached report
+  GET  /scale/night-shift/timeline      — autonomous actions taken while you slept
+  POST /scale/night-shift/run            — force re-run for the caller (debug)
+  POST /scale/night-shift/apply          — mark the suggested action as accepted
+
+Migrated from `/pro/night-shift/*` + require_pro_session 2026-05-09 per
+founder directive: strict tier partition (no doppione Pro/Scale, no
+deeper-version-on-Pro of Scale feature). Night Shift Agent + Timeline
+ship together on Scale €239 vs TW Moby Agents revenue-tier pricing.
 """
 from __future__ import annotations
 
@@ -16,7 +21,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db, get_read_db
-from app.core.deps import require_pro_session
+from app.core.deps import require_scale_session
 
 router = APIRouter(tags=["night_shift"])
 
@@ -79,9 +84,9 @@ class ApplyActionResponse(BaseModel):
     applied: dict[str, Any] | None = None
 
 
-@router.get("/pro/night-shift/latest", response_model=NightShiftReport)
+@router.get("/scale/night-shift/latest", response_model=NightShiftReport)
 def get_latest(
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_scale_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -98,9 +103,9 @@ def get_latest(
     return doc
 
 
-@router.post("/pro/night-shift/run", response_model=NightShiftReport)
+@router.post("/scale/night-shift/run", response_model=NightShiftReport)
 def force_run(
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_scale_session),
     db: Session = Depends(get_db),
 ):
     """Force a fresh run, bypassing the per-day cache."""
@@ -108,9 +113,9 @@ def force_run(
     return generate_for_shop(db, shop, force=True)
 
 
-@router.get("/pro/night-shift/timeline", response_model=TimelineResponse)
+@router.get("/scale/night-shift/timeline", response_model=TimelineResponse)
 def get_timeline(
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_scale_session),
     db: Session = Depends(get_read_db),
 ):
     """
@@ -232,9 +237,9 @@ def get_timeline(
     }
 
 
-@router.post("/pro/night-shift/apply", response_model=ApplyActionResponse)
+@router.post("/scale/night-shift/apply", response_model=ApplyActionResponse)
 def apply_action(
-    shop: str = Depends(require_pro_session),
+    shop: str = Depends(require_scale_session),
     db: Session = Depends(get_db),
 ):
     """

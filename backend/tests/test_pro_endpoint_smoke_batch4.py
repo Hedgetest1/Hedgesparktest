@@ -221,14 +221,18 @@ class TestProEndpointSmokeBatch4:
         resp = client.get("/pro/mta/compare")
         assert resp.status_code in (401, 403)
 
-    # ─── /pro/night-shift ────────────────────────────────────────────
+    # ─── /scale/night-shift ──────────────────────────────────────────
+    # Moved to Scale tier 2026-05-09 (founder partition directive — no
+    # doppione Pro/Scale). merchant_a fixture is scale-tier (conftest)
+    # so the 200-assertion still holds; gating is now require_scale_
+    # session, but Scale satisfies it. Path-existence smoke kept here.
 
     def test_night_shift_latest_200(self, client, merchant_a, auth_a):
-        resp = client.get("/pro/night-shift/latest", cookies=auth_a)
+        resp = client.get("/scale/night-shift/latest", cookies=auth_a)
         _assert_200_parseable(resp)
 
     def test_night_shift_latest_unauth(self, client):
-        resp = client.get("/pro/night-shift/latest")
+        resp = client.get("/scale/night-shift/latest")
         assert resp.status_code in (401, 403)
 
     # ─── /pro/rules/catalog ──────────────────────────────────────────

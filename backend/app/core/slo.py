@@ -173,7 +173,7 @@ CATALOGUE: list[SLO] = [
     SLO("rars_pro_legacy",      "/pro/revenue-at-risk",          "GET",  99.5, 800),
     SLO("pro_causal",           "/pro/causal/explain",           "GET",  99.0, 1500),
     SLO("pro_anomalies",        "/pro/anomalies/fusion",         "GET",  99.0, 1500),
-    SLO("pro_night_shift",      "/pro/night-shift/latest",       "GET",  99.5, 800),
+    SLO("scale_night_shift",    "/scale/night-shift/latest",     "GET",  99.5, 800),
     SLO("track",                "/track",                        "POST", 99.9, 200),
     SLO("webhooks_orders",      "/webhooks/shopify/orders",      "POST", 99.9, 400),
     SLO("system_health",        "/system/health",                "GET",  99.9, 300),

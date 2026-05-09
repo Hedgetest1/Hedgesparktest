@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * NightShiftCard — Pro moat, rich exploration pattern.
+ * NightShiftCard — Scale moat, rich exploration pattern (moved from Pro 2026-05-09).
  *
- * The first thing a Pro merchant sees every morning. While they slept,
+ * The first thing a Scale merchant sees every morning. While they slept,
  * I read every signal on the store, ran 24h Bayesian inference, picked
  * the SINGLE most impactful lever, and wrote a visible reasoning
  * journal explaining WHY that lever and not the others. One click
@@ -20,7 +20,7 @@
  *      sleep_confidence tier (5 cases), supporting actions cross-
  *      ref Causal Why + Anomaly Fusion + Timeline.
  *
- * Source: GET /pro/night-shift/latest, POST /pro/night-shift/apply.
+ * Source: GET /scale/night-shift/latest, POST /scale/night-shift/apply.
  */
 
 import { useState } from "react";
@@ -117,24 +117,24 @@ function relativeTime(iso: string): string {
 export function NightShiftCard({
   apiBase,
   shop,
-  isProUser,
+  isScaleUser,
 }: {
   apiBase: string;
   shop: string;
-  isProUser: boolean;
+  isScaleUser: boolean;
 }) {
   const [journalOpen, setJournalOpen] = useState(false);
   const [applying, setApplying] = useState(false);
   const [applied, setApplied] = useState(false);
 
   const { data, state, retry } = useCardFetch<NightShiftReport>({
-    url: `${apiBase}/pro/night-shift/latest`,
-    enabled: !!apiBase && !!shop && isProUser,
+    url: `${apiBase}/scale/night-shift/latest`,
+    enabled: !!apiBase && !!shop && isScaleUser,
     isEmpty: () => false,
     component: "NightShiftCard",
   });
 
-  if (!isProUser) return null;
+  if (!isScaleUser) return null;
   if (state === "loading")
     return <CardSkeleton label="Loading tonight's night-shift report" />;
   if (state === "error")
@@ -170,13 +170,13 @@ export function NightShiftCard({
     if (!data.top_action || applying || applied) return;
     setApplying(true);
     try {
-      const { error } = await apiClient.POST("/pro/night-shift/apply");
+      const { error } = await apiClient.POST("/scale/night-shift/apply");
       if (!error) setApplied(true);
       else
         reportFrontendError({
           component: "NightShiftCard.applyAction",
           error_type: "HttpError",
-          message: "POST /pro/night-shift/apply failed",
+          message: "POST /scale/night-shift/apply failed",
           severity: "warning",
         });
     } catch (err: unknown) {
@@ -184,7 +184,7 @@ export function NightShiftCard({
       reportFrontendError({
         component: "NightShiftCard.applyAction",
         error_type: e?.name ?? "FetchError",
-        message: e?.message ?? "Failed to POST /pro/night-shift/apply",
+        message: e?.message ?? "Failed to POST /scale/night-shift/apply",
         severity: "warning",
       });
     } finally {

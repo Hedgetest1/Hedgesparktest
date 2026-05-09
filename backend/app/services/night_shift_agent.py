@@ -1,7 +1,7 @@
 """
-night_shift_agent.py — Phase Ω⁵ killer feature.
+night_shift_agent.py — Scale-tier killer feature (moved from Pro 2026-05-09).
 
-The autonomous night shift. Every night at 02:00 UTC, for every active Pro
+The autonomous night shift. Every night at 02:00 UTC, for every active Scale
 merchant, this service wakes up, reads yesterday's state across every
 intelligence stream, and authors a morning brief with:
 
@@ -26,9 +26,14 @@ Design principles (locked in by the project's north-star rules):
   still shows the sleep-confidence score and an empty journal. No
   silent failure, no 500 on the morning card.
 - Zero new tables / migrations — everything lives in Redis.
-- Reusable: frontend reads through /pro/night-shift/latest; worker calls
-  `run_nightly_for_all_pro()`; tests can invoke `generate_for_shop()`
+- Reusable: frontend reads through /scale/night-shift/latest; worker calls
+  `run_nightly_for_all_scale()`; tests can invoke `generate_for_shop()`
   directly against a SessionLocal.
+
+Tier partition: ships on Scale €239 (NOT Pro €99). Competitive position:
+holdout-measured + Sleep Confidence + reasoning Journal vs TW Moby
+Agents (revenue-tier pricing, opaque execution). See sticky-state
+project_current_partition_state.md for the canonical tier map.
 """
 from __future__ import annotations
 
@@ -683,21 +688,23 @@ def get_latest_for_shop(shop_domain: str) -> dict | None:
         return None
 
 
-def run_nightly_for_all_pro(db: Session) -> int:
+def run_nightly_for_all_scale(db: Session) -> int:
     """
-    Worker hook: generate reports for every active Pro merchant.
+    Worker hook: generate reports for every active Scale merchant.
 
-    Returns the number of reports generated.
+    Returns the number of reports generated. Migrated from Pro→Scale
+    2026-05-09 per founder partition directive (no doppione Pro/Scale,
+    Night Shift ships exclusively on Scale).
     """
     try:
         from app.models.merchant import Merchant
         # Operator/dev tenant exclusion (founder direttiva 2026-05-06):
-        # the founder's hedgespark-dev is plan=pro+billing_active=true.
+        # the founder's hedgespark-dev is excluded regardless of plan.
         from app.core.operator_blocklist import operator_dev_shops
         shops = (
             db.query(Merchant.shop_domain)
             .filter(
-                Merchant.plan == "pro",
+                Merchant.plan == "scale",
                 Merchant.billing_active == True,  # noqa: E712
                 ~Merchant.shop_domain.in_(operator_dev_shops()),
             )

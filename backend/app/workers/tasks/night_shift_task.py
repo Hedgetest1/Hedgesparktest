@@ -30,14 +30,14 @@ def run() -> int:
     """
     try:
         from app.core.database import SessionLocal
-        from app.services.night_shift_agent import run_nightly_for_all_pro
+        from app.services.night_shift_agent import run_nightly_for_all_scale
     except Exception as exc:
         log.warning("night_shift_task: import failed: %s", exc)
         return 0
 
     db = SessionLocal()
     try:
-        n = run_nightly_for_all_pro(db)
+        n = run_nightly_for_all_scale(db)
         if n > 0:
             log.info("night_shift_task: generated %d report(s)", n)
         return n

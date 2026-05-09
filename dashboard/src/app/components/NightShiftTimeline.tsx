@@ -11,7 +11,7 @@
  * layer for the self-healing pipeline: every row is traceable back to
  * a real decision in the autonomous_actions table.
  *
- * Data source: GET /pro/night-shift/timeline
+ * Data source: GET /scale/night-shift/timeline
  */
 
 import { useState } from "react";
@@ -131,22 +131,22 @@ function relativeTime(iso: string | null): string {
 export function NightShiftTimeline({
   apiBase,
   shop,
-  isProUser,
+  isScaleUser,
 }: {
   apiBase: string;
   shop: string;
-  isProUser: boolean;
+  isScaleUser: boolean;
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const { data, state, retry } = useCardFetch<TimelineResponse>({
-    url: `${apiBase}/pro/night-shift/timeline`,
-    enabled: !!apiBase && !!shop && isProUser,
+    url: `${apiBase}/scale/night-shift/timeline`,
+    enabled: !!apiBase && !!shop && isScaleUser,
     isEmpty: (d) =>
       (d.overnight?.length ?? 0) === 0 && (d.this_week?.length ?? 0) === 0,
   });
 
-  if (!isProUser) return null;
+  if (!isScaleUser) return null;
 
   if (state === "loading") {
     return <CardSkeleton label="Loading what we did while you slept" />;

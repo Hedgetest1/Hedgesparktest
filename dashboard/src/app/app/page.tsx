@@ -3685,16 +3685,20 @@ function PageInner() {
                 <RevenueGenomeCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
               )}
 
-              {/* NightShiftCard (predictive overnight alerts) — Pro
-                  per founder $60-130 parity rule (Glew Pro $79 +
-                  Lifetimely Pro $49-149 + Triple Whale Pro $129 ship
-                  overnight alerts). */}
-              {(isProFloor || isScaleFloor) && isProUser && (
-                <section id="section-pro-night-shift">
+              {/* NightShiftCard (predictive overnight) — Scale-only
+                  (moved from Pro 2026-05-09). Triple Whale Moby Agents
+                  shipped autonomous overnight execution 22 aprile 2026
+                  at revenue-tier pricing; HedgeSpark Scale ships the
+                  same primitive at €239 with Sleep Confidence + visible
+                  reasoning Journal as the differentiating moat. Pro
+                  €99 wins on bundle-vs-TW-$129; Scale wins on Moby-vs-
+                  Scale here. Strict tier partition (no doppione). */}
+              {isScaleFloor && isScaleUser && (
+                <section id="section-scale-night-shift">
                   <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
                     Night Shift
                   </h2>
-                  <NightShiftCard apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                  <NightShiftCard apiBase={API_BASE} shop={shop} isScaleUser={isScaleUser} />
                 </section>
               )}
 
@@ -3703,7 +3707,7 @@ function PageInner() {
                   Auto $1k+ — no $60-130 ships autonomous-action
                   audit-trail UI. */}
               {isScaleFloor && isScaleUser && (
-                <NightShiftTimeline apiBase={API_BASE} shop={shop} isProUser={isProUser} />
+                <NightShiftTimeline apiBase={API_BASE} shop={shop} isScaleUser={isScaleUser} />
               )}
 
               {isScaleFloor && isScaleUser && (

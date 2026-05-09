@@ -406,23 +406,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/price-radar": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Price Radar */
-        post: operations["price_radar_price_radar_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/market-lookup/top": {
         parameters: {
             query?: never;
@@ -1780,7 +1763,8 @@ export interface paths {
          *     pair ranked by a composite of urgency, confidence, and expected revenue loss.
          *
          *     This is a read-only surface. No actions are executed, no state is written.
-         *     The response is recomputed on every request (no caching in v1).
+         *     Cached 60s per-shop in Redis (closes 1300ms p95 baseline; candidates rank
+         *     only shifts on minute-scale signal updates).
          *
          *     Backend-enforced: require_pro_plan raises HTTP 403 if the shop does not
          *     have an active Pro plan (merchants.plan != "pro" or billing_active == False).
@@ -6376,7 +6360,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/pro/night-shift/latest": {
+    "/scale/night-shift/latest": {
         parameters: {
             query?: never;
             header?: never;
@@ -6389,7 +6373,7 @@ export interface paths {
          *     (e.g. first morning after enabling Pro), generate one on-demand so
          *     the morning card is never empty.
          */
-        get: operations["get_latest_pro_night_shift_latest_get"];
+        get: operations["get_latest_scale_night_shift_latest_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6398,7 +6382,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/pro/night-shift/run": {
+    "/scale/night-shift/run": {
         parameters: {
             query?: never;
             header?: never;
@@ -6411,14 +6395,14 @@ export interface paths {
          * Force Run
          * @description Force a fresh run, bypassing the per-day cache.
          */
-        post: operations["force_run_pro_night_shift_run_post"];
+        post: operations["force_run_scale_night_shift_run_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/pro/night-shift/timeline": {
+    "/scale/night-shift/timeline": {
         parameters: {
             query?: never;
             header?: never;
@@ -6439,7 +6423,7 @@ export interface paths {
          *     merchant can always trace a timeline entry back to a real
          *     decision and its measured outcome.
          */
-        get: operations["get_timeline_pro_night_shift_timeline_get"];
+        get: operations["get_timeline_scale_night_shift_timeline_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6448,7 +6432,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/pro/night-shift/apply": {
+    "/scale/night-shift/apply": {
         parameters: {
             query?: never;
             header?: never;
@@ -6463,7 +6447,7 @@ export interface paths {
          *     records intent and surfaces it to the action pipeline — execution
          *     happens through existing action_executor paths.
          */
-        post: operations["apply_action_pro_night_shift_apply_post"];
+        post: operations["apply_action_scale_night_shift_apply_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -14225,41 +14209,6 @@ export interface operations {
             };
         };
     };
-    price_radar_price_radar_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    [key: string]: unknown;
-                };
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     top_market_lookup_market_lookup_top_get: {
         parameters: {
             query?: never;
@@ -14318,7 +14267,9 @@ export interface operations {
     daily_brief_agent_daily_brief_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -14333,12 +14284,23 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     scan_project_agent_scan_project_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -14355,12 +14317,23 @@ export interface operations {
                     };
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     project_context_agent_project_context_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -14377,12 +14350,23 @@ export interface operations {
                     };
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     analyze_backend_agent_analyze_backend_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -14397,6 +14381,15 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -14404,7 +14397,9 @@ export interface operations {
     implement_next_step_agent_implement_next_step_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -14421,12 +14416,23 @@ export interface operations {
                     };
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     sandbox_create_agent_sandbox_create_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -14463,7 +14469,9 @@ export interface operations {
     sandbox_set_status_agent_sandbox__run_id__status_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
             path: {
                 run_id: string;
             };
@@ -14502,7 +14510,9 @@ export interface operations {
     sandbox_inspect_agent_sandbox__run_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
             path: {
                 run_id: string;
             };
@@ -14535,7 +14545,9 @@ export interface operations {
     sandbox_runs_agent_sandbox_runs_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -14550,6 +14562,15 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -21881,7 +21902,7 @@ export interface operations {
             };
         };
     };
-    get_latest_pro_night_shift_latest_get: {
+    get_latest_scale_night_shift_latest_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -21901,7 +21922,7 @@ export interface operations {
             };
         };
     };
-    force_run_pro_night_shift_run_post: {
+    force_run_scale_night_shift_run_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -21921,7 +21942,7 @@ export interface operations {
             };
         };
     };
-    get_timeline_pro_night_shift_timeline_get: {
+    get_timeline_scale_night_shift_timeline_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -21941,7 +21962,7 @@ export interface operations {
             };
         };
     };
-    apply_action_pro_night_shift_apply_post: {
+    apply_action_scale_night_shift_apply_post: {
         parameters: {
             query?: never;
             header?: never;
