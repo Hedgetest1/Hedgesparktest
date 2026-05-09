@@ -45,7 +45,6 @@ from sqlalchemy.orm import Session
 log = logging.getLogger("knowledge_graph")
 
 _CACHE_TTL_SECONDS = 5 * 60
-_CACHE_KEY_PREFIX = "hs:kg:v1"
 
 
 def _now():
@@ -322,7 +321,7 @@ def build_graph(db: Session, shop_domain: str, *, fresh: bool = False) -> Mercha
     N concurrent rebuild requests from hammering the DB pool with
     parallel scans for the same shop's data.
     """
-    cache_key = f"{_CACHE_KEY_PREFIX}:stats:{hashlib.md5(shop_domain.encode()).hexdigest()[:16]}"
+    cache_key = f"hs:kg:v1:stats:{hashlib.md5(shop_domain.encode()).hexdigest()[:16]}"
     lock_key = f"hs:kg:lock:v1:{hashlib.md5(shop_domain.encode()).hexdigest()[:16]}"
     rc = None
     lock_acquired = True  # fail-open

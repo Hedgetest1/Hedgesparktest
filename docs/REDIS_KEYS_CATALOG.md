@@ -84,15 +84,11 @@ to validate every prefix in `app/` is documented somewhere.
 | `hs:geoip` | `app/core/geo.py:54` | TBD | TBD |
 | `hs:goals:v1` | `app/services/goals.py:44` | TBD | TBD |
 | `hs:google_oauth_state` | `app/api/google_oauth.py:89` | TBD | TBD |
-| `hs:holdout:assignment` | `app/services/fix_holdout_measurement.py:58` | TBD | TBD |
-| `hs:holdout:measurement` | `app/services/fix_holdout_measurement.py:59` | TBD | TBD |
-| `hs:holdout:savings` | `app/services/fix_holdout_measurement.py:60` | TBD | TBD |
 | `hs:instant_intel` | `app/services/instant_onboarding.py:40` | TBD | TBD |
 | `hs:intent:v1` | `app/services/abandoned_intent.py:27` | TBD | TBD |
 | `hs:inv_kpis:v1` | `app/api/inventory.py:38` | TBD | TBD |
 | `hs:inv_snap:done` | `app/services/inventory_snapshot_runner.py:28` | TBD | TBD |
 | `hs:inv_snap:lock` | `app/services/inventory_snapshot_runner.py:30` | TBD | TBD |
-| `hs:kg:v1` | `app/services/knowledge_graph.py:48` | TBD | TBD |
 | `hs:klaviyo_events:circuit` | `app/services/klaviyo_events.py:64` | TBD | TBD |
 | `hs:klaviyo_events:rate` | `app/services/klaviyo_events.py:65` | TBD | TBD |
 | `hs:known_shop` | `app/api/track.py:365` | TBD | TBD |

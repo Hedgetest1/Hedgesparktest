@@ -1003,7 +1003,6 @@ refuses to start if prior `_loadtest_` shops exist unless --force).
 | `hs:segmon:cursor` | segment monitor round-robin cursor | 24h |
 | `hs:merchant_opt_out:{shop}` | Art. 21 opt-out flag | none |
 | `llm:monthly_cost:{month}` | LLM spend | 35d |
-| `hs:llm:merchant_monthly:{shop}:{month}` | per-merchant per-tier monthly LLM spend (€5 Lite / €10 Pro / €50 Scale cap) | 35d |
 | `llm:daily:{module}:{date}` | LLM calls per module | 7d |
 | `hs:shop_ccy:v1:{shop}` | shop currency cache | 1h |
 | `hs:shop_tz:v1:{shop}` | shop timezone cache | 1h |
@@ -1051,6 +1050,7 @@ refuses to start if prior `_loadtest_` shops exist unless --force).
 | `hs:survey:first_today:{shop}:{date}` | SETNX first-response flag | 24h |
 | `hs:mgroup:v1:{group_id}:{lookback_days}` | Multi-store rollup cache | 5min |
 | `hs:agency:v1:{agency_id}:{lookback_days}` | Agency rollup cache | 5min |
+| `hs:action_candidates:v1:{shop}` | Pro action-candidates 60s cache (1300ms recompute eliminator) | 60s |
 
 Curated list — backend uses ~150 prefixes total; rest tracked in
 owning modules. Verified by `audit_claude_md_redis_keys.py`

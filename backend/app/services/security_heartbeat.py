@@ -255,12 +255,34 @@ def run_security_heartbeat(db: Session) -> dict:
         report["skipped"] = True
         return report
 
+    # Transport-level errors (backend mid-restart, network blip) are NOT
+    # security findings. They mean the heartbeat couldn't reach the app at
+    # all — separate from "endpoint failed to fail-closed". Tracked
+    # separately so the alert path doesn't fire CRITICAL "security
+    # regression" cascade for connectivity hiccups (which then fan out
+    # to breach_response_required via breach_notification).
+    _TRANSPORT_ERRORS = (
+        httpx.ConnectError,
+        httpx.ConnectTimeout,
+        httpx.ReadTimeout,
+        httpx.NetworkError,
+    )
+
     results: list[dict] = []
     try:
         with httpx.Client(base_url=_BASE_URL, timeout=_PROBE_TIMEOUT) as client:
             for probe_fn in _PROBES:
                 try:
                     result = probe_fn(client)
+                except _TRANSPORT_ERRORS as exc:
+                    result = {
+                        "probe": getattr(probe_fn, "__name__", "?"),
+                        "status": None,
+                        "passed": None,
+                        "expectation": "transport error",
+                        "error": type(exc).__name__,
+                        "transport_error": True,
+                    }
                 except Exception as exc:
                     result = {
                         "probe": getattr(probe_fn, "__name__", "?"),
@@ -274,21 +296,38 @@ def run_security_heartbeat(db: Session) -> dict:
         log.warning("security_heartbeat: client setup failed: %s", exc)
         return report
 
+    transport_errors = sum(1 for r in results if r.get("transport_error"))
+    # If EVERY probe hit a transport error the heartbeat couldn't reach
+    # the backend — abandon the run silently. No alerts, no stamp (next
+    # cycle retries immediately instead of waiting the full interval).
+    if transport_errors == len(results):
+        log.warning(
+            "security_heartbeat: all %d probes hit transport errors — "
+            "backend unreachable, skipping run",
+            len(results),
+        )
+        report["skipped"] = True
+        report["results"] = results
+        return report
+
     _stamp_run()
     _persist_results(results)
 
+    # Probes that genuinely failed (endpoint logic regression). Transport
+    # errors are excluded — see _TRANSPORT_ERRORS above.
+    real_failures = [r for r in results if r.get("passed") is False]
+    real_passes = [r for r in results if r.get("passed") is True]
+
     report["total"] = len(results)
-    report["passed"] = sum(1 for r in results if r["passed"])
-    report["failed"] = sum(1 for r in results if not r["passed"])
+    report["passed"] = len(real_passes)
+    report["failed"] = len(real_failures)
+    report["transport_errors"] = transport_errors
     report["results"] = results
 
-    # Emit one ops_alert per failing probe — the founder wants the news.
-    if report["failed"] > 0:
+    if real_failures:
         try:
             from app.models.ops_alert import OpsAlert
-            for r in results:
-                if r["passed"]:
-                    continue
+            for r in real_failures:
                 alert = OpsAlert(
                     severity="critical",
                     source=f"security_heartbeat:{r['probe']}",
@@ -321,9 +360,57 @@ def run_security_heartbeat(db: Session) -> dict:
             report["failed"], report["total"],
         )
     else:
+        # All non-transport probes passed — heal-resolve any prior
+        # security_probe_failed alerts. Cascade: matching
+        # breach_response_required (source=breach:{id}) auto-resolves
+        # too, since the underlying signature was a transient.
+        _heal_security_probe_failed(db)
         log.info(
-            "security_heartbeat: %d/%d probes passed",
-            report["passed"], report["total"],
+            "security_heartbeat: %d/%d probes passed (transport_errors=%d)",
+            report["passed"], report["total"], transport_errors,
         )
 
     return report
+
+
+def _heal_security_probe_failed(db: Session) -> None:
+    """Auto-resolve prior security_probe_failed alerts when current run
+    is fully clean. Cascade-resolves matching breach_response_required
+    alerts (source=breach:{source_alert_id}) since those were emitted
+    by breach_notification scanning the now-resolved source.
+
+    Born 2026-05-09: 5 ConnectError-induced false-positives + 5 cascade
+    breach alerts accumulated over 24h with no heal path. Same pattern
+    as sentry_regression / slo_breach / circuit_breaker_tripped heal
+    landed earlier in the week.
+    """
+    try:
+        from sqlalchemy import text as sql_text
+        unresolved = db.execute(
+            sql_text(
+                "SELECT id FROM ops_alerts "
+                "WHERE alert_type='security_probe_failed' AND resolved=false"
+            )
+        ).fetchall()
+        if not unresolved:
+            return
+        from app.services.alerting import auto_resolve_alerts
+        healed_probes = auto_resolve_alerts(
+            db, alert_type="security_probe_failed",
+        )
+        # Cascade: breach_response_required rows whose source references
+        # one of the just-healed probe alert ids.
+        breach_sources = [f"breach:{row[0]}" for row in unresolved]
+        healed_breaches = 0
+        for src in breach_sources:
+            healed_breaches += auto_resolve_alerts(
+                db, source=src, alert_type="breach_response_required",
+            )
+        if healed_probes or healed_breaches:
+            log.info(
+                "security_probe_failed heal-detection: "
+                "auto-resolved %d probe alert(s), %d breach cascade(s)",
+                healed_probes, healed_breaches,
+            )
+    except Exception as exc:
+        log.warning("security_probe_failed heal-detection failed: %s", exc)
