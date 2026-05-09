@@ -140,18 +140,7 @@ def build_system_diagnostic(db: Session) -> dict:
     except Exception:
         diag["webhooks"] = {"error": "unavailable"}
 
-    # --- 7. Bugfix candidate state (legacy — Stage 2-E supersession
-    # deleted bugfix_pipeline; this counter is retained for historical
-    # rows in the table but no new candidates are produced.)
-    try:
-        open_candidates = db.execute(text(
-            "SELECT COUNT(*) FROM bugfix_candidates WHERE status IN ('open', 'analyzed', 'patch_proposed')"
-        )).fetchone()[0]
-        diag["bugfix_legacy"] = {"open_candidates": open_candidates}
-    except Exception:
-        diag["bugfix_legacy"] = {"error": "unavailable"}
-
-    # --- 8. Merchant data health ---
+    # --- 7. Merchant data health ---
     try:
         merchants = db.execute(text("""
             SELECT COUNT(*),

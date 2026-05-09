@@ -275,8 +275,6 @@ _get_distinct_shops = _retention_task.get_distinct_shops
 _run_retention = _retention_task.run_event_retention
 _run_nudge_event_retention = _retention_task.run_nudge_event_retention
 _run_worker_log_retention = _retention_task.run_worker_log_retention
-_run_bugfix_candidate_retention = _retention_task.run_bugfix_candidate_retention
-_run_reviewer_assessment_retention = _retention_task.run_reviewer_assessment_retention
 _run_sentry_incident_retention = _retention_task.run_sentry_incident_retention
 _mark_retention_done = _retention_task.mark_retention_done
 
@@ -554,16 +552,12 @@ def _run_cycle_inner() -> None:
                     deleted = _run_retention(conn, now_ms)
                     nudge_deleted = _run_nudge_event_retention(conn)
                     wlog_deleted = _run_worker_log_retention(conn)
-                    bugfix_deleted = _run_bugfix_candidate_retention(conn)
-                    reviewer_deleted = _run_reviewer_assessment_retention(conn)
                     sentry_deleted = _run_sentry_incident_retention(conn)
                     conn.commit()
                     _mark_retention_done()
                     log(f"retention: deleted {deleted} events (>{RETENTION_DAYS}d), "
                         f"{nudge_deleted} nudge_events (>{NUDGE_EVENT_RETENTION_DAYS}d), "
                         f"{wlog_deleted} worker_log (>{WORKER_LOG_RETENTION_DAYS}d), "
-                        f"{bugfix_deleted} bugfix_candidates terminal (>{_retention_task.BUGFIX_CANDIDATE_RETENTION_DAYS}d), "
-                        f"{reviewer_deleted} reviewer_assessments (>{_retention_task.REVIEWER_ASSESSMENT_RETENTION_DAYS}d), "
                         f"{sentry_deleted} sentry_incidents resolved (>{_retention_task.SENTRY_INCIDENT_RETENTION_DAYS}d)")
                 except Exception as exc:
                     conn.rollback()

@@ -39,9 +39,7 @@ class SupportIncident(Base):
     # open → triaged → investigating → resolved → dismissed
 
     # Autonomous pipeline links
-    linked_bugfix_candidate_id = Column(Integer, nullable=True)
     linked_ops_alert_id = Column(Integer, nullable=True)
-    linked_evolution_proposal_id = Column(Integer, nullable=True)
 
     # Resolution
     resolution_summary = Column(Text, nullable=True)

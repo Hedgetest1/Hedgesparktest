@@ -109,7 +109,7 @@ _KNOWN_UNCOVERED_BACKLOG: frozenset[str] = frozenset({
     "price_intelligence_engine", "price_sensitivity",
     "proactive_chat", "product_intelligence_engine", "proof_engine",
     "report_special_metrics", "revenue_autopsy", "revenue_forecast",
-    "revenue_loss", "revenue_metrics", "rule_engine", "scoring_calibration",
+    "revenue_loss", "revenue_metrics", "rule_engine",
     "sentry_triage", "setup_audit", "share_engine", "shopify_admin",
     "shopify_auth", "shopify_cogs_sync", "signal_text", "sip_engine",
     "slack_dispatcher", "soc2_controls", "store_context",

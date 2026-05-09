@@ -1090,7 +1090,6 @@ def detect_sentry_triage_stuck(db: Session) -> int:
                        MIN(created_at) AS oldest
                 FROM sentry_incidents
                 WHERE ai_triage_status = 'ready'
-                  AND linked_bugfix_candidate_id IS NULL
                   AND created_at < :cutoff
                 """
             ),

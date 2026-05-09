@@ -8,10 +8,8 @@ from app.models.ad_spend import AdConnection, AdSpendDaily
 from app.models.agency import Agency, AgencyClient
 from app.models.analytics_event import AnalyticsEvent
 from app.models.audit_log import AuditLog
-from app.models.autofix_promotion import AutoFixPromotion
 from app.models.autonomous_action import AutonomousAction
 from app.models.brain_decision import BrainDecision
-from app.models.bugfix_candidate import BugFixCandidate
 from app.models.cig import CigCohort, CigMerchantMapping
 from app.models.community_template import CommunityTemplate, CommunityTemplateClone
 from app.models.daily_brief import DailyBrief
@@ -47,7 +45,6 @@ from app.models.product import Product
 from app.models.product_cost import ProductCost
 from app.models.product_metrics import ProductMetrics
 from app.models.product_opportunity import ProductOpportunity
-from app.models.reviewer_assessment import ReviewerAssessment
 from app.models.scaling_recommendation import ScalingRecommendation
 from app.models.sentry_incident import SentryIncident
 from app.models.share_event import PublicProofShare, ShareEvent
@@ -58,7 +55,6 @@ from app.models.store_intelligence_profile import SipSnapshot, StoreIntelligence
 from app.models.store_metrics import StoreMetrics
 from app.models.support_incident import SupportIncident
 from app.models.survey_response import SurveyResponse
-from app.models.system_lesson import SystemLesson
 from app.models.system_snapshot import SystemSnapshot
 from app.models.trust_contract import TrustContract, TrustExecutionLog
 from app.models.unique_product_detection import UniqueProductDetection
@@ -82,9 +78,7 @@ __all__ = [
     "AgencyClient",
     "AnalyticsEvent",
     "AuditLog",
-    "AutoFixPromotion",
     "AutonomousAction",
-    "BugFixCandidate",
     "CigCohort",
     "CigMerchantMapping",
     "CommunityTemplate",
@@ -120,7 +114,6 @@ __all__ = [
     "ProductMetrics",
     "ProductOpportunity",
     "PublicProofShare",
-    "ReviewerAssessment",
     "ScalingRecommendation",
     "SentryIncident",
     "ShareEvent",
@@ -131,7 +124,6 @@ __all__ = [
     "StoreIntelligenceProfile",
     "StoreMetrics",
     "SupportIncident",
-    "SystemLesson",
     "SystemSnapshot",
     "TrustContract",
     "TrustExecutionLog",

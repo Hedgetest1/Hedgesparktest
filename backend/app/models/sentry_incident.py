@@ -95,7 +95,6 @@ class SentryIncident(Base):
 
     # --- Integration ---
     # Links to existing system entities when created
-    linked_bugfix_candidate_id = Column(Integer, nullable=True)
     linked_ops_alert_id = Column(Integer, nullable=True)
     lesson_candidate_status = Column(String(32), nullable=True)  # pending | created | skipped
 

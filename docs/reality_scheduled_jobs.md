@@ -72,7 +72,6 @@ Listed here in execution order with the actual gate.
 | `_run_action_learning` | no gate | every cycle |
 | `_run_email_orchestrator_flush` | no gate | every cycle |
 | `_run_billing_sync` | no gate | every cycle |
-| `_run_scoring_self_eval` | **Sunday only** (`weekday() == 6`) | weekly |
 | `_run_sentry_poller` | Redis cooldown `hs:sentry_poller:cooldown` (TTL 180s) | ≥3 min between polls; called inline before sentry_triage so the pipeline gets fresh issues without waiting on email forwarding |
 | `_run_sentry_triage` | in-process cooldown | ~5-15min effective |
 | `_run_on_alert_responder` | **env `ON_ALERT_RESPONDER_ENABLED=0` default OFF** — framework only until founder approves LLM spend | polls unresolved critical ops_alerts last 24h; framework mode builds context packets without calling LLM |
@@ -171,7 +170,6 @@ Contains embedded opportunity-detection logic only.
 |---|---|---|
 | Rome-hour ≥ 8 | `agent_worker._run_daily_digest:751` | digest is the DAILY BRIEF (B1 equivalent) |
 | Rome-hour == any Monday | `agent_worker._run_merchant_digest` | weekly merchant digest + TIER_2 weekly review |
-| UTC Sunday | `agent_worker._run_scoring_self_eval` | weekly scoring self-evaluation |
 
 **⚠️ No job runs at a "true" wall-clock time — all fire on the FIRST
 cycle that passes the gate after the boundary.** For 15-min

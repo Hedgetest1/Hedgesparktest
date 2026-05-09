@@ -23,8 +23,7 @@ Evidence source classification:
 Public interface:
     classify_evidence_source(db) -> str
     is_product_learning_eligible(source: str) -> bool
-    filter_product_lessons(query, model_class) -> query
-    get_evidence_source_for_candidate(db, candidate) -> str
+    filter_product_outcomes(query, model_class) -> query
 """
 from __future__ import annotations
 
@@ -130,20 +129,6 @@ def is_technical_learning_eligible(evidence_source: str | None) -> bool:
     All sources are eligible for technical learning.
     """
     return True
-
-
-def filter_product_lessons(query, model_class):
-    """
-    Apply a SQLAlchemy filter to restrict a query to only product-eligible
-    lessons (evidence_source = 'real_merchant').
-
-    Usage:
-        query = db.query(SystemLesson).filter(...)
-        query = filter_product_lessons(query, SystemLesson)
-    """
-    return query.filter(
-        model_class.evidence_source == "real_merchant",
-    )
 
 
 def filter_product_outcomes(query, model_class):

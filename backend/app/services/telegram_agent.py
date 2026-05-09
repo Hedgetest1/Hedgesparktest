@@ -336,156 +336,8 @@ def send_message_with_buttons(
         return False
 
 
-# ---------------------------------------------------------------------------
-# Reviewer context — decision-first formatting
-# ---------------------------------------------------------------------------
-
-# Decision levels: what the operator sees first
-_DECISION_GREEN = "\U0001f7e2 *You can proceed*"
-_DECISION_YELLOW_CAUTION = "\U0001f7e1 *Proceed with caution*"
-_DECISION_YELLOW_IMPROVE = "\U0001f7e1 *Needs improvement before proceeding*"
-_DECISION_RED = "\U0001f534 *Do NOT proceed*"
-
-
-def _classify_decision(assessment) -> str:
-    """
-    Map a reviewer assessment to a human decision level.
-
-    Returns one of the _DECISION_* constants.
-    """
-    verdict = assessment.verdict
-    risk = assessment.risk_level
-    alignment = getattr(assessment, "strategic_alignment", "medium")
-
-    # Red: reject, or high/critical risk
-    if verdict == "reject" or risk in ("high", "critical"):
-        return _DECISION_RED
-
-    # Yellow-improve: refine, or weak alignment
-    if verdict == "refine" or alignment == "weak":
-        return _DECISION_YELLOW_IMPROVE
-
-    # Yellow-caution: approve_with_notes, or medium risk
-    if verdict == "approve_with_notes" or risk == "medium":
-        return _DECISION_YELLOW_CAUTION
-
-    # Green: approve + low risk + strong alignment
-    return _DECISION_GREEN
-
-
-def _build_explanation(assessment) -> list[str]:
-    """
-    Build max 3 human-readable reason bullets from assessment.
-    Prefers blocking concerns, then notes, then a domain hint.
-    """
-    bullets: list[str] = []
-
-    # Blocking concerns are highest priority
-    if assessment.blocking_concerns_json:
-        blocking = json.loads(assessment.blocking_concerns_json)
-        for b in blocking[:2]:
-            bullets.append(b[:100])
-
-    # Notes fill remaining slots
-    if assessment.notes_json and len(bullets) < 3:
-        notes = json.loads(assessment.notes_json)
-        for n in notes[: 3 - len(bullets)]:
-            bullets.append(n[:100])
-
-    # If still room, mention affected domains
-    if len(bullets) < 3 and getattr(assessment, "affected_domains_json", None):
-        domains = json.loads(assessment.affected_domains_json)
-        if domains:
-            sensitive = [d for d in domains if d in ("core", "billing", "auth", "migrations")]
-            if sensitive:
-                bullets.append(f"Touches critical area: {', '.join(sensitive)}")
-            elif domains:
-                bullets.append(f"Affects: {', '.join(domains[:3])}")
-
-    return bullets[:3]
-
-
-def _format_reviewer_decision(assessment, action_hint: str | None = None) -> str:
-    """
-    Format a reviewer assessment as a decision-first operator message.
-
-    action_hint: e.g. "/approve 42" or "/bugfix_apply 8"
-    """
-    decision = _classify_decision(assessment)
-    bullets = _build_explanation(assessment)
-
-    lines = [decision]
-
-    if bullets:
-        lines.append("")
-        for b in bullets:
-            lines.append(f"\u2022 {b}")
-
-    if action_hint:
-        lines.extend(["", f"\U0001f449 {action_hint}"])
-
-    return "\n".join(lines)
-
-
-def _format_reviewer_inline(assessment) -> str:
-    """
-    One-line reviewer summary for list items.
-
-    Example: "🟢 Safe to proceed" or "🔴 Blocked — touches billing"
-    """
-    verdict = assessment.verdict
-    risk = assessment.risk_level
-
-    if verdict == "reject" or risk in ("high", "critical"):
-        reason = ""
-        if assessment.blocking_concerns_json:
-            blocking = json.loads(assessment.blocking_concerns_json)
-            if blocking:
-                reason = f" \u2014 {blocking[0][:50]}"
-        return f"\U0001f534 Blocked{reason}"
-
-    if verdict == "refine" or getattr(assessment, "strategic_alignment", "") == "weak":
-        return "\U0001f7e1 Needs improvement"
-
-    if verdict == "approve_with_notes" or risk == "medium":
-        return "\U0001f7e1 Caution"
-
-    return "\U0001f7e2 Safe to proceed"
-
-
-def _get_reviewer_assessment(db, entity_type: str, entity_id: int):
-    """Fetch latest reviewer assessment for an entity. Returns assessment or None."""
-    try:
-        from app.models.reviewer_assessment import ReviewerAssessment
-        return (
-            db.query(ReviewerAssessment)
-            .filter(
-                ReviewerAssessment.entity_type == entity_type,
-                ReviewerAssessment.entity_id == entity_id,
-            )
-            .order_by(ReviewerAssessment.created_at.desc())
-            .first()
-        )
-    except Exception:
-        return None
-
-
-def _get_reviewer_context(db, entity_type: str, entity_id: int) -> str | None:
-    """Fetch decision-first reviewer summary for an entity. Returns None if no assessment."""
-    assessment = _get_reviewer_assessment(db, entity_type, entity_id)
-    if not assessment:
-        return None
-    return _format_reviewer_decision(assessment)
-
-
-def _get_reviewer_for_display(db, entity_type: str, entity_id: int) -> str:
-    """Get reviewer context block for post-action confirmations, or empty string."""
-    assessment = _get_reviewer_assessment(db, entity_type, entity_id)
-    if not assessment:
-        return ""
-    decision = _classify_decision(assessment)
-    return f"\n{decision}"
-
+# Reviewer-context section removed in Stage 2-E supersession sweep —
+# ReviewerAssessment model is dropped; helpers had no callers post-cleanup.
 
 # ---------------------------------------------------------------------------
 # Time formatting helper
@@ -799,12 +651,8 @@ def _cmd_approvals(db) -> str:
 
     for a in approvals:
         remaining = _time_remaining(a.expires_at)
-        assessment = _get_reviewer_assessment(db, "action_approval", a.id)
-        r_inline = _format_reviewer_inline(assessment) if assessment else ""
 
         lines.append(f"*#{a.id}* {a.action_type} `{a.target_id or ''}`")
-        if r_inline:
-            lines.append(f"  {r_inline}")
         lines.append(f"  Expires: {remaining}")
         if a.reason:
             lines.append(f"  {a.reason[:80]}")
@@ -897,14 +745,11 @@ def _cmd_approve(db, args: list[str]) -> str:
     _set_cooldown(approval.action_type, approval.target_id or "")
     db.commit()
 
-    reviewer_ctx = _get_reviewer_for_display(db, "action_approval", approval_id)
-
     return (
         f"\u2705 *Approved and executed* #{approval_id}\n"
         f"Action: {approval.action_type}\n"
         f"Target: {approval.target_id or 'n/a'}\n"
         f"Status: completed{cooldown_warn}"
-        f"{reviewer_ctx}"
     )
 
 
@@ -1026,12 +871,9 @@ def _cmd_incidents(db) -> str:
 
         lines = [f"*Active Support Incidents* ({len(incidents)}):\n"]
         for inc in incidents:
-            linked = ""
-            if inc.linked_bugfix_candidate_id:
-                linked = f" \u2192 bugfix #{inc.linked_bugfix_candidate_id}"
             lines.append(
                 f"#{inc.id} *{inc.severity}* {inc.classification} "
-                f"({inc.affected_area or 'unknown'}) \u2014 {inc.status}{linked}\n"
+                f"({inc.affected_area or 'unknown'}) \u2014 {inc.status}\n"
                 f"  {inc.shop_domain} \u2014 {(inc.original_message or '')[:80]}"
             )
 

@@ -1091,24 +1091,8 @@ def _run_billing_sync():
         db.close()
 
 
-def _run_scoring_self_eval():
-    """Run scoring intelligence self-evaluation. Lightweight — no LLM calls."""
-    db = SessionLocal()
-    try:
-        from app.services.scoring_calibration import run_self_evaluation
-        report = run_self_evaluation(db)
-        db.commit()
-        if report.degradation_detected:
-            log(f"scoring_self_eval: DEGRADATION — {'; '.join(report.degradation_reasons)}")
-        elif report.total_outcomes > 0:
-            log(f"scoring_self_eval: healthy eff={report.effectiveness_pct}% accuracy={report.avg_confidence_accuracy}% outcomes={report.total_outcomes}")
-    except Exception as exc:
-        log(f"scoring_self_eval error (non-fatal): {exc}")
-        db.rollback()
-    finally:
-        db.close()
-
-    # Check Sentry webhook health — alert if webhook goes dark
+def _check_sentry_webhook_dark():
+    """Check Sentry webhook health — alert if webhook goes dark."""
     db2 = SessionLocal()
     try:
         _check_sentry_webhook_health(db2)
@@ -1366,60 +1350,26 @@ def _run_approval_expiry_sweep():
 
 def _run_approved_reminders():
     """
-    Send Telegram reminders for candidates that are approved but not yet applied.
+    Send Telegram reminders for action_approvals that are pending.
 
-    Runs every cycle (15 min). Sends reminder every 30 min per candidate
-    via Redis cooldown key. Includes tappable Apply button.
+    Runs every cycle (15 min). Sends reminder every 30 min per approval
+    via Redis cooldown key. Includes tappable Approve button.
 
-    Stops reminding when candidate is applied, discarded, or rolled back.
+    Stops reminding when action is approved, expired, or executed.
     """
     try:
         from app.core.redis_client import cache_get, cache_set
         db = SessionLocal()
         try:
             from sqlalchemy import text as sql_text
-            approved = db.execute(sql_text("""
-                SELECT id, title, decided_at::text
-                FROM bugfix_candidates
-                WHERE status = 'approved'
-                ORDER BY decided_at ASC
-            """)).fetchall()
-
-            if not approved:
-                return
 
             from app.services.telegram_agent import send_message_with_buttons, is_configured
             if not is_configured():
                 return
 
-            for cand in approved:
-                cooldown_key = f"hs:approved_reminder:{cand.id}"
-                if cache_get(cooldown_key) is not None:
-                    continue  # already reminded within 30 min
+            from datetime import datetime, timezone
 
-                # Send reminder with Apply button
-                age = ""
-                if cand.decided_at:
-                    from datetime import datetime, timezone
-                    try:
-                        approved_at = datetime.fromisoformat(cand.decided_at)
-                        mins = int((datetime.now(timezone.utc).replace(tzinfo=None) - approved_at).total_seconds() / 60)
-                        age = f" (approved {mins}m ago)"
-                    except Exception as exc:
-                        log.warning("agent_worker: _run_approved_reminders failed: %s", exc)
-
-                send_message_with_buttons(
-                    f"*Reminder — Bugfix #{cand.id} approved, waiting for apply*{age}\n\n"
-                    f"{(cand.title or '')[:100]}\n\n"
-                    f"Tap to deploy:",
-                    [[{"text": f"Apply #{cand.id}", "callback_data": f"/bugfix_apply {cand.id}"}]],
-                )
-
-                # Set 30-min cooldown
-                cache_set(cooldown_key, True, 1800)
-                log(f"approved_reminder: sent for bugfix #{cand.id}")
-
-            # Also check pending action approvals (TIER_1 orchestrator actions)
+            # Pending action approvals (TIER_1 orchestrator actions)
             pending_actions = db.execute(sql_text("""
                 SELECT id, action_type, target_id, reason, created_at::text, expires_at::text
                 FROM action_approvals
@@ -1842,8 +1792,8 @@ def run_cycle():
 
     _run_on_alert_responder()
 
-    # Phase 7k: Scoring intelligence self-evaluation (every cycle, lightweight)
-    _run_scoring_self_eval()
+    # Phase 7k (post Stage 2-E supersession): sentry webhook dark check.
+    _check_sentry_webhook_dark()
 
     # Phase 8: Sandbox analysis (original agent_worker logic)
     # This worker has no per-shop dimension — it selects the top-N

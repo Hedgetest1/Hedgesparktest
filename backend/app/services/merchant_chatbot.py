@@ -16,9 +16,8 @@ All responses are merchant-safe. No internal stack traces. No secrets.
 Unified pipeline integration:
   - OpsAlert dedup: reuses existing unresolved alerts instead of creating duplicates
   - SupportIncident dedup: reuses active incidents for same (shop, area) within 1 hour
-  - BugFixCandidate linking: links incidents to existing candidates when found
   - Repair claims: acquires distributed lock before any repair attempt
-  - Status transitions: open → triaged (alert linked) → investigating (candidate created) → resolved (fix applied)
+  - Status transitions: open → triaged (alert linked) → resolved (fix applied)
 """
 from __future__ import annotations
 
@@ -481,9 +480,9 @@ def process_message(db: Session, shop_domain: str, message: str) -> ChatResponse
     if needs_diagnostics:
         diagnostic = run_diagnostics(db, shop_domain, cls.affected_area, cls.severity)
 
-    # 6. Check if there's already an active bugfix candidate for this area
-    existing_candidate = _find_active_candidate_for_area(db, cls.affected_area)
-    already_being_fixed = existing_candidate is not None
+    # 6. (Stage 2-E supersession): bugfix-candidate linking removed
+    # along with the old self-healing pipeline. Brain Vero handles
+    # merchant-incident response now.
 
     # 6b. Check for performance questions (insight engine)
     # Runs for product_question AND unclassified — catches "how is my store doing" etc.
@@ -507,8 +506,6 @@ def process_message(db: Session, shop_domain: str, message: str) -> ChatResponse
         )
         if diagnostic and diagnostic.setup_status in ("degraded", "needs_repair"):
             response_text += " I\u2019m re-running diagnostics now."
-        elif already_being_fixed:
-            response_text += " A fix is already in the pipeline for this."
         else:
             response_text += " I\u2019ll escalate this for a deeper look."
         cls.severity = "high"  # follow-ups are escalated
@@ -543,15 +540,14 @@ def process_message(db: Session, shop_domain: str, message: str) -> ChatResponse
     else:
         response_text = _pick(voice.GENERIC_FALLBACK, message, shop_domain)
 
-    # 8. If already being fixed, inform merchant
-    if already_being_fixed and cls.classification in ("bug_report", "integration_issue") and not is_followup:
-        response_text += "\n\n" + _pick(voice.ALREADY_BEING_FIXED, message, shop_domain)
+    # 8. (Stage 2-E supersession): "already_being_fixed" branch removed
+    # with the old bugfix pipeline.
 
-    # 9. Attempt safe repair for fixable issues (only if NOT already being fixed)
+    # 9. Attempt safe repair for fixable issues
     repair_attempted = False
     repair_result = None
     deep_check_skipped = diagnostic.repair_result == "repair_in_progress_by_other" if diagnostic else False
-    if diagnostic and cls.severity in ("high", "critical") and not already_being_fixed:
+    if diagnostic and cls.severity in ("high", "critical"):
         if diagnostic.setup_status in ("degraded", "needs_repair"):
             diagnostic = attempt_safe_repair(db, shop_domain, diagnostic)
             repair_attempted = diagnostic.repair_attempted
@@ -585,14 +581,14 @@ def process_message(db: Session, shop_domain: str, message: str) -> ChatResponse
                      incident.id, shop_domain, cls.affected_area)
             # Retry pipeline routing if the first attempt failed (no alert linked)
             if incident.linked_ops_alert_id is None and cls.severity in ("high", "critical"):
-                _route_to_pipeline(db, incident, cls, diagnostic, existing_candidate)
+                _route_to_pipeline(db, incident, cls, diagnostic)
         else:
             incident = _create_incident(db, shop_domain, message, cls, response_text, diagnostic)
             incident_created = True
             incident_id = incident.id
 
             # Route to autonomous pipeline (with dedup)
-            _route_to_pipeline(db, incident, cls, diagnostic, existing_candidate)
+            _route_to_pipeline(db, incident, cls, diagnostic)
 
         if cls.severity in ("high", "critical"):
             tracked_msg = _pick(voice.INCIDENT_TRACKED, message, shop_domain).replace("{id}", str(incident_id))
@@ -613,7 +609,6 @@ def process_message(db: Session, shop_domain: str, message: str) -> ChatResponse
                 "affected_area": cls.affected_area,
                 "incident_created": incident_created,
                 "repair_attempted": repair_attempted,
-                "already_being_fixed": already_being_fixed,
             },
             status="completed",
         )
@@ -838,34 +833,6 @@ def _respond_data_quality(message: str, diagnostic: DiagnosticResult | None, sho
 # Pipeline awareness — check existing state before acting
 # ---------------------------------------------------------------------------
 
-def _find_active_candidate_for_area(db, affected_area: str):
-    """
-    Check if there's already an active BugFixCandidate originated from a
-    merchant-reported bug for this affected area.
-
-    Only matches candidates created from support_incident sources where the
-    context explicitly mentions the same affected_area. This avoids false
-    matches against system-level candidates (worker crashes, outcome failures)
-    that happen to contain area keywords in their source_ref.
-    """
-    if not affected_area or affected_area == "unknown":
-        return None
-
-    from app.models.bugfix_candidate import BugFixCandidate
-
-    # Only match candidates from support_incident source whose context
-    # includes this specific affected_area. This is precise — no fuzzy ILIKE.
-    candidates = (
-        db.query(BugFixCandidate)
-        .filter(
-            BugFixCandidate.status.in_(["open", "analyzed", "patch_proposed", "approved", "applying"]),
-            BugFixCandidate.source_type == "support_incident",
-            BugFixCandidate.context_json.ilike(f'%"affected_area": "{affected_area}"%'),
-        )
-        .order_by(BugFixCandidate.created_at.desc())
-        .first()
-    )
-    return candidates
 
 
 def _find_active_incident(db: Session, shop_domain: str, affected_area: str | None):
@@ -944,12 +911,11 @@ def _find_existing_alert(
 def _route_to_pipeline(
     db: Session, incident: SupportIncident,
     cls: MessageClassification, diagnostic: DiagnosticResult | None,
-    existing_candidate=None,
 ):
     """
     Route incident to autonomous pipeline when appropriate.
-    Deduplicates OpsAlerts and links to existing BugFixCandidates.
-    Transitions incident status: open → triaged (when alert linked).
+    Deduplicates OpsAlerts. Transitions incident status: open → triaged
+    (when alert linked).
     """
     alert = None
 
@@ -996,11 +962,6 @@ def _route_to_pipeline(
         except Exception as exc:
             log.warning("chatbot: bug report alert routing failed for incident=%d: %s",
                         incident.id, exc)
-
-    # Link to existing bugfix candidate if one exists for this area
-    if existing_candidate:
-        incident.linked_bugfix_candidate_id = existing_candidate.id
-        incident.status = "investigating"
 
     db.flush()
 

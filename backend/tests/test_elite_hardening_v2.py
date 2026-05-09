@@ -1034,7 +1034,6 @@ def test_no_new_datetime_utcnow():
 #   execution_engine.py:713     — parameter names from enumerate
 #   execution_engine.py:722     — parameter names from enumerate
 #   email_performance.py:63     — column from whitelist dict (dict IS the guard)
-#   scoring_calibration.py:551  — INTERVAL from hardcoded _WINDOWS tuple
 # ---------------------------------------------------------------------------
 
 _RAW_SQL_FSTRING_PATTERN = re.compile(r'\btext\(\s*f["\']')
@@ -1049,7 +1048,6 @@ _RAW_SQL_FSTRING_ALLOWLIST: set[str] = {
     "app/services/execution_engine.py:857",
     "app/services/execution_engine.py:866",
     "app/services/email_performance.py:63",
-    "app/services/scoring_calibration.py:558",  # NOTE: scoring_calibration is old-brain Stage 2-C delete
     # gdpr_processor: where clause built from hardcoded ":cid"/":email"
     # filter strings joined with " OR ". Parameters are bound via the
     # second arg to execute().

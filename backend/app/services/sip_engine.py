@@ -148,15 +148,16 @@ def _compute_trust(
     shops keep the neutral default 0.5 (no claim) to avoid noisy
     false-low signals on dev/synthetic shops.
 
-    Sources (all bounded to 30-day window):
-      execution_reliability  = applied_count / (applied + rolled_back)
-                                from bugfix_candidates touching this shop
-      measurement_integrity  = holdout_p<0.05 / measured
+    Sources (all bounded to 30-day window) — post Stage 2-E supersession:
+    execution_reliability + stability dimensions are stubbed at 0.5
+    because their data sources (bugfix_candidates) were dropped with
+    the old self-healing pipeline. Brain Vero's outcome eval (when it
+    matures) will provide the future input.
+
+      measurement_integrity  = measured-vs-attempted ratio
                                 from action_outcomes for this shop
       outcome_quality        = improved_count / measured_count
                                 from action_outcomes
-      stability              = 1 - (max_weekly_swing / mean) on the
-                                4-week rolling window of execution_reliability
 
     Returns (mean of 4 dims, JSON-encoded profile) or (0.5, None) when
     insufficient data.
@@ -167,25 +168,7 @@ def _compute_trust(
         from datetime import datetime as _dt, timezone as _tz, timedelta as _td
         cutoff = _dt.now(_tz.utc).replace(tzinfo=None) - _td(days=30)
 
-        # 1. execution_reliability — fix apply success rate
-        row = conn.execute(text(
-            """
-            SELECT
-                COUNT(*) FILTER (WHERE status = 'applied') AS applied,
-                COUNT(*) FILTER (WHERE status = 'rolled_back') AS rolled_back
-            FROM bugfix_candidates
-            WHERE created_at >= :cutoff
-              AND (context_json::jsonb ? 'shop_domain')
-              AND context_json::jsonb ->> 'shop_domain' = :shop
-            """
-        ), {"cutoff": cutoff, "shop": shop_domain}).fetchone()
-        applied = int(row[0] or 0) if row else 0
-        rolled_back = int(row[1] or 0) if row else 0
-        denom = applied + rolled_back
-        execution_reliability = (applied / denom) if denom > 0 else 0.5
-
-        # 2. measurement_integrity — holdout p<0.05 rate
-        # 3. outcome_quality — improved rate
+        # measurement_integrity + outcome_quality from action_outcomes
         row = conn.execute(text(
             """
             SELECT
@@ -199,36 +182,11 @@ def _compute_trust(
         measured = int(row[0] or 0) if row else 0
         improved = int(row[1] or 0) if row else 0
         outcome_quality = (improved / measured) if measured > 0 else 0.5
-        # measurement_integrity uses measured-vs-attempted ratio as a
-        # proxy until per-outcome p-value is persisted.
         measurement_integrity = 1.0 if measured > 0 else 0.5
 
-        # 4. stability — 1 minus max weekly swing of execution_reliability
-        # over the 4-week rolling window. Approximated by stddev / mean
-        # of weekly applied-counts.
-        rows = conn.execute(text(
-            """
-            SELECT
-                date_trunc('week', applied_at) AS week,
-                COUNT(*) FILTER (WHERE status = 'applied') AS applied
-            FROM bugfix_candidates
-            WHERE applied_at >= :cutoff
-              AND (context_json::jsonb ? 'shop_domain')
-              AND context_json::jsonb ->> 'shop_domain' = :shop
-            GROUP BY 1 ORDER BY 1
-            """
-        ), {"cutoff": cutoff, "shop": shop_domain}).fetchall()
-        weekly_counts = [int(r[1] or 0) for r in rows] or []
-        if len(weekly_counts) >= 2:
-            mean = sum(weekly_counts) / len(weekly_counts)
-            if mean > 0:
-                variance = sum((c - mean) ** 2 for c in weekly_counts) / len(weekly_counts)
-                stddev = variance ** 0.5
-                stability = max(0.0, min(1.0, 1.0 - (stddev / mean)))
-            else:
-                stability = 0.5
-        else:
-            stability = 0.5
+        # Stage 2-E neutral stubs (signal sources dropped):
+        execution_reliability = 0.5
+        stability = 0.5
 
         score = (
             execution_reliability + measurement_integrity
@@ -243,11 +201,8 @@ def _compute_trust(
             "overall": round(score, 3),
             "data_window_days": 30,
             "evidence": {
-                "applied": applied,
-                "rolled_back": rolled_back,
                 "outcomes_measured": measured,
                 "outcomes_improved": improved,
-                "weekly_buckets": len(weekly_counts),
             },
         }
         return round(score, 3), profile

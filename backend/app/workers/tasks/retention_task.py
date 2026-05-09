@@ -29,16 +29,6 @@ _log = logging.getLogger("worker.aggregation.retention")
 RETENTION_DAYS = 90
 NUDGE_EVENT_RETENTION_DAYS = 60
 WORKER_LOG_RETENTION_DAYS = 30
-# Keep terminal-status bugfix candidates only briefly — discarded/
-# apply_failed are write-once analytical breadcrumbs, not load-bearing.
-# Active candidates (open/analyzed/patch_proposed/applied/superseded)
-# are NEVER pruned by this task — only terminal failure/discarded rows.
-BUGFIX_CANDIDATE_RETENTION_DAYS = 30
-# Reviewer assessments are write-once audit trail of every reviewer
-# decision (propose/apply/promote). Useful for trend analysis but
-# not load-bearing past 90d. Keeps the table bounded for the audit
-# growth check.
-REVIEWER_ASSESSMENT_RETENTION_DAYS = 90
 # Sentry incident table is pipeline-driven; resolved incidents older
 # than 60d are analytical breadcrumbs not load-bearing. Active
 # incidents (resolved=False) are NEVER pruned.
@@ -141,9 +131,7 @@ def run_sentry_incident_retention(conn) -> int:
     """Delete RESOLVED sentry_incidents older than
     SENTRY_INCIDENT_RETENTION_DAYS. Active incidents (any non-resolved
     status) are NEVER pruned — they're load-bearing for the triage
-    pipeline. Born 2026-05-04 same audit_db_table_growth cycle that
-    caught bugfix_candidates + reviewer_assessments earlier this
-    session."""
+    pipeline. Born 2026-05-04 same audit_db_table_growth cycle."""
     cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
         days=SENTRY_INCIDENT_RETENTION_DAYS
     )
@@ -160,51 +148,3 @@ def run_sentry_incident_retention(conn) -> int:
     return result.rowcount
 
 
-def run_reviewer_assessment_retention(conn) -> int:
-    """Delete reviewer_assessments older than REVIEWER_ASSESSMENT_RETENTION_DAYS.
-
-    The table is append-only audit trail — every propose/apply/promote
-    cycle writes 1+ assessments. Bounded growth requires age-based pruning.
-    Born 2026-05-04: audit_db_table_growth caught the table at 50 → 270
-    rows (+440%) in a 24h window with no retention wired.
-    """
-    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
-        days=REVIEWER_ASSESSMENT_RETENTION_DAYS
-    )
-    result = conn.execute(
-        text(
-            "DELETE FROM reviewer_assessments WHERE created_at < :cutoff"
-        ),
-        {"cutoff": cutoff},
-    )
-    return result.rowcount
-
-
-def run_bugfix_candidate_retention(conn) -> int:
-    """Delete TERMINAL bugfix_candidates older than
-    BUGFIX_CANDIDATE_RETENTION_DAYS. Terminal = discarded | apply_failed.
-
-    Active states (open / analyzed / patch_proposed / applied /
-    superseded) are NEVER pruned — they are load-bearing for the
-    self-healing pipeline state machine. The 92.7% of candidates that
-    accumulate forever are discarded triage breadcrumbs, kept long
-    enough for short-term trend analysis but not forever.
-
-    Born 2026-05-04: audit_db_table_growth caught bugfix_candidates
-    growing 62 → 1294 (+1987%) over the first month of pipeline
-    operation; no retention had been wired.
-    """
-    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
-        days=BUGFIX_CANDIDATE_RETENTION_DAYS
-    )
-    result = conn.execute(
-        text(
-            """
-            DELETE FROM bugfix_candidates
-            WHERE status IN ('discarded', 'apply_failed')
-              AND created_at < :cutoff
-            """
-        ),
-        {"cutoff": cutoff},
-    )
-    return result.rowcount

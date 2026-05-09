@@ -971,7 +971,6 @@ def list_support_incidents(
                 "severity": i.severity,
                 "affected_area": i.affected_area,
                 "status": i.status,
-                "linked_bugfix_candidate_id": i.linked_bugfix_candidate_id,
                 "linked_ops_alert_id": i.linked_ops_alert_id,
                 "resolved_by": i.resolved_by,
                 "message_preview": (i.original_message or "")[:120],
@@ -1953,7 +1952,6 @@ def ops_incident_detail(
         "triage_packet": packet,
 
         # Integration
-        "linked_bugfix_candidate_id": inc.linked_bugfix_candidate_id,
         "linked_ops_alert_id": inc.linked_ops_alert_id,
         "lesson_candidate_status": inc.lesson_candidate_status,
 
@@ -2080,13 +2078,6 @@ def ops_consumer_stats(
         db.query(SentryIncident.status, func.count(SentryIncident.id))
         .group_by(SentryIncident.status)
         .all()
-    )
-
-    # Count linked candidates
-    linked = (
-        db.query(func.count(SentryIncident.id))
-        .filter(SentryIncident.linked_bugfix_candidate_id.isnot(None))
-        .scalar() or 0
     )
 
     # Total incidents

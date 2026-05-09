@@ -451,55 +451,6 @@ def generate_triage_packet(db: Session, incident_id: int) -> dict | None:
             for r in family
         ]
 
-    # --- Find related lessons ---
-    related_lessons = []
-    try:
-        from app.models.system_lesson import SystemLesson
-        if subsystem != "unknown":
-            lessons = (
-                db.query(SystemLesson.id, SystemLesson.summary, SystemLesson.lesson_type, SystemLesson.confidence)
-                .filter(
-                    SystemLesson.domain == subsystem,
-                    SystemLesson.status == "active",
-                )
-                .order_by(SystemLesson.confidence.desc())
-                .limit(5)
-                .all()
-            )
-            related_lessons = [
-                {"id": l.id, "summary": l.summary, "type": l.lesson_type, "confidence": l.confidence}
-                for l in lessons
-            ]
-    except Exception as exc:
-        log.warning("sentry_triage: related lessons lookup failed: %s", exc)
-
-    # --- Find related bugfix candidates ---
-    related_candidates = []
-    try:
-        from app.models.bugfix_candidate import BugFixCandidate
-        if incident.error_title:
-            # Search by similar title (prefix match)
-            title_prefix = (incident.error_type or incident.error_title or "")[:50]
-            if title_prefix:
-                candidates = (
-                    db.query(
-                        BugFixCandidate.id,
-                        BugFixCandidate.title,
-                        BugFixCandidate.status,
-                        BugFixCandidate.outcome_status,
-                    )
-                    .filter(BugFixCandidate.title.ilike(f"%{title_prefix}%"))
-                    .order_by(BugFixCandidate.created_at.desc())
-                    .limit(5)
-                    .all()
-                )
-                related_candidates = [
-                    {"id": c.id, "title": c.title, "status": c.status, "outcome": c.outcome_status}
-                    for c in candidates
-                ]
-    except Exception as exc:
-        log.warning("sentry_triage: related candidates lookup failed: %s", exc)
-
     # --- Release correlation ---
     release_context = _build_release_context(db, incident)
 
@@ -551,12 +502,8 @@ def generate_triage_packet(db: Session, incident_id: int) -> dict | None:
 
         # Cross-family root cause detection
         "related_families": related_families,
-        "co_occurring_families": _get_co_occurring(db, incident),
-        "temporal_patterns": _get_temporal_patterns(db, incident),
-
-        # Related system knowledge
-        "related_lessons": related_lessons,
-        "related_bugfix_candidates": related_candidates,
+        "co_occurring_families": [],
+        "temporal_patterns": {"leading_indicators": [], "trailing_effects": []},
 
         # Root-cause hints from parsing
         "probable_root_cause_hints": _generate_hints(incident),
@@ -701,30 +648,6 @@ def _find_related_families(db: Session, incident: SentryIncident) -> list[dict]:
         return []
 
 
-def _get_co_occurring(db: Session, incident: SentryIncident) -> list[dict]:
-    """Get co-occurring families from scoring_calibration (if available)."""
-    if not incident.fingerprint:
-        return []
-    try:
-        from app.services.scoring_calibration import find_co_occurring_families
-        return find_co_occurring_families(db, incident.fingerprint)
-    except Exception as exc:
-        log.warning(
-            "sentry_triage: co-occurring families lookup failed fingerprint=%s (%s): %s",
-            incident.fingerprint, type(exc).__name__, str(exc)[:200],
-        )
-        return []
-
-
-def _get_temporal_patterns(db: Session, incident: SentryIncident) -> dict:
-    """Get leading/trailing temporal patterns for this incident family."""
-    if not incident.fingerprint:
-        return {"leading_indicators": [], "trailing_effects": []}
-    try:
-        from app.services.scoring_calibration import find_temporal_patterns
-        return find_temporal_patterns(db, incident.fingerprint)
-    except Exception:
-        return {"leading_indicators": [], "trailing_effects": []}
 
 
 def _extract_module(culprit: str | None) -> str | None:
@@ -808,7 +731,6 @@ def get_incident_families(
             "ai_triage_status": h.ai_triage_status,
             "subsystem_class": h.subsystem_class,
             "merchant_impact": h.merchant_impact,
-            "linked_bugfix_candidate_id": h.linked_bugfix_candidate_id,
         }
         for h in heads
     ]

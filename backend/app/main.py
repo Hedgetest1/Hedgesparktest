@@ -92,12 +92,10 @@ from app.models.audit_log import AuditLog             # noqa: F401 — ensures t
 from app.models.ops_alert import OpsAlert             # noqa: F401 — ensures table is created
 from app.models.action_outcome import ActionOutcome   # noqa: F401 — ensures table is created
 from app.models.action_approval import ActionApproval # noqa: F401 — ensures table is created
-from app.models.autofix_promotion import AutoFixPromotion # noqa: F401 — ensures table is created
 from app.models.active_model_config import ActiveModelConfig  # noqa: F401 — ensures table is created
 from app.models.support_incident import SupportIncident       # noqa: F401 — ensures table is created
 from app.models.system_snapshot import SystemSnapshot         # noqa: F401 — ensures table is created
 from app.models.scaling_recommendation import ScalingRecommendation  # noqa: F401 — ensures table is created
-from app.models.bugfix_candidate import BugFixCandidate # noqa: F401 — ensures table is created
 from app.models.gdpr_request import GdprRequest                   # noqa: F401 — ensures table is created
 from app.models.merchant import Merchant                           # noqa: F401 — ensures table is created
 from app.models.action_task import ActionTask                      # noqa: F401 — ensures table is created
