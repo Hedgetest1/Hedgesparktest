@@ -9,6 +9,10 @@ import { reportFrontendError } from "../lib/error-reporter";
 type StatusData =
   paths["/merchant/sip-status"]["get"]["responses"]["200"]["content"]["application/json"];
 
+// /pro/store-profile typed shape (Sprint 4 #7).
+type StoreProfileView =
+  paths["/pro/store-profile"]["get"]["responses"]["200"]["content"]["application/json"];
+
 const CONFIDENCE_TARGET = 500;
 
 const SPARK_MESSAGES: Record<string, string> = {
@@ -33,6 +37,7 @@ export function SystemStatusBar({
   shop: string;
 }) {
   const [status, setStatus] = useState<StatusData | null>(null);
+  const [profile, setProfile] = useState<StoreProfileView | null>(null);
 
   useEffect(() => {
     if (!shop) return;
@@ -53,6 +58,20 @@ export function SystemStatusBar({
           message: e?.message ?? "Failed to fetch /merchant/sip-status",
           severity: "info",
         });
+      });
+
+    // Sprint 4 #7 — /pro/store-profile extension. Pro-gated; for Lite
+    // users the call returns 401/403 and we silently skip the extra
+    // line. No noise: tier mismatch on a Pro endpoint is expected
+    // for Lite, not an error worth reporting.
+    apiClient
+      .GET("/pro/store-profile")
+      .then((res) => {
+        if (res.data != null) setProfile(res.data);
+      })
+      .catch(() => {
+        // No-op: store-profile is optional warming-bar enrichment;
+        // any failure (network, 401 for Lite) is silent by design.
       });
   }, [shop]);
 
@@ -170,6 +189,39 @@ export function SystemStatusBar({
               <b className="text-slate-300">{status.confidence}</b>
             </span>
           </div>
+
+          {/* Sprint 4 #7 — Pro learning-engine line. Vertical + trust +
+              autonomy + blended cart_rate (when prior is applied).
+              Only renders for Pro merchants (profile loaded → fetch
+              succeeded → tier check passed at the API boundary). */}
+          {profile != null && (
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-400">
+              {profile.vertical_prior != null && (
+                <span className="text-violet-300">
+                  <b>{profile.vertical_prior.vertical_display}</b> vertical
+                </span>
+              )}
+              <span>
+                Trust{" "}
+                <b className="text-slate-300 tabular-nums">{profile.trust_score.toFixed(2)}</b>
+              </span>
+              <span>
+                Autonomy{" "}
+                <b className="text-slate-300 tabular-nums">
+                  lvl {profile.autonomy_level} / 5
+                </b>
+              </span>
+              {profile.vertical_prior?.applied &&
+                profile.vertical_prior.blended_cart_rate != null && (
+                  <span className="text-amber-300">
+                    Vertical prior applied{" "}
+                    <span className="tabular-nums">
+                      (shrinkage to {(profile.vertical_prior.blended_cart_rate * 100).toFixed(1)}%)
+                    </span>
+                  </span>
+                )}
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -195,11 +195,13 @@ def test_store_profile_vertical_prior_round_trip(client, db, merchant_a, auth_a)
     assert vp["applied"] is True
 
 
-def test_store_profile_no_snapshot_returns_null_vertical_prior(client, db,
-                                                                 merchant_a,
-                                                                 auth_a):
-    """SIP exists but no sip_snapshots row yet → vertical_prior=None,
-    response still 200 (vertical_prior is optional)."""
+def test_store_profile_no_snapshot_falls_back_to_on_the_fly_compute(
+    client, db, merchant_a, auth_a
+):
+    """SIP exists but no sip_snapshots row → vertical_prior is computed
+    on-the-fly from store_intelligence_profiles + vertical_classifier
+    (Sprint 4 fallback path so newly-rolled-out merchants don't wait
+    7 days for the next snapshot rotation to surface their prior)."""
     _seed_sip(db, SHOP_A)
     try:
         from app.api.store_profile import _cache_key
@@ -210,6 +212,21 @@ def test_store_profile_no_snapshot_returns_null_vertical_prior(client, db,
     except Exception:
         pass
 
+    resp = client.get("/pro/store-profile", cookies=auth_a)
+    assert resp.status_code == 200
+    vp = resp.json()["vertical_prior"]
+    # Fallback computed: vertical_classifier returns 'other' for SHOP_A
+    # (no products), so vertical_prompt_pack 'other' baselines apply.
+    assert vp is not None
+    assert vp["cvr_baseline_pct"] == 2.3  # 'other' profile cvr
+    assert vp["aov_baseline_eur"] == 60.0  # 'other' profile aov
+    assert vp["n_prior_strength"] == 200
+
+
+def test_store_profile_no_sip_no_snapshot_returns_null_vertical_prior(
+    client, merchant_a, auth_a
+):
+    """No SIP row at all → vertical_prior=None (warming response path)."""
     resp = client.get("/pro/store-profile", cookies=auth_a)
     assert resp.status_code == 200
     assert resp.json()["vertical_prior"] is None

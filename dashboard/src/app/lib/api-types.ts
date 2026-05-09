@@ -7121,6 +7121,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/pro/store-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Store Profile
+         * @description Per-shop intelligence state — exposes the deterministic learning
+         *     engine's view of this merchant: data volume, confidence, trust,
+         *     autonomy ladder position, top learned thresholds, nudge effectiveness
+         *     ranking, and the vertical-tuned prior block (Sprint 2 #4).
+         */
+        get: operations["get_store_profile_pro_store_profile_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pro/abandoned-intent": {
         parameters: {
             query?: never;
@@ -12801,6 +12824,52 @@ export interface components {
             /** Execution Opportunities */
             execution_opportunities: components["schemas"]["ExecutionOpportunityResponse"][];
         };
+        /** StoreProfileResponse */
+        StoreProfileResponse: {
+            /** Shop Domain */
+            shop_domain: string;
+            /** Profile Version */
+            profile_version: number;
+            /**
+             * Data Points
+             * @description 30-day events count powering the SIP
+             */
+            data_points: number;
+            /**
+             * Confidence Level
+             * @description low | medium | high
+             */
+            confidence_level: string;
+            /** Trust Score */
+            trust_score: number;
+            trust_profile?: components["schemas"]["TrustProfile"] | null;
+            /**
+             * Autonomy Level
+             * @description 0=observe, 1=suggest, 2=assisted, 3=semi-auto, 4=full-auto, 5=aggressive
+             */
+            autonomy_level: number;
+            /** Learned Thresholds */
+            learned_thresholds?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Top Nudge Scores
+             * @description Top 3 nudge types by effectiveness for THIS shop
+             */
+            top_nudge_scores?: {
+                [key: string]: unknown;
+            }[];
+            vertical_prior?: components["schemas"]["VerticalPrior"] | null;
+            /**
+             * Measurement Health
+             * @default healthy
+             */
+            measurement_health: string;
+            /** Generated At */
+            generated_at: string;
+            /** Note */
+            note?: string | null;
+        };
         /** StoreSummary */
         StoreSummary: {
             /**
@@ -13461,6 +13530,19 @@ export interface components {
             /** Measured At */
             measured_at: string | null;
         };
+        /** TrustProfile */
+        TrustProfile: {
+            /** Execution Reliability */
+            execution_reliability: number;
+            /** Measurement Integrity */
+            measurement_integrity: number;
+            /** Outcome Quality */
+            outcome_quality: number;
+            /** Stability */
+            stability: number;
+            /** Overall */
+            overall: number;
+        };
         /** TrustSummaryResponse */
         TrustSummaryResponse: {
             /** Shop Domain */
@@ -13526,6 +13608,25 @@ export interface components {
             } | null;
             /** Error */
             error?: string | null;
+        };
+        /** VerticalPrior */
+        VerticalPrior: {
+            /** Vertical */
+            vertical: string;
+            /** Vertical Display */
+            vertical_display: string;
+            /** Cvr Baseline Pct */
+            cvr_baseline_pct: number;
+            /** Aov Baseline Eur */
+            aov_baseline_eur: number;
+            /** N Prior Strength */
+            n_prior_strength: number;
+            /** N Observed */
+            n_observed: number;
+            /** Blended Cart Rate */
+            blended_cart_rate?: number | null;
+            /** Applied */
+            applied: boolean;
         };
         /** VerticalSelfResponse */
         VerticalSelfResponse: {
@@ -22934,6 +23035,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RevenueAutopsyResponse"];
+                };
+            };
+        };
+    };
+    get_store_profile_pro_store_profile_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoreProfileResponse"];
                 };
             };
         };

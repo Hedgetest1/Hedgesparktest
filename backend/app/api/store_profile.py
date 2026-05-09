@@ -214,9 +214,25 @@ def _read_latest_vertical_prior(db: Session, shop: str) -> dict | None:
     vertical_prior block. Snapshots are weekly, so the value can be up
     to 7 days stale — acceptable for a moat-disclosure surface (the
     underlying baselines themselves only change with vertical_prompt_pack
-    edits, which are deploys, not data drifts). Returns None when no
-    snapshot exists or the block is missing (e.g. snapshots predating
-    Sprint 2 #4 ship)."""
+    edits, which are deploys, not data drifts).
+
+    Fallback: when no snapshot block exists yet (pre-Sprint-2 snapshots
+    predate the vertical_prior field), compute it on-the-fly from the
+    same 3 deterministic helpers `compute_sip` uses (vertical_classifier
+    + vertical_prompt_pack + vertical_blend). Cheap (~1ms after Redis
+    cache hit on the classifier) and keeps the surface honest from
+    day-1 of Sprint 4 ship instead of waiting up to 7 days for the
+    next snapshot rotation.
+    """
+    block = _read_vertical_prior_from_snapshot(db, shop)
+    if block is not None:
+        return block
+    # Fallback: on-the-fly compute (no full compute_sip, just the prior).
+    return _compute_vertical_prior_on_the_fly(db, shop)
+
+
+def _read_vertical_prior_from_snapshot(db: Session, shop: str) -> dict | None:
+    """Read vertical_prior from latest sip_snapshots.profile_data JSONB."""
     try:
         snap = db.execute(
             text("""
@@ -234,25 +250,68 @@ def _read_latest_vertical_prior(db: Session, shop: str) -> dict | None:
         block = data.get("vertical_prior")
         if not isinstance(block, dict):
             return None
-        # Defensive shape coerce — pre-existing snapshots may have
-        # partial shapes if the schema evolves.
-        return {
-            "vertical": str(block.get("vertical") or "other"),
-            "vertical_display": str(block.get("vertical_display") or "General"),
-            "cvr_baseline_pct": float(block.get("cvr_baseline_pct") or 0.0),
-            "aov_baseline_eur": float(block.get("aov_baseline_eur") or 0.0),
-            "n_prior_strength": int(block.get("n_prior_strength") or 200),
-            "n_observed": int(block.get("n_observed") or 0),
-            "blended_cart_rate": (
-                float(block["blended_cart_rate"])
-                if block.get("blended_cart_rate") is not None
-                else None
-            ),
-            "applied": bool(block.get("applied", False)),
-        }
+        return _coerce_vertical_prior_block(block)
     except Exception as exc:
-        log.warning("store_profile: vertical_prior read failed for %s: %s", shop, exc)
+        log.warning("store_profile: vertical_prior snapshot read failed for %s: %s", shop, exc)
         return None
+
+
+def _compute_vertical_prior_on_the_fly(db: Session, shop: str) -> dict | None:
+    """Compute the vertical_prior block live, using the same 3 helpers
+    sip_engine.compute_sip uses. Used as a fallback when the latest
+    sip_snapshot predates Sprint 2 #4. Reads observed cart_rate from
+    store_intelligence_profiles (already computed by the worker)."""
+    try:
+        from app.services.sip_engine import _compute_vertical_prior
+        from app.services.vertical_classifier import get_vertical
+    except Exception:
+        return None
+    try:
+        sip_row = db.execute(
+            text("""
+                SELECT baseline_cart_rate, data_points_total, confidence_level
+                FROM store_intelligence_profiles
+                WHERE shop_domain = :shop
+            """),
+            {"shop": shop},
+        ).fetchone()
+        if not sip_row:
+            return None
+        observed_cart = float(sip_row[0]) if sip_row[0] is not None else None
+        data_points = int(sip_row[1] or 0)
+        confidence = sip_row[2] or "low"
+        vertical = get_vertical(db, shop)
+        block = _compute_vertical_prior(
+            vertical=vertical,
+            observed_cart_rate=observed_cart,
+            data_points=data_points,
+            confidence=confidence,
+        )
+        if block is None:
+            return None
+        return _coerce_vertical_prior_block(block)
+    except Exception as exc:
+        log.warning("store_profile: vertical_prior on-the-fly compute failed for %s: %s", shop, exc)
+        return None
+
+
+def _coerce_vertical_prior_block(block: dict) -> dict:
+    """Defensive shape coerce — snapshots may have partial shapes if the
+    block schema evolves; the on-the-fly path returns the canonical shape."""
+    return {
+        "vertical": str(block.get("vertical") or "other"),
+        "vertical_display": str(block.get("vertical_display") or "General"),
+        "cvr_baseline_pct": float(block.get("cvr_baseline_pct") or 0.0),
+        "aov_baseline_eur": float(block.get("aov_baseline_eur") or 0.0),
+        "n_prior_strength": int(block.get("n_prior_strength") or 200),
+        "n_observed": int(block.get("n_observed") or 0),
+        "blended_cart_rate": (
+            float(block["blended_cart_rate"])
+            if block.get("blended_cart_rate") is not None
+            else None
+        ),
+        "applied": bool(block.get("applied", False)),
+    }
 
 
 @router.get("/pro/store-profile", response_model=StoreProfileResponse)
