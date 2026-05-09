@@ -1207,7 +1207,15 @@ def evaluate_pending_outcomes(db: Session, max_evaluate: int = 50) -> dict:
             try:
                 from app.services.sip_engine import compute_sip, upsert_sip
                 conn = sip_db.connection()
-                sip_data = compute_sip(conn, shop)
+                # Sprint 2 #4 vertical-tuned prior — same Session is fine
+                # for the cached classify call (Redis 24h hit-path).
+                vertical = None
+                try:
+                    from app.services.vertical_classifier import get_vertical
+                    vertical = get_vertical(sip_db, shop)
+                except Exception:
+                    vertical = None
+                sip_data = compute_sip(conn, shop, vertical=vertical)
                 if sip_data:
                     upsert_sip(conn, sip_data)
                     sip_db.commit()

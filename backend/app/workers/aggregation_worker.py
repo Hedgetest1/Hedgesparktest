@@ -792,7 +792,19 @@ def _run_cycle_inner() -> None:
                             # Compute Store Intelligence Profile (SIP)
                             try:
                                 from app.services.sip_engine import compute_sip, upsert_sip, maybe_snapshot
-                                sip_data = compute_sip(conn, shop)
+                                # Vertical classification (24h Redis cache,
+                                # near-zero amortized cost). Sprint 2 #4
+                                # anti-cold-start prior — deterministic
+                                # Bayesian shrinkage toward vertical median.
+                                vertical = None
+                                try:
+                                    from app.services.vertical_classifier import get_vertical
+                                    from app.core.database import SessionLocal as _SL_v
+                                    with _SL_v() as _vdb:
+                                        vertical = get_vertical(_vdb, shop)
+                                except Exception as exc_v:
+                                    log(f"vertical classify error for {shop} (non-fatal): {exc_v}")
+                                sip_data = compute_sip(conn, shop, vertical=vertical)
                                 if sip_data:
                                     upsert_sip(conn, sip_data)
                                     maybe_snapshot(conn, sip_data)

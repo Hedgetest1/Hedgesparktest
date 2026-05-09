@@ -43,12 +43,26 @@ _PRICE_BANDS = [
 ]
 
 
-def compute_sip(conn: Connection, shop_domain: str) -> dict[str, Any] | None:
+def compute_sip(
+    conn: Connection,
+    shop_domain: str,
+    *,
+    vertical: str | None = None,
+) -> dict[str, Any] | None:
     """
     Compute the full Store Intelligence Profile for one merchant.
 
     Returns a dict ready for upsert, or None if insufficient data.
     All queries are scoped to shop_domain and bounded time windows.
+
+    `vertical` (Sprint 2 #4): when caller passes a classified vertical
+    (one of vertical_classifier._VERTICALS), the SIP record gains a
+    `vertical_prior` block exposing the deterministic Bayesian-shrinkage
+    blend toward the vertical baseline. Anti-cold-start: a shop with
+    100 events can get an honest cart_rate estimate by leaning on the
+    vertical's median CVR with strength=200, falling back to pure shop
+    signal as data grows. Caller passes None when classification is
+    unavailable; SIP still computes correctly without the prior block.
     """
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     week_ago_ms = int((now - timedelta(days=7)).timestamp() * 1000)
@@ -104,6 +118,21 @@ def compute_sip(conn: Connection, shop_domain: str) -> dict[str, Any] | None:
     # observable as merchant volume grows.
     trust_score, trust_profile = _compute_trust(conn, shop_domain, confidence)
 
+    # ── 9c. Vertical-tuned prior (Sprint 2 #4 anti-cold-start) ──
+    # Deterministic Bayesian shrinkage toward vertical baselines for
+    # low-data shops. n_prior=200 means: a shop with 200 observed events
+    # is weighted equally with the vertical prior; below that, the prior
+    # dominates; above that, shop signal dominates. Pure data, no LLM.
+    # Stored in the SIP dict only — NOT a DB column (caller consumes
+    # in-memory; sip_snapshots.profile_data preserves the historical
+    # value via JSONB serialization).
+    vertical_prior = _compute_vertical_prior(
+        vertical=vertical,
+        observed_cart_rate=baselines.get("cart_rate"),
+        data_points=data_points,
+        confidence=confidence,
+    )
+
     # ── 10. CIG bootstrap (inject cross-store intelligence when SIP is immature) ──
     if confidence == "low" and not nudge_scores:
         try:
@@ -135,7 +164,67 @@ def compute_sip(conn: Connection, shop_domain: str) -> dict[str, Any] | None:
         "confidence_level": confidence,
         "trust_score": trust_score,
         "trust_profile": trust_profile,
+        "vertical_prior": vertical_prior,
         "computed_at": now,
+    }
+
+
+def _compute_vertical_prior(
+    *,
+    vertical: str | None,
+    observed_cart_rate: float | None,
+    data_points: int,
+    confidence: str,
+) -> dict | None:
+    """Sprint 2 #4 — vertical-tuned prior block.
+
+    Returns None when no vertical is supplied. Otherwise returns a dict
+    containing the vertical's industry baselines plus a blended
+    cart_rate (deterministic Bayesian shrinkage). The blended value is
+    only marked `applied=True` for low-confidence shops — high-confidence
+    shops have enough signal that the shrinkage effectively becomes a
+    no-op (n_observed >> n_prior).
+
+    Why deterministic-first: founder direttiva 2026-05-09 — "tutto
+    superiore ai competitor architetturalmente, niente circa/quasi
+    previsionale". The prior is named, the n_prior strength is named,
+    the blend formula is verifiable file:line. TW Moby cannot match
+    this without admitting their vertical baselines are LLM hallucination.
+    """
+    if not vertical:
+        return None
+    try:
+        from app.services.vertical_prompt_pack import get_profile
+        from app.core.stats import vertical_blend
+    except Exception:
+        return None
+
+    profile = get_profile(vertical)
+    # Convert vertical CVR percentage → fraction matching baseline_cart_rate units
+    vertical_cart_rate_frac = profile.cvr_baseline_pct / 100.0
+    # n_observed proxy: 30d events. Capped at 5k to bound shrinkage
+    # (a hot shop with 50k events still receives the prior, just at
+    # vanishing weight ratio 200 / 5200 ≈ 3.8%).
+    n_obs_for_blend = min(int(data_points or 0), 5000)
+    blended = vertical_blend(
+        observed=observed_cart_rate,
+        prior=vertical_cart_rate_frac,
+        n_observed=n_obs_for_blend,
+        n_prior=200,
+    )
+    return {
+        "vertical": vertical,
+        "vertical_display": profile.display_name,
+        "cvr_baseline_pct": profile.cvr_baseline_pct,
+        "aov_baseline_eur": profile.aov_baseline_eur,
+        "n_prior_strength": 200,
+        "n_observed": n_obs_for_blend,
+        "blended_cart_rate": _round(blended),
+        # `applied=True` flags low-confidence shops where the prior
+        # materially shifts the estimate. High-confidence shops still
+        # get the block (for telemetry + Sprint 4 endpoint surfacing)
+        # but with applied=False so consumers know shop signal dominates.
+        "applied": confidence == "low",
     }
 
 

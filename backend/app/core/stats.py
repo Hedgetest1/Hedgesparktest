@@ -25,6 +25,40 @@ def _variance(xs: list[float]) -> float:
     return sum((x - m) ** 2 for x in xs) / (len(xs) - 1)
 
 
+def vertical_blend(
+    observed: float | None,
+    prior: float | None,
+    n_observed: int,
+    n_prior: int = 200,
+) -> float | None:
+    """Bayesian shrinkage of an observed shop metric toward a vertical prior.
+
+    posterior = (n_obs * observed + n_prior * prior) / (n_obs + n_prior)
+
+    n_prior controls "strength" of the prior — fixed at 200 by default
+    (≈ a shop with ~200 events worth of vertical evidence). As n_observed
+    grows, posterior → observed (shop signal dominates). For cold-start
+    shops (n_observed small), posterior ≈ prior. Pure deterministic,
+    no LLM, repeatable.
+
+    Returns None when both observed and prior are None. When only one
+    side is None, returns the other unchanged (defensive: caller may
+    pass partial data on shops where either side is missing).
+    """
+    if observed is None and prior is None:
+        return None
+    if observed is None:
+        return float(prior)
+    if prior is None:
+        return float(observed)
+    if n_observed < 0 or n_prior < 0:
+        raise ValueError("n_observed and n_prior must be non-negative")
+    denom = n_observed + n_prior
+    if denom == 0:
+        return float(prior)
+    return (n_observed * float(observed) + n_prior * float(prior)) / denom
+
+
 def welch_t_test(treatment: list[float], control: list[float]) -> tuple[float, float]:
     """Return (lift, p_value).
 
