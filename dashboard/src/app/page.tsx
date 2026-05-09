@@ -1375,8 +1375,13 @@ function Pricing() {
   // same day): RARS is the Lite acquisition hook BECAUSE no $0-70
   // competitor ships an equivalent. Lite gets the headline + prevented
   // + net ROI; the full 5-dim breakdown is Pro-only via tier-aware
-  // response. Visitor Intent stays Pro (founder explicit). Multi-store
-  // moved INTO Lite per $0-60 parity vs Putler $20.
+  // response. 2026-05-09 realignment (founder directive — "quello che
+  // è in Lite resta in Lite"): the 4 signals cassettoni shipped in
+  // LiteCassettoniGrid (Abandoned Intent, Live Opportunities, Visitor
+  // Intent breakdown, Hot Products) moved from Pro to Lite rows here
+  // to match the dashboard truth (Pro doppione is intentionally
+  // blocked — sticky-state §119,122). Multi-store stays Lite per
+  // $0-60 parity vs Putler $20.
   // ✓ = included at that tier; — = not included.
   const compare: Array<{ group: string; rows: Array<{ name: string; lite: boolean; pro: boolean; scale: boolean }> }> = [
     {
@@ -1403,16 +1408,22 @@ function Pricing() {
         { name: "CAC : LTV unit economics", lite: true, pro: true, scale: true },
         { name: "COGS bulk import (CSV)", lite: true, pro: true, scale: true },
         { name: "Inventory KPIs · stock-at-risk · forecast", lite: true, pro: true, scale: true },
+        // Signals cassettoni — shipped on Lite via LiteCassettoniGrid; Pro
+        // doppione is intentionally blocked per no-doppione doctrine
+        // (project_current_partition_state.md §122,119). Pricing realigned
+        // 2026-05-09 to match the dashboard truth.
+        { name: "Abandoned Intent feed (intent-aware cart abandonment)", lite: true, pro: true, scale: true },
+        { name: "Live Opportunities feed", lite: true, pro: true, scale: true },
+        { name: "Visitor Intent breakdown (hot / warm / cold)", lite: true, pro: true, scale: true },
+        { name: "Hot Products feed", lite: true, pro: true, scale: true },
       ],
     },
     {
       group: "Pro — mid-band parity layer",
       rows: [
-        { name: "Visitor intent scoring (per-visitor hot/warm/cold)", lite: false, pro: true, scale: true },
         { name: "Funnel & sessions analysis", lite: false, pro: true, scale: true },
         { name: "Live Radar (real-time visitor map)", lite: false, pro: true, scale: true },
         { name: "Price Sensitivity", lite: false, pro: true, scale: true },
-        { name: "Abandoned Intent (intent-aware cart abandonment)", lite: false, pro: true, scale: true },
         { name: "Scroll heatmaps", lite: false, pro: true, scale: true },
         { name: "KPI Goals + drift alerts", lite: false, pro: true, scale: true },
         { name: "BI / SQL read-only sandbox", lite: false, pro: true, scale: true },
@@ -1436,12 +1447,14 @@ function Pricing() {
     },
   ];
 
-  // Tier feature lists — synced 2026-04-29 to Lite strategic close
-  // (commit fe278d5) + RARS-restore correction same day. RARS is
-  // Lite's acquisition hook (headline + prevented + net ROI); the
-  // 5-dim breakdown remains Pro-only via tier-aware response.
-  // Visitor Intent stays Pro (founder explicit). Multi-store moved
-  // INTO Lite per parity vs Putler $20.
+  // Tier feature lists — synced 2026-04-29 (Lite strategic close,
+  // commit fe278d5) + 2026-05-09 (cassettoni realignment, founder
+  // directive "quello che è in Lite resta in Lite"). RARS is Lite's
+  // acquisition hook (headline + prevented + net ROI); 5-dim breakdown
+  // remains Pro-only via tier-aware response. The 4 signals cassettoni
+  // (Abandoned Intent, Live Opportunities, Visitor Intent breakdown,
+  // Hot Products) ship on Lite via LiteCassettoniGrid; Pro doppione
+  // intentionally blocked.
   const tiers = [
     {
       key: "lite",
@@ -1454,6 +1467,7 @@ function Pricing() {
         "P&L · attribution · cohort retention · refunds",
         "Multi-store consolidation (per-currency)",
         "11-segment RFM + geographic drilldown",
+        "Signals feed: Abandoned Intent · Visitor Intent · Live Opportunities · Hot Products",
         "Custom reports + Sheets / CSV / PDF export",
         "AI assistant (SparkChat) on your data",
         "CAC : LTV · COGS · Inventory KPIs",
@@ -1466,14 +1480,13 @@ function Pricing() {
       key: "pro",
       label: "Pro",
       tagline: "Mid-band parity, deeper",
-      desc: "Everything in Lite, plus the parity layer for the $60-130 mid-band — Visitor Intent, Funnel, Live Radar, Price Sensitivity, Goals, BI/SQL, Subscriptions.",
+      desc: "Everything in Lite, plus the parity layer for the $60-130 mid-band — Funnel, Live Radar, Price Sensitivity, Heatmaps, Goals, BI/SQL, Subscriptions.",
       features: [
         "Everything in Lite",
         "Revenue at Risk — full 5-dimension breakdown",
-        "Visitor intent scoring (per-visitor hot / warm / cold)",
         "Funnel & sessions analysis",
         "Live Radar (real-time visitor map)",
-        "Price Sensitivity + Abandoned Intent",
+        "Price Sensitivity",
         "Scroll heatmaps",
         "KPI Goals + BI/SQL + Subscription analytics",
       ],
