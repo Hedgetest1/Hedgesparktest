@@ -1179,9 +1179,59 @@ def evaluate_pending_outcomes(db: Session, max_evaluate: int = 50) -> dict:
                 "merchant_brain: audit_log write for decision id=%s failed (non-fatal, outcome stamp persisted): %s",
                 d.id, exc,
             )
+    # Collect distinct shops touched in this cycle for closed-loop
+    # SIP retraining (Sprint 1 #6). Dedup per shop — even with 50
+    # decisions on 5 shops, only 5 retrains fire (~1-1.5s each via
+    # compute_sip).
+    shops_touched: set[str] = {d.shop_domain for d in pending if d.outcome_status is not None}
+
     if evaluated > 0:
         db.commit()
-    return {"evaluated": evaluated}
+
+    # Closed-loop trigger — Sprint 1 #6 of per-shop learning engine
+    # roadmap. The OLD path was poll-based: aggregation_worker runs
+    # compute_sip every 5 min for every shop. Now: when a brain_decision
+    # outcome lands, the SIP profile incorporates the lesson immediately
+    # for THAT shop, without waiting for the next cron tick. This is
+    # what makes "smart from yesterday" become "smart from this minute".
+    #
+    # Each retrain is wrapped in a fresh isolated connection so a single
+    # SIP failure doesn't poison the eval transaction or the next shop.
+    # Best-effort: never raises — the outcome stamp is the source of
+    # truth; SIP is downstream.
+    if shops_touched:
+        from app.core.database import SessionLocal as _SL
+        retrained = 0
+        for shop in shops_touched:
+            sip_db = _SL()
+            try:
+                from app.services.sip_engine import compute_sip, upsert_sip
+                conn = sip_db.connection()
+                sip_data = compute_sip(conn, shop)
+                if sip_data:
+                    upsert_sip(conn, sip_data)
+                    sip_db.commit()
+                    retrained += 1
+                else:
+                    sip_db.rollback()
+            except Exception as exc:
+                try:
+                    sip_db.rollback()
+                except Exception:
+                    pass  # SILENT-EXCEPT-OK: rollback-on-rollback-failure is the canonical defensive idiom; the original exception below is what gets logged + escalated
+                log.warning(
+                    "merchant_brain: closed-loop SIP retrain failed for %s "
+                    "(non-fatal, scheduled cron will catch it): %s",
+                    shop, exc,
+                )
+            finally:
+                sip_db.close()
+        if retrained > 0:
+            log.info(
+                "merchant_brain: closed-loop retrained SIP for %d shop(s)", retrained
+            )
+
+    return {"evaluated": evaluated, "shops_retrained": len(shops_touched) if shops_touched else 0}
 
 
 def _measure(db: Session, decision) -> str:

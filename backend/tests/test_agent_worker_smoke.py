@@ -248,6 +248,144 @@ def test_brain_vero_outcome_stamp_writes_audit_log(db):
             os.environ["MERCHANT_BRAIN_ENABLED"] = prev
 
 
+def test_brain_vero_outcome_eval_triggers_closed_loop_sip_retrain(db):
+    """Sprint 1 #6 — closed-loop trigger.
+
+    Every outcome_status stamp in evaluate_pending_outcomes triggers
+    an immediate compute_sip + upsert_sip for the affected shop.
+    Dedup per shop: 3 decisions on 1 shop = 1 retrain, NOT 3.
+
+    The fact we verify: the result dict reports `shops_retrained` >= 1
+    and the function does NOT raise even when compute_sip falls back
+    (synthetic shop with no events → compute_sip returns None → upsert
+    skipped, no error).
+    """
+    import os
+    from datetime import datetime, timedelta, timezone
+    from app.services.merchant_brain import evaluate_pending_outcomes
+    from app.models.brain_decision import BrainDecision
+
+    prev = os.environ.get("MERCHANT_BRAIN_ENABLED")
+    os.environ["MERCHANT_BRAIN_ENABLED"] = "1"
+    try:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        # 3 decisions, same shop — must dedup to 1 retrain attempt
+        for i in range(3):
+            forged = BrainDecision(
+                shop_domain="_closedloop_test_.myshopify.com",
+                decision_at=now - timedelta(hours=48 + i),
+                sense_snapshot={"rar_eur": 0.0, "churn_score": 0.0, "orders_24h": 0, "events_24h": 0},
+                synthesis=f"forged closed-loop test {i}",
+                action_kind="cooldown",
+                action_payload={},
+                rationale="test",
+                limb_dispatched=None,
+                limb_response={},
+                expected_outcome_metric="cooldown_pending",
+                outcome_window_hours=24,
+            )
+            db.add(forged)
+        db.flush()
+
+        result = evaluate_pending_outcomes(db, max_evaluate=10)
+        assert result.get("evaluated", 0) >= 3, f"all 3 must evaluate: {result}"
+        assert result.get("shops_retrained", 0) == 1, (
+            f"3 decisions same shop must dedup to 1 retrain attempt, got {result}"
+        )
+    finally:
+        if prev is None:
+            os.environ.pop("MERCHANT_BRAIN_ENABLED", None)
+        else:
+            os.environ["MERCHANT_BRAIN_ENABLED"] = prev
+
+
+def test_autonomy_level_threshold_ladder():
+    """Sprint 1 #2 — autonomy_level promotion 0→5.
+
+    The ladder is documented in StoreIntelligenceProfile:
+    0=observe, 1=suggest, 2=assisted, 3=semi-auto, 4=full-auto,
+    5=aggressive. Promotion gated by confidence + trust_score.
+    """
+    from app.services.sip_engine import _autonomy_level_from_trust
+
+    # Low confidence — locked at 0 (observe-only)
+    assert _autonomy_level_from_trust(0.99, "low") == 0
+    assert _autonomy_level_from_trust(0.50, "low") == 0
+
+    # Medium confidence — capped at 2 (assisted)
+    assert _autonomy_level_from_trust(0.95, "medium") == 2
+    assert _autonomy_level_from_trust(0.85, "medium") == 2
+    assert _autonomy_level_from_trust(0.70, "medium") == 1
+    assert _autonomy_level_from_trust(0.50, "medium") == 0
+
+    # High confidence — full ladder 0..5
+    assert _autonomy_level_from_trust(0.96, "high") == 5  # aggressive
+    assert _autonomy_level_from_trust(0.87, "high") == 4  # full-auto
+    assert _autonomy_level_from_trust(0.76, "high") == 3  # semi-auto
+    assert _autonomy_level_from_trust(0.66, "high") == 2  # assisted
+    assert _autonomy_level_from_trust(0.51, "high") == 1  # suggest
+    assert _autonomy_level_from_trust(0.40, "high") == 0  # observe
+
+
+def test_autonomy_level_monotonic_floor(db):
+    """Sprint 1 #2 — monotonic floor: never demote based on a single
+    low computation. If shop A is at autonomy=4 and the next compute
+    cycle returns 3, the row keeps 4. This protects against transient
+    holdout misses dragging trust temporarily down.
+    """
+    from sqlalchemy import text as _sql_text
+    from app.services.sip_engine import upsert_sip
+
+    shop = "_autonomy_floor_test_.myshopify.com"
+    conn = db.connection()
+    # Seed: simulate row at autonomy_level=4
+    conn.execute(_sql_text(
+        """
+        INSERT INTO store_intelligence_profiles (
+            shop_domain, profile_version, data_points_total, confidence_level,
+            trust_score, autonomy_level, computed_at, updated_at
+        ) VALUES (
+            :s, 1, 5000, 'high', 0.87, 4, NOW(), NOW()
+        )
+        ON CONFLICT (shop_domain) DO UPDATE SET autonomy_level = 4, trust_score = 0.87
+        """
+    ), {"s": shop})
+    db.flush()
+
+    # Simulate next cycle: trust drops to 0.76 (would be autonomy=3 via ladder)
+    sip = {
+        "shop_domain": shop,
+        "profile_version": 1,
+        "baseline_cart_rate": None,
+        "baseline_scroll_depth": None,
+        "baseline_dwell_time": None,
+        "baseline_return_rate": None,
+        "baseline_views_per_product": None,
+        "baseline_mobile_pct": None,
+        "learned_thresholds": None,
+        "traffic_source_quality": None,
+        "price_sensitivity_bands": None,
+        "nudge_type_scores": None,
+        "best_nudge_by_signal": None,
+        "peak_traffic_hours": None,
+        "signal_frequency_30d": None,
+        "data_points_total": 5100,
+        "confidence_level": "high",
+        "computed_at": __import__("datetime").datetime.now(),
+        "trust_score": 0.76,
+        "trust_profile": None,
+    }
+    upsert_sip(conn, sip)
+    db.flush()
+
+    # Verify: autonomy_level stays at 4 (monotonic floor), NOT 3
+    row = conn.execute(_sql_text(
+        "SELECT autonomy_level FROM store_intelligence_profiles WHERE shop_domain = :s"
+    ), {"s": shop}).fetchone()
+    assert row is not None
+    assert row[0] == 4, f"monotonic floor must hold autonomy=4 even with trust=0.76, got {row[0]}"
+
+
 def test_brain_vero_eval_unknown_metric_returns_evaluation_failed(db):
     """Defensive: when _measure() encounters a metric it doesn't know,
     it must return `evaluation_failed` (visible to audit), NOT `neutral`

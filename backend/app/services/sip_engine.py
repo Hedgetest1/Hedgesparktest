@@ -148,16 +148,23 @@ def _compute_trust(
     shops keep the neutral default 0.5 (no claim) to avoid noisy
     false-low signals on dev/synthetic shops.
 
-    Sources (all bounded to 30-day window) — post Stage 2-E supersession:
-    execution_reliability + stability dimensions are stubbed at 0.5
-    because their data sources (bugfix_candidates) were dropped with
-    the old self-healing pipeline. Brain Vero's outcome eval (when it
-    matures) will provide the future input.
+    Sources (all bounded to 30-day window). Sprint 1 #1 of per-shop
+    learning engine roadmap — extended 2026-05-09 to read Brain Vero
+    decision ledger in addition to legacy action_outcomes:
 
-      measurement_integrity  = measured-vs-attempted ratio
-                                from action_outcomes for this shop
-      outcome_quality        = improved_count / measured_count
-                                from action_outcomes
+      execution_reliability  = brain_decisions dispatched without limb
+                                error / total dispatched (Brain Vero)
+      measurement_integrity  = (action_outcomes measured / attempted) +
+                                (brain_decisions outcome_status set /
+                                 elapsed-window total). Both sources
+                                weight-averaged by sample size.
+      outcome_quality        = (action_outcomes 'improved' /
+                                measured) + (brain_decisions
+                                'effective' / measured). Combined.
+      stability              = 1 - normalized variance of trust_score
+                                week-over-week (4 weekly snapshots).
+                                Falls back to 0.5 if <2 snapshots
+                                exist (cold start protection).
 
     Returns (mean of 4 dims, JSON-encoded profile) or (0.5, None) when
     insufficient data.
@@ -179,14 +186,105 @@ def _compute_trust(
               AND evaluated_at >= :cutoff
             """
         ), {"cutoff": cutoff, "shop": shop_domain}).fetchone()
-        measured = int(row[0] or 0) if row else 0
-        improved = int(row[1] or 0) if row else 0
-        outcome_quality = (improved / measured) if measured > 0 else 0.5
-        measurement_integrity = 1.0 if measured > 0 else 0.5
+        ao_measured = int(row[0] or 0) if row else 0
+        ao_improved = int(row[1] or 0) if row else 0
 
-        # Stage 2-E neutral stubs (signal sources dropped):
-        execution_reliability = 0.5
-        stability = 0.5
+        # Brain Vero v0.4 — brain_decisions outcome ledger (Sprint 1 #1)
+        # eligible window: only decisions whose outcome_window has
+        # elapsed (otherwise they cannot have been measured yet).
+        bd_row = conn.execute(text(
+            """
+            SELECT
+                COUNT(*) FILTER (
+                    WHERE decision_at + (COALESCE(outcome_window_hours, 24) * INTERVAL '1 hour') <= NOW()
+                ) AS elapsed,
+                COUNT(*) FILTER (
+                    WHERE outcome_status IS NOT NULL
+                ) AS measured,
+                COUNT(*) FILTER (
+                    WHERE outcome_status = 'effective'
+                ) AS effective,
+                COUNT(*) FILTER (
+                    WHERE limb_dispatched IS NOT NULL
+                      AND (limb_response::jsonb->>'status') = 'ok'
+                ) AS dispatched_ok,
+                COUNT(*) FILTER (
+                    WHERE limb_dispatched IS NOT NULL
+                ) AS dispatched_total
+            FROM brain_decisions
+            WHERE shop_domain = :shop
+              AND decision_at >= :cutoff
+            """
+        ), {"cutoff": cutoff, "shop": shop_domain}).fetchone()
+        bd_elapsed = int(bd_row[0] or 0) if bd_row else 0
+        bd_measured = int(bd_row[1] or 0) if bd_row else 0
+        bd_effective = int(bd_row[2] or 0) if bd_row else 0
+        bd_dispatched_ok = int(bd_row[3] or 0) if bd_row else 0
+        bd_dispatched_total = int(bd_row[4] or 0) if bd_row else 0
+
+        # measurement_integrity — weighted across both sources
+        ao_mi = 1.0 if ao_measured > 0 else None
+        bd_mi = (bd_measured / bd_elapsed) if bd_elapsed > 0 else None
+        if ao_mi is not None and bd_mi is not None:
+            measurement_integrity = (
+                ao_mi * ao_measured + bd_mi * bd_elapsed
+            ) / (ao_measured + bd_elapsed)
+        elif bd_mi is not None:
+            measurement_integrity = bd_mi
+        elif ao_mi is not None:
+            measurement_integrity = ao_mi
+        else:
+            measurement_integrity = 0.5
+
+        # outcome_quality — weighted across both sources
+        ao_oq = (ao_improved / ao_measured) if ao_measured > 0 else None
+        bd_oq = (bd_effective / bd_measured) if bd_measured > 0 else None
+        if ao_oq is not None and bd_oq is not None:
+            outcome_quality = (
+                ao_oq * ao_measured + bd_oq * bd_measured
+            ) / (ao_measured + bd_measured)
+        elif bd_oq is not None:
+            outcome_quality = bd_oq
+        elif ao_oq is not None:
+            outcome_quality = ao_oq
+        else:
+            outcome_quality = 0.5
+
+        # execution_reliability — brain_decisions dispatch success rate
+        if bd_dispatched_total > 0:
+            execution_reliability = bd_dispatched_ok / bd_dispatched_total
+        else:
+            execution_reliability = 0.5  # no dispatch volume yet
+
+        # stability — variance of weekly trust scores (4 weeks).
+        # Reads sip_snapshots.profile_data JSONB; falls back to 0.5
+        # when <2 distinct scores (cold start, or all-stub history
+        # with same score → no signal, no claim).
+        try:
+            stab_rows = conn.execute(text(
+                """
+                SELECT (profile_data::jsonb->>'trust_score')::float AS trust_score
+                FROM sip_snapshots
+                WHERE shop_domain = :shop
+                  AND snapshot_week >= :cutoff
+                ORDER BY snapshot_week DESC
+                LIMIT 4
+                """
+            ), {"cutoff": cutoff, "shop": shop_domain}).fetchall()
+            scores = [float(r[0]) for r in stab_rows if r[0] is not None]
+            distinct = len(set(round(s, 4) for s in scores))
+            if len(scores) >= 2 and distinct >= 2:
+                mean = sum(scores) / len(scores)
+                variance = sum((s - mean) ** 2 for s in scores) / len(scores)
+                # Normalize: variance 0 = perfect stability (1.0);
+                # variance 0.0625 (0.25 std dev) or higher = chaos (0.0).
+                # Trust scores are bounded [0,1] so variance max is 0.25.
+                stability = max(0.0, 1.0 - (variance / 0.0625))
+            else:
+                stability = 0.5
+        except Exception as exc:
+            log.warning("sip_engine: stability variance read failed for %s: %s", shop_domain, exc)
+            stability = 0.5
 
         score = (
             execution_reliability + measurement_integrity
@@ -201,8 +299,16 @@ def _compute_trust(
             "overall": round(score, 3),
             "data_window_days": 30,
             "evidence": {
-                "outcomes_measured": measured,
-                "outcomes_improved": improved,
+                "action_outcomes": {
+                    "measured": ao_measured, "improved": ao_improved,
+                },
+                "brain_decisions": {
+                    "elapsed": bd_elapsed,
+                    "measured": bd_measured,
+                    "effective": bd_effective,
+                    "dispatched_total": bd_dispatched_total,
+                    "dispatched_ok": bd_dispatched_ok,
+                },
             },
         }
         return round(score, 3), profile
