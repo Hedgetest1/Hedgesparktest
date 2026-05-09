@@ -163,6 +163,91 @@ def test_brain_vero_outcome_eval_runs_when_window_elapsed(db):
             os.environ["MERCHANT_BRAIN_ENABLED"] = prev
 
 
+def test_brain_vero_outcome_stamp_writes_audit_log(db):
+    """Sprint 1 #5 — outcome ledger immutable.
+
+    Every outcome stamp in `evaluate_pending_outcomes` MUST write a
+    hash-chained audit_log row with action_type=brain_decision_outcome_
+    stamped. The audit row is forensic backbone for the holdout
+    p<0.05 claim. Tamper-evident — the chain breaks if a row is
+    altered/removed.
+
+    Failure mode prevented: outcome_status field could be silently
+    rewritten in DB without trace; audit chain makes that detectable.
+    """
+    import os
+    from datetime import datetime, timedelta, timezone
+    from app.services.merchant_brain import evaluate_pending_outcomes
+    from app.models.brain_decision import BrainDecision
+    from app.models.audit_log import AuditLog
+
+    prev = os.environ.get("MERCHANT_BRAIN_ENABLED")
+    os.environ["MERCHANT_BRAIN_ENABLED"] = "1"
+    try:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        forged = BrainDecision(
+            shop_domain="_audit_ledger_test_.myshopify.com",
+            decision_at=now - timedelta(hours=48),
+            sense_snapshot={"rar_eur": 0.0, "churn_score": 0.0, "orders_24h": 0, "events_24h": 0},
+            synthesis="forged for audit-ledger test",
+            action_kind="cooldown",
+            action_payload={},
+            rationale="test",
+            limb_dispatched=None,
+            limb_response={},
+            expected_outcome_metric="cooldown_pending",
+            outcome_window_hours=24,
+        )
+        db.add(forged)
+        db.flush()
+
+        # Snapshot pre-existing audit rows for this synthetic shop
+        # (should be 0 — synthetic shop_domain unused).
+        pre_count = db.query(AuditLog).filter(
+            AuditLog.shop_domain == "_audit_ledger_test_.myshopify.com",
+            AuditLog.action_type == "brain_decision_outcome_stamped",
+        ).count()
+
+        result = evaluate_pending_outcomes(db, max_evaluate=10)
+        assert result.get("evaluated", 0) >= 1, f"got {result}"
+
+        post_count = db.query(AuditLog).filter(
+            AuditLog.shop_domain == "_audit_ledger_test_.myshopify.com",
+            AuditLog.action_type == "brain_decision_outcome_stamped",
+        ).count()
+        assert post_count == pre_count + 1, (
+            f"audit_log must record outcome stamp: pre={pre_count} post={post_count}"
+        )
+
+        # Verify chain integrity on the new row
+        new_row = db.query(AuditLog).filter(
+            AuditLog.shop_domain == "_audit_ledger_test_.myshopify.com",
+            AuditLog.action_type == "brain_decision_outcome_stamped",
+        ).order_by(AuditLog.id.desc()).first()
+        assert new_row is not None
+        assert new_row.actor_type == "worker"
+        assert new_row.actor_name == "merchant_brain.evaluate_pending_outcomes"
+        assert new_row.target_type == "brain_decision"
+        assert new_row.target_id == str(forged.id)
+        assert new_row.approval_mode == "autonomous"
+        # Hash chain metadata must be present (column is Text JSON)
+        import json as _json
+        meta = _json.loads(new_row.metadata_json) if new_row.metadata_json else {}
+        chain = meta.get("_chain")
+        assert chain is not None, "audit row must carry _chain metadata"
+        assert chain.get("self") and chain.get("prev") and chain.get("digest"), (
+            f"chain must have prev/self/digest, got {chain}"
+        )
+        # The after_state (Text JSON) captures the outcome
+        after = _json.loads(new_row.after_state) if new_row.after_state else {}
+        assert after.get("outcome_status") == forged.outcome_status
+    finally:
+        if prev is None:
+            os.environ.pop("MERCHANT_BRAIN_ENABLED", None)
+        else:
+            os.environ["MERCHANT_BRAIN_ENABLED"] = prev
+
+
 def test_brain_vero_eval_unknown_metric_returns_evaluation_failed(db):
     """Defensive: when _measure() encounters a metric it doesn't know,
     it must return `evaluation_failed` (visible to audit), NOT `neutral`

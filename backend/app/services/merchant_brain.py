@@ -1145,6 +1145,40 @@ def evaluate_pending_outcomes(db: Session, max_evaluate: int = 50) -> dict:
         d.outcome_status = status
         d.outcome_evaluated_at = now
         evaluated += 1
+
+        # Outcome ledger immutable — every outcome stamp gets a tamper-
+        # evident audit_log row (hash-chained per app/services/audit.py).
+        # The audit trail is the forensic backbone for the "p<0.05
+        # verified" claim: if anyone challenges an outcome later, we
+        # walk the chain back. Outcome write is the source of truth;
+        # audit row is defense-in-depth, so a write failure here MUST
+        # NOT mask the outcome stamp itself.
+        try:
+            from app.services.audit import write_audit_log
+            write_audit_log(
+                db,
+                actor_type="worker",
+                actor_name="merchant_brain.evaluate_pending_outcomes",
+                action_type="brain_decision_outcome_stamped",
+                target_type="brain_decision",
+                target_id=str(d.id),
+                shop_domain=d.shop_domain,
+                before_state={"outcome_status": None},
+                after_state={
+                    "outcome_status": status,
+                    "outcome_evaluated_at": now.isoformat(),
+                    "expected_outcome_metric": d.expected_outcome_metric,
+                    "decision_at": d.decision_at.isoformat() if d.decision_at else None,
+                    "outcome_window_hours": d.outcome_window_hours,
+                },
+                status="completed",
+                approval_mode="autonomous",
+            )
+        except Exception as exc:
+            log.warning(
+                "merchant_brain: audit_log write for decision id=%s failed (non-fatal, outcome stamp persisted): %s",
+                d.id, exc,
+            )
     if evaluated > 0:
         db.commit()
     return {"evaluated": evaluated}
