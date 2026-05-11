@@ -1031,8 +1031,8 @@ refuses to start if prior `_loadtest_` shops exist unless --force).
 | `hs:llm_realmodel_drift:history` | B2 weekly drift 8-week history | 90d |
 | `hs:vint:v1:{shop_md5_16}` | Visitor Intent aggregate cache | 60s |
 | `hs:liveopps:v1:{shop_md5_16}` | Live Opportunities aggregate cache | 60s |
-| `hs:rars:v1:{plan}:{shop_md5_16}` | RARS report cache | 5min |
-| `hs:rars:lock:v1:{plan}:{shop_md5_16}` | RARS stampede lock | 40s |
+| `hs:rars:v1:{plan}:{shop_md5_16}` | RARS report cache (plan ∈ lite/pro) | 5min |
+| `hs:rars:lock:v1:{plan}:{shop_md5_16}` | RARS stampede lock (plan ∈ lite/pro) | 40s |
 | `hs:proof:v1:{shop_md5_16}:{window_h}` | Proof report cache | 5min |
 | `hs:proof:lock:v1:{shop_md5_16}:{window_h}` | Proof stampede lock | 30s |
 | `hs:kg:v1:stats:{shop_md5_16}` | Knowledge-graph stats cache | 5min |
@@ -1045,6 +1045,10 @@ refuses to start if prior `_loadtest_` shops exist unless --force).
 | `hs:compare_toggle_usage:v1` | compare-toggle adoption counter HASH | 90d |
 | `hs:cross_shop_aggregator:next_run` | Sprint 3 #3 — cross-shop pattern aggregator 6h SETNX claim (gates the aggregation_worker hook so most ticks skip immediately) | 6h |
 | `hs:bi_query:rate:{shop_md5_16}` | Pro #3 BI Query Builder — per-merchant rate limit counter (30 queries / 60s); INCR + EXPIRE pipeline atomic | 60s |
+| `hs:recurring_buyers:v1:{shop_md5_16}` | Pro #2 Recurring Buyers — cadence-analytics response cache (mask_email applied before serialize) | 30min |
+| `hs:recurring_buyers:lock:v1:{shop_md5_16}` | Pro #2 Recurring Buyers — SETNX stampede lock around the 180d aggregation | 30s |
+| `hs:storeprofile:v1:{shop_md5_16}` | Sprint 4 #7 store-profile endpoint response cache | 60s |
+| `hs:storeprofile:lock:v1:{shop_md5_16}` | Sprint 4 #7 store-profile SETNX stampede lock | 30s |
 | `hs:survey_cfg:v1:{shop}` | Post-purchase survey config cache | 10min |
 | `hs:survey:rl:{ip_hash}` | Survey response rate-limit (3/60s) | 60s |
 | `hs:survey:daily:{shop}:{date}` | Per-shop daily survey cap (10k/day) | 48h |

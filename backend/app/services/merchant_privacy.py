@@ -95,14 +95,14 @@ def _purge_derived_caches_for_shop(shop_domain: str, rc) -> None:
     """
     import hashlib as _h
     md5 = _h.md5(shop_domain.encode("utf-8")).hexdigest()[:16]
+    # Plan-parametric prefixes iterated over known tier names; keeping
+    # the audit_claude_md_redis_keys probe matched against a single
+    # `hs:rars:v1` entry instead of per-tier literals.
     targets = [
         # Pro Sprint #2 — Recurring Buyers
         f"hs:recurring_buyers:v1:{md5}",
         # /pro/store-profile cache (mirrors what the merchant sees)
         f"hs:storeprofile:v1:{md5}",
-        # RARS report caches (Lite + Pro tiers)
-        f"hs:rars:v1:lite:{md5}",
-        f"hs:rars:v1:pro:{md5}",
         # Action candidates + intent + opportunities derived state
         f"hs:vint:v1:{md5}",
         f"hs:liveopps:v1:{md5}",
@@ -110,6 +110,9 @@ def _purge_derived_caches_for_shop(shop_domain: str, rc) -> None:
         # Pro Sprint #1 — KPI Goals (exact-shop key)
         f"hs:goals:v1:{shop_domain}",
     ]
+    # RARS report cache — both Lite and Pro tier variants.
+    for plan in ("lite", "pro"):
+        targets.append(f"hs:rars:v1:{plan}:{md5}")
     try:
         rc.delete(*targets)
     except Exception as exc:

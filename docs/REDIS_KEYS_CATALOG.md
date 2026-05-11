@@ -35,8 +35,7 @@ to validate every prefix in `app/` is documented somewhere.
 | `hs:alert:agg_cycle_slow` | `app/workers/aggregation_worker.py:178` | TBD | TBD |
 | `hs:alock` | `app/core/distributed_lock.py:123` | TBD | TBD |
 | `hs:annotations:v1` | `app/services/annotations.py:28` | TBD | TBD |
-| `hs:approval_reminder` | `app/workers/agent_worker.py:1915` | TBD | TBD |
-| `hs:approved_reminder` | `app/workers/agent_worker.py:1880` | TBD | TBD |
+| `hs:approval_reminder` | `app/workers/agent_worker.py:1381` | Telegram approval-reminder cooldown per action_approval id (30min reminder cadence) | 30min |
 | `hs:audit_log:chain_head` | `app/services/audit.py:44` | TBD | TBD |
 | `hs:audit_log:quarantined_row_ids` | `app/services/audit.py:384` | TBD | TBD |
 | `hs:audit_log_check:day` | `app/workers/agent_worker.py:895` | TBD | TBD |

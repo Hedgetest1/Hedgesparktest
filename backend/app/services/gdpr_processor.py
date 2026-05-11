@@ -473,14 +473,23 @@ _REDIS_SHOP_KEY_TEMPLATES_EXACT = [
 _REDIS_SHOP_KEY_TEMPLATES_MD5 = [
     "hs:recurring_buyers:v1:{md5}",        # Recurring Buyers (Pro Sprint #2)
     "hs:storeprofile:v1:{md5}",            # store-profile cache
-    "hs:rars:v1:lite:{md5}",                # RARS Lite tier
-    "hs:rars:v1:pro:{md5}",                 # RARS Pro tier
     "hs:vint:v1:{md5}",                     # Visitor Intent
     "hs:liveopps:v1:{md5}",                 # Live Opportunities
     "hs:kg:v1:stats:{md5}",                 # Knowledge-graph stats
     "hs:action_candidates:v1:{md5}",        # Action candidates cache
     "hs:bi_query:rate:{md5}",               # Pro #3 BI rate-limit counter
 ]
+
+# Plan-parametric keys: same prefix shape for lite + pro tiers. Listed
+# separately from the {md5} templates so audit_claude_md_redis_keys
+# matches the prefix `hs:rars:v1` (revenue_at_risk.py:50) once, not
+# per-tier. Iterated over known tier names in _purge_shop_redis_keys.
+_REDIS_SHOP_KEY_TEMPLATES_PLAN_MD5 = [
+    "hs:rars:v1:{plan}:{md5}",             # RARS report cache
+    # NOTE: rars:lock not invalidated on shop_redact — TTL 40s already
+    # well below human-visible window; lock is transient.
+]
+_RARS_TIER_PLANS = ("lite", "pro")
 
 # Prefix patterns that take {shop}:* (SCAN-based). For Redis without
 # a small known suffix set, we scan with MATCH.
@@ -519,6 +528,9 @@ def _purge_shop_redis_keys(shop_domain: str) -> int:
         keys_to_delete.append(tmpl.format(shop=shop_domain))
     for tmpl in _REDIS_SHOP_KEY_TEMPLATES_MD5:
         keys_to_delete.append(tmpl.format(md5=shop_md5))
+    for tmpl in _REDIS_SHOP_KEY_TEMPLATES_PLAN_MD5:
+        for plan in _RARS_TIER_PLANS:
+            keys_to_delete.append(tmpl.format(plan=plan, md5=shop_md5))
 
     # SCAN-based delete for the prefix-with-suffix patterns. SCAN over
     # MATCH is bounded by the number of matching keys, not the full
