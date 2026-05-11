@@ -47,11 +47,24 @@ _WORKER_INTERVALS = {
 _STALENESS_MULTIPLIER = 2.5  # stale if last_run_at > interval × this
 
 
+import logging
+log = logging.getLogger(__name__)
+
+
 @router.get("/system/health")
 def system_health():
     """
     Structured system health check.  No authentication required — this is
     an operational monitoring endpoint (same pattern as /health).
+
+    Security note (born 2026-05-11 Sprint A audit C3): exception
+    detail strings are NEVER returned to anonymous callers (used to
+    leak SQLAlchemy/psycopg connection-string fragments, schema/table
+    names, host/port; redis-py errors leaked socket addresses).
+    Verbose detail goes to server logs (log.warning) only — operators
+    can correlate via `request_id` if needed. Public response carries
+    coarse status codes (db_unreachable, redis_error, etc.) suitable
+    for monitoring without aiding recon.
     """
     report: dict = {
         "checked_at": datetime.now(timezone.utc).isoformat(),
@@ -71,9 +84,11 @@ def system_health():
             "latency_ms": latency_ms,
         }
     except Exception as exc:
+        # Verbose detail to logs only — never to anonymous response.
+        log.warning("system_health: database probe failed: %s", exc)
         report["subsystems"]["database"] = {
             "status": "error",
-            "detail": str(exc)[:200],
+            "code": "db_unreachable",
         }
         issues.append("database unreachable")
         critical = True
@@ -95,9 +110,10 @@ def system_health():
                 "latency_ms": latency_ms,
             }
     except Exception as exc:
+        log.warning("system_health: redis probe failed: %s", exc)
         report["subsystems"]["redis"] = {
             "status": "error",
-            "detail": str(exc)[:200],
+            "code": "redis_error",
         }
         issues.append("redis error")
 
@@ -131,7 +147,8 @@ def system_health():
                     if status == "stale":
                         issues.append(f"worker {wname} stale ({round(age_s)}s)")
         except Exception as exc:
-            workers_report = {"error": str(exc)[:200]}
+            log.warning("system_health: worker probe failed: %s", exc)
+            workers_report = {"status": "error", "code": "worker_probe_failed"}
 
     report["subsystems"]["workers"] = workers_report
 
@@ -152,9 +169,10 @@ def system_health():
             if count == 0:
                 issues.append("no events in last hour")
         except Exception as exc:
+            log.warning("system_health: event_ingestion probe failed: %s", exc)
             report["subsystems"]["event_ingestion"] = {
                 "status": "error",
-                "detail": str(exc)[:200],
+                "code": "event_probe_failed",
             }
 
     # ── 5. AI cache ───────────────────────────────────────────────────────
