@@ -7144,6 +7144,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/pro/recurring-buyers/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Summary
+         * @description Return cadence-based recurring buyer analytics for the shop.
+         */
+        get: operations["get_summary_pro_recurring_buyers_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pro/abandoned-intent": {
         parameters: {
             query?: never;
@@ -8605,6 +8625,34 @@ export interface components {
             og_description?: string | null;
             /** Expires At */
             expires_at?: string | null;
+        };
+        /**
+         * CrossShopPriorItem
+         * @description Sprint 3 #3 — one (action_kind, metric_kind) aggregate.
+         *
+         *     Represents what the shop's vertical has measured collectively for
+         *     this action+metric pair. k>=3 distinct shops by construction
+         *     (enforced at SQL CHECK + aggregator code + audit).
+         */
+        CrossShopPriorItem: {
+            /** Action Kind */
+            action_kind: string;
+            /** Metric Kind */
+            metric_kind: string;
+            /** Lift Pct Avg */
+            lift_pct_avg: number;
+            /** Lift Pct Std */
+            lift_pct_std?: number | null;
+            /** N Shops */
+            n_shops: number;
+            /** N Decisions */
+            n_decisions: number;
+            /** P Value */
+            p_value?: number | null;
+            /** Confidence */
+            confidence: string;
+            /** Last Aggregated At */
+            last_aggregated_at?: string | null;
         };
         /**
          * CumulativeRevenuePoint
@@ -11817,6 +11865,52 @@ export interface components {
             /** Contact Email */
             contact_email?: string | null;
         };
+        /** RecurringBuyerItem */
+        RecurringBuyerItem: {
+            /** Email Masked */
+            email_masked: string;
+            /** Cadence Kind */
+            cadence_kind: string;
+            /** Cadence Days */
+            cadence_days: number;
+            /** Orders Count */
+            orders_count: number;
+            /** Lifetime Revenue */
+            lifetime_revenue: number;
+            /** Currency */
+            currency: string;
+            /** Last Order At */
+            last_order_at: string;
+            /** Next Expected At */
+            next_expected_at: string;
+            /** Is At Risk */
+            is_at_risk: boolean;
+        };
+        /** RecurringBuyersResponse */
+        RecurringBuyersResponse: {
+            /** Shop Domain */
+            shop_domain: string;
+            /** Currency */
+            currency: string;
+            /** Lookback Days */
+            lookback_days: number;
+            /** Has Data */
+            has_data: boolean;
+            /** Recurring Count */
+            recurring_count: number;
+            /** Recurring Revenue 30D */
+            recurring_revenue_30d: number;
+            /** Mrr Estimate */
+            mrr_estimate: number;
+            /** At Risk Count */
+            at_risk_count: number;
+            /** Churned 30D */
+            churned_30d: number;
+            /** Buyers */
+            buyers?: components["schemas"]["RecurringBuyerItem"][];
+            /** Note */
+            note?: string | null;
+        };
         /** RefundLossResponse */
         RefundLossResponse: {
             /** Shop Domain */
@@ -12860,6 +12954,11 @@ export interface components {
                 [key: string]: unknown;
             }[];
             vertical_prior?: components["schemas"]["VerticalPrior"] | null;
+            /**
+             * Cross Shop Priors
+             * @description Sprint 3 #3 — aggregated lift measurements from other shops in the same vertical (k>=3, GDPR-aggregate-only).
+             */
+            cross_shop_priors?: components["schemas"]["CrossShopPriorItem"][];
             /**
              * Measurement Health
              * @default healthy
@@ -23055,6 +23154,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StoreProfileResponse"];
+                };
+            };
+        };
+    };
+    get_summary_pro_recurring_buyers_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurringBuyersResponse"];
                 };
             };
         };

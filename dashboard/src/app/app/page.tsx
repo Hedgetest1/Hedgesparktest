@@ -74,6 +74,7 @@ import { AskHedgeSparkCard } from "../components/AskHedgeSparkCard";
 import { IntegrationsCard } from "../components/IntegrationsCard";
 import { ProductsInDecline } from "../components/ProductsInDecline";
 import { MonthlyTargetsCard } from "../components/MonthlyTargetsCard";
+import { RecurringBuyersCard } from "../components/RecurringBuyersCard";
 import { MonthlyROICard } from "../components/MonthlyROICard";
 import { TimelineNotes } from "../components/TimelineNotes";
 import { CompareProductsCard } from "../components/CompareProductsCard";
@@ -3801,13 +3802,16 @@ function PageInner() {
               )}
 
               {isProFloor && isProUser && (
-                <ProParityGapPlaceholder
-                  id="pro-subscriptions"
-                  eyebrow="Subscription analytics"
-                  title="Recurring orders · churn · cohort LTV"
-                  body="Auto-detect recurring orders, compute MRR / churn / LTV by subscription cohort, surface at-risk subscribers. Matches the Pro mid-band offered by Glew Pro and Putler Plus."
-                  accent="#fbbf24"
-                />
+                <section id="section-pro-subscriptions" className="my-8">
+                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                    Recurring buyers
+                  </h2>
+                  <RecurringBuyersCard
+                    apiBase={API_BASE}
+                    shop={shop}
+                    isProUser={isProUser}
+                  />
+                </section>
               )}
 
               {/* Revenue Autopsy — Scale-only after 2026-04-30 audit.
@@ -4500,13 +4504,13 @@ function PageInner() {
                     body="Query your raw events, orders, sessions in safe read-only SQL. Saved queries + scheduled email export. Matches the Pro mid-band offered by Klaviyo Marketing, Mixpanel Growth and Glew Pro."
                     accent="#a78bfa"
                   />
-                  <ProParityGapPlaceholder
-                    id="pro-subscriptions"
-                    eyebrow="Subscription analytics"
-                    title="Recurring orders · churn · cohort LTV"
-                    body="Auto-detect recurring orders, compute MRR / churn / LTV by subscription cohort, surface at-risk subscribers. Matches the Pro mid-band offered by Glew Pro and Putler Plus."
-                    accent="#fbbf24"
-                  />
+                  <section id="section-pro-subscriptions" className="my-8">
+                    <RecurringBuyersCard
+                      apiBase={API_BASE}
+                      shop={shop}
+                      isProUser={isProUser}
+                    />
+                  </section>
                 </>
               )}
 
