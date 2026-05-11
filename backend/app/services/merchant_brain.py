@@ -312,6 +312,55 @@ class BrainDecisionDraft:
     baseline_value: float | None
 
 
+def _maybe_audit_cross_shop_demotion(
+    db, shop_domain: str, decision: "BrainDecisionDraft",
+) -> None:
+    """If `decision` is a vertical-prior demotion, write an explicit
+    `audit_log` row at decision time so post-hoc forensic search
+    doesn't require regex-parsing JSON. Hash-chained — survives
+    audit_log chain verification.
+
+    Born 2026-05-11 Senior+++ close (audit finding #7). Original
+    behavior buried the demotion metadata in `brain_decisions.
+    action_payload` JSON, which was forensically weaker than the
+    "audit trail" claim. Now: action_type='brain.cross_shop_prior_
+    demotion' rows are first-class in audit_log.
+
+    Best-effort: any failure here is non-fatal (the demotion still
+    lands in brain_decisions). The `try/except` wrapping mirrors the
+    rest of the brain's audit-log writes (e.g. outcome stamps at
+    line 1346)."""
+    if decision.action_kind != "no_action_demoted_by_vertical_evidence":
+        return
+    payload = decision.action_payload or {}
+    try:
+        from app.services.audit import write_audit_log
+        write_audit_log(
+            db,
+            actor_type="brain",
+            actor_name="merchant_brain.cross_shop_prior",
+            action_type="brain.cross_shop_prior_demotion",
+            target_type="brain_decision_pending",
+            target_id=None,  # decision row not yet inserted; id is in brain_decisions later
+            shop_domain=shop_domain,
+            after_state={
+                "original_action_kind": payload.get("original_action_kind"),
+                "prior_lift_pct": payload.get("prior_lift_pct"),
+                "prior_n_shops": payload.get("prior_n_shops"),
+                "prior_p_value": payload.get("prior_p_value"),
+                "prior_confidence": payload.get("prior_confidence"),
+                "vertical": payload.get("vertical"),
+                "rationale": decision.rationale,
+            },
+            status="completed",
+            metadata={"surface": "merchant_brain._apply_cross_shop_prior"},
+        )
+    except Exception as exc:
+        log.warning(
+            "brain: cross_shop demotion audit_log failed (non-fatal): %s", exc,
+        )
+
+
 def _decide(state: MerchantState) -> BrainDecisionDraft:
     """Rule-table for v0.1. Each rule names: action, rationale,
     expected metric, window. v0.2 plugs in LLM-driven decision with
@@ -1184,6 +1233,15 @@ def tick(db: Session, shop_domain: str) -> dict:
     state = _sense(db, shop_domain)
     synthesis = _synthesize(state)
     decision = _decide(state)
+    # Explicit forensic audit_log entry when the decision is a
+    # vertical-prior demotion. Senior+++ close 2026-05-11 (audit #7):
+    # prior behavior recorded the demotion in `action_payload` JSON
+    # only — post-hoc forensic search required regex-parsing the JSON.
+    # Now every demotion fires a hash-chained `audit_log` row at
+    # decision time, queryable as
+    #   SELECT * FROM audit_log
+    #    WHERE action_type = 'brain.cross_shop_prior_demotion'.
+    _maybe_audit_cross_shop_demotion(db, shop_domain, decision)
     limb, limb_response = _coordinate(db, state, decision)
     decision_id = _record(db, state, synthesis, decision, limb, limb_response)
     db.commit()

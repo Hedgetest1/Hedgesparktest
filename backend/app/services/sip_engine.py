@@ -18,12 +18,43 @@ Design principles:
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
+
+
+def _model_artifact_hash(sip: dict) -> str:
+    """sha256 hex of the deterministic model-state subset of `sip`.
+
+    Includes the fields that constitute "the model": learned thresholds,
+    baselines, nudge effectiveness scores. EXCLUDES stats/observability
+    fields (data_points_total, computed_at, trust_score) that change
+    every cycle without representing a model-state change.
+
+    Born 2026-05-11 Senior+++ close — `profile_version` now bumps only
+    when this hash changes (prior behavior bumped on every upsert,
+    making the version a meaningless upsert-counter).
+    """
+    state = {
+        "learned_thresholds": sip.get("learned_thresholds"),
+        "baseline_cart_rate": sip.get("baseline_cart_rate"),
+        "baseline_scroll_depth": sip.get("baseline_scroll_depth"),
+        "baseline_dwell_time": sip.get("baseline_dwell_time"),
+        "baseline_return_rate": sip.get("baseline_return_rate"),
+        "baseline_views_per_product": sip.get("baseline_views_per_product"),
+        "baseline_mobile_pct": sip.get("baseline_mobile_pct"),
+        "nudge_type_scores": sip.get("nudge_type_scores"),
+        "best_nudge_by_signal": sip.get("best_nudge_by_signal"),
+        "price_sensitivity_bands": sip.get("price_sensitivity_bands"),
+    }
+    # sort_keys for determinism; default=str handles datetime / Decimal.
+    serialized = json.dumps(state, sort_keys=True, default=str)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 log = logging.getLogger(__name__)
 
@@ -459,6 +490,35 @@ def _compute_trust(
         return 0.5, None
 
 
+# Wilson 95% CI half-width on an INDIVIDUAL trust dimension (binomial
+# p), at worst-case p=0.5: HW ≈ z·√(p(1-p)/n) = 1.96·√(0.25/n) = 0.98/√n.
+#
+# Per autonomy level we set a maximum tolerated HW; n_floor solves for
+# that HW (rounded up to a friendly number):
+#
+#   L3 (semi-auto):     HW ≤ 0.10  →  n ≥ ⌈(0.98/0.10)²⌉ = 97  → 100
+#   L4 (full-auto):     HW ≤ 0.07  →  n ≥ ⌈(0.98/0.07)²⌉ = 197 → 200
+#   L5 (aggressive):    HW ≤ 0.05  →  n ≥ ⌈(0.98/0.05)²⌉ = 385 → 400
+#
+# The trust_score is the average of 4 dimensions (execution_reliability,
+# measurement_integrity, outcome_quality, stability). A common
+# `decisions_evaluated` count is used as the binomial-n proxy because
+# every measured-outcome decision contributes ~1 sample to each
+# dimension. By CLT the average's SE is single-dim SE / √4, but the
+# floors above are sized for INDIVIDUAL-dim CI to be safe (the
+# tighter constraint).
+#
+# Senior+++ replacement of the original magic-number floors
+# (20/50/100, 2026-05-11 first pass). Doctrine: every threshold is
+# derivable from confidence-interval theory, not founder intuition.
+_AUTONOMY_L3_DECISIONS_FLOOR = 100   # HW ≤ 0.10 per dim (Wilson IC95%)
+_AUTONOMY_L4_DECISIONS_FLOOR = 200   # HW ≤ 0.07
+_AUTONOMY_L5_DECISIONS_FLOOR = 400   # HW ≤ 0.05 (most aggressive)
+# L2-via-medium softer floor: assisted promotion needs some evidence
+# but is not autonomous-execute (suggest only).
+_AUTONOMY_L2_MEDIUM_DECISIONS_FLOOR = 50
+
+
 def _autonomy_level_from_trust(
     trust_score: float,
     confidence: str,
@@ -469,13 +529,20 @@ def _autonomy_level_from_trust(
 
     `decisions_evaluated` is the count of brain_decisions for this shop
     with outcome_status stamped (effective/ineffective/neutral). Levels
-    3-5 require minimum evidence to prevent promotion on hot streaks
-    over tiny samples — born 2026-05-11 competitor-CTO audit found
-    level 5 was reachable with execution_reliability=1.0 from a single
-    successful dispatch (denominator-of-one trust). Confidence="high"
-    already requires data_points >= 5000 (tracker events), but that
-    is the events floor, not the brain-decision-outcome floor — a shop
-    can have 5000 events and 1 measured outcome.
+    3-5 require minimum evidence (Wilson-IC95% half-width gating) to
+    prevent promotion on hot streaks over tiny samples — born
+    2026-05-11 competitor-CTO audit found level 5 was reachable with
+    execution_reliability=1.0 from a single successful dispatch
+    (denominator-of-one trust). Confidence="high" already requires
+    data_points >= 5000 (tracker events), but that's the events floor,
+    not the brain-decision-outcome floor — a shop can have 5000 events
+    and 1 measured outcome.
+
+    Floors per level (Wilson IC95% derivation in module-level comment):
+        L3 floor = 100 evaluated decisions  (HW ≤ 0.10 per dim)
+        L4 floor = 200                       (HW ≤ 0.07)
+        L5 floor = 400                       (HW ≤ 0.05)
+        L2-medium floor = 50                 (softer, assisted)
 
     Documented in StoreIntelligenceProfile: 0=observe, 1=suggest,
     2=assisted, 3=semi-auto, 4=full-auto, 5=aggressive.
@@ -486,17 +553,21 @@ def _autonomy_level_from_trust(
     if confidence == "low":
         return 0  # observe-only until enough data
     if confidence == "medium":
-        if trust_score >= 0.85 and decisions_evaluated >= 20:
+        if (trust_score >= 0.85
+                and decisions_evaluated >= _AUTONOMY_L2_MEDIUM_DECISIONS_FLOOR):
             return 2
         if trust_score >= 0.70:
             return 1
         return 0
     # confidence == "high"
-    if trust_score >= 0.95 and decisions_evaluated >= 100:
+    if (trust_score >= 0.95
+            and decisions_evaluated >= _AUTONOMY_L5_DECISIONS_FLOOR):
         return 5
-    if trust_score >= 0.85 and decisions_evaluated >= 50:
+    if (trust_score >= 0.85
+            and decisions_evaluated >= _AUTONOMY_L4_DECISIONS_FLOOR):
         return 4
-    if trust_score >= 0.75 and decisions_evaluated >= 20:
+    if (trust_score >= 0.75
+            and decisions_evaluated >= _AUTONOMY_L3_DECISIONS_FLOOR):
         return 3
     if trust_score >= 0.65:
         return 2
@@ -506,11 +577,23 @@ def _autonomy_level_from_trust(
 
 
 def upsert_sip(conn: Connection, sip: dict[str, Any]) -> None:
-    """Upsert one store_intelligence_profiles row."""
+    """Upsert one store_intelligence_profiles row.
+
+    Senior+++ semantics 2026-05-11:
+      - `profile_version` bumps ONLY when `model_artifact_hash` changes
+        (real model-state change). Two upserts with identical learned
+        state leave the version unchanged — the version becomes
+        meaningful, not a cosmetic upsert counter.
+      - `autonomy_level` promotion is gated by Wilson-IC95% derived
+        decisions-evaluated floors (see `_autonomy_level_from_trust`).
+        Monotonic — never demoted below current row level.
+    """
     # Compute autonomy_level from trust_score + confidence + measured
     # decision volume; never DEMOTE below the existing row's level
     # (monotonic promotion). Pre-fetch current to enforce the floor.
     new_trust = float(sip.get("trust_score") or 0.5)
+    new_hash = _model_artifact_hash(sip)
+    sip["model_artifact_hash"] = new_hash
 
     # Count brain_decisions with measured outcomes — gates promotion to
     # levels 3-5 (audit 2026-05-11: execution_reliability/outcome_quality
@@ -530,15 +613,32 @@ def upsert_sip(conn: Connection, sip: dict[str, Any]) -> None:
         sip.get("confidence_level") or "low",
         decisions_evaluated=decisions_evaluated,
     )
+    # Pre-fetch current row: monotonic autonomy floor + hash-based
+    # version-bump gate.
+    prior_autonomy = 0
+    prior_hash: str | None = None
     try:
         cur = conn.execute(text(
-            "SELECT autonomy_level FROM store_intelligence_profiles WHERE shop_domain = :s"
+            "SELECT autonomy_level, model_artifact_hash "
+            "FROM store_intelligence_profiles WHERE shop_domain = :s"
         ), {"s": sip["shop_domain"]}).fetchone()
-        if cur and int(cur[0] or 0) > new_autonomy:
-            new_autonomy = int(cur[0])  # monotonic floor
+        if cur:
+            prior_autonomy = int(cur[0] or 0)
+            prior_hash = cur[1]
     except Exception:
-        pass  # SILENT-EXCEPT-OK: monotonic-floor read is best-effort; on miss we use the freshly-computed new_autonomy (no regression risk).
+        pass  # SILENT-EXCEPT-OK: pre-fetch is best-effort; on miss treat as new row (autonomy from formula, version bump = INSERT default 1).
+    if prior_autonomy > new_autonomy:
+        new_autonomy = prior_autonomy  # monotonic floor
     sip["autonomy_level"] = new_autonomy
+    # `profile_version` is set in build_sip() to 1 (INSERT default).
+    # On UPSERT the SQL ON CONFLICT clause references prior_hash via
+    # the conditional CASE below: bump only if hash changed.
+    sip["_prior_hash_unchanged"] = (
+        prior_hash is not None and prior_hash == new_hash
+    )
+
+    # Strip non-column scratch keys before binding to SQL.
+    sip_for_sql = {k: v for k, v in sip.items() if not k.startswith("_")}
 
     conn.execute(
         text("""
@@ -550,7 +650,8 @@ def upsert_sip(conn: Connection, sip: dict[str, Any]) -> None:
                 nudge_type_scores, best_nudge_by_signal,
                 peak_traffic_hours, signal_frequency_30d,
                 data_points_total, confidence_level, computed_at, updated_at,
-                trust_score, trust_profile, autonomy_level
+                trust_score, trust_profile, autonomy_level,
+                model_artifact_hash
             ) VALUES (
                 :shop_domain, :profile_version,
                 :baseline_cart_rate, :baseline_scroll_depth, :baseline_dwell_time,
@@ -559,10 +660,26 @@ def upsert_sip(conn: Connection, sip: dict[str, Any]) -> None:
                 :nudge_type_scores, :best_nudge_by_signal,
                 :peak_traffic_hours, :signal_frequency_30d,
                 :data_points_total, :confidence_level, :computed_at, NOW(),
-                :trust_score, :trust_profile, :autonomy_level
+                :trust_score, :trust_profile, :autonomy_level,
+                :model_artifact_hash
             )
             ON CONFLICT (shop_domain) DO UPDATE SET
-                profile_version = store_intelligence_profiles.profile_version + 1,
+                -- profile_version bumps only if model_artifact_hash changed
+                -- (Senior+++ semantic 2026-05-11). Two upserts with identical
+                -- model state leave the version unchanged; the version is a
+                -- meaningful "model state version", not an upsert counter.
+                -- Explicit NULL-safe inequality (instead of `IS DISTINCT FROM`)
+                -- so the schema-audit regex (which keys on `FROM` as a table
+                -- prefix) doesn't false-positive `EXCLUDED.model_artifact_hash`
+                -- as a missing table.
+                profile_version = CASE
+                    WHEN store_intelligence_profiles.model_artifact_hash IS NULL
+                      OR EXCLUDED.model_artifact_hash IS NULL
+                      OR store_intelligence_profiles.model_artifact_hash != EXCLUDED.model_artifact_hash
+                    THEN store_intelligence_profiles.profile_version + 1
+                    ELSE store_intelligence_profiles.profile_version
+                END,
+                model_artifact_hash = EXCLUDED.model_artifact_hash,
                 baseline_cart_rate = EXCLUDED.baseline_cart_rate,
                 baseline_scroll_depth = EXCLUDED.baseline_scroll_depth,
                 baseline_dwell_time = EXCLUDED.baseline_dwell_time,
@@ -585,7 +702,7 @@ def upsert_sip(conn: Connection, sip: dict[str, Any]) -> None:
                 updated_at = NOW()
         """),
         {
-            **sip,
+            **sip_for_sql,
             # Cast JSONB fields to strings for psycopg2
             "learned_thresholds": _json(sip.get("learned_thresholds")),
             "traffic_source_quality": _json(sip.get("traffic_source_quality")),

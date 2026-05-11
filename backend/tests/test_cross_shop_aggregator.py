@@ -116,17 +116,60 @@ def test_confidence_demoted_to_low_below_effect_size_floor(monkeypatch):
     demoted to "low" confidence even when p_value and n_shops would
     qualify for "high". Otherwise merchant_brain._apply_cross_shop_prior
     would demote a paying merchant's action based on noise.
+
+    Default floor (no metric_kind) is _DEFAULT_EFFECT_FLOOR_PCT = 0.5.
     """
     # +0.001% lift with strong stats → demoted to low (effect too small)
     assert csa._confidence_label(10, 0.001, lift_pct_avg=0.001) == "low"
-    # -0.4% lift (just below 0.5% floor) → demoted to low
+    # -0.4% lift (just below 0.5% default floor) → demoted to low
     assert csa._confidence_label(20, 0.001, lift_pct_avg=-0.4) == "low"
-    # Exact floor — 0.5% qualifies
+    # Exact default floor — 0.5% qualifies
     assert csa._confidence_label(10, 0.01, lift_pct_avg=0.5) == "high"
     assert csa._confidence_label(10, 0.01, lift_pct_avg=-0.5) == "high"
 
     # Default lift_pct_avg=0.0 → always low (zero-effect)
     assert csa._confidence_label(10, 0.001) == "low"
+
+
+def test_per_metric_effect_size_floor_rars_stricter_than_default():
+    """Senior+++ upgrade 2026-05-11: per-metric noise floors. RAR is
+    the noisiest metric (1.0% floor); CVR uses default 0.5%; unmapped
+    metrics fall back to default 0.5%."""
+    # rars_delta_7d: 0.7% lift with strong stats → demoted (below 1.0%)
+    assert csa._confidence_label(
+        10, 0.001, lift_pct_avg=0.7, metric_kind="rars_delta_7d"
+    ) == "low"
+    # rars_delta_7d: 1.0% exact floor → qualifies
+    assert csa._confidence_label(
+        10, 0.001, lift_pct_avg=1.0, metric_kind="rars_delta_7d"
+    ) == "high"
+    # cvr_delta_7d: 0.5% qualifies (uses 0.5% floor)
+    assert csa._confidence_label(
+        10, 0.001, lift_pct_avg=0.5, metric_kind="cvr_delta_7d"
+    ) == "high"
+    # cvr_delta_7d: 0.4% demoted (below floor)
+    assert csa._confidence_label(
+        10, 0.001, lift_pct_avg=0.4, metric_kind="cvr_delta_7d"
+    ) == "low"
+    # Unmapped metric falls back to default 0.5%
+    assert csa._confidence_label(
+        10, 0.001, lift_pct_avg=0.5, metric_kind="unknown_xyz"
+    ) == "high"
+    assert csa._confidence_label(
+        10, 0.001, lift_pct_avg=0.4, metric_kind="unknown_xyz"
+    ) == "low"
+
+
+def test_effect_size_floor_helper_returns_per_metric_value():
+    """The _effect_size_floor_pct helper exposes the per-metric floor
+    so other consumers (e.g., brain demote rationale) can reference
+    the same source of truth."""
+    assert csa._effect_size_floor_pct("rars_delta_7d") == 1.0
+    assert csa._effect_size_floor_pct("cvr_delta_7d") == 0.5
+    assert csa._effect_size_floor_pct("merchant_re_engaged_7d") == 1.0
+    assert csa._effect_size_floor_pct(None) == 0.5
+    assert csa._effect_size_floor_pct("") == 0.5
+    assert csa._effect_size_floor_pct("totally_unmapped") == 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -408,3 +451,59 @@ def test_run_if_due_claim_held_skips(monkeypatch):
     report = csa.run_if_due()
     assert report["status"] == "skipped"
     assert report["reason"] == "claim_held"
+
+
+def test_force_run_now_invalidates_claim_and_runs(db, monkeypatch):
+    """force_run_now bypasses the 6h Redis claim and runs aggregation
+    immediately. Used by merchant_privacy.set_opt_out to recompute
+    cross_shop_patterns ASAP after a GDPR Art. 21 opt-out (closes the
+    TOCTOU window in audit finding #1)."""
+    deleted_keys: list[str] = []
+
+    class _SpyRedis:
+        def delete(self, key):
+            deleted_keys.append(key)
+            return 1
+        # No set() → would be a bug if force_run_now tried to acquire
+        # a claim
+
+    monkeypatch.setattr(csa, "_redis_client", lambda: _SpyRedis())
+    _patch_vertical(monkeypatch, {})  # no shops → empty aggregation
+
+    report = csa.force_run_now(db)
+    assert report["status"] == "completed"
+    assert report["forced"] is True
+    assert csa.NEXT_RUN_KEY in deleted_keys, (
+        "force_run_now MUST invalidate the SETNX claim"
+    )
+
+
+def test_opt_out_invalidates_cross_shop_claim(monkeypatch):
+    """merchant_privacy.set_opt_out(shop, True) MUST invalidate the
+    cross_shop_aggregator Redis claim so the next periodic tick (5min)
+    recomputes immediately. Without this hook, an opted-out shop's
+    outcomes could remain in cross_shop_patterns aggregates for up to
+    6h. Born 2026-05-11 Senior+++ close (audit finding #1)."""
+    from app.services import merchant_privacy
+
+    deleted_keys: list[str] = []
+
+    class _SpyRedis:
+        def set(self, key, val, *args, **kwargs):
+            return True
+        def delete(self, key):
+            deleted_keys.append(key)
+            return 1
+        def keys(self, pattern):
+            return []
+
+    monkeypatch.setattr(merchant_privacy, "_redis", lambda: _SpyRedis())
+    monkeypatch.setattr(merchant_privacy, "_purge_derived_caches_for_shop",
+                        lambda *a, **kw: None)
+
+    merchant_privacy.set_opt_out("test-shop.myshopify.com", True)
+
+    assert csa.NEXT_RUN_KEY in deleted_keys, (
+        "set_opt_out(shop, True) MUST delete the cross_shop_aggregator "
+        "claim — the TOCTOU fix requires immediate recompute trigger"
+    )

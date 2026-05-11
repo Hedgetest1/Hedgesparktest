@@ -433,6 +433,24 @@ def _run_cycle_inner() -> None:
             log(f"cross_shop_aggregator error (non-fatal): {exc}")
 
         # ------------------------------------------------------------------ #
+        # Synthetic-source orphan-alert auto-resolve — L2 of the source-     #
+        # blocklist defense (L1 = write-time guard in alerting.write_alert). #
+        # Resolves any unresolved ops_alerts whose source matches a known    #
+        # synthetic test pattern AND age > 7d. Born 2026-05-11 Senior+++     #
+        # close after disposing 7 alerts manually (one had persisted 16d).   #
+        # ------------------------------------------------------------------ #
+        try:
+            from app.core.alert_source_blocklist import AUTO_RESOLVE_SQL
+            from sqlalchemy import text as _sql_text
+            res = db.execute(_sql_text(AUTO_RESOLVE_SQL))
+            db.commit()
+            if (res.rowcount or 0) > 0:
+                log(f"alert_source_orphan_sweep: resolved={res.rowcount}")
+        except Exception as exc:
+            db.rollback()
+            log(f"alert_source_orphan_sweep error (non-fatal): {exc}")
+
+        # ------------------------------------------------------------------ #
         # Lighthouse nightly — once-per-day guard inside the service.         #
         # Runs only in the 02:00-04:00 UTC window (low dashboard traffic)     #
         # and skips if already ran today. Returns early on any other cycle,  #

@@ -21,7 +21,7 @@ Read by:
 """
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, UniqueConstraint, text
+from sqlalchemy import Boolean, CHAR, Column, DateTime, Float, Integer, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
@@ -33,7 +33,29 @@ class StoreIntelligenceProfile(Base):
 
     id = Column(Integer, primary_key=True)
     shop_domain = Column(String, nullable=False, unique=True, index=True)
+    # profile_version = "model-state version". Increments only when
+    # `model_artifact_hash` changes (new learned_thresholds / baselines /
+    # nudge_scores). Two upserts with identical model state leave the
+    # version unchanged. Senior+++ semantic 2026-05-11; prior to that
+    # the column was effectively an upsert counter (memo claim "v117"
+    # was cosmetic).
     profile_version = Column(Integer, nullable=False, default=1, server_default="1")
+    # sha256 hex of the deterministic model state (learned_thresholds +
+    # baselines + nudge_type_scores + best_nudge_by_signal +
+    # price_sensitivity_bands). Computed by sip_engine.upsert_sip;
+    # version-bump gate. Born 2026-05-11 Senior+++ close.
+    # Comment mirrors the column comment set in migration aa7 to keep
+    # alembic check happy.
+    model_artifact_hash = Column(
+        CHAR(64),
+        nullable=True,
+        comment=(
+            "sha256 hex of (learned_thresholds + baselines + "
+            "nudge_scores). profile_version increments only when this "
+            "changes — otherwise the upsert is a no-op for version "
+            "semantics."
+        ),
+    )
 
     # ── Behavioral baselines (store-wide rolling averages) ──
     baseline_cart_rate = Column(Float, nullable=True)         # 7d cart conversion rate

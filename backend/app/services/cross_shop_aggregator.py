@@ -56,14 +56,49 @@ NEXT_RUN_KEY = "hs:cross_shop_aggregator:next_run"
 # the outcome was measured (not still pending, not evaluation-failed).
 EVALUATED_STATUSES = ("effective", "ineffective", "neutral")
 
-# Effect-size floor: lifts below this absolute magnitude are treated
-# as noise (stamped "low" confidence) even if statistically significant.
-# 0.5% chosen as the minimum operationally-visible movement on a
-# merchant dashboard — a "10 shops × +0.001% lift, p<0.001" pattern
-# would be statistically real but operationally meaningless and would
-# trigger merchant_brain demotions in _apply_cross_shop_prior. Born
-# 2026-05-11 competitor-CTO audit.
-MIN_EFFECT_SIZE_PCT = 0.5
+# Effect-size floor PER metric_kind: lifts below the floor for that
+# metric are treated as noise (stamped "low" confidence) even if
+# statistically significant. Senior+++ replacement of the original
+# magic-number `MIN_EFFECT_SIZE_PCT = 0.5` (2026-05-11 first pass) —
+# different metrics have different operational visibility floors.
+#
+# Lifts are in PERCENTAGE POINTS as computed by `_compute_lift_pct`:
+# `(measured - baseline) / baseline * 100`. So a `lift_pct_avg=0.5`
+# means a 0.5% relative shift from baseline.
+#
+# Per-metric rationale:
+#  - rars_delta_7d: RAR (revenue-at-risk in cents) is the noisiest
+#    metric — typical week-over-week shop volatility is ±5-10%. A
+#    sub-1% shift can't be distinguished from baseline noise. Floor
+#    1.0% prevents "high confidence" priors below the noise floor.
+#  - cvr_delta_7d: CVR is a percentage rate; a 0.5pt absolute shift
+#    on a 2% baseline is 25% relative — clearly operationally meaningful.
+#    Floor 0.5%.
+#  - Binary outcome metrics (merchant_re_engaged_7d, events_24h_resumed):
+#    the aggregator filters them via baseline/measured non-null +
+#    non-zero-baseline checks, so they rarely reach _confidence_label.
+#    Defensive 1.0% floor in case they slip through.
+#  - Default 0.5%: minimum operationally-visible movement on a
+#    merchant dashboard for unmapped metrics.
+#
+# Born 2026-05-11 Senior+++ close (replaces MIN_EFFECT_SIZE_PCT magic
+# constant). Doctrine: every floor in the dict is justified empirically
+# by the metric's noise envelope — not "the founder's intuition".
+_EFFECT_SIZE_FLOORS_PCT: dict[str, float] = {
+    "rars_delta_7d": 1.0,
+    "cvr_delta_7d": 0.5,
+    "merchant_re_engaged_7d": 1.0,
+    "events_24h_resumed": 1.0,
+}
+_DEFAULT_EFFECT_FLOOR_PCT = 0.5
+
+
+def _effect_size_floor_pct(metric_kind: str | None) -> float:
+    """Per-metric effect-size floor (percentage points). Falls back to
+    `_DEFAULT_EFFECT_FLOOR_PCT` for unknown metric_kind."""
+    return _EFFECT_SIZE_FLOORS_PCT.get(
+        metric_kind or "", _DEFAULT_EFFECT_FLOOR_PCT
+    )
 
 
 def run_if_due(db: Session | None = None) -> dict:
@@ -104,6 +139,48 @@ def run_if_due(db: Session | None = None) -> dict:
         db = SessionLocal()
     try:
         return _run_aggregation(db)
+    finally:
+        if own_session:
+            db.close()
+
+
+def force_run_now(db: Session | None = None) -> dict:
+    """Bypass the 6h Redis claim and run aggregation immediately.
+
+    Use case: a merchant opts out (GDPR Art. 21) → their measured
+    decisions must stop contributing to cross_shop_patterns ASAP.
+    Waiting 6h for the next periodic tick leaves a TOCTOU window
+    where the row might dip below k=3 in real terms while the SQL
+    row still shows k>=3. `force_run_now` recomputes immediately +
+    invalidates the Redis claim so the next periodic tick will
+    re-acquire fresh.
+
+    Senior+++ alternative to a DB trigger on merchants opt-out —
+    the app-level event is more visible, testable, and evolvable
+    than an opaque PL/pgSQL trigger. Caller MUST be responding to
+    a real opt-out event (don't call from a tight loop — the
+    aggregator is O(N·measured_decisions)).
+
+    Born 2026-05-11 Senior+++ close (audit finding #1).
+    """
+    # Invalidate any existing claim so the next periodic tick rebuilds.
+    r = _redis_client()
+    if r is not None:
+        try:
+            r.delete(NEXT_RUN_KEY)
+        except Exception as e:
+            logger.warning(
+                "cross_shop_aggregator: force_run claim invalidation "
+                "failed (non-fatal): %s", e,
+            )
+
+    own_session = db is None
+    if own_session:
+        db = SessionLocal()
+    try:
+        report = _run_aggregation(db)
+        report["forced"] = True
+        return report
     finally:
         if own_session:
             db.close()
@@ -201,7 +278,9 @@ def _run_aggregation(db: Session) -> dict:
 
         lifts = [lift for _, lift in pairs]
         mean, std, p_value = one_sample_t_test(lifts)
-        confidence = _confidence_label(n_shops, p_value, mean)
+        confidence = _confidence_label(
+            n_shops, p_value, mean, metric_kind=metric_kind,
+        )
 
         # Upsert via delete-then-insert in same transaction
         db.execute(text("""
@@ -294,21 +373,29 @@ def _compute_lift_pct(baseline: float, measured: float) -> float | None:
 
 
 def _confidence_label(
-    n_shops: int, p_value: float, lift_pct_avg: float = 0.0
+    n_shops: int,
+    p_value: float,
+    lift_pct_avg: float = 0.0,
+    metric_kind: str | None = None,
 ) -> str:
     """Derive a 3-level confidence label from sample size + p-value +
-    effect size.
+    per-metric effect size.
 
-    - high: n_shops >= 10 AND p < 0.05 AND |lift| >= MIN_EFFECT_SIZE_PCT
-    - medium: n_shops >= 5 AND p < 0.10 AND |lift| >= MIN_EFFECT_SIZE_PCT
+    - high: n_shops >= 10 AND p < 0.05 AND |lift| >= floor(metric_kind)
+    - medium: n_shops >= 5 AND p < 0.10 AND |lift| >= floor(metric_kind)
     - low: otherwise (n_shops >= 3 guaranteed by k-anonymity floor)
 
     The effect-size floor prevents "statistically significant but
     practically meaningless" patterns (e.g., 10 shops × +0.001% lift
     with p<0.001) from triggering brain demotions in
-    _apply_cross_shop_prior. Born 2026-05-11 competitor-CTO audit.
+    _apply_cross_shop_prior.
+
+    `metric_kind` selects a per-metric noise-floor from
+    `_EFFECT_SIZE_FLOORS_PCT` (None → default). Born 2026-05-11
+    competitor-CTO audit (initial magic-constant pass) + Senior+++
+    upgrade to per-metric floor (same day).
     """
-    if abs(lift_pct_avg) < MIN_EFFECT_SIZE_PCT:
+    if abs(lift_pct_avg) < _effect_size_floor_pct(metric_kind):
         return "low"
     if n_shops >= 10 and p_value < 0.05:
         return "high"

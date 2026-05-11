@@ -220,6 +220,28 @@ def write_alert(
         log.warning("alerting: synthetic-shop guard failed: %s", exc)
         # Fall through — fail-open so a guard bug never blocks real alerts.
 
+    # Step 0bis: synthetic alert-source guard. Parallel to the shop-side
+    # blocklist above, but keys on `source` for global-scope synthetic
+    # tests (NULL shop_domain). Born 2026-05-11 after a phase_c_synthetic_
+    # test alert persisted 16 days as orphan noise. See
+    # app/core/alert_source_blocklist.py.
+    try:
+        from app.core.alert_source_blocklist import is_synthetic_alert_source
+        if is_synthetic_alert_source(source):
+            log.debug(
+                "alert: synthetic-source guard suppressed [%s] %s shop=%s",
+                alert_type, source, shop_domain or "global",
+            )
+            stub = OpsAlert(
+                severity=severity, source=source, alert_type=alert_type,
+                shop_domain=shop_domain, summary=summary,
+                detail=json.dumps(detail, default=str) if detail and not isinstance(detail, str) else detail,
+            )
+            return stub  # not added to session; never persisted
+    except Exception as exc:
+        log.warning("alerting: synthetic-source guard failed: %s", exc)
+        # Fail-open per the same rationale as the shop-side guard above.
+
     # Step 0a: Acute dedup — pure noise suppression within 5 minutes.
     # If an identical alert was raised in the last 5 minutes, drop this
     # one entirely. No state mutation — we don't even bump the counter,

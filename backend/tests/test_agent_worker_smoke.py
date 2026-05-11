@@ -300,61 +300,91 @@ def test_brain_vero_outcome_eval_triggers_closed_loop_sip_retrain(db):
 
 
 def test_autonomy_level_threshold_ladder():
-    """Sprint 1 #2 — autonomy_level promotion 0→5 + decisions-evaluated
-    floor (born 2026-05-11 competitor-CTO audit).
+    """Sprint 1 #2 — autonomy_level promotion 0→5 + Wilson-IC95% derived
+    decisions-evaluated floors (Senior+++ close 2026-05-11).
+
+    Floors derived in module-level comment:
+        L3 floor = 100 evaluated decisions  (Wilson HW ≤ 0.10 per dim)
+        L4 floor = 200                       (HW ≤ 0.07)
+        L5 floor = 400                       (HW ≤ 0.05, most aggressive)
+        L2-medium floor = 50                 (softer, assisted)
 
     The ladder is documented in StoreIntelligenceProfile:
     0=observe, 1=suggest, 2=assisted, 3=semi-auto, 4=full-auto,
     5=aggressive. Promotion gated by confidence + trust_score +
-    measured-decision volume (decisions_evaluated). Levels 3-5 require
-    minimum measured-outcome evidence to prevent "denominator-of-one
-    trust" promotions (e.g., execution_reliability=1.0 from a single
-    successful dispatch).
+    measured-decision volume (decisions_evaluated).
     """
     from app.services.sip_engine import _autonomy_level_from_trust as f
 
     # Low confidence — locked at 0 (observe-only) regardless of decisions
-    assert f(0.99, "low", decisions_evaluated=1000) == 0
+    assert f(0.99, "low", decisions_evaluated=10000) == 0
     assert f(0.50, "low") == 0
 
-    # Medium confidence — capped at 2; L2 requires >=20 evaluated decisions
-    assert f(0.95, "medium", decisions_evaluated=20) == 2
-    assert f(0.85, "medium", decisions_evaluated=20) == 2
-    assert f(0.85, "medium", decisions_evaluated=19) == 1  # demoted
+    # Medium confidence — capped at 2; L2 requires >=50 evaluated decisions
+    assert f(0.95, "medium", decisions_evaluated=50) == 2
+    assert f(0.85, "medium", decisions_evaluated=50) == 2
+    assert f(0.85, "medium", decisions_evaluated=49) == 1  # demoted
     assert f(0.70, "medium") == 1
     assert f(0.50, "medium") == 0
 
-    # High confidence — full ladder 0..5 with decisions floor
-    assert f(0.96, "high", decisions_evaluated=100) == 5  # aggressive
-    assert f(0.87, "high", decisions_evaluated=50) == 4  # full-auto
-    assert f(0.76, "high", decisions_evaluated=20) == 3  # semi-auto
+    # High confidence — full ladder 0..5 with Wilson-derived floors
+    assert f(0.96, "high", decisions_evaluated=400) == 5  # aggressive
+    assert f(0.87, "high", decisions_evaluated=200) == 4  # full-auto
+    assert f(0.76, "high", decisions_evaluated=100) == 3  # semi-auto
     assert f(0.66, "high") == 2  # assisted (no floor)
     assert f(0.51, "high") == 1  # suggest (no floor)
     assert f(0.40, "high") == 0  # observe
 
     # Decisions-evaluated floor enforcement at boundaries
-    # Trust 0.96 + 99 evaluated → fails L5 floor (needs >=100), passes
-    # L4 floor (99>=50, 0.96>=0.85) → lands L4
-    assert f(0.96, "high", decisions_evaluated=99) == 4
-    # Trust 0.96 + 49 → fails L5 + L4 floors, passes L3 (49>=20, 0.96>=0.75)
-    assert f(0.96, "high", decisions_evaluated=49) == 3
-    # Trust 0.96 + 19 → fails L5/L4/L3, lands L2 (trust>=0.65, no floor)
-    assert f(0.96, "high", decisions_evaluated=19) == 2
-    # Trust 0.87 + 49 → fails L4 floor, passes L3 (49>=20, 0.87>=0.75)
-    assert f(0.87, "high", decisions_evaluated=49) == 3
-    # Trust 0.87 + 19 → fails L4 + L3 floors, lands L2
-    assert f(0.87, "high", decisions_evaluated=19) == 2
-    # Trust 0.76 + 19 → fails L3 floor, lands L2
-    assert f(0.76, "high", decisions_evaluated=19) == 2
+    # Trust 0.96 + 399 → fails L5 (needs >=400), passes L4 (>=200, 0.96>=0.85)
+    assert f(0.96, "high", decisions_evaluated=399) == 4
+    # Trust 0.96 + 199 → fails L5+L4, passes L3 (>=100, 0.96>=0.75)
+    assert f(0.96, "high", decisions_evaluated=199) == 3
+    # Trust 0.96 + 99 → fails L5/L4/L3, lands L2 (trust>=0.65, no floor)
+    assert f(0.96, "high", decisions_evaluated=99) == 2
+    # Trust 0.87 + 199 → fails L4 (needs >=200), passes L3
+    assert f(0.87, "high", decisions_evaluated=199) == 3
+    # Trust 0.87 + 99 → fails L4+L3, lands L2
+    assert f(0.87, "high", decisions_evaluated=99) == 2
+    # Trust 0.76 + 99 → fails L3, lands L2
+    assert f(0.76, "high", decisions_evaluated=99) == 2
 
     # Default decisions=0: hot-streak trust=0.99 high cannot exceed L2
     # (this is the bug the floor closes — a shop with 0 measured
     # outcomes can no longer hit level 5 just because confidence flags
     # high from event count)
-    assert f(0.99, "high") == 2  # was 5 pre-2026-05-11
-    assert f(0.96, "high") == 2  # was 5
-    assert f(0.87, "high") == 2  # was 4
-    assert f(0.76, "high") == 2  # was 3
+    assert f(0.99, "high") == 2
+    assert f(0.96, "high") == 2
+    assert f(0.87, "high") == 2
+    assert f(0.76, "high") == 2
+
+
+def test_wilson_floors_match_documented_derivation():
+    """Lock the Wilson-CI derivation to the actual constants — if any
+    threshold drifts, the test fails so the doctrine doesn't desync
+    from the code. Math: HW ≈ 0.98/√n at p=0.5 worst-case binomial."""
+    import math
+    from app.services.sip_engine import (
+        _AUTONOMY_L3_DECISIONS_FLOOR,
+        _AUTONOMY_L4_DECISIONS_FLOOR,
+        _AUTONOMY_L5_DECISIONS_FLOOR,
+        _AUTONOMY_L2_MEDIUM_DECISIONS_FLOOR,
+    )
+
+    # L3: HW ≤ 0.10 → n ≥ ceil((0.98/0.10)²) = 97 → rounded to 100
+    assert _AUTONOMY_L3_DECISIONS_FLOOR >= math.ceil((0.98 / 0.10) ** 2)
+    assert _AUTONOMY_L3_DECISIONS_FLOOR == 100
+
+    # L4: HW ≤ 0.07 → n ≥ ceil((0.98/0.07)²) = 197 → rounded to 200
+    assert _AUTONOMY_L4_DECISIONS_FLOOR >= math.ceil((0.98 / 0.07) ** 2)
+    assert _AUTONOMY_L4_DECISIONS_FLOOR == 200
+
+    # L5: HW ≤ 0.05 → n ≥ ceil((0.98/0.05)²) = 385 → rounded to 400
+    assert _AUTONOMY_L5_DECISIONS_FLOOR >= math.ceil((0.98 / 0.05) ** 2)
+    assert _AUTONOMY_L5_DECISIONS_FLOOR == 400
+
+    # L2-medium softer floor at 50 decisions
+    assert _AUTONOMY_L2_MEDIUM_DECISIONS_FLOOR == 50
 
 
 def test_autonomy_level_monotonic_floor(db):
@@ -416,12 +446,13 @@ def test_autonomy_level_monotonic_floor(db):
     assert row[0] == 4, f"monotonic floor must hold autonomy=4 even with trust=0.76, got {row[0]}"
 
 
-def test_profile_version_increments_on_each_upsert(db):
-    """Born 2026-05-11: profile_version was hardcoded to 1 in build_sip
-    AND the ON CONFLICT clause re-wrote it to EXCLUDED.profile_version
-    (=1 every time). The roadmap memo claim 'hedgespark-dev v117' was
-    fiction. Fix: ON CONFLICT now does `+1`, so each retraining cycle
-    increments the version visibly.
+def test_profile_version_bumps_only_on_model_artifact_hash_change(db):
+    """Senior+++ semantic 2026-05-11: `profile_version` increments ONLY
+    when `model_artifact_hash` changes (real model-state change).
+    Two upserts with identical learned state leave the version
+    unchanged — the version becomes meaningful, not a cosmetic upsert
+    counter. Replaces the prior "+1 on every upsert" semantic born
+    earlier same day.
     """
     from sqlalchemy import text as _sql_text
     from app.services.sip_engine import upsert_sip
@@ -429,14 +460,15 @@ def test_profile_version_increments_on_each_upsert(db):
     shop = "_profile_version_test_.myshopify.com"
     conn = db.connection()
 
-    def _sip_template(version_hint: int) -> dict:
+    def _sip_template(thresholds: dict | None = None) -> dict:
         return {
             "shop_domain": shop,
-            "profile_version": version_hint,
-            "baseline_cart_rate": None, "baseline_scroll_depth": None,
+            "profile_version": 1,  # INSERT default; UPSERT uses CASE
+            "baseline_cart_rate": 0.05,  # non-null → contributes to hash
+            "baseline_scroll_depth": None,
             "baseline_dwell_time": None, "baseline_return_rate": None,
             "baseline_views_per_product": None, "baseline_mobile_pct": None,
-            "learned_thresholds": None, "traffic_source_quality": None,
+            "learned_thresholds": thresholds, "traffic_source_quality": None,
             "price_sensitivity_bands": None, "nudge_type_scores": None,
             "best_nudge_by_signal": None, "peak_traffic_hours": None,
             "signal_frequency_30d": None,
@@ -447,31 +479,197 @@ def test_profile_version_increments_on_each_upsert(db):
             "trust_profile": None,
         }
 
-    # Cycle 1: INSERT → profile_version = 1 (from :profile_version)
-    upsert_sip(conn, _sip_template(1))
+    # Cycle 1: INSERT → profile_version = 1
+    upsert_sip(conn, _sip_template({"v": 1}))
     db.flush()
     row = conn.execute(_sql_text(
-        "SELECT profile_version FROM store_intelligence_profiles WHERE shop_domain = :s"
+        "SELECT profile_version, model_artifact_hash "
+        "FROM store_intelligence_profiles WHERE shop_domain = :s"
     ), {"s": shop}).fetchone()
     assert row[0] == 1
+    initial_hash = row[1]
+    assert initial_hash and len(initial_hash) == 64  # sha256 hex
 
-    # Cycle 2: UPSERT → ON CONFLICT increments → version 2
-    upsert_sip(conn, _sip_template(1))
+    # Cycle 2: SAME model state → hash unchanged → version stays at 1
+    upsert_sip(conn, _sip_template({"v": 1}))
+    db.flush()
+    row = conn.execute(_sql_text(
+        "SELECT profile_version, model_artifact_hash "
+        "FROM store_intelligence_profiles WHERE shop_domain = :s"
+    ), {"s": shop}).fetchone()
+    assert row[0] == 1, "version must NOT bump when model state unchanged"
+    assert row[1] == initial_hash
+
+    # Cycle 3: thresholds change → hash changes → version bumps to 2
+    upsert_sip(conn, _sip_template({"v": 2}))
+    db.flush()
+    row = conn.execute(_sql_text(
+        "SELECT profile_version, model_artifact_hash "
+        "FROM store_intelligence_profiles WHERE shop_domain = :s"
+    ), {"s": shop}).fetchone()
+    assert row[0] == 2, "version must bump when model state changes"
+    assert row[1] != initial_hash
+
+    # Cycle 4: another change → version bumps to 3
+    upsert_sip(conn, _sip_template({"v": 3}))
     db.flush()
     row = conn.execute(_sql_text(
         "SELECT profile_version FROM store_intelligence_profiles WHERE shop_domain = :s"
     ), {"s": shop}).fetchone()
-    assert row[0] == 2
+    assert row[0] == 3
 
-    # Cycle 3-5: each cycle bumps. Caller-supplied :profile_version is
-    # ignored on UPDATE (the SET clause uses the stored value + 1).
-    for expected in (3, 4, 5):
-        upsert_sip(conn, _sip_template(1))
+    # Cycle 5: revert to v=2 thresholds → hash differs from v=3 → bump to 4
+    # (the version reflects "number of distinct model states observed",
+    # NOT "shortest path through state space")
+    upsert_sip(conn, _sip_template({"v": 2}))
+    db.flush()
+    row = conn.execute(_sql_text(
+        "SELECT profile_version FROM store_intelligence_profiles WHERE shop_domain = :s"
+    ), {"s": shop}).fetchone()
+    assert row[0] == 4
+
+
+def test_model_artifact_hash_deterministic():
+    """sha256 of the same SIP state must produce the same hash —
+    deterministic, no time-component in the hash input."""
+    from app.services.sip_engine import _model_artifact_hash
+
+    sip_a = {
+        "learned_thresholds": {"x": 1, "y": 2},
+        "baseline_cart_rate": 0.05,
+        "nudge_type_scores": {"social_proof": 0.8},
+        "trust_score": 0.7,  # excluded from hash
+        "computed_at": __import__("datetime").datetime(2026, 5, 11),  # excluded
+    }
+    sip_b = {
+        "learned_thresholds": {"y": 2, "x": 1},  # key order differs
+        "baseline_cart_rate": 0.05,
+        "nudge_type_scores": {"social_proof": 0.8},
+        "trust_score": 0.99,  # different but excluded
+        "computed_at": __import__("datetime").datetime(2026, 6, 1),  # different but excluded
+    }
+    # Same model state, different stats → same hash
+    assert _model_artifact_hash(sip_a) == _model_artifact_hash(sip_b)
+
+    sip_c = {
+        "learned_thresholds": {"x": 999, "y": 2},  # changed
+        "baseline_cart_rate": 0.05,
+        "nudge_type_scores": {"social_proof": 0.8},
+    }
+    # Different model state → different hash
+    assert _model_artifact_hash(sip_a) != _model_artifact_hash(sip_c)
+
+
+def _insert_decision_with_status(db, shop: str, status: str | None) -> int:
+    """Insert a brain_decisions row, return id. Helper for trigger tests."""
+    from sqlalchemy import text as _sql_text
+    db.execute(_sql_text("""
+        INSERT INTO brain_decisions
+            (decision_at, shop_domain, action_kind,
+             expected_outcome_metric, outcome_window_hours,
+             outcome_status,
+             outcome_evaluated_at)
+        VALUES
+            (now(), :s, 'test_action', 'rars_delta_7d', 24,
+             :status,
+             CASE WHEN :status IS NOT NULL THEN now() ELSE NULL END)
+    """), {"s": shop, "status": status})
+    db.flush()
+    return db.execute(_sql_text(
+        "SELECT id FROM brain_decisions WHERE shop_domain = :s "
+        "ORDER BY id DESC LIMIT 1"
+    ), {"s": shop}).scalar()
+
+
+def test_brain_decisions_immutability_blocks_set_to_different(db):
+    """DB trigger raises when outcome_status changes set → different.
+    Born 2026-05-11 Senior+++ close (audit #3)."""
+    from sqlalchemy import text as _sql_text
+    from sqlalchemy.exc import InternalError, IntegrityError
+
+    decision_id = _insert_decision_with_status(
+        db, "_immut_a_.myshopify.com", "effective"
+    )
+
+    raised = False
+    nested = db.begin_nested()  # SAVEPOINT for surgical rollback
+    try:
+        db.execute(_sql_text(
+            "UPDATE brain_decisions SET outcome_status = 'ineffective' "
+            "WHERE id = :id"
+        ), {"id": decision_id})
         db.flush()
-        row = conn.execute(_sql_text(
-            "SELECT profile_version FROM store_intelligence_profiles WHERE shop_domain = :s"
-        ), {"s": shop}).fetchone()
-        assert row[0] == expected, f"expected v{expected}, got v{row[0]}"
+        nested.commit()
+    except (InternalError, IntegrityError) as e:
+        raised = True
+        assert "immutable" in str(e).lower() or "check_violation" in str(e).lower()
+        nested.rollback()
+    assert raised, "trigger MUST block set → different"
+
+
+def test_brain_decisions_immutability_blocks_set_to_null(db):
+    """DB trigger raises when outcome_status is reset set → NULL.
+    The "unset" path is just as dangerous as "rewrite to different" —
+    both break the forensic immutability claim."""
+    from sqlalchemy import text as _sql_text
+    from sqlalchemy.exc import InternalError, IntegrityError
+
+    decision_id = _insert_decision_with_status(
+        db, "_immut_b_.myshopify.com", "effective"
+    )
+
+    raised = False
+    nested = db.begin_nested()
+    try:
+        db.execute(_sql_text(
+            "UPDATE brain_decisions SET outcome_status = NULL "
+            "WHERE id = :id"
+        ), {"id": decision_id})
+        db.flush()
+        nested.commit()
+    except (InternalError, IntegrityError) as e:
+        raised = True
+        nested.rollback()
+    assert raised, "trigger MUST block set → NULL"
+
+
+def test_brain_decisions_immutability_allows_null_to_set(db):
+    """The legitimate path NULL → set must remain unblocked. This is
+    the initial outcome stamp by the brain's _evaluate phase."""
+    from sqlalchemy import text as _sql_text
+
+    decision_id = _insert_decision_with_status(
+        db, "_immut_c_.myshopify.com", None  # start NULL
+    )
+    # NULL → set is allowed
+    db.execute(_sql_text(
+        "UPDATE brain_decisions SET outcome_status = 'effective' "
+        "WHERE id = :id"
+    ), {"id": decision_id})
+    db.flush()  # No raise
+
+    # Verify written
+    status = db.execute(_sql_text(
+        "SELECT outcome_status FROM brain_decisions WHERE id = :id"
+    ), {"id": decision_id}).scalar()
+    assert status == "effective"
+
+
+def test_brain_decisions_immutability_allows_idempotent_restamp(db):
+    """Re-stamping the same value (e.g., evaluator re-runs on same row)
+    is a no-op-shaped UPDATE and must be allowed. NEW == OLD → trigger
+    falls through."""
+    from sqlalchemy import text as _sql_text
+
+    decision_id = _insert_decision_with_status(
+        db, "_immut_d_.myshopify.com", "effective"
+    )
+    # Restamp same value → allowed (NEW == OLD)
+    db.execute(_sql_text(
+        "UPDATE brain_decisions SET outcome_status = 'effective' "
+        "WHERE id = :id"
+    ), {"id": decision_id})
+    db.flush()  # No raise
 
 
 def test_brain_vero_eval_unknown_metric_returns_evaluation_failed(db):

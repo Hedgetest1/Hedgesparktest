@@ -80,6 +80,19 @@ def set_opt_out(shop_domain: str, opted_out: bool) -> None:
             # but Art. 21 says "without undue delay" — immediate purge
             # closes the latency window.
             _purge_derived_caches_for_shop(shop_domain, rc)
+            # Invalidate the cross_shop_aggregator 6h claim so the next
+            # aggregator tick recomputes immediately — closes the TOCTOU
+            # window where this shop's outcomes could remain in a
+            # cross_shop_patterns aggregate until the next 6h cycle.
+            # Born 2026-05-11 Senior+++ close (audit finding #1).
+            try:
+                from app.services.cross_shop_aggregator import NEXT_RUN_KEY
+                rc.delete(NEXT_RUN_KEY)
+            except Exception as exc:
+                log.warning(
+                    "merchant_privacy: cross_shop claim invalidation "
+                    "failed (non-fatal): %s", exc,
+                )
         else:
             rc.delete(key)
     except Exception as exc:
