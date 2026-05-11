@@ -268,34 +268,3 @@ def _confidence_label(n_shops: int, p_value: float) -> str:
     return "low"
 
 
-def get_pattern_for_vertical(
-    db: Session,
-    vertical: str,
-    action_kind: str,
-    metric_kind: str,
-) -> CrossShopPattern | None:
-    """Read API for SIP / merchant_brain. Returns None when no aggregate
-    yet meets k-anonymity for this signal."""
-    return (
-        db.query(CrossShopPattern)
-        .filter(
-            CrossShopPattern.vertical == vertical,
-            CrossShopPattern.action_kind == action_kind,
-            CrossShopPattern.metric_kind == metric_kind,
-        )
-        .one_or_none()
-    )
-
-
-def list_patterns_for_vertical(
-    db: Session, vertical: str,
-) -> list[CrossShopPattern]:
-    """Read API for /pro/store-profile endpoint. Returns all aggregates
-    for a vertical so the dashboard can surface what the shop is
-    inheriting from its peers."""
-    return (
-        db.query(CrossShopPattern)
-        .filter(CrossShopPattern.vertical == vertical)
-        .order_by(CrossShopPattern.confidence.desc(), CrossShopPattern.n_shops.desc())
-        .all()
-    )

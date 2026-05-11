@@ -397,6 +397,43 @@ def test_execute_aggregation_with_group_by(db):
     assert float(result.rows[0][1]) == 300.0
 
 
+def test_execute_role_blocks_create_index(db):
+    """Defense layer 4a: DDL like CREATE INDEX fails under
+    wishspark_bi_readonly even if reaches DB. Proves role lacks
+    any DDL grants, not just DML on existing tables."""
+    from sqlalchemy.exc import ProgrammingError, InternalError
+    _seed_order(db, "alpha.myshopify.com", 1.0, "USD", "ddl_test_1")
+    sql, params = compile_query(_basic_req(), "alpha.myshopify.com")
+    execute_query(db, sql, params)
+    with pytest.raises((ProgrammingError, InternalError)) as exc_info:
+        db.execute(text(
+            "CREATE INDEX ix_evil_test ON shop_orders (total_price)"
+        ))
+    msg = str(exc_info.value).lower()
+    assert "permission denied" in msg or "read-only" in msg
+
+
+def test_execute_role_blocks_grant_statement(db):
+    """Defense layer 4a: privilege escalation via GRANT must fail
+    under the read-only role."""
+    from sqlalchemy.exc import ProgrammingError, InternalError
+    _seed_order(db, "alpha.myshopify.com", 1.0, "USD", "grant_test_1")
+    sql, params = compile_query(_basic_req(), "alpha.myshopify.com")
+    execute_query(db, sql, params)
+    with pytest.raises((ProgrammingError, InternalError)) as exc_info:
+        db.execute(text(
+            "GRANT INSERT ON shop_orders TO wishspark_bi_readonly"
+        ))
+    msg = str(exc_info.value).lower()
+    # PG rejects with WARNING + no rows for GRANT under READ ONLY
+    # OR permission denied under the role. Either is acceptable.
+    assert (
+        "permission denied" in msg
+        or "read-only" in msg
+        or "not the owner" in msg
+    )
+
+
 def test_execute_role_lacks_write_grants_on_disallowed_tables(db):
     """Defense layer 4a: even SELECT on a table OUTSIDE the BI
     allowlist must fail under wishspark_bi_readonly. Proves the role

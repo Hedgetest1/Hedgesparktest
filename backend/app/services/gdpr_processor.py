@@ -479,6 +479,7 @@ _REDIS_SHOP_KEY_TEMPLATES_MD5 = [
     "hs:liveopps:v1:{md5}",                 # Live Opportunities
     "hs:kg:v1:stats:{md5}",                 # Knowledge-graph stats
     "hs:action_candidates:v1:{md5}",        # Action candidates cache
+    "hs:bi_query:rate:{md5}",               # Pro #3 BI rate-limit counter
 ]
 
 # Prefix patterns that take {shop}:* (SCAN-based). For Redis without

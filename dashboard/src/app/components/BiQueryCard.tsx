@@ -38,6 +38,15 @@ type QueryResult = {
 };
 
 
+type SavedQuery = {
+  id: number;
+  name: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query_json: any;
+  updated_at: string;
+};
+
+
 const OPS_WITH_VALUE = new Set([
   "=", "!=", ">", ">=", "<", "<=", "LIKE", "IN",
 ]);
@@ -70,6 +79,10 @@ export function BiQueryCard({
   const [result, setResult] = useState<QueryResult | null>(null);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
+  const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
+  const [saveName, setSaveName] = useState<string>("");
+  const [savingQuery, setSavingQuery] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Fetch schema on mount via typed apiClient
   useEffect(() => {
@@ -109,6 +122,122 @@ export function BiQueryCard({
     setResult(null);
     setRunError(null);
   }, [tableName]);
+
+  // Load saved queries list on mount
+  useEffect(() => {
+    if (!apiBase || !shop || !isProUser) return;
+    let cancelled = false;
+    async function loadSaved() {
+      try {
+        const { data } = await apiClient.GET("/pro/bi/saved-queries");
+        if (!cancelled && data) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const list = ((data as any).queries || []) as SavedQuery[];
+          setSavedQueries(list);
+        }
+      } catch {
+        // silent — saved queries are non-critical
+      }
+    }
+    void loadSaved();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, shop, isProUser]);
+
+  async function reloadSavedQueries() {
+    try {
+      const { data } = await apiClient.GET("/pro/bi/saved-queries");
+      if (data) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        setSavedQueries(((data as any).queries || []) as SavedQuery[]);
+      }
+    } catch {
+      // silent
+    }
+  }
+
+  async function saveCurrentQuery() {
+    setSaveError(null);
+    const trimmed = saveName.trim();
+    if (!trimmed) {
+      setSaveError("Name required");
+      return;
+    }
+    if (!tableName || selectedColumns.length === 0) {
+      setSaveError("Build a query first (pick table + at least one column)");
+      return;
+    }
+    setSavingQuery(true);
+    try {
+      const body = {
+        name: trimmed,
+        query: {
+          table: tableName,
+          select: selectedColumns.map((c) => ({ column: c })),
+          where: filters
+            .filter((f) => OPS_WITH_VALUE.has(f.op) ? f.value !== "" : true)
+            .map((f) =>
+              OPS_WITH_VALUE.has(f.op)
+                ? { column: f.column, op: f.op, value: f.value }
+                : { column: f.column, op: f.op }
+            ),
+          limit,
+        },
+      };
+      const { error } = await apiClient.POST("/pro/bi/saved-queries", {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        body: body as any,
+      });
+      if (error) {
+        setSaveError("Save failed (cap of 50 saved queries per shop?)");
+        return;
+      }
+      setSaveName("");
+      await reloadSavedQueries();
+    } catch {
+      setSaveError("Save failed");
+    } finally {
+      setSavingQuery(false);
+    }
+  }
+
+  function loadSavedQuery(q: SavedQuery) {
+    const qj = q.query_json || {};
+    if (qj.table && typeof qj.table === "string") setTableName(qj.table);
+    if (Array.isArray(qj.select)) {
+      const cols: string[] = [];
+      for (const it of qj.select) {
+        if (it && typeof it.column === "string" && !it.agg) {
+          cols.push(it.column);
+        }
+      }
+      setSelectedColumns(cols);
+    }
+    if (Array.isArray(qj.where)) {
+      setFilters(
+        qj.where.map((f: { column: string; op: string; value?: unknown }) => ({
+          column: f.column,
+          op: f.op,
+          value: f.value !== undefined && f.value !== null ? String(f.value) : "",
+        }))
+      );
+    }
+    if (typeof qj.limit === "number") setLimit(qj.limit);
+    setResult(null);
+    setRunError(null);
+  }
+
+  async function deleteSavedQuery(id: number) {
+    try {
+      await apiClient.DELETE("/pro/bi/saved-queries/{query_id}", {
+        params: { path: { query_id: id } },
+      });
+      await reloadSavedQueries();
+    } catch {
+      // silent
+    }
+  }
 
   function toggleColumn(name: string) {
     setSelectedColumns((prev) =>
@@ -395,8 +524,76 @@ export function BiQueryCard({
         </div>
       )}
 
+      {/* Saved queries — list / save / load / delete */}
+      <div className="mt-5 border-t border-white/[0.05] pt-4">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+            Saved queries ({savedQueries.length}/50)
+          </div>
+          <div className="flex items-center gap-1.5">
+            <input
+              type="text"
+              value={saveName}
+              onChange={(e) => setSaveName(e.target.value)}
+              placeholder="Query name"
+              maxLength={128}
+              className="w-36 rounded-md border border-white/[0.08] bg-[#0b0b14] px-1.5 py-1 text-[11px] text-slate-200 placeholder-slate-600"
+            />
+            <button
+              type="button"
+              onClick={saveCurrentQuery}
+              disabled={savingQuery || !saveName.trim()}
+              className="rounded-md border border-violet-400/40 bg-violet-500/15 px-2 py-1 text-[11px] font-semibold text-violet-200 transition-colors hover:bg-violet-500/25 disabled:opacity-40"
+            >
+              {savingQuery ? "Saving…" : "Save current"}
+            </button>
+          </div>
+        </div>
+        {saveError && (
+          <div className="mb-2 text-[10px] text-rose-300">{saveError}</div>
+        )}
+        {savedQueries.length === 0 ? (
+          <p className="text-[10px] text-slate-400">
+            None yet — build a query and click &quot;Save current&quot;.
+          </p>
+        ) : (
+          <div className="space-y-1">
+            {savedQueries.map((q) => (
+              <div
+                key={q.id}
+                className="flex items-center justify-between gap-2 rounded-md border border-white/[0.04] bg-white/[0.015] px-2 py-1.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[11px] font-semibold text-slate-200">
+                    {q.name}
+                  </div>
+                  <div className="text-[9px] text-slate-400">
+                    {q.query_json?.table || "—"}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => loadSavedQuery(q)}
+                  className="rounded border border-white/[0.08] px-1.5 py-0.5 text-[10px] text-slate-300 hover:border-white/[0.18] hover:text-white"
+                >
+                  Load
+                </button>
+                <button
+                  type="button"
+                  onClick={() => deleteSavedQuery(q.id)}
+                  className="text-[10px] text-slate-400 hover:text-rose-400"
+                  aria-label="Delete saved query"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <p className="mt-3 text-[10px] text-slate-400">
-        Saved queries + scheduled email export — coming next sprint.
+        Scheduled email export — coming next sprint.
       </p>
     </div>
   );
