@@ -109,7 +109,18 @@ def run() -> None:
                 r = client.get(f"{_HOST}/", timeout=_PROBE_TIMEOUT_S)
                 if r.status_code >= 500:
                     return
-            except Exception:
+            except Exception as _exc:
+                # SILENT-EXCEPT-OK: landing unreachable means a
+                # different alert class fires (system_health / 500
+                # SLO breach). This probe specifically detects
+                # ASSET drift; reachability bugs surface via ops
+                # health, not here. Log so a recurring landing
+                # outage is observable without polluting the asset-
+                # drift alert stream.
+                _log.warning(
+                    "dashboard_asset_probe: landing reachability failed: %s",
+                    _exc,
+                )
                 return
 
             failures = _probe_host(client)

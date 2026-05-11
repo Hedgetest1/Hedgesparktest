@@ -97,13 +97,24 @@ module.exports = {
     // worker pattern — setting PM2 `instances: 4` would launch 4 uvicorn
     // MASTERS all binding the same port, which fails.
     //
-    // DB pool is env-tuned in database.py (DB_POOL_SIZE=8,
-    // DB_MAX_OVERFLOW=15 in backend/.env for this config): 4×(8+15) = 92
-    // conn from backend, well below Postgres max_connections=200.
-    // Bumped 2026-05-04 from 5+10=15 to 8+15=23 per worker after Item 8
-    // load-test surfaced p99 = 16s + 24% timeout under 100 concurrent
-    // merchants. Pool exhaustion was the root cause; new ceiling 92
-    // gives 53% more headroom.
+    // DB pool is env-tuned below in the env block (DB_POOL_SIZE=50,
+    // DB_MAX_OVERFLOW=100 — see also app/core/database.py defaults):
+    // 4 workers × (50+100) = 600 client conns to PgBouncer (which
+    // multiplexes onto 50 server-side PG conns; PG max_connections=200
+    // unchanged). PgBouncer max_client_conn=5000 → ample headroom.
+    //
+    // History (kept for audit trail; current state is `50+100` below):
+    //   2026-05-04 Stage 1: 5+10=15 per worker (insufficient at 100
+    //     concurrent merchants — p99=16s, 24% timeout)
+    //   2026-05-04 Stage 2: 8+15=23 per worker (53% headroom; passed
+    //     100-merchant load test but still saturated at 1000)
+    //   2026-05-04 Stage 3 (CURRENT): 50+100 per worker post-PgBouncer
+    //     landing — 1000-merchant test surfaced that app pool was the
+    //     new bottleneck (PgBouncer + Redis were not).
+    //
+    // The actual env-block values below ARE the source of truth; this
+    // comment block describes the architecture. Keep them in sync —
+    // a band-aid stale comment misled the SLO investigation 2026-05-11.
     // -------------------------------------------------------------------------
     {
       name:                "wishspark-backend",

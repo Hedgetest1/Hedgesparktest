@@ -208,20 +208,39 @@ def _run_aggregation(db: Session) -> dict:
         written += 1
 
     # Sweep: delete any stored signal that no longer has >=3 shops.
-    existing = db.execute(text("""
-        SELECT vertical, action_kind, metric_kind
-        FROM cross_shop_patterns
-    """)).fetchall()
-    for e in existing:
-        key = (e.vertical, e.action_kind, e.metric_kind)
-        if key not in surviving_signals:
-            db.execute(text("""
-                DELETE FROM cross_shop_patterns
-                WHERE vertical = :v
-                  AND action_kind = :a
-                  AND metric_kind = :m
-            """), {"v": e.vertical, "a": e.action_kind, "m": e.metric_kind})
-            deleted_below_k += 1
+    # Single round-trip DELETE WHERE NOT IN survivor-set, instead of
+    # N round-trips one DELETE per stale row (the prior per-row loop
+    # was the N+1 audit_n_plus_one flagged 2026-05-11; at 200k signals
+    # × 4 verticals × 5 metrics that loop would issue ~200k DELETEs).
+    if surviving_signals:
+        survivors_tuples = list(surviving_signals)
+        # Postgres tuple-IN: WHERE (a, b, c) NOT IN ((..), (..)) is
+        # parameterised via composite expansion. SQLAlchemy doesn't
+        # natively expand tuple-IN with named params, so we build the
+        # tuple list literally — values are pre-validated by the
+        # aggregator (table-allowlisted keys) so no injection surface.
+        # Each (vertical, action_kind, metric_kind) is sourced from
+        # _ALLOWED_TABLES / our own action_kind enum / brain_decisions
+        # metric_kind enum — never user input.
+        params = {}
+        tuple_clauses = []
+        for i, (v, a, m) in enumerate(survivors_tuples):
+            params[f"v{i}"] = v
+            params[f"a{i}"] = a
+            params[f"m{i}"] = m
+            tuple_clauses.append(f"(:v{i}, :a{i}, :m{i})")
+        sql = (
+            "DELETE FROM cross_shop_patterns "
+            "WHERE (vertical, action_kind, metric_kind) NOT IN ("
+            + ", ".join(tuple_clauses)
+            + ")"
+        )
+        result = db.execute(text(sql), params)
+        deleted_below_k = result.rowcount or 0
+    else:
+        # No survivors → wipe everything
+        result = db.execute(text("DELETE FROM cross_shop_patterns"))
+        deleted_below_k = result.rowcount or 0
 
     db.commit()
 
