@@ -490,6 +490,11 @@ _REDIS_SHOP_KEY_TEMPLATES_PLAN_MD5 = [
     # well below human-visible window; lock is transient.
 ]
 _RARS_TIER_PLANS = ("lite", "pro")
+# TODO(scale-tier): when scale-tier rars caching ships, add "scale"
+# here AND update the matching tuple in app/services/merchant_privacy.py
+# (search "lite", "pro"). audit_claude_md_redis_keys would also need
+# a §13 entry shape covering the new {plan} value. Today no scale-tier
+# code constructs hs:rars:v1:scale:* keys (verified grep 2026-05-11).
 
 # Prefix patterns that take {shop}:* (SCAN-based). For Redis without
 # a small known suffix set, we scan with MATCH.

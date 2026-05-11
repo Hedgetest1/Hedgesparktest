@@ -111,6 +111,9 @@ def _purge_derived_caches_for_shop(shop_domain: str, rc) -> None:
         f"hs:goals:v1:{shop_domain}",
     ]
     # RARS report cache — both Lite and Pro tier variants.
+    # TODO(scale-tier): see gdpr_processor.py::_RARS_TIER_PLANS — when
+    # scale-tier rars caching ships, add "scale" here AND update the
+    # central tuple. Keep these two sites in sync.
     for plan in ("lite", "pro"):
         targets.append(f"hs:rars:v1:{plan}:{md5}")
     try:

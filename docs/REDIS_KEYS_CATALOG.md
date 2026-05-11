@@ -48,6 +48,7 @@ to validate every prefix in `app/` is documented somewhere.
 | `hs:autopsy:v1` | `app/services/revenue_autopsy.py:28` | TBD | TBD |
 | `hs:bandit` | `app/services/contextual_bandit.py:84` | TBD | TBD |
 | `hs:bench_v2:v1` | `app/services/benchmarks_vertical.py:70` | TBD | TBD |
+| `hs:bi_query:rate` | `app/api/bi_query.py` | Pro #3 BI per-merchant rate limit counter (30/60s) | 60s |
 | `hs:benchmarks:v1` | `app/services/benchmarks.py:71` | TBD | TBD |
 | `hs:brief` | `app/workers/aggregation_worker.py:878` | TBD | TBD |
 | `hs:chat` | `app/api/chat_support.py:41` | TBD | TBD |
@@ -58,6 +59,7 @@ to validate every prefix in `app/` is documented somewhere.
 | `hs:compliance:auto_pause` | `app/services/compliance_score.py:63` | TBD | TBD |
 | `hs:compliance:last_score` | `app/services/compliance_score.py:64` | TBD | TBD |
 | `hs:consent` | `app/api/track.py:322` | TBD | TBD |
+| `hs:cross_shop_aggregator:next_run` | `app/services/cross_shop_aggregator.py:36` | Sprint 3 #3 — cross-shop aggregator 6h SETNX claim (gates the aggregation_worker hook so most ticks skip) | 6h |
 | `hs:cto_signal_cooldown` | `app/services/system_health_synthesizer.py:294` | TBD | TBD |
 | `hs:daily_revenue` | `app/api/webhooks.py:226` | TBD | TBD |
 | `hs:dash` | `app/core/redis_client.py:62` | TBD | TBD |
@@ -136,6 +138,8 @@ to validate every prefix in `app/` is documented somewhere.
 | `hs:public_transparency:v1` | `app/api/public_transparency.py:39` | TBD | TBD |
 | `hs:rars:v1` | `app/services/revenue_at_risk.py:50` | TBD | TBD |
 | `hs:rars_history:v1` | `app/api/roi_hero.py:250`, `app/services/chatbot_llm_fallback.py:317` | TBD | TBD |
+| `hs:recurring_buyers:v1` | `app/api/recurring_buyers.py:60` | Pro #2 Recurring Buyers cache (mask_email applied) | 30min |
+| `hs:recurring_buyers:lock:v1` | `app/api/recurring_buyers.py:61` | Pro #2 Recurring Buyers SETNX stampede lock | 30s |
 | `hs:reengage:drift` | `app/services/onboarding_health.py:61` | TBD | TBD |
 | `hs:refund_loss:v1` | `app/services/refund_loss.py:40` | TBD | TBD |
 | `hs:refunds:v1` | `app/services/refund_ingest.py:36` | TBD | TBD |
@@ -175,6 +179,8 @@ to validate every prefix in `app/` is documented somewhere.
 | `hs:spike:sentry_triage_stuck` | `app/services/observability_spikes.py:671` | TBD | TBD |
 | `hs:spike:slo` | `app/services/observability_spikes.py:833` | TBD | TBD |
 | `hs:status:v1` | `app/api/lite_extras.py:1359` | TBD | TBD |
+| `hs:storeprofile:v1` | `app/api/store_profile.py:41` | Sprint 4 #7 store-profile endpoint response cache | 60s |
+| `hs:storeprofile:lock:v1` | `app/api/store_profile.py:42` | Sprint 4 #7 store-profile SETNX stampede lock | 30s |
 | `hs:system_health` | `app/workers/agent_worker.py:1788` | TBD | TBD |
 | `hs:tax:v1` | `app/api/lite_extras.py:1446` | TBD | TBD |
 | `hs:team_members:v1` | `app/services/team.py:21` | TBD | TBD |
