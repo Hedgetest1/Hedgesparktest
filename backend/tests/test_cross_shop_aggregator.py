@@ -249,6 +249,63 @@ def test_aggregator_deletes_when_falls_below_k(db, monkeypatch):
     assert row == 0
 
 
+def test_aggregator_excludes_opt_out_shops(db, monkeypatch):
+    """GDPR Art. 21 — shops with opt-out flag must NOT contribute to
+    cross-shop aggregates. Stronger than k>=3 (which only hides via
+    sample-size threshold): a single opted-out shop is excluded entirely."""
+    _patch_vertical(monkeypatch, {
+        f"s{i}.myshopify.com": "apparel" for i in range(1, 5)
+    })
+
+    # 4 shops with measured lifts; one of them (s2) is opted-out.
+    for shop, measured in [
+        ("s1.myshopify.com", 110.0),
+        ("s2.myshopify.com", 108.0),  # opted-out, must be excluded
+        ("s3.myshopify.com", 112.0),
+        ("s4.myshopify.com", 109.0),
+    ]:
+        _insert_decision(db, shop, "retention_outreach_email",
+                         "rars_delta_7d", 100.0, measured)
+
+    # Patch the opt-out check so s2 is opted out (Redis path bypassed)
+    def fake_opted_out(shop_domain):
+        return shop_domain == "s2.myshopify.com"
+    monkeypatch.setattr(csa, "is_merchant_opted_out", fake_opted_out)
+
+    report = csa._run_aggregation(db)
+    assert report["shops_excluded_opt_out"] == 1
+    # 4 shops total - 1 opt-out = 3 contributing → k-anonymity OK, row written
+    assert report["written"] == 1
+    row = db.execute(text("""
+        SELECT n_shops, n_decisions FROM cross_shop_patterns
+    """)).fetchone()
+    assert row.n_shops == 3
+    assert row.n_decisions == 3
+
+
+def test_aggregator_drops_below_k_when_opt_out_pushes_under_3(db, monkeypatch):
+    """3 shops total but 1 opts out → only 2 contributing → k-anonymity
+    floor not met → no row written."""
+    _patch_vertical(monkeypatch, {
+        f"s{i}.myshopify.com": "apparel" for i in range(1, 4)
+    })
+    for shop, measured in [
+        ("s1.myshopify.com", 110.0),
+        ("s2.myshopify.com", 108.0),
+        ("s3.myshopify.com", 112.0),
+    ]:
+        _insert_decision(db, shop, "retention_outreach_email",
+                         "rars_delta_7d", 100.0, measured)
+    monkeypatch.setattr(
+        csa, "is_merchant_opted_out",
+        lambda s: s == "s3.myshopify.com",
+    )
+    report = csa._run_aggregation(db)
+    assert report["shops_excluded_opt_out"] == 1
+    assert report["written"] == 0
+    assert report["skipped_k_anon"] == 1
+
+
 def test_gdpr_no_shop_domain_in_aggregate_table(db, monkeypatch):
     """Hard GDPR invariant: cross_shop_patterns table has no shop_domain
     column. Tested by inspecting information_schema."""

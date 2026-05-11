@@ -1043,6 +1043,7 @@ refuses to start if prior `_loadtest_` shops exist unless --force).
 | `hs:email:last_verified:v1` | Sticky last-known verified state | 30d |
 | `hs:audit_telemetry:{audit_name}` | per-audit fire-rate + findings HASH | 90d |
 | `hs:compare_toggle_usage:v1` | compare-toggle adoption counter HASH | 90d |
+| `hs:cross_shop_aggregator:next_run` | Sprint 3 #3 — cross-shop pattern aggregator 6h SETNX claim (gates the aggregation_worker hook so most ticks skip immediately) | 6h |
 | `hs:survey_cfg:v1:{shop}` | Post-purchase survey config cache | 10min |
 | `hs:survey:rl:{ip_hash}` | Survey response rate-limit (3/60s) | 60s |
 | `hs:survey:daily:{shop}:{date}` | Per-shop daily survey cap (10k/day) | 48h |

@@ -32,6 +32,7 @@ from app.core.database import SessionLocal
 from app.core.redis_client import _client as _redis_client
 from app.core.stats import one_sample_t_test
 from app.models.cross_shop_pattern import CrossShopPattern
+from app.services.merchant_privacy import is_merchant_opted_out
 from app.services.vertical_classifier import get_vertical
 
 
@@ -118,6 +119,17 @@ def _run_aggregation(db: Session) -> dict:
         "statuses": list(EVALUATED_STATUSES),
         "horizon": horizon,
     }).fetchall()
+
+    # GDPR Art. 21 opt-out filter — shops that have objected to
+    # automated processing must not contribute to cross-shop aggregates,
+    # even if their brain_decisions still sit in the DB. Stronger than
+    # the k>=3 floor: a single opted-out shop is excluded entirely from
+    # the aggregate, not just hidden behind n>=3.
+    distinct_shops = {r.shop_domain for r in rows}
+    opted_out_shops = {
+        s for s in distinct_shops if is_merchant_opted_out(s)
+    }
+    rows = [r for r in rows if r.shop_domain not in opted_out_shops]
 
     # vertical_classifier.get_vertical(db, shop_domain) is Redis-cached
     # 24h, so the loop calls it once per distinct shop and reads from
@@ -207,6 +219,7 @@ def _run_aggregation(db: Session) -> dict:
         "status": "completed",
         "rows_read": len(rows),
         "shops_classified": len(vertical_by_shop),
+        "shops_excluded_opt_out": len(opted_out_shops),
         "groups": len(groups),
         "written": written,
         "skipped_k_anon": skipped_k_anon,

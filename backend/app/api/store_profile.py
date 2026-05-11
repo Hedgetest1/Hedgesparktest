@@ -63,6 +63,24 @@ class VerticalPrior(BaseModel):
     applied: bool
 
 
+class CrossShopPriorItem(BaseModel):
+    """Sprint 3 #3 — one (action_kind, metric_kind) aggregate.
+
+    Represents what the shop's vertical has measured collectively for
+    this action+metric pair. k>=3 distinct shops by construction
+    (enforced at SQL CHECK + aggregator code + audit).
+    """
+    action_kind: str
+    metric_kind: str
+    lift_pct_avg: float
+    lift_pct_std: float | None = None
+    n_shops: int
+    n_decisions: int
+    p_value: float | None = None
+    confidence: str  # high / medium / low
+    last_aggregated_at: str | None = None
+
+
 class StoreProfileResponse(BaseModel):
     shop_domain: str
     profile_version: int
@@ -77,6 +95,10 @@ class StoreProfileResponse(BaseModel):
         description="Top 3 nudge types by effectiveness for THIS shop",
     )
     vertical_prior: VerticalPrior | None = None
+    cross_shop_priors: list[CrossShopPriorItem] = Field(
+        default_factory=list,
+        description="Sprint 3 #3 — aggregated lift measurements from other shops in the same vertical (k>=3, GDPR-aggregate-only).",
+    )
     measurement_health: str = "healthy"
     generated_at: str
     note: str | None = None
@@ -169,6 +191,7 @@ def _compute_store_profile(db: Session, shop: str) -> dict:
             "learned_thresholds": None,
             "top_nudge_scores": [],
             "vertical_prior": None,
+            "cross_shop_priors": [],
             "measurement_health": "healthy",
             "generated_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
             "note": "Store intelligence profile is warming — first cycle requires ~10 events.",
@@ -193,6 +216,14 @@ def _compute_store_profile(db: Session, shop: str) -> dict:
     # chose JSON-snapshot persistence to avoid TIER_2 schema change).
     vertical_prior = _read_latest_vertical_prior(db, shop)
 
+    # Sprint 3 #3 — cross-shop priors derived from cross_shop_patterns
+    # filtered by THIS shop's vertical. Read live (not snapshot-cached)
+    # because the aggregate updates every 6h and is cheap to read
+    # (single SELECT on (vertical, *) indexed table).
+    cross_shop_priors = _read_cross_shop_priors_for_shop(
+        db, shop, vertical_prior,
+    )
+
     return {
         "shop_domain": shop,
         "profile_version": int(row[0] or 1),
@@ -204,9 +235,59 @@ def _compute_store_profile(db: Session, shop: str) -> dict:
         "learned_thresholds": row[6],  # JSONB → dict already
         "top_nudge_scores": top_nudge_scores,
         "vertical_prior": vertical_prior,
+        "cross_shop_priors": cross_shop_priors,
         "measurement_health": row[8] or "healthy",
         "generated_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
     }
+
+
+def _read_cross_shop_priors_for_shop(
+    db: Session, shop: str, vertical_prior: dict | None,
+) -> list[dict]:
+    """Read cross_shop_patterns aggregates for this shop's vertical.
+
+    vertical_prior already carries the resolved vertical for this shop
+    (Sprint 2 #4 wired the classifier). When it's missing (cold-start
+    shop) we have no vertical anchor → return empty list.
+    """
+    if not vertical_prior or not vertical_prior.get("vertical"):
+        return []
+    vertical = vertical_prior["vertical"]
+    try:
+        rows = db.execute(text("""
+            SELECT action_kind, metric_kind, lift_pct_avg, lift_pct_std,
+                   n_shops, n_decisions, p_value, confidence,
+                   last_aggregated_at
+            FROM cross_shop_patterns
+            WHERE vertical = :v
+            ORDER BY
+              CASE confidence
+                WHEN 'high' THEN 0
+                WHEN 'medium' THEN 1
+                ELSE 2
+              END,
+              n_shops DESC
+        """), {"v": vertical}).fetchall()
+    except Exception as exc:
+        log.warning(
+            "store_profile: cross_shop_priors read failed for %s: %s",
+            shop, exc,
+        )
+        return []
+    return [
+        {
+            "action_kind": r.action_kind,
+            "metric_kind": r.metric_kind,
+            "lift_pct_avg": round(float(r.lift_pct_avg), 4),
+            "lift_pct_std": round(float(r.lift_pct_std), 4) if r.lift_pct_std is not None else None,
+            "n_shops": int(r.n_shops),
+            "n_decisions": int(r.n_decisions),
+            "p_value": round(float(r.p_value), 4) if r.p_value is not None else None,
+            "confidence": r.confidence,
+            "last_aggregated_at": r.last_aggregated_at.isoformat() if r.last_aggregated_at else None,
+        }
+        for r in rows
+    ]
 
 
 def _read_latest_vertical_prior(db: Session, shop: str) -> dict | None:
