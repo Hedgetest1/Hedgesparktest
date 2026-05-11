@@ -341,7 +341,16 @@ def _maybe_audit_cross_shop_demotion(
             actor_name="merchant_brain.cross_shop_prior",
             action_type="brain.cross_shop_prior_demotion",
             target_type="brain_decision_pending",
-            target_id=None,  # decision row not yet inserted; id is in brain_decisions later
+            # `target_id=None` is intentional and audit-chain safe:
+            # the brain_decisions row hasn't been inserted yet
+            # (_record runs AFTER this audit write). The audit_log
+            # hash chain is keyed on (actor, action_type, before/after,
+            # status, prev_hash) — NOT on target_id — so a NULL
+            # target_id doesn't break verification. Cross-reference
+            # via (shop_domain, decision_at) in after_state.rationale
+            # if forensic lookup needs the specific brain_decisions
+            # row later.
+            target_id=None,
             shop_domain=shop_domain,
             after_state={
                 "original_action_kind": payload.get("original_action_kind"),

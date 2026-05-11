@@ -89,6 +89,16 @@ _EFFECT_SIZE_FLOORS_PCT: dict[str, float] = {
     "cvr_delta_7d": 0.5,
     "merchant_re_engaged_7d": 1.0,
     "events_24h_resumed": 1.0,
+    # Defensive defaults for the two meta metric_kinds emitted by
+    # merchant_brain._rule_table that are STRUCTURALLY filtered out
+    # of the aggregator (their action_kind always starts with
+    # `no_action_*`, blocked by the `action_kind NOT LIKE 'no_action_%'`
+    # WHERE clause in _run_aggregation). If a future rule emits these
+    # metrics for a non-no_action action, the 1000% floor blocks any
+    # confidence promotion — fail-safe rather than fall to 0.5% default.
+    # Born 2026-05-11 Senior+++ propagation audit (defensive complete).
+    "cooldown_pending": 1000.0,
+    "none": 1000.0,
 }
 _DEFAULT_EFFECT_FLOOR_PCT = 0.5
 

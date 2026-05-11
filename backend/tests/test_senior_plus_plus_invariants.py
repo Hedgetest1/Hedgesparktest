@@ -255,6 +255,91 @@ def test_aa7_migration_symmetric_upgrade_downgrade():
 # ---------------------------------------------------------------------------
 
 
+def test_effect_size_floors_cover_all_brain_metric_kinds():
+    """Every `expected_outcome_metric=<literal>` in merchant_brain._rule_table
+    MUST have a corresponding entry in _EFFECT_SIZE_FLOORS_PCT — defensive
+    completeness against future rule additions. Born 2026-05-11 propagation
+    audit (Senior+++) found cooldown_pending + none were missing.
+    """
+    import pathlib
+    import re
+    from app.services.cross_shop_aggregator import _EFFECT_SIZE_FLOORS_PCT
+
+    brain_path = pathlib.Path(__file__).parent.parent / "app" / "services" / "merchant_brain.py"
+    src = brain_path.read_text()
+
+    # Grep `expected_outcome_metric="<literal>"` — match the literal arg
+    pattern = re.compile(r'expected_outcome_metric\s*=\s*"([^"]+)"')
+    metric_kinds = set(pattern.findall(src))
+
+    missing = metric_kinds - set(_EFFECT_SIZE_FLOORS_PCT.keys())
+    assert not missing, (
+        f"_EFFECT_SIZE_FLOORS_PCT missing entries for metric_kinds "
+        f"emitted by merchant_brain: {missing}. Add them with a "
+        f"documented floor (high for meta-metrics that should NEVER "
+        f"reach the aggregator, ~0.5-1.0 for real lift metrics)."
+    )
+
+
+def test_maybe_snapshot_strips_scratch_keys_from_jsonb(db):
+    """upsert_sip adds scratch keys like `_prior_hash_unchanged` to the
+    sip dict (transactional state). maybe_snapshot MUST NOT serialize
+    them into sip_snapshots.profile_data JSONB — that's caller-internal
+    state, not forensic model state. Born 2026-05-11 propagation audit."""
+    from sqlalchemy import text as _sql_text
+    from app.services.sip_engine import upsert_sip, maybe_snapshot
+
+    shop = "_snap_scratch_test_.myshopify.com"
+    conn = db.connection()
+
+    sip = {
+        "shop_domain": shop,
+        "profile_version": 1,
+        "baseline_cart_rate": 0.05,
+        "baseline_scroll_depth": None,
+        "baseline_dwell_time": None, "baseline_return_rate": None,
+        "baseline_views_per_product": None, "baseline_mobile_pct": None,
+        "learned_thresholds": {"x": 1},
+        "traffic_source_quality": None,
+        "price_sensitivity_bands": None,
+        "nudge_type_scores": None,
+        "best_nudge_by_signal": None, "peak_traffic_hours": None,
+        "signal_frequency_30d": None,
+        "data_points_total": 1000,
+        "confidence_level": "low",
+        "computed_at": __import__("datetime").datetime.now(),
+        "trust_score": 0.5,
+        "trust_profile": None,
+    }
+    upsert_sip(conn, sip)
+    db.flush()
+    # upsert_sip added scratch keys
+    assert "_prior_hash_unchanged" in sip
+    assert "model_artifact_hash" in sip
+
+    maybe_snapshot(conn, sip)
+    db.flush()
+
+    row = conn.execute(_sql_text(
+        "SELECT profile_data FROM sip_snapshots WHERE shop_domain = :s "
+        "ORDER BY snapshot_week DESC LIMIT 1"
+    ), {"s": shop}).fetchone()
+    if row is None:
+        # Snapshot may already exist for this week from a prior test run
+        return
+
+    import json
+    profile_data = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+
+    # Scratch keys MUST be stripped
+    assert "_prior_hash_unchanged" not in profile_data, (
+        "scratch _prior_hash_unchanged leaked into sip_snapshots JSONB"
+    )
+    # model_artifact_hash MUST be preserved (it's the forensic anchor)
+    assert "model_artifact_hash" in profile_data
+    assert len(profile_data["model_artifact_hash"]) == 64  # sha256 hex
+
+
 def test_force_run_now_acquires_pg_advisory_lock(db, monkeypatch):
     """force_run_now MUST call pg_advisory_xact_lock to serialize
     concurrent callers. Senior+++ guard against double-aggregation

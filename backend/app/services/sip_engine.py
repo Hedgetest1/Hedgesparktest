@@ -775,8 +775,19 @@ def maybe_snapshot(conn: Connection, sip: dict[str, Any]) -> None:
     if exists:
         return
 
-    # Build snapshot data (exclude non-serializable fields)
-    snapshot_data = {k: v for k, v in sip.items() if k not in ("computed_at",)}
+    # Build snapshot data (exclude non-serializable + scratch keys).
+    # - `computed_at`: datetime, serializes via default=str but redundant
+    #   (sip_snapshots has its own snapshot_week timestamp).
+    # - `_*` scratch keys (e.g., `_prior_hash_unchanged` added 2026-05-11
+    #   by upsert_sip): caller-internal state, must NOT leak into the
+    #   forensic snapshot.
+    # `model_artifact_hash` IS intentionally preserved — it's the load-
+    # bearing forensic anchor that lets us answer "did the model change
+    # between week N and N+1?".
+    snapshot_data = {
+        k: v for k, v in sip.items()
+        if k != "computed_at" and not k.startswith("_")
+    }
 
     conn.execute(
         text("""
