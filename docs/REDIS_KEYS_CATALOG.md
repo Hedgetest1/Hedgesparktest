@@ -48,7 +48,7 @@ to validate every prefix in `app/` is documented somewhere.
 | `hs:autopsy:v1` | `app/services/revenue_autopsy.py:28` | TBD | TBD |
 | `hs:bandit` | `app/services/contextual_bandit.py:84` | TBD | TBD |
 | `hs:bench_v2:v1` | `app/services/benchmarks_vertical.py:70` | TBD | TBD |
-| `hs:bi_query:rate` | `app/api/bi_query.py` | Pro #3 BI per-merchant rate limit counter (30/60s) | 60s |
+| `hs:bi_query:rate` | `app/api/bi_query.py:54` | Pro #3 BI per-merchant rate limit counter (30/60s) | 60s |
 | `hs:benchmarks:v1` | `app/services/benchmarks.py:71` | TBD | TBD |
 | `hs:brief` | `app/workers/aggregation_worker.py:878` | TBD | TBD |
 | `hs:chat` | `app/api/chat_support.py:41` | TBD | TBD |

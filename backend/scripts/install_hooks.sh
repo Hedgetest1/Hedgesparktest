@@ -28,6 +28,7 @@ DA_EVIDENCE_AUDIT="backend/scripts/audit_da_evidence.py"
 NON_TRIVIAL_PROTOCOL_AUDIT="backend/scripts/audit_non_trivial_commit_protocol.py"
 CAPILLARY_CLAIM_AUDIT="backend/scripts/audit_capillary_scope_claim.py"
 TIER1_SURFACE_AUDIT="backend/scripts/audit_tier1_change_surfaced.py"
+TIER2_SURFACE_AUDIT="backend/scripts/audit_tier2_change_surfaced.py"
 PROPAGATION_EVIDENCE_AUDIT="backend/scripts/audit_propagation_evidence.py"
 AUTO_DEPLOY="backend/scripts/post_commit_auto_deploy.sh"
 
@@ -45,6 +46,7 @@ chmod +x "$REPO_ROOT/$DA_EVIDENCE_AUDIT"
 chmod +x "$REPO_ROOT/$NON_TRIVIAL_PROTOCOL_AUDIT"
 chmod +x "$REPO_ROOT/$CAPILLARY_CLAIM_AUDIT"
 chmod +x "$REPO_ROOT/$TIER1_SURFACE_AUDIT"
+chmod +x "$REPO_ROOT/$TIER2_SURFACE_AUDIT"
 chmod +x "$REPO_ROOT/$PROPAGATION_EVIDENCE_AUDIT"
 chmod +x "$REPO_ROOT/backend/scripts/probe_capillary_scope.py"
 chmod +x "$REPO_ROOT/backend/scripts/classify_commit_tier.py"
@@ -60,10 +62,15 @@ EOF
 chmod +x "$PRE_HOOK"
 
 # --- commit-msg ---
-# 2026-05-07 doctrine trim: 8/10 audits ADVISORY (warn-only). Only 2
-# stay HARD-BLOCKING because they catch regressions worth blocking on:
+# 2026-05-07 doctrine trim: 8/10 audits ADVISORY (warn-only). Only the
+# TIER-doctrine + sibling-thinking gates stay HARD-BLOCKING because
+# they catch regressions worth blocking on:
 #   1. audit_lateral_change_evidence — sibling thinking on remove/add
 #   2. audit_tier1_change_surfaced   — TIER_1 audit-trail disclosure
+#   3. audit_tier2_change_surfaced   — TIER_2 audit-trail disclosure
+#                                      (added 2026-05-11 after gdpr_processor
+#                                       commits passed silent — see
+#                                       audit_tier2_change_surfaced.py header)
 # The other 8 surface analysis but exit 0 by default. Operator can
 # pass --strict to any single audit for a periodic compliance check.
 # Rationale: doctrine compounding made local commits 6-8 min each
@@ -80,6 +87,7 @@ ROOT="\$(git rev-parse --show-toplevel)"
 # ── HARD GATES (always block on fail) ──
 "\$ROOT/$LATERAL_AUDIT" --msg-file "\$1"
 "\$ROOT/$TIER1_SURFACE_AUDIT" --msg-file "\$1"
+"\$ROOT/$TIER2_SURFACE_AUDIT" --msg-file "\$1"
 
 # ── ADVISORY (analysis printed; exit 0 unless --strict) ──
 "\$ROOT/$DA_AUDIT" "\$1"
