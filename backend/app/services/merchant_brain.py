@@ -88,6 +88,16 @@ class MerchantState:
     last_brain_decision_age_hours: float | None
     has_email_in_queue: bool
     currency: str = "USD"
+    # Sprint 3 #3 wiring: cross-shop priors for THIS shop's vertical.
+    # List of dicts shaped like
+    #   {"action_kind", "metric_kind", "lift_pct_avg", "lift_pct_std",
+    #    "n_shops", "n_decisions", "p_value", "confidence"}
+    # None when sense didn't fetch (defensive fallback for callers that
+    # build state synthetically — tests, smoke). Empty list when the
+    # vertical has no aggregate yet (cold-start vertical or unclassified
+    # shop). _decide's _apply_cross_shop_prior treats both identically.
+    cross_shop_priors: list[dict] | None = None
+    vertical: str | None = None  # the shop's classified vertical (or None)
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +206,49 @@ def _sense(db: Session, shop_domain: str) -> MerchantState:
     except Exception:
         shop_currency = "USD"
 
+    # Sprint 3 #3 wiring: classify vertical + read cross-shop priors for
+    # this vertical from the aggregated table. Network-effect prior fed
+    # into _decide. Defensive: any failure falls back to "no priors
+    # available" (rule-table-only behavior, identical to pre-wire flow).
+    vertical: str | None = None
+    cross_shop_priors: list[dict] = []
+    try:
+        with db.begin_nested():
+            from app.services.vertical_classifier import get_vertical
+            v = get_vertical(db, shop_domain)
+            vertical = v or None
+        if vertical:
+            with db.begin_nested():
+                rows = db.execute(text("""
+                    SELECT action_kind, metric_kind, lift_pct_avg, lift_pct_std,
+                           n_shops, n_decisions, p_value, confidence
+                    FROM cross_shop_patterns
+                    WHERE vertical = :v
+                """), {"v": vertical}).fetchall()
+            cross_shop_priors = [
+                {
+                    "action_kind": r.action_kind,
+                    "metric_kind": r.metric_kind,
+                    "lift_pct_avg": float(r.lift_pct_avg),
+                    "lift_pct_std": (
+                        float(r.lift_pct_std)
+                        if r.lift_pct_std is not None else None
+                    ),
+                    "n_shops": int(r.n_shops),
+                    "n_decisions": int(r.n_decisions),
+                    "p_value": (
+                        float(r.p_value) if r.p_value is not None else None
+                    ),
+                    "confidence": r.confidence,
+                }
+                for r in rows
+            ]
+    except Exception as exc:
+        log.warning(
+            "brain.sense: cross_shop_priors read failed %s: %s",
+            shop_domain, exc,
+        )
+
     return MerchantState(
         shop_domain=shop_domain,
         rars_total_eur=rars_total,
@@ -208,6 +261,8 @@ def _sense(db: Session, shop_domain: str) -> MerchantState:
         last_brain_decision_age_hours=last_brain_age,
         has_email_in_queue=has_email_in_queue,
         currency=shop_currency,
+        cross_shop_priors=cross_shop_priors,
+        vertical=vertical,
     )
 
 
@@ -260,7 +315,32 @@ class BrainDecisionDraft:
 def _decide(state: MerchantState) -> BrainDecisionDraft:
     """Rule-table for v0.1. Each rule names: action, rationale,
     expected metric, window. v0.2 plugs in LLM-driven decision with
-    these rules as the safety floor."""
+    these rules as the safety floor.
+
+    Sprint 3 #3 wiring (2026-05-11): after the rule-table picks a
+    candidate, _apply_cross_shop_prior consults
+    state.cross_shop_priors (loaded by _sense from cross_shop_patterns
+    for the shop's vertical). If the vertical has measured this
+    candidate's (action_kind, metric_kind) as negative-lift at
+    medium/high confidence, the action is DEMOTED to
+    no_action_demoted_by_vertical_evidence. The brain_decisions ledger
+    records the demotion + the prior in rationale so post-hoc analysis
+    can verify the network effect is actually firing.
+
+    Holdout interaction: the prior IS applied to holdout-arm decisions
+    (the holdout suppresses dispatch, not decision logic). This keeps
+    the brain_decisions ledger truthful — the row records what WOULD
+    have been dispatched, and limb_response.arm distinguishes treatment
+    vs control downstream.
+    """
+    candidate = _rule_table(state)
+    return _apply_cross_shop_prior(candidate, state)
+
+
+def _rule_table(state: MerchantState) -> BrainDecisionDraft:
+    """Pure rule-table v0.1. Picks a candidate action_kind from merchant
+    state. No prior consultation here — see _decide for the soft-prior
+    consultation layer."""
     # Cooldown: don't fire decisions more often than once per 6h per merchant
     if (state.last_brain_decision_age_hours is not None
             and state.last_brain_decision_age_hours < 6):
@@ -344,6 +424,98 @@ def _decide(state: MerchantState) -> BrainDecisionDraft:
         outcome_window_hours=24,
         baseline_value=None,
     )
+
+
+def _apply_cross_shop_prior(
+    candidate: BrainDecisionDraft, state: MerchantState,
+) -> BrainDecisionDraft:
+    """Sprint 3 #3 soft-prior consultation.
+
+    Reads state.cross_shop_priors (loaded by _sense from the aggregated
+    cross_shop_patterns table for state.vertical) and demotes the
+    candidate to no_action_demoted_by_vertical_evidence when the
+    vertical has measured this exact (action_kind, metric_kind) as
+    negative lift at medium/high confidence. Conservative: only DEMOTES
+    (never SUBSTITUTES) — substitution would require re-checking the
+    rule-table's preconditions against an alternative action, which is
+    a v0.4 design call (Option 2 full-bandit). Low-confidence priors
+    don't trigger demotion (signal too weak to override the rule-table).
+
+    No-op cases (return candidate unchanged):
+      - state.cross_shop_priors is None (synthetic / pre-wire callers)
+      - state.cross_shop_priors is [] (cold-start vertical, no aggregate yet)
+      - candidate.action_kind starts with "no_action_" (already a non-dispatch)
+      - no matching prior for this (action_kind, metric_kind) signal
+      - matching prior has confidence='low' (signal too weak)
+      - matching prior has positive lift_pct_avg (reinforces candidate)
+
+    Demotion case:
+      - matching prior at confidence in {medium, high}
+      - AND lift_pct_avg < 0 (vertical has measured the action regresses)
+      → return no_action_demoted_by_vertical_evidence with
+        action_payload preserving the demotion telemetry for post-hoc
+        analysis: original_action_kind, prior_lift_pct, prior_n_shops,
+        prior_p_value, prior_confidence.
+
+    The decision ledger preserves the FULL rationale chain
+    ("rule-table picked X because Y; cross-shop prior demoted to no_action
+    because Z"), so a downstream auditor can trace exactly why an
+    action did NOT dispatch.
+    """
+    if not state.cross_shop_priors:
+        return candidate
+    if candidate.action_kind.startswith("no_action_"):
+        return candidate
+
+    matching = _find_matching_prior(state.cross_shop_priors, candidate)
+    if matching is None:
+        return candidate
+    if matching.get("confidence") == "low":
+        return candidate
+    lift = matching.get("lift_pct_avg")
+    if lift is None or lift >= 0:
+        return candidate
+
+    return BrainDecisionDraft(
+        action_kind="no_action_demoted_by_vertical_evidence",
+        action_payload={
+            "original_action_kind": candidate.action_kind,
+            "original_rationale": candidate.rationale,
+            "prior_lift_pct": round(float(lift), 4),
+            "prior_n_shops": int(matching.get("n_shops", 0)),
+            "prior_p_value": (
+                round(float(matching["p_value"]), 4)
+                if matching.get("p_value") is not None else None
+            ),
+            "prior_confidence": matching.get("confidence"),
+            "vertical": state.vertical,
+        },
+        rationale=(
+            f"rule-table → {candidate.action_kind}; vertical={state.vertical} "
+            f"measured lift={lift:.2f}% (n_shops={matching.get('n_shops')}, "
+            f"conf={matching.get('confidence')}) → demoted"
+        ),
+        # Outcome metric stays the original — measuring the
+        # "demotion-vs-treatment" delta requires the same yardstick.
+        expected_outcome_metric=candidate.expected_outcome_metric,
+        outcome_window_hours=candidate.outcome_window_hours,
+        baseline_value=candidate.baseline_value,
+    )
+
+
+def _find_matching_prior(
+    priors: list[dict], candidate: BrainDecisionDraft,
+) -> dict | None:
+    """Locate the cross-shop prior row that matches the candidate's
+    (action_kind, metric_kind) signal. Returns None when no prior in
+    the list addresses this exact (action, metric)."""
+    for p in priors:
+        if (
+            p.get("action_kind") == candidate.action_kind
+            and p.get("metric_kind") == candidate.expected_outcome_metric
+        ):
+            return p
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -484,7 +656,11 @@ def _adversarial_review(
     """
     if not is_brain_enabled():
         return "brain_disabled"
-    if decision.action_kind in ("no_action_cooldown", "no_action_no_signal"):
+    if decision.action_kind in (
+        "no_action_cooldown",
+        "no_action_no_signal",
+        "no_action_demoted_by_vertical_evidence",
+    ):
         return None  # caller skips dispatch entirely
     if email_type is None:
         return "no_email_type_for_action_kind"
@@ -890,7 +1066,11 @@ def _coordinate(
       - recovery_digest          → email_orchestrator (recovery_digest)
       - proactive_nudge_compose  → action_task_queue (SCARCITY_NUDGE)
     """
-    if decision.action_kind in ("no_action_cooldown", "no_action_no_signal"):
+    if decision.action_kind in (
+        "no_action_cooldown",
+        "no_action_no_signal",
+        "no_action_demoted_by_vertical_evidence",
+    ):
         return None, {}
 
     # Holdout (control arm) — brain decides but does NOT dispatch. Records
@@ -962,6 +1142,16 @@ def _record(
         "hours_since_install": state.hours_since_install,
         "last_action_age_hours": state.last_action_age_hours,
         "last_brain_decision_age_hours": state.last_brain_decision_age_hours,
+        # Sprint 3 #3 telemetry: surface which vertical priors the decision
+        # could see. The list itself is NOT stored to keep sense_snapshot
+        # small (JSONB column), but the count + vertical attribution
+        # make post-hoc analysis "did the prior fire?" answerable from the
+        # ledger row alone, without re-running the aggregator.
+        "vertical": state.vertical,
+        "cross_shop_priors_available": (
+            len(state.cross_shop_priors)
+            if state.cross_shop_priors is not None else None
+        ),
     }
     row = BrainDecision(
         shop_domain=state.shop_domain,
