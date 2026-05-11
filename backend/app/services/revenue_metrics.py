@@ -56,6 +56,18 @@ import logging
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+# Hoisted to module-level 2026-05-11 after the SLO cold-path
+# investigation found that `from app.models.merchant import Merchant`
+# was paying 120-180ms on first invocation per worker (lazy SQLAlchemy
+# mapper compilation + relationship resolution). The two functions
+# get_shop_currency + get_shop_aov are on the hot path of every
+# dashboard endpoint (today_snapshot, orders_summary, dashboard_overview,
+# brief_today, RARS); a cold worker first-paint paid 4-8× this cost
+# cumulatively. Hoisting moves the 120ms to import time (once per
+# worker boot, not first request) — eliminates the head-of-line tail
+# that p95 was catching with statistical-noise alerts.
+from app.models.merchant import Merchant
+
 log = logging.getLogger(__name__)
 
 # Fallback AOV used when no real orders are available for the shop.
@@ -165,7 +177,6 @@ def get_shop_currency(db: Session, shop_domain: str) -> str | None:
         return cached
 
     try:
-        from app.models.merchant import Merchant
         row = db.query(Merchant.primary_currency).filter(
             Merchant.shop_domain == shop_domain
         ).first()
@@ -259,7 +270,6 @@ def get_shop_timezone(db: Session, shop_domain: str) -> str:
     if cached:
         return cached
     try:
-        from app.models.merchant import Merchant
         row = db.query(Merchant.iana_timezone).filter(
             Merchant.shop_domain == shop_domain
         ).first()
