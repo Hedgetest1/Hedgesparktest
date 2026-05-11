@@ -73,15 +73,10 @@ def _seed(route: str, method: str, status: int, duration_ms: float, n: int = 1) 
 class TestSloBreachDetector:
 
     def test_latency_breach_fires_critical_slo_breach(self, db):
-        """p95 above 1.5× target (latency_breach) → slo_breach critical.
-
-        Note 2026-05-11: latency_breach now requires obs>=30 (was 10) to
-        fire CRITICAL — low-obs p95 is dominated by single outliers
-        (see app/core/slo.py::slo_report docstring). Seeding 35 obs to
-        exercise the high-traffic path that still fires CRITICAL."""
-        # /track has latency_p95_target_ms=200. Seed 35 durations at
-        # 500ms → p95 ≈ 500 > 300 (1.5× target) AND obs>=30 → critical.
-        for _ in range(35):
+        """p95 above 1.5× target (latency_breach) → slo_breach critical."""
+        # /track has latency_p95_target_ms=200. Seed durations around 500ms
+        # → p95 ≈ 500 > 300 (1.5× target) → latency_breach classification.
+        for _ in range(20):
             _seed("/track", "POST", 200, 500.0)
         from app.services.observability_spikes import detect_slo_breaches
         fired = detect_slo_breaches(db)
@@ -118,8 +113,7 @@ class TestSloBreachDetector:
 
     def test_cooldown_deduplicates_within_hour(self, db):
         """Same breach in back-to-back calls should fire exactly once."""
-        # 35 obs to clear the new obs>=30 latency_breach threshold.
-        for _ in range(35):
+        for _ in range(20):
             _seed("/track", "POST", 200, 500.0)
         from app.services.observability_spikes import detect_slo_breaches
         first = detect_slo_breaches(db)
