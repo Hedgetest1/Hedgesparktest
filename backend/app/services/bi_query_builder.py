@@ -266,7 +266,11 @@ def compile_query(req: dict, auth_shop: str) -> tuple[str, dict]:
     for idx, item in enumerate(select_items):
         # Each item is either {"column": "x"} or
         # {"agg": "count", "column": "x" | None, "alias": "y" | None}
-        if "agg" in item:
+        # Pydantic model_dump() includes all fields incl. None, so a
+        # column-only item carries `agg=None`. Branch on TRUTHY agg
+        # (not key presence) so `{"column": "x", "agg": None}` is
+        # treated as a column item.
+        if item.get("agg"):
             agg = (item.get("agg") or "").lower()
             if agg not in _ALLOWED_AGGREGATIONS:
                 raise QueryValidationError(f"unknown aggregation: {agg!r}")
@@ -286,7 +290,7 @@ def compile_query(req: dict, auth_shop: str) -> tuple[str, dict]:
                 raise QueryValidationError(f"duplicate alias: {alias!r}")
             aliases_seen.add(alias)
             select_fragments.append(f'{expr} AS "{alias}"')
-        elif "column" in item:
+        elif item.get("column"):
             col = item["column"]
             if col not in table_cols:
                 raise QueryValidationError(f"unknown column: {col!r}")
@@ -454,13 +458,24 @@ def execute_query(
     truncation honestly."""
     started = time.monotonic()
 
-    # Defense layer 4 — DB-level write protection. The current
-    # transaction is marked READ ONLY: Postgres rejects any
-    # INSERT/UPDATE/DELETE/COPY-FROM/DDL with error 25006 even if the
-    # SQL string somehow contained one (parser bug, future refactor
-    # regression). This is the bullet that catches what the allowlist
-    # parser might miss. Transaction-scoped — does NOT leak to other
-    # requests on the same connection (PgBouncer transaction-pool safe).
+    # Defense layer 4a — role-level write protection. `SET LOCAL ROLE`
+    # downgrades the current transaction's role to
+    # `wishspark_bi_readonly` which has only SELECT grants on the 3
+    # builder-allowed tables (see migrations/aa6_bi_readonly_role.py).
+    # Any DDL/DML attempt fails with "permission denied" even if a
+    # future parser bug constructed one. Strictly stronger than the
+    # tx-level READ ONLY guard below — tx-level can be bypassed by a
+    # code regression that drops the SET statement; role-level cannot
+    # because the role itself lacks the grants. SET LOCAL is tx-scoped:
+    # role resets at COMMIT/ROLLBACK so PgBouncer transaction-pool is
+    # safe.
+    db.execute(text("SET LOCAL ROLE wishspark_bi_readonly"))
+
+    # Defense layer 4b — tx-level READ ONLY guard. Belt-and-braces on
+    # top of the role. Even if the role were ever mis-granted to a
+    # superuser future regression, READ ONLY still rejects writes at
+    # the transaction-manager level (PG error 25006). The combination
+    # makes a write attempt require BOTH layers to fail simultaneously.
     db.execute(text("SET TRANSACTION READ ONLY"))
 
     # statement_timeout via set_config(name, value, is_local=true) —

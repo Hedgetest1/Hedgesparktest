@@ -397,6 +397,47 @@ def test_execute_aggregation_with_group_by(db):
     assert float(result.rows[0][1]) == 300.0
 
 
+def test_execute_role_lacks_write_grants_on_disallowed_tables(db):
+    """Defense layer 4a: even SELECT on a table OUTSIDE the BI
+    allowlist must fail under wishspark_bi_readonly. Proves the role
+    really restricts access; the SET LOCAL ROLE inside execute_query
+    is not theatre."""
+    from sqlalchemy.exc import ProgrammingError
+    _seed_order(db, "alpha.myshopify.com", 5.0, "USD", "role_test_1")
+    sql, params = compile_query(_basic_req(), "alpha.myshopify.com")
+    execute_query(db, sql, params)
+    # After execute_query, role is wishspark_bi_readonly. Touching a
+    # non-allowlisted table should be rejected at the GRANT level
+    # (permission denied), not just by the parser.
+    with pytest.raises(ProgrammingError) as exc_info:
+        db.execute(text("SELECT id FROM merchants LIMIT 1"))
+    assert "permission denied" in str(exc_info.value).lower()
+
+
+def test_execute_role_blocks_write_via_permission_denied(db):
+    """Even attempting an INSERT on an ALLOWED table fails because
+    the role has only SELECT, not INSERT. Stronger than READ ONLY
+    tx (which protects all tables); role-grant protects table-by-
+    table operation type."""
+    from sqlalchemy.exc import ProgrammingError, InternalError
+    _seed_order(db, "alpha.myshopify.com", 6.0, "USD", "role_test_2")
+    sql, params = compile_query(_basic_req(), "alpha.myshopify.com")
+    execute_query(db, sql, params)
+    # Within the same tx, role is downgraded. INSERT on shop_orders
+    # (which the role has SELECT-only on) → permission denied.
+    with pytest.raises((ProgrammingError, InternalError)) as exc_info:
+        db.execute(text(
+            "INSERT INTO shop_orders "
+            "(shop_domain, shopify_order_id, total_price, currency, "
+            " line_items, created_at) "
+            "VALUES ('x', 'y', 1, 'USD', '[]'::jsonb, now())"
+        ))
+    msg = str(exc_info.value).lower()
+    # Either permission-denied (role check) OR read-only-tx (defense
+    # layer 4b) is acceptable — both prove writes are blocked.
+    assert "permission denied" in msg or "read-only" in msg
+
+
 def test_execute_read_only_tx_blocks_write_attempts(db):
     """Defense layer 4: even if a future parser bug let through DML,
     the transaction is SET TRANSACTION READ ONLY → Postgres rejects

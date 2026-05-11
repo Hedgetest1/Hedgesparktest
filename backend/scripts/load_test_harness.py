@@ -206,12 +206,25 @@ class HarnessReport:
 
 async def issue_request(
     client: httpx.AsyncClient, shop: str, route: str, token: str,
+    *, method: str = "GET", json_body: dict | None = None,
 ) -> RequestResult:
-    """Single request with X-Query-Count header capture."""
+    """Single request with X-Query-Count header capture.
+
+    method="POST" + json_body lets the harness exercise write-shape
+    endpoints (e.g. /pro/bi/query which takes a structured payload).
+    The payload is static across all merchants — testing the endpoint
+    safely with the SAME body proves the auth-resolved shop_domain
+    correctly scopes results without each merchant needing a custom
+    body."""
     cookies = {SESSION_COOKIE_NAME: token}
     t0 = time.perf_counter()
     try:
-        resp = await client.get(route, cookies=cookies, timeout=30.0)
+        if method.upper() == "POST":
+            resp = await client.post(
+                route, cookies=cookies, json=json_body or {}, timeout=30.0,
+            )
+        else:
+            resp = await client.get(route, cookies=cookies, timeout=30.0)
         latency_ms = (time.perf_counter() - t0) * 1000.0
         qcount = int(resp.headers.get("X-Query-Count", 0) or 0)
         return RequestResult(
@@ -232,6 +245,7 @@ async def issue_request(
 async def run_merchant(
     client: httpx.AsyncClient, shop: str, token: str,
     route: str, k: int, *, think_ms: float = 0.0,
+    method: str = "GET", json_body: dict | None = None,
 ) -> list[RequestResult]:
     """Issue K sequential requests for one merchant (simulates the
     merchant browsing the dashboard). think_ms inserts inter-request
@@ -240,7 +254,10 @@ async def run_merchant(
     hit-ratio measurement (60s outer cache absorbs subsequent hits)."""
     results: list[RequestResult] = []
     for i in range(k):
-        r = await issue_request(client, shop, route, token)
+        r = await issue_request(
+            client, shop, route, token,
+            method=method, json_body=json_body,
+        )
         results.append(r)
         if think_ms > 0 and i < k - 1:
             await asyncio.sleep(think_ms / 1000.0)
@@ -251,6 +268,7 @@ async def run_harness(
     shops: list[str], tokens: dict[str, str], route: str,
     requests_per_merchant: int, base_url: str,
     *, ramp_seconds: float = 0.0, think_ms: float = 0.0,
+    method: str = "GET", json_body: dict | None = None,
 ) -> HarnessReport:
     """Top-level driver. asyncio.gather over all merchants. When
     ramp_seconds > 0, merchant START times are staggered uniformly
@@ -268,6 +286,7 @@ async def run_harness(
         return await run_merchant(
             client, shop, token, route,
             requests_per_merchant, think_ms=think_ms,
+            method=method, json_body=json_body,
         )
 
     async with httpx.AsyncClient(base_url=base_url) as client:
@@ -402,7 +421,19 @@ def main() -> int:
                           "before running the load. Simulates the production "
                           "aggregation_worker pre-warm cycle without waiting "
                           "5 min."))
+    ap.add_argument("--method", default="GET", choices=["GET", "POST"],
+                    help="HTTP method (default GET; POST for write-shape "
+                         "endpoints like /pro/bi/query)")
+    ap.add_argument("--body-file", default=None,
+                    help="Path to a JSON file used as request body for "
+                         "POST. Static across all merchants (auth-resolved "
+                         "shop_domain scopes results).")
     args = ap.parse_args()
+    json_body: dict | None = None
+    if args.body_file:
+        import json as _json
+        with open(args.body_file) as _f:
+            json_body = _json.load(_f)
 
     print(f"[setup] creating {args.merchants} synthetic merchants "
           f"(prefix='{_SHOP_PREFIX}')...")
@@ -452,7 +483,9 @@ def main() -> int:
             run_harness(shops, tokens, args.route,
                         args.requests, args.base_url,
                         ramp_seconds=args.ramp_seconds,
-                        think_ms=args.think_ms),
+                        think_ms=args.think_ms,
+                        method=args.method,
+                        json_body=json_body),
         )
         passed = print_report(
             report,
