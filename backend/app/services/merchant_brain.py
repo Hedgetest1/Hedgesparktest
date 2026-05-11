@@ -104,9 +104,22 @@ class MerchantState:
 # SENSE — gather cross-subsystem signals for one merchant
 # ---------------------------------------------------------------------------
 
-def _sense(db: Session, shop_domain: str) -> MerchantState:
+def _sense(
+    db: Session,
+    shop_domain: str,
+    churn_levels: dict[str, str] | None = None,
+) -> MerchantState:
     """Read the current merchant state. Cheap queries — index-backed.
-    Order: most-cached signals first (RAR via redis), then DB hits."""
+    Order: most-cached signals first (RAR via redis), then DB hits.
+
+    `churn_levels` is an optional pre-computed dict of
+    `{shop_domain: risk_level}`. When provided, the per-shop call
+    skips the in-loop `compute_churn_report(db)` which is the
+    Sprint A P1 fix: that function loads up to 500 merchants × 5-6
+    queries each. At 10k merchants × 100-tick cycles, in-loop call
+    = 3M queries per cycle. Lifted to a single call in
+    tick_all_active_merchants and passed through here. None falls
+    back to per-call compute (legacy single-shop callers)."""
     # RAR (Redis-cached, last value)
     rars_total = 0.0
     try:
@@ -124,28 +137,33 @@ def _sense(db: Session, shop_domain: str) -> MerchantState:
         # systemic if recurring; warn-level lets ops trace silent drift.
         log.warning("brain.sense: rars read failed %s: %s", shop_domain, exc)
 
-    # Churn risk (compute report — cached by churn predictor) and lift
-    # this shop's risk_level from the merchants[] array. Each query is
-    # wrapped in a SAVEPOINT so a single failure doesn't abort the
-    # outer transaction (would block the subsequent INSERT into
-    # brain_decisions — observed live 2026-05-07 v0.1 smoke).
+    # Churn risk — Sprint A P1 fix 2026-05-11: prefer the batched
+    # `churn_levels` dict when provided (set by
+    # tick_all_active_merchants once before the per-shop loop). The
+    # legacy per-call compute_churn_report path is kept ONLY for
+    # single-shop callers (e.g. tick(db, shop) invoked directly). At
+    # 10k merchants × 100-tick cycles the in-loop call was 3M queries
+    # per cycle.
     churn_level = "unknown"
-    try:
-        with db.begin_nested():
-            from app.services.merchant_churn_predictor import compute_churn_report
-            report = compute_churn_report(db)
-            for m in (report.get("merchants") or []):
-                if m.get("shop_domain") == shop_domain:
-                    churn_level = (m.get("risk_level") or "unknown").lower()
-                    break
-    except Exception as exc:
-        # Promoted from log.debug 2026-05-07 per audit_exception_debug:
-        # churn predictor is the most expensive sense signal; failure
-        # means we ship a decision with churn_level="unknown" which
-        # silently downgrades the rule-fire path. Warn-level lets ops
-        # see if churn predictor is systemically failing.
-        log.warning("brain.sense: churn lookup failed %s: %s",
-                    shop_domain, exc)
+    if churn_levels is not None:
+        churn_level = churn_levels.get(shop_domain, "unknown")
+    else:
+        try:
+            with db.begin_nested():
+                from app.services.merchant_churn_predictor import compute_churn_report
+                report = compute_churn_report(db)
+                for m in (report.get("merchants") or []):
+                    if m.get("shop_domain") == shop_domain:
+                        churn_level = (m.get("risk_level") or "unknown").lower()
+                        break
+        except Exception as exc:
+            # Promoted from log.debug 2026-05-07 per audit_exception_debug:
+            # churn predictor is the most expensive sense signal; failure
+            # means we ship a decision with churn_level="unknown" which
+            # silently downgrades the rule-fire path. Warn-level lets ops
+            # see if churn predictor is systemically failing.
+            log.warning("brain.sense: churn lookup failed %s: %s",
+                        shop_domain, exc)
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     cutoff_7d = now - timedelta(days=7)
@@ -1233,13 +1251,20 @@ def _record(
 # Public API: tick + evaluate_pending_outcomes
 # ---------------------------------------------------------------------------
 
-def tick(db: Session, shop_domain: str) -> dict:
+def tick(
+    db: Session,
+    shop_domain: str,
+    churn_levels: dict[str, str] | None = None,
+) -> dict:
     """One full SENSE→SYNTHESIZE→DECIDE→COORDINATE→LEARN cycle for
-    one merchant. Returns a summary dict for diagnostics."""
+    one merchant. Returns a summary dict for diagnostics.
+
+    `churn_levels` optional pre-computed dict — see _sense docstring
+    (Sprint A P1 fix). None falls back to per-call compute."""
     if not is_brain_enabled():
         return {"shop": shop_domain, "skipped": "brain_disabled"}
 
-    state = _sense(db, shop_domain)
+    state = _sense(db, shop_domain, churn_levels=churn_levels)
     synthesis = _synthesize(state)
     decision = _decide(state)
     # Explicit forensic audit_log entry when the decision is a
@@ -1265,7 +1290,15 @@ def tick(db: Session, shop_domain: str) -> dict:
 
 def tick_all_active_merchants(db: Session, max_shops: int = 100) -> dict:
     """Run a brain tick across every active merchant. Cap at
-    max_shops per cycle to bound work. Returns aggregate summary."""
+    max_shops per cycle to bound work. Returns aggregate summary.
+
+    Sprint A P1 fix 2026-05-11: `compute_churn_report` is called ONCE
+    here (loads up to 500 merchants × ~6 queries = ~3k queries) and
+    the resulting `{shop_domain: risk_level}` dict is passed into each
+    tick. Prior behavior called compute_churn_report PER SHOP inside
+    `_sense`, costing N × 3k = 300k queries at 100 shops × 10k merchant
+    deployment = 3M queries per cycle. Now: 3k + N (sense per-shop).
+    """
     if not is_brain_enabled():
         return {"skipped": "brain_disabled", "ticks": 0}
 
@@ -1275,10 +1308,26 @@ def tick_all_active_merchants(db: Session, max_shops: int = 100) -> dict:
             Merchant.install_status == "active",
         ).limit(max_shops).all()
     ]
+
+    # ── Sprint A P1: batched churn report (ONCE per cycle) ─────────────
+    churn_levels: dict[str, str] = {}
+    try:
+        from app.services.merchant_churn_predictor import compute_churn_report
+        report = compute_churn_report(db)
+        for m in (report.get("merchants") or []):
+            sd = m.get("shop_domain")
+            if sd:
+                churn_levels[sd] = (m.get("risk_level") or "unknown").lower()
+    except Exception as exc:
+        # Non-fatal: per-shop _sense falls back to "unknown" churn_level
+        # via the churn_levels.get(shop_domain, "unknown") path. The
+        # rule-table degrades gracefully (skips churn-gated rules).
+        log.warning("brain.tick_all: batched churn report failed: %s", exc)
+
     actions: dict[str, int] = {}
     for shop in shops:
         try:
-            res = tick(db, shop)
+            res = tick(db, shop, churn_levels=churn_levels)
             actions[res.get("action_kind", "unknown")] = (
                 actions.get(res.get("action_kind", "unknown"), 0) + 1
             )

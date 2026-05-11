@@ -108,7 +108,7 @@ def test_record_persists_decision(db, monkeypatch):
         rars_total_eur=2000,
         last_action_age_hours=100,
     )
-    monkeypatch.setattr(merchant_brain, "_sense", lambda d, s: fake_state)
+    monkeypatch.setattr(merchant_brain, "_sense", lambda d, s, **kw: fake_state)
     res = tick(db, "brain-test.myshopify.com")
     assert res["action_kind"] == "recovery_digest"
     # Verify row landed
