@@ -244,6 +244,44 @@ async def lifespan(app: FastAPI):
     except Exception as _exc:
         # Best-effort — never block startup
         _startup_log.warning("anyio thread limiter bump failed: %s", _exc)
+
+    # Connection-pool pre-warm — execute a SELECT 1 across N pool slots
+    # so first real requests do NOT pay the cold-buffer + connection-
+    # acquisition latency. Without this, the first /analytics/today-
+    # snapshot / /orders/summary on a fresh worker pays ~50-100ms
+    # extra on the first DB hit (cold connection from PgBouncer).
+    # Verified live 2026-05-11: get_shop_currency cold = 57ms (just
+    # the DB hit, post-Merchant-hoist) vs 0.9ms warm. Multiply that
+    # cold penalty by 4 workers × N endpoints = real merchant-visible
+    # tail. Pre-warm eliminates it for the first-paint window.
+    # Number of connections to warm = uvicorn workers expected to
+    # acquire concurrently (4 in current ecosystem.config.js).
+    try:
+        from sqlalchemy import text as _text
+        from app.core.database import SessionLocal as _SL
+        _n_warm = int(_os.getenv("DB_POOL_PREWARM_COUNT", "4"))
+        # Pre-warm the actual hot-path table buffers, not just SELECT 1.
+        # The merchants table is hit by every dashboard endpoint via
+        # get_shop_currency / get_shop_timezone. shop_orders is hit by
+        # orders/* + today_snapshot. Warming these tables' pages into
+        # PG shared_buffers means the first real request doesn't pay
+        # the cold-buffer cost (~30-50ms on dev hardware).
+        for _i in range(_n_warm):
+            _s = _SL()
+            try:
+                _s.execute(_text("SELECT 1 FROM merchants LIMIT 1"))
+                _s.execute(_text("SELECT 1 FROM shop_orders LIMIT 1"))
+                _s.execute(_text("SELECT 1 FROM events LIMIT 1"))
+            finally:
+                _s.close()
+        _startup_log.info(
+            "db pool pre-warm: %d connections × 3 hot tables warmed",
+            _n_warm,
+        )
+    except Exception as _exc:
+        # Best-effort — never block startup. A failed pre-warm just
+        # means first requests pay the cold cost (the prior behavior).
+        _startup_log.warning("db pool pre-warm failed: %s", _exc)
     yield
 
 

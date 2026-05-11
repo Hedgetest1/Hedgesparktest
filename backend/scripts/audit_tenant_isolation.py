@@ -50,6 +50,7 @@ ALLOWLIST: set[str] = {
     "services/benchmarks_vertical.py",    # Vertical-scoped peer averages
     "services/network_aggregate.py",
     "services/cross_shop_aggregator.py",  # Sprint 3 #3 cross-shop pattern memory — aggregates brain_decisions across all shops of the same vertical by design; output is GDPR-aggregate-only (k>=3, no shop_domain)
+    "main.py",                            # FastAPI lifespan pool pre-warm — system-level table touch (SELECT 1 FROM merchants/shop_orders/events LIMIT 1) to warm PG shared_buffers at worker boot; no shop scope by design
     "services/observability_spikes.py",   # Dashboard-wide + fleet-wide spike detection
 
     "services/ops_triage.py",             # Ops-scope triage

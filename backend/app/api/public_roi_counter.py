@@ -34,6 +34,7 @@ from sqlalchemy.orm import Session
 from starlette.responses import StreamingResponse
 
 from app.core.database import get_db, get_read_db
+from app.models.merchant import Merchant
 
 router = APIRouter(tags=["public_roi"])
 log = logging.getLogger("public_roi_counter")
@@ -69,7 +70,6 @@ def _compute() -> dict:
         vertical_totals: dict[str, float] = {}
 
         try:
-            from app.models.merchant import Merchant
             from app.services.revenue_at_risk import get_revenue_at_risk
             try:
                 from app.services.vertical_classifier import get_vertical

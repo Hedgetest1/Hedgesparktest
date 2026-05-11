@@ -49,6 +49,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.url_utils import normalize_product_url
 from app.models.event import Event
+from app.models.merchant import Merchant
 from app.models.shop_order import ShopOrder
 from app.models.visitor import Visitor
 from app.models.visitor_purchase_session import VisitorPurchaseSession
@@ -368,7 +369,6 @@ def _is_known_shop(db: Session, shop_domain: str) -> bool:
     if cached is not None:
         return cached
 
-    from app.models.merchant import Merchant
     exists = (
         db.query(Merchant)
         .filter(Merchant.shop_domain == shop_domain, Merchant.install_status == "active")
@@ -432,7 +432,6 @@ def _persist_purchase(db: Session, payload: TrackPayload) -> None:
     _ps_key = f"hs:pixel_secret:{payload.shop_domain}"
     _cached_ps = cache_get(_ps_key)
     if _cached_ps is None:
-        from app.models.merchant import Merchant
         merchant = db.query(Merchant).filter(
             Merchant.shop_domain == payload.shop_domain
         ).first()
