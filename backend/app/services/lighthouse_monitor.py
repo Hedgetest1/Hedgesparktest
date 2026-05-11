@@ -162,6 +162,10 @@ def _run_lighthouse_subprocess(base_url: str | None = None) -> dict | None:
     JSON or None on failure. Never raises."""
     url = base_url or _LH_BASE_URL
     try:
+        # subprocess-allowlist: `_LH_SCRIPT` is a module constant
+        # (hardcoded path); `url` is either `_LH_BASE_URL` (constant)
+        # or `base_url` from an internal caller (cron monitor, never
+        # user-influenced). Caller surface verified by grep.
         proc = subprocess.run(
             ["node", _LH_SCRIPT, "--json", "--url", url],
             capture_output=True,

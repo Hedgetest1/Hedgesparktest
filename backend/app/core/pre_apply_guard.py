@@ -143,6 +143,9 @@ def verify_test_count() -> tuple[bool, int, str]:
         (passed, count, output) — passed is True if tests pass AND count >= 631.
     """
     try:
+        # subprocess-allowlist: `_BACKEND_DIR` is a module constant
+        # (/opt/wishspark/backend). All other args are string literals.
+        # No external/user-supplied input enters this path.
         result = subprocess.run(
             [
                 f"{_BACKEND_DIR}/venv/bin/python", "-m", "pytest",

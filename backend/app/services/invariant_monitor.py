@@ -653,6 +653,11 @@ def run_invariant_check(db: Session) -> dict:
             # Each audit's exit code under default invocation is the
             # truth about structural drift.
             extra_args = _AUDIT_ARGS_OVERRIDE.get(sname, [])
+            # subprocess-allowlist: `_PYTHON_BIN` is a module constant
+            # (venv python path); `spath` is iterated from a hardcoded
+            # directory glob (only `scripts/audit_*.py` files); `extra_
+            # args` is read from the hardcoded `_AUDIT_ARGS_OVERRIDE`
+            # dict. No external/user-supplied input.
             res = subprocess.run(
                 [_PYTHON_BIN, str(spath), *extra_args],
                 capture_output=True,

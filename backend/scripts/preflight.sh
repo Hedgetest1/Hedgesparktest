@@ -913,6 +913,24 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2f-quater. Subprocess arg-origin audit (Sprint A C4 preventer).
+# Asserts every subprocess.run/Popen in app/services/api/workers/core
+# either uses HARDCODED string literals OR carries a
+# `# subprocess-allowlist:` comment within 6 lines documenting the
+# allowlist. Catches the future class of bug where a new action is
+# added with a caller-supplied target string but no validation —
+# the original C4 audit found ALL existing sites safe, the preventer
+# stops the next contributor from creating an unsafe one.
+# ---------------------------------------------------------------------------
+step "Subprocess arg-origin audit (audit_subprocess_arg_origin.py)"
+if "$BACKEND/venv/bin/python" "$BACKEND/scripts/audit_subprocess_arg_origin.py" > /tmp/preflight_subprocess.log 2>&1; then
+    ok "$(tail -1 /tmp/preflight_subprocess.log)"
+else
+    bad "subprocess arg-origin audit failed — see /tmp/preflight_subprocess.log"
+    tail -20 /tmp/preflight_subprocess.log || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2f-ter. Sentry invariants audit (Tier 2.2.c). Pins the C1..C4 contract
 # shipped 2026-04-24: centralized init module, 7-process coverage
 # (backend + 6 workers), PII scrub, Team-plan quota gate, dashboard SDK

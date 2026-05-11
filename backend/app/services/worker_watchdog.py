@@ -95,6 +95,10 @@ def _set_cooldown(worker: str) -> None:
 def _pm2_restart(process_name: str) -> bool:
     """Invoke pm2 restart for a process. Returns True on apparent success."""
     try:
+        # subprocess-allowlist: `process_name` is sourced exclusively
+        # from `WORKER_THRESHOLDS` (module-level dict, 6 hard-coded PM2
+        # worker names). The only caller iterates WORKER_THRESHOLDS;
+        # no external input enters this path.
         result = subprocess.run(
             ["pm2", "restart", process_name],
             capture_output=True,

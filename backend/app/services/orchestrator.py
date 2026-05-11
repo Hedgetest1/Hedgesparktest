@@ -216,6 +216,8 @@ def _action_restart_worker(db: Session, target: str) -> str:
     if target not in allowed:
         return f"rejected: {target} not in allowed worker list"
     try:
+        # subprocess-allowlist: `target` validated against hard-coded
+        # `allowed` set above (6 known PM2 worker process names).
         result = subprocess.run(
             ["pm2", "restart", target],
             capture_output=True, text=True, timeout=15,

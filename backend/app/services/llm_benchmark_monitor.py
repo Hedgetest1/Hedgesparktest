@@ -110,6 +110,9 @@ def _run_benchmark_subprocess() -> dict | None:
         python_bin = "python3"  # fallback
 
     try:
+        # subprocess-allowlist: `python_bin` is either the venv path
+        # (existence-checked above) or "python3" fallback. `_BENCH_FILE`
+        # is a module constant. All other args are string literals.
         proc = subprocess.run(
             [python_bin, "-m", "pytest", _BENCH_FILE, "-q", "--tb=line"],
             cwd=_BACKEND_DIR,

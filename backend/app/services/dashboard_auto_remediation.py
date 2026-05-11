@@ -166,6 +166,8 @@ def _pm2_restart() -> tuple[bool, str]:
     """Invoke `pm2 restart wishspark-dashboard --update-env`. Return
     (success, stderr_tail)."""
     try:
+        # subprocess-allowlist: `_PM2_PROCESS` is a module-level
+        # constant ("wishspark-dashboard"). No caller-supplied input.
         result = subprocess.run(
             ["pm2", "restart", _PM2_PROCESS, "--update-env"],
             capture_output=True,
