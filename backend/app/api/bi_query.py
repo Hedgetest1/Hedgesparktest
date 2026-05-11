@@ -41,6 +41,12 @@ router = APIRouter(tags=["bi_query"])
 _RATE_LIMIT_PER_60S = 30
 _RATE_LIMIT_KEY_PREFIX = "hs:bi_query:rate"
 
+# Per-shop hard cap on saved queries — protects against bloat/DoS via a
+# compromised merchant session that loops `POST /pro/bi/saved-queries`
+# with rotating names. Conservative ceiling (typical analyst keeps 5-20
+# saved reports); upsert by existing name remains unbounded.
+_SAVED_QUERIES_MAX_PER_SHOP = 50
+
 
 # ---------------------------------------------------------------------------
 # Pydantic shapes — top-level structure only; deeper validation happens in
@@ -309,6 +315,26 @@ def save_query(
         compile_query(payload.query.model_dump(), shop)
     except QueryValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+
+    # Per-shop hard cap. Counts current rows for the shop; if the
+    # payload name already exists the upsert path proceeds (cap is a
+    # creation gate, not an update gate).
+    existing_count = db.execute(text("""
+        SELECT COUNT(*) FROM bi_saved_queries WHERE shop_domain = :s
+    """), {"s": shop}).scalar() or 0
+    name_exists = db.execute(text("""
+        SELECT 1 FROM bi_saved_queries
+        WHERE shop_domain = :s AND name = :n LIMIT 1
+    """), {"s": shop, "n": payload.name}).scalar()
+    if not name_exists and existing_count >= _SAVED_QUERIES_MAX_PER_SHOP:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Saved queries limit reached "
+                f"({_SAVED_QUERIES_MAX_PER_SHOP}/shop). "
+                "Delete an existing query before saving a new one."
+            ),
+        )
 
     query_dict = payload.query.model_dump()
     import json as _json

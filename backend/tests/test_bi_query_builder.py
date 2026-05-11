@@ -397,6 +397,25 @@ def test_execute_aggregation_with_group_by(db):
     assert float(result.rows[0][1]) == 300.0
 
 
+def test_execute_read_only_tx_blocks_write_attempts(db):
+    """Defense layer 4: even if a future parser bug let through DML,
+    the transaction is SET TRANSACTION READ ONLY → Postgres rejects
+    with error 25006. Verified by attempting a write AFTER the
+    bi_query_builder's read-only setup."""
+    from sqlalchemy.exc import InternalError, ProgrammingError
+    # Seed something to query so execute_query goes through its full setup
+    _seed_order(db, "alpha.myshopify.com", 10.0, "USD", "ro_test_1")
+    sql, params = compile_query(_basic_req(), "alpha.myshopify.com")
+    execute_query(db, sql, params)
+    # Now attempt a write within the SAME transaction. PG must refuse.
+    with pytest.raises((InternalError, ProgrammingError)) as exc_info:
+        db.execute(text(
+            "INSERT INTO bi_saved_queries (shop_domain, name, query_json) "
+            "VALUES ('x', 'y', '{}'::jsonb)"
+        ))
+    assert "read-only" in str(exc_info.value).lower()
+
+
 def test_execute_truncated_flag_when_results_exceed_limit(db):
     """Defense-in-depth: execute_query truncates if compile_query
     ever emits an unbounded query. We can't easily simulate that

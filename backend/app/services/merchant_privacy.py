@@ -74,10 +74,55 @@ def set_opt_out(shop_domain: str, opted_out: bool) -> None:
             # REDIS-PERSIST-OK: GDPR Art. 21 opt-out is a permanent legal
             # choice — it clears only on explicit re-opt-in, not on TTL.
             rc.set(key, "1")
+            # Invalidate per-shop derived caches that could surface
+            # data linked to this shop even briefly. Each cache has its
+            # own TTL (typically 5-30min) that would expire on its own,
+            # but Art. 21 says "without undue delay" — immediate purge
+            # closes the latency window.
+            _purge_derived_caches_for_shop(shop_domain, rc)
         else:
             rc.delete(key)
     except Exception as exc:
         log.warning("merchant_privacy: set_opt_out failed: %s", exc)
+
+
+def _purge_derived_caches_for_shop(shop_domain: str, rc) -> None:
+    """Invalidate per-shop derived cache keys on Art. 21 opt-out.
+
+    Scope: the set of `<prefix>:{md5(shop)[:16]}` and `<prefix>:{shop}`
+    keys that feed Pro endpoints. Best-effort — any single key delete
+    failure does not block the others.
+    """
+    import hashlib as _h
+    md5 = _h.md5(shop_domain.encode("utf-8")).hexdigest()[:16]
+    targets = [
+        # Pro Sprint #2 — Recurring Buyers
+        f"hs:recurring_buyers:v1:{md5}",
+        # /pro/store-profile cache (mirrors what the merchant sees)
+        f"hs:storeprofile:v1:{md5}",
+        # RARS report caches (Lite + Pro tiers)
+        f"hs:rars:v1:lite:{md5}",
+        f"hs:rars:v1:pro:{md5}",
+        # Action candidates + intent + opportunities derived state
+        f"hs:vint:v1:{md5}",
+        f"hs:liveopps:v1:{md5}",
+        f"hs:action_candidates:v1:{md5}",
+        # Pro Sprint #1 — KPI Goals (exact-shop key)
+        f"hs:goals:v1:{shop_domain}",
+    ]
+    try:
+        rc.delete(*targets)
+    except Exception as exc:
+        # SILENT-EXCEPT-OK: opt-out flag write already succeeded above;
+        # cache invalidation is best-effort defense-in-depth. Each
+        # cache key has its own TTL (5-30min) that will expire on its
+        # own — the bound on stale-data exposure is bounded by the
+        # longest cache TTL, not unbounded. log.warning so a recurring
+        # Redis incident is observable.
+        log.warning(
+            "merchant_privacy: derived cache purge failed for %s: %s",
+            shop_domain, exc,
+        )
 
 
 def update_contact_email(

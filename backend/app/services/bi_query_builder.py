@@ -454,12 +454,21 @@ def execute_query(
     truncation honestly."""
     started = time.monotonic()
 
+    # Defense layer 4 — DB-level write protection. The current
+    # transaction is marked READ ONLY: Postgres rejects any
+    # INSERT/UPDATE/DELETE/COPY-FROM/DDL with error 25006 even if the
+    # SQL string somehow contained one (parser bug, future refactor
+    # regression). This is the bullet that catches what the allowlist
+    # parser might miss. Transaction-scoped — does NOT leak to other
+    # requests on the same connection (PgBouncer transaction-pool safe).
+    db.execute(text("SET TRANSACTION READ ONLY"))
+
     # statement_timeout via set_config(name, value, is_local=true) —
     # equivalent to SET LOCAL but bind-parameterizable (audit
     # test_no_new_raw_sql_fstring_interpolation rejects raw-SQL
     # f-string formatting even when the value is a compile-time
-    # constant). Transaction-scoped (is_local=true) so PgBouncer
-    # transaction pooling doesn't leak the timeout to the next request.
+    # constant). Transaction-scoped so PgBouncer transaction pooling
+    # doesn't leak the timeout to the next request.
     db.execute(
         text("SELECT set_config('statement_timeout', :timeout_ms, true)"),
         {"timeout_ms": str(_STATEMENT_TIMEOUT_MS)},

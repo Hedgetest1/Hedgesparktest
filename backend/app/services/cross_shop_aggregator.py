@@ -105,16 +105,26 @@ def _run_aggregation(db: Session) -> dict:
     """
     horizon = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=LOOKBACK_DAYS)
 
+    # SQL-side aggregation: GROUP BY (shop_domain, action_kind, metric_kind)
+    # returning an ARRAY of lift% values per group. At 10k merchants × ~4
+    # action_kinds × ~5 metric_kinds = at most ~200k rows returned, each
+    # carrying a small float array. Burst memory ~20MB vs the old per-row
+    # fetch ~100MB at scale. lift% math moves into PG (computed inline +
+    # zero baseline filtered SQL-side; mirrors _compute_lift_pct logic).
     rows = db.execute(text("""
-        SELECT shop_domain, action_kind, expected_outcome_metric,
-               baseline_value, measured_value
+        SELECT shop_domain, action_kind, expected_outcome_metric AS metric_kind,
+               ARRAY_AGG(
+                 ((measured_value - baseline_value) / baseline_value) * 100.0
+               ) AS lift_array
         FROM brain_decisions
         WHERE outcome_status = ANY(:statuses)
           AND decision_at >= :horizon
           AND baseline_value IS NOT NULL
           AND measured_value IS NOT NULL
           AND expected_outcome_metric IS NOT NULL
+          AND ABS(baseline_value) >= 1e-9
           AND action_kind NOT LIKE 'no_action_%'
+        GROUP BY shop_domain, action_kind, expected_outcome_metric
     """), {
         "statuses": list(EVALUATED_STATUSES),
         "horizon": horizon,
@@ -122,34 +132,34 @@ def _run_aggregation(db: Session) -> dict:
 
     # GDPR Art. 21 opt-out filter — shops that have objected to
     # automated processing must not contribute to cross-shop aggregates,
-    # even if their brain_decisions still sit in the DB. Stronger than
-    # the k>=3 floor: a single opted-out shop is excluded entirely from
-    # the aggregate, not just hidden behind n>=3.
+    # even if their brain_decisions still sit in the DB.
     distinct_shops = {r.shop_domain for r in rows}
     opted_out_shops = {
         s for s in distinct_shops if is_merchant_opted_out(s)
     }
     rows = [r for r in rows if r.shop_domain not in opted_out_shops]
 
-    # vertical_classifier.get_vertical(db, shop_domain) is Redis-cached
-    # 24h, so the loop calls it once per distinct shop and reads from
-    # cache thereafter.
+    # vertical_classifier.get_vertical is Redis-cached 24h (~zero cost
+    # after first call per shop). Single lookup per distinct shop.
     vertical_by_shop: dict[str, str] = {}
     for r in rows:
         if r.shop_domain not in vertical_by_shop:
             vertical_by_shop[r.shop_domain] = get_vertical(db, r.shop_domain)
 
-    # Group: (vertical, action_kind, metric_kind) -> list of (shop, lift_pct)
+    # Group: (vertical, action_kind, metric_kind) -> list of (shop, lift_pct).
+    # Each SQL row contributes its lift_array to the (vertical, action,
+    # metric) bucket, preserving the per-decision-sample resolution the
+    # old in-memory groupby produced — without loading every decision row.
     groups: dict[tuple[str, str, str], list[tuple[str, float]]] = {}
     for r in rows:
         vertical = vertical_by_shop[r.shop_domain]
         if not vertical:
             continue
-        lift_pct = _compute_lift_pct(r.baseline_value, r.measured_value)
-        if lift_pct is None:
-            continue
-        key = (vertical, r.action_kind, r.expected_outcome_metric)
-        groups.setdefault(key, []).append((r.shop_domain, lift_pct))
+        key = (vertical, r.action_kind, r.metric_kind)
+        for lift in (r.lift_array or []):
+            if lift is None:
+                continue
+            groups.setdefault(key, []).append((r.shop_domain, float(lift)))
 
     # Aggregate
     written = 0

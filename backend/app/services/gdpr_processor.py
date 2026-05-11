@@ -452,6 +452,101 @@ def _deliver_customer_export(
         return False
 
 
+# Per-shop Redis key templates that need explicit purge on Art. 17
+# erasure. Two shapes are common: `<prefix>:{shop}` (exact) and
+# `<prefix>:{md5(shop)[:16]}` (hashed for cache keys). _purge_shop_redis_keys
+# below handles both shapes. Each entry is the FULL prefix pattern with
+# `{shop}` / `{md5}` placeholders so a future audit can grep this list
+# vs CLAUDE.md §13 to detect drift.
+_REDIS_SHOP_KEY_TEMPLATES_EXACT = [
+    "hs:goals:v1:{shop}",                  # KPI Goals (Pro Sprint #1)
+    "hs:rars_history:v1:{shop}",           # RAR history
+    "hs:wh_status:{shop}",                 # webhook health
+    "hs:refresh_claim:{shop}",             # action-candidates refresh
+    "hs:merchant_opt_out:{shop}",          # Art. 21 flag itself
+    "hs:shop_ccy:v1:{shop}",               # shop currency cache
+    "hs:shop_tz:v1:{shop}",                # shop timezone cache
+]
+
+# Patterns that take md5(shop)[:16] (cache keys). The {md5} placeholder
+# is filled by _purge_shop_redis_keys.
+_REDIS_SHOP_KEY_TEMPLATES_MD5 = [
+    "hs:recurring_buyers:v1:{md5}",        # Recurring Buyers (Pro Sprint #2)
+    "hs:storeprofile:v1:{md5}",            # store-profile cache
+    "hs:rars:v1:lite:{md5}",                # RARS Lite tier
+    "hs:rars:v1:pro:{md5}",                 # RARS Pro tier
+    "hs:vint:v1:{md5}",                     # Visitor Intent
+    "hs:liveopps:v1:{md5}",                 # Live Opportunities
+    "hs:kg:v1:stats:{md5}",                 # Knowledge-graph stats
+    "hs:action_candidates:v1:{md5}",        # Action candidates cache
+]
+
+# Prefix patterns that take {shop}:* (SCAN-based). For Redis without
+# a small known suffix set, we scan with MATCH.
+_REDIS_SHOP_KEY_TEMPLATES_PREFIX = [
+    "hs:symap:{shop}:*",                   # visitor identity map (90d)
+    "hs:mdigest:{shop}:*",                 # digest dedup
+    "hs:hmap:{shop}:*",                    # Lite heatmap buckets
+    "hs:llm:merchant:{shop}:*",            # per-merchant LLM spend
+    "hs:trkerr:tot:{shop}:*",              # tracker error volume
+    "hs:trkerr:hash:{shop}:*",             # tracker distinct errors
+]
+
+
+def _purge_shop_redis_keys(shop_domain: str) -> int:
+    """Delete every known Redis key tied to shop_domain. Called from
+    _process_shop_redact AFTER the SQL purge commits.
+
+    Returns the count of keys deleted (telemetry-only; not load-bearing).
+    Redis-down → log + return 0; never raises (SQL purge is the source
+    of truth, Redis is derived state).
+    """
+    try:
+        from app.core.redis_client import _client
+        from app.core.silent_fallback import record_silent_return
+    except Exception:
+        return 0
+    rc = _client()
+    if rc is None:
+        record_silent_return("gdpr.shop_redact.redis_purge_redis_down")
+        return 0
+
+    import hashlib as _h
+    shop_md5 = _h.md5(shop_domain.encode("utf-8")).hexdigest()[:16]
+    keys_to_delete: list[str] = []
+    for tmpl in _REDIS_SHOP_KEY_TEMPLATES_EXACT:
+        keys_to_delete.append(tmpl.format(shop=shop_domain))
+    for tmpl in _REDIS_SHOP_KEY_TEMPLATES_MD5:
+        keys_to_delete.append(tmpl.format(md5=shop_md5))
+
+    # SCAN-based delete for the prefix-with-suffix patterns. SCAN over
+    # MATCH is bounded by the number of matching keys, not the full
+    # keyspace — safe at 10k merchants.
+    for tmpl in _REDIS_SHOP_KEY_TEMPLATES_PREFIX:
+        pattern = tmpl.format(shop=shop_domain)
+        try:
+            for k in rc.scan_iter(match=pattern, count=200):
+                keys_to_delete.append(
+                    k.decode() if isinstance(k, bytes) else k
+                )
+        except Exception:
+            # SCAN may fail on transient Redis errors — continue to
+            # next pattern; SQL erasure has already succeeded.
+            continue
+
+    deleted = 0
+    if keys_to_delete:
+        try:
+            deleted = int(rc.delete(*keys_to_delete) or 0)
+        except Exception:
+            deleted = 0
+    log.info(
+        "gdpr.shop_redact: redis purged %d keys for %s",
+        deleted, shop_domain,
+    )
+    return deleted
+
+
 def _process_shop_redact(db: Session, req: GdprRequest) -> str:
     """
     Delete ALL data for a shop domain.  FK-safe deletion order.
@@ -595,6 +690,15 @@ def _process_shop_redact(db: Session, req: GdprRequest) -> str:
     row = db.execute(text(sql), {"shop": shop}).fetchone()
 
     deleted = {all_tables[i]: int(row[i] or 0) for i in range(len(all_tables))}
+
+    # Redis cleanup — per-shop cache entries that survive the SQL purge.
+    # Best-effort: Redis-down does NOT block the Art. 17 erasure (the
+    # SQL purge is the source of truth; Redis values are derived state
+    # with TTLs that would expire on their own). Logged for observability.
+    try:
+        _purge_shop_redis_keys(shop)
+    except Exception as exc:
+        log.warning("gdpr.shop_redact: redis cleanup failed for %s: %s", shop, exc)
 
     # Best-effort observability for the atomic Art. 17 erasure. Surfaces
     # the bulk operation in Sentry so subsequent errors carry the trail.
