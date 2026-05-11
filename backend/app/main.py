@@ -35,7 +35,10 @@ from app.models.wishlist_item import WishlistItem
 from app.models.event import Event
 from app.models.visitor_product_state import VisitorProductState
 from app.api.dashboard import router as dashboard_router
-from app.api.events import router as events_router
+# app.api.events DELETED 2026-05-11 Sprint A audit C2 (Triple Whale CTO
+# diligence finding): /track-event was anonymous, unrate-limited, no
+# shop validation. Zero real consumers (tracker/ + dashboard/src/ grep
+# clean). Production tracker uses POST /track via app/api/track.py.
 from app.api.intent import router as intent_router
 from app.api.track import router as track_router
 from app.models.price_intelligence import PriceIntelligence
@@ -609,7 +612,7 @@ app.add_middleware(QueryCountMiddleware)
 
 Base.metadata.create_all(bind=engine)
 
-app.include_router(events_router)
+# events_router (legacy /track-event) deleted 2026-05-11 Sprint A C2.
 app.include_router(conversion_probability_router)
 app.include_router(revenue_radar_router)
 app.include_router(intent_router)
