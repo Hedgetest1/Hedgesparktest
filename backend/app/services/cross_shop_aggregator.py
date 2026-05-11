@@ -56,6 +56,15 @@ NEXT_RUN_KEY = "hs:cross_shop_aggregator:next_run"
 # the outcome was measured (not still pending, not evaluation-failed).
 EVALUATED_STATUSES = ("effective", "ineffective", "neutral")
 
+# Effect-size floor: lifts below this absolute magnitude are treated
+# as noise (stamped "low" confidence) even if statistically significant.
+# 0.5% chosen as the minimum operationally-visible movement on a
+# merchant dashboard — a "10 shops × +0.001% lift, p<0.001" pattern
+# would be statistically real but operationally meaningless and would
+# trigger merchant_brain demotions in _apply_cross_shop_prior. Born
+# 2026-05-11 competitor-CTO audit.
+MIN_EFFECT_SIZE_PCT = 0.5
+
 
 def run_if_due(db: Session | None = None) -> dict:
     """Aggregator entry-point for periodic workers.
@@ -72,10 +81,21 @@ def run_if_due(db: Session | None = None) -> dict:
                 NEXT_RUN_KEY, "1",
                 ex=RUN_INTERVAL_SECONDS, nx=True,
             ))
-        except Exception:
-            # Redis transiently unavailable — fall through to run (lock-
-            # free degradation, acceptable for a 6h periodic).
-            claimed = True
+        except Exception as e:
+            # Redis transient-down: SKIP this tick. Running without a
+            # TTL claim risks double-aggregation when Redis recovers
+            # (5min worker re-tick sets the claim fresh and fires the
+            # aggregator again on top of the earlier no-lock run). The
+            # 6h cadence is observational, not safety-critical — better
+            # to skip a tick than double-run. Born 2026-05-11
+            # competitor-CTO audit. The previous "fall through to run"
+            # comment was wrong: it traded one safety axis (cadence
+            # discipline) for another (availability) without saying so.
+            logger.warning(
+                "cross_shop_aggregator: Redis unavailable, skipping tick: %s",
+                e,
+            )
+            return {"status": "skipped", "reason": "redis_unavailable"}
         if not claimed:
             return {"status": "skipped", "reason": "claim_held"}
 
@@ -181,7 +201,7 @@ def _run_aggregation(db: Session) -> dict:
 
         lifts = [lift for _, lift in pairs]
         mean, std, p_value = one_sample_t_test(lifts)
-        confidence = _confidence_label(n_shops, p_value)
+        confidence = _confidence_label(n_shops, p_value, mean)
 
         # Upsert via delete-then-insert in same transaction
         db.execute(text("""
@@ -273,13 +293,23 @@ def _compute_lift_pct(baseline: float, measured: float) -> float | None:
     return ((measured - baseline) / baseline) * 100.0
 
 
-def _confidence_label(n_shops: int, p_value: float) -> str:
-    """Derive a 3-level confidence label from sample size + p-value.
+def _confidence_label(
+    n_shops: int, p_value: float, lift_pct_avg: float = 0.0
+) -> str:
+    """Derive a 3-level confidence label from sample size + p-value +
+    effect size.
 
-    - high: n_shops >= 10 AND p < 0.05
-    - medium: n_shops >= 5 AND p < 0.10
+    - high: n_shops >= 10 AND p < 0.05 AND |lift| >= MIN_EFFECT_SIZE_PCT
+    - medium: n_shops >= 5 AND p < 0.10 AND |lift| >= MIN_EFFECT_SIZE_PCT
     - low: otherwise (n_shops >= 3 guaranteed by k-anonymity floor)
+
+    The effect-size floor prevents "statistically significant but
+    practically meaningless" patterns (e.g., 10 shops × +0.001% lift
+    with p<0.001) from triggering brain demotions in
+    _apply_cross_shop_prior. Born 2026-05-11 competitor-CTO audit.
     """
+    if abs(lift_pct_avg) < MIN_EFFECT_SIZE_PCT:
+        return "low"
     if n_shops >= 10 and p_value < 0.05:
         return "high"
     if n_shops >= 5 and p_value < 0.10:

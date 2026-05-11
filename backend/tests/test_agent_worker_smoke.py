@@ -300,31 +300,61 @@ def test_brain_vero_outcome_eval_triggers_closed_loop_sip_retrain(db):
 
 
 def test_autonomy_level_threshold_ladder():
-    """Sprint 1 #2 — autonomy_level promotion 0→5.
+    """Sprint 1 #2 — autonomy_level promotion 0→5 + decisions-evaluated
+    floor (born 2026-05-11 competitor-CTO audit).
 
     The ladder is documented in StoreIntelligenceProfile:
     0=observe, 1=suggest, 2=assisted, 3=semi-auto, 4=full-auto,
-    5=aggressive. Promotion gated by confidence + trust_score.
+    5=aggressive. Promotion gated by confidence + trust_score +
+    measured-decision volume (decisions_evaluated). Levels 3-5 require
+    minimum measured-outcome evidence to prevent "denominator-of-one
+    trust" promotions (e.g., execution_reliability=1.0 from a single
+    successful dispatch).
     """
-    from app.services.sip_engine import _autonomy_level_from_trust
+    from app.services.sip_engine import _autonomy_level_from_trust as f
 
-    # Low confidence — locked at 0 (observe-only)
-    assert _autonomy_level_from_trust(0.99, "low") == 0
-    assert _autonomy_level_from_trust(0.50, "low") == 0
+    # Low confidence — locked at 0 (observe-only) regardless of decisions
+    assert f(0.99, "low", decisions_evaluated=1000) == 0
+    assert f(0.50, "low") == 0
 
-    # Medium confidence — capped at 2 (assisted)
-    assert _autonomy_level_from_trust(0.95, "medium") == 2
-    assert _autonomy_level_from_trust(0.85, "medium") == 2
-    assert _autonomy_level_from_trust(0.70, "medium") == 1
-    assert _autonomy_level_from_trust(0.50, "medium") == 0
+    # Medium confidence — capped at 2; L2 requires >=20 evaluated decisions
+    assert f(0.95, "medium", decisions_evaluated=20) == 2
+    assert f(0.85, "medium", decisions_evaluated=20) == 2
+    assert f(0.85, "medium", decisions_evaluated=19) == 1  # demoted
+    assert f(0.70, "medium") == 1
+    assert f(0.50, "medium") == 0
 
-    # High confidence — full ladder 0..5
-    assert _autonomy_level_from_trust(0.96, "high") == 5  # aggressive
-    assert _autonomy_level_from_trust(0.87, "high") == 4  # full-auto
-    assert _autonomy_level_from_trust(0.76, "high") == 3  # semi-auto
-    assert _autonomy_level_from_trust(0.66, "high") == 2  # assisted
-    assert _autonomy_level_from_trust(0.51, "high") == 1  # suggest
-    assert _autonomy_level_from_trust(0.40, "high") == 0  # observe
+    # High confidence — full ladder 0..5 with decisions floor
+    assert f(0.96, "high", decisions_evaluated=100) == 5  # aggressive
+    assert f(0.87, "high", decisions_evaluated=50) == 4  # full-auto
+    assert f(0.76, "high", decisions_evaluated=20) == 3  # semi-auto
+    assert f(0.66, "high") == 2  # assisted (no floor)
+    assert f(0.51, "high") == 1  # suggest (no floor)
+    assert f(0.40, "high") == 0  # observe
+
+    # Decisions-evaluated floor enforcement at boundaries
+    # Trust 0.96 + 99 evaluated → fails L5 floor (needs >=100), passes
+    # L4 floor (99>=50, 0.96>=0.85) → lands L4
+    assert f(0.96, "high", decisions_evaluated=99) == 4
+    # Trust 0.96 + 49 → fails L5 + L4 floors, passes L3 (49>=20, 0.96>=0.75)
+    assert f(0.96, "high", decisions_evaluated=49) == 3
+    # Trust 0.96 + 19 → fails L5/L4/L3, lands L2 (trust>=0.65, no floor)
+    assert f(0.96, "high", decisions_evaluated=19) == 2
+    # Trust 0.87 + 49 → fails L4 floor, passes L3 (49>=20, 0.87>=0.75)
+    assert f(0.87, "high", decisions_evaluated=49) == 3
+    # Trust 0.87 + 19 → fails L4 + L3 floors, lands L2
+    assert f(0.87, "high", decisions_evaluated=19) == 2
+    # Trust 0.76 + 19 → fails L3 floor, lands L2
+    assert f(0.76, "high", decisions_evaluated=19) == 2
+
+    # Default decisions=0: hot-streak trust=0.99 high cannot exceed L2
+    # (this is the bug the floor closes — a shop with 0 measured
+    # outcomes can no longer hit level 5 just because confidence flags
+    # high from event count)
+    assert f(0.99, "high") == 2  # was 5 pre-2026-05-11
+    assert f(0.96, "high") == 2  # was 5
+    assert f(0.87, "high") == 2  # was 4
+    assert f(0.76, "high") == 2  # was 3
 
 
 def test_autonomy_level_monotonic_floor(db):
@@ -384,6 +414,64 @@ def test_autonomy_level_monotonic_floor(db):
     ), {"s": shop}).fetchone()
     assert row is not None
     assert row[0] == 4, f"monotonic floor must hold autonomy=4 even with trust=0.76, got {row[0]}"
+
+
+def test_profile_version_increments_on_each_upsert(db):
+    """Born 2026-05-11: profile_version was hardcoded to 1 in build_sip
+    AND the ON CONFLICT clause re-wrote it to EXCLUDED.profile_version
+    (=1 every time). The roadmap memo claim 'hedgespark-dev v117' was
+    fiction. Fix: ON CONFLICT now does `+1`, so each retraining cycle
+    increments the version visibly.
+    """
+    from sqlalchemy import text as _sql_text
+    from app.services.sip_engine import upsert_sip
+
+    shop = "_profile_version_test_.myshopify.com"
+    conn = db.connection()
+
+    def _sip_template(version_hint: int) -> dict:
+        return {
+            "shop_domain": shop,
+            "profile_version": version_hint,
+            "baseline_cart_rate": None, "baseline_scroll_depth": None,
+            "baseline_dwell_time": None, "baseline_return_rate": None,
+            "baseline_views_per_product": None, "baseline_mobile_pct": None,
+            "learned_thresholds": None, "traffic_source_quality": None,
+            "price_sensitivity_bands": None, "nudge_type_scores": None,
+            "best_nudge_by_signal": None, "peak_traffic_hours": None,
+            "signal_frequency_30d": None,
+            "data_points_total": 1000,
+            "confidence_level": "low",
+            "computed_at": __import__("datetime").datetime.now(),
+            "trust_score": 0.5,
+            "trust_profile": None,
+        }
+
+    # Cycle 1: INSERT → profile_version = 1 (from :profile_version)
+    upsert_sip(conn, _sip_template(1))
+    db.flush()
+    row = conn.execute(_sql_text(
+        "SELECT profile_version FROM store_intelligence_profiles WHERE shop_domain = :s"
+    ), {"s": shop}).fetchone()
+    assert row[0] == 1
+
+    # Cycle 2: UPSERT → ON CONFLICT increments → version 2
+    upsert_sip(conn, _sip_template(1))
+    db.flush()
+    row = conn.execute(_sql_text(
+        "SELECT profile_version FROM store_intelligence_profiles WHERE shop_domain = :s"
+    ), {"s": shop}).fetchone()
+    assert row[0] == 2
+
+    # Cycle 3-5: each cycle bumps. Caller-supplied :profile_version is
+    # ignored on UPDATE (the SET clause uses the stored value + 1).
+    for expected in (3, 4, 5):
+        upsert_sip(conn, _sip_template(1))
+        db.flush()
+        row = conn.execute(_sql_text(
+            "SELECT profile_version FROM store_intelligence_profiles WHERE shop_domain = :s"
+        ), {"s": shop}).fetchone()
+        assert row[0] == expected, f"expected v{expected}, got v{row[0]}"
 
 
 def test_brain_vero_eval_unknown_metric_returns_evaluation_failed(db):

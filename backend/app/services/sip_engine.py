@@ -459,8 +459,24 @@ def _compute_trust(
         return 0.5, None
 
 
-def _autonomy_level_from_trust(trust_score: float, confidence: str) -> int:
-    """Compute autonomy_level (0-5) from trust_score + confidence.
+def _autonomy_level_from_trust(
+    trust_score: float,
+    confidence: str,
+    decisions_evaluated: int = 0,
+) -> int:
+    """Compute autonomy_level (0-5) from trust_score + confidence +
+    measured-decision volume.
+
+    `decisions_evaluated` is the count of brain_decisions for this shop
+    with outcome_status stamped (effective/ineffective/neutral). Levels
+    3-5 require minimum evidence to prevent promotion on hot streaks
+    over tiny samples — born 2026-05-11 competitor-CTO audit found
+    level 5 was reachable with execution_reliability=1.0 from a single
+    successful dispatch (denominator-of-one trust). Confidence="high"
+    already requires data_points >= 5000 (tracker events), but that
+    is the events floor, not the brain-decision-outcome floor — a shop
+    can have 5000 events and 1 measured outcome.
+
     Documented in StoreIntelligenceProfile: 0=observe, 1=suggest,
     2=assisted, 3=semi-auto, 4=full-auto, 5=aggressive.
     Promotion is monotonic — never demote based on a single computation
@@ -470,17 +486,17 @@ def _autonomy_level_from_trust(trust_score: float, confidence: str) -> int:
     if confidence == "low":
         return 0  # observe-only until enough data
     if confidence == "medium":
-        if trust_score >= 0.85:
+        if trust_score >= 0.85 and decisions_evaluated >= 20:
             return 2
         if trust_score >= 0.70:
             return 1
         return 0
     # confidence == "high"
-    if trust_score >= 0.95:
+    if trust_score >= 0.95 and decisions_evaluated >= 100:
         return 5
-    if trust_score >= 0.85:
+    if trust_score >= 0.85 and decisions_evaluated >= 50:
         return 4
-    if trust_score >= 0.75:
+    if trust_score >= 0.75 and decisions_evaluated >= 20:
         return 3
     if trust_score >= 0.65:
         return 2
@@ -491,12 +507,28 @@ def _autonomy_level_from_trust(trust_score: float, confidence: str) -> int:
 
 def upsert_sip(conn: Connection, sip: dict[str, Any]) -> None:
     """Upsert one store_intelligence_profiles row."""
-    # Compute autonomy_level from trust_score + confidence; never DEMOTE
-    # below the existing row's level (monotonic promotion). Pre-fetch
-    # current to enforce the floor.
+    # Compute autonomy_level from trust_score + confidence + measured
+    # decision volume; never DEMOTE below the existing row's level
+    # (monotonic promotion). Pre-fetch current to enforce the floor.
     new_trust = float(sip.get("trust_score") or 0.5)
+
+    # Count brain_decisions with measured outcomes — gates promotion to
+    # levels 3-5 (audit 2026-05-11: execution_reliability/outcome_quality
+    # can be 1.0 on a single dispatch; without this floor a shop with
+    # 1 lucky outcome hits level 5).
+    try:
+        cnt = conn.execute(text(
+            "SELECT COUNT(*) FROM brain_decisions "
+            "WHERE shop_domain = :s AND outcome_status IS NOT NULL"
+        ), {"s": sip["shop_domain"]}).scalar() or 0
+        decisions_evaluated = int(cnt)
+    except Exception:
+        decisions_evaluated = 0  # SILENT-EXCEPT-OK: floor read best-effort; on miss the strictest interpretation (0 decisions) yields the safest autonomy level.
+
     new_autonomy = _autonomy_level_from_trust(
-        new_trust, sip.get("confidence_level") or "low"
+        new_trust,
+        sip.get("confidence_level") or "low",
+        decisions_evaluated=decisions_evaluated,
     )
     try:
         cur = conn.execute(text(
@@ -530,7 +562,7 @@ def upsert_sip(conn: Connection, sip: dict[str, Any]) -> None:
                 :trust_score, :trust_profile, :autonomy_level
             )
             ON CONFLICT (shop_domain) DO UPDATE SET
-                profile_version = EXCLUDED.profile_version,
+                profile_version = store_intelligence_profiles.profile_version + 1,
                 baseline_cart_rate = EXCLUDED.baseline_cart_rate,
                 baseline_scroll_depth = EXCLUDED.baseline_scroll_depth,
                 baseline_dwell_time = EXCLUDED.baseline_dwell_time,

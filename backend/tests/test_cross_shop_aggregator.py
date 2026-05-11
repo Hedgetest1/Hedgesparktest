@@ -87,26 +87,46 @@ def test_compute_lift_pct_near_zero_baseline():
 # ---------------------------------------------------------------------------
 
 
-def test_confidence_high_requires_10_shops_and_low_p():
-    assert csa._confidence_label(10, 0.01) == "high"
-    assert csa._confidence_label(20, 0.04) == "high"
+def test_confidence_high_requires_10_shops_and_low_p_and_effect_size():
+    # lift_pct_avg above MIN_EFFECT_SIZE_PCT (0.5%) is required
+    assert csa._confidence_label(10, 0.01, lift_pct_avg=2.0) == "high"
+    assert csa._confidence_label(20, 0.04, lift_pct_avg=-3.5) == "high"
 
 
-def test_confidence_medium_requires_5_shops_and_p_under_01():
-    assert csa._confidence_label(5, 0.05) == "medium"
-    assert csa._confidence_label(9, 0.09) == "medium"
+def test_confidence_medium_requires_5_shops_and_p_under_01_and_effect_size():
+    assert csa._confidence_label(5, 0.05, lift_pct_avg=1.0) == "medium"
+    assert csa._confidence_label(9, 0.09, lift_pct_avg=-2.0) == "medium"
 
 
 def test_confidence_low_floor():
     """n_shops=3 (k-anonymity floor) without strong signal → low."""
-    assert csa._confidence_label(3, 0.50) == "low"
-    assert csa._confidence_label(4, 0.20) == "low"
+    assert csa._confidence_label(3, 0.50, lift_pct_avg=5.0) == "low"
+    assert csa._confidence_label(4, 0.20, lift_pct_avg=5.0) == "low"
 
 
-def test_confidence_high_demotes_to_medium_when_p_too_high():
+def test_confidence_high_demotes_to_low_when_p_too_high():
     """10 shops but p=0.40 → high tier rejected, medium also rejected
     (medium requires p<0.10) → falls through to low."""
-    assert csa._confidence_label(10, 0.40) == "low"
+    assert csa._confidence_label(10, 0.40, lift_pct_avg=5.0) == "low"
+
+
+def test_confidence_demoted_to_low_below_effect_size_floor(monkeypatch):
+    """Born 2026-05-11 competitor-CTO audit: statistically-significant
+    micro-lifts (e.g., 10 shops × +0.001% lift with p<0.001) are
+    demoted to "low" confidence even when p_value and n_shops would
+    qualify for "high". Otherwise merchant_brain._apply_cross_shop_prior
+    would demote a paying merchant's action based on noise.
+    """
+    # +0.001% lift with strong stats → demoted to low (effect too small)
+    assert csa._confidence_label(10, 0.001, lift_pct_avg=0.001) == "low"
+    # -0.4% lift (just below 0.5% floor) → demoted to low
+    assert csa._confidence_label(20, 0.001, lift_pct_avg=-0.4) == "low"
+    # Exact floor — 0.5% qualifies
+    assert csa._confidence_label(10, 0.01, lift_pct_avg=0.5) == "high"
+    assert csa._confidence_label(10, 0.01, lift_pct_avg=-0.5) == "high"
+
+    # Default lift_pct_avg=0.0 → always low (zero-effect)
+    assert csa._confidence_label(10, 0.001) == "low"
 
 
 # ---------------------------------------------------------------------------
@@ -353,3 +373,38 @@ def test_sip_read_cross_shop_priors_returns_high_confidence_first(db):
     assert rows[0]["confidence"] == "high"
     assert rows[0]["action_kind"] == "retention_outreach_email"
     assert rows[1]["confidence"] == "low"
+
+
+# ---------------------------------------------------------------------------
+# Redis transient-down → skip (born 2026-05-11 competitor-CTO audit)
+# ---------------------------------------------------------------------------
+
+
+def test_run_if_due_skips_on_redis_transient_down(monkeypatch):
+    """Redis raising on r.set() must result in a SKIPPED tick, not a
+    no-lock aggregation run. Running without a TTL claim risks
+    double-aggregation when Redis recovers (the 5min worker cycle
+    re-ticks and sets the claim fresh, firing aggregation again on
+    top of the no-lock run)."""
+    class _BrokenRedis:
+        def set(self, *args, **kwargs):
+            raise ConnectionError("redis transient-down")
+
+    monkeypatch.setattr(csa, "_redis_client", lambda: _BrokenRedis())
+
+    # If the code fell through to run, this would raise (no DB session
+    # provided, would try SessionLocal()). The skip-on-redis-down
+    # behavior returns before any DB work.
+    report = csa.run_if_due()
+    assert report == {"status": "skipped", "reason": "redis_unavailable"}
+
+
+def test_run_if_due_claim_held_skips(monkeypatch):
+    """SETNX returning False (claim held by prior tick) → skipped."""
+    class _ClaimedRedis:
+        def set(self, *args, **kwargs):
+            return False  # nx=True on existing key returns None/False
+    monkeypatch.setattr(csa, "_redis_client", lambda: _ClaimedRedis())
+    report = csa.run_if_due()
+    assert report["status"] == "skipped"
+    assert report["reason"] == "claim_held"
