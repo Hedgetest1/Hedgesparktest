@@ -9,6 +9,7 @@ from app.models.agency import Agency, AgencyClient
 from app.models.analytics_event import AnalyticsEvent
 from app.models.audit_log import AuditLog
 from app.models.autonomous_action import AutonomousAction
+from app.models.bi_saved_query import BiSavedQuery
 from app.models.brain_decision import BrainDecision
 from app.models.cig import CigCohort, CigMerchantMapping
 from app.models.community_template import CommunityTemplate, CommunityTemplateClone
@@ -80,6 +81,7 @@ __all__ = [
     "AnalyticsEvent",
     "AuditLog",
     "AutonomousAction",
+    "BiSavedQuery",
     "CigCohort",
     "CigMerchantMapping",
     "CommunityTemplate",

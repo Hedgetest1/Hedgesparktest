@@ -474,6 +474,9 @@ def _process_shop_redact(db: Session, req: GdprRequest) -> str:
     # category + commented. merchants + audit_log are the only
     # shop_domain tables intentionally excluded from bulk redaction.
     tables = [
+        # Pro BI Query Builder saved queries (Sprint Pro #3 2026-05-11)
+        # — no PII in column content but query metadata is shop-scoped.
+        "bi_saved_queries",
         # Event-level behavioral data (highest-volume PII).
         # `events` is a range-partitioned table by timestamp — a single
         # DELETE on the parent cascades to events_default + events_y* so

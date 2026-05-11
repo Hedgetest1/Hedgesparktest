@@ -166,6 +166,7 @@ from app.api.merchant_churn import router as merchant_churn_router
 from app.api.revenue_genome import router as revenue_genome_router
 from app.api.goals import router as goals_router
 from app.api.recurring_buyers import router as recurring_buyers_router
+from app.api.bi_query import router as bi_query_router
 from app.api.revenue_at_risk import router as rars_router
 from app.api.risk_forecast import router as risk_forecast_router
 from app.api.annotations import router as annotations_router
@@ -704,6 +705,7 @@ app.include_router(team_router)
 app.include_router(revenue_autopsy_router)
 app.include_router(store_profile_router)
 app.include_router(recurring_buyers_router)
+app.include_router(bi_query_router)
 app.include_router(abandoned_intent_router)
 app.include_router(price_sensitivity_router)
 app.include_router(causal_lift_router)

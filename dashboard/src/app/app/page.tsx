@@ -75,6 +75,7 @@ import { IntegrationsCard } from "../components/IntegrationsCard";
 import { ProductsInDecline } from "../components/ProductsInDecline";
 import { MonthlyTargetsCard } from "../components/MonthlyTargetsCard";
 import { RecurringBuyersCard } from "../components/RecurringBuyersCard";
+import { BiQueryCard } from "../components/BiQueryCard";
 import { MonthlyROICard } from "../components/MonthlyROICard";
 import { TimelineNotes } from "../components/TimelineNotes";
 import { CompareProductsCard } from "../components/CompareProductsCard";
@@ -83,7 +84,6 @@ import { CompareProductsCard } from "../components/CompareProductsCard";
 import { RevenueAutopsyCard } from "../components/RevenueAutopsyCard";
 import { AbandonedIntentCard } from "../components/AbandonedIntentCard";
 import { LiveOpportunitiesCard } from "../components/LiveOpportunitiesCard";
-import { ProParityGapPlaceholder } from "../components/ProParityGapPlaceholder";
 import { ScaleFloorPreview } from "../components/ScaleFloorPreview";
 import { PriceSensitivityCard } from "../components/PriceSensitivityCard";
 import { CausalLiftCard } from "../components/CausalLiftCard";
@@ -3792,13 +3792,16 @@ function PageInner() {
               )}
 
               {isProFloor && isProUser && (
-                <ProParityGapPlaceholder
-                  id="pro-bi-sql"
-                  eyebrow="BI / SQL access"
-                  title="Read-only SQL sandbox over your store data"
-                  body="Query your raw events, orders, sessions in safe read-only SQL. Saved queries + scheduled email export. Matches the Pro mid-band offered by Klaviyo Marketing, Mixpanel Growth and Glew Pro."
-                  accent="#a78bfa"
-                />
+                <section id="section-pro-bi-sql" className="my-8">
+                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                    BI query builder
+                  </h2>
+                  <BiQueryCard
+                    apiBase={API_BASE}
+                    shop={shop}
+                    isProUser={isProUser}
+                  />
+                </section>
               )}
 
               {isProFloor && isProUser && (
@@ -4497,13 +4500,13 @@ function PageInner() {
                       isProUser={isProUser}
                     />
                   </section>
-                  <ProParityGapPlaceholder
-                    id="pro-bi-sql"
-                    eyebrow="BI / SQL access"
-                    title="Read-only SQL sandbox over your store data"
-                    body="Query your raw events, orders, sessions in safe read-only SQL. Saved queries + scheduled email export. Matches the Pro mid-band offered by Klaviyo Marketing, Mixpanel Growth and Glew Pro."
-                    accent="#a78bfa"
-                  />
+                  <section id="section-pro-bi-sql" className="my-8">
+                    <BiQueryCard
+                      apiBase={API_BASE}
+                      shop={shop}
+                      isProUser={isProUser}
+                    />
+                  </section>
                   <section id="section-pro-subscriptions" className="my-8">
                     <RecurringBuyersCard
                       apiBase={API_BASE}

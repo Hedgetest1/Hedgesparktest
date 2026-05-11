@@ -7164,6 +7164,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/pro/bi/schema": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Bi Schema
+         * @description Return the closed tables/columns/operators/limits metadata.
+         *
+         *     Pure read of the static allowlist; no DB or Redis dependency.
+         */
+        get: operations["get_bi_schema_pro_bi_schema_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pro/bi/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Execute Bi Query
+         * @description Execute a structured query against the shop's data.
+         *
+         *     Tenant filter is hardcoded — request body cannot override
+         *     shop_domain. Statement timeout 10s, row cap 5000 enforced in
+         *     compile_query + execute_query. Every execution audit-logged.
+         */
+        post: operations["execute_bi_query_pro_bi_query_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pro/bi/saved-queries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Saved Queries */
+        get: operations["list_saved_queries_pro_bi_saved_queries_get"];
+        put?: never;
+        /**
+         * Save Query
+         * @description Upsert a saved query (by shop_domain + name).
+         *
+         *     Validates the embedded query against the same builder allowlist
+         *     BEFORE persisting — prevents storing an invalid query that would
+         *     crash on later execute.
+         */
+        post: operations["save_query_pro_bi_saved_queries_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pro/bi/saved-queries/{query_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Saved Query */
+        delete: operations["delete_saved_query_pro_bi_saved_queries__query_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pro/abandoned-intent": {
         parameters: {
             query?: never;
@@ -9112,6 +9200,15 @@ export interface components {
             /** Title */
             title: string;
         };
+        /** FilterItem */
+        FilterItem: {
+            /** Column */
+            column: string;
+            /** Op */
+            op: string;
+            /** Value */
+            value?: unknown | null;
+        };
         /** FirstVsRepeatResponse */
         FirstVsRepeatResponse: {
             /** Currency */
@@ -10750,6 +10847,16 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /** OrderByItem */
+        OrderByItem: {
+            /** Column */
+            column: string;
+            /**
+             * Direction
+             * @default ASC
+             */
+            direction: string;
+        };
         /** OrderRhythmResponse */
         OrderRhythmResponse: {
             /** Currency */
@@ -11709,6 +11816,39 @@ export interface components {
             /** Timestamp */
             timestamp: number;
         };
+        /** QueryRequest */
+        QueryRequest: {
+            /** Table */
+            table: string;
+            /** Select */
+            select: components["schemas"]["SelectItem"][];
+            /** Where */
+            where?: components["schemas"]["FilterItem"][];
+            /** Group By */
+            group_by?: string[];
+            /** Having */
+            having?: components["schemas"]["FilterItem"][];
+            /** Order By */
+            order_by?: components["schemas"]["OrderByItem"][];
+            /**
+             * Limit
+             * @default 100
+             */
+            limit: number;
+        };
+        /** QueryResponse */
+        QueryResponse: {
+            /** Columns */
+            columns: string[];
+            /** Rows */
+            rows: unknown[][];
+            /** Row Count */
+            row_count: number;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Truncated */
+            truncated: boolean;
+        };
         /** RARSComponentResponse */
         RARSComponentResponse: {
             /** Source */
@@ -12356,6 +12496,34 @@ export interface components {
             /** Created At */
             created_at: string | null;
         };
+        /** SaveQueryPayload */
+        SaveQueryPayload: {
+            /** Name */
+            name: string;
+            query: components["schemas"]["QueryRequest"];
+        };
+        /** SavedQueriesResponse */
+        SavedQueriesResponse: {
+            /** Shop Domain */
+            shop_domain: string;
+            /** Queries */
+            queries?: components["schemas"]["SavedQueryItem"][];
+        };
+        /** SavedQueryItem */
+        SavedQueryItem: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Query Json */
+            query_json: {
+                [key: string]: unknown;
+            };
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+        };
         /** SavedReportListOut */
         SavedReportListOut: {
             /** Reports */
@@ -12565,6 +12733,15 @@ export interface components {
              * @default USD
              */
             currency: string;
+        };
+        /** SelectItem */
+        SelectItem: {
+            /** Column */
+            column?: string | null;
+            /** Agg */
+            agg?: string | null;
+            /** Alias */
+            alias?: string | null;
         };
         /**
          * SessionTimelineResponse
@@ -23174,6 +23351,143 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RecurringBuyersResponse"];
+                };
+            };
+        };
+    };
+    get_bi_schema_pro_bi_schema_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    execute_bi_query_pro_bi_query_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QueryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_saved_queries_pro_bi_saved_queries_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedQueriesResponse"];
+                };
+            };
+        };
+    };
+    save_query_pro_bi_saved_queries_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveQueryPayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedQueryItem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_saved_query_pro_bi_saved_queries__query_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                query_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
