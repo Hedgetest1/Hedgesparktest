@@ -28,6 +28,43 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 
+# Hash function version tag. Increment when the model-state SUBSET
+# changes (e.g. add a new field, change canonicalization rules). All
+# existing rows will rehash on next upsert → profile_version bumps once
+# at migration time, then stable. Senior+++ doctrine: version any
+# function whose output is persisted and gates downstream semantics.
+_MODEL_ARTIFACT_HASH_VERSION = "v1"
+
+
+def _canonical_json(obj):
+    """Recursive deterministic JSON serialization for hashing.
+
+    Sorts dict keys at every nesting level. Preserves list order (lists
+    in SIP state are ordered semantically: price_sensitivity_bands is
+    sorted by price range, peak_traffic_hours by hour; reordering
+    would imply a model change, NOT a serialization quirk).
+
+    `json.dumps(..., sort_keys=True)` ONLY sorts top-level keys —
+    nested dicts retain insertion order, so two semantically-equal
+    states could hash differently. Recursive sort eliminates that.
+
+    Born 2026-05-11 Senior+++ close — replaces shallow
+    `json.dumps(state, sort_keys=True)` in `_model_artifact_hash`.
+    """
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return json.dumps(obj)
+    if isinstance(obj, dict):
+        items = sorted(obj.items(), key=lambda kv: kv[0])
+        return "{" + ",".join(
+            f"{json.dumps(k)}:{_canonical_json(v)}" for k, v in items
+        ) + "}"
+    if isinstance(obj, list):
+        return "[" + ",".join(_canonical_json(x) for x in obj) + "]"
+    # Fallback (datetime / Decimal / etc.): coerce to string. Stable
+    # for any single-Python-process run.
+    return json.dumps(str(obj))
+
+
 def _model_artifact_hash(sip: dict) -> str:
     """sha256 hex of the deterministic model-state subset of `sip`.
 
@@ -36,11 +73,18 @@ def _model_artifact_hash(sip: dict) -> str:
     fields (data_points_total, computed_at, trust_score) that change
     every cycle without representing a model-state change.
 
+    The hash input is prefixed by `_MODEL_ARTIFACT_HASH_VERSION` —
+    bumping that constant rehashes every shop on next upsert (one-time
+    profile_version increment, then stable). Use this when the model-
+    state subset changes (new field added, canonicalization rules
+    altered).
+
     Born 2026-05-11 Senior+++ close — `profile_version` now bumps only
     when this hash changes (prior behavior bumped on every upsert,
     making the version a meaningless upsert-counter).
     """
     state = {
+        "_hash_version": _MODEL_ARTIFACT_HASH_VERSION,
         "learned_thresholds": sip.get("learned_thresholds"),
         "baseline_cart_rate": sip.get("baseline_cart_rate"),
         "baseline_scroll_depth": sip.get("baseline_scroll_depth"),
@@ -52,8 +96,7 @@ def _model_artifact_hash(sip: dict) -> str:
         "best_nudge_by_signal": sip.get("best_nudge_by_signal"),
         "price_sensitivity_bands": sip.get("price_sensitivity_bands"),
     }
-    # sort_keys for determinism; default=str handles datetime / Decimal.
-    serialized = json.dumps(state, sort_keys=True, default=str)
+    serialized = _canonical_json(state)
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 log = logging.getLogger(__name__)
@@ -668,14 +711,10 @@ def upsert_sip(conn: Connection, sip: dict[str, Any]) -> None:
                 -- (Senior+++ semantic 2026-05-11). Two upserts with identical
                 -- model state leave the version unchanged; the version is a
                 -- meaningful "model state version", not an upsert counter.
-                -- Explicit NULL-safe inequality (instead of `IS DISTINCT FROM`)
-                -- so the schema-audit regex (which keys on `FROM` as a table
-                -- prefix) doesn't false-positive `EXCLUDED.model_artifact_hash`
-                -- as a missing table.
+                -- `IS DISTINCT FROM` is the canonical NULL-safe inequality
+                -- in PG (NULL→set or set→different both bump).
                 profile_version = CASE
-                    WHEN store_intelligence_profiles.model_artifact_hash IS NULL
-                      OR EXCLUDED.model_artifact_hash IS NULL
-                      OR store_intelligence_profiles.model_artifact_hash != EXCLUDED.model_artifact_hash
+                    WHEN store_intelligence_profiles.model_artifact_hash IS DISTINCT FROM EXCLUDED.model_artifact_hash
                     THEN store_intelligence_profiles.profile_version + 1
                     ELSE store_intelligence_profiles.profile_version
                 END,

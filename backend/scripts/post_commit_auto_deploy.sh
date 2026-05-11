@@ -82,8 +82,15 @@ if [ -n "${GIT_REBASE_IN_PROGRESS:-}" ] || \
 fi
 
 # Classify commit
-TIER_OUTPUT=$("$PY" "$BACKEND/scripts/classify_commit_tier.py" HEAD 2>&1 || true)
-TIER=$(echo "$TIER_OUTPUT" | head -1)
+# Capture stdout (TIER line) and stderr (reasons) separately so the
+# tier classification is unambiguous. Defense-in-depth: the classifier
+# also flushes stdout first, but explicit stream separation here means
+# even if a future buffering quirk reorders, we still parse stdout-only
+# for the TIER. Born 2026-05-11 Senior+++ close.
+TIER=$("$PY" "$BACKEND/scripts/classify_commit_tier.py" HEAD 2>/dev/null || true)
+TIER_DETAIL=$("$PY" "$BACKEND/scripts/classify_commit_tier.py" HEAD 2>&1 1>/dev/null || true)
+TIER_OUTPUT="${TIER}${TIER_DETAIL:+
+$TIER_DETAIL}"
 
 case "$TIER" in
     TIER_0)

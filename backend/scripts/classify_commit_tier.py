@@ -136,9 +136,16 @@ def main(argv: list[str]) -> int:
         return 3
 
     tier, reason = classify_files(paths)
-    print(f"TIER_{tier}")
+    # `flush=True` guarantees the TIER line lands on stdout BEFORE any
+    # stderr writes — critical for downstream `head -1` parsers under
+    # `2>&1` redirection (Python's stdout is block-buffered when not a
+    # TTY; without flush, stderr lines can interleave first). Born
+    # 2026-05-11 Senior+++ close after post_commit_auto_deploy.sh
+    # captured stderr-first output and "fell back to manual deploy"
+    # on a multi-tier commit.
+    print(f"TIER_{tier}", flush=True)
     if tier > 0:
-        print(reason, file=sys.stderr)
+        print(reason, file=sys.stderr, flush=True)
     return tier
 
 

@@ -144,8 +144,19 @@ def run_if_due(db: Session | None = None) -> dict:
             db.close()
 
 
+# PG advisory-lock key for force_run_now serialization. 64-bit signed
+# int adjacent to the audit_log chain lock (7421889543210176881) so
+# they're easily greppable as "lock keys near the audit/learn moat".
+# Born 2026-05-11 Senior+++ close — bypasses the Redis claim but
+# acquires PG-level mutual exclusion so two concurrent force_run_now
+# calls serialize cleanly instead of double-running the aggregator.
+_FORCE_RUN_LOCK_KEY = 7421889543210176882
+
+
 def force_run_now(db: Session | None = None) -> dict:
-    """Bypass the 6h Redis claim and run aggregation immediately.
+    """Bypass the 6h Redis claim and run aggregation immediately,
+    serialized via PG advisory lock so concurrent callers wait
+    instead of double-running.
 
     Use case: a merchant opts out (GDPR Art. 21) → their measured
     decisions must stop contributing to cross_shop_patterns ASAP.
@@ -161,23 +172,50 @@ def force_run_now(db: Session | None = None) -> dict:
     a real opt-out event (don't call from a tight loop — the
     aggregator is O(N·measured_decisions)).
 
+    Concurrency: protected by `pg_advisory_xact_lock` keyed on
+    `_FORCE_RUN_LOCK_KEY`. Two concurrent callers serialize — the
+    second waits until the first commits, then runs against the
+    freshly-aggregated state (typically a no-op because the first
+    call already updated everything in-window).
+
     Born 2026-05-11 Senior+++ close (audit finding #1).
     """
-    # Invalidate any existing claim so the next periodic tick rebuilds.
-    r = _redis_client()
-    if r is not None:
-        try:
-            r.delete(NEXT_RUN_KEY)
-        except Exception as e:
-            logger.warning(
-                "cross_shop_aggregator: force_run claim invalidation "
-                "failed (non-fatal): %s", e,
-            )
+    from sqlalchemy import text as _sql_text
 
     own_session = db is None
     if own_session:
         db = SessionLocal()
     try:
+        # Acquire transactional advisory lock first. Held until the
+        # session's transaction commits (inside _run_aggregation).
+        # Two concurrent force_run_now calls on different sessions →
+        # second blocks here until first commits.
+        try:
+            db.execute(_sql_text(
+                "SELECT pg_advisory_xact_lock(:k)"
+            ), {"k": _FORCE_RUN_LOCK_KEY})
+        except Exception as e:
+            # Lock acquisition failure is non-fatal (PG transient
+            # issue) — fall through to run without lock. The Redis
+            # claim invalidation below still serializes via the next
+            # periodic tick's SETNX.
+            logger.warning(
+                "cross_shop_aggregator: PG advisory lock failed "
+                "(non-fatal): %s", e,
+            )
+
+        # Invalidate any existing Redis claim so the next periodic
+        # tick rebuilds fresh after this forced run.
+        r = _redis_client()
+        if r is not None:
+            try:
+                r.delete(NEXT_RUN_KEY)
+            except Exception as e:
+                logger.warning(
+                    "cross_shop_aggregator: force_run claim "
+                    "invalidation failed (non-fatal): %s", e,
+                )
+
         report = _run_aggregation(db)
         report["forced"] = True
         return report

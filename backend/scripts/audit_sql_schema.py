@@ -103,6 +103,36 @@ def _strip_sql_comments(sql: str) -> str:
     return sql
 
 
+def _strip_table_keyword_false_positives(sql: str) -> str:
+    """Strip SQL constructs that contain a `_TABLE_KEYWORDS` token but are
+    NOT table references — e.g. `IS DISTINCT FROM`, `IS NOT DISTINCT FROM`,
+    `EXTRACT(... FROM ...)`. Without this, the table-reference regex
+    captures the operand of these constructs as a phantom table.
+
+    Born 2026-05-11 Senior+++ close — first reported when the new
+    `IS DISTINCT FROM EXCLUDED.model_artifact_hash` clause in
+    sip_engine.upsert_sip false-positived `EXCLUDED.model_artifact_hash`
+    as a missing table. The patterns are anchored on full operator
+    sequences so legitimate `FROM <table>` references are unaffected."""
+    # `IS [NOT] DISTINCT FROM <expr>` — NULL-safe (in)equality operator.
+    sql = re.sub(
+        r"\bIS\s+(?:NOT\s+)?DISTINCT\s+FROM\b",
+        "DISTINCT_FROM_OP",
+        sql,
+        flags=re.IGNORECASE,
+    )
+    # `EXTRACT(<part> FROM <expr>)` — date/time field extraction.
+    # Replace the inner FROM with a placeholder. Must NOT consume the outer
+    # parens because they may carry other table refs.
+    sql = re.sub(
+        r"(\bEXTRACT\s*\(\s*\w+\s+)FROM(\s+)",
+        r"\1FROM_DATEPART\2",
+        sql,
+        flags=re.IGNORECASE,
+    )
+    return sql
+
+
 def extract_sql_blocks(path: pathlib.Path) -> list[tuple[int, str]]:
     try:
         src = path.read_text()
@@ -111,7 +141,8 @@ def extract_sql_blocks(path: pathlib.Path) -> list[tuple[int, str]]:
     out: list[tuple[int, str]] = []
     for m in _SQL_CALL.finditer(src):
         line_no = src.count("\n", 0, m.start()) + 1
-        body = _strip_sql_comments(m.group("body")).strip()
+        body = _strip_sql_comments(m.group("body"))
+        body = _strip_table_keyword_false_positives(body).strip()
         if len(body) < 6:
             continue
         out.append((line_no, body))
