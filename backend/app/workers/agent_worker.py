@@ -365,55 +365,136 @@ def _run_scaling_intelligence():
             db.close()
 
 
+# Sprint A P2 fix 2026-05-11: bound entitlement scan + Redis cursor.
+# Prior behavior: unbounded `.all()` over every active merchant + 1
+# OpsAlert SELECT per shop = 20k queries/cycle at 10k merchants in
+# the 25-min agent cron deadline. Now: 200 shops/cycle bounded by
+# round-robin cursor (mirrors segment_monitor_worker pattern, 50
+# cycles × 15min = 12.5h full-fleet coverage at 10k); per-shop
+# OpsAlert SELECT collapsed into ONE pre-fetch SELECT before loop.
+_ENTITLEMENT_MAX_PER_CYCLE = 200
+_ENTITLEMENT_CURSOR_KEY = "hs:entitlement_scan:cursor"
+
+
+def _entitlement_load_cursor() -> int:
+    """Load round-robin cursor from Redis. 0 on miss/error (fresh start)."""
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("entitlement_scan.load_cursor.redis_down")
+            return 0
+        raw = rc.get(_ENTITLEMENT_CURSOR_KEY)
+        return int(raw) if raw else 0
+    except Exception as exc:
+        from app.core.silent_fallback import record_silent_return
+        record_silent_return("entitlement_scan.load_cursor.exception")
+        log.warning("agent_worker: _entitlement_load_cursor failed: %s", exc)
+        return 0
+
+
+def _entitlement_save_cursor(pos: int) -> None:
+    """Persist round-robin cursor. 24h TTL (long enough that a
+    long-paused worker still resumes correctly)."""
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            rc.set(_ENTITLEMENT_CURSOR_KEY, str(pos), ex=86400)
+    except Exception:
+        pass  # SILENT-EXCEPT-OK: cursor save is best-effort; on next cycle we restart from prior cursor (worst case: re-scan same batch).
+
+
 def _run_entitlement_health_scan():
-    """Scan all active merchants for plan/billing mismatches. Create ops alerts for issues."""
+    """Scan active merchants for plan/billing mismatches. Bounded by
+    `_ENTITLEMENT_MAX_PER_CYCLE` shops per cycle, round-robin via
+    Redis cursor. See Sprint A P2 fix doctrine above."""
     db = SessionLocal()
     try:
         from app.models.merchant import Merchant
         from app.core.operator_blocklist import operator_dev_shops
         from app.services.merchant_chatbot import check_entitlement_health
+        from app.models.ops_alert import OpsAlert
 
-        merchants = (
-            db.query(Merchant)
+        # Sorted list for cursor stability — same shop_domain order
+        # every cycle so the cursor advances deterministically.
+        all_shops = [
+            r[0] for r in
+            db.query(Merchant.shop_domain)
             .filter(
                 Merchant.install_status == "active",
                 ~Merchant.shop_domain.in_(operator_dev_shops()),
             )
+            .order_by(Merchant.shop_domain.asc())
             .all()
-        )
+        ]
+
+        # Round-robin batch: at <= MAX_PER_CYCLE total, scan everything.
+        if len(all_shops) <= _ENTITLEMENT_MAX_PER_CYCLE:
+            batch = all_shops
+            next_cursor = 0
+        else:
+            start = _entitlement_load_cursor() % len(all_shops)
+            end = start + _ENTITLEMENT_MAX_PER_CYCLE
+            if end <= len(all_shops):
+                batch = all_shops[start:end]
+                next_cursor = end % len(all_shops)
+            else:
+                # wrap
+                batch = all_shops[start:] + all_shops[: end - len(all_shops)]
+                next_cursor = end - len(all_shops)
+
+        # Pre-fetch existing unresolved entitlement_mismatch alerts in
+        # ONE query — collapses the per-shop OpsAlert SELECT (was 1
+        # query per shop with mismatch). Returns set of shop_domains
+        # that already have an open alert.
+        already_alerted = {
+            r[0] for r in
+            db.query(OpsAlert.shop_domain)
+            .filter(
+                OpsAlert.alert_type == "entitlement_mismatch",
+                OpsAlert.resolved.is_(False),
+                OpsAlert.shop_domain.in_(batch),
+            )
+            .all()
+        }
 
         issues_found = 0
-        for m in merchants:
-            health = check_entitlement_health(db, m.shop_domain)
+        for shop_domain in batch:
+            health = check_entitlement_health(db, shop_domain)
             if not health["healthy"]:
                 issues_found += 1
+                if shop_domain in already_alerted:
+                    continue  # dedup hit — alert already open
                 try:
                     from app.services.alerting import write_alert
-                    # Dedup: check if alert already exists for this shop
-                    from app.models.ops_alert import OpsAlert
-                    existing = (
-                        db.query(OpsAlert)
-                        .filter(
-                            OpsAlert.shop_domain == m.shop_domain,
-                            OpsAlert.alert_type == "entitlement_mismatch",
-                            OpsAlert.resolved_at.is_(None),
-                        )
-                        .first()
+                    # heal-detection: entitlement_mismatch alerts are
+                    # opt-out — the entitlement_scan cycle re-runs every
+                    # 15min, and a fixed mismatch (plan/billing change)
+                    # generates no new alert (already_alerted dedup), so
+                    # the persisting alert clears via manual resolve OR
+                    # the L2 retention sweep. No auto-heal handler needed.
+                    write_alert(
+                        db, severity="warning", source="entitlement_scan",
+                        alert_type="entitlement_mismatch",
+                        summary=f"Entitlement mismatch: {health['issues']}",
+                        shop_domain=shop_domain,
                     )
-                    if not existing:
-                        # heal-detection: agent worker emits per-cycle event log alerts; cycle health tracked elsewhere
-                        write_alert(
-                            db, severity="warning", source="entitlement_scan",
-                            alert_type="entitlement_mismatch",
-                            summary=f"Entitlement mismatch: {health['issues']}",
-                            shop_domain=m.shop_domain,
-                        )
                 except Exception as exc:
-                    log.warning("agent_worker: _run_entitlement_health_scan failed: %s", exc)
+                    log.warning(
+                        "agent_worker: entitlement write_alert failed "
+                        "for %s: %s", shop_domain, exc,
+                    )
 
         if issues_found > 0:
-            log(f"entitlement_scan: {issues_found} mismatches found across {len(merchants)} merchants")
+            log(
+                f"entitlement_scan: {issues_found} mismatches found "
+                f"across {len(batch)} merchants (of {len(all_shops)} "
+                f"total, cursor advanced to {next_cursor})"
+            )
         db.commit()
+        _entitlement_save_cursor(next_cursor)
     except Exception as exc:
         log(f"entitlement_scan error (non-fatal): {exc}")
         db.rollback()
