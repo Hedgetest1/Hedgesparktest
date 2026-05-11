@@ -3778,13 +3778,16 @@ function PageInner() {
                   represents a Pro $60-130 parity gap with backend
                   scaffolding wired and UI shipping next. */}
               {isProFloor && isProUser && (
-                <ProParityGapPlaceholder
-                  id="pro-goals"
-                  eyebrow="KPI Goals"
-                  title="Set goals · track progress · alert on drift"
-                  body="Define monthly revenue / order / CVR targets, see real-time progress, get alerted when you're trailing. Backend already wired (POST /merchant/goals). UI shipping next sprint to match competitors at the Pro mid-band (Lifetimely Pro and Polar Analytics ship this)."
-                  accent="#34d399"
-                />
+                <section id="section-pro-goals" className="my-8">
+                  <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">
+                    KPI Goals
+                  </h2>
+                  <MonthlyTargetsCard
+                    apiBase={API_BASE}
+                    shop={shop}
+                    isProUser={isProUser}
+                  />
+                </section>
               )}
 
               {isProFloor && isProUser && (
@@ -4481,15 +4484,15 @@ function PageInner() {
                   pro-subscriptions placeholder remains as a separate
                   Pro-distinct slot (Glew $79 / Putler $79 = $60-130
                   band). */}
-              {renderProDoppioneBlock && isProFloor && (
+              {renderProDoppioneBlock && isProFloor && isProUser && (
                 <>
-                  <ProParityGapPlaceholder
-                    id="pro-goals"
-                    eyebrow="KPI Goals"
-                    title="Set goals · track progress · alert on drift"
-                    body="Define monthly revenue / order / CVR targets, see real-time progress, get alerted when you're trailing. Backend already wired (POST /merchant/goals). UI shipping next sprint to match competitors at the Pro mid-band (Lifetimely Pro and Polar Analytics ship this)."
-                    accent="#34d399"
-                  />
+                  <section id="section-pro-goals" className="my-8">
+                    <MonthlyTargetsCard
+                      apiBase={API_BASE}
+                      shop={shop}
+                      isProUser={isProUser}
+                    />
+                  </section>
                   <ProParityGapPlaceholder
                     id="pro-bi-sql"
                     eyebrow="BI / SQL access"
