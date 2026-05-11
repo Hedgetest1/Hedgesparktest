@@ -145,6 +145,16 @@ _AUDITS: list[tuple[str, str, str]] = [
         "invariant_regression",
         "invariant:models_without_migrations",
     ),
+    # Sprint 3 #3 GDPR k-anonymity invariant: cross_shop_patterns table
+    # must never contain a shop_domain column and must enforce n_shops>=3
+    # at SQL CHECK level. Wired here so any future drift (constraint
+    # removed, PII column added, row-level violation) surfaces within
+    # 15min of landing instead of waiting for the next preflight.
+    (
+        "audit_cross_shop_anonymity.py",
+        "invariant_regression",
+        "invariant:cross_shop_anonymity",
+    ),
     # Dashboard redirect paths: added 2026-04-29 (G4 retro hardening).
     # Catches RedirectResponse/redirect_to URLs in app/api/* that point
     # to /app/<path> where no Next.js page.tsx exists — i.e. the bug

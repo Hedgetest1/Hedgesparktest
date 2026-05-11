@@ -42,6 +42,13 @@ os.environ.setdefault("SHOPIFY_API_SECRET", "test-shopify-secret")
 os.environ.setdefault("MERCHANT_TOKEN_ENCRYPTION_KEY", os.urandom(32).hex())
 os.environ.setdefault("SHOPIFY_WEBHOOK_SECRET", "test-webhook-secret")
 os.environ.setdefault("ALLOW_INSECURE_DEV", "false")
+# BRAIN_HOLDOUT_PCT defaults to 0.10 in prod (10% control arm). For tests
+# that exercise dispatch paths, the per-shop-per-day holdout assignment
+# (sha1 of shop|date) is date-dependent — test shops landing in the
+# control arm on a given day produce flaky dispatch-test failures
+# (limb=None instead of email_orchestrator). Force 0 here; the 3 tests
+# that explicitly test holdout behavior override via monkeypatch.
+os.environ.setdefault("BRAIN_HOLDOUT_PCT", "0")
 
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))

@@ -49,6 +49,7 @@ ALLOWLIST: set[str] = {
     "services/benchmarks.py",             # Peer benchmarks — computes across shops
     "services/benchmarks_vertical.py",    # Vertical-scoped peer averages
     "services/network_aggregate.py",
+    "services/cross_shop_aggregator.py",  # Sprint 3 #3 cross-shop pattern memory — aggregates brain_decisions across all shops of the same vertical by design; output is GDPR-aggregate-only (k>=3, no shop_domain)
     "services/observability_spikes.py",   # Dashboard-wide + fleet-wide spike detection
 
     "services/ops_triage.py",             # Ops-scope triage

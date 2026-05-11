@@ -416,6 +416,23 @@ def _run_cycle_inner() -> None:
             log(f"observability_spikes error (non-fatal): {exc}")
 
         # ------------------------------------------------------------------ #
+        # Cross-shop pattern aggregator — Sprint 3 #3 per-shop learning.      #
+        # Reads measured outcomes from brain_decisions, aggregates lifts per  #
+        # (vertical, action_kind, metric_kind) signal. Self-gates via Redis   #
+        # SETNX with 6h TTL — most ticks return "skipped" immediately.        #
+        # Network-effect deterministic prior for new merchants of the same    #
+        # vertical. GDPR-clean (n_shops>=3 k-anonymity, no shop_domain).      #
+        # ------------------------------------------------------------------ #
+        try:
+            from app.services.cross_shop_aggregator import run_if_due as _csa_run
+            csa_report = _csa_run(db)
+            if csa_report.get("status") == "completed":
+                log(f"cross_shop_aggregator: {csa_report}")
+        except Exception as exc:
+            db.rollback()
+            log(f"cross_shop_aggregator error (non-fatal): {exc}")
+
+        # ------------------------------------------------------------------ #
         # Lighthouse nightly — once-per-day guard inside the service.         #
         # Runs only in the 02:00-04:00 UTC window (low dashboard traffic)     #
         # and skips if already ran today. Returns early on any other cycle,  #

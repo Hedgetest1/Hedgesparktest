@@ -30,6 +30,7 @@ WIRED_AUDITS: frozenset[str] = frozenset({
     "audit_claude_md_pm2_map.py",
     "audit_claude_md_redis_keys.py",
     "audit_commit_devils_advocate.py",
+    "audit_cross_shop_anonymity.py",
     "audit_da_evidence.py",
     "audit_dashboard_a11y.py",
     "audit_dashboard_api_base_env.py",

@@ -12,6 +12,7 @@ from app.models.autonomous_action import AutonomousAction
 from app.models.brain_decision import BrainDecision
 from app.models.cig import CigCohort, CigMerchantMapping
 from app.models.community_template import CommunityTemplate, CommunityTemplateClone
+from app.models.cross_shop_pattern import CrossShopPattern
 from app.models.daily_brief import DailyBrief
 from app.models.email_event import EmailEvent
 from app.models.event import Event
@@ -83,6 +84,7 @@ __all__ = [
     "CigMerchantMapping",
     "CommunityTemplate",
     "CommunityTemplateClone",
+    "CrossShopPattern",
     "DailyBrief",
     "EmailEvent",
     "Event",

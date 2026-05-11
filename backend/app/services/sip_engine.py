@@ -133,6 +133,14 @@ def compute_sip(
         confidence=confidence,
     )
 
+    # ── 9d. Cross-shop patterns (Sprint 3 #3 network-effect prior) ──
+    # For the shop's vertical, list aggregated action-lift patterns
+    # measured across other shops of the same vertical (n_shops >= 3
+    # k-anonymity). Surfaces what a new shop "inherits" from its peers
+    # — empty list when vertical unknown or aggregator hasn't produced
+    # any signal yet for this vertical.
+    cross_shop_priors = _read_cross_shop_priors(conn, vertical)
+
     # ── 10. CIG bootstrap (inject cross-store intelligence when SIP is immature) ──
     if confidence == "low" and not nudge_scores:
         try:
@@ -165,8 +173,53 @@ def compute_sip(
         "trust_score": trust_score,
         "trust_profile": trust_profile,
         "vertical_prior": vertical_prior,
+        "cross_shop_priors": cross_shop_priors,
         "computed_at": now,
     }
+
+
+def _read_cross_shop_priors(conn: Connection, vertical: str | None) -> list[dict]:
+    """Sprint 3 #3 — measured action-lift aggregates for the shop's vertical.
+
+    Returns a list of dicts (one per (action_kind, metric_kind) signal
+    that has reached n_shops >= 3 for this vertical). Empty list when
+    vertical is unknown or no aggregate yet. Read-only — the aggregate
+    is computed and written by services/cross_shop_aggregator.py on a
+    6h cadence hooked in aggregation_worker.
+    """
+    if not vertical:
+        return []
+    try:
+        rows = conn.execute(text("""
+            SELECT action_kind, metric_kind, lift_pct_avg, lift_pct_std,
+                   n_shops, n_decisions, p_value, confidence,
+                   last_aggregated_at
+            FROM cross_shop_patterns
+            WHERE vertical = :v
+            ORDER BY
+              CASE confidence
+                WHEN 'high' THEN 0
+                WHEN 'medium' THEN 1
+                ELSE 2
+              END,
+              n_shops DESC
+        """), {"v": vertical}).fetchall()
+    except Exception:
+        return []
+    return [
+        {
+            "action_kind": r.action_kind,
+            "metric_kind": r.metric_kind,
+            "lift_pct_avg": _round(r.lift_pct_avg),
+            "lift_pct_std": _round(r.lift_pct_std) if r.lift_pct_std is not None else None,
+            "n_shops": int(r.n_shops),
+            "n_decisions": int(r.n_decisions),
+            "p_value": _round(r.p_value) if r.p_value is not None else None,
+            "confidence": r.confidence,
+            "last_aggregated_at": r.last_aggregated_at.isoformat() if r.last_aggregated_at else None,
+        }
+        for r in rows
+    ]
 
 
 def _compute_vertical_prior(

@@ -59,6 +59,36 @@ def vertical_blend(
     return (n_observed * float(observed) + n_prior * float(prior)) / denom
 
 
+def one_sample_t_test(samples: list[float]) -> tuple[float, float, float]:
+    """One-sample t-test of `samples` against H0: mean = 0.
+
+    Returns (mean, sample_std, p_value). Used by cross_shop_aggregator
+    to test whether the distribution of measured per-shop lifts for a
+    given (vertical, action_kind, metric_kind) signal is significantly
+    different from zero.
+
+    n<2 → returns (mean, 0.0, 1.0) — not enough data for a statistic.
+    Zero variance + non-zero mean → returns (mean, 0.0, 0.0) — the
+    sample is identically a non-zero constant, infinitely-significant
+    against H0=0 (caller decides what to do; aggregator clamps to
+    n_shops>=3 anyway).
+    """
+    n = len(samples)
+    if n < 2:
+        return (_mean(samples), 0.0, 1.0)
+    m = _mean(samples)
+    v = _variance(samples)
+    if v == 0:
+        return (m, 0.0, 0.0 if m != 0 else 1.0)
+    sample_std = math.sqrt(v)
+    se = sample_std / math.sqrt(n)
+    if se == 0:
+        return (m, sample_std, 1.0)
+    t = m / se
+    p_value = two_sided_t_pvalue(abs(t), n - 1)
+    return (m, sample_std, p_value)
+
+
 def welch_t_test(treatment: list[float], control: list[float]) -> tuple[float, float]:
     """Return (lift, p_value).
 
