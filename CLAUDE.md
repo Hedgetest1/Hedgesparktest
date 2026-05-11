@@ -220,6 +220,26 @@ fire either way.
    modified `bugfix_pipeline.py` (TIER_1) under stretch
    interpretation of session-scoped approval without an explicit
    marker — the audit closes that drift class.
+
+   **TIER_2 per-change disclosure (born 2026-05-11).** TIER_2 files
+   (§10) require EXPLICIT fresh founder approval per change — that
+   IS the doctrine (this is the strict-approval list, unlike TIER_1's
+   per-change disclosure under blanket approval). Every commit
+   touching a TIER_2 file MUST carry one of:
+       "TIER_2: <basename>"  — per-file marker
+       "TIER_2 fresh approval: <founder directive citation>"
+       "TIER_2 modification surfaced: <reason>"
+       "TIER_2 session-scoped approval: <sprint memo>"
+       "TIER_2 emergency override: <reason>"
+   `audit_tier2_change_surfaced.py` (commit-msg hook, born 2026-05-11)
+   blocks undisclosed TIER_2 modifications. Reason: 3 same-session
+   commits modified `app/services/gdpr_processor.py` (TIER_2) under
+   broad "procedi" directives without explicit TIER_2 marker (and one
+   misclassified as TIER_1) — the gate closes that drift class. The
+   stricter approval semantics for TIER_2 means "session-scoped
+   approval" is acceptable ONLY when the founder has explicitly
+   bundled the file under the sprint scope; implicit autonomy under
+   "procedi" does NOT cover TIER_2.
 3. **Founder-domain decision** (§1.1, §1.5 exception). Brand voice,
    palette, visual taste, copy, pricing numbers, feature narrative,
    strategic positioning. Surface ONE proposal + tradeoffs.
