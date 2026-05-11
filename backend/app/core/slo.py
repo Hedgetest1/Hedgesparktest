@@ -203,7 +203,28 @@ CATALOGUE: list[SLO] = [
 
 
 def slo_report() -> list[dict]:
-    """Evaluate every SLO in the catalogue against the live 60m window."""
+    """Evaluate every SLO in the catalogue against the live 60m window.
+
+    Threshold rationale (2026-05-11 perf investigation):
+
+    - obs < 10 → insufficient_data: classic "not enough data to score".
+    - obs < 30 + would-be latency_breach: SPECIFICALLY for latency
+      classification. With <30 observations, p95 = 28th-29th order
+      statistic — a single outlier (cold cache, GC pause, connection
+      acquisition stall) dominates the percentile. The downstream
+      `detect_slo_breaches` would fire a CRITICAL latency_breach alert
+      for what is genuinely 1-out-of-20 statistical noise. With <30
+      obs we still surface health, but cap at latency_warning (which
+      is just `warning`, not `critical`). Availability breach + burn-
+      rate breach are unaffected — error rate is per-request and does
+      not need a sample-size adjustment to be meaningful.
+
+      Concrete trigger: 2026-05-11 session-close §22.3 probe found
+      today_snapshot (p50=18ms, p95=1016ms with obs=20) firing CRITICAL
+      every ~2h. p95 with n=20 = a single 1016ms request among 19 fast
+      ones. Not a perf bug; statistical-noise alert pollution.
+    """
+    _MIN_OBS_FOR_LATENCY_CRITICAL = 30
     out = []
     for slo in CATALOGUE:
         stats = route_stats(slo.route, method=slo.method, window="60m")
@@ -224,7 +245,13 @@ def slo_report() -> list[dict]:
         elif burn_rate > 2:
             health = "warning_burn"
         elif p95 > slo.latency_p95_target_ms * 1.5:
-            health = "latency_breach"
+            # Demote to warning (not critical) when sample size is too
+            # small for p95 to be statistically meaningful. See docstring.
+            health = (
+                "latency_warning"
+                if obs < _MIN_OBS_FOR_LATENCY_CRITICAL
+                else "latency_breach"
+            )
         elif p95 > slo.latency_p95_target_ms:
             health = "latency_warning"
         else:

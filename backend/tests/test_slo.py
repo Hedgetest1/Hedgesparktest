@@ -73,6 +73,72 @@ def test_slo_report_classifies_insufficient_data():
         assert entry["observations"] == 0
 
 
+def test_slo_report_demotes_latency_breach_when_obs_under_30():
+    """2026-05-11 fix: low-obs p95 is dominated by single outliers (a
+    single 1000ms request among 19 fast ones makes p95=1000ms). For
+    sample sizes < 30, demote any latency_breach to latency_warning
+    so the downstream `detect_slo_breaches` does NOT fire a CRITICAL
+    alert for what is statistical noise. Availability + burn-rate
+    classifications are unaffected (they're per-request, not
+    percentile-based)."""
+    # Build a fake Redis with 20 observations: 18 fast (10ms) + 2 slow
+    # (1500ms) for /orders/summary. Target p95 = 600ms; with 2 slow
+    # values at indices 18+19 of sorted, p95 (95th percentile via
+    # linear interp at index 0.95*19=18.05) interpolates between 18
+    # (=1500) and 19 (=1500) → 1500ms > 600*1.5=900ms → would be
+    # latency_breach with obs>=30, but should be demoted to
+    # latency_warning at obs<30.
+    fake = FakeRedis()
+    route = "/orders/summary"
+    method = "GET"
+    key_tm = f"hs:slo:tm:60m:{method}:{route}"
+    bucket = {}
+    base_ns = 1_000_000_000_000
+    for i in range(18):
+        bucket[f"{base_ns + i}:10.0"] = base_ns + i
+    for j, ns_off in enumerate([18, 19]):
+        bucket[f"{base_ns + ns_off}:1500.0"] = base_ns + ns_off
+    fake.store[key_tm] = bucket
+    fake.counters[f"hs:slo:ok:60m:{method}:{route}"] = 20
+    fake.counters[f"hs:slo:err:60m:{method}:{route}"] = 0
+
+    with patch("app.core.slo._redis", return_value=fake):
+        report = slo.slo_report()
+    target = next(e for e in report if e["route"] == route)
+    assert target["observations"] == 20
+    assert target["p95_ms"] > 600 * 1.5  # would-be latency_breach
+    # KEY assertion: with obs<30, demote to warning, NOT breach
+    assert target["health"] == "latency_warning"
+
+
+def test_slo_report_keeps_latency_breach_when_obs_at_or_above_30():
+    """Counterpart: at obs>=30, the latency_breach classification
+    stands (high-traffic routes have statistically meaningful p95)."""
+    fake = FakeRedis()
+    route = "/orders/summary"
+    method = "GET"
+    key_tm = f"hs:slo:tm:60m:{method}:{route}"
+    bucket = {}
+    base_ns = 1_000_000_000_000
+    # 35 observations: 32 fast + 3 slow. p95 at 0.95*34=32.3 → indices
+    # 32-33 are slow (1500ms) → p95 ≈ 1500 > 900 → latency_breach.
+    for i in range(32):
+        bucket[f"{base_ns + i}:10.0"] = base_ns + i
+    for off in [32, 33, 34]:
+        bucket[f"{base_ns + off}:1500.0"] = base_ns + off
+    fake.store[key_tm] = bucket
+    fake.counters[f"hs:slo:ok:60m:{method}:{route}"] = 35
+    fake.counters[f"hs:slo:err:60m:{method}:{route}"] = 0
+
+    with patch("app.core.slo._redis", return_value=fake):
+        report = slo.slo_report()
+    target = next(e for e in report if e["route"] == route)
+    assert target["observations"] == 35
+    # p95 of 35 values with one at 1500 → p95 is ~1500
+    assert target["p95_ms"] > 600 * 1.5
+    assert target["health"] == "latency_breach"
+
+
 def test_catalogue_routes_resolve_to_real_handlers():
     """C-2 preventer (2026-05-06): every SLO route must correspond to a
     real FastAPI handler. A typo in the catalogue would silently
