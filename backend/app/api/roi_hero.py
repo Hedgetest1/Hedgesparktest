@@ -110,404 +110,303 @@ def _cache_set(shop: str, data: dict) -> None:
         log.warning("roi_hero: cache write failed: %s", exc)
 
 
+# ---------------------------------------------------------------------------
+# Z-test SQL fragments — extracted to avoid copy-paste across all CVR-lift
+# computations. The math: for each autonomous_action with valid holdout,
+# compute pooled CVR p_pool, then two-tailed z-test for proportions; only
+# include actions with z > 1.96 (p < 0.05). Visitor-lift = (treatment_cvr
+# - control_cvr) × total_measured.
+# ---------------------------------------------------------------------------
+_SIG_CTE_COLUMNS = """
+    treatment_cvr, control_cvr, visitors_measured,
+    GREATEST(visitors_measured * holdout_pct / 100.0, 1) AS n_ctrl,
+    GREATEST(visitors_measured * (100 - holdout_pct) / 100.0, 1) AS n_treat,
+    (treatment_cvr * visitors_measured * (100 - holdout_pct) / 100.0
+     + control_cvr * visitors_measured * holdout_pct / 100.0)
+    / GREATEST(visitors_measured, 1) AS p_pool
+"""
+
+_SIG_BASE_WHERE = """
+    shop_domain = :shop
+    AND outcome IN ('win', 'measured')
+    AND treatment_cvr IS NOT NULL AND control_cvr IS NOT NULL
+    AND control_cvr > 0 AND visitors_measured > 0
+    AND holdout_pct > 0 AND holdout_pct < 100
+"""
+
+_SIG_Z_FILTER = """
+    p_pool > 0 AND p_pool < 1
+    AND ABS(treatment_cvr - control_cvr)
+        / SQRT(p_pool * (1.0 - p_pool) * (1.0/n_treat + 1.0/n_ctrl))
+        > 1.96
+"""
+
+
+def _window_clause(since, until, params: dict) -> str:
+    """Compose an SQL fragment for measurement_end window. Mutates
+    `params` in place with `:since` / `:until` bindings as needed."""
+    parts = []
+    if since is not None:
+        parts.append("AND measurement_end >= :since")
+        params["since"] = since
+    if until is not None:
+        parts.append("AND measurement_end <  :until")
+        params["until"] = until
+    return " ".join(parts)
+
+
+def _significant_cvr_lift_visitors(
+    db: Session, shop: str, *, since=None, until=None
+) -> float:
+    """Sum of (treatment_cvr - control_cvr) × measured_visitors across all
+    autonomous_actions with statistically significant lift (p < 0.05 via
+    2-tailed z-test). Window-restricted by `since`/`until` on
+    measurement_end if provided; all-time otherwise."""
+    params: dict = {"shop": shop}
+    window = _window_clause(since, until, params)
+    try:
+        row = db.execute(
+            sql_text(f"""
+                WITH sig AS (
+                    SELECT {_SIG_CTE_COLUMNS}
+                    FROM autonomous_actions
+                    WHERE {_SIG_BASE_WHERE}
+                      {window}
+                )
+                SELECT COALESCE(SUM(
+                    (treatment_cvr - control_cvr) * (n_treat + n_ctrl)
+                ), 0)
+                FROM sig WHERE {_SIG_Z_FILTER}
+            """),
+            params,
+        ).scalar()
+        return float(row or 0)
+    except Exception as exc:
+        log.warning("roi_hero: cvr lift query failed: %s", exc)
+        return 0.0
+
+
+def _aov_for_shop(
+    db: Session, shop: str, currency: str | None, *, days: int | None = 30
+) -> float:
+    """Average shop_orders.total_price for `shop`, optionally restricted
+    to the last `days` of orders. Returns 50.0 if no data — same
+    fallback the four prior copy-pasted blocks used."""
+    if days is not None:
+        where_window = "AND created_at >= NOW() - (:days || ' days')::INTERVAL"
+        params = {"shop": shop, "currency": currency, "days": str(days)}
+    else:
+        where_window = ""
+        params = {"shop": shop, "currency": currency}
+    try:
+        row = db.execute(
+            sql_text(f"""
+                SELECT COALESCE(AVG(total_price) FILTER (WHERE total_price > 0), 50)
+                FROM shop_orders
+                WHERE shop_domain = :shop
+                  AND (:currency IS NULL OR currency = :currency)
+                  {where_window}
+            """),
+            params,
+        ).scalar()
+        return float(row or 50)
+    except Exception as exc:
+        log.warning("roi_hero: aov lookup failed: %s", exc)
+        return 50.0
+
+
+def _eur_from_lift(
+    db: Session, shop: str, currency: str | None, *,
+    since=None, until=None, aov_days: int | None = 30,
+) -> float:
+    """Visitor-lift × shop AOV → € savings. Composes the two helpers."""
+    visitors = _significant_cvr_lift_visitors(db, shop, since=since, until=until)
+    if visitors <= 0:
+        return 0.0
+    aov = _aov_for_shop(db, shop, currency, days=aov_days)
+    return round(visitors * aov, 2)
+
+
+def _trust_savings(db: Session, shop: str, *, since=None) -> float:
+    """Sum of trust_execution_log.revenue_delta_eur > 0 for `shop`,
+    optionally restricted to executed_at >= since."""
+    where_window = "AND executed_at >= :since" if since is not None else ""
+    params = {"shop": shop}
+    if since is not None:
+        params["since"] = since
+    try:
+        row = db.execute(
+            sql_text(f"""
+                SELECT COALESCE(SUM(revenue_delta_eur), 0)
+                FROM trust_execution_log
+                WHERE shop_domain = :shop
+                  AND revenue_delta_eur > 0
+                  {where_window}
+            """),
+            params,
+        ).scalar()
+        return float(row or 0)
+    except Exception as exc:
+        log.warning("roi_hero: trust contract query failed: %s", exc)
+        return 0.0
+
+
+def _rars_prevented_recent(shop: str) -> float:
+    """Most-recent prevented_eur_this_month from RARS history (Redis).
+    Returns 0.0 if no history or no prevented entries."""
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("roi_hero.rars_history")
+            return 0.0
+        raw = rc.get(f"hs:rars_history:v1:{shop}")
+        if not raw:
+            return 0.0
+        history = json.loads(raw)
+        prevented = [h for h in history if h.get("prevented_eur_this_month")]
+        if not prevented:
+            return 0.0
+        return float(prevented[-1].get("prevented_eur_this_month") or 0)
+    except Exception as exc:
+        log.warning("roi_hero: rars history lookup failed: %s", exc)
+        return 0.0
+
+
+def _top_win(
+    db: Session, shop: str, currency: str | None, *, since
+) -> dict | None:
+    """Single biggest holdout-significant action since `since`.
+    AOV-converted to €. Returns None if no significant action."""
+    params: dict = {"shop": shop}
+    window = _window_clause(since, None, params)
+    try:
+        row = db.execute(
+            sql_text(f"""
+                WITH sig AS (
+                    SELECT
+                        action_type, product_url, measurement_end,
+                        {_SIG_CTE_COLUMNS}
+                    FROM autonomous_actions
+                    WHERE {_SIG_BASE_WHERE}
+                      {window}
+                )
+                SELECT
+                    action_type, product_url, measurement_end,
+                    (treatment_cvr - control_cvr) * (n_treat + n_ctrl) AS lift_visitors
+                FROM sig WHERE {_SIG_Z_FILTER}
+                ORDER BY lift_visitors DESC
+                LIMIT 1
+            """),
+            params,
+        ).fetchone()
+        if not row or float(row[3] or 0) <= 0:
+            return None
+        aov = _aov_for_shop(db, shop, currency, days=30)
+        product = (row[1] or "").replace("/products/", "") or "your store"
+        return {
+            "title": f"{row[0]} on {product[:40]}",
+            "amount_eur": round(float(row[3]) * aov, 2),
+            "narrative": "Biggest single win in the last 30 days",
+            "when": row[2].isoformat() if row[2] else "",
+        }
+    except Exception as exc:
+        log.warning("roi_hero: top win query failed: %s", exc)
+        return None
+
+
+def _plan_cost_monthly(db: Session, shop: str) -> float:
+    """Plan price: 49 for Lite (default), 99 for Pro."""
+    try:
+        row = db.execute(
+            sql_text("SELECT plan FROM merchants WHERE shop_domain = :s LIMIT 1"),
+            {"s": shop},
+        ).fetchone()
+        if row and row[0] == "pro":
+            return 99.0
+    except Exception as exc:
+        log.warning("roi_hero: plan cost lookup failed: %s", exc)
+    return 49.0
+
+
+def _build_breakdown(
+    saved_actions: float, saved_trust: float, prevented_rars: float
+) -> list[dict]:
+    """Compose the breakdown list — only include non-zero sources."""
+    items: list[dict] = []
+    if saved_actions > 0:
+        items.append({
+            "source": "nudge_lift",
+            "amount_eur": saved_actions,
+            "description": "Revenue lift from holdout-measured nudges",
+            "icon": "💬",
+        })
+    if saved_trust > 0:
+        items.append({
+            "source": "delegated_autonomy",
+            "amount_eur": saved_trust,
+            "description": "Revenue from autonomous actions under trust contracts",
+            "icon": "🛡️",
+        })
+    if prevented_rars > 0:
+        items.append({
+            "source": "rars_prevented",
+            "amount_eur": prevented_rars,
+            "description": "Losses prevented by early risk detection",
+            "icon": "🎯",
+        })
+    return items
+
+
+def _headline_message(total_30d: float, roi_ratio: float) -> str:
+    """Human-readable tagline based on ROI ratio bands."""
+    if total_30d <= 0:
+        return "HedgeSpark is collecting your data — savings start this week."
+    if roi_ratio >= 20:
+        return f"You're getting {roi_ratio:.0f}× your HedgeSpark subscription back. Wild."
+    if roi_ratio >= 5:
+        return f"HedgeSpark has saved you {roi_ratio:.1f}× its cost this month."
+    if roi_ratio >= 1:
+        return f"You're already in the black: {roi_ratio:.1f}× your subscription."
+    return "HedgeSpark is building the cash machine. Savings are coming online."
+
+
 def _compute_roi_hero(db: Session, shop: str) -> dict:
+    """Compose the ROI hero payload from extracted helpers.
+
+    Refactored 2026-05-12 (A3 close): the original 413-LOC function
+    inlined the same CVR z-test SQL 4 times + the same AOV lookup 4
+    times. This composer drives each section as a single call to a
+    pure helper; adding/removing a source = edit the composer, not
+    a 413-LOC body.
+    """
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     c_7d = now - timedelta(days=7)
     c_14d = now - timedelta(days=14)
     c_30d = now - timedelta(days=30)
     currency = get_shop_currency(db, shop)
 
-    breakdown: list[dict] = []
+    # 30d sources
+    saved_30d_actions = _eur_from_lift(db, shop, currency, since=c_30d)
+    saved_30d_trust = _trust_savings(db, shop, since=c_30d)
+    prevented_rars_30d = _rars_prevented_recent(shop)
+    total_30d = saved_30d_actions + saved_30d_trust + prevented_rars_30d
 
-    # --- 1. Nudge lift from autonomous_actions (holdout-measured) ---
-    # autonomous_actions is the real source for holdout-measured nudge
-    # lift: treatment_cvr vs control_cvr → lift_pct → revenue impact.
-    # Only includes actions with statistically significant lift (p<0.05):
-    # z-test for proportions with z > 1.96 threshold.
-    saved_30d_actions = 0.0
-    try:
-        row = db.execute(
-            sql_text(
-                """
-                WITH sig AS (
-                    SELECT
-                        treatment_cvr,
-                        control_cvr,
-                        visitors_measured,
-                        holdout_pct,
-                        -- group sizes
-                        GREATEST(visitors_measured * holdout_pct / 100.0, 1) AS n_ctrl,
-                        GREATEST(visitors_measured * (100 - holdout_pct) / 100.0, 1) AS n_treat,
-                        -- pooled conversion rate
-                        (treatment_cvr * visitors_measured * (100 - holdout_pct) / 100.0
-                         + control_cvr * visitors_measured * holdout_pct / 100.0)
-                        / GREATEST(visitors_measured, 1) AS p_pool
-                    FROM autonomous_actions
-                    WHERE shop_domain = :shop
-                      AND outcome IN ('win', 'measured')
-                      AND measurement_end >= :cutoff
-                      AND treatment_cvr IS NOT NULL
-                      AND control_cvr IS NOT NULL
-                      AND control_cvr > 0
-                      AND visitors_measured > 0
-                      AND holdout_pct > 0
-                      AND holdout_pct < 100
-                )
-                SELECT COALESCE(SUM(
-                    (treatment_cvr - control_cvr) * (n_treat + n_ctrl)
-                ), 0) AS cvr_lift_visitors
-                FROM sig
-                WHERE p_pool > 0 AND p_pool < 1
-                  -- z = |p1 - p2| / sqrt(p_pool * (1-p_pool) * (1/n_treat + 1/n_ctrl))
-                  -- require z > 1.96 for p < 0.05 two-tailed
-                  AND ABS(treatment_cvr - control_cvr)
-                      / SQRT(p_pool * (1.0 - p_pool) * (1.0/n_treat + 1.0/n_ctrl))
-                      > 1.96
-                """
-            ),
-            {"shop": shop, "cutoff": c_30d},
-        ).fetchone()
-        # Multiply by shop AOV to get €; fall back to 50 if unknown
-        lift_visitors = float(row[0] or 0) if row else 0.0
-        if lift_visitors > 0:
-            try:
-                aov_row = db.execute(
-                    sql_text(
-                        """
-                        SELECT COALESCE(AVG(total_price) FILTER (WHERE total_price > 0), 50)
-                        FROM shop_orders
-                        WHERE shop_domain = :shop
-                          AND created_at >= NOW() - INTERVAL '30 days'
-                          AND (:currency IS NULL OR currency = :currency)
-                        """
-                    ),
-                    {"shop": shop, "currency": currency},
-                ).scalar()
-                aov = float(aov_row or 50)
-            except Exception as exc:
-                log.warning("roi_hero: aov lookup failed: %s", exc)
-                aov = 50.0
-            saved_30d_actions = round(lift_visitors * aov, 2)
-    except Exception as exc:
-        log.warning("roi_hero: nudge lift query failed: %s", exc)
-        saved_30d_actions = 0.0
-
-    if saved_30d_actions > 0:
-        breakdown.append(
-            {
-                "source": "nudge_lift",
-                "amount_eur": saved_30d_actions,
-                "description": "Revenue lift from holdout-measured nudges",
-                "icon": "💬",
-            }
-        )
-
-    # --- 2. Trust Contract auto-executions ---
-    try:
-        saved_30d_trust = float(
-            db.execute(
-                sql_text(
-                    """
-                    SELECT COALESCE(SUM(revenue_delta_eur), 0)
-                    FROM trust_execution_log
-                    WHERE shop_domain = :shop
-                      AND executed_at >= :cutoff
-                      AND revenue_delta_eur > 0
-                    """
-                ),
-                {"shop": shop, "cutoff": c_30d},
-            ).scalar()
-            or 0
-        )
-    except Exception as exc:
-        log.warning("roi_hero: trust contract query failed: %s", exc)
-        saved_30d_trust = 0.0
-
-    if saved_30d_trust > 0:
-        breakdown.append(
-            {
-                "source": "delegated_autonomy",
-                "amount_eur": saved_30d_trust,
-                "description": "Revenue from autonomous actions under trust contracts",
-                "icon": "🛡️",
-            }
-        )
-
-    # --- 3. RARS prevented — from RARS history ---
-    # (former section #3 "bugfix self-heal savings" removed 2026-05-08:
-    # `get_weekly_proven_savings` queried Redis keys never populated
-    # since Stage 2-E supersession, so the value was structurally
-    # always 0.0 AND the assignment was never used downstream.)
-    prevented_rars_30d = 0.0
-    try:
-        from app.core.redis_client import _client
-        rc = _client()
-        if rc is not None:
-            raw = rc.get(f"hs:rars_history:v1:{shop}")
-            if raw:
-                history = json.loads(raw)
-                prevented_entries = [
-                    h for h in history if h.get("prevented_eur_this_month")
-                ]
-                if prevented_entries:
-                    prevented_rars_30d = float(
-                        prevented_entries[-1].get("prevented_eur_this_month") or 0
-                    )
-    except Exception as exc:
-        log.warning("roi_hero: rars history lookup failed: %s", exc)
-
-    if prevented_rars_30d > 0:
-        breakdown.append(
-            {
-                "source": "rars_prevented",
-                "amount_eur": prevented_rars_30d,
-                "description": "Losses prevented by early risk detection",
-                "icon": "🎯",
-            }
-        )
-
-    # --- 4. 7d savings (current vs previous week, for delta trend) ---
-    # Re-use the same autonomous_actions → CVR lift → € formula for two
-    # windows so the delta badge reflects real week-over-week momentum.
-    def _cvr_lift_eur_window(c_start, c_end=None):
-        try:
-            where = "AND measurement_end >= :start"
-            params = {"shop": shop, "start": c_start}
-            if c_end is not None:
-                where += " AND measurement_end < :end"
-                params["end"] = c_end
-            row = db.execute(
-                sql_text(
-                    f"""
-                    WITH sig AS (
-                        SELECT
-                            treatment_cvr, control_cvr, visitors_measured,
-                            GREATEST(visitors_measured * holdout_pct / 100.0, 1) AS n_ctrl,
-                            GREATEST(visitors_measured * (100 - holdout_pct) / 100.0, 1) AS n_treat,
-                            (treatment_cvr * visitors_measured * (100 - holdout_pct) / 100.0
-                             + control_cvr * visitors_measured * holdout_pct / 100.0)
-                            / GREATEST(visitors_measured, 1) AS p_pool
-                        FROM autonomous_actions
-                        WHERE shop_domain = :shop
-                          AND outcome IN ('win', 'measured')
-                          AND treatment_cvr IS NOT NULL AND control_cvr IS NOT NULL
-                          AND control_cvr > 0 AND visitors_measured > 0
-                          AND holdout_pct > 0 AND holdout_pct < 100
-                          {where}
-                    )
-                    SELECT COALESCE(SUM(
-                        (treatment_cvr - control_cvr) * (n_treat + n_ctrl)
-                    ), 0)
-                    FROM sig
-                    WHERE p_pool > 0 AND p_pool < 1
-                      AND ABS(treatment_cvr - control_cvr)
-                          / SQRT(p_pool * (1.0 - p_pool) * (1.0/n_treat + 1.0/n_ctrl))
-                          > 1.96
-                    """
-                ),
-                params,
-            ).scalar()
-            lift_visitors = float(row or 0)
-            if lift_visitors <= 0:
-                return 0.0
-            aov = float(
-                db.execute(
-                    sql_text(
-                        """
-                        SELECT COALESCE(AVG(total_price) FILTER (WHERE total_price > 0), 50)
-                        FROM shop_orders
-                        WHERE shop_domain = :shop
-                          AND created_at >= NOW() - INTERVAL '30 days'
-                          AND (:currency IS NULL OR currency = :currency)
-                        """
-                    ),
-                    {"shop": shop, "currency": currency},
-                ).scalar()
-                or 50
-            )
-            return round(lift_visitors * aov, 2)
-        except Exception as exc:
-            log.warning("roi_hero: cvr lift window query failed: %s", exc)
-            return 0.0
-
-    saved_7d = _cvr_lift_eur_window(c_7d)
-    saved_prior_7d = _cvr_lift_eur_window(c_14d, c_7d)
-
+    # 7d momentum (current vs prior week)
+    saved_7d = _eur_from_lift(db, shop, currency, since=c_7d)
+    saved_prior_7d = _eur_from_lift(db, shop, currency, since=c_14d, until=c_7d)
     delta_pct: float | None = None
     if saved_prior_7d > 0:
         delta_pct = ((saved_7d - saved_prior_7d) / saved_prior_7d) * 100.0
 
-    total_30d = saved_30d_actions + saved_30d_trust + prevented_rars_30d
+    # All-time observational (uses all-orders AOV, not 30d-window)
+    saved_all_time_actions = _eur_from_lift(db, shop, currency, aov_days=None)
+    saved_all_time_trust = _trust_savings(db, shop)
+    total_all_time = max(saved_all_time_actions + saved_all_time_trust, total_30d)
 
-    # --- 5. All-time total (observational — cheaper query) ---
-    # autonomous_actions is the canonical measured-nudge-lift source.
-    # The former query used action_outcomes.revenue_delta_eur which
-    # never existed on that table.
-    try:
-        row = db.execute(
-            sql_text(
-                """
-                WITH sig AS (
-                    SELECT
-                        treatment_cvr, control_cvr, visitors_measured,
-                        GREATEST(visitors_measured * holdout_pct / 100.0, 1) AS n_ctrl,
-                        GREATEST(visitors_measured * (100 - holdout_pct) / 100.0, 1) AS n_treat,
-                        (treatment_cvr * visitors_measured * (100 - holdout_pct) / 100.0
-                         + control_cvr * visitors_measured * holdout_pct / 100.0)
-                        / GREATEST(visitors_measured, 1) AS p_pool
-                    FROM autonomous_actions
-                    WHERE shop_domain = :shop
-                      AND outcome IN ('win', 'measured')
-                      AND treatment_cvr IS NOT NULL AND control_cvr IS NOT NULL
-                      AND control_cvr > 0 AND visitors_measured > 0
-                      AND holdout_pct > 0 AND holdout_pct < 100
-                )
-                SELECT COALESCE(SUM(
-                    (treatment_cvr - control_cvr) * (n_treat + n_ctrl)
-                ), 0)
-                FROM sig
-                WHERE p_pool > 0 AND p_pool < 1
-                  AND ABS(treatment_cvr - control_cvr)
-                      / SQRT(p_pool * (1.0 - p_pool) * (1.0/n_treat + 1.0/n_ctrl))
-                      > 1.96
-                """
-            ),
-            {"shop": shop},
-        ).scalar()
-        lift_visitors_all = float(row or 0)
-        # Re-use the 30d AOV heuristic for the conversion
-        aov_all = 50.0
-        try:
-            aov_row = db.execute(
-                sql_text("""
-                    SELECT COALESCE(AVG(total_price) FILTER (WHERE total_price > 0), 50)
-                    FROM shop_orders
-                    WHERE shop_domain = :shop
-                      AND (:currency IS NULL OR currency = :currency)
-                """),
-                {"shop": shop, "currency": currency},
-            ).scalar()
-            aov_all = float(aov_row or 50)
-        except Exception as exc:
-            log.warning("roi_hero: all-time aov lookup failed: %s", exc)
-        total_all_time = round(lift_visitors_all * aov_all, 2)
-    except Exception as exc:
-        log.warning("roi_hero: all-time total query failed: %s", exc)
-        total_all_time = total_30d
-
-    # Trust-contract all-time on top
-    try:
-        total_all_time_trust = float(
-            db.execute(
-                sql_text(
-                    """
-                    SELECT COALESCE(SUM(revenue_delta_eur), 0)
-                    FROM trust_execution_log
-                    WHERE shop_domain = :shop
-                      AND revenue_delta_eur > 0
-                    """
-                ),
-                {"shop": shop},
-            ).scalar()
-            or 0
-        )
-    except Exception as exc:
-        log.warning("roi_hero: all-time trust query failed: %s", exc)
-        total_all_time_trust = 0.0
-
-    total_all_time = max(total_all_time + total_all_time_trust, total_30d)
-
-    # --- 6. Top win (single biggest effective action in last 30d) ---
-    # Source: autonomous_actions rows with the highest (treatment_cvr -
-    # control_cvr) * visitors_measured product. AOV multiplier turns
-    # the visitor-lift count into an € estimate.
-    top_win_dict: dict | None = None
-    try:
-        row = db.execute(
-            sql_text(
-                """
-                WITH sig AS (
-                    SELECT
-                        action_type, product_url, measurement_end,
-                        treatment_cvr, control_cvr, visitors_measured,
-                        GREATEST(visitors_measured * holdout_pct / 100.0, 1) AS n_ctrl,
-                        GREATEST(visitors_measured * (100 - holdout_pct) / 100.0, 1) AS n_treat,
-                        (treatment_cvr * visitors_measured * (100 - holdout_pct) / 100.0
-                         + control_cvr * visitors_measured * holdout_pct / 100.0)
-                        / GREATEST(visitors_measured, 1) AS p_pool
-                    FROM autonomous_actions
-                    WHERE shop_domain = :shop
-                      AND outcome IN ('win', 'measured')
-                      AND measurement_end >= :c30
-                      AND treatment_cvr IS NOT NULL AND control_cvr IS NOT NULL
-                      AND control_cvr > 0 AND visitors_measured > 0
-                      AND holdout_pct > 0 AND holdout_pct < 100
-                )
-                SELECT
-                    action_type, product_url, measurement_end,
-                    (treatment_cvr - control_cvr) * (n_treat + n_ctrl) AS lift_visitors
-                FROM sig
-                WHERE p_pool > 0 AND p_pool < 1
-                  AND ABS(treatment_cvr - control_cvr)
-                      / SQRT(p_pool * (1.0 - p_pool) * (1.0/n_treat + 1.0/n_ctrl))
-                      > 1.96
-                ORDER BY lift_visitors DESC
-                LIMIT 1
-                """
-            ),
-            {"shop": shop, "c30": c_30d},
-        ).fetchone()
-        if row and float(row[3] or 0) > 0:
-            aov_for_top = 50.0
-            try:
-                aov_row = db.execute(
-                    sql_text("""
-                        SELECT COALESCE(AVG(total_price) FILTER (WHERE total_price > 0), 50)
-                        FROM shop_orders
-                        WHERE shop_domain = :shop
-                          AND created_at >= NOW() - INTERVAL '30 days'
-                          AND (:currency IS NULL OR currency = :currency)
-                    """),
-                    {"shop": shop, "currency": currency},
-                ).scalar()
-                aov_for_top = float(aov_row or 50)
-            except Exception as exc:
-                log.warning("roi_hero: top win aov lookup failed: %s", exc)
-            product = (row[1] or "").replace("/products/", "") or "your store"
-            top_win_dict = {
-                "title": f"{row[0]} on {product[:40]}",
-                "amount_eur": round(float(row[3]) * aov_for_top, 2),
-                "narrative": "Biggest single win in the last 30 days",
-                "when": row[2].isoformat() if row[2] else "",
-            }
-    except Exception as exc:
-        log.warning("roi_hero: top win query failed: %s", exc)
-
-    # --- 7. Plan cost + ROI ratio ---
-    plan_cost = 49.0  # default — could look up merchant plan
-    try:
-        plan_row = db.execute(
-            sql_text("SELECT plan FROM merchants WHERE shop_domain = :s LIMIT 1"),
-            {"s": shop},
-        ).fetchone()
-        if plan_row and plan_row[0] == "pro":
-            plan_cost = 99.0
-    except Exception as exc:
-        log.warning("roi_hero: plan cost lookup failed: %s", exc)
-
+    plan_cost = _plan_cost_monthly(db, shop)
     roi_ratio = (total_30d / plan_cost) if plan_cost > 0 else 0.0
-
-    # --- 8. Headline message ---
-    if total_30d <= 0:
-        headline = "HedgeSpark is collecting your data — savings start this week."
-    elif roi_ratio >= 20:
-        headline = f"You're getting {roi_ratio:.0f}× your HedgeSpark subscription back. Wild."
-    elif roi_ratio >= 5:
-        headline = f"HedgeSpark has saved you {roi_ratio:.1f}× its cost this month."
-    elif roi_ratio >= 1:
-        headline = f"You're already in the black: {roi_ratio:.1f}× your subscription."
-    else:
-        headline = "HedgeSpark is building the cash machine. Savings are coming online."
 
     return {
         "shop_domain": shop,
@@ -515,11 +414,11 @@ def _compute_roi_hero(db: Session, shop: str) -> dict:
         "total_saved_eur_7d": round(saved_7d, 2),
         "total_saved_eur_all_time": round(total_all_time, 2),
         "delta_7d_vs_prior_pct": round(delta_pct, 1) if delta_pct is not None else None,
-        "breakdown": breakdown,
-        "top_win": top_win_dict,
+        "breakdown": _build_breakdown(saved_30d_actions, saved_30d_trust, prevented_rars_30d),
+        "top_win": _top_win(db, shop, currency, since=c_30d),
         "plan_cost_eur_monthly": plan_cost,
         "roi_ratio": round(roi_ratio, 2),
-        "headline_message": headline,
+        "headline_message": _headline_message(total_30d, roi_ratio),
         "currency": currency or "USD",
         "generated_at": now.isoformat(),
     }
