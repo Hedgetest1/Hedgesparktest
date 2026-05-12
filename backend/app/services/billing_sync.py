@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
@@ -26,6 +27,12 @@ log = logging.getLogger("billing_sync")
 
 _MAX_PER_CYCLE = 10
 _MAX_DEACTIVATIONS_BEFORE_HALT = 3
+# P4 close 2026-05-12: parallel Shopify API calls. Threads carry the
+# I/O cost; 20 in-flight requests is conservative (Shopify per-shop
+# rate limit is ~2 req/s and each request hits a DIFFERENT shop, so
+# our outbound capacity is the only constraint). Env-overridable for
+# future scale tuning.
+_MAX_CONCURRENCY = int(os.environ.get("BILLING_SYNC_CONCURRENCY", "20"))
 
 
 def _now():
@@ -56,28 +63,51 @@ def run_billing_sync(db: Session) -> dict:
     if not merchants:
         return summary
 
-    for m in merchants:
-        try:
-            status = _check_charge_status(m)
-            summary["checked"] += 1
+    # P4: I/O-bound per-merchant Shopify calls run in a thread pool.
+    # Pre-fix: 10 merchants × 10s timeout = 100s serial wall-clock; at
+    # uncapped 10k Pro merchants the projection was 28h. Post-fix: same
+    # cap at 10/cycle completes in ~ceil(10/20) × max(per-req latency)
+    # ≈ 1-3s. The pool also makes lifting _MAX_PER_CYCLE safe — at 500
+    # the cycle finishes in ~25 batches × 3s ≈ 75s, well within weekly
+    # cadence.
+    halted = False
+    with ThreadPoolExecutor(max_workers=_MAX_CONCURRENCY) as pool:
+        future_to_merchant = {
+            pool.submit(_check_charge_status, m): m for m in merchants
+        }
+        for fut in as_completed(future_to_merchant):
+            m = future_to_merchant[fut]
+            if halted:
+                # Pending check finished after halt — skip; cancellation
+                # only stops not-yet-started futures, so racing inflight
+                # is expected and harmless (state changes already gated
+                # by halted flag).
+                continue
+            try:
+                status = fut.result()
+                summary["checked"] += 1
 
-            if status in ("cancelled", "declined", "expired", "frozen"):
-                _deactivate(db, m, status)
-                summary["deactivated"] += 1
+                if status in ("cancelled", "declined", "expired", "frozen"):
+                    _deactivate(db, m, status)
+                    summary["deactivated"] += 1
 
-                if summary["deactivated"] >= _MAX_DEACTIVATIONS_BEFORE_HALT:
-                    log.warning(
-                        "billing_sync: HALTED — %d deactivations in one cycle (safety limit)",
-                        summary["deactivated"],
-                    )
-                    _alert_mass_deactivation(summary["deactivated"])
-                    break
-            else:
-                summary["ok"] += 1
+                    if summary["deactivated"] >= _MAX_DEACTIVATIONS_BEFORE_HALT:
+                        log.warning(
+                            "billing_sync: HALTED — %d deactivations in one cycle (safety limit)",
+                            summary["deactivated"],
+                        )
+                        _alert_mass_deactivation(summary["deactivated"])
+                        halted = True
+                        # Cancel any not-yet-started checks. as_completed
+                        # will still yield those — we filter via halted.
+                        for pending in future_to_merchant:
+                            pending.cancel()
+                else:
+                    summary["ok"] += 1
 
-        except Exception as exc:
-            log.warning("billing_sync: error checking %s: %s", m.shop_domain, exc)
-            summary["errors"].append(f"{m.shop_domain}: {exc}")
+            except Exception as exc:
+                log.warning("billing_sync: error checking %s: %s", m.shop_domain, exc)
+                summary["errors"].append(f"{m.shop_domain}: {exc}")
 
     return summary
 
