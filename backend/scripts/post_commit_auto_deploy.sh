@@ -161,6 +161,46 @@ if [ "$DASH_TOUCHED" = "1" ]; then
     fi
 fi
 
+# PM2 worker singletons. Born 2026-05-12 after discovering 4 workers
+# had been running stale code for 26 days (created 2026-04-16) while
+# backend reloaded normally on every commit. Without this list, every
+# commit that touched a module imported by workers silently failed to
+# take effect — module cache in long-running workers kept the old code.
+# Smoking-gun example: scoring_calibration.py was deleted on 2026-05-09
+# but agent_worker kept querying its bugfix_candidates table at every
+# 15-min cycle through 2026-05-12 because the worker was never reloaded.
+WISHSPARK_WORKERS=(
+    wishspark-worker                # intelligence_worker.py
+    wishspark-agent-worker          # agent_worker.py
+    wishspark-aggregation-worker    # aggregation_worker.py
+    wishspark-segment-monitor       # segment_monitor_worker.py
+    wishspark-nudge-optimizer       # nudge_optimization_worker.py
+    wishspark-gdpr-worker           # gdpr_worker.py
+)
+
+# Reload all worker singletons. Workers are cron-loops, idempotent on
+# restart, and import from app.core / app.services — so any backend
+# code change can affect them. Failures here are logged but do NOT
+# abort the deploy: a missing worker reload degrades to a stale-cache
+# alert later, not a user-facing outage.
+_reload_workers() {
+    local total=${#WISHSPARK_WORKERS[@]}
+    local fails=0
+    for w in "${WISHSPARK_WORKERS[@]}"; do
+        if pm2 reload "$w" --update-env >> "$LOG" 2>&1; then
+            :
+        else
+            log "worker reload FAILED: $w (continuing)"
+            fails=$((fails+1))
+        fi
+    done
+    if [ "$fails" = "0" ]; then
+        ok "worker reloads: $total/$total green"
+    else
+        fail "worker reloads: $((total - fails))/$total green ($fails failed — investigate)"
+    fi
+}
+
 # When only backend changed, reload wishspark-backend PM2 so the new
 # Python code is actually running (deploy.sh handles dashboard only).
 if [ "$BACKEND_TOUCHED" = "1" ] && [ "$DASH_TOUCHED" = "0" ]; then
@@ -168,6 +208,7 @@ if [ "$BACKEND_TOUCHED" = "1" ] && [ "$DASH_TOUCHED" = "0" ]; then
     if pm2 reload wishspark-backend --update-env >> "$LOG" 2>&1; then
         if _health_probe_with_backoff "http://127.0.0.1:8000/system/health"; then
             ok "backend reload green"
+            _reload_workers
         else
             fail "backend reload but health probe FAILED after 15s budget"
             exit 1
@@ -186,6 +227,7 @@ if [ "$BACKEND_TOUCHED" = "1" ] && [ "$DASH_TOUCHED" = "1" ]; then
     if pm2 reload wishspark-backend --update-env >> "$LOG" 2>&1; then
         if _health_probe_with_backoff "http://127.0.0.1:8000/system/health"; then
             ok "backend reload green"
+            _reload_workers
         else
             fail "backend reload but health probe FAILED after 15s budget"
             exit 1

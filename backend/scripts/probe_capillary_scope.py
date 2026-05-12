@@ -227,9 +227,26 @@ def probe_workers_liveness() -> ProbeResult:
         for n, p in found.items()
         if p.get("pm2_env", {}).get("restart_time", 0) > 100
     ]
+    # Stale singleton workers — born 2026-05-12. Workers cache imported
+    # modules in sys.modules; if backend code lands but the worker is
+    # never reloaded, its in-memory code drifts from disk. Smoking gun:
+    # 4 workers had uptime 26 days while backend reloaded normally per
+    # commit. Post-fix the auto-deploy hook reloads workers too — this
+    # probe is the backstop that surfaces drift if the hook ever skips.
+    now_ms = int(time.time() * 1000)
+    stale_threshold_ms = 7 * 24 * 3600 * 1000
+    stale_workers = [
+        (n, round((now_ms - p["pm2_env"]["pm_uptime"]) / (24 * 3600 * 1000), 1))
+        for n, p in found.items()
+        if p.get("pm2_env", {}).get("pm_uptime")
+        and (now_ms - p["pm2_env"]["pm_uptime"]) > stale_threshold_ms
+        # Backend + dashboard expected to be longer-lived between commits;
+        # worker singletons are the drift class.
+        and n not in ("wishspark-backend", "wishspark-dashboard")
+    ]
     if missing or offline:
         status = "RED"
-    elif high_restart:
+    elif high_restart or stale_workers:
         status = "YELLOW"
     else:
         status = "GREEN"
@@ -240,14 +257,16 @@ def probe_workers_liveness() -> ProbeResult:
             "missing": list(missing),
             "offline": offline,
             "high_restart": [{"name": n, "restarts": r} for n, r in high_restart],
+            "stale_workers": [{"name": n, "uptime_days": d} for n, d in stale_workers],
         },
         detail=(
             f"missing={list(missing)} offline={offline} "
-            f"high_restart={len(high_restart)}"
-            if (missing or offline or high_restart)
-            else "all 8 workers online + restart counts < 100"
+            f"high_restart={len(high_restart)} "
+            f"stale={[(n, d) for n, d in stale_workers]}"
+            if (missing or offline or high_restart or stale_workers)
+            else "all 8 workers online + restart counts < 100 + uptime < 7d"
         ),
-        threshold="GREEN: all online + restart < 100; RED: any missing/offline",
+        threshold="GREEN: all online + restart < 100 + uptime < 7d; YELLOW: stale workers; RED: any missing/offline",
     )
 
 
