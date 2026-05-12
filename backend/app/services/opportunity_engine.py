@@ -378,8 +378,517 @@ def _evaluate_single_product_focus(
     }]
 
 
+# =============================================================================
+# Signal detectors — each returns at most one signal dict (or None)
+# =============================================================================
+# Refactor 2026-05-12 (A3 close): 514-LOC god function → 11 pure detectors
+# + composer. Mutex groups A/B/C preserve elif sequence via early return;
+# independent groups D-K each emit at most one signal. Identical contract.
+
+def _detect_traffic_quality(
+    *, product_url: str, label: str, detected_at: str,
+    views_24h: int, unique_visitors_24h: int, cart_conversions_24h: int,
+    avg_dwell_24h: float | None,
+    views_floor: int, dwell_floor: float, low_conv_threshold: float,
+) -> dict | None:
+    """Group A (mutex): DEAD_TRAFFIC > HIGH_TRAFFIC_NO_CART > LOW_CONVERSION_ATTENTION."""
+    dwell = avg_dwell_24h
+    conv_rate = cart_conversions_24h / views_24h if views_24h > 0 else 0.0
+
+    if views_24h >= views_floor and dwell is not None and dwell < dwell_floor:
+        strength = _strength_dead_traffic(views_24h)
+        m = {
+            "views_24h": views_24h,
+            "unique_visitors_24h": unique_visitors_24h,
+            "avg_dwell_24h": dwell,
+        }
+        return {
+            "product_url": product_url,
+            "signal_type": "DEAD_TRAFFIC",
+            "signal_strength": strength,
+            "explanation": (
+                f"{views_24h} views in 24 h but visitors left in under "
+                f"{dwell:.1f}s on average — the page is not holding attention."
+            ),
+            "detected_at": detected_at,
+            "human_label": humanize_signal("DEAD_TRAFFIC", label, m),
+            "human_action": humanize_action("DEAD_TRAFFIC"),
+        }
+
+    if views_24h >= views_floor and cart_conversions_24h == 0:
+        strength = _strength_high_traffic_no_cart(views_24h)
+        m = {
+            "views_24h": views_24h,
+            "unique_visitors_24h": unique_visitors_24h,
+            "cart_conversions_24h": cart_conversions_24h,
+        }
+        return {
+            "product_url": product_url,
+            "signal_type": "HIGH_TRAFFIC_NO_CART",
+            "signal_strength": strength,
+            "explanation": (
+                f"{views_24h} views from {unique_visitors_24h} visitors in 24 h "
+                "but no cart or checkout activity detected."
+            ),
+            "detected_at": detected_at,
+            "human_label": humanize_signal("HIGH_TRAFFIC_NO_CART", label, m),
+            "human_action": humanize_action("HIGH_TRAFFIC_NO_CART"),
+        }
+
+    if (
+        views_24h >= max(views_floor, 25)
+        and cart_conversions_24h > 0
+        and conv_rate < low_conv_threshold
+    ):
+        strength = _strength_low_conversion(conv_rate)
+        m = {
+            "views_24h": views_24h,
+            "cart_conversions_24h": cart_conversions_24h,
+        }
+        return {
+            "product_url": product_url,
+            "signal_type": "LOW_CONVERSION_ATTENTION",
+            "signal_strength": strength,
+            "explanation": (
+                f"{views_24h} views but only {cart_conversions_24h} cart event(s) "
+                f"— conversion rate {conv_rate:.1%} is below 2 %."
+            ),
+            "detected_at": detected_at,
+            "human_label": humanize_signal("LOW_CONVERSION_ATTENTION", label, m),
+            "human_action": humanize_action("LOW_CONVERSION_ATTENTION"),
+        }
+
+    return None
+
+
+def _detect_engagement_quality(
+    *, product_url: str, label: str, detected_at: str,
+    avg_dwell_24h: float | None, avg_scroll_24h: float | None,
+    cart_conversions_24h: int,
+) -> dict | None:
+    """Group B (mutex): HIGH_ENGAGEMENT_NO_ACTION > SCROLL_HIGH_NO_CLICK."""
+    dwell = avg_dwell_24h
+    scroll = avg_scroll_24h
+
+    if (
+        dwell is not None
+        and scroll is not None
+        and dwell >= 20
+        and scroll >= 70
+        and cart_conversions_24h == 0
+    ):
+        strength = _strength_high_engagement_no_action(dwell, scroll)
+        m = {
+            "avg_dwell_24h": dwell,
+            "avg_scroll_24h": scroll,
+            "cart_conversions_24h": cart_conversions_24h,
+        }
+        return {
+            "product_url": product_url,
+            "signal_type": "HIGH_ENGAGEMENT_NO_ACTION",
+            "signal_strength": strength,
+            "explanation": (
+                f"Visitors spend {dwell:.0f}s and scroll {scroll:.0f}% of "
+                f"{label} on average — but none added it to cart."
+            ),
+            "detected_at": detected_at,
+            "human_label": humanize_signal("HIGH_ENGAGEMENT_NO_ACTION", label, m),
+            "human_action": humanize_action("HIGH_ENGAGEMENT_NO_ACTION"),
+        }
+
+    if (
+        scroll is not None
+        and dwell is not None
+        and scroll >= 85
+        and dwell >= 15
+        and cart_conversions_24h == 0
+    ):
+        strength = _strength_scroll_high_no_click(scroll, dwell)
+        m = {
+            "avg_scroll_24h": scroll,
+            "avg_dwell_24h": dwell,
+            "cart_conversions_24h": cart_conversions_24h,
+        }
+        return {
+            "product_url": product_url,
+            "signal_type": "SCROLL_HIGH_NO_CLICK",
+            "signal_strength": strength,
+            "explanation": (
+                f"Visitors scroll {scroll:.0f}% through {label} on average "
+                "but leave without taking any action."
+            ),
+            "detected_at": detected_at,
+            "human_label": humanize_signal("SCROLL_HIGH_NO_CLICK", label, m),
+            "human_action": humanize_action("SCROLL_HIGH_NO_CLICK"),
+        }
+
+    return None
+
+
+def _detect_return_visitor_quality(
+    *, product_url: str, label: str, detected_at: str,
+    return_visitor_count_7d: int, cart_conversions_24h: int,
+    return_floor: int,
+) -> dict | None:
+    """Group C (mutex): HIGH_RETURN_LOW_CONVERSION > RETURN_VISITOR_INTEREST."""
+    if return_visitor_count_7d >= return_floor and cart_conversions_24h <= 1:
+        strength = _strength_high_return_low_conversion(return_visitor_count_7d)
+        m = {
+            "return_visitor_count_7d": return_visitor_count_7d,
+            "cart_conversions_24h": cart_conversions_24h,
+        }
+        return {
+            "product_url": product_url,
+            "signal_type": "HIGH_RETURN_LOW_CONVERSION",
+            "signal_strength": strength,
+            "explanation": (
+                f"{return_visitor_count_7d} visitors returned to this product "
+                f"on multiple days but only {cart_conversions_24h} cart event(s) "
+                "detected — high repeat interest with almost no conversion."
+            ),
+            "detected_at": detected_at,
+            "human_label": humanize_signal("HIGH_RETURN_LOW_CONVERSION", label, m),
+            "human_action": humanize_action("HIGH_RETURN_LOW_CONVERSION"),
+        }
+
+    if return_visitor_count_7d >= 8 and cart_conversions_24h == 0:
+        strength = _strength_return_visitor_interest(return_visitor_count_7d)
+        m = {"return_visitor_count_7d": return_visitor_count_7d}
+        return {
+            "product_url": product_url,
+            "signal_type": "RETURN_VISITOR_INTEREST",
+            "signal_strength": strength,
+            "explanation": (
+                f"{return_visitor_count_7d} visitors returned to this product "
+                "on multiple days — strong sustained interest."
+            ),
+            "detected_at": detected_at,
+            "human_label": humanize_signal("RETURN_VISITOR_INTEREST", label, m),
+            "human_action": humanize_action("RETURN_VISITOR_INTEREST"),
+        }
+
+    return None
+
+
+def _detect_traffic_spike(
+    *, product_url: str, label: str, detected_at: str,
+    views_24h: int, views_1h: int,
+) -> dict | None:
+    """Group D (independent): TRAFFIC_SPIKE."""
+    prior_23h = views_24h - views_1h
+    if prior_23h <= 0:
+        return None
+    avg_prior_hourly = prior_23h / 23.0
+    if not (views_1h >= 10 and views_1h > 3.0 * avg_prior_hourly and avg_prior_hourly > 0):
+        return None
+    spike_ratio = round(views_1h / avg_prior_hourly, 2)
+    strength = _strength_traffic_spike(spike_ratio)
+    m = {"views_1h": views_1h, "spike_ratio": spike_ratio}
+    return {
+        "product_url": product_url,
+        "signal_type": "TRAFFIC_SPIKE",
+        "signal_strength": strength,
+        "explanation": (
+            f"{views_1h} views this hour vs {avg_prior_hourly:.1f} hourly average "
+            f"({spike_ratio:.1f}× spike detected)."
+        ),
+        "detected_at": detected_at,
+        "human_label": humanize_signal("TRAFFIC_SPIKE", label, m),
+        "human_action": humanize_action("TRAFFIC_SPIKE"),
+    }
+
+
+def _detect_device_conversion_gap(
+    *, product_url: str, label: str, detected_at: str,
+    views_mobile: int, views_desktop: int,
+    carts_mobile: int, carts_desktop: int,
+) -> dict | None:
+    """Group E (independent): MOBILE_CONVERSION_GAP (mobile-weak or desktop-weak)."""
+    if not (views_mobile >= 10 and views_desktop >= 5):
+        return None
+
+    mobile_rate = carts_mobile / views_mobile if views_mobile > 0 else 0.0
+    desktop_rate = carts_desktop / views_desktop if views_desktop > 0 else 0.0
+
+    if desktop_rate > 0 and mobile_rate < desktop_rate * 0.4:
+        gap_pct = round((1.0 - mobile_rate / max(desktop_rate, 0.001)) * 100)
+        strength = round(min(1.0, views_mobile / 80.0 + 0.30), 2)
+        return {
+            "product_url": product_url,
+            "signal_type": "MOBILE_CONVERSION_GAP",
+            "signal_strength": strength,
+            "explanation": (
+                f"Mobile visitors ({views_mobile} views) convert {gap_pct}% worse "
+                f"than desktop ({views_desktop} views). "
+                f"Mobile cart rate: {mobile_rate:.1%}, desktop: {desktop_rate:.1%}."
+            ),
+            "detected_at": detected_at,
+            "human_label": humanize_signal(
+                "MOBILE_CONVERSION_GAP", label,
+                {"views_mobile": views_mobile, "views_desktop": views_desktop},
+            ),
+            "human_action": humanize_action("MOBILE_CONVERSION_GAP"),
+        }
+
+    if mobile_rate > 0 and desktop_rate < mobile_rate * 0.4 and views_desktop >= 10:
+        gap_pct = round((1.0 - desktop_rate / max(mobile_rate, 0.001)) * 100)
+        strength = round(min(1.0, views_desktop / 80.0 + 0.30), 2)
+        return {
+            "product_url": product_url,
+            "signal_type": "MOBILE_CONVERSION_GAP",
+            "signal_strength": strength,
+            "explanation": (
+                f"Desktop visitors ({views_desktop} views) convert {gap_pct}% worse "
+                f"than mobile ({views_mobile} views). "
+                f"Desktop cart rate: {desktop_rate:.1%}, mobile: {mobile_rate:.1%}."
+            ),
+            "detected_at": detected_at,
+            "human_label": humanize_signal(
+                "MOBILE_CONVERSION_GAP", label,
+                {"views_mobile": views_mobile, "views_desktop": views_desktop},
+            ),
+            "human_action": humanize_action("MOBILE_CONVERSION_GAP"),
+        }
+
+    return None
+
+
+def _detect_cart_rate_trend(
+    *, product_url: str, label: str, detected_at: str,
+    views_24h: int, views_7d: int,
+    cart_conversions_24h: int, cart_conversions_7d: int,
+) -> dict | None:
+    """Group F (independent): CART_RATE_DECLINING."""
+    if not (views_24h >= 10 and views_7d >= 30 and cart_conversions_7d > 0):
+        return None
+    rate_24h = cart_conversions_24h / views_24h
+    rate_7d = cart_conversions_7d / views_7d
+    if not (rate_7d >= 0.005 and rate_24h < rate_7d * 0.6):
+        return None
+    drop_pct = round((1.0 - rate_24h / rate_7d) * 100)
+    strength = round(min(1.0, drop_pct / 70.0 + 0.30), 2)
+    return {
+        "product_url": product_url,
+        "signal_type": "CART_RATE_DECLINING",
+        "signal_strength": strength,
+        "explanation": (
+            f"Cart conversion rate dropped {drop_pct}% — "
+            f"today {rate_24h:.1%} vs 7-day average {rate_7d:.1%}."
+        ),
+        "detected_at": detected_at,
+        "human_label": humanize_signal(
+            "CART_RATE_DECLINING", label,
+            {"rate_24h": rate_24h, "rate_7d": rate_7d},
+        ),
+        "human_action": humanize_action("CART_RATE_DECLINING"),
+    }
+
+
+def _detect_paid_traffic_not_converting(
+    *, product_url: str, label: str, detected_at: str,
+    views_paid: int, carts_paid: int,
+    carts_organic: int, carts_direct: int,
+) -> dict | None:
+    """Group G (independent): PAID_TRAFFIC_NOT_CONVERTING."""
+    if not (views_paid >= 10 and carts_paid == 0):
+        return None
+    organic_carts = carts_organic + carts_direct
+    has_organic_proof = organic_carts > 0
+    strength = round(min(1.0, views_paid / 60.0 + 0.30), 2)
+    if has_organic_proof:
+        explanation = (
+            f"{views_paid} paid views with zero carts, but organic/direct traffic "
+            f"generated {organic_carts} cart(s). The product page works — "
+            f"the paid traffic may be poorly targeted."
+        )
+    else:
+        explanation = (
+            f"{views_paid} paid views with zero carts. No traffic source "
+            f"is converting — check the product page first, then ad targeting."
+        )
+    return {
+        "product_url": product_url,
+        "signal_type": "PAID_TRAFFIC_NOT_CONVERTING",
+        "signal_strength": strength,
+        "explanation": explanation,
+        "detected_at": detected_at,
+        "human_label": humanize_signal(
+            "PAID_TRAFFIC_NOT_CONVERTING", label,
+            {"views_paid": views_paid, "carts_paid": carts_paid},
+        ),
+        "human_action": humanize_action("PAID_TRAFFIC_NOT_CONVERTING"),
+    }
+
+
+def _detect_device_purchase_gap(
+    *, product_url: str, label: str, detected_at: str,
+    purchases_24h: int,
+    purchases_mobile: int, purchases_desktop: int,
+    views_mobile: int, views_desktop: int,
+) -> dict | None:
+    """Group H (independent): DEVICE_PURCHASE_GAP (mobile-zero or desktop-zero)."""
+    if not (purchases_24h >= 2 and purchases_mobile + purchases_desktop >= 2):
+        return None
+    pm = purchases_mobile
+    pd = purchases_desktop
+    if pd > 0 and pm == 0 and views_mobile >= 10:
+        strength = round(min(1.0, views_mobile / 50.0 + 0.35), 2)
+        return {
+            "product_url": product_url,
+            "signal_type": "DEVICE_PURCHASE_GAP",
+            "signal_strength": strength,
+            "explanation": (
+                f"{views_mobile} mobile views but zero mobile purchases — "
+                f"desktop generated {pd} purchase(s). Mobile checkout may be broken."
+            ),
+            "detected_at": detected_at,
+            "human_label": humanize_signal(
+                "DEVICE_PURCHASE_GAP", label,
+                {"views_mobile": views_mobile, "purchases_desktop": pd},
+            ),
+            "human_action": humanize_action("DEVICE_PURCHASE_GAP"),
+        }
+    if pm > 0 and pd == 0 and views_desktop >= 10:
+        strength = round(min(1.0, views_desktop / 50.0 + 0.35), 2)
+        return {
+            "product_url": product_url,
+            "signal_type": "DEVICE_PURCHASE_GAP",
+            "signal_strength": strength,
+            "explanation": (
+                f"{views_desktop} desktop views but zero desktop purchases — "
+                f"mobile generated {pm} purchase(s). Desktop checkout may have issues."
+            ),
+            "detected_at": detected_at,
+            "human_label": humanize_signal(
+                "DEVICE_PURCHASE_GAP", label,
+                {"views_desktop": views_desktop, "purchases_mobile": pm},
+            ),
+            "human_action": humanize_action("DEVICE_PURCHASE_GAP"),
+        }
+    return None
+
+
+def _detect_source_revenue_gap(
+    *, product_url: str, label: str, detected_at: str,
+    purchases_24h: int, views_paid: int,
+    purchases_paid: int, purchases_organic: int, purchases_direct: int,
+) -> dict | None:
+    """Group I (independent): SOURCE_REVENUE_GAP."""
+    if not (purchases_24h >= 1 and views_paid >= 10):
+        return None
+    if not (purchases_paid == 0 and (purchases_organic + purchases_direct) >= 1):
+        return None
+    organic_purchases = purchases_organic + purchases_direct
+    strength = round(min(1.0, views_paid / 40.0 + 0.35), 2)
+    return {
+        "product_url": product_url,
+        "signal_type": "SOURCE_REVENUE_GAP",
+        "signal_strength": strength,
+        "explanation": (
+            f"Paid traffic ({views_paid} views) generated zero purchases, "
+            f"while organic/direct traffic generated {organic_purchases}. "
+            f"Ad spend is not converting to revenue."
+        ),
+        "detected_at": detected_at,
+        "human_label": humanize_signal("SOURCE_REVENUE_GAP", label, {"views_paid": views_paid}),
+        "human_action": humanize_action("SOURCE_REVENUE_GAP"),
+    }
+
+
+def _detect_time_window_misalignment(
+    *, product_url: str, label: str, detected_at: str,
+    peak_hour_views: int, peak_hour_carts: int,
+    off_peak_hour_views: int, off_peak_hour_carts: int,
+) -> dict | None:
+    """Group J (independent): TIME_WINDOW_MISALIGNMENT (both-rates or peak-zero)."""
+    if not (peak_hour_views >= 8 and off_peak_hour_views >= 8):
+        return None
+    peak_rate = peak_hour_carts / peak_hour_views if peak_hour_views > 0 else 0
+    off_peak_rate = off_peak_hour_carts / off_peak_hour_views if off_peak_hour_views > 0 else 0
+
+    if peak_rate > 0 and off_peak_rate > 0:
+        if off_peak_rate > peak_rate * 2.0:
+            strength = round(min(1.0, 0.35 + (off_peak_rate / peak_rate - 2.0) * 0.15), 2)
+            return {
+                "product_url": product_url,
+                "signal_type": "TIME_WINDOW_MISALIGNMENT",
+                "signal_strength": strength,
+                "explanation": (
+                    f"Peak traffic hours have {peak_hour_views} views but only "
+                    f"{peak_rate:.1%} cart rate. Off-peak converts at {off_peak_rate:.1%} "
+                    f"— traffic volume and conversion quality are misaligned."
+                ),
+                "detected_at": detected_at,
+                "human_label": humanize_signal("TIME_WINDOW_MISALIGNMENT", label, {}),
+                "human_action": humanize_action("TIME_WINDOW_MISALIGNMENT"),
+            }
+        if peak_rate > off_peak_rate * 2.0:
+            strength = round(min(1.0, 0.35 + (peak_rate / off_peak_rate - 2.0) * 0.15), 2)
+            return {
+                "product_url": product_url,
+                "signal_type": "TIME_WINDOW_MISALIGNMENT",
+                "signal_strength": strength,
+                "explanation": (
+                    f"Off-peak hours have {off_peak_hour_views} views but only "
+                    f"{off_peak_rate:.1%} cart rate. Peak hours convert at {peak_rate:.1%} "
+                    f"— consider shifting promotional timing."
+                ),
+                "detected_at": detected_at,
+                "human_label": humanize_signal("TIME_WINDOW_MISALIGNMENT", label, {}),
+                "human_action": humanize_action("TIME_WINDOW_MISALIGNMENT"),
+            }
+    elif peak_rate == 0 and off_peak_rate > 0 and peak_hour_views >= 15:
+        strength = round(min(1.0, peak_hour_views / 40.0 + 0.30), 2)
+        return {
+            "product_url": product_url,
+            "signal_type": "TIME_WINDOW_MISALIGNMENT",
+            "signal_strength": strength,
+            "explanation": (
+                f"Peak hours drive {peak_hour_views} views but zero carts. "
+                f"Off-peak hours convert at {off_peak_rate:.1%} — "
+                f"peak traffic quality differs from off-peak."
+            ),
+            "detected_at": detected_at,
+            "human_label": humanize_signal("TIME_WINDOW_MISALIGNMENT", label, {}),
+            "human_action": humanize_action("TIME_WINDOW_MISALIGNMENT"),
+        }
+
+    return None
+
+
+def _detect_landing_page_failure(
+    *, product_url: str, label: str, detected_at: str,
+    landing_views_24h: int, browsing_views_24h: int,
+    landing_carts_24h: int, browsing_carts_24h: int,
+) -> dict | None:
+    """Group K (independent): LANDING_PAGE_FAILURE."""
+    if not (landing_views_24h >= 10 and browsing_views_24h >= 5):
+        return None
+    landing_rate = landing_carts_24h / landing_views_24h if landing_views_24h > 0 else 0
+    browsing_rate = browsing_carts_24h / browsing_views_24h if browsing_views_24h > 0 else 0
+    if not (browsing_rate > 0 and landing_rate < browsing_rate * 0.3):
+        return None
+    strength = round(min(1.0, landing_views_24h / 40.0 + 0.30), 2)
+    return {
+        "product_url": product_url,
+        "signal_type": "LANDING_PAGE_FAILURE",
+        "signal_strength": strength,
+        "explanation": (
+            f"{landing_views_24h} visitors landed directly on this product page "
+            f"but only {landing_rate:.1%} added to cart. Visitors who browsed to it "
+            f"convert at {browsing_rate:.1%} — the landing experience needs work."
+        ),
+        "detected_at": detected_at,
+        "human_label": humanize_signal(
+            "LANDING_PAGE_FAILURE", label,
+            {"landing_views_24h": landing_views_24h},
+        ),
+        "human_action": humanize_action("LANDING_PAGE_FAILURE"),
+    }
+
+
 # ---------------------------------------------------------------------------
-# Core signal evaluation — applied identically by BOTH detection paths
+# Core signal evaluation — composer over the 11 detectors above
 # ---------------------------------------------------------------------------
 
 def _evaluate_product_signals(
@@ -427,474 +936,96 @@ def _evaluate_product_signals(
     sip_thresholds: dict | None = None,
 ) -> list[dict]:
     """
-    Apply all 8 signal rules to a single product's data and return a list
-    of signal dicts (zero or more).
+    Apply 11 detector groups to a single product and return a list of
+    signal dicts (zero or more).
 
-    Deduplication is enforced via elif chains within each group:
-      Group A (traffic):         DEAD_TRAFFIC > HIGH_TRAFFIC_NO_CART > LOW_CONVERSION_ATTENTION
-      Group B (engagement):      HIGH_ENGAGEMENT_NO_ACTION > SCROLL_HIGH_NO_CLICK
-      Group C (return visitors): HIGH_RETURN_LOW_CONVERSION > RETURN_VISITOR_INTEREST
-      Group D (spike):           independent
-
-    At most 4 signals per product (one per group).
+    Mutex groups (A/B/C) emit at most one signal each via internal
+    elif-equivalent sequence. Independent groups (D-K) each emit at most
+    one signal. Maximum ~11 signals per product.
 
     When sip_thresholds is provided (from StoreIntelligenceProfile), adaptive
     thresholds replace global constants for this store.
-    """
-    signals: list[dict] = []
-    label = _label_from_url(product_url)
 
-    # ── SIP-adaptive thresholds (fallback to global constants) ──
+    Refactored 2026-05-12 (A3 close): 514-LOC god function → 11 pure
+    detectors + composer; identical contract, trivially extensible
+    by appending a new `_detect_*` entry to the `candidates` tuple.
+    """
+    label = _label_from_url(product_url)
     _sip = sip_thresholds or {}
     views_floor = _sip.get("views_floor", 20)
     dwell_floor = _sip.get("dwell_floor", 5)
     return_floor = _sip.get("return_floor", 5)
     low_conv_threshold = _sip.get("low_conv_threshold", 0.02)
 
-    # Computed conversions
-    conv_rate = cart_conversions_24h / views_24h if views_24h > 0 else 0.0
+    base = dict(product_url=product_url, label=label, detected_at=detected_at)
 
-    # Safe dwell/scroll for comparisons (None means no engagement data)
-    dwell = avg_dwell_24h if avg_dwell_24h is not None else None
-    scroll = avg_scroll_24h if avg_scroll_24h is not None else None
+    candidates = (
+        _detect_traffic_quality(
+            **base,
+            views_24h=views_24h, unique_visitors_24h=unique_visitors_24h,
+            cart_conversions_24h=cart_conversions_24h, avg_dwell_24h=avg_dwell_24h,
+            views_floor=views_floor, dwell_floor=dwell_floor,
+            low_conv_threshold=low_conv_threshold,
+        ),
+        _detect_engagement_quality(
+            **base,
+            avg_dwell_24h=avg_dwell_24h, avg_scroll_24h=avg_scroll_24h,
+            cart_conversions_24h=cart_conversions_24h,
+        ),
+        _detect_return_visitor_quality(
+            **base,
+            return_visitor_count_7d=return_visitor_count_7d,
+            cart_conversions_24h=cart_conversions_24h,
+            return_floor=return_floor,
+        ),
+        _detect_traffic_spike(**base, views_24h=views_24h, views_1h=views_1h),
+        _detect_device_conversion_gap(
+            **base,
+            views_mobile=views_mobile, views_desktop=views_desktop,
+            carts_mobile=carts_mobile, carts_desktop=carts_desktop,
+        ),
+        _detect_cart_rate_trend(
+            **base,
+            views_24h=views_24h, views_7d=views_7d,
+            cart_conversions_24h=cart_conversions_24h,
+            cart_conversions_7d=cart_conversions_7d,
+        ),
+        _detect_paid_traffic_not_converting(
+            **base,
+            views_paid=views_paid, carts_paid=carts_paid,
+            carts_organic=carts_organic, carts_direct=carts_direct,
+        ),
+        _detect_device_purchase_gap(
+            **base,
+            purchases_24h=purchases_24h,
+            purchases_mobile=purchases_mobile, purchases_desktop=purchases_desktop,
+            views_mobile=views_mobile, views_desktop=views_desktop,
+        ),
+        _detect_source_revenue_gap(
+            **base,
+            purchases_24h=purchases_24h, views_paid=views_paid,
+            purchases_paid=purchases_paid,
+            purchases_organic=purchases_organic,
+            purchases_direct=purchases_direct,
+        ),
+        _detect_time_window_misalignment(
+            **base,
+            peak_hour_views=peak_hour_views, peak_hour_carts=peak_hour_carts,
+            off_peak_hour_views=off_peak_hour_views,
+            off_peak_hour_carts=off_peak_hour_carts,
+        ),
+        _detect_landing_page_failure(
+            **base,
+            landing_views_24h=landing_views_24h,
+            browsing_views_24h=browsing_views_24h,
+            landing_carts_24h=landing_carts_24h,
+            browsing_carts_24h=browsing_carts_24h,
+        ),
+    )
 
-    # ------------------------------------------------------------------ #
-    # Group A — Traffic quality (mutually exclusive)                       #
-    # ------------------------------------------------------------------ #
-
-    if views_24h >= views_floor and dwell is not None and dwell < dwell_floor:
-        # DEAD_TRAFFIC: people are landing but immediately leaving
-        strength = _strength_dead_traffic(views_24h)
-        m = {
-            "views_24h": views_24h,
-            "unique_visitors_24h": unique_visitors_24h,
-            "avg_dwell_24h": dwell,
-        }
-        signals.append({
-            "product_url": product_url,
-            "signal_type": "DEAD_TRAFFIC",
-            "signal_strength": strength,
-            "explanation": (
-                f"{views_24h} views in 24 h but visitors left in under "
-                f"{dwell:.1f}s on average — the page is not holding attention."
-            ),
-            "detected_at": detected_at,
-            "human_label": humanize_signal("DEAD_TRAFFIC", label, m),
-            "human_action": humanize_action("DEAD_TRAFFIC"),
-        })
-
-    elif views_24h >= views_floor and cart_conversions_24h == 0:
-        # HIGH_TRAFFIC_NO_CART: traffic present, zero purchase intent
-        strength = _strength_high_traffic_no_cart(views_24h)
-        m = {
-            "views_24h": views_24h,
-            "unique_visitors_24h": unique_visitors_24h,
-            "cart_conversions_24h": cart_conversions_24h,
-        }
-        signals.append({
-            "product_url": product_url,
-            "signal_type": "HIGH_TRAFFIC_NO_CART",
-            "signal_strength": strength,
-            "explanation": (
-                f"{views_24h} views from {unique_visitors_24h} visitors in 24 h "
-                "but no cart or checkout activity detected."
-            ),
-            "detected_at": detected_at,
-            "human_label": humanize_signal("HIGH_TRAFFIC_NO_CART", label, m),
-            "human_action": humanize_action("HIGH_TRAFFIC_NO_CART"),
-        })
-
-    elif views_24h >= max(views_floor, 25) and cart_conversions_24h > 0 and conv_rate < low_conv_threshold:
-        # LOW_CONVERSION_ATTENTION: some intent but critically low rate
-        strength = _strength_low_conversion(conv_rate)
-        m = {
-            "views_24h": views_24h,
-            "cart_conversions_24h": cart_conversions_24h,
-        }
-        signals.append({
-            "product_url": product_url,
-            "signal_type": "LOW_CONVERSION_ATTENTION",
-            "signal_strength": strength,
-            "explanation": (
-                f"{views_24h} views but only {cart_conversions_24h} cart event(s) "
-                f"— conversion rate {conv_rate:.1%} is below 2 %."
-            ),
-            "detected_at": detected_at,
-            "human_label": humanize_signal("LOW_CONVERSION_ATTENTION", label, m),
-            "human_action": humanize_action("LOW_CONVERSION_ATTENTION"),
-        })
-
-    # ------------------------------------------------------------------ #
-    # Group B — Engagement quality (mutually exclusive)                    #
-    # ------------------------------------------------------------------ #
-
-    if (
-        dwell is not None
-        and scroll is not None
-        and dwell >= 20
-        and scroll >= 70
-        and cart_conversions_24h == 0
-    ):
-        # HIGH_ENGAGEMENT_NO_ACTION: deep engagement, zero conversion
-        strength = _strength_high_engagement_no_action(dwell, scroll)
-        m = {
-            "avg_dwell_24h": dwell,
-            "avg_scroll_24h": scroll,
-            "cart_conversions_24h": cart_conversions_24h,
-        }
-        signals.append({
-            "product_url": product_url,
-            "signal_type": "HIGH_ENGAGEMENT_NO_ACTION",
-            "signal_strength": strength,
-            "explanation": (
-                f"Visitors spend {dwell:.0f}s and scroll {scroll:.0f}% of "
-                f"{label} on average — but none added it to cart."
-            ),
-            "detected_at": detected_at,
-            "human_label": humanize_signal("HIGH_ENGAGEMENT_NO_ACTION", label, m),
-            "human_action": humanize_action("HIGH_ENGAGEMENT_NO_ACTION"),
-        })
-
-    elif (
-        scroll is not None
-        and dwell is not None
-        and scroll >= 85
-        and dwell >= 15
-        and cart_conversions_24h == 0
-    ):
-        # SCROLL_HIGH_NO_CLICK: deep readers not converting (tightened thresholds)
-        strength = _strength_scroll_high_no_click(scroll, dwell)
-        m = {
-            "avg_scroll_24h": scroll,
-            "avg_dwell_24h": dwell,
-            "cart_conversions_24h": cart_conversions_24h,
-        }
-        signals.append({
-            "product_url": product_url,
-            "signal_type": "SCROLL_HIGH_NO_CLICK",
-            "signal_strength": strength,
-            "explanation": (
-                f"Visitors scroll {scroll:.0f}% through {label} on average "
-                "but leave without taking any action."
-            ),
-            "detected_at": detected_at,
-            "human_label": humanize_signal("SCROLL_HIGH_NO_CLICK", label, m),
-            "human_action": humanize_action("SCROLL_HIGH_NO_CLICK"),
-        })
-
-    # ------------------------------------------------------------------ #
-    # Group C — Return-visitor quality (mutually exclusive)               #
-    # ------------------------------------------------------------------ #
-
-    if return_visitor_count_7d >= return_floor and cart_conversions_24h <= 1:
-        # HIGH_RETURN_LOW_CONVERSION: repeat visitors, almost no conversions
-        strength = _strength_high_return_low_conversion(return_visitor_count_7d)
-        m = {
-            "return_visitor_count_7d": return_visitor_count_7d,
-            "cart_conversions_24h": cart_conversions_24h,
-        }
-        signals.append({
-            "product_url": product_url,
-            "signal_type": "HIGH_RETURN_LOW_CONVERSION",
-            "signal_strength": strength,
-            "explanation": (
-                f"{return_visitor_count_7d} visitors returned to this product "
-                f"on multiple days but only {cart_conversions_24h} cart event(s) "
-                "detected — high repeat interest with almost no conversion."
-            ),
-            "detected_at": detected_at,
-            "human_label": humanize_signal("HIGH_RETURN_LOW_CONVERSION", label, m),
-            "human_action": humanize_action("HIGH_RETURN_LOW_CONVERSION"),
-        })
-
-    elif return_visitor_count_7d >= 8 and cart_conversions_24h == 0:
-        # RETURN_VISITOR_INTEREST: strong repeat engagement with no conversion
-        strength = _strength_return_visitor_interest(return_visitor_count_7d)
-        m = {"return_visitor_count_7d": return_visitor_count_7d}
-        signals.append({
-            "product_url": product_url,
-            "signal_type": "RETURN_VISITOR_INTEREST",
-            "signal_strength": strength,
-            "explanation": (
-                f"{return_visitor_count_7d} visitors returned to this product "
-                "on multiple days — strong sustained interest."
-            ),
-            "detected_at": detected_at,
-            "human_label": humanize_signal("RETURN_VISITOR_INTEREST", label, m),
-            "human_action": humanize_action("RETURN_VISITOR_INTEREST"),
-        })
-
-    # ------------------------------------------------------------------ #
-    # Group D — Traffic spike (independent)                               #
-    # ------------------------------------------------------------------ #
-
-    prior_23h = views_24h - views_1h
-    if prior_23h > 0:
-        avg_prior_hourly = prior_23h / 23.0
-        if views_1h >= 10 and views_1h > 3.0 * avg_prior_hourly and avg_prior_hourly > 0:
-            spike_ratio = round(views_1h / avg_prior_hourly, 2)
-            strength = _strength_traffic_spike(spike_ratio)
-            m = {"views_1h": views_1h, "spike_ratio": spike_ratio}
-            signals.append({
-                "product_url": product_url,
-                "signal_type": "TRAFFIC_SPIKE",
-                "signal_strength": strength,
-                "explanation": (
-                    f"{views_1h} views this hour vs {avg_prior_hourly:.1f} hourly average "
-                    f"({spike_ratio:.1f}× spike detected)."
-                ),
-                "detected_at": detected_at,
-                "human_label": humanize_signal("TRAFFIC_SPIKE", label, m),
-                "human_action": humanize_action("TRAFFIC_SPIKE"),
-            })
-
-    # ------------------------------------------------------------------ #
-    # Group E — Device conversion gap (independent)                        #
-    # ------------------------------------------------------------------ #
-
-    if views_mobile >= 10 and views_desktop >= 5:
-        mobile_rate = carts_mobile / views_mobile if views_mobile > 0 else 0.0
-        desktop_rate = carts_desktop / views_desktop if views_desktop > 0 else 0.0
-
-        if desktop_rate > 0 and mobile_rate < desktop_rate * 0.4:
-            gap_pct = round((1.0 - mobile_rate / max(desktop_rate, 0.001)) * 100)
-            strength = round(min(1.0, views_mobile / 80.0 + 0.30), 2)
-            signals.append({
-                "product_url": product_url,
-                "signal_type": "MOBILE_CONVERSION_GAP",
-                "signal_strength": strength,
-                "explanation": (
-                    f"Mobile visitors ({views_mobile} views) convert {gap_pct}% worse "
-                    f"than desktop ({views_desktop} views). "
-                    f"Mobile cart rate: {mobile_rate:.1%}, desktop: {desktop_rate:.1%}."
-                ),
-                "detected_at": detected_at,
-                "human_label": humanize_signal(
-                    "MOBILE_CONVERSION_GAP", label,
-                    {"views_mobile": views_mobile, "views_desktop": views_desktop},
-                ),
-                "human_action": humanize_action("MOBILE_CONVERSION_GAP"),
-            })
-        elif mobile_rate > 0 and desktop_rate < mobile_rate * 0.4 and views_desktop >= 10:
-            gap_pct = round((1.0 - desktop_rate / max(mobile_rate, 0.001)) * 100)
-            strength = round(min(1.0, views_desktop / 80.0 + 0.30), 2)
-            signals.append({
-                "product_url": product_url,
-                "signal_type": "MOBILE_CONVERSION_GAP",
-                "signal_strength": strength,
-                "explanation": (
-                    f"Desktop visitors ({views_desktop} views) convert {gap_pct}% worse "
-                    f"than mobile ({views_mobile} views). "
-                    f"Desktop cart rate: {desktop_rate:.1%}, mobile: {mobile_rate:.1%}."
-                ),
-                "detected_at": detected_at,
-                "human_label": humanize_signal(
-                    "MOBILE_CONVERSION_GAP", label,
-                    {"views_mobile": views_mobile, "views_desktop": views_desktop},
-                ),
-                "human_action": humanize_action("MOBILE_CONVERSION_GAP"),
-            })
-
-    # ------------------------------------------------------------------ #
-    # Group F — Cart rate trend (independent)                              #
-    # ------------------------------------------------------------------ #
-
-    if views_24h >= 10 and views_7d >= 30 and cart_conversions_7d > 0:
-        rate_24h = cart_conversions_24h / views_24h
-        rate_7d = cart_conversions_7d / views_7d
-        if rate_7d >= 0.005 and rate_24h < rate_7d * 0.6:
-            drop_pct = round((1.0 - rate_24h / rate_7d) * 100)
-            strength = round(min(1.0, drop_pct / 70.0 + 0.30), 2)
-            signals.append({
-                "product_url": product_url,
-                "signal_type": "CART_RATE_DECLINING",
-                "signal_strength": strength,
-                "explanation": (
-                    f"Cart conversion rate dropped {drop_pct}% — "
-                    f"today {rate_24h:.1%} vs 7-day average {rate_7d:.1%}."
-                ),
-                "detected_at": detected_at,
-                "human_label": humanize_signal(
-                    "CART_RATE_DECLINING", label,
-                    {"rate_24h": rate_24h, "rate_7d": rate_7d},
-                ),
-                "human_action": humanize_action("CART_RATE_DECLINING"),
-            })
-
-    # ------------------------------------------------------------------ #
-    # Group G — Paid traffic not converting (independent)                  #
-    # ------------------------------------------------------------------ #
-
-    if views_paid >= 10 and carts_paid == 0:
-        organic_carts = carts_organic + carts_direct
-        has_organic_proof = organic_carts > 0
-        strength = round(min(1.0, views_paid / 60.0 + 0.30), 2)
-        if has_organic_proof:
-            explanation = (
-                f"{views_paid} paid views with zero carts, but organic/direct traffic "
-                f"generated {organic_carts} cart(s). The product page works — "
-                f"the paid traffic may be poorly targeted."
-            )
-        else:
-            explanation = (
-                f"{views_paid} paid views with zero carts. No traffic source "
-                f"is converting — check the product page first, then ad targeting."
-            )
-        signals.append({
-            "product_url": product_url,
-            "signal_type": "PAID_TRAFFIC_NOT_CONVERTING",
-            "signal_strength": strength,
-            "explanation": explanation,
-            "detected_at": detected_at,
-            "human_label": humanize_signal(
-                "PAID_TRAFFIC_NOT_CONVERTING", label,
-                {"views_paid": views_paid, "carts_paid": carts_paid},
-            ),
-            "human_action": humanize_action("PAID_TRAFFIC_NOT_CONVERTING"),
-        })
-
-    # ------------------------------------------------------------------ #
-    # Group H — Device purchase gap (independent)                          #
-    # ------------------------------------------------------------------ #
-
-    if purchases_24h >= 2 and purchases_mobile + purchases_desktop >= 2:
-        pm = purchases_mobile
-        pd = purchases_desktop
-        if pd > 0 and pm == 0 and views_mobile >= 10:
-            strength = round(min(1.0, views_mobile / 50.0 + 0.35), 2)
-            signals.append({
-                "product_url": product_url,
-                "signal_type": "DEVICE_PURCHASE_GAP",
-                "signal_strength": strength,
-                "explanation": (
-                    f"{views_mobile} mobile views but zero mobile purchases — "
-                    f"desktop generated {pd} purchase(s). Mobile checkout may be broken."
-                ),
-                "detected_at": detected_at,
-                "human_label": humanize_signal("DEVICE_PURCHASE_GAP", label, {"views_mobile": views_mobile, "purchases_desktop": pd}),
-                "human_action": humanize_action("DEVICE_PURCHASE_GAP"),
-            })
-        elif pm > 0 and pd == 0 and views_desktop >= 10:
-            strength = round(min(1.0, views_desktop / 50.0 + 0.35), 2)
-            signals.append({
-                "product_url": product_url,
-                "signal_type": "DEVICE_PURCHASE_GAP",
-                "signal_strength": strength,
-                "explanation": (
-                    f"{views_desktop} desktop views but zero desktop purchases — "
-                    f"mobile generated {pm} purchase(s). Desktop checkout may have issues."
-                ),
-                "detected_at": detected_at,
-                "human_label": humanize_signal("DEVICE_PURCHASE_GAP", label, {"views_desktop": views_desktop, "purchases_mobile": pm}),
-                "human_action": humanize_action("DEVICE_PURCHASE_GAP"),
-            })
-
-    # ------------------------------------------------------------------ #
-    # Group I — Source revenue gap (independent)                           #
-    # ------------------------------------------------------------------ #
-
-    if purchases_24h >= 1 and views_paid >= 10:
-        if purchases_paid == 0 and (purchases_organic + purchases_direct) >= 1:
-            organic_purchases = purchases_organic + purchases_direct
-            strength = round(min(1.0, views_paid / 40.0 + 0.35), 2)
-            signals.append({
-                "product_url": product_url,
-                "signal_type": "SOURCE_REVENUE_GAP",
-                "signal_strength": strength,
-                "explanation": (
-                    f"Paid traffic ({views_paid} views) generated zero purchases, "
-                    f"while organic/direct traffic generated {organic_purchases}. "
-                    f"Ad spend is not converting to revenue."
-                ),
-                "detected_at": detected_at,
-                "human_label": humanize_signal("SOURCE_REVENUE_GAP", label, {"views_paid": views_paid}),
-                "human_action": humanize_action("SOURCE_REVENUE_GAP"),
-            })
-
-    # ------------------------------------------------------------------ #
-    # Group J — Time window misalignment (independent)                     #
-    # ------------------------------------------------------------------ #
-
-    if peak_hour_views >= 8 and off_peak_hour_views >= 8:
-        peak_rate = peak_hour_carts / peak_hour_views if peak_hour_views > 0 else 0
-        off_peak_rate = off_peak_hour_carts / off_peak_hour_views if off_peak_hour_views > 0 else 0
-
-        if peak_rate > 0 and off_peak_rate > 0:
-            if off_peak_rate > peak_rate * 2.0:
-                strength = round(min(1.0, 0.35 + (off_peak_rate / peak_rate - 2.0) * 0.15), 2)
-                signals.append({
-                    "product_url": product_url,
-                    "signal_type": "TIME_WINDOW_MISALIGNMENT",
-                    "signal_strength": strength,
-                    "explanation": (
-                        f"Peak traffic hours have {peak_hour_views} views but only "
-                        f"{peak_rate:.1%} cart rate. Off-peak converts at {off_peak_rate:.1%} "
-                        f"— traffic volume and conversion quality are misaligned."
-                    ),
-                    "detected_at": detected_at,
-                    "human_label": humanize_signal("TIME_WINDOW_MISALIGNMENT", label, {}),
-                    "human_action": humanize_action("TIME_WINDOW_MISALIGNMENT"),
-                })
-            elif peak_rate > off_peak_rate * 2.0:
-                strength = round(min(1.0, 0.35 + (peak_rate / off_peak_rate - 2.0) * 0.15), 2)
-                signals.append({
-                    "product_url": product_url,
-                    "signal_type": "TIME_WINDOW_MISALIGNMENT",
-                    "signal_strength": strength,
-                    "explanation": (
-                        f"Off-peak hours have {off_peak_hour_views} views but only "
-                        f"{off_peak_rate:.1%} cart rate. Peak hours convert at {peak_rate:.1%} "
-                        f"— consider shifting promotional timing."
-                    ),
-                    "detected_at": detected_at,
-                    "human_label": humanize_signal("TIME_WINDOW_MISALIGNMENT", label, {}),
-                    "human_action": humanize_action("TIME_WINDOW_MISALIGNMENT"),
-                })
-        elif peak_rate == 0 and off_peak_rate > 0 and peak_hour_views >= 15:
-            strength = round(min(1.0, peak_hour_views / 40.0 + 0.30), 2)
-            signals.append({
-                "product_url": product_url,
-                "signal_type": "TIME_WINDOW_MISALIGNMENT",
-                "signal_strength": strength,
-                "explanation": (
-                    f"Peak hours drive {peak_hour_views} views but zero carts. "
-                    f"Off-peak hours convert at {off_peak_rate:.1%} — "
-                    f"peak traffic quality differs from off-peak."
-                ),
-                "detected_at": detected_at,
-                "human_label": humanize_signal("TIME_WINDOW_MISALIGNMENT", label, {}),
-                "human_action": humanize_action("TIME_WINDOW_MISALIGNMENT"),
-            })
-
-    # ------------------------------------------------------------------ #
-    # Group K — Landing page failure (independent)                         #
-    # ------------------------------------------------------------------ #
-
-    if landing_views_24h >= 10 and browsing_views_24h >= 5:
-        landing_rate = landing_carts_24h / landing_views_24h if landing_views_24h > 0 else 0
-        browsing_rate = browsing_carts_24h / browsing_views_24h if browsing_views_24h > 0 else 0
-
-        if browsing_rate > 0 and landing_rate < browsing_rate * 0.3:
-            strength = round(min(1.0, landing_views_24h / 40.0 + 0.30), 2)
-            signals.append({
-                "product_url": product_url,
-                "signal_type": "LANDING_PAGE_FAILURE",
-                "signal_strength": strength,
-                "explanation": (
-                    f"{landing_views_24h} visitors landed directly on this product page "
-                    f"but only {landing_rate:.1%} added to cart. Visitors who browsed to it "
-                    f"convert at {browsing_rate:.1%} — the landing experience needs work."
-                ),
-                "detected_at": detected_at,
-                "human_label": humanize_signal("LANDING_PAGE_FAILURE", label, {"landing_views_24h": landing_views_24h}),
-                "human_action": humanize_action("LANDING_PAGE_FAILURE"),
-            })
-
-    # Tag all standard signals with high confidence
+    signals = [d for d in candidates if d is not None]
     for s in signals:
-        if "signal_confidence" not in s:
-            s["signal_confidence"] = "high"
-
+        s["signal_confidence"] = "high"
     return signals
 
 
