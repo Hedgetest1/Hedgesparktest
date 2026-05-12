@@ -548,6 +548,216 @@ def _empty_response(months: int, total_orders: int = 0) -> dict:
 _VALID_COHORT_DIMS = ("first_channel", "first_product", "first_discount")
 
 
+# ---------------------------------------------------------------------------
+# Cohort-by-dimension building blocks
+# ---------------------------------------------------------------------------
+# Refactor 2026-05-12 (A3 medium close): 277-LOC god function → composer +
+# 4 pure helpers + 3 SQL templates dim-dispatched. Identical contract
+# (signature, return shape, semantics) verified by 13 black-box tests.
+
+_DIM_LABELS: dict[str, str] = {
+    "first_channel":  "channel",
+    "first_product":  "first product",
+    "first_discount": "discount code",
+}
+
+_DIM_QUERIES: dict[str, str] = {
+    "first_channel": """
+        SELECT
+            so.customer_id,
+            so.customer_email,
+            so.created_at,
+            CAST(so.total_price AS FLOAT) AS total_price,
+            COALESCE(NULLIF(vps.last_source, ''), '(direct/unknown)') AS dim_value
+        FROM shop_orders so
+        LEFT JOIN visitor_purchase_sessions vps
+          ON vps.shop_domain = so.shop_domain
+         AND vps.shopify_order_id = so.shopify_order_id
+        WHERE so.shop_domain = :shop AND so.created_at >= :since
+        ORDER BY so.created_at ASC
+    """,
+    "first_product": """
+        SELECT
+            so.customer_id,
+            so.customer_email,
+            so.created_at,
+            CAST(so.total_price AS FLOAT) AS total_price,
+            COALESCE(
+                NULLIF((so.line_items->0->>'title'), ''),
+                '(unknown)'
+            ) AS dim_value
+        FROM shop_orders so
+        WHERE so.shop_domain = :shop AND so.created_at >= :since
+        ORDER BY so.created_at ASC
+    """,
+    "first_discount": """
+        SELECT
+            so.customer_id,
+            so.customer_email,
+            so.created_at,
+            CAST(so.total_price AS FLOAT) AS total_price,
+            -- Defensive: discount_codes JSONB may hold null, an
+            -- array, or (rare malformed historical data) a JSON
+            -- scalar. Guard with jsonb_typeof BEFORE calling
+            -- jsonb_array_length to avoid "cannot get array length
+            -- of a scalar" PostgreSQL errors.
+            CASE
+                WHEN so.discount_codes IS NULL THEN '(none)'
+                WHEN jsonb_typeof(so.discount_codes) <> 'array' THEN '(none)'
+                WHEN jsonb_array_length(so.discount_codes) = 0 THEN '(none)'
+                ELSE COALESCE(
+                    NULLIF((so.discount_codes->>0), ''),
+                    '(none)'
+                )
+            END AS dim_value
+        FROM shop_orders so
+        WHERE so.shop_domain = :shop AND so.created_at >= :since
+        ORDER BY so.created_at ASC
+    """,
+}
+
+
+def _fetch_orders_for_dim(db, shop_domain, since, dim):
+    """Execute the dim-specific query. Returns list of rows, or None on error."""
+    try:
+        return db.execute(
+            text(_DIM_QUERIES[dim]),
+            {"shop": shop_domain, "since": since},
+        ).fetchall()
+    except Exception as exc:
+        log.error(
+            "ltv_engine.cohorts_by_dimension: query failed shop=%s dim=%s: %s",
+            shop_domain, dim, exc,
+        )
+        return None
+
+
+def _aggregate_customer_timelines(rows):
+    """
+    Build per-customer order timeline + first-order dim attribution.
+    Rows arrive ordered by created_at ASC; first-order dim wins.
+
+    Returns: (customer_orders, customer_first_dim, customer_first_order_ts,
+              identifiable_orders).
+    """
+    customer_orders: dict[str, list[tuple[datetime, float]]] = defaultdict(list)
+    customer_first_dim: dict[str, str] = {}
+    customer_first_order_ts: dict[str, datetime] = {}
+    identifiable_orders = 0
+
+    for row in rows:
+        key = _customer_key(row[0], row[1])
+        if key is None:
+            continue
+        created_at = row[2]
+        price = float(row[3] or 0)
+        dim_value = row[4] or "(unknown)"
+        identifiable_orders += 1
+        customer_orders[key].append((created_at, price))
+        if key not in customer_first_dim:
+            customer_first_dim[key] = dim_value
+            customer_first_order_ts[key] = created_at
+
+    return customer_orders, customer_first_dim, customer_first_order_ts, identifiable_orders
+
+
+def _build_bucket(dim_value, members, customer_orders, customer_first_order_ts) -> dict:
+    """Compute size + repeat_rate + revenue + cohort_months for one dim bucket."""
+    size = len(members)
+    all_orders = [o for ck in members for o in customer_orders[ck]]
+    revenue_total = sum(p for _, p in all_orders)
+    orders_total = len(all_orders)
+    repeat_count = sum(
+        1 for ck in members
+        if len({dt.strftime("%Y-%m") for dt, _ in customer_orders[ck]}) >= 2
+    )
+
+    # Per-cohort-month breakdown WITHIN this dim bucket
+    cohort_members_in_dim: dict[str, list[str]] = defaultdict(list)
+    for ck in members:
+        month_str = customer_first_order_ts[ck].strftime("%Y-%m")
+        cohort_members_in_dim[month_str].append(ck)
+
+    cohort_months_out = []
+    for month_str in sorted(cohort_members_in_dim.keys(), reverse=True):
+        cm = cohort_members_in_dim[month_str]
+        csize = len(cm)
+        crevenue = sum(p for ck in cm for _, p in customer_orders[ck])
+        crepeat = sum(
+            1 for ck in cm
+            if len({dt.strftime("%Y-%m") for dt, _ in customer_orders[ck]}) >= 2
+        )
+        cohort_months_out.append({
+            "cohort_month": month_str,
+            "size": csize,
+            "revenue_total": round(crevenue, 2),
+            "repeat_rate": round(crepeat / csize, 4) if csize > 0 else 0.0,
+        })
+
+    return {
+        "dim_value": str(dim_value)[:128],
+        "size": size,
+        "repeat_rate": round(repeat_count / size, 4) if size > 0 else 0.0,
+        "revenue_per_customer": round(revenue_total / size, 2) if size > 0 else 0.0,
+        "orders_per_customer": round(orders_total / size, 2) if size > 0 else 0.0,
+        "cohort_months": cohort_months_out,
+    }
+
+
+_BVW_DEFAULT: dict = {
+    "best_dim_value": None,
+    "worst_dim_value": None,
+    "best_repeat_rate": None,
+    "worst_repeat_rate": None,
+    "lift_pct": None,
+    "insight": "Need at least 2 segments with 5+ customers each "
+               "for a reliable best-vs-worst comparison.",
+}
+
+
+def _compute_best_vs_worst(buckets: list[dict], dim: str) -> dict:
+    """
+    Derive plain-language insight from best vs worst bucket.
+    Requires ≥2 buckets with size ≥5 (cold-start guard against noise).
+    """
+    bvw_buckets = [b for b in buckets if b["size"] >= 5]
+    if len(bvw_buckets) < 2:
+        return dict(_BVW_DEFAULT)
+
+    best = max(bvw_buckets, key=lambda b: b["repeat_rate"])
+    worst = min(bvw_buckets, key=lambda b: b["repeat_rate"])
+    if best["dim_value"] == worst["dim_value"]:
+        return dict(_BVW_DEFAULT)
+
+    wr, br = worst["repeat_rate"], best["repeat_rate"]
+    lift_pct = round(((br - wr) / wr) * 100.0, 1) if wr > 0 else None
+    dim_label = _DIM_LABELS[dim]
+
+    if lift_pct is not None and lift_pct >= 5:
+        insight = (
+            f"Customers acquired via {best['dim_value']} have a "
+            f"{br * 100:.0f}% repeat rate — {lift_pct:.0f}% higher "
+            f"than {worst['dim_value']} ({wr * 100:.0f}%). Lean "
+            f"into the {dim_label} pulling these customers."
+        )
+    else:
+        insight = (
+            f"Repeat rate is similar across {dim_label} buckets "
+            f"({worst['dim_value']}: {wr * 100:.0f}% vs "
+            f"{best['dim_value']}: {br * 100:.0f}%). Acquisition "
+            f"channel isn't a meaningful retention lever yet."
+        )
+
+    return {
+        "best_dim_value": best["dim_value"],
+        "worst_dim_value": worst["dim_value"],
+        "best_repeat_rate": br,
+        "worst_repeat_rate": wr,
+        "lift_pct": lift_pct,
+        "insight": insight,
+    }
+
+
 def get_cohorts_by_dimension(
     db: Session,
     shop_domain: str,
@@ -568,27 +778,20 @@ def get_cohorts_by_dimension(
             dim, window_months, generated_at,
             customer_coverage: {total_orders, identifiable_orders, ...},
             buckets: [
-                {
-                    dim_value: str,
-                    size: int,
-                    repeat_rate: float,
-                    revenue_per_customer: float,
-                    orders_per_customer: float,
-                    cohort_months: [
-                        {cohort_month, size, revenue_total, repeat_rate}
-                    ],
-                },
+                {dim_value, size, repeat_rate, revenue_per_customer,
+                 orders_per_customer,
+                 cohort_months: [{cohort_month, size, revenue_total,
+                                  repeat_rate}]},
                 ...
             ],
-            best_vs_worst: {  # differentiator — plain-language insight
-                best_dim_value: str | None,
-                worst_dim_value: str | None,
-                best_repeat_rate: float | None,
-                worst_repeat_rate: float | None,
-                lift_pct: float | None,
-                insight: str,
-            },
+            best_vs_worst: {best_dim_value, worst_dim_value,
+                            best_repeat_rate, worst_repeat_rate,
+                            lift_pct, insight},
         }
+
+    Refactored 2026-05-12 (A3 medium close): 277-LOC god function → 30-LOC
+    composer + 4 pure helpers + 3 SQL templates; 13 black-box tests verify
+    identical contract.
     """
     from datetime import datetime, timedelta as _td, timezone as _tzc
 
@@ -600,216 +803,28 @@ def get_cohorts_by_dimension(
     now = datetime.now(_tzc.utc).replace(tzinfo=None)
     since = now - _td(days=months * 31)
 
-    # Pull all orders + per-customer dim value via JOINs
-    if dim == "first_channel":
-        sql = """
-            SELECT
-                so.customer_id,
-                so.customer_email,
-                so.created_at,
-                CAST(so.total_price AS FLOAT) AS total_price,
-                COALESCE(NULLIF(vps.last_source, ''), '(direct/unknown)') AS dim_value
-            FROM shop_orders so
-            LEFT JOIN visitor_purchase_sessions vps
-              ON vps.shop_domain = so.shop_domain
-             AND vps.shopify_order_id = so.shopify_order_id
-            WHERE so.shop_domain = :shop AND so.created_at >= :since
-            ORDER BY so.created_at ASC
-        """
-    elif dim == "first_product":
-        sql = """
-            SELECT
-                so.customer_id,
-                so.customer_email,
-                so.created_at,
-                CAST(so.total_price AS FLOAT) AS total_price,
-                COALESCE(
-                    NULLIF((so.line_items->0->>'title'), ''),
-                    '(unknown)'
-                ) AS dim_value
-            FROM shop_orders so
-            WHERE so.shop_domain = :shop AND so.created_at >= :since
-            ORDER BY so.created_at ASC
-        """
-    else:  # first_discount
-        sql = """
-            SELECT
-                so.customer_id,
-                so.customer_email,
-                so.created_at,
-                CAST(so.total_price AS FLOAT) AS total_price,
-                -- Defensive: discount_codes JSONB may hold null, an
-                -- array, or (rare malformed historical data) a JSON
-                -- scalar. Guard with jsonb_typeof BEFORE calling
-                -- jsonb_array_length to avoid "cannot get array length
-                -- of a scalar" PostgreSQL errors.
-                CASE
-                    WHEN so.discount_codes IS NULL THEN '(none)'
-                    WHEN jsonb_typeof(so.discount_codes) <> 'array' THEN '(none)'
-                    WHEN jsonb_array_length(so.discount_codes) = 0 THEN '(none)'
-                    ELSE COALESCE(
-                        NULLIF((so.discount_codes->>0), ''),
-                        '(none)'
-                    )
-                END AS dim_value
-            FROM shop_orders so
-            WHERE so.shop_domain = :shop AND so.created_at >= :since
-            ORDER BY so.created_at ASC
-        """
-
-    try:
-        rows = db.execute(text(sql), {"shop": shop_domain, "since": since}).fetchall()
-    except Exception as exc:
-        log.error("ltv_engine.cohorts_by_dimension: query failed shop=%s dim=%s: %s",
-                  shop_domain, dim, exc)
+    rows = _fetch_orders_for_dim(db, shop_domain, since, dim)
+    if rows is None or not rows:
         return _empty_dim_cohort_response(dim, months)
-
-    if not rows:
-        return _empty_dim_cohort_response(dim, months)
-
-    # Build per-customer order timeline + dim value (FROM FIRST ORDER)
-    customer_orders: dict[str, list[tuple[datetime, float]]] = defaultdict(list)
-    customer_first_dim: dict[str, str] = {}
-    customer_first_order_ts: dict[str, datetime] = {}
 
     total_orders = len(rows)
-    identifiable_orders = 0
-
-    for row in rows:
-        cust_id = row[0]
-        cust_email = row[1]
-        created_at = row[2]
-        price = float(row[3] or 0)
-        dim_value = row[4] or "(unknown)"
-
-        key = _customer_key(cust_id, cust_email)
-        if key is None:
-            continue
-        identifiable_orders += 1
-        customer_orders[key].append((created_at, price))
-        # First-order dim wins (rows ordered by created_at ASC)
-        if key not in customer_first_dim:
-            customer_first_dim[key] = dim_value
-            customer_first_order_ts[key] = created_at
-
+    customer_orders, customer_first_dim, customer_first_order_ts, identifiable_orders = (
+        _aggregate_customer_timelines(rows)
+    )
     if not customer_orders:
-        return _empty_dim_cohort_response(
-            dim, months, total_orders=total_orders,
-        )
+        return _empty_dim_cohort_response(dim, months, total_orders=total_orders)
 
-    # Bucket by dim_value
+    # Bucket by dim_value, then keep top-N by size
     by_dim: dict[str, list[str]] = defaultdict(list)
     for cust_key, dv in customer_first_dim.items():
         by_dim[dv].append(cust_key)
-
-    # Build buckets — top-N by size
     sorted_dims = sorted(by_dim.items(), key=lambda x: -len(x[1]))[:limit_dim_values]
 
-    buckets = []
-    for dim_value, members in sorted_dims:
-        size = len(members)
-        if size == 0:
-            continue
-
-        all_orders = []
-        for ck in members:
-            all_orders.extend(customer_orders[ck])
-        revenue_total = sum(p for _, p in all_orders)
-        orders_total = len(all_orders)
-        orders_per_customer = round(orders_total / size, 2)
-        revenue_per_customer = round(revenue_total / size, 2)
-        repeat_count = sum(
-            1 for ck in members
-            if len({dt.strftime("%Y-%m") for dt, _ in customer_orders[ck]}) >= 2
-        )
-        repeat_rate = round(repeat_count / size, 4) if size > 0 else 0.0
-
-        # Per-cohort-month breakdown within this dim bucket
-        cohort_members_in_dim: dict[str, list[str]] = defaultdict(list)
-        for ck in members:
-            first_ts = customer_first_order_ts[ck]
-            month_str = first_ts.strftime("%Y-%m")
-            cohort_members_in_dim[month_str].append(ck)
-
-        cohort_months_out = []
-        for month_str in sorted(cohort_members_in_dim.keys(), reverse=True):
-            cohort_members = cohort_members_in_dim[month_str]
-            csize = len(cohort_members)
-            crevenue = sum(
-                p for ck in cohort_members for _, p in customer_orders[ck]
-            )
-            crepeat = sum(
-                1 for ck in cohort_members
-                if len({dt.strftime("%Y-%m") for dt, _ in customer_orders[ck]}) >= 2
-            )
-            cohort_months_out.append({
-                "cohort_month": month_str,
-                "size": csize,
-                "revenue_total": round(crevenue, 2),
-                "repeat_rate": round(crepeat / csize, 4) if csize > 0 else 0.0,
-            })
-
-        buckets.append({
-            "dim_value": str(dim_value)[:128],
-            "size": size,
-            "repeat_rate": repeat_rate,
-            "revenue_per_customer": revenue_per_customer,
-            "orders_per_customer": orders_per_customer,
-            "cohort_months": cohort_months_out,
-        })
-
-    # Differentiator — best-vs-worst plain-language insight
-    # Only when we have ≥ 2 dim values AND each bucket has ≥ 5 customers
-    # (cold-start guard — single-customer buckets give noise, not signal).
-    bvw_buckets = [b for b in buckets if b["size"] >= 5]
-    best_vs_worst = {
-        "best_dim_value": None,
-        "worst_dim_value": None,
-        "best_repeat_rate": None,
-        "worst_repeat_rate": None,
-        "lift_pct": None,
-        "insight": "Need at least 2 segments with 5+ customers each "
-                   "for a reliable best-vs-worst comparison.",
-    }
-    if len(bvw_buckets) >= 2:
-        best = max(bvw_buckets, key=lambda b: b["repeat_rate"])
-        worst = min(bvw_buckets, key=lambda b: b["repeat_rate"])
-        if best["dim_value"] != worst["dim_value"]:
-            wr = worst["repeat_rate"]
-            br = best["repeat_rate"]
-            if wr > 0:
-                lift_pct = round(((br - wr) / wr) * 100.0, 1)
-            elif br > 0:
-                lift_pct = None  # division by zero — cannot quantify
-            else:
-                lift_pct = None
-            dim_label = {
-                "first_channel": "channel",
-                "first_product": "first product",
-                "first_discount": "discount code",
-            }[dim]
-            if lift_pct is not None and lift_pct >= 5:
-                insight = (
-                    f"Customers acquired via {best['dim_value']} have a "
-                    f"{br * 100:.0f}% repeat rate — {lift_pct:.0f}% higher "
-                    f"than {worst['dim_value']} ({wr * 100:.0f}%). Lean "
-                    f"into the {dim_label} pulling these customers."
-                )
-            else:
-                insight = (
-                    f"Repeat rate is similar across {dim_label} buckets "
-                    f"({worst['dim_value']}: {wr * 100:.0f}% vs "
-                    f"{best['dim_value']}: {br * 100:.0f}%). Acquisition "
-                    f"channel isn't a meaningful retention lever yet."
-                )
-            best_vs_worst = {
-                "best_dim_value": best["dim_value"],
-                "worst_dim_value": worst["dim_value"],
-                "best_repeat_rate": br,
-                "worst_repeat_rate": wr,
-                "lift_pct": lift_pct,
-                "insight": insight,
-            }
+    buckets = [
+        _build_bucket(dim_value, members, customer_orders, customer_first_order_ts)
+        for dim_value, members in sorted_dims
+        if len(members) > 0
+    ]
 
     return {
         "dim": dim,
@@ -823,7 +838,7 @@ def get_cohorts_by_dimension(
                 if total_orders > 0 else 0.0,
         },
         "buckets": buckets,
-        "best_vs_worst": best_vs_worst,
+        "best_vs_worst": _compute_best_vs_worst(buckets, dim),
     }
 
 
