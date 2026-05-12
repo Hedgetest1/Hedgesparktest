@@ -175,6 +175,274 @@ def compute_proof_metrics(conn, shop_domain: str) -> list[dict]:
     return metrics
 
 
+# ---------------------------------------------------------------------------
+# Post-execution deltas: SQL constants + computation helpers
+# ---------------------------------------------------------------------------
+# Refactor 2026-05-12 (A3 medium close): 298-LOC god function → composer +
+# 6 helpers + 4 SQL constants. Identical contract; bulk-UPDATE wire format
+# byte-identical (20 columns × N opps via unnest of parallel arrays).
+
+_DELTAS_OPPS_SQL = text("""
+    SELECT
+        eo.execution_id,
+        eo.executed_at,
+        eb.return_rate   AS bl_return,
+        eb.view_rate     AS bl_view,
+        eb.purchase_rate AS bl_purchase
+    FROM execution_opportunities eo
+    LEFT JOIN execution_baselines eb
+        ON eb.execution_id = eo.execution_id
+       AND eb.shop_domain  = eo.shop_domain
+    WHERE eo.shop_domain = :shop
+      AND eo.execution_status = 'executed'
+      AND eo.is_active = true
+""")
+
+
+_DELTAS_GROUPS_SQL = text("""
+    SELECT
+        et.execution_id,
+        et.group_type,
+        COUNT(*)                                    AS n,
+        COUNT(*) FILTER (WHERE et.returned)         AS ret,
+        COUNT(*) FILTER (WHERE et.viewed_product_b) AS viewed,
+        COUNT(*) FILTER (WHERE et.purchased_product_b) AS purchased
+    FROM execution_tracking et
+    JOIN execution_opportunities eo
+      ON eo.shop_domain = et.shop_domain
+     AND eo.execution_id = et.execution_id
+    WHERE et.shop_domain = :shop
+      AND eo.execution_status = 'executed'
+      AND eo.is_active = true
+      AND eo.executed_at IS NOT NULL
+      AND et.exposed_at >= eo.executed_at
+      AND et.execution_id = ANY(:eids)
+    GROUP BY et.execution_id, et.group_type
+""")
+
+
+_DELTAS_LEAKAGE_SQL = text("""
+    SELECT
+        execution_id,
+        COUNT(*)                                AS total_holdout,
+        COUNT(*) FILTER (WHERE leakage_suspected) AS leaked
+    FROM execution_tracking
+    WHERE shop_domain = :shop
+      AND group_type = 'holdout'
+      AND execution_id = ANY(:eids)
+    GROUP BY execution_id
+""")
+
+
+_DELTAS_BULK_UPDATE_SQL = text("""
+    UPDATE execution_opportunities AS eo SET
+        post_return_rate       = v.post_ret,
+        post_view_rate         = v.post_view,
+        post_purchase_rate     = v.post_purchase,
+        post_sample_size       = v.total_post,
+        delta_return_rate      = v.d_ret,
+        delta_view_rate        = v.d_view,
+        delta_purchase_rate    = v.d_purchase,
+        exposed_sample_size    = v.exp_n,
+        holdout_sample_size    = v.hld_n,
+        return_rate_exposed    = v.rr_exp,
+        view_rate_exposed      = v.vr_exp,
+        purchase_rate_exposed  = v.pr_exp,
+        return_rate_holdout    = v.rr_hld,
+        view_rate_holdout      = v.vr_hld,
+        purchase_rate_holdout  = v.pr_hld,
+        lift_return_rate       = v.lift_ret,
+        lift_view_rate         = v.lift_view,
+        lift_purchase_rate     = v.lift_purchase,
+        confidence_label       = v.conf
+    FROM unnest(
+        CAST(:eids AS text[]),
+        CAST(:post_rets AS double precision[]),
+        CAST(:post_views AS double precision[]),
+        CAST(:post_purchases AS double precision[]),
+        CAST(:total_posts AS integer[]),
+        CAST(:d_rets AS double precision[]),
+        CAST(:d_views AS double precision[]),
+        CAST(:d_purchases AS double precision[]),
+        CAST(:exp_ns AS integer[]),
+        CAST(:hld_ns AS integer[]),
+        CAST(:rr_exps AS double precision[]),
+        CAST(:vr_exps AS double precision[]),
+        CAST(:pr_exps AS double precision[]),
+        CAST(:rr_hlds AS double precision[]),
+        CAST(:vr_hlds AS double precision[]),
+        CAST(:pr_hlds AS double precision[]),
+        CAST(:lift_rets AS double precision[]),
+        CAST(:lift_views AS double precision[]),
+        CAST(:lift_purchases AS double precision[]),
+        CAST(:confs AS text[])
+    ) AS v(
+        eid, post_ret, post_view, post_purchase, total_post,
+        d_ret, d_view, d_purchase, exp_n, hld_n,
+        rr_exp, vr_exp, pr_exp, rr_hld, vr_hld, pr_hld,
+        lift_ret, lift_view, lift_purchase, conf
+    )
+    WHERE eo.shop_domain = :shop AND eo.execution_id = v.eid
+""")
+
+
+# Field names ordered to match the unnest signature. Singular form is
+# the per-opp dict key; SQL UPDATE param names are the plural form (+s).
+_DELTAS_UPDATE_FIELDS = (
+    "eid",
+    "post_ret", "post_view", "post_purchase", "total_post",
+    "d_ret", "d_view", "d_purchase",
+    "exp_n", "hld_n",
+    "rr_exp", "vr_exp", "pr_exp",
+    "rr_hld", "vr_hld", "pr_hld",
+    "lift_ret", "lift_view", "lift_purchase",
+    "conf",
+)
+
+
+_EMPTY_GROUP = {"n": 0, "ret": 0, "viewed": 0, "purchased": 0}
+
+
+def _rate(num, den):
+    """Pure rate calculation rounded to 4 places, None on zero denominator."""
+    return round(num / den, 4) if den > 0 else None
+
+
+def _lift(a, b):
+    """Pure lift (a-b) rounded to 4 places; None if either input is None."""
+    return round(a - b, 4) if (a is not None and b is not None) else None
+
+
+def _fetch_eligible_opps(conn, shop_domain: str) -> list:
+    """Pull executed+active opps with non-NULL executed_at."""
+    opps = conn.execute(_DELTAS_OPPS_SQL, {"shop": shop_domain}).fetchall()
+    return [opp for opp in opps if opp[1] is not None]
+
+
+def _fetch_group_buckets(conn, shop_domain: str, eids: list[str]) -> dict[str, dict]:
+    """One round-trip fetch of (exposed, holdout) tracking counts per opp."""
+    rows = conn.execute(
+        _DELTAS_GROUPS_SQL,
+        {"shop": shop_domain, "eids": eids},
+    ).fetchall()
+
+    by_eid: dict[str, dict] = {}
+    for r in rows:
+        bucket = by_eid.setdefault(r[0], {
+            "exposed": dict(_EMPTY_GROUP),
+            "holdout": dict(_EMPTY_GROUP),
+        })
+        target = bucket["exposed"] if r[1] == "exposed" else bucket["holdout"]
+        target["n"] = int(r[2] or 0)
+        target["ret"] = int(r[3] or 0)
+        target["viewed"] = int(r[4] or 0)
+        target["purchased"] = int(r[5] or 0)
+    return by_eid
+
+
+def _fetch_leakage_rates(conn, shop_domain: str, eids: list[str]) -> dict[str, float]:
+    """One round-trip fetch of leakage rate per opp (ALL holdout rows,
+    matching get_leakage_rate semantics)."""
+    rows = conn.execute(
+        _DELTAS_LEAKAGE_SQL,
+        {"shop": shop_domain, "eids": eids},
+    ).fetchall()
+    out: dict[str, float] = {}
+    for r in rows:
+        total = int(r[1] or 0)
+        leaked = int(r[2] or 0)
+        out[r[0]] = round(leaked / total, 4) if total > 0 else 0.0
+    return out
+
+
+def _compute_opp_metrics(opp, exp: dict, hld: dict, leakage: float) -> dict | None:
+    """
+    Compute 20-field metrics dict for one opp. Returns None when the
+    opp has zero post-execution tracking (total_post==0), matching the
+    prior continue-in-loop skip rule.
+    """
+    total_post = exp["n"] + hld["n"]
+    if total_post == 0:
+        return None
+
+    eid, _, bl_return, bl_view, bl_purchase = opp[0], opp[1], opp[2], opp[3], opp[4]
+
+    rr_exp = _rate(exp["ret"], exp["n"])
+    vr_exp = _rate(exp["viewed"], exp["n"])
+    pr_exp = _rate(exp["purchased"], exp["n"])
+    rr_hld = _rate(hld["ret"], hld["n"])
+    vr_hld = _rate(hld["viewed"], hld["n"])
+    pr_hld = _rate(hld["purchased"], hld["n"])
+
+    lift_ret = _lift(rr_exp, rr_hld)
+    lift_view = _lift(vr_exp, vr_hld)
+    lift_purchase = _lift(pr_exp, pr_hld)
+
+    post_ret = _rate(exp["ret"] + hld["ret"], total_post)
+    post_view = _rate(exp["viewed"] + hld["viewed"], total_post)
+    post_purchase = _rate(exp["purchased"] + hld["purchased"], total_post)
+
+    d_ret = (
+        round(post_ret - (bl_return or 0), 4)
+        if post_ret is not None and bl_return is not None else None
+    )
+    d_view = (
+        round(post_view - (bl_view or 0), 4)
+        if post_view is not None and bl_view is not None else None
+    )
+    d_purchase = (
+        round(post_purchase - (bl_purchase or 0), 4)
+        if post_purchase is not None and bl_purchase is not None else None
+    )
+
+    confidence = _compute_confidence(
+        exposed_n=exp["n"], holdout_n=hld["n"],
+        lift_view=lift_view, lift_purchase=lift_purchase,
+        has_baseline=bl_view is not None,
+        leakage_rate=leakage,
+    )
+
+    return {
+        "eid": eid,
+        "post_ret": post_ret, "post_view": post_view, "post_purchase": post_purchase,
+        "total_post": total_post,
+        "d_ret": d_ret, "d_view": d_view, "d_purchase": d_purchase,
+        "exp_n": exp["n"], "hld_n": hld["n"],
+        "rr_exp": rr_exp, "vr_exp": vr_exp, "pr_exp": pr_exp,
+        "rr_hld": rr_hld, "vr_hld": vr_hld, "pr_hld": pr_hld,
+        "lift_ret": lift_ret, "lift_view": lift_view, "lift_purchase": lift_purchase,
+        "conf": confidence,
+    }
+
+
+def _apply_bulk_update(conn, shop_domain: str, records: list[dict]) -> None:
+    """Transpose list-of-dicts to parallel arrays and issue the bulk UPDATE."""
+    params = {"shop": shop_domain}
+    for field in _DELTAS_UPDATE_FIELDS:
+        params[f"{field}s"] = [r[field] for r in records]
+    conn.execute(_DELTAS_BULK_UPDATE_SQL, params)
+
+
+def _emit_perf_breadcrumb(shop_domain: str, updated: int, eligible: int) -> None:
+    """Best-effort Sentry breadcrumb for the bulk-op observability trail."""
+    try:
+        from app.core.sentry_init import pipeline_breadcrumb
+        pipeline_breadcrumb(
+            "perf.bulk_op",
+            f"execution_engine.compute_post_execution_deltas shop={shop_domain} "
+            f"updated={updated}",
+            level="info",
+            data={
+                "op": "execution_deltas",
+                "shop": shop_domain,
+                "updated": updated,
+                "eligible": eligible,
+            },
+        )
+    except Exception:
+        pass  # SILENT-EXCEPT-OK: sentry breadcrumb best-effort observability; never raise from a successful bulk-op return path.
+
+
 def compute_post_execution_deltas(conn, shop_domain: str) -> int:
     """
     For executed opportunities, compute:
@@ -182,297 +450,40 @@ def compute_post_execution_deltas(conn, shop_domain: str) -> int:
     2. Counterfactual lift (exposed vs holdout, post-execution only)
     3. Confidence label from counterfactual comparison
 
-    Counterfactual is the primary causal signal.
-    Before/after deltas remain as a secondary directional indicator.
+    Counterfactual is the primary causal signal; before/after deltas remain
+    as secondary directional indicator.
 
     Returns number of opportunities updated.
-    """
-    opps = conn.execute(
-        text("""
-            SELECT
-                eo.execution_id,
-                eo.executed_at,
-                eb.return_rate   AS bl_return,
-                eb.view_rate     AS bl_view,
-                eb.purchase_rate AS bl_purchase
-            FROM execution_opportunities eo
-            LEFT JOIN execution_baselines eb
-                ON eb.execution_id = eo.execution_id
-               AND eb.shop_domain  = eo.shop_domain
-            WHERE eo.shop_domain = :shop
-              AND eo.execution_status = 'executed'
-              AND eo.is_active = true
-        """),
-        {"shop": shop_domain},
-    ).fetchall()
 
-    # Filter to opps with non-NULL executed_at (others get skipped in
-    # the per-opp loop below — keep parity with prior behavior).
-    eligible = [opp for opp in opps if opp[1] is not None]
+    Refactored 2026-05-12 (A3 medium close): 298-LOC god function → 25-LOC
+    composer + 6 pure helpers + 4 module-level SQL constants. Identical
+    contract; bulk-UPDATE wire format (20 columns × N opps via unnest)
+    byte-identical.
+    """
+    eligible = _fetch_eligible_opps(conn, shop_domain)
     if not eligible:
         return 0
-
     eids = [opp[0] for opp in eligible]
 
-    # -- Bulk SELECT 1: groups (exposed/holdout) per opp, post-execution
-    # tracking only. JOIN to opportunities to apply the per-opp
-    # `exposed_at >= executed_at` threshold without per-row binds.
-    # Was N round-trips (1 per opp); now 1.
-    groups_rows = conn.execute(
-        text("""
-            SELECT
-                et.execution_id,
-                et.group_type,
-                COUNT(*)                                    AS n,
-                COUNT(*) FILTER (WHERE et.returned)         AS ret,
-                COUNT(*) FILTER (WHERE et.viewed_product_b) AS viewed,
-                COUNT(*) FILTER (WHERE et.purchased_product_b) AS purchased
-            FROM execution_tracking et
-            JOIN execution_opportunities eo
-              ON eo.shop_domain = et.shop_domain
-             AND eo.execution_id = et.execution_id
-            WHERE et.shop_domain = :shop
-              AND eo.execution_status = 'executed'
-              AND eo.is_active = true
-              AND eo.executed_at IS NOT NULL
-              AND et.exposed_at >= eo.executed_at
-              AND et.execution_id = ANY(:eids)
-            GROUP BY et.execution_id, et.group_type
-        """),
-        {"shop": shop_domain, "eids": eids},
-    ).fetchall()
+    by_eid = _fetch_group_buckets(conn, shop_domain, eids)
+    leakage_by_eid = _fetch_leakage_rates(conn, shop_domain, eids)
 
-    by_eid: dict[str, dict] = {}
-    for r in groups_rows:
-        eid = r[0]
-        bucket = by_eid.setdefault(eid, {
-            "exposed": {"n": 0, "ret": 0, "viewed": 0, "purchased": 0},
-            "holdout": {"n": 0, "ret": 0, "viewed": 0, "purchased": 0},
-        })
-        target = bucket["exposed"] if r[1] == "exposed" else bucket["holdout"]
-        target["n"] = int(r[2] or 0)
-        target["ret"] = int(r[3] or 0)
-        target["viewed"] = int(r[4] or 0)
-        target["purchased"] = int(r[5] or 0)
-
-    # -- Bulk SELECT 2: leakage rate per opp (matches semantics of
-    # get_leakage_rate which counts ALL holdout rows, not just post-
-    # executed_at — preserved). Was N round-trips; now 1.
-    leakage_rows = conn.execute(
-        text("""
-            SELECT
-                execution_id,
-                COUNT(*)                                AS total_holdout,
-                COUNT(*) FILTER (WHERE leakage_suspected) AS leaked
-            FROM execution_tracking
-            WHERE shop_domain = :shop
-              AND group_type = 'holdout'
-              AND execution_id = ANY(:eids)
-            GROUP BY execution_id
-        """),
-        {"shop": shop_domain, "eids": eids},
-    ).fetchall()
-    leakage_by_eid: dict[str, float] = {}
-    for r in leakage_rows:
-        total = int(r[1] or 0)
-        leaked = int(r[2] or 0)
-        leakage_by_eid[r[0]] = round(leaked / total, 4) if total > 0 else 0.0
-
-    # Compute per-opp metrics in Python; assemble parallel arrays for
-    # the bulk UPDATE below. Same skip rule as prior (total_post == 0).
-    def _rate(num, den):
-        return round(num / den, 4) if den > 0 else None
-
-    def _lift(a, b):
-        if a is not None and b is not None:
-            return round(a - b, 4)
-        return None
-
-    upd_eids: list[str] = []
-    upd_post_ret: list[float | None] = []
-    upd_post_view: list[float | None] = []
-    upd_post_purchase: list[float | None] = []
-    upd_post_sample: list[int] = []
-    upd_d_ret: list[float | None] = []
-    upd_d_view: list[float | None] = []
-    upd_d_purchase: list[float | None] = []
-    upd_exp_n: list[int] = []
-    upd_hld_n: list[int] = []
-    upd_rr_exp: list[float | None] = []
-    upd_vr_exp: list[float | None] = []
-    upd_pr_exp: list[float | None] = []
-    upd_rr_hld: list[float | None] = []
-    upd_vr_hld: list[float | None] = []
-    upd_pr_hld: list[float | None] = []
-    upd_lift_ret: list[float | None] = []
-    upd_lift_view: list[float | None] = []
-    upd_lift_purchase: list[float | None] = []
-    upd_conf: list[str] = []
-
+    records: list[dict] = []
     for opp in eligible:
-        eid = opp[0]
-        bl_return = opp[2]
-        bl_view = opp[3]
-        bl_purchase = opp[4]
+        bucket = by_eid.get(opp[0])
+        exp = bucket["exposed"] if bucket else dict(_EMPTY_GROUP)
+        hld = bucket["holdout"] if bucket else dict(_EMPTY_GROUP)
+        leakage = leakage_by_eid.get(opp[0], 0.0)
+        record = _compute_opp_metrics(opp, exp, hld, leakage)
+        if record is not None:
+            records.append(record)
 
-        bucket = by_eid.get(eid)
-        exp = bucket["exposed"] if bucket else {"n": 0, "ret": 0, "viewed": 0, "purchased": 0}
-        hld = bucket["holdout"] if bucket else {"n": 0, "ret": 0, "viewed": 0, "purchased": 0}
-
-        total_post = exp["n"] + hld["n"]
-        if total_post == 0:
-            continue
-
-        rr_exp = _rate(exp["ret"], exp["n"])
-        vr_exp = _rate(exp["viewed"], exp["n"])
-        pr_exp = _rate(exp["purchased"], exp["n"])
-        rr_hld = _rate(hld["ret"], hld["n"])
-        vr_hld = _rate(hld["viewed"], hld["n"])
-        pr_hld = _rate(hld["purchased"], hld["n"])
-
-        lift_ret = _lift(rr_exp, rr_hld)
-        lift_view = _lift(vr_exp, vr_hld)
-        lift_purchase = _lift(pr_exp, pr_hld)
-
-        post_ret = _rate(exp["ret"] + hld["ret"], total_post)
-        post_view = _rate(exp["viewed"] + hld["viewed"], total_post)
-        post_purchase = _rate(exp["purchased"] + hld["purchased"], total_post)
-
-        d_ret = round(post_ret - (bl_return or 0), 4) if post_ret is not None and bl_return is not None else None
-        d_view = round(post_view - (bl_view or 0), 4) if post_view is not None and bl_view is not None else None
-        d_purchase = round(post_purchase - (bl_purchase or 0), 4) if post_purchase is not None and bl_purchase is not None else None
-
-        leakage = leakage_by_eid.get(eid, 0.0)
-        confidence = _compute_confidence(
-            exposed_n=exp["n"], holdout_n=hld["n"],
-            lift_view=lift_view, lift_purchase=lift_purchase,
-            has_baseline=bl_view is not None,
-            leakage_rate=leakage,
-        )
-
-        upd_eids.append(eid)
-        upd_post_ret.append(post_ret)
-        upd_post_view.append(post_view)
-        upd_post_purchase.append(post_purchase)
-        upd_post_sample.append(total_post)
-        upd_d_ret.append(d_ret)
-        upd_d_view.append(d_view)
-        upd_d_purchase.append(d_purchase)
-        upd_exp_n.append(exp["n"])
-        upd_hld_n.append(hld["n"])
-        upd_rr_exp.append(rr_exp)
-        upd_vr_exp.append(vr_exp)
-        upd_pr_exp.append(pr_exp)
-        upd_rr_hld.append(rr_hld)
-        upd_vr_hld.append(vr_hld)
-        upd_pr_hld.append(pr_hld)
-        upd_lift_ret.append(lift_ret)
-        upd_lift_view.append(lift_view)
-        upd_lift_purchase.append(lift_purchase)
-        upd_conf.append(confidence)
-
-    if not upd_eids:
+    if not records:
         return 0
 
-    # -- Bulk UPDATE: 19 columns × N opps via unnest of parallel arrays.
-    # Was N round-trips; now 1. Postgres infers element types from the
-    # CAST(...) annotations; mixed-NULL float arrays work out of the box.
-    conn.execute(
-        text("""
-            UPDATE execution_opportunities AS eo SET
-                post_return_rate       = v.post_ret,
-                post_view_rate         = v.post_view,
-                post_purchase_rate     = v.post_purchase,
-                post_sample_size       = v.total_post,
-                delta_return_rate      = v.d_ret,
-                delta_view_rate        = v.d_view,
-                delta_purchase_rate    = v.d_purchase,
-                exposed_sample_size    = v.exp_n,
-                holdout_sample_size    = v.hld_n,
-                return_rate_exposed    = v.rr_exp,
-                view_rate_exposed      = v.vr_exp,
-                purchase_rate_exposed  = v.pr_exp,
-                return_rate_holdout    = v.rr_hld,
-                view_rate_holdout      = v.vr_hld,
-                purchase_rate_holdout  = v.pr_hld,
-                lift_return_rate       = v.lift_ret,
-                lift_view_rate         = v.lift_view,
-                lift_purchase_rate     = v.lift_purchase,
-                confidence_label       = v.conf
-            FROM unnest(
-                CAST(:eids AS text[]),
-                CAST(:post_rets AS double precision[]),
-                CAST(:post_views AS double precision[]),
-                CAST(:post_purchases AS double precision[]),
-                CAST(:total_posts AS integer[]),
-                CAST(:d_rets AS double precision[]),
-                CAST(:d_views AS double precision[]),
-                CAST(:d_purchases AS double precision[]),
-                CAST(:exp_ns AS integer[]),
-                CAST(:hld_ns AS integer[]),
-                CAST(:rr_exps AS double precision[]),
-                CAST(:vr_exps AS double precision[]),
-                CAST(:pr_exps AS double precision[]),
-                CAST(:rr_hlds AS double precision[]),
-                CAST(:vr_hlds AS double precision[]),
-                CAST(:pr_hlds AS double precision[]),
-                CAST(:lift_rets AS double precision[]),
-                CAST(:lift_views AS double precision[]),
-                CAST(:lift_purchases AS double precision[]),
-                CAST(:confs AS text[])
-            ) AS v(
-                eid, post_ret, post_view, post_purchase, total_post,
-                d_ret, d_view, d_purchase, exp_n, hld_n,
-                rr_exp, vr_exp, pr_exp, rr_hld, vr_hld, pr_hld,
-                lift_ret, lift_view, lift_purchase, conf
-            )
-            WHERE eo.shop_domain = :shop AND eo.execution_id = v.eid
-        """),
-        {
-            "shop": shop_domain,
-            "eids": upd_eids,
-            "post_rets": upd_post_ret,
-            "post_views": upd_post_view,
-            "post_purchases": upd_post_purchase,
-            "total_posts": upd_post_sample,
-            "d_rets": upd_d_ret,
-            "d_views": upd_d_view,
-            "d_purchases": upd_d_purchase,
-            "exp_ns": upd_exp_n,
-            "hld_ns": upd_hld_n,
-            "rr_exps": upd_rr_exp,
-            "vr_exps": upd_vr_exp,
-            "pr_exps": upd_pr_exp,
-            "rr_hlds": upd_rr_hld,
-            "vr_hlds": upd_vr_hld,
-            "pr_hlds": upd_pr_hld,
-            "lift_rets": upd_lift_ret,
-            "lift_views": upd_lift_view,
-            "lift_purchases": upd_lift_purchase,
-            "confs": upd_conf,
-        },
-    )
-
-    # Best-effort observability for the bulk delta computation. Surfaces
-    # in Sentry so subsequent capture has the recent execution trail.
-    try:
-        from app.core.sentry_init import pipeline_breadcrumb
-        pipeline_breadcrumb(
-            "perf.bulk_op",
-            f"execution_engine.compute_post_execution_deltas shop={shop_domain} "
-            f"updated={len(upd_eids)}",
-            level="info",
-            data={
-                "op": "execution_deltas",
-                "shop": shop_domain,
-                "updated": len(upd_eids),
-                "eligible": len(eligible),
-            },
-        )
-    except Exception:
-        pass  # SILENT-EXCEPT-OK: sentry breadcrumb best-effort observability; never raise from a successful bulk-op return path.
-
-    return len(upd_eids)
+    _apply_bulk_update(conn, shop_domain, records)
+    _emit_perf_breadcrumb(shop_domain, updated=len(records), eligible=len(eligible))
+    return len(records)
 
 
 def _compute_confidence(

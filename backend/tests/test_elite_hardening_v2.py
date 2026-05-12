@@ -1045,8 +1045,8 @@ _RAW_SQL_FSTRING_ALLOWLIST: set[str] = {
     "app/services/nudge_rank.py:148",
     "app/services/nudge_rank.py:200",
     # evolution_outcomes.py:625 — removed: refactored to bind param
-    "app/services/execution_engine.py:857",
-    "app/services/execution_engine.py:866",
+    "app/services/execution_engine.py:868",
+    "app/services/execution_engine.py:877",
     "app/services/email_performance.py:63",
     # gdpr_processor: where clause built from hardcoded ":cid"/":email"
     # filter strings joined with " OR ". Parameters are bound via the
