@@ -14,9 +14,11 @@ Called by: agent_worker.py phase 7i
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
@@ -67,21 +69,36 @@ def run_billing_sync(db: Session) -> dict:
     # Pre-fix: 10 merchants × 10s timeout = 100s serial wall-clock; at
     # uncapped 10k Pro merchants the projection was 28h. Post-fix: same
     # cap at 10/cycle completes in ~ceil(10/20) × max(per-req latency)
-    # ≈ 1-3s. The pool also makes lifting _MAX_PER_CYCLE safe — at 500
-    # the cycle finishes in ~25 batches × 3s ≈ 75s, well within weekly
-    # cadence.
+    # ≈ 1-3s. The pool also makes lifting _MAX_PER_CYCLE safe.
+    #
+    # Thread safety contract (audit 2026-05-12): worker threads MUST NOT
+    # touch the SQLAlchemy Session or ORM instances. We extract every
+    # value the HTTP call needs into an immutable _ChargeCheckJob on the
+    # main thread BEFORE submitting; the worker consumes only primitives.
+    # The Merchant ORM instance stays main-thread-only for _deactivate.
+    from app.core.token_crypto import decrypt_token
+
+    jobs: list[_ChargeCheckJob] = []
+    for m in merchants:
+        jobs.append(_ChargeCheckJob(
+            shop_domain=m.shop_domain,
+            charge_id=str(m.billing_charge_id),
+            token=decrypt_token(m.access_token),
+        ))
+    job_to_merchant = {id(j): m for j, m in zip(jobs, merchants)}
+
     halted = False
     with ThreadPoolExecutor(max_workers=_MAX_CONCURRENCY) as pool:
-        future_to_merchant = {
-            pool.submit(_check_charge_status, m): m for m in merchants
-        }
-        for fut in as_completed(future_to_merchant):
-            m = future_to_merchant[fut]
+        future_to_job = {pool.submit(_check_charge_status, j): j for j in jobs}
+        for fut in as_completed(future_to_job):
+            job = future_to_job[fut]
+            m = job_to_merchant[id(job)]
             if halted:
-                # Pending check finished after halt — skip; cancellation
-                # only stops not-yet-started futures, so racing inflight
-                # is expected and harmless (state changes already gated
-                # by halted flag).
+                # Halted: filter out any future that completes after the
+                # halt threshold was reached. The `halted` flag is the
+                # load-bearing safety; future.cancel() is best-effort
+                # and a no-op for already-started futures (the common
+                # case when N ≤ max_workers).
                 continue
             try:
                 status = fut.result()
@@ -98,47 +115,61 @@ def run_billing_sync(db: Session) -> dict:
                         )
                         _alert_mass_deactivation(summary["deactivated"])
                         halted = True
-                        # Cancel any not-yet-started checks. as_completed
-                        # will still yield those — we filter via halted.
-                        for pending in future_to_merchant:
+                        # Best-effort cancellation of not-yet-started
+                        # futures; running futures continue but are
+                        # filtered by the halted check above.
+                        for pending in future_to_job:
                             pending.cancel()
                 else:
                     summary["ok"] += 1
 
             except Exception as exc:
-                log.warning("billing_sync: error checking %s: %s", m.shop_domain, exc)
-                summary["errors"].append(f"{m.shop_domain}: {exc}")
+                log.warning("billing_sync: error checking %s: %s", job.shop_domain, exc)
+                summary["errors"].append(f"{job.shop_domain}: {exc}")
 
     return summary
 
 
-def _check_charge_status(merchant: Merchant) -> str:
+@dataclass(frozen=True)
+class _ChargeCheckJob:
+    """Immutable primitives passed to worker threads — NO ORM refs.
+
+    Created on the main thread by run_billing_sync, consumed by
+    _check_charge_status on a worker thread. Frozen so a worker
+    cannot accidentally mutate shared state.
+    """
+    shop_domain: str
+    charge_id: str
+    token: str | None  # decrypted; None if decrypt failed on main thread
+
+
+def _check_charge_status(job: _ChargeCheckJob) -> str:
     """
     Query Shopify for the charge status.
 
+    Thread-safe: consumes only primitives from `job`; no ORM, no Session,
+    no shared mutable state. Pure I/O + return value.
+
     Returns: "active" | "cancelled" | "declined" | "expired" | "frozen" | "pending" | "unknown"
     """
-    from app.core.token_crypto import decrypt_token
-
-    token = decrypt_token(merchant.access_token)
-    if not token:
+    if not job.token:
         return "unknown"
 
     try:
         import httpx
         url = (
-            f"https://{merchant.shop_domain}/admin/api/2024-10"
-            f"/recurring_application_charges/{merchant.billing_charge_id}.json"
+            f"https://{job.shop_domain}/admin/api/2024-10"
+            f"/recurring_application_charges/{job.charge_id}.json"
         )
         resp = httpx.get(
             url,
-            headers={"X-Shopify-Access-Token": token},
+            headers={"X-Shopify-Access-Token": job.token},
             timeout=10.0,
         )
         if resp.status_code == 404:
             return "cancelled"
         if resp.status_code != 200:
-            log.warning("billing_sync: Shopify returned %d for %s", resp.status_code, merchant.shop_domain)
+            log.warning("billing_sync: Shopify returned %d for %s", resp.status_code, job.shop_domain)
             return "unknown"
 
         data = resp.json()
@@ -146,7 +177,7 @@ def _check_charge_status(merchant: Merchant) -> str:
         return charge.get("status", "unknown")
 
     except Exception as exc:
-        log.warning("billing_sync: API call failed for %s: %s", merchant.shop_domain, exc)
+        log.warning("billing_sync: API call failed for %s: %s", job.shop_domain, exc)
         return "unknown"
 
 
@@ -175,7 +206,7 @@ def _deactivate(db: Session, merchant: Merchant, reason: str) -> None:
         target_type="merchant",
         target_id=merchant.shop_domain,
         shop_domain=merchant.shop_domain,
-        after_state=f'{{"reason": "{reason}", "charge_id": "{merchant.billing_charge_id}"}}',
+        after_state=json.dumps({"reason": reason, "charge_id": merchant.billing_charge_id}),
     )
 
     log.warning(
