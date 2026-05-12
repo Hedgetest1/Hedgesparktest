@@ -178,13 +178,16 @@ def _sense(
                 return db.execute(text(sql), params).scalar()
         except Exception as exc:
             # Defensive SAVEPOINT pattern — schema drift on optional
-            # columns shouldn't abort the outer brain txn. Debug-only
-            # so forensics are available without flooding production
-            # logs; an upstream schema break would surface via the
-            # bigger audit_sql_columns preflight gate.
+            # columns shouldn't abort the outer brain txn. Log the
+            # exception class + SQL TEMPLATE (which never contains
+            # bind values) — NEVER `str(exc)`, because SQLAlchemy
+            # error messages render the executed SQL with shop_domain
+            # values inlined (PII echo vector closed 2026-05-12).
+            # An upstream schema break still surfaces via the
+            # audit_sql_columns preflight gate.
             log.debug(
-                "merchant_brain._safe_scalar swallowed %s: %s",
-                type(exc).__name__, str(exc)[:160],
+                "merchant_brain._safe_scalar swallowed %s on SQL=%r",
+                type(exc).__name__, sql.strip()[:120],
             )
             return None
 
