@@ -176,7 +176,16 @@ def _sense(
         try:
             with db.begin_nested():
                 return db.execute(text(sql), params).scalar()
-        except Exception:
+        except Exception as exc:
+            # Defensive SAVEPOINT pattern — schema drift on optional
+            # columns shouldn't abort the outer brain txn. Debug-only
+            # so forensics are available without flooding production
+            # logs; an upstream schema break would surface via the
+            # bigger audit_sql_columns preflight gate.
+            log.debug(
+                "merchant_brain._safe_scalar swallowed %s: %s",
+                type(exc).__name__, str(exc)[:160],
+            )
             return None
 
     orders_7d = int(_safe_scalar(
@@ -214,14 +223,23 @@ def _sense(
         has_email_in_queue = any(
             intent.shop_domain == shop_domain for intent in _pending_intents
         )
-    except Exception:
+    except Exception as exc:
+        log.warning(
+            "merchant_brain: email queue probe failed for %s: %s",
+            shop_domain, type(exc).__name__,
+        )
         has_email_in_queue = False
 
     # Shop currency for honest rendering of the rars_total field.
     try:
         from app.services.revenue_metrics import get_shop_currency
         shop_currency = get_shop_currency(db, shop_domain) or "USD"
-    except Exception:
+    except Exception as exc:
+        log.warning(
+            "merchant_brain: shop_currency lookup failed for %s, "
+            "defaulting to USD: %s",
+            shop_domain, type(exc).__name__,
+        )
         shop_currency = "USD"
 
     # Sprint 3 #3 wiring: classify vertical + read cross-shop priors for
@@ -1519,7 +1537,12 @@ def evaluate_pending_outcomes(db: Session, max_evaluate: int = 50) -> dict:
                 try:
                     from app.services.vertical_classifier import get_vertical
                     vertical = get_vertical(sip_db, shop)
-                except Exception:
+                except Exception as exc:
+                    log.warning(
+                        "merchant_brain: vertical classify failed for %s, "
+                        "untuned SIP retrain: %s",
+                        shop, type(exc).__name__,
+                    )
                     vertical = None
                 sip_data = compute_sip(conn, shop, vertical=vertical)
                 if sip_data:
