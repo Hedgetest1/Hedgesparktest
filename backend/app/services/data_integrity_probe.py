@@ -290,206 +290,17 @@ def _active_shops(db: Session, limit: int) -> list[str]:
     return [r[0] for r in rows if r[0]]
 
 
-def _check_attribution_drift(db: Session, shop: str) -> DriftFinding | None:
-    """Attribution rate (7d) vs baseline (8–30d). Drop >10pp → alert.
+def _batch_check_attribution_drift(db: Session, shops: list[str]) -> list[DriftFinding]:
+    """Attribution rate (7d) vs baseline (8–30d) for many shops. Drop >10pp → alert.
 
     This is the single highest-value check: an attribution collapse is how
     a tracker bug, a cookie policy change, or a pipeline regression
     manifests silently in production.
-    """
-    now = _now()
-    cutoff_recent = now - timedelta(days=7)
-    cutoff_baseline_start = now - timedelta(days=30)
-    cutoff_baseline_end = now - timedelta(days=7)
-
-    # visitor_purchase_sessions is linked to shop_orders via shopify_order_id.
-    recent = db.execute(text("""
-        SELECT
-            COUNT(*) AS total,
-            COUNT(CASE WHEN vps.shopify_order_id IS NOT NULL THEN 1 END) AS attributed
-        FROM shop_orders o
-        LEFT JOIN visitor_purchase_sessions vps
-          ON vps.shopify_order_id = o.shopify_order_id
-         AND vps.shop_domain = o.shop_domain
-        WHERE o.shop_domain = :shop
-          AND o.created_at >= :cutoff
-    """), {"shop": shop, "cutoff": cutoff_recent}).fetchone()
-
-    baseline = db.execute(text("""
-        SELECT
-            COUNT(*) AS total,
-            COUNT(CASE WHEN vps.shopify_order_id IS NOT NULL THEN 1 END) AS attributed
-        FROM shop_orders o
-        LEFT JOIN visitor_purchase_sessions vps
-          ON vps.shopify_order_id = o.shopify_order_id
-         AND vps.shop_domain = o.shop_domain
-        WHERE o.shop_domain = :shop
-          AND o.created_at >= :start
-          AND o.created_at <  :end
-    """), {
-        "shop": shop, "start": cutoff_baseline_start, "end": cutoff_baseline_end,
-    }).fetchone()
-
-    if not recent or not baseline:
-        return None
-    if (recent[0] or 0) < _MIN_ORDERS_FOR_ATTRIBUTION or (baseline[0] or 0) < _MIN_ORDERS_FOR_ATTRIBUTION:
-        return None
-
-    recent_rate = (recent[1] / recent[0]) * 100 if recent[0] else 0
-    baseline_rate = (baseline[1] / baseline[0]) * 100 if baseline[0] else 0
-    drop_pp = baseline_rate - recent_rate
-
-    if drop_pp < _ATTRIBUTION_DROP_PP:
-        return None
-
-    return DriftFinding(
-        check="attribution_drift",
-        shop_domain=shop,
-        severity="critical" if drop_pp >= 20 else "warning",
-        summary=(
-            f"Attribution rate dropped {drop_pp:.1f}pp on {shop} "
-            f"(baseline={baseline_rate:.1f}% → recent={recent_rate:.1f}%)"
-        ),
-        detail={
-            "recent_window_days": 7,
-            "baseline_window_days": 23,
-            "recent_total_orders": int(recent[0]),
-            "recent_attributed": int(recent[1] or 0),
-            "recent_rate_pct": round(recent_rate, 2),
-            "baseline_total_orders": int(baseline[0]),
-            "baseline_attributed": int(baseline[1] or 0),
-            "baseline_rate_pct": round(baseline_rate, 2),
-            "drop_pp": round(drop_pp, 2),
-        },
-    )
-
-
-def _check_order_collapse(db: Session, shop: str) -> DriftFinding | None:
-    """Order count (7d) vs baseline (8–30d, daily-normalized). <50% → alert.
-
-    Detects webhook silent failures: the merchant is still selling, but our
-    ingestion stopped receiving orders.
-    """
-    now = _now()
-    recent_days = 7
-    baseline_days = 23
-
-    row = db.execute(text("""
-        SELECT
-            COUNT(CASE WHEN created_at >= :recent_cut THEN 1 END) AS recent_cnt,
-            COUNT(CASE WHEN created_at >= :base_start AND created_at < :base_end THEN 1 END) AS baseline_cnt
-        FROM shop_orders
-        WHERE shop_domain = :shop
-          AND created_at >= :base_start
-    """), {
-        "shop": shop,
-        "recent_cut": now - timedelta(days=recent_days),
-        "base_start": now - timedelta(days=recent_days + baseline_days),
-        "base_end": now - timedelta(days=recent_days),
-    }).fetchone()
-
-    if not row:
-        return None
-    recent_cnt = int(row[0] or 0)
-    baseline_cnt = int(row[1] or 0)
-    if baseline_cnt == 0:
-        return None
-
-    # Daily-normalize: compare per-day average
-    recent_per_day = recent_cnt / recent_days
-    baseline_per_day = baseline_cnt / baseline_days
-    if baseline_per_day < 1.0:  # Very small shops → skip
-        return None
-    ratio = recent_per_day / baseline_per_day
-    if ratio >= _ORDER_COLLAPSE_RATIO:
-        return None
-
-    return DriftFinding(
-        check="order_collapse",
-        shop_domain=shop,
-        severity="critical" if ratio < 0.2 else "warning",
-        summary=(
-            f"Order volume collapsed on {shop}: "
-            f"{recent_per_day:.1f}/day (last 7d) vs {baseline_per_day:.1f}/day baseline "
-            f"(ratio={ratio:.2f})"
-        ),
-        detail={
-            "recent_orders": recent_cnt,
-            "baseline_orders": baseline_cnt,
-            "recent_per_day": round(recent_per_day, 2),
-            "baseline_per_day": round(baseline_per_day, 2),
-            "ratio": round(ratio, 3),
-        },
-    )
-
-
-def _check_aov_drift(db: Session, shop: str) -> DriftFinding | None:
-    """Average Order Value drift — detects silent pricing/calculation bugs.
-
-    An AOV that swings 25%+ in either direction without order count change
-    usually means an upstream calculation is broken, currency mismatches are
-    happening, or tax/shipping handling regressed.
-    """
-    now = _now()
-    row = db.execute(text("""
-        SELECT
-            AVG(CASE WHEN created_at >= :recent_cut THEN total_price END) AS recent_aov,
-            COUNT(CASE WHEN created_at >= :recent_cut THEN 1 END) AS recent_n,
-            AVG(CASE WHEN created_at >= :base_start AND created_at < :base_end THEN total_price END) AS baseline_aov,
-            COUNT(CASE WHEN created_at >= :base_start AND created_at < :base_end THEN 1 END) AS baseline_n
-        FROM shop_orders
-        WHERE shop_domain = :shop
-          AND created_at >= :base_start
-    """), {
-        "shop": shop,
-        "recent_cut": now - timedelta(days=7),
-        "base_start": now - timedelta(days=30),
-        "base_end": now - timedelta(days=7),
-    }).fetchone()
-
-    if not row:
-        return None
-    recent_aov = float(row[0] or 0)
-    recent_n = int(row[1] or 0)
-    baseline_aov = float(row[2] or 0)
-    baseline_n = int(row[3] or 0)
-    if recent_n < _MIN_ORDERS_FOR_AOV or baseline_n < _MIN_ORDERS_FOR_AOV:
-        return None
-    if baseline_aov <= 0:
-        return None
-
-    ratio = recent_aov / baseline_aov
-    if _AOV_DRIFT_RATIO_LO <= ratio <= _AOV_DRIFT_RATIO_HI:
-        return None
-
-    direction = "spike" if ratio > 1 else "collapse"
-    return DriftFinding(
-        check="aov_drift",
-        shop_domain=shop,
-        severity="warning",
-        summary=(
-            f"AOV {direction} on {shop}: "
-            f"baseline={baseline_aov:.2f} → recent={recent_aov:.2f} (ratio={ratio:.2f})"
-        ),
-        detail={
-            "recent_aov": round(recent_aov, 2),
-            "recent_n": recent_n,
-            "baseline_aov": round(baseline_aov, 2),
-            "baseline_n": baseline_n,
-            "ratio": round(ratio, 3),
-            "direction": direction,
-        },
-    )
-
-
-def _batch_check_attribution_drift(db: Session, shops: list[str]) -> list[DriftFinding]:
-    """Batched equivalent of _check_attribution_drift for many shops.
 
     Two queries (recent window + baseline window) join shop_orders with
-    visitor_purchase_sessions and aggregate per shop. Replaces 2N per-shop
-    queries with 2 fixed queries — required when shop_count grows past
-    the per-cycle cap. Same severity / fingerprint / DriftFinding shape
-    as the per-shop version — output equivalence verified by test.
+    visitor_purchase_sessions and aggregate per shop. Two fixed queries
+    regardless of shop_count — required to scale past the per-cycle cap.
+    Contract asserted by test_data_integrity_probe_drift_contract.py.
     """
     if not shops:
         return []
@@ -572,10 +383,21 @@ def _batch_check_attribution_drift(db: Session, shops: list[str]) -> list[DriftF
 def _batch_check_order_and_aov(db: Session, shops: list[str]) -> list[DriftFinding]:
     """Combined batch for order_collapse + aov_drift — single query.
 
-    Both checks scan shop_orders on the same window, just compute
-    different aggregates. Sharing the FROM clause cuts ingress by 50%
-    vs two separate batched queries. Output split into two DriftFindings
-    so the alerting fingerprint remains stable.
+    order_collapse: Order count (7d) vs baseline (8–30d, daily-normalized).
+        ratio <0.5 → alert. Detects webhook silent failures: the merchant
+        is still selling, but our ingestion stopped receiving orders.
+
+    aov_drift: Average Order Value drift — detects silent pricing/
+        calculation bugs. An AOV that swings 25%+ in either direction
+        without order count change usually means an upstream calculation
+        is broken, currency mismatches are happening, or tax/shipping
+        handling regressed.
+
+    Both checks scan shop_orders on the same window with different
+    aggregates. Sharing the FROM clause cuts ingress by 50% vs two
+    separate batched queries. Output split into two DriftFindings so
+    the alerting fingerprint remains stable. Contract asserted by
+    test_data_integrity_probe_drift_contract.py.
     """
     if not shops:
         return []
@@ -767,12 +589,9 @@ def run_probe(db: Session, max_shops: int = _MAX_MERCHANTS_PER_CYCLE) -> ProbeRe
         result.errors.append(f"active_shops:{type(exc).__name__}")
         return result
 
-    # Batched per-shop checks (P3 close 2026-05-12): replace 4N per-shop
-    # queries with 3 fixed batched queries (attribution × 2 + order/aov × 1).
-    # Output is bit-identical to the per-shop versions; verified by
-    # test_data_integrity_probe_batch_parity. The per-shop functions are
-    # retained for that parity test + as a fallback if a future batch
-    # query regresses (deletable once the batch path proves stable).
+    # Batched per-shop checks: 3 fixed queries regardless of shop count
+    # (attribution × 2 + combined order/aov × 1). Contract asserted by
+    # test_data_integrity_probe_drift_contract.py.
     batch_groups = (
         ("attribution_drift_batch", _batch_check_attribution_drift),
         ("order_and_aov_batch",     _batch_check_order_and_aov),
