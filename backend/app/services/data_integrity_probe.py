@@ -210,69 +210,93 @@ def get_merchant_baseline(db: Session, shop: str) -> dict | None:
     return baseline
 
 
-def _check_merchant_anomaly(db: Session, shop: str) -> DriftFinding | None:
+def _batch_check_merchant_anomaly(db: Session, shops: list[str]) -> list[DriftFinding]:
+    """Per-merchant seasonality-adjusted anomaly detector — batched.
+
+    Single GROUP BY query over today's orders for all shops, replacing
+    1 SQL query/shop. Per-shop baselines stay Redis-cached (cheap);
+    per-shop currency is looked up via the existing 1h-TTL cache.
+
+    Triggers when a shop has enough history AND today's revenue
+    deviates >2.5σ from the shop's own weekday-adjusted normal.
     """
-    Per-merchant seasonality-adjusted anomaly detector. Only triggers
-    when the shop has enough history AND the deviation is >2.5 stdev
-    from the shop's own normal for today's weekday.
-    """
-    baseline = get_merchant_baseline(db, shop)
-    if baseline is None:
-        return None
+    if not shops:
+        return []
 
     now = _now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    currency = get_shop_currency(db, shop)
-    row = db.execute(text("""
-        SELECT COALESCE(SUM(total_price), 0)
-        FROM shop_orders
-        WHERE shop_domain = :shop AND created_at >= :start
-          AND (:currency IS NULL OR currency = :currency)
-    """), {"shop": shop, "start": today_start, "currency": currency}).fetchone()
-    if not row:
-        return None
-
-    today_revenue = float(row[0] or 0)
-    if today_revenue == 0:
-        return None  # no orders yet today — not an anomaly
-
     dow = today_start.weekday()
-    # Python weekday: Mon=0..Sun=6. Postgres DOW: Sun=0..Sat=6. Adjust:
-    pg_dow = (dow + 1) % 7
-    weekday_mult = baseline["weekday_multipliers"].get(str(pg_dow), baseline["weekday_multipliers"].get(pg_dow, 1.0))
-    expected = baseline["mean"] * float(weekday_mult)
-    stdev = baseline["stdev"]
-    if stdev == 0:
-        return None
+    pg_dow = (dow + 1) % 7  # Python Mon=0 → Postgres Sun=0
 
-    deviation = today_revenue - expected
-    stdev_multiple = abs(deviation) / stdev
-    if stdev_multiple < _ANOMALY_STDEV_THRESHOLD:
-        return None
+    # Single grouped scan: (shop, currency) → today's revenue sum.
+    # Multi-currency shops produce multiple rows; we pick the row
+    # matching each shop's primary currency below.
+    rows = db.execute(text("""
+        SELECT shop_domain, currency, COALESCE(SUM(total_price), 0) AS rev
+        FROM shop_orders
+        WHERE shop_domain = ANY(:shops) AND created_at >= :start
+        GROUP BY shop_domain, currency
+    """), {"shops": list(shops), "start": today_start}).fetchall()
 
-    direction = "spike" if deviation > 0 else "drop"
-    severity = "critical" if stdev_multiple >= 4.0 else "warning"
+    # {shop: {currency: revenue}} — currency=None for legacy rows.
+    revenue_map: dict[str, dict[str | None, float]] = {}
+    for shop_domain, currency, rev in rows:
+        revenue_map.setdefault(shop_domain, {})[currency] = float(rev or 0)
 
-    return DriftFinding(
-        check="merchant_anomaly",
-        shop_domain=shop,
-        severity=severity,
-        summary=(
-            f"Today's revenue on {shop} is a {direction}: "
-            f"{_format_money(today_revenue, currency)} vs shop's seasonality-adjusted "
-            f"expected {_format_money(expected, currency)} ({stdev_multiple:.1f}σ {direction})"
-        ),
-        detail={
-            "today_revenue": round(today_revenue, 2),
-            "expected_today": round(expected, 2),
-            "weekday_multiplier": weekday_mult,
-            "deviation_stdev_multiples": round(stdev_multiple, 2),
-            "baseline_mean": baseline["mean"],
-            "baseline_stdev": stdev,
-            "sample_size_days": baseline["sample_size_days"],
-            "direction": direction,
-        },
-    )
+    findings: list[DriftFinding] = []
+    for shop in shops:
+        baseline = get_merchant_baseline(db, shop)
+        if baseline is None:
+            continue
+
+        currency = get_shop_currency(db, shop)
+        shop_rows = revenue_map.get(shop, {})
+        if currency is not None:
+            today_revenue = shop_rows.get(currency, 0.0)
+        else:
+            # Pre-currency-migration shops: sum across currencies.
+            today_revenue = sum(shop_rows.values())
+
+        if today_revenue == 0:
+            continue  # no orders yet today — not an anomaly
+
+        weekday_mult = baseline["weekday_multipliers"].get(
+            str(pg_dow), baseline["weekday_multipliers"].get(pg_dow, 1.0)
+        )
+        expected = baseline["mean"] * float(weekday_mult)
+        stdev = baseline["stdev"]
+        if stdev == 0:
+            continue
+
+        deviation = today_revenue - expected
+        stdev_multiple = abs(deviation) / stdev
+        if stdev_multiple < _ANOMALY_STDEV_THRESHOLD:
+            continue
+
+        direction = "spike" if deviation > 0 else "drop"
+        severity = "critical" if stdev_multiple >= 4.0 else "warning"
+
+        findings.append(DriftFinding(
+            check="merchant_anomaly",
+            shop_domain=shop,
+            severity=severity,
+            summary=(
+                f"Today's revenue on {shop} is a {direction}: "
+                f"{_format_money(today_revenue, currency)} vs shop's seasonality-adjusted "
+                f"expected {_format_money(expected, currency)} ({stdev_multiple:.1f}σ {direction})"
+            ),
+            detail={
+                "today_revenue": round(today_revenue, 2),
+                "expected_today": round(expected, 2),
+                "weekday_multiplier": weekday_mult,
+                "deviation_stdev_multiples": round(stdev_multiple, 2),
+                "baseline_mean": baseline["mean"],
+                "baseline_stdev": stdev,
+                "sample_size_days": baseline["sample_size_days"],
+                "direction": direction,
+            },
+        ))
+    return findings
 
 
 def _active_shops(db: Session, limit: int) -> list[str]:
@@ -589,12 +613,15 @@ def run_probe(db: Session, max_shops: int = _MAX_MERCHANTS_PER_CYCLE) -> ProbeRe
         result.errors.append(f"active_shops:{type(exc).__name__}")
         return result
 
-    # Batched per-shop checks: 3 fixed queries regardless of shop count
-    # (attribution × 2 + combined order/aov × 1). Contract asserted by
+    # All per-shop checks batched: 4 fixed SQL queries regardless of
+    # shop count (attribution × 2 + combined order/aov × 1 + merchant
+    # anomaly today-revenue × 1). Per-merchant baselines + currency are
+    # Redis-cached (no SQL). Contract asserted by
     # test_data_integrity_probe_drift_contract.py.
     batch_groups = (
         ("attribution_drift_batch", _batch_check_attribution_drift),
         ("order_and_aov_batch",     _batch_check_order_and_aov),
+        ("merchant_anomaly_batch",  _batch_check_merchant_anomaly),
     )
     for name, fn in batch_groups:
         result.checks_run += 1
@@ -603,21 +630,6 @@ def run_probe(db: Session, max_shops: int = _MAX_MERCHANTS_PER_CYCLE) -> ProbeRe
         except Exception as exc:
             result.errors.append(f"{name}:{type(exc).__name__}")
             log.warning("data_integrity_probe: %s failed: %s", name, exc)
-
-    # merchant_anomaly stays per-shop: per-merchant baseline is cached
-    # 24h in Redis (cheap) + the today-revenue subquery joins on dow
-    # which doesn't translate cleanly to a batched GROUP BY without
-    # losing the per-shop seasonality multiplier. Keep simple.
-    for shop in shops:
-        result.checks_run += 1
-        try:
-            finding = _check_merchant_anomaly(db, shop)
-        except Exception as exc:
-            result.errors.append(f"merchant_anomaly:{shop}:{type(exc).__name__}")
-            log.debug("data_integrity_probe: merchant_anomaly on %s failed: %s", shop, exc)
-            continue
-        if finding is not None:
-            result.findings.append(finding)
 
     # Global nudge check — one sweep, not per-shop
     try:

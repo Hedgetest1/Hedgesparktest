@@ -235,15 +235,43 @@ def probe_workers_liveness() -> ProbeResult:
     # probe is the backstop that surfaces drift if the hook ever skips.
     now_ms = int(time.time() * 1000)
     stale_threshold_ms = 7 * 24 * 3600 * 1000
-    stale_workers = [
-        (n, round((now_ms - p["pm2_env"]["pm_uptime"]) / (24 * 3600 * 1000), 1))
-        for n, p in found.items()
-        if p.get("pm2_env", {}).get("pm_uptime")
-        and (now_ms - p["pm2_env"]["pm_uptime"]) > stale_threshold_ms
-        # Backend + dashboard expected to be longer-lived between commits;
-        # worker singletons are the drift class.
-        and n not in ("wishspark-backend", "wishspark-dashboard")
-    ]
+
+    # Backend + dashboard get a tighter "code-merged != code-running"
+    # check (audit 2026-05-12): if the last git commit landed but
+    # backend/dashboard still show a pre-commit uptime, the deploy hook
+    # missed. 1h grace covers normal hook completion. This dimension
+    # is the canary the previous exemption silenced.
+    import subprocess
+    last_commit_ms = 0
+    try:
+        out = subprocess.run(
+            ["git", "log", "-1", "--format=%ct"],
+            capture_output=True, text=True, timeout=5, cwd=ROOT,
+        )
+        if out.returncode == 0:
+            last_commit_ms = int(out.stdout.strip()) * 1000
+    except (ValueError, TypeError, OSError, subprocess.TimeoutExpired):
+        last_commit_ms = 0  # degrade-open: skip drift check if git unreadable
+    deploy_grace_ms = 3600 * 1000  # 1h between commit landing and reload
+
+    stale_workers = []
+    for n, p in found.items():
+        pm_uptime = p.get("pm2_env", {}).get("pm_uptime")
+        if not pm_uptime:
+            continue
+        uptime_ms = now_ms - pm_uptime
+        if n in ("wishspark-backend", "wishspark-dashboard"):
+            # Deploy-hook drift: process started before last commit
+            # AND that commit is older than the grace window.
+            if (last_commit_ms
+                    and pm_uptime < last_commit_ms
+                    and (now_ms - last_commit_ms) > deploy_grace_ms):
+                age_h = round((now_ms - last_commit_ms) / (3600 * 1000), 1)
+                stale_workers.append((n, age_h))
+        else:
+            # Worker singletons: stale if uptime exceeds 7d window.
+            if uptime_ms > stale_threshold_ms:
+                stale_workers.append((n, round(uptime_ms / (24 * 3600 * 1000), 1)))
     if missing or offline:
         status = "RED"
     elif high_restart or stale_workers:

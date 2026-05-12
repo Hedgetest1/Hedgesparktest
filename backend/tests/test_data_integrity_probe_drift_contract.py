@@ -18,8 +18,11 @@ to compare against.
 """
 from sqlalchemy import text
 
+from unittest.mock import patch
+
 from app.services.data_integrity_probe import (
     _batch_check_attribution_drift,
+    _batch_check_merchant_anomaly,
     _batch_check_order_and_aov,
 )
 
@@ -195,3 +198,52 @@ def test_batch_attribution_with_empty_shop_list_returns_empty(db):
 
 def test_batch_order_aov_with_empty_shop_list_returns_empty(db):
     assert _batch_check_order_and_aov(db, []) == []
+
+
+def test_batch_merchant_anomaly_empty_shop_list_returns_empty(db):
+    assert _batch_check_merchant_anomaly(db, []) == []
+
+
+def test_batch_merchant_anomaly_no_baseline_no_finding(db):
+    """Shop without enough history → no baseline → no finding."""
+    shop = "anomaly-no-history.myshopify.com"
+    _seed_merchants(db, [shop])
+    # No baseline cached, no orders to compute from → get_merchant_baseline
+    # returns None and the shop is skipped silently.
+    with patch("app.services.data_integrity_probe.get_merchant_baseline",
+               return_value=None):
+        assert _batch_check_merchant_anomaly(db, [shop]) == []
+
+
+def test_batch_merchant_anomaly_critical_spike_emits_finding(db):
+    """5σ spike vs baseline → critical finding with direction='spike'."""
+    shop = "anomaly-spike.myshopify.com"
+    _seed_merchants(db, [shop])
+    # Seed today's orders summing to 1500 USD
+    db.execute(text("""
+        INSERT INTO shop_orders (shop_domain, shopify_order_id, total_price, currency, created_at)
+        VALUES (:s, :oid, 1500.0, 'USD', NOW())
+    """), {"s": shop, "oid": f"anomaly-{shop}-1"})
+
+    baseline = {
+        "mean": 200.0,
+        "stdev": 50.0,
+        "weekday_multipliers": {str(i): 1.0 for i in range(7)},
+        "sample_size_days": 30,
+    }
+    # 1500 - 200 = 1300 deviation; 1300 / 50 = 26σ → critical (≥4σ)
+    with patch("app.services.data_integrity_probe.get_merchant_baseline",
+               return_value=baseline), \
+         patch("app.services.data_integrity_probe.get_shop_currency",
+               return_value="USD"):
+        findings = _batch_check_merchant_anomaly(db, [shop])
+
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.check == "merchant_anomaly"
+    assert f.shop_domain == shop
+    assert f.severity == "critical"
+    assert f.detail["direction"] == "spike"
+    assert f.detail["today_revenue"] == 1500.0
+    assert f.detail["expected_today"] == 200.0
+    assert f.detail["deviation_stdev_multiples"] == 26.0
