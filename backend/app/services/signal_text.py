@@ -79,8 +79,308 @@ def _fmt_float(value: object, decimals: int = 1, fallback: str = "an average") -
 
 
 # ---------------------------------------------------------------------------
-# humanize_signal
+# Signal-text renderers — one pure (label, m) -> str function per signal type
 # ---------------------------------------------------------------------------
+# Refactor 2026-05-12 (A3 medium close): 309-LOC if-elif chain → registry
+# pattern (matches the existing humanize_action / humanize_headline shape
+# in this same module). 27 renderers, ~5-15 LOC each, individually testable.
+
+def _text_dead_traffic(label: str, m: dict) -> str:
+    views = _fmt_int(m.get("views_24h"))
+    dwell = _fmt_float(m.get("avg_dwell_24h"), decimals=1)
+    if views != "some" and dwell != "an average":
+        return (
+            f"{label} received {views} views today but visitors left in "
+            f"under {dwell}s on average — the page isn't holding attention."
+        )
+    if views != "some":
+        return (
+            f"{label} is getting {views} views today but visitors are "
+            "leaving almost immediately."
+        )
+    return f"{label} has traffic today but visitors are bouncing almost immediately."
+
+
+def _text_high_traffic_no_cart(label: str, m: dict) -> str:
+    views = _fmt_int(m.get("views_24h"))
+    unique = _fmt_int(m.get("unique_visitors_24h"))
+    if views != "some" and unique != "some":
+        return (
+            f"{label} had {views} views from {unique} visitors today "
+            "— but no one added it to cart."
+        )
+    return f"{label} is getting traffic today but no one added it to cart."
+
+
+def _text_low_conversion_attention(label: str, m: dict) -> str:
+    views = _fmt_int(m.get("views_24h"))
+    cart = _fmt_int(m.get("cart_conversions_24h"), fallback="very few")
+    rate = _fmt_rate(m.get("cart_conversions_24h"), m.get("views_24h"))
+    if views != "some":
+        return (
+            f"{label} had {views} views today but only {cart} moved toward "
+            f"checkout — a {rate} conversion rate."
+        )
+    return f"{label} has steady traffic but a very low conversion rate."
+
+
+def _text_high_engagement_no_action(label: str, m: dict) -> str:
+    dwell = _fmt_float(m.get("avg_dwell_24h"), decimals=0)
+    scroll = _fmt_float(m.get("avg_scroll_24h"), decimals=0)
+    if dwell != "an average" and scroll != "an average":
+        return (
+            f"Visitors are spending {dwell}s reading {label} and scrolling "
+            f"{scroll}% down the page — but none are adding it to cart."
+        )
+    return (
+        f"Visitors are spending significant time on {label} and scrolling "
+        "deeply — but none are converting."
+    )
+
+
+def _text_scroll_high_no_click(label: str, m: dict) -> str:
+    scroll = _fmt_float(m.get("avg_scroll_24h"), decimals=0)
+    if scroll != "an average":
+        return (
+            f"Visitors scroll {scroll}% through {label} on average "
+            "— they're reading, but nothing is prompting them to act."
+        )
+    return (
+        f"Visitors are reading {label} thoroughly but leaving without "
+        "taking any action."
+    )
+
+
+def _text_high_return_low_conversion(label: str, m: dict) -> str:
+    count = _fmt_int(m.get("return_visitor_count_7d"))
+    cart = _fmt_int(m.get("cart_conversions_24h"), fallback="almost no")
+    if count != "some":
+        return (
+            f"{count} visitors came back to {label} multiple times this week "
+            f"— but {cart} ended up buying."
+        )
+    return (
+        f"Repeat visitors keep returning to {label} this week "
+        "but are not converting."
+    )
+
+
+def _text_return_visitor_interest(label: str, m: dict) -> str:
+    count = _fmt_int(m.get("return_visitor_count_7d"))
+    if count != "some":
+        return (
+            f"{label} keeps pulling visitors back "
+            f"— {count} people returned on multiple days this week."
+        )
+    return f"{label} is building repeat visitor interest this week."
+
+
+def _text_traffic_spike(label: str, m: dict) -> str:
+    views_1h = _fmt_int(m.get("views_1h"))
+    ratio = _fmt_float(m.get("spike_ratio"), decimals=1, fallback=None)
+    if views_1h != "some" and ratio is not None:
+        return (
+            f"{label} is spiking right now "
+            f"— {views_1h} views this hour ({ratio}× above its recent average)."
+        )
+    if views_1h != "some":
+        return f"{label} is spiking right now — {views_1h} views this hour."
+    return f"{label} is experiencing a traffic spike right now."
+
+
+def _text_mobile_conversion_gap(label: str, m: dict) -> str:
+    vm = _fmt_int(m.get("views_mobile"))
+    vd = _fmt_int(m.get("views_desktop"))
+    if vm != "some" and vd != "some":
+        return (
+            f"{label} converts much worse on one device type "
+            f"— {vm} mobile views vs {vd} desktop views with a large cart rate gap."
+        )
+    return f"{label} has a significant device-based conversion gap."
+
+
+def _text_cart_rate_declining(label: str, m: dict) -> str:
+    return (
+        f"{label}'s cart conversion rate is dropping — "
+        "today is significantly below its 7-day average."
+    )
+
+
+def _text_paid_traffic_not_converting(label: str, m: dict) -> str:
+    vp = _fmt_int(m.get("views_paid"))
+    if vp != "some":
+        return (
+            f"{label} received {vp} paid views today but none moved toward checkout "
+            "— the ad spend may be wasted."
+        )
+    return f"Paid traffic to {label} is not converting."
+
+
+def _text_device_purchase_gap(label: str, m: dict) -> str:
+    return (
+        f"{label} has purchases from one device type but zero from the other "
+        "despite significant traffic — the checkout experience may be broken on one device."
+    )
+
+
+def _text_source_revenue_gap(label: str, m: dict) -> str:
+    return (
+        f"Paid traffic to {label} is not generating any purchases, "
+        "while organic traffic is converting — ad targeting may be misaligned."
+    )
+
+
+def _text_time_window_misalignment(label: str, m: dict) -> str:
+    return (
+        f"{label} converts at very different rates depending on time of day "
+        "— promotional timing may not match when visitors are ready to buy."
+    )
+
+
+def _text_landing_page_failure(label: str, m: dict) -> str:
+    lv = _fmt_int(m.get("landing_views_24h"))
+    if lv != "some":
+        return (
+            f"{lv} visitors landed directly on {label} but very few added to cart. "
+            "Visitors who browse to it from other pages convert much better — "
+            "the landing experience needs improvement."
+        )
+    return (
+        f"Visitors landing directly on {label} convert much worse than those who browse to it."
+    )
+
+
+def _text_revenue_concentration(label: str, m: dict) -> str:
+    return (
+        f"Your store's revenue is concentrated in {label}. "
+        "If this product's traffic drops, your entire business is affected — "
+        "diversify by improving conversion on other products."
+    )
+
+
+def _text_store_mobile_gap(label: str, m: dict) -> str:
+    return (
+        "Mobile visitors browse your store but don't buy. "
+        "This is a store-wide checkout problem — test the full mobile purchase flow."
+    )
+
+
+def _text_store_paid_gap(label: str, m: dict) -> str:
+    return (
+        "Your paid traffic drives visits but not purchases. "
+        "Organic and direct traffic converts better — your ad spend may be misallocated."
+    )
+
+
+def _text_price_drop_or_low_stock_nudge(label: str, m: dict) -> str:
+    return (
+        f"{label} has high-intent visitors showing strong commitment signals "
+        "— a price nudge or low-stock badge could convert them."
+    )
+
+
+def _text_wishlist_prompt_test(label: str, m: dict) -> str:
+    return (
+        f"{label} is attracting high interest but visitors aren't committing "
+        "— a more prominent wishlist button could capture intent."
+    )
+
+
+def _text_friction_or_price_sensitivity(label: str, m: dict) -> str:
+    return (
+        f"Visitors explore {label} deeply but don't buy "
+        "— something in the price, trust, or CTA is creating friction."
+    )
+
+
+def _text_high_interest_product(label: str, m: dict) -> str:
+    return f"{label} is consistently attracting high-intent visitors this week."
+
+
+def _text_no_action(label: str, m: dict) -> str:
+    return f"{label} is being tracked — no strong signal detected yet."
+
+
+def _text_early_browsing_no_cart(label: str, m: dict) -> str:
+    views = _fmt_int(m.get("views_24h"))
+    if views != "some":
+        return (
+            f"{label} has had {views} views but no one has added it to cart yet "
+            "— still early, worth watching."
+        )
+    return f"Visitors are browsing {label} but haven't added it to cart yet."
+
+
+def _text_first_visitor_engagement(label: str, m: dict) -> str:
+    dwell = _fmt_float(m.get("avg_dwell_24h"), decimals=0)
+    if dwell != "an average":
+        return (
+            f"A visitor just spent {dwell}s on {label} "
+            "— your first real engagement signal."
+        )
+    return f"Your first visitor engagement on {label} has been detected."
+
+
+def _text_early_drop_off(label: str, m: dict) -> str:
+    dwell = _fmt_float(m.get("avg_dwell_24h"), decimals=0)
+    scroll = _fmt_float(m.get("avg_scroll_24h"), decimals=0)
+    if dwell != "an average" and scroll != "an average":
+        return (
+            f"Early visitors to {label} are leaving quickly "
+            f"({dwell}s dwell, {scroll}% scroll) "
+            "— the above-the-fold content may need attention."
+        )
+    return f"Early visitors to {label} are leaving before engaging deeply."
+
+
+def _text_single_product_focus(label: str, m: dict) -> str:
+    return (
+        f"All recent visitor activity is concentrated on {label} "
+        "— this is your most interesting product right now."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Registry + dispatcher
+# ---------------------------------------------------------------------------
+
+_SIGNAL_TEXT_RENDERERS = {
+    # Traffic
+    "DEAD_TRAFFIC":               _text_dead_traffic,
+    "HIGH_TRAFFIC_NO_CART":       _text_high_traffic_no_cart,
+    "LOW_CONVERSION_ATTENTION":   _text_low_conversion_attention,
+    # Engagement
+    "HIGH_ENGAGEMENT_NO_ACTION":  _text_high_engagement_no_action,
+    "SCROLL_HIGH_NO_CLICK":       _text_scroll_high_no_click,
+    # Return-visitor
+    "HIGH_RETURN_LOW_CONVERSION": _text_high_return_low_conversion,
+    "RETURN_VISITOR_INTEREST":    _text_return_visitor_interest,
+    # Independent
+    "TRAFFIC_SPIKE":              _text_traffic_spike,
+    "MOBILE_CONVERSION_GAP":      _text_mobile_conversion_gap,
+    "CART_RATE_DECLINING":        _text_cart_rate_declining,
+    "PAID_TRAFFIC_NOT_CONVERTING": _text_paid_traffic_not_converting,
+    "DEVICE_PURCHASE_GAP":        _text_device_purchase_gap,
+    "SOURCE_REVENUE_GAP":         _text_source_revenue_gap,
+    "TIME_WINDOW_MISALIGNMENT":   _text_time_window_misalignment,
+    "LANDING_PAGE_FAILURE":       _text_landing_page_failure,
+    # Store-level strategic
+    "REVENUE_CONCENTRATION":      _text_revenue_concentration,
+    "STORE_MOBILE_GAP":           _text_store_mobile_gap,
+    "STORE_PAID_GAP":             _text_store_paid_gap,
+    # Classify-opportunity
+    "PRICE_DROP_OR_LOW_STOCK_NUDGE": _text_price_drop_or_low_stock_nudge,
+    "WISHLIST_PROMPT_TEST":       _text_wishlist_prompt_test,
+    "FRICTION_OR_PRICE_SENSITIVITY": _text_friction_or_price_sensitivity,
+    "HIGH_INTEREST_PRODUCT":      _text_high_interest_product,
+    "NO_ACTION":                  _text_no_action,
+    # Early (low-confidence)
+    "EARLY_BROWSING_NO_CART":     _text_early_browsing_no_cart,
+    "FIRST_VISITOR_ENGAGEMENT":   _text_first_visitor_engagement,
+    "EARLY_DROP_OFF":             _text_early_drop_off,
+    "SINGLE_PRODUCT_FOCUS":       _text_single_product_focus,
+}
+
 
 def humanize_signal(
     signal_type: str,
@@ -105,290 +405,11 @@ def humanize_signal(
     m = metrics or {}
     label = product_label or "this product"
 
-    # ------------------------------------------------------------------ #
-    # Traffic signals                                                      #
-    # ------------------------------------------------------------------ #
+    renderer = _SIGNAL_TEXT_RENDERERS.get(signal_type)
+    if renderer is not None:
+        return renderer(label, m)
 
-    if signal_type == "DEAD_TRAFFIC":
-        views = _fmt_int(m.get("views_24h"))
-        dwell = _fmt_float(m.get("avg_dwell_24h"), decimals=1)
-        if views != "some" and dwell != "an average":
-            return (
-                f"{label} received {views} views today but visitors left in "
-                f"under {dwell}s on average — the page isn't holding attention."
-            )
-        if views != "some":
-            return (
-                f"{label} is getting {views} views today but visitors are "
-                "leaving almost immediately."
-            )
-        return (
-            f"{label} has traffic today but visitors are bouncing almost immediately."
-        )
-
-    if signal_type == "HIGH_TRAFFIC_NO_CART":
-        views = _fmt_int(m.get("views_24h"))
-        unique = _fmt_int(m.get("unique_visitors_24h"))
-        if views != "some" and unique != "some":
-            return (
-                f"{label} had {views} views from {unique} visitors today "
-                "— but no one added it to cart."
-            )
-        return f"{label} is getting traffic today but no one added it to cart."
-
-    if signal_type == "LOW_CONVERSION_ATTENTION":
-        views = _fmt_int(m.get("views_24h"))
-        cart = _fmt_int(m.get("cart_conversions_24h"), fallback="very few")
-        rate = _fmt_rate(m.get("cart_conversions_24h"), m.get("views_24h"))
-        if views != "some":
-            return (
-                f"{label} had {views} views today but only {cart} moved toward "
-                f"checkout — a {rate} conversion rate."
-            )
-        return f"{label} has steady traffic but a very low conversion rate."
-
-    # ------------------------------------------------------------------ #
-    # Engagement signals                                                   #
-    # ------------------------------------------------------------------ #
-
-    if signal_type == "HIGH_ENGAGEMENT_NO_ACTION":
-        dwell = _fmt_float(m.get("avg_dwell_24h"), decimals=0)
-        scroll = _fmt_float(m.get("avg_scroll_24h"), decimals=0)
-        if dwell != "an average" and scroll != "an average":
-            return (
-                f"Visitors are spending {dwell}s reading {label} and scrolling "
-                f"{scroll}% down the page — but none are adding it to cart."
-            )
-        return (
-            f"Visitors are spending significant time on {label} and scrolling "
-            "deeply — but none are converting."
-        )
-
-    if signal_type == "SCROLL_HIGH_NO_CLICK":
-        scroll = _fmt_float(m.get("avg_scroll_24h"), decimals=0)
-        if scroll != "an average":
-            return (
-                f"Visitors scroll {scroll}% through {label} on average "
-                "— they're reading, but nothing is prompting them to act."
-            )
-        return (
-            f"Visitors are reading {label} thoroughly but leaving without "
-            "taking any action."
-        )
-
-    # ------------------------------------------------------------------ #
-    # Return-visitor signals                                               #
-    # ------------------------------------------------------------------ #
-
-    if signal_type == "HIGH_RETURN_LOW_CONVERSION":
-        count = _fmt_int(m.get("return_visitor_count_7d"))
-        cart = _fmt_int(m.get("cart_conversions_24h"), fallback="almost no")
-        if count != "some":
-            return (
-                f"{count} visitors came back to {label} multiple times this week "
-                f"— but {cart} ended up buying."
-            )
-        return (
-            f"Repeat visitors keep returning to {label} this week "
-            "but are not converting."
-        )
-
-    if signal_type == "RETURN_VISITOR_INTEREST":
-        count = _fmt_int(m.get("return_visitor_count_7d"))
-        if count != "some":
-            return (
-                f"{label} keeps pulling visitors back "
-                f"— {count} people returned on multiple days this week."
-            )
-        return f"{label} is building repeat visitor interest this week."
-
-    # ------------------------------------------------------------------ #
-    # Traffic spike (independent)                                          #
-    # ------------------------------------------------------------------ #
-
-    if signal_type == "TRAFFIC_SPIKE":
-        views_1h = _fmt_int(m.get("views_1h"))
-        ratio = _fmt_float(m.get("spike_ratio"), decimals=1, fallback=None)
-        if views_1h != "some" and ratio is not None:
-            return (
-                f"{label} is spiking right now "
-                f"— {views_1h} views this hour ({ratio}× above its recent average)."
-            )
-        if views_1h != "some":
-            return f"{label} is spiking right now — {views_1h} views this hour."
-        return f"{label} is experiencing a traffic spike right now."
-
-    # ------------------------------------------------------------------ #
-    # Device segmentation signals                                          #
-    # ------------------------------------------------------------------ #
-
-    if signal_type == "MOBILE_CONVERSION_GAP":
-        vm = _fmt_int(m.get("views_mobile"))
-        vd = _fmt_int(m.get("views_desktop"))
-        if vm != "some" and vd != "some":
-            return (
-                f"{label} converts much worse on one device type "
-                f"— {vm} mobile views vs {vd} desktop views with a large cart rate gap."
-            )
-        return f"{label} has a significant device-based conversion gap."
-
-    # ------------------------------------------------------------------ #
-    # Cart rate trend signals                                              #
-    # ------------------------------------------------------------------ #
-
-    if signal_type == "CART_RATE_DECLINING":
-        return (
-            f"{label}'s cart conversion rate is dropping — "
-            "today is significantly below its 7-day average."
-        )
-
-    # ------------------------------------------------------------------ #
-    # Source quality signals                                               #
-    # ------------------------------------------------------------------ #
-
-    if signal_type == "PAID_TRAFFIC_NOT_CONVERTING":
-        vp = _fmt_int(m.get("views_paid"))
-        if vp != "some":
-            return (
-                f"{label} received {vp} paid views today but none moved toward checkout "
-                "— the ad spend may be wasted."
-            )
-        return f"Paid traffic to {label} is not converting."
-
-    # ------------------------------------------------------------------ #
-    # Purchase attribution signals                                         #
-    # ------------------------------------------------------------------ #
-
-    if signal_type == "DEVICE_PURCHASE_GAP":
-        return (
-            f"{label} has purchases from one device type but zero from the other "
-            "despite significant traffic — the checkout experience may be broken on one device."
-        )
-
-    if signal_type == "SOURCE_REVENUE_GAP":
-        return (
-            f"Paid traffic to {label} is not generating any purchases, "
-            "while organic traffic is converting — ad targeting may be misaligned."
-        )
-
-    # ------------------------------------------------------------------ #
-    # Time-of-day signals                                                  #
-    # ------------------------------------------------------------------ #
-
-    if signal_type == "TIME_WINDOW_MISALIGNMENT":
-        return (
-            f"{label} converts at very different rates depending on time of day "
-            "— promotional timing may not match when visitors are ready to buy."
-        )
-
-    # ------------------------------------------------------------------ #
-    # Session context signals                                              #
-    # ------------------------------------------------------------------ #
-
-    if signal_type == "LANDING_PAGE_FAILURE":
-        lv = _fmt_int(m.get("landing_views_24h"))
-        if lv != "some":
-            return (
-                f"{lv} visitors landed directly on {label} but very few added to cart. "
-                "Visitors who browse to it from other pages convert much better — "
-                "the landing experience needs improvement."
-            )
-        return (
-            f"Visitors landing directly on {label} convert much worse than those who browse to it."
-        )
-
-    # ------------------------------------------------------------------ #
-    # Store-level strategic signals                                        #
-    # ------------------------------------------------------------------ #
-
-    if signal_type == "REVENUE_CONCENTRATION":
-        return (
-            f"Your store's revenue is concentrated in {label}. "
-            "If this product's traffic drops, your entire business is affected — "
-            "diversify by improving conversion on other products."
-        )
-
-    if signal_type == "STORE_MOBILE_GAP":
-        return (
-            "Mobile visitors browse your store but don't buy. "
-            "This is a store-wide checkout problem — test the full mobile purchase flow."
-        )
-
-    if signal_type == "STORE_PAID_GAP":
-        return (
-            "Your paid traffic drives visits but not purchases. "
-            "Organic and direct traffic converts better — your ad spend may be misallocated."
-        )
-
-    # ------------------------------------------------------------------ #
-    # Classify-opportunity signals                                         #
-    # ------------------------------------------------------------------ #
-
-    if signal_type == "PRICE_DROP_OR_LOW_STOCK_NUDGE":
-        return (
-            f"{label} has high-intent visitors showing strong commitment signals "
-            "— a price nudge or low-stock badge could convert them."
-        )
-
-    if signal_type == "WISHLIST_PROMPT_TEST":
-        return (
-            f"{label} is attracting high interest but visitors aren't committing "
-            "— a more prominent wishlist button could capture intent."
-        )
-
-    if signal_type == "FRICTION_OR_PRICE_SENSITIVITY":
-        return (
-            f"Visitors explore {label} deeply but don't buy "
-            "— something in the price, trust, or CTA is creating friction."
-        )
-
-    if signal_type == "HIGH_INTEREST_PRODUCT":
-        return f"{label} is consistently attracting high-intent visitors this week."
-
-    if signal_type == "NO_ACTION":
-        return f"{label} is being tracked — no strong signal detected yet."
-
-    # ------------------------------------------------------------------ #
-    # Early signals (low confidence — minimal data)                       #
-    # ------------------------------------------------------------------ #
-
-    if signal_type == "EARLY_BROWSING_NO_CART":
-        views = _fmt_int(m.get("views_24h"))
-        if views != "some":
-            return (
-                f"{label} has had {views} views but no one has added it to cart yet "
-                "— still early, worth watching."
-            )
-        return f"Visitors are browsing {label} but haven't added it to cart yet."
-
-    if signal_type == "FIRST_VISITOR_ENGAGEMENT":
-        dwell = _fmt_float(m.get("avg_dwell_24h"), decimals=0)
-        if dwell != "an average":
-            return (
-                f"A visitor just spent {dwell}s on {label} "
-                "— your first real engagement signal."
-            )
-        return f"Your first visitor engagement on {label} has been detected."
-
-    if signal_type == "EARLY_DROP_OFF":
-        dwell = _fmt_float(m.get("avg_dwell_24h"), decimals=0)
-        scroll = _fmt_float(m.get("avg_scroll_24h"), decimals=0)
-        if dwell != "an average" and scroll != "an average":
-            return (
-                f"Early visitors to {label} are leaving quickly "
-                f"({dwell}s dwell, {scroll}% scroll) "
-                "— the above-the-fold content may need attention."
-            )
-        return f"Early visitors to {label} are leaving before engaging deeply."
-
-    if signal_type == "SINGLE_PRODUCT_FOCUS":
-        views = _fmt_int(m.get("views_24h"))
-        return (
-            f"All recent visitor activity is concentrated on {label} "
-            "— this is your most interesting product right now."
-        )
-
-    # Unknown signal type: degrade gracefully
+    # Unknown signal type: degrade gracefully via title-case fallback.
     readable = signal_type.replace("_", " ").title() if signal_type else "A signal"
     return f"{readable} detected for {label}."
 
