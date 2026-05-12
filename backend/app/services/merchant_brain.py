@@ -217,30 +217,16 @@ def _sense(
     )
     last_brain_age = float(last_brain_age_raw) if last_brain_age_raw is not None else None
 
-    # Email in queue (best-effort — email_orchestrator buffer is in-memory)
-    try:
-        from app.services.email_orchestrator import _pending_intents
-        has_email_in_queue = any(
-            intent.shop_domain == shop_domain for intent in _pending_intents
-        )
-    except Exception as exc:
-        log.warning(
-            "merchant_brain: email queue probe failed for %s: %s",
-            shop_domain, type(exc).__name__,
-        )
-        has_email_in_queue = False
+    # Email in queue (best-effort — email_orchestrator buffer is in-memory).
+    # Use the public accessor; list filter is pure-Python and cannot raise.
+    from app.services.email_orchestrator import get_pending_intents
+    has_email_in_queue = bool(get_pending_intents(shop_domain))
 
     # Shop currency for honest rendering of the rars_total field.
-    try:
-        from app.services.revenue_metrics import get_shop_currency
-        shop_currency = get_shop_currency(db, shop_domain) or "USD"
-    except Exception as exc:
-        log.warning(
-            "merchant_brain: shop_currency lookup failed for %s, "
-            "defaulting to USD: %s",
-            shop_domain, type(exc).__name__,
-        )
-        shop_currency = "USD"
+    # get_shop_currency() has internal try/except and never propagates;
+    # returns None on any failure path, which the `or "USD"` handles.
+    from app.services.revenue_metrics import get_shop_currency
+    shop_currency = get_shop_currency(db, shop_domain) or "USD"
 
     # Sprint 3 #3 wiring: classify vertical + read cross-shop priors for
     # this vertical from the aggregated table. Network-effect prior fed
