@@ -262,52 +262,16 @@ _ACTION_BLOCKLIST = frozenset({
 })
 
 
-def generate_action_candidates(shop_domain: str, db: Session) -> list[dict]:
-    """
-    Generate a ranked list of Pro action candidates from existing data sources.
+# ---------------------------------------------------------------------------
+# Pipeline stages — each pure function consumes the prior stage's output.
+# generate_action_candidates is the composer; stages are independently
+# testable with no per-stage state mutation across the pipeline.
+# ---------------------------------------------------------------------------
 
-    Returns at most 20 candidates sorted by rank_score descending.
-    Each item is a plain dict matching the /actions/candidates/pro response schema.
 
-    No side effects. No DB writes. No caching.
-    """
-    if shop_domain in _ACTION_BLOCKLIST:
-        return []
-
-    now = datetime.now(tz=timezone.utc).replace(tzinfo=None)
-    params: dict[str, Any] = {"shop": shop_domain}
-
-    # Resolve real AOV once per invocation — shared by all calculate_expected_loss()
-    # calls below.  Falls back to 50.0 with a WARNING log if no orders exist yet.
-    aov = get_shop_aov(db, shop_domain)
-
-    # Resolve real product-level conversion data from ingested orders.
-    # Returns empty dict until tracker or Product API enrichment populates
-    # product_url in line_items — fallback to inferred conversion activates
-    # automatically per product when real data is absent.
-    real_conv_map = get_real_product_conversion_map(db, shop_domain)
-
-    # Load or retrain the shop-specific empirical conversion calibration.
-    # Returns a calibration with is_empirical=False when data is insufficient
-    # (< 10 converters or < 50 product-viewing visitors) — apply_calibration()
-    # then returns the inferred probability unchanged.
-    calibration = get_or_train_model(db, shop_domain)
-
-    # ------------------------------------------------------------------ #
-    # 0. Ensure opportunity_signals are reasonably fresh.                 #
-    # _maybe_refresh_signals() is rate-limited per shop to at most once   #
-    # per _REFRESH_COOLDOWN_SECS — prevents thundering-herd when N        #
-    # dashboard requests arrive simultaneously with stale signals.        #
-    # The opportunity engine's own TTL check (24h) still runs inside      #
-    # get_or_refresh_signals() — this guard only controls HOW OFTEN we    #
-    # call into the engine per shop per process.                          #
-    # ------------------------------------------------------------------ #
-    _maybe_refresh_signals(shop_domain)
-
-    # ------------------------------------------------------------------ #
-    # 1. Active opportunity signals — primary triggers                     #
-    # ------------------------------------------------------------------ #
-    signal_rows = _rows(
+def _fetch_active_signals(db: Session, shop_domain: str, now: datetime) -> list[dict]:
+    """Stage 1: active opportunity_signals for this shop."""
+    return _rows(
         db,
         """
         SELECT product_url, signal_type, signal_strength, explanation
@@ -316,20 +280,15 @@ def generate_action_candidates(shop_domain: str, db: Session) -> list[dict]:
           AND expires_at > :now
         ORDER BY signal_strength DESC
         """,
-        {**params, "now": now},
+        {"shop": shop_domain, "now": now},
     )
 
-    if not signal_rows:
-        # No active signals → no candidates. PRICE_TEST may still apply (see below).
-        signal_rows = []
 
-    # ------------------------------------------------------------------ #
-    # 2. Bulk fetch supporting tables — shop-scoped, filtered in Python   #
-    # One query per table, no dynamic IN clauses needed.                  #
-    # ------------------------------------------------------------------ #
-    metrics_rows = _rows(
-        db,
-        """
+def _fetch_supporting_tables(db: Session, shop_domain: str) -> dict[str, dict]:
+    """Stage 2: bulk fetch supporting tables — one query per table,
+    no dynamic IN clauses. Returns indexed maps keyed by product_url."""
+    params = {"shop": shop_domain}
+    metrics_rows = _rows(db, """
         SELECT
             product_url,
             COALESCE(views_1h, 0)                AS views_1h,
@@ -340,13 +299,9 @@ def generate_action_candidates(shop_domain: str, db: Session) -> list[dict]:
             avg_scroll_24h
         FROM product_metrics
         WHERE shop_domain = :shop
-        """,
-        params,
-    )
+    """, params)
 
-    pi_rows = _rows(
-        db,
-        """
+    pi_rows = _rows(db, """
         SELECT
             product_url,
             price_position,
@@ -359,147 +314,146 @@ def generate_action_candidates(shop_domain: str, db: Session) -> list[dict]:
             END AS price_pressure_score
         FROM price_intelligence
         WHERE shop_domain = :shop
-        """,
-        params,
-    )
+    """, params)
 
-    upd_rows = _rows(
-        db,
-        """
+    upd_rows = _rows(db, """
         SELECT product_url, uniqueness_status, uniqueness_score
         FROM unique_product_detection
         WHERE shop_domain = :shop
-        """,
-        params,
-    )
+    """, params)
 
-    metrics_map: dict[str, dict] = {r["product_url"]: r for r in metrics_rows}
-    pi_map:      dict[str, dict] = {r["product_url"]: r for r in pi_rows}
-    upd_map:     dict[str, dict] = {r["product_url"]: r for r in upd_rows}
+    return {
+        "metrics_map": {r["product_url"]: r for r in metrics_rows},
+        "pi_map":      {r["product_url"]: r for r in pi_rows},
+        "upd_map":     {r["product_url"]: r for r in upd_rows},
+    }
 
-    # ------------------------------------------------------------------ #
-    # 3. Map signals → raw candidates, deduplicate by (url, action_type) #
-    # ------------------------------------------------------------------ #
-    # One bucket per (product_url, action_type).
-    # Multiple signals mapping to the same bucket are merged.
+
+def _build_signal_buckets(
+    signal_rows: list[dict],
+    metrics_map: dict[str, dict],
+    pi_map: dict[str, dict],
+) -> dict[tuple, dict]:
+    """Stage 3: map signals → buckets keyed by (url, action_type).
+    Multiple signals mapping to the same bucket are merged (max
+    signal_strength, ordered union of signal names). PRICE_TEST is
+    sourced from price_intelligence directly — injected here."""
     buckets: dict[tuple, dict] = defaultdict(lambda: {
         "signal_strength": 0.0,
         "supporting_signals": [],
     })
 
     for sig in signal_rows:
-        url = sig["product_url"]
-        stype = sig["signal_type"]
-        action_type = _SIGNAL_TO_ACTION.get(stype)
+        action_type = _SIGNAL_TO_ACTION.get(sig["signal_type"])
         if action_type is None:
             continue
-
-        key = (url, action_type)
-        b = buckets[key]
+        b = buckets[(sig["product_url"], action_type)]
         b["signal_strength"] = max(b["signal_strength"], float(sig["signal_strength"] or 0))
-        b["supporting_signals"].append(stype)
+        b["supporting_signals"].append(sig["signal_type"])
 
-    # PRICE_TEST is sourced from price_intelligence directly — not from opportunity_signals.
-    # Inject as candidates here, before dedup/gating.
+    # PRICE_TEST injection from price_intelligence (not from signals).
     for url, pi in pi_map.items():
         price_pos = pi.get("price_position", "")
         conf_score = float(pi.get("confidence_score") or 0)
         views_24h = int((metrics_map.get(url) or {}).get("views_24h") or 0)
-
         if (
             price_pos in ("POSSIBLY_TOO_HIGH", "REVIEW_NEEDED")
             and conf_score >= 65
             and views_24h >= 15
         ):
-            key = (url, "PRICE_TEST")
-            b = buckets[key]
-            strength = conf_score / 100.0
-            b["signal_strength"] = max(b["signal_strength"], strength)
-            # Sentinel signal name — marks this as a price-intelligence-derived candidate
+            b = buckets[(url, "PRICE_TEST")]
+            b["signal_strength"] = max(b["signal_strength"], conf_score / 100.0)
             if "PRICE_FRICTION" not in b["supporting_signals"]:
                 b["supporting_signals"].append("PRICE_FRICTION")
+    return buckets
 
-    if not buckets:
-        return []
 
-    # ------------------------------------------------------------------ #
-    # 4. Apply per-action-type gates, compute confidence and urgency      #
-    # ------------------------------------------------------------------ #
-    raw_candidates: list[dict] = []
+def _gate_scarcity(b: dict, metrics: dict, pi: dict, upd: dict) -> tuple[float, float] | None:
+    """SCARCITY_NUDGE gate: uniqueness must be confirmed."""
+    if upd.get("uniqueness_status", "") != "UNIQUE_LIKELY":
+        return None
+    uniqueness_score = float(upd.get("uniqueness_score") or 0)
+    if uniqueness_score < 70:
+        return None
+    confidence = _clamp((b["signal_strength"] + uniqueness_score / 100.0) / 2.0)
+    urgency = _clamp(b["signal_strength"] * 80.0, 0.0, 100.0)
+    return confidence, urgency
 
+
+def _gate_price_test(b: dict, metrics: dict, pi: dict, upd: dict) -> tuple[float, float] | None:
+    """PRICE_TEST: already pre-gated at injection."""
+    conf_score = float(pi.get("confidence_score") or 0)
+    confidence = _clamp(conf_score / 100.0)
+    # Urgency scales linearly from the 65% floor to max 60.
+    urgency = _clamp((conf_score - 65.0) / 35.0 * 60.0, 0.0, 100.0)
+    return confidence, urgency
+
+
+def _gate_retarget(b: dict, metrics: dict, pi: dict, upd: dict) -> tuple[float, float] | None:
+    """RETARGET_HOT_TRAFFIC gate: strong returns + no conversions yet."""
+    returns_7d = int(metrics.get("return_visitor_count_7d") or 0)
+    cart_24h = int(metrics.get("cart_conversions_24h") or 0)
+    if returns_7d < 5 or cart_24h > 0:
+        return None
+    confidence = _clamp(b["signal_strength"] * 0.9)
+    urgency = _clamp(float(min(returns_7d * 5, 80)), 0.0, 100.0)
+    return confidence, urgency
+
+
+def _gate_flash(b: dict, metrics: dict, pi: dict, upd: dict) -> tuple[float, float] | None:
+    """FLASH_INCENTIVE pre-gate: strength only; urgency confirmed at enrichment."""
+    if b["signal_strength"] < 0.5:
+        return None
+    confidence = _clamp(b["signal_strength"] * 0.85)
+    return confidence, 0.0  # urgency overwritten by enrichment
+
+
+_ACTION_GATES: dict[str, Any] = {
+    "SCARCITY_NUDGE":       _gate_scarcity,
+    "PRICE_TEST":           _gate_price_test,
+    "RETARGET_HOT_TRAFFIC": _gate_retarget,
+    "FLASH_INCENTIVE":      _gate_flash,
+}
+
+
+def _apply_action_gates(
+    buckets: dict[tuple, dict],
+    supporting: dict[str, dict],
+) -> list[dict]:
+    """Stage 4: apply per-action-type gates, compute confidence/urgency.
+    Filters buckets that fail their gate; emits raw candidate dicts."""
+    raw: list[dict] = []
     for (url, action_type), b in buckets.items():
-        metrics = metrics_map.get(url, {})
-        pi      = pi_map.get(url, {})
-        upd     = upd_map.get(url, {})
-
-        views_24h       = int(metrics.get("views_24h") or 0)
-        cart_24h        = int(metrics.get("cart_conversions_24h") or 0)
-        returns_7d      = int(metrics.get("return_visitor_count_7d") or 0)
-        avg_dwell       = float(metrics.get("avg_dwell_24h") or 0)
-        base_strength   = b["signal_strength"]
-        uniqueness_status = upd.get("uniqueness_status", "")
-        uniqueness_score  = float(upd.get("uniqueness_score") or 0)
-        conf_score_pi     = float(pi.get("confidence_score") or 0)
-
-        if action_type == "SCARCITY_NUDGE":
-            # Gate: uniqueness must be confirmed — don't inject scarcity for comparable products
-            if uniqueness_status != "UNIQUE_LIKELY" or uniqueness_score < 70:
-                continue
-            confidence = _clamp((base_strength + uniqueness_score / 100.0) / 2.0)
-            urgency    = _clamp(base_strength * 80.0, 0.0, 100.0)
-
-        elif action_type == "PRICE_TEST":
-            # Already gated at injection (conf_score >= 65, views_24h >= 15)
-            confidence = _clamp(conf_score_pi / 100.0)
-            # Urgency scales linearly from the 65% confidence floor to max 60
-            urgency    = _clamp((conf_score_pi - 65.0) / 35.0 * 60.0, 0.0, 100.0)
-
-        elif action_type == "RETARGET_HOT_TRAFFIC":
-            # Gate: strong return-visitor signal AND no conversions yet
-            if returns_7d < 5 or cart_24h > 0:
-                continue
-            confidence = _clamp(base_strength * 0.9)
-            urgency    = _clamp(float(min(returns_7d * 5, 80)), 0.0, 100.0)
-
-        elif action_type == "FLASH_INCENTIVE":
-            # Gate: only high-strength spikes qualify pre-enrichment.
-            # Urgency and auto_action_candidate are confirmed in the enrichment step.
-            if base_strength < 0.5:
-                continue
-            confidence = _clamp(base_strength * 0.85)
-            urgency    = 0.0  # overwritten by revenue enrichment below
-
-        else:
+        gate = _ACTION_GATES.get(action_type)
+        if gate is None:
             continue
-
-        raw_candidates.append({
-            "product_url":       url,
-            "action_type":       action_type,
-            # Order-preserving deduplicate of signal names within the bucket
+        metrics = supporting["metrics_map"].get(url, {})
+        pi      = supporting["pi_map"].get(url, {})
+        upd     = supporting["upd_map"].get(url, {})
+        result = gate(b, metrics, pi, upd)
+        if result is None:
+            continue
+        confidence, urgency = result
+        raw.append({
+            "product_url": url,
+            "action_type": action_type,
             "supporting_signals": list(dict.fromkeys(b["supporting_signals"])),
-            "confidence":        round(confidence, 4),
-            "urgency":           round(urgency, 1),
-            "signal_strength":   base_strength,
-            # Keep refs for enrichment step — stripped from final output
+            "confidence": round(confidence, 4),
+            "urgency": round(urgency, 1),
+            "signal_strength": b["signal_strength"],
+            # Refs for enrichment — stripped from final output.
             "_metrics": metrics,
-            "_pi":      pi,
-            "_upd":     upd,
+            "_pi": pi,
+            "_upd": upd,
         })
+    return raw
 
-    if not raw_candidates:
-        return []
 
-    # ------------------------------------------------------------------ #
-    # 5. Revenue enrichment — top 20 by signal_strength only             #
-    # Two additional bulk queries, scoped to the top candidate set.      #
-    # ------------------------------------------------------------------ #
-    raw_candidates.sort(key=lambda c: c["signal_strength"], reverse=True)
-    top_candidates = raw_candidates[:20]
-
-    # Visitor-level behavioral aggregates per product
-    vps_rows = _rows(
-        db,
-        """
+def _fetch_enrichment(db: Session, shop_domain: str) -> dict[str, dict]:
+    """Stage 5: revenue enrichment fetches (visitor_product_state + market_lookup).
+    Two SQL queries, indexed by product_url."""
+    params = {"shop": shop_domain}
+    vps_rows = _rows(db, """
         SELECT
             product_url,
             COALESCE(SUM(total_views), 0)                                                   AS total_views,
@@ -508,13 +462,9 @@ def generate_action_candidates(shop_domain: str, db: Session) -> list[dict]:
         FROM visitor_product_state
         WHERE shop_domain = :shop
         GROUP BY product_url
-        """,
-        params,
-    )
+    """, params)
 
-    ml_rows = _rows(
-        db,
-        """
+    ml_rows = _rows(db, """
         SELECT
             product_url,
             COALESCE(lookup_confidence, 70) AS market_confidence,
@@ -530,140 +480,142 @@ def generate_action_candidates(shop_domain: str, db: Session) -> list[dict]:
             END AS comparability_score
         FROM market_lookup
         WHERE shop_domain = :shop
-        """,
-        params,
+    """, params)
+
+    return {
+        "vps_map": {r["product_url"]: r for r in vps_rows},
+        "ml_map":  {r["product_url"]: r for r in ml_rows},
+    }
+
+
+def _resolve_conversion_probability(
+    *,
+    url: str,
+    metrics: dict,
+    enrichment_features: dict,
+    real_conv_map: dict,
+    calibration: Any,
+    inferred_prob: float,
+) -> tuple[float, str]:
+    """3-tier conversion probability resolution in priority order:
+        Tier 1 (real):      product-level CVR from real order data
+        Tier 2 (empirical): shop-level behavioral calibration
+        Tier 3 (inferred):  handcrafted conversion_service.py model
+    Returns (probability, source_label)."""
+    real_cvr = compute_real_conversion_probability(
+        product_url=url,
+        conv_map=real_conv_map,
+        views_24h=int(metrics.get("views_24h") or 0),
+        views_7d=int(metrics.get("views_7d") or 0),
+    )
+    if real_cvr is not None:
+        return real_cvr, "real"
+    behavioral_index = compute_behavioral_index_from_features(enrichment_features)
+    prob, source = apply_calibration(
+        inferred_prob=inferred_prob,
+        behavioral_index=behavioral_index,
+        model=calibration,
+    )
+    return prob, source
+
+
+def _build_final_candidate(
+    raw: dict,
+    enrichment: dict[str, dict],
+    *,
+    real_conv_map: dict,
+    calibration: Any,
+    aov: float,
+) -> dict | None:
+    """Stage 6: build one final candidate dict with all enrichment applied.
+    Returns None if a FLASH_INCENTIVE post-enrichment gate fails."""
+    url = raw["product_url"]
+    action_type = raw["action_type"]
+    metrics = raw["_metrics"]
+    pi = raw["_pi"]
+    upd = raw["_upd"]
+    vps = enrichment["vps_map"].get(url, {})
+    ml = enrichment["ml_map"].get(url, {})
+
+    features: dict[str, Any] = {
+        "product_id": url,
+        "product_name": url,
+        "total_views": float(vps.get("total_views") or 0),
+        "wishlist_adds": float(vps.get("wishlist_adds") or 0),
+        "avg_intent_score": float(vps.get("avg_intent_score") or 0),
+        "avg_dwell_seconds": float(metrics.get("avg_dwell_24h") or 45),
+        "avg_scroll_depth": float(metrics.get("avg_scroll_24h") or 70),
+        "market_confidence": float(ml.get("market_confidence") or 70),
+        "uniqueness_score": float(ml.get("uniqueness_score") or 50),
+        "comparability_score": float(ml.get("comparability_score") or 50),
+        "price_pressure_score": float(pi.get("price_pressure_score") or 30),
+    }
+    outcome = infer_conversion_outcome(features)
+    inferred_prob = float(outcome.get("conversion_probability") or 0)
+    conversion_prob, conversion_source = _resolve_conversion_probability(
+        url=url, metrics=metrics, enrichment_features=features,
+        real_conv_map=real_conv_map, calibration=calibration,
+        inferred_prob=inferred_prob,
+    )
+    loss_result = calculate_expected_loss(
+        product_metrics_row={"views_24h": metrics.get("views_24h") or 0},
+        conversion_probability=conversion_prob,
+        aov=aov,
     )
 
-    vps_map: dict[str, dict] = {r["product_url"]: r for r in vps_rows}
-    ml_map:  dict[str, dict] = {r["product_url"]: r for r in ml_rows}
+    urgency = raw["urgency"]
+    if action_type == "FLASH_INCENTIVE":
+        urgency = loss_result["urgency_score"]
+        # Post-enrichment gate: urgency threshold + auto-action confirmation.
+        if urgency < 60 or not outcome.get("auto_action_candidate"):
+            return None
 
-    # ------------------------------------------------------------------ #
-    # 6. Build final candidates with enrichment                           #
-    # ------------------------------------------------------------------ #
-    final: list[dict] = []
+    confidence = raw["confidence"]
+    return {
+        "product_url": url,
+        "action_type": action_type,
+        "reason": _build_reason(action_type, metrics, pi, upd),
+        "supporting_signals": raw["supporting_signals"],
+        "confidence": confidence,
+        "urgency": round(urgency, 1),
+        "expected_loss": loss_result["expected_loss"],
+        "loss_band": loss_result["loss_band"],
+        # conversion_probability: real → empirical → inferred (priority order).
+        "conversion_probability": round(conversion_prob, 4),
+        "conversion_source": conversion_source,
+        "time_to_conversion": outcome.get("time_to_conversion"),
+        "estimated_uplift": outcome.get("expected_uplift"),
+        "source_systems": _source_systems(action_type, bool(vps), bool(ml)),
+        "ready_now": bool(urgency >= 60 and confidence >= 0.65),
+        "action_hint": _ACTION_HINTS[action_type],
+    }
 
-    for c in top_candidates:
-        url         = c["product_url"]
-        action_type = c["action_type"]
-        metrics     = c["_metrics"]
-        pi          = c["_pi"]
-        upd         = c["_upd"]
-        vps         = vps_map.get(url, {})
-        ml          = ml_map.get(url, {})
 
-        # Build the feature dict that infer_conversion_outcome expects
-        enrichment: dict[str, Any] = {
-            "product_id":         url,
-            "product_name":       url,
-            "total_views":        float(vps.get("total_views") or 0),
-            "wishlist_adds":      float(vps.get("wishlist_adds") or 0),
-            "avg_intent_score":   float(vps.get("avg_intent_score") or 0),
-            "avg_dwell_seconds":  float(metrics.get("avg_dwell_24h") or 45),
-            "avg_scroll_depth":   float(metrics.get("avg_scroll_24h") or 70),
-            "market_confidence":  float(ml.get("market_confidence") or 70),
-            "uniqueness_score":   float(ml.get("uniqueness_score") or 50),
-            "comparability_score": float(ml.get("comparability_score") or 50),
-            "price_pressure_score": float(pi.get("price_pressure_score") or 30),
-        }
-
-        outcome = infer_conversion_outcome(enrichment)
-
-        # ------------------------------------------------------------------ #
-        # 3-tier conversion probability resolution — in priority order:       #
-        #                                                                      #
-        #   Tier 1 (real):      product-level CVR from real order data        #
-        #                       Activated when product_url is in line_items   #
-        #                       (requires tracker product_id capture)         #
-        #                                                                      #
-        #   Tier 2 (empirical): shop-level behavioral calibration             #
-        #                       Activated when ≥10 attributed purchases       #
-        #                       and ≥50 product-viewing visitors exist        #
-        #                                                                      #
-        #   Tier 3 (inferred):  handcrafted conversion_service.py model       #
-        #                       Always available; opinion-based weights        #
-        # ------------------------------------------------------------------ #
-        inferred_prob = float(outcome.get("conversion_probability") or 0)
-
-        real_cvr = compute_real_conversion_probability(
-            product_url=url,
-            conv_map=real_conv_map,
-            views_24h=int(metrics.get("views_24h") or 0),
-            views_7d=int(metrics.get("views_7d") or 0),
-        )
-
-        if real_cvr is not None:
-            # Tier 1: real product-level order data — highest accuracy
-            conversion_prob   = real_cvr
-            conversion_source = "real"
-        else:
-            # Tier 2 or 3: apply empirical calibration (may fall back to inferred)
-            behavioral_index = compute_behavioral_index_from_features(enrichment)
-            conversion_prob, conversion_source = apply_calibration(
-                inferred_prob    = inferred_prob,
-                behavioral_index = behavioral_index,
-                model            = calibration,
-            )
-
-        loss_result = calculate_expected_loss(
-            product_metrics_row={"views_24h": metrics.get("views_24h") or 0},
-            conversion_probability=conversion_prob,
-            aov=aov,
-        )
-
-        urgency = c["urgency"]
-
-        # FLASH_INCENTIVE: urgency and auto_action_candidate come from enrichment
-        if action_type == "FLASH_INCENTIVE":
-            urgency = loss_result["urgency_score"]
-            # Drop candidates that don't meet the urgency threshold after enrichment
-            if urgency < 60:
-                continue
-            # Drop if the enrichment pipeline doesn't confirm auto-action readiness
-            if not outcome.get("auto_action_candidate"):
-                continue
-
-        confidence = c["confidence"]
-
-        final.append({
-            "product_url":           url,
-            "action_type":           action_type,
-            "reason":                _build_reason(action_type, metrics, pi, upd),
-            "supporting_signals":    c["supporting_signals"],
-            "confidence":            confidence,
-            "urgency":               round(urgency, 1),
-            "expected_loss":         loss_result["expected_loss"],
-            "loss_band":             loss_result["loss_band"],
-            # conversion_probability: real → empirical → inferred (in priority order)
-            "conversion_probability": round(conversion_prob, 4),
-            "conversion_source":     conversion_source,
-            "time_to_conversion":    outcome.get("time_to_conversion"),
-            "estimated_uplift":      outcome.get("expected_uplift"),
-            "source_systems":        _source_systems(action_type, bool(vps), bool(ml)),
-            # ready_now: candidate clears both urgency and confidence thresholds
-            "ready_now":             bool(urgency >= 60 and confidence >= 0.65),
-            "action_hint":           _ACTION_HINTS[action_type],
-        })
-
-    # ------------------------------------------------------------------ #
-    # 7. Sort, rank, return — boosted by historical effectiveness          #
-    # ------------------------------------------------------------------ #
-
-    # Load historical action effectiveness (closed-loop learning signal)
-    effectiveness_map: dict[str, float] = {}
+def _load_effectiveness_map(db: Session) -> dict[str, float]:
+    """Stage 7a: historical action_type effectiveness as ±1.0 scale.
+    Returns empty dict if no measurements or query fails."""
     try:
         from app.services.action_proof import get_action_effectiveness
         eff_stats = get_action_effectiveness(db)
-        for at, stats in eff_stats.items():
-            if stats["total"] >= 3:  # only trust signal with 3+ measurements
-                # effectiveness is 0.0–1.0 (fraction improved)
-                # Convert to -1.0 to +1.0 scale: all improved = +1, all declined = -1
-                improved_ratio = stats["effectiveness"]
-                declined_ratio = stats["declined"] / stats["total"] if stats["total"] > 0 else 0
-                effectiveness_map[at] = improved_ratio - declined_ratio
     except Exception as exc:
         log.warning("action_candidates_engine: effectiveness history query failed: %s", exc)
+        return {}
+    out: dict[str, float] = {}
+    for at, stats in eff_stats.items():
+        if stats["total"] < 3:
+            continue  # only trust signal with 3+ measurements
+        improved_ratio = stats["effectiveness"]
+        declined_ratio = stats["declined"] / stats["total"] if stats["total"] > 0 else 0
+        out[at] = improved_ratio - declined_ratio
+    return out
 
-    final.sort(
+
+def _rank_and_finalize(
+    candidates: list[dict],
+    effectiveness_map: dict[str, float],
+) -> list[dict]:
+    """Stage 7b: sort by rank_score, attach rank + historical_effectiveness."""
+    candidates.sort(
         key=lambda c: _rank_score(
             urgency=float(c["urgency"]),
             confidence=float(c["confidence"]),
@@ -672,12 +624,70 @@ def generate_action_candidates(shop_domain: str, db: Session) -> list[dict]:
         ),
         reverse=True,
     )
-
-    for i, candidate in enumerate(final, start=1):
+    for i, candidate in enumerate(candidates, start=1):
         candidate["rank"] = i
-        # Include effectiveness data in response for dashboard transparency
         at = candidate["action_type"]
         if at in effectiveness_map:
             candidate["historical_effectiveness"] = round(effectiveness_map[at], 2)
+    return candidates
 
-    return final
+
+def generate_action_candidates(shop_domain: str, db: Session) -> list[dict]:
+    """Generate a ranked list of Pro action candidates from existing data sources.
+
+    Returns at most 20 candidates sorted by rank_score descending. Each item
+    is a plain dict matching the /actions/candidates/pro response schema.
+
+    Pipeline (each stage is a pure helper above):
+       0  refresh signals (rate-limited per shop)
+       1  fetch active opportunity_signals
+       2  fetch supporting tables (metrics + price_intelligence + uniqueness)
+       3  build signal buckets keyed by (url, action_type) + PRICE_TEST inject
+       4  apply per-action-type gates → raw candidates with confidence/urgency
+       5  fetch enrichment (visitor_product_state + market_lookup) for top-20
+       6  build final candidates with conversion-tier resolution + loss math
+       7  sort by rank_score boosted by historical effectiveness
+
+    No side effects. No DB writes. No caching.
+    """
+    if shop_domain in _ACTION_BLOCKLIST:
+        return []
+
+    now = datetime.now(tz=timezone.utc).replace(tzinfo=None)
+    # Per-invocation shop context — these touch external tables/Redis and
+    # are shared across every candidate computation below.
+    aov = get_shop_aov(db, shop_domain)
+    real_conv_map = get_real_product_conversion_map(db, shop_domain)
+    calibration = get_or_train_model(db, shop_domain)
+
+    _maybe_refresh_signals(shop_domain)  # stage 0
+
+    signal_rows = _fetch_active_signals(db, shop_domain, now)
+    supporting = _fetch_supporting_tables(db, shop_domain)
+
+    buckets = _build_signal_buckets(
+        signal_rows, supporting["metrics_map"], supporting["pi_map"],
+    )
+    if not buckets:
+        return []
+
+    raw_candidates = _apply_action_gates(buckets, supporting)
+    if not raw_candidates:
+        return []
+
+    raw_candidates.sort(key=lambda c: c["signal_strength"], reverse=True)
+    top_candidates = raw_candidates[:20]
+    enrichment = _fetch_enrichment(db, shop_domain)
+
+    final: list[dict] = []
+    for raw in top_candidates:
+        candidate = _build_final_candidate(
+            raw, enrichment,
+            real_conv_map=real_conv_map,
+            calibration=calibration,
+            aov=aov,
+        )
+        if candidate is not None:
+            final.append(candidate)
+
+    return _rank_and_finalize(final, _load_effectiveness_map(db))
