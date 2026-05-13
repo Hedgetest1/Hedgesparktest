@@ -16,6 +16,7 @@ from app.services.klaviyo_export import (
     _pick_eligible_visitors,
     _post_klaviyo_event,
     _resolve_profile_attrs,
+    _SignalPushCounters,
 )
 
 
@@ -219,3 +220,41 @@ class TestPostKlaviyoEvent:
             shop_domain="x", product_url="/p/x", signal_type="X",
         )
         assert out is False
+
+
+# ---------------------------------------------------------------------------
+# _SignalPushCounters — NamedTuple contract
+# ---------------------------------------------------------------------------
+
+
+class TestSignalPushCounters:
+    def test_field_order_locked(self):
+        """If a future refactor re-orders fields, this test fails.
+        Tuple compatibility is preserved (composer + tests use named
+        access, but `pushed, anonymous, errors = counters` still works
+        for backward compatibility)."""
+        assert _SignalPushCounters._fields == ("pushed", "anonymous", "errors")
+
+    def test_field_name_access(self):
+        c = _SignalPushCounters(pushed=5, anonymous=2, errors=1)
+        assert c.pushed == 5
+        assert c.anonymous == 2
+        assert c.errors == 1
+
+    def test_positional_access_preserved(self):
+        # Tuple compatibility — older callers using positional destructure
+        # MUST keep working.
+        c = _SignalPushCounters(pushed=5, anonymous=2, errors=1)
+        pushed, anonymous, errors = c
+        assert (pushed, anonymous, errors) == (5, 2, 1)
+
+    def test_immutable(self):
+        # NamedTuple is immutable by design — accidental mutation is
+        # rejected at runtime.
+        c = _SignalPushCounters(pushed=0, anonymous=0, errors=0)
+        try:
+            c.pushed = 99  # type: ignore[misc]
+            raised = False
+        except AttributeError:
+            raised = True
+        assert raised

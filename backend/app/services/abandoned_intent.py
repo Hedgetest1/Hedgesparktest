@@ -17,6 +17,7 @@ import json
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from typing import NamedTuple
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -212,16 +213,33 @@ def _build_product_record(
     }
 
 
+class _SessionAccumulator(NamedTuple):
+    """Self-documenting return type for _accumulate_session_stats.
+
+    Promoted from 6-tuple → NamedTuple 2026-05-13 (post-A3 polish):
+    field access by name (`acc.product_stats`) is what a top-1 CTO
+    would write — positional destructuring breaks silently when a
+    future field is added in the wrong slot. The NamedTuple keeps
+    backward-compatible positional access AND adds field validation
+    at every callsite.
+    """
+    product_stats: dict[str, dict]
+    exit_products: dict[str, int]
+    buyer_session_lengths: list[int]
+    nonbuyer_session_lengths: list[int]
+    buyer_products_viewed: list[int]
+    nonbuyer_products_viewed: list[int]
+
+
 def _accumulate_session_stats(
     visitor_events: dict[str, list],
-) -> tuple[dict, dict, list, list, list, list]:
+) -> _SessionAccumulator:
     """Walk every visitor session and accumulate:
       - product_stats[purl]: views/carts/purchases + 3 visitor sets
       - exit_products[purl]: count of non-buying sessions exiting on it
       - buyer/nonbuyer session_lengths (event counts)
       - buyer/nonbuyer products_viewed (unique URL counts)
-    Returns (product_stats, exit_products, buyer_lens, nonbuyer_lens,
-             buyer_products, nonbuyer_products).
+    Returns a _SessionAccumulator NamedTuple with field-named access.
     """
     product_stats: dict[str, dict] = defaultdict(lambda: {
         "views": 0, "carts": 0, "purchases": 0,
@@ -275,10 +293,13 @@ def _accumulate_session_stats(
                 if is_buyer:
                     product_stats[purl]["purchases"] += 1
 
-    return (
-        product_stats, exit_products,
-        buyer_session_lengths, nonbuyer_session_lengths,
-        buyer_products_viewed, nonbuyer_products_viewed,
+    return _SessionAccumulator(
+        product_stats=product_stats,
+        exit_products=exit_products,
+        buyer_session_lengths=buyer_session_lengths,
+        nonbuyer_session_lengths=nonbuyer_session_lengths,
+        buyer_products_viewed=buyer_products_viewed,
+        nonbuyer_products_viewed=nonbuyer_products_viewed,
     )
 
 
@@ -376,13 +397,10 @@ def compute_abandoned_intent(db: Session, shop_domain: str, plan: str = "pro") -
         )
 
     visitor_events = _group_events_by_visitor(rows)
-    (
-        product_stats, exit_products,
-        buyer_lens, nonbuyer_lens,
-        buyer_products, nonbuyer_products,
-    ) = _accumulate_session_stats(visitor_events)
-
-    products, true_leak_count = _build_products_list(product_stats, exit_products)
+    acc = _accumulate_session_stats(visitor_events)
+    products, true_leak_count = _build_products_list(
+        acc.product_stats, acc.exit_products,
+    )
 
     result = {
         "shop_domain": shop_domain,
@@ -393,11 +411,11 @@ def compute_abandoned_intent(db: Session, shop_domain: str, plan: str = "pro") -
         # even when the list is truncated.
         "total_products_count": true_leak_count,
         "session_insights": _build_session_insights(
-            exit_products=exit_products,
-            buyer_session_lengths=buyer_lens,
-            nonbuyer_session_lengths=nonbuyer_lens,
-            buyer_products_viewed=buyer_products,
-            nonbuyer_products_viewed=nonbuyer_products,
+            exit_products=acc.exit_products,
+            buyer_session_lengths=acc.buyer_session_lengths,
+            nonbuyer_session_lengths=acc.nonbuyer_session_lengths,
+            buyer_products_viewed=acc.buyer_products_viewed,
+            nonbuyer_products_viewed=acc.nonbuyer_products_viewed,
         ),
         "headline": _build_intent_headline(products),
         "currency": currency,

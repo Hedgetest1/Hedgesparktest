@@ -9,6 +9,7 @@ structural-unit gate.
 from __future__ import annotations
 
 from app.services.abandoned_intent import (
+    _accumulate_session_stats,
     _build_intent_headline,
     _build_product_record,
     _build_products_list,
@@ -18,6 +19,7 @@ from app.services.abandoned_intent import (
     _empty_intent_response,
     _group_events_by_visitor,
     _humanize_url,
+    _SessionAccumulator,
     _split_into_sessions,
     _SESSION_GAP_MS,
 )
@@ -342,3 +344,68 @@ class TestIntentHeadline:
         assert "50 views" in out
         assert "95%" in out
         assert "don't add to cart" in out.lower()
+
+
+# ---------------------------------------------------------------------------
+# _accumulate_session_stats — NamedTuple contract
+# ---------------------------------------------------------------------------
+
+
+class TestSessionAccumulator:
+    def test_empty_input_returns_empty_named_tuple(self):
+        out = _accumulate_session_stats({})
+        # Field-name access works
+        assert out.product_stats == {}
+        assert out.exit_products == {}
+        assert out.buyer_session_lengths == []
+        assert out.nonbuyer_session_lengths == []
+        assert out.buyer_products_viewed == []
+        assert out.nonbuyer_products_viewed == []
+        # Type is the NamedTuple class — not a plain tuple
+        assert isinstance(out, _SessionAccumulator)
+
+    def test_named_tuple_field_order_locked(self):
+        """If a future refactor re-orders fields, this test fails.
+        Positional destructuring is preserved (tuple compatibility)
+        but downstream code uses named access (composer + tests)."""
+        # Field order MUST match the dataclass declaration so that
+        # any caller still doing positional destructuring works.
+        assert _SessionAccumulator._fields == (
+            "product_stats", "exit_products",
+            "buyer_session_lengths", "nonbuyer_session_lengths",
+            "buyer_products_viewed", "nonbuyer_products_viewed",
+        )
+
+    def test_single_buyer_session_classified(self):
+        events = {"v1": [
+            {"event_type": "product_view", "product_url": "/p/a", "timestamp": 1000},
+            {"event_type": "purchase", "product_url": "/p/a", "timestamp": 2000},
+        ]}
+        acc = _accumulate_session_stats(events)
+        # 1 buyer session, 0 nonbuyer
+        assert len(acc.buyer_session_lengths) == 1
+        assert acc.buyer_session_lengths[0] == 2  # 2 events
+        assert acc.nonbuyer_session_lengths == []
+        # buyer_visitors set contains v1
+        assert "v1" in acc.product_stats["/p/a"]["buyer_visitors"]
+
+    def test_single_nonbuyer_exit_product_tracked(self):
+        events = {"v1": [
+            {"event_type": "product_view", "product_url": "/p/x", "timestamp": 1000},
+            {"event_type": "product_view", "product_url": "/p/exit", "timestamp": 2000},
+        ]}
+        acc = _accumulate_session_stats(events)
+        # Non-buying session → exit_products counts the last product
+        assert acc.exit_products["/p/exit"] == 1
+        # Not /p/x — only the last is "exit"
+        assert "/p/x" not in acc.exit_products
+
+    def test_cart_abandoner_classification(self):
+        events = {"v1": [
+            {"event_type": "product_view", "product_url": "/p/a", "timestamp": 1000},
+            {"event_type": "add_to_cart", "product_url": "/p/a", "timestamp": 2000},
+        ]}
+        acc = _accumulate_session_stats(events)
+        # No purchase + ATC → cart_abandon_visitors set
+        assert "v1" in acc.product_stats["/p/a"]["cart_abandon_visitors"]
+        assert acc.product_stats["/p/a"]["carts"] == 1

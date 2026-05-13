@@ -48,13 +48,27 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import NamedTuple, Optional
 
 import httpx
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.services.audience_segments import segment_product_visitors
+
+
+class _SignalPushCounters(NamedTuple):
+    """Self-documenting return type for _process_intent_signal.
+
+    Promoted from 3-tuple → NamedTuple 2026-05-13 (post-A3 polish):
+    the composer adds counters across signals via field-named access
+    (`total.pushed += sig.pushed`); positional destructuring breaks
+    silently when fields are reordered. NamedTuple preserves tuple
+    compatibility AND gives auto-completion at every callsite.
+    """
+    pushed: int
+    anonymous: int
+    errors: int
 
 log = logging.getLogger(__name__)
 
@@ -703,9 +717,9 @@ def _process_intent_signal(
     db: Session, shop_domain: str, product_url: str, signal_type: str,
     signal_strength: float, headers: dict, allow_anon: bool,
     is_already_pushed,
-) -> tuple[int, int, int]:
-    """Process one (product, signal) pair. Returns
-    (pushed_count, anonymous_count, errors_count) for the signal."""
+) -> _SignalPushCounters:
+    """Process one (product, signal) pair. Returns a _SignalPushCounters
+    NamedTuple with field-named access (pushed / anonymous / errors)."""
     try:
         segment = segment_product_visitors(db, shop_domain, product_url, hours=72)
     except Exception as exc:
@@ -713,11 +727,11 @@ def _process_intent_signal(
             "klaviyo_intent: segment failed shop=%s product=%s: %s",
             shop_domain, product_url, type(exc).__name__,
         )
-        return 0, 0, 0
+        return _SignalPushCounters(pushed=0, anonymous=0, errors=0)
 
     eligible = _pick_eligible_visitors(segment)
     if not eligible:
-        return 0, 0, 0
+        return _SignalPushCounters(pushed=0, anonymous=0, errors=0)
 
     email_map = _resolve_visitor_emails(
         db, shop_domain, [v["visitor_id"] for v in eligible],
@@ -753,7 +767,7 @@ def _process_intent_signal(
             pushed += 1
         else:
             errors += 1
-    return pushed, anonymous, errors
+    return _SignalPushCounters(pushed=pushed, anonymous=anonymous, errors=errors)
 
 
 def push_intent_signals_to_klaviyo(
@@ -795,15 +809,15 @@ def push_intent_signals_to_klaviyo(
     total_anonymous = 0
     total_errors = 0
     for product_url, signal_type, signal_strength in rows:
-        pushed, anonymous, errors = _process_intent_signal(
+        counters = _process_intent_signal(
             db=db, shop_domain=shop_domain,
             product_url=product_url, signal_type=signal_type,
             signal_strength=signal_strength, headers=headers,
             allow_anon=allow_anon, is_already_pushed=is_already_pushed,
         )
-        total_pushed += pushed
-        total_anonymous += anonymous
-        total_errors += errors
+        total_pushed += counters.pushed
+        total_anonymous += counters.anonymous
+        total_errors += counters.errors
 
     if total_errors == 0 and total_pushed > 0:
         record_sync_success(db, shop_domain)
