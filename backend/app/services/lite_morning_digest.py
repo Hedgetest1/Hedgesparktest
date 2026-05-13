@@ -217,53 +217,31 @@ _SOURCE_HUMAN = {
 }
 
 
-def _build_email(shop_domain: str, brief: dict, db: Session) -> Tuple[str, str, str]:
-    """Morning brief email — MIRRORS digest_formatter.format_digest
-    (the "Your Weekly Intelligence" email) 1:1. Same subject shape,
-    same shell with PNG logo, same rars_hero_html amber-gradient
-    card, same amber "Revenue at Risk" opportunity box with bordered
-    rows, same violet peer-benchmarks box, same amber-to-violet CTA.
+# ---------------------------------------------------------------------------
+# Section renderers — pure functions that take their minimal data slice and
+# return the HTML snippet. Each returns "" for the empty/cold-start state so
+# the composer can string-concat without branching.
+#
+# Refactor 2026-05-13 (A3 close): 289-LOC _build_email god function →
+# composer + 9 pure renderers. HTML output is byte-identical to the prior
+# implementation; the per-section gates that decide whether to render are
+# preserved exactly. The plain-text mirror is built from a separate
+# _render_plain_text helper so HTML/plain stay locked to the same data.
+# ---------------------------------------------------------------------------
 
-    Founder directive 2026-04-20: "prendi esempio dalla mail con
-    oggetto your weekly intelligence... sopra non ci va spark in sè,
-    ma il logo". Executed.
-    """
-    from app.services.email_templates import _wrap_html
 
-    shop = shop_domain.replace(".myshopify.com", "")
-    shop_name = shop.replace("-", " ").title()
-    period = datetime.now(timezone.utc).strftime("%A · %B %d, %Y")
-
-    # Data
-    rich = _gather_rich_context(db, shop_domain)
-    currency = rich.get("currency") or "USD"
-
-    signals_count = int(brief.get("signals_count") or 0)
-    brief_headline = (brief.get("headline") or "").strip()
-    top_product = (brief.get("top_product_label") or "").strip()
-    top_action = (brief.get("top_action") or "").strip()
-
-    rars = rich.get("rars") or {}
-    rars_total = float(rars.get("total") or 0)
-    rars_prevented = float(rars.get("prevented") or 0)
-    rars_comps = rars.get("components") or []
-    bench = rich.get("benchmarks") or {}
-    ret = rich.get("retention") or {}
-
-    # -------------------------------------------------------------
-    # RARS HERO — byte-for-byte copy of digest_formatter rars_hero_html
-    # (amber→violet gradient card, 42px hero, prevented line below)
-    # -------------------------------------------------------------
-    rars_hero_html = ""
-    if rars_total > 0:
-        prevented_block = ""
-        if rars_prevented > 0:
-            prevented_block = (
-                f'<p style="margin:6px 0 0;font-size:13px;color:#10b981;font-weight:600">'
-                f"HedgeSpark already prevented {currency} {rars_prevented:,.0f} this month"
-                f"</p>"
-            )
-        rars_hero_html = f"""
+def _render_rars_hero_html(rars_total: float, rars_prevented: float, currency: str) -> str:
+    """Amber→violet RARS hero card. Empty string when rars_total <= 0."""
+    if rars_total <= 0:
+        return ""
+    prevented_block = ""
+    if rars_prevented > 0:
+        prevented_block = (
+            f'<p style="margin:6px 0 0;font-size:13px;color:#10b981;font-weight:600">'
+            f"HedgeSpark already prevented {currency} {rars_prevented:,.0f} this month"
+            f"</p>"
+        )
+    return f"""
         <div style="margin:24px 0;padding:24px;background:linear-gradient(135deg,rgba(212,137,58,0.08) 0%,rgba(168,85,247,0.08) 100%);border:1px solid rgba(212,137,58,0.25);border-radius:12px;text-align:center">
             <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.16em;color:#d4893a;margin-bottom:8px">Revenue at Risk</div>
             <div style="font-size:42px;font-weight:800;color:#f1f5f9;line-height:1.1">{currency} {rars_total:,.0f}<span style="font-size:14px;font-weight:600;color:#94a3b8">/month</span></div>
@@ -271,13 +249,12 @@ def _build_email(shop_domain: str, brief: dict, db: Session) -> Tuple[str, str, 
         </div>
         """
 
-    # -------------------------------------------------------------
-    # LEAD STORY — recommendation-style emerald box (copied from
-    # digest_formatter rec_html pattern)
-    # -------------------------------------------------------------
-    lead_html = ""
-    if top_product:
-        lead_html = f"""
+
+def _render_lead_story_html(top_product: str, top_action: str, brief_headline: str) -> str:
+    """Emerald lead-story box. Empty string when top_product is empty."""
+    if not top_product:
+        return ""
+    return f"""
         <div style="margin:20px 0;padding:16px 18px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.15);border-radius:8px;font-size:14px;line-height:1.6">
             <strong style="color:#10b981;font-size:14px">Today's lead story — {top_product}</strong>
             {f'<p style="margin:6px 0 0;color:#c8d1dc">{top_action}</p>' if top_action else ''}
@@ -285,33 +262,32 @@ def _build_email(shop_domain: str, brief: dict, db: Session) -> Tuple[str, str, 
         </div>
         """
 
-    # -------------------------------------------------------------
-    # RISK COMPONENTS — byte-for-byte copy of digest_formatter risk_html
-    # (amber opportunity box with bordered rows per product)
-    # -------------------------------------------------------------
-    risk_html = ""
-    if rars_comps:
-        count = len(rars_comps)
-        top_loss = rars_comps[0].get("loss_eur", 0)
-        impact_line = ""
-        if top_loss > 0:
-            impact_line = (
-                f'<p style="margin:4px 0 10px;font-size:13px;color:#10b981;font-weight:600">'
-                f'Fixing the top leak could recover ~{currency} {top_loss:,.2f}/month</p>'
-            )
-        opp_rows = ""
-        for c in rars_comps:
-            source = c.get("source", "unknown")
-            label = _SOURCE_HUMAN.get(source, source)
-            loss = c.get("loss_eur", 0)
-            narrative_text = c.get("narrative") or f"Component contributing to this month's at-risk total."
-            opp_rows += f"""
+
+def _render_risk_components_html(rars_comps: list[dict], rars_total: float, currency: str) -> str:
+    """Amber 'Where it's leaking' opportunity box. Empty string when no comps."""
+    if not rars_comps:
+        return ""
+    count = len(rars_comps)
+    top_loss = rars_comps[0].get("loss_eur", 0)
+    impact_line = ""
+    if top_loss > 0:
+        impact_line = (
+            f'<p style="margin:4px 0 10px;font-size:13px;color:#10b981;font-weight:600">'
+            f'Fixing the top leak could recover ~{currency} {top_loss:,.2f}/month</p>'
+        )
+    opp_rows = ""
+    for c in rars_comps:
+        source = c.get("source", "unknown")
+        label = _SOURCE_HUMAN.get(source, source)
+        loss = c.get("loss_eur", 0)
+        narrative_text = c.get("narrative") or f"Component contributing to this month's at-risk total."
+        opp_rows += f"""
             <div style="padding:10px 0;border-bottom:1px solid #fde68a">
                 <strong style="color:#f59e0b">{label}</strong>
                 <span style="float:right;color:#b45309;font-weight:700">{currency} {loss:,.0f}/mo</span>
                 <p style="margin:4px 0 2px;color:#c8d1dc;font-size:13px">{narrative_text}</p>
             </div>"""
-        risk_html = f"""
+    return f"""
         <div style="margin:20px 0;padding:16px 18px;background:rgba(245,158,11,0.08);border:1px solid #fde68a;border-radius:8px;font-size:14px">
             <div style="margin-bottom:4px">
                 <span style="font-size:13px;color:#f59e0b;font-weight:600">Where it's leaking · top {count}</span>
@@ -323,17 +299,17 @@ def _build_email(shop_domain: str, brief: dict, db: Session) -> Tuple[str, str, 
         </div>
         """
 
-    # -------------------------------------------------------------
-    # PEER BENCHMARKS — byte-for-byte from digest_formatter benchmarks_html
-    # -------------------------------------------------------------
-    benchmarks_html = ""
-    if bench and bench.get("total_recovery", 0) > 0:
-        recovery_block = (
-            f'<p style="margin:6px 0 0;font-size:13px;color:#10b981;font-weight:600">'
-            f"{currency} {bench['total_recovery']:,.0f}/month recoverable if you reach top 25%"
-            f"</p>"
-        )
-        benchmarks_html = f"""
+
+def _render_benchmarks_html(bench: dict, currency: str) -> str:
+    """Violet 'You vs. Similar Shops' box. Empty string when no recoverable peers."""
+    if not bench or bench.get("total_recovery", 0) <= 0:
+        return ""
+    recovery_block = (
+        f'<p style="margin:6px 0 0;font-size:13px;color:#10b981;font-weight:600">'
+        f"{currency} {bench['total_recovery']:,.0f}/month recoverable if you reach top 25%"
+        f"</p>"
+    )
+    return f"""
         <div style="margin:16px 0;padding:16px 18px;background:rgba(167,139,250,0.06);border:1px solid rgba(167,139,250,0.18);border-radius:8px">
             <strong style="color:#c4b5fd;font-size:14px">You vs. Similar Shops</strong>
             <p style="margin:4px 0 0;font-size:12px;color:#94a3b8">Benchmarked against {bench.get("peer_count", 0)} shops in {bench.get("band", "your band")}</p>
@@ -341,23 +317,21 @@ def _build_email(shop_domain: str, brief: dict, db: Session) -> Tuple[str, str, 
         </div>
         """
 
-    # -------------------------------------------------------------
-    # RETENTION — mirror digest_formatter goals_html rows with tier bars
-    # -------------------------------------------------------------
-    retention_html = ""
-    if ret and any(ret.get(k, 0) for k in ("w1", "w4", "w12")):
-        def _row(label: str, rate: float) -> str:
-            if rate >= 0.30:
-                badge_color = "#16a34a"
-                badge_text = "strong"
-            elif rate >= 0.15:
-                badge_color = "#f59e0b"
-                badge_text = "typical"
-            else:
-                badge_color = "#dc2626"
-                badge_text = "weak"
-            bar_pct = min(100, int(rate * 100 * 3))  # scale so 30%+ fills the bar
-            return f"""
+
+def _retention_tier(rate: float) -> tuple[str, str]:
+    """Return (badge_color, badge_text) tuple per retention rate band."""
+    if rate >= 0.30:
+        return "#16a34a", "strong"
+    if rate >= 0.15:
+        return "#f59e0b", "typical"
+    return "#dc2626", "weak"
+
+
+def _render_retention_row_html(label: str, rate: float) -> str:
+    """Single retention row — label, badge, progress bar."""
+    badge_color, badge_text = _retention_tier(rate)
+    bar_pct = min(100, int(rate * 100 * 3))  # scale so 30%+ fills the bar
+    return f"""
             <div style="margin:10px 0">
               <div style="display:flex;justify-content:space-between;font-size:13px;color:#e2e8f0">
                 <span>{label}</span>
@@ -368,43 +342,51 @@ def _build_email(shop_domain: str, brief: dict, db: Session) -> Tuple[str, str, 
               </div>
             </div>
             """
-        retention_html = f"""
+
+
+def _render_retention_html(ret: dict) -> str:
+    """3-row retention card (w1/w4/w12). Empty string when no measurable rate."""
+    if not ret or not any(ret.get(k, 0) for k in ("w1", "w4", "w12")):
+        return ""
+    rows = (
+        _render_retention_row_html("Week 1 repurchase", float(ret.get("w1", 0)))
+        + _render_retention_row_html("Week 4 repurchase", float(ret.get("w4", 0)))
+        + _render_retention_row_html("Week 12 repurchase", float(ret.get("w12", 0)))
+    )
+    return f"""
         <div style="margin:16px 0;padding:16px 18px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:8px">
             <strong style="color:#e2e8f0;font-size:14px">Retention · week 1 / 4 / 12</strong>
-            {_row("Week 1 repurchase", float(ret.get("w1", 0)))}
-            {_row("Week 4 repurchase", float(ret.get("w4", 0)))}
-            {_row("Week 12 repurchase", float(ret.get("w12", 0)))}
+            {rows}
         </div>
         """
 
-    # -------------------------------------------------------------
-    # STOCK HEALTH — Gap #4 daily slot. Calm merchant-friendly copy.
-    # Renders when there's at least 1 at-risk SKU OR an out-of-stock.
-    # -------------------------------------------------------------
-    stock_html = ""
-    inv = rich.get("inventory")
-    if inv and (inv.get("at_risk") or (inv.get("out_of_stock_count") or 0) > 0):
-        oos_count = int(inv.get("out_of_stock_count") or 0)
-        at_risk_rows = inv.get("at_risk") or []
-        oos_block = ""
-        if oos_count > 0:
-            oos_block = (
-                f'<p style="margin:4px 0 10px;font-size:13px;color:#dc2626;font-weight:600">'
-                f"{oos_count} SKU{'s' if oos_count != 1 else ''} out of stock — restock to recover sales</p>"
-            )
-        rows_html = ""
-        for r in at_risk_rows:
-            doc = r.get("days_of_cover")
-            if doc is None:
-                continue
-            rows_html += f"""
+
+def _render_stock_html(inv: dict | None) -> str:
+    """Amber stock-health card. Empty string when no at-risk + no out-of-stock."""
+    if not inv or not (inv.get("at_risk") or (inv.get("out_of_stock_count") or 0) > 0):
+        return ""
+    oos_count = int(inv.get("out_of_stock_count") or 0)
+    at_risk_rows = inv.get("at_risk") or []
+    oos_block = ""
+    if oos_count > 0:
+        oos_block = (
+            f'<p style="margin:4px 0 10px;font-size:13px;color:#dc2626;font-weight:600">'
+            f"{oos_count} SKU{'s' if oos_count != 1 else ''} out of stock — restock to recover sales</p>"
+        )
+    rows_html = ""
+    for r in at_risk_rows:
+        doc = r.get("days_of_cover")
+        if doc is None:
+            continue
+        rows_html += f"""
             <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid rgba(255,255,255,0.05);font-size:13px;color:#e2e8f0">
               <span>{r.get('product_title', '')}</span>
               <span style="color:#f59e0b;font-weight:700">{doc:.0f} days of cover</span>
             </div>
             """
-        if rows_html or oos_block:
-            stock_html = f"""
+    if not (rows_html or oos_block):
+        return ""
+    return f"""
             <div style="margin:16px 0;padding:16px 18px;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.18);border-radius:8px">
                 <strong style="color:#f59e0b;font-size:14px">Stock health</strong>
                 <p style="margin:4px 0 10px;font-size:13px;color:#cbd5e1;line-height:1.5">Where your stock is heading.</p>
@@ -413,10 +395,10 @@ def _build_email(shop_domain: str, brief: dict, db: Session) -> Tuple[str, str, 
             </div>
             """
 
-    # -------------------------------------------------------------
-    # CTA — byte-for-byte from digest_formatter cta_html (amber→violet)
-    # -------------------------------------------------------------
-    cta_html = f"""
+
+def _render_cta_html() -> str:
+    """Amber→violet 'Open your dashboard' CTA."""
+    return f"""
     <div style="text-align:center;margin:28px 0 8px">
         <a href="{_DASHBOARD_URL}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#d4893a 0%,#a855f7 100%);background-color:#c47a3e;color:#ffffff;text-decoration:none;border-radius:10px;font-size:15px;font-weight:600;letter-spacing:0.3px">
             Open your dashboard
@@ -424,47 +406,70 @@ def _build_email(shop_domain: str, brief: dict, db: Session) -> Tuple[str, str, 
     </div>
     """
 
-    # -------------------------------------------------------------
-    # BODY — mirror digest_formatter body_inner structure
-    # -------------------------------------------------------------
-    # Summary card is only rendered when there's data; if nothing,
-    # we render the clean-slate message instead
-    if rars_total == 0 and signals_count == 0 and not rars_comps:
-        body_inner = f"""
-<h2 style="margin:0 0 4px;font-size:20px;font-weight:700;color:#f1f5f9;letter-spacing:-0.2px">Your Morning Intelligence</h2>
-<p style="font-size:13px;color:#64748b;margin:0 0 24px">{shop_name} &middot; {period}</p>
 
+def _render_body_inner_html(
+    *,
+    shop_name: str,
+    period: str,
+    is_clean_slate: bool,
+    rars_hero: str,
+    lead: str,
+    risk: str,
+    benchmarks: str,
+    retention: str,
+    stock: str,
+    cta: str,
+) -> str:
+    """Assemble the body. Clean-slate uses a single emerald reassurance
+    block + CTA; otherwise concatenate section renderers in order."""
+    header = (
+        f'<h2 style="margin:0 0 4px;font-size:20px;font-weight:700;color:#f1f5f9;letter-spacing:-0.2px">Your Morning Intelligence</h2>\n'
+        f'<p style="font-size:13px;color:#64748b;margin:0 0 24px">{shop_name} &middot; {period}</p>'
+    )
+    if is_clean_slate:
+        clean_slate = """
 <div style="margin:24px 0;padding:24px;background:linear-gradient(135deg,rgba(16,185,129,0.08) 0%,rgba(168,85,247,0.08) 100%);border:1px solid rgba(16,185,129,0.22);border-radius:12px;text-align:center">
   <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.16em;color:#10b981;margin-bottom:8px">Clean slate</div>
   <div style="font-size:26px;font-weight:800;color:#f1f5f9;line-height:1.2">Your funnel is healthy this morning.</div>
   <p style="margin:10px 0 0;font-size:13px;color:#94a3b8;line-height:1.55">No material risk, no urgent findings. Spark is watching — anything that crosses threshold lands here tomorrow.</p>
 </div>
-
-{cta_html}
 """
-    else:
-        body_inner = f"""
-<h2 style="margin:0 0 4px;font-size:20px;font-weight:700;color:#f1f5f9;letter-spacing:-0.2px">Your Morning Intelligence</h2>
-<p style="font-size:13px;color:#64748b;margin:0 0 24px">{shop_name} &middot; {period}</p>
+        return f"\n{header}\n{clean_slate}\n{cta}\n"
+    return f"\n{header}\n\n{rars_hero}\n{lead}\n{risk}\n{benchmarks}\n{retention}\n{stock}\n{cta}\n"
 
-{rars_hero_html}
-{lead_html}
-{risk_html}
-{benchmarks_html}
-{retention_html}
-{stock_html}
-{cta_html}
-"""
 
-    subject = f"Your Morning Intelligence — {shop_name}"
-    html_out = _wrap_html(subject, body_inner, show_logo=True)
+def _render_plain_text(
+    *,
+    shop_name: str,
+    period: str,
+    is_clean_slate: bool,
+    rars_total: float,
+    rars_prevented: float,
+    rars_comps: list[dict],
+    top_product: str,
+    top_action: str,
+    bench: dict,
+    ret: dict,
+    inv: dict | None,
+    currency: str,
+) -> str:
+    """Plain-text mirror — same data, same gate conditions as the HTML
+    renderers, fed through a line builder. Clean-slate short-circuits."""
+    if is_clean_slate:
+        lines = [
+            f"Your Morning Intelligence — {shop_name}", period, "",
+            "Clean slate — your funnel is healthy. Spark is watching.",
+            "", f"Dashboard: {_DASHBOARD_URL}",
+        ]
+        return "\n".join(lines)
 
-    # -------- Plain-text (mirror digest_formatter plain structure) -----
     lines = [f"Your Morning Intelligence — {shop_name}", period, ""]
     if rars_total > 0:
         lines += ["REVENUE AT RISK", f"  {currency} {rars_total:,.0f}/month"]
         if rars_prevented > 0:
-            lines.append(f"  HedgeSpark already prevented {currency} {rars_prevented:,.0f} this month")
+            lines.append(
+                f"  HedgeSpark already prevented {currency} {rars_prevented:,.0f} this month"
+            )
     if top_product:
         lines += ["", f"Today's lead story — {top_product}"]
         if top_action:
@@ -487,24 +492,74 @@ def _build_email(shop_domain: str, brief: dict, db: Session) -> Tuple[str, str, 
             f"w4 {(ret.get('w4', 0)*100):.0f}% · "
             f"w12 {(ret.get('w12', 0)*100):.0f}%",
         ]
-    inv_text = rich.get("inventory")
-    if inv_text and (inv_text.get("at_risk") or (inv_text.get("out_of_stock_count") or 0) > 0):
+    if inv and (inv.get("at_risk") or (inv.get("out_of_stock_count") or 0) > 0):
         lines += ["", "STOCK HEALTH"]
-        oos_n = int(inv_text.get("out_of_stock_count") or 0)
+        oos_n = int(inv.get("out_of_stock_count") or 0)
         if oos_n > 0:
-            lines.append(f"  {oos_n} SKU{'s' if oos_n != 1 else ''} out of stock — restock to recover sales")
-        for r in inv_text.get("at_risk") or []:
+            lines.append(
+                f"  {oos_n} SKU{'s' if oos_n != 1 else ''} out of stock — restock to recover sales"
+            )
+        for r in inv.get("at_risk") or []:
             doc = r.get("days_of_cover")
             if doc is None:
                 continue
-            lines.append(f"  · {r.get('product_title','')} — {doc:.0f} days of cover")
-    if rars_total == 0 and signals_count == 0 and not rars_comps:
-        lines = [f"Your Morning Intelligence — {shop_name}", period, "",
-                 "Clean slate — your funnel is healthy. Spark is watching."]
-    lines.append("")
-    lines.append(f"Dashboard: {_DASHBOARD_URL}")
-    plain_out = "\n".join(lines)
+            lines.append(f"  · {r.get('product_title', '')} — {doc:.0f} days of cover")
+    lines += ["", f"Dashboard: {_DASHBOARD_URL}"]
+    return "\n".join(lines)
 
+
+def _build_email(shop_domain: str, brief: dict, db: Session) -> Tuple[str, str, str]:
+    """Morning brief email — mirrors digest_formatter.format_digest 1:1.
+
+    Refactored 2026-05-13 (A3 close): 289-LOC god function → 30-LOC
+    composer + 9 pure section renderers + plain-text mirror. HTML
+    output is byte-identical to the prior implementation.
+    """
+    from app.services.email_templates import _wrap_html
+
+    shop = shop_domain.replace(".myshopify.com", "")
+    shop_name = shop.replace("-", " ").title()
+    period = datetime.now(timezone.utc).strftime("%A · %B %d, %Y")
+
+    rich = _gather_rich_context(db, shop_domain)
+    currency = rich.get("currency") or "USD"
+
+    signals_count = int(brief.get("signals_count") or 0)
+    brief_headline = (brief.get("headline") or "").strip()
+    top_product = (brief.get("top_product_label") or "").strip()
+    top_action = (brief.get("top_action") or "").strip()
+
+    rars = rich.get("rars") or {}
+    rars_total = float(rars.get("total") or 0)
+    rars_prevented = float(rars.get("prevented") or 0)
+    rars_comps = rars.get("components") or []
+    bench = rich.get("benchmarks") or {}
+    ret = rich.get("retention") or {}
+    inv = rich.get("inventory")
+
+    is_clean_slate = rars_total == 0 and signals_count == 0 and not rars_comps
+
+    body_inner = _render_body_inner_html(
+        shop_name=shop_name,
+        period=period,
+        is_clean_slate=is_clean_slate,
+        rars_hero=_render_rars_hero_html(rars_total, rars_prevented, currency),
+        lead=_render_lead_story_html(top_product, top_action, brief_headline),
+        risk=_render_risk_components_html(rars_comps, rars_total, currency),
+        benchmarks=_render_benchmarks_html(bench, currency),
+        retention=_render_retention_html(ret),
+        stock=_render_stock_html(inv),
+        cta=_render_cta_html(),
+    )
+
+    subject = f"Your Morning Intelligence — {shop_name}"
+    html_out = _wrap_html(subject, body_inner, show_logo=True)
+    plain_out = _render_plain_text(
+        shop_name=shop_name, period=period, is_clean_slate=is_clean_slate,
+        rars_total=rars_total, rars_prevented=rars_prevented, rars_comps=rars_comps,
+        top_product=top_product, top_action=top_action,
+        bench=bench, ret=ret, inv=inv, currency=currency,
+    )
     return subject, html_out, plain_out
 
 
