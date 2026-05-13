@@ -133,14 +133,28 @@ class TestShutdownSignalNoise:
         assert is_noise("asyncio.CancelledError") is True
         assert is_noise("CancelledError") is True
 
-    def test_signal_noise_only_matches_exact(self):
-        # Substring "KeyboardInterrupt" inside a real exception message
-        # MUST NOT match — only the bare type-name does.
+    def test_colon_suffix_form_is_noise(self):
+        # AGENT-REVIEW FINDING 2026-05-13: Sentry's `issue.title`
+        # carries `"KeyboardInterrupt: <message>"` when the exception
+        # has an attached message. Pre-fix exact-match-only let these
+        # through silently. Now both forms match.
+        assert is_noise("KeyboardInterrupt: signal received") is True
+        assert is_noise("SystemExit: shutdown requested") is True
+        assert is_noise("asyncio.CancelledError: task cancelled") is True
+        assert is_noise("CancelledError: ") is True
+
+    def test_signal_noise_only_matches_exact_or_prefix_with_colon(self):
+        # Substring "KeyboardInterrupt" INSIDE a real exception's
+        # message MUST NOT match — only bare type-name OR `Class:`
+        # prefix is noise. A `RuntimeError: caught KeyboardInterrupt`
+        # is a real bug (the RuntimeError, not the KI inside).
         assert is_noise(
             "RuntimeError: caught KeyboardInterrupt during cleanup"
         ) is False
         # Real merchant-class message that mentions exit
         assert is_noise("SystemExit code 1 from invalid config") is False
+        # Class name appearing mid-line WITHOUT colon-suffix MUST NOT match
+        assert is_noise("Worker received KeyboardInterrupt at 0x7f") is False
 
     def test_shutdown_signal_type_helper(self):
         # Inbound triage helper — checks the bare error_type field
@@ -149,6 +163,8 @@ class TestShutdownSignalNoise:
         assert is_shutdown_signal_type("SystemExit") is True
         assert is_shutdown_signal_type("asyncio.CancelledError") is True
         assert is_shutdown_signal_type("CancelledError") is True
+        # Also matches colon-suffix form (Sentry issue.title format)
+        assert is_shutdown_signal_type("KeyboardInterrupt: shutdown") is True
         # Real exception types MUST NOT match
         assert is_shutdown_signal_type("KeyError") is False
         assert is_shutdown_signal_type("RuntimeError") is False

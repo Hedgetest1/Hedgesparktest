@@ -89,7 +89,16 @@ _CURRENCY_FILTER_PATTERN = re.compile(
         # flagged. The bug class this audit prevents (single SUM row
         # mixing currencies) is structurally impossible when currency
         # is in the GROUP BY clause.
-        GROUP\s+BY\s+[^\n]*\bcurrency\b
+        #
+        # `[\s\S]{0,400}?` is non-greedy + crosses newlines — required
+        # because real SQL routinely splits GROUP BY clauses across
+        # lines (`GROUP BY\n    shop_domain,\n    currency`). The 400-
+        # char bound prevents the match running into the next statement
+        # (SQL clauses are typically <100 chars). Agent-review finding
+        # 2026-05-13 caught the prior `[^\n]*` form silently passing
+        # for single-line patterns while failing for formatted multi-
+        # line queries.
+        GROUP\s+BY\b[\s\S]{0,400}?\bcurrency\b
     )""",
     re.IGNORECASE | re.VERBOSE,
 )

@@ -311,17 +311,29 @@ def ingest_webhook(
     #     worker main loops on PM2 reload. Born 2026-05-13 after 11
     #     such incidents pushed the capillary scope probe to RED
     #     during a 35-commit deploy storm.
+    #
+    # Sentry webhook payload schema: `issue.title` is the human-
+    # formatted label ("KeyboardInterrupt" bare OR "KeyboardInterrupt:
+    # <msg>" colon-suffix). The canonical bare exception class lives
+    # at `issue.metadata.type`. Both checked — Agent-review finding
+    # 2026-05-13: prior version checking only `title` with exact-match
+    # would silently let colon-formatted payloads through.
     from app.core.sentry_noise_filter import (
         is_noise as _is_sentry_noise,
         is_shutdown_signal_type as _is_shutdown_signal,
     )
     issue_title = issue.get("title") or ""
     issue_culprit = issue.get("culprit") or ""
+    issue_meta_type = (issue.get("metadata") or {}).get("type") or ""
     noise_candidate = f"{issue_title}\n{issue_culprit}"
-    if _is_sentry_noise(noise_candidate) or _is_shutdown_signal(issue_title):
+    if (
+        _is_sentry_noise(noise_candidate)
+        or _is_shutdown_signal(issue_title)
+        or _is_shutdown_signal(issue_meta_type)
+    ):
         log.info(
-            "sentry_triage: noise-denylist drop webhook event=%s title=%s",
-            dedup_key, issue_title[:80],
+            "sentry_triage: noise-denylist drop webhook event=%s title=%s type=%s",
+            dedup_key, issue_title[:80], issue_meta_type[:40],
         )
         return {
             "status": "noise_dropped",

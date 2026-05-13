@@ -67,21 +67,47 @@ _SIGNAL_SHUTDOWN_NOISE = frozenset({
 })
 
 
+def _matches_shutdown_signal(text: str) -> bool:
+    """Match a Sentry-payload string against the signal-class noise set.
+
+    Two formats covered (Agent-review finding 2026-05-13):
+      - Bare class name: `"KeyboardInterrupt"` (how locally-captured
+        SDK events stringify the exception when the exception has no
+        message attached — e.g. `raise KeyboardInterrupt()`).
+      - Class-name-colon-message form: `"KeyboardInterrupt: ..."` (how
+        Sentry's webhook payload formats `issue.title` when the
+        exception carries a message). Prefix-match on the class name
+        followed by `:` (with optional whitespace) is the canonical
+        Sentry idiom.
+
+    The bare-class-name match is exact (no substring) to avoid false
+    positives like `"RuntimeError: caught KeyboardInterrupt"`.
+    """
+    stripped = text.strip()
+    if stripped in _SIGNAL_SHUTDOWN_NOISE:
+        return True
+    for cls in _SIGNAL_SHUTDOWN_NOISE:
+        if stripped.startswith(cls + ":") or stripped.startswith(cls + " :"):
+            return True
+    return False
+
+
 def is_noise(message: str | None) -> bool:
     """Return True iff the message looks like expected operational noise
     (suitable for filtering before Sentry capture).
 
     Two noise classes covered:
       1. Dev-misconfig secret-missing 500s (regex-matched).
-      2. Worker graceful-shutdown signal exceptions (exact-string
-         match against `_SIGNAL_SHUTDOWN_NOISE`).
+      2. Worker graceful-shutdown signal exceptions (matched against
+         `_SIGNAL_SHUTDOWN_NOISE` via `_matches_shutdown_signal` — both
+         bare-class and `Class: <msg>` forms).
 
     Conservative by design: returns False on None/empty input or any
     string that doesn't match. Matches are case-sensitive."""
     if not message or not isinstance(message, str):
         return False
-    # Fast-path: signal-class shutdown exceptions are exact-string matches.
-    if message.strip() in _SIGNAL_SHUTDOWN_NOISE:
+    # Fast-path: signal-class shutdown exceptions (bare OR Class:msg form)
+    if _matches_shutdown_signal(message):
         return True
     return bool(_NOISE_RE.search(message))
 
@@ -93,9 +119,14 @@ def any_noise(messages: Iterable[str | None]) -> bool:
 
 def is_shutdown_signal_type(error_type: str | None) -> bool:
     """Inbound triage helper — checks ONLY the signal-class noise.
-    Used by `sentry_triage.ingest_email` on the parsed `error_type`
-    field (which is the bare exception class name, not a full message)
-    so we can drop at intake even if SDK-side filter missed it."""
+    Used by `sentry_triage.ingest_webhook` and `ingest_email` on the
+    parsed type/title field.
+
+    Accepts both formats (bare class name OR `Class: <msg>` colon-form)
+    because Sentry's `issue.title` payload carries the latter when the
+    exception has an attached message, and the bare form when it
+    doesn't. Pre-2026-05-13 exact-match-only form silently let
+    colon-formatted titles through."""
     if not error_type or not isinstance(error_type, str):
         return False
-    return error_type.strip() in _SIGNAL_SHUTDOWN_NOISE
+    return _matches_shutdown_signal(error_type)
