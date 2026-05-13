@@ -100,3 +100,104 @@ def test_lowercase_does_not_match():
     in lowercase (e.g. user-typed bug reports)."""
     assert is_noise("api_key not configured") is False
     assert is_noise("ops_api_key not configured") is False
+
+
+# ---------------------------------------------------------------------------
+# Signal-class shutdown noise (born 2026-05-13)
+# ---------------------------------------------------------------------------
+
+from app.core.sentry_noise_filter import is_shutdown_signal_type
+
+
+class TestShutdownSignalNoise:
+    """11 KeyboardInterrupt incidents pushed the capillary scope probe
+    to RED during a 35-commit deploy storm 2026-05-13 — every PM2 reload
+    sends SIGINT to workers, raising KeyboardInterrupt at the top of
+    `while True: time.sleep(...)` main loops. These are graceful
+    shutdowns, NEVER bugs."""
+
+    def test_keyboard_interrupt_is_noise_via_is_noise(self):
+        # ingest_email path uses composite_text (subject + body)
+        assert is_noise("KeyboardInterrupt") is True
+        assert is_noise("KeyboardInterrupt\n") is True
+        # With trailing body content stripped to bare title
+        assert is_noise("  KeyboardInterrupt  ") is True
+
+    def test_system_exit_is_noise(self):
+        assert is_noise("SystemExit") is True
+        assert is_noise("SystemExit\n") is True
+
+    def test_asyncio_cancelled_error_is_noise(self):
+        # asyncio.CancelledError can stringify either way depending
+        # on capture path — both variants must match.
+        assert is_noise("asyncio.CancelledError") is True
+        assert is_noise("CancelledError") is True
+
+    def test_signal_noise_only_matches_exact(self):
+        # Substring "KeyboardInterrupt" inside a real exception message
+        # MUST NOT match — only the bare type-name does.
+        assert is_noise(
+            "RuntimeError: caught KeyboardInterrupt during cleanup"
+        ) is False
+        # Real merchant-class message that mentions exit
+        assert is_noise("SystemExit code 1 from invalid config") is False
+
+    def test_shutdown_signal_type_helper(self):
+        # Inbound triage helper — checks the bare error_type field
+        # parsed by sentry_triage.parse_sentry_webhook.
+        assert is_shutdown_signal_type("KeyboardInterrupt") is True
+        assert is_shutdown_signal_type("SystemExit") is True
+        assert is_shutdown_signal_type("asyncio.CancelledError") is True
+        assert is_shutdown_signal_type("CancelledError") is True
+        # Real exception types MUST NOT match
+        assert is_shutdown_signal_type("KeyError") is False
+        assert is_shutdown_signal_type("RuntimeError") is False
+        assert is_shutdown_signal_type("IntegrityError") is False
+        # None/empty defensive
+        assert is_shutdown_signal_type(None) is False
+        assert is_shutdown_signal_type("") is False
+        # Whitespace tolerance
+        assert is_shutdown_signal_type("  KeyboardInterrupt  ") is True
+
+
+class TestSentryInitIgnoreErrors:
+    """Locks the SDK-init `ignore_errors=[KeyboardInterrupt, SystemExit]`
+    config — defense-in-depth at the SDK boundary so signal-class
+    exceptions never even reach the network. Born 2026-05-13."""
+
+    def test_sentry_init_passes_ignore_errors(self, monkeypatch):
+        captured = {}
+
+        def _fake_init(**kwargs):
+            captured.update(kwargs)
+
+        import sentry_sdk
+        monkeypatch.setattr(sentry_sdk, "init", _fake_init)
+        monkeypatch.setattr(sentry_sdk, "set_tag", lambda *a, **kw: None)
+        monkeypatch.setenv("SENTRY_DSN", "https://fake@sentry.example/1")
+        # init_sentry returns False when APP_ENV=test (test-env gate to
+        # prevent test runs from spamming the production Sentry project).
+        # Override to "production" so the real init call path runs.
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("SENTRY_ENVIRONMENT", "production")
+        # Force low sample rates to keep the test cheap
+        monkeypatch.setenv("SENTRY_TRACES_SAMPLE_RATE", "0.0")
+        monkeypatch.setenv("SENTRY_PROFILES_SAMPLE_RATE", "0.0")
+
+        # Reset module init state so init_sentry runs the call path
+        import app.core.sentry_init as si
+        si._enabled = False
+        si._initialized_for = None
+        try:
+            si.init_sentry(component="backend")
+        finally:
+            # Reset state so other tests aren't affected
+            si._enabled = False
+            si._initialized_for = None
+
+        assert "ignore_errors" in captured, (
+            "sentry_sdk.init must pass ignore_errors= to drop signal-class "
+            "shutdown exceptions at the SDK boundary"
+        )
+        assert KeyboardInterrupt in captured["ignore_errors"]
+        assert SystemExit in captured["ignore_errors"]

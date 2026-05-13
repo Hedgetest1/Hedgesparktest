@@ -303,6 +303,34 @@ def ingest_webhook(
                 "recurrence_count": 0,
             }
 
+    # --- Step 2b: Noise denylist (parity with ingest_email) ---
+    # Drop expected operational noise BEFORE storing. Covers:
+    #   - Secret-class env var missing 500s (`is_noise` regex)
+    #   - Worker graceful-shutdown signal exceptions (KeyboardInterrupt
+    #     / SystemExit / asyncio.CancelledError) raised at top of
+    #     worker main loops on PM2 reload. Born 2026-05-13 after 11
+    #     such incidents pushed the capillary scope probe to RED
+    #     during a 35-commit deploy storm.
+    from app.core.sentry_noise_filter import (
+        is_noise as _is_sentry_noise,
+        is_shutdown_signal_type as _is_shutdown_signal,
+    )
+    issue_title = issue.get("title") or ""
+    issue_culprit = issue.get("culprit") or ""
+    noise_candidate = f"{issue_title}\n{issue_culprit}"
+    if _is_sentry_noise(noise_candidate) or _is_shutdown_signal(issue_title):
+        log.info(
+            "sentry_triage: noise-denylist drop webhook event=%s title=%s",
+            dedup_key, issue_title[:80],
+        )
+        return {
+            "status": "noise_dropped",
+            "incident_id": None,
+            "fingerprint": None,
+            "family_head_id": None,
+            "recurrence_count": 0,
+        }
+
     # --- Step 3: Store raw (DB-first) ---
     import json as _json
     raw_body = _json.dumps(payload, default=str)[:50000]

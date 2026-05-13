@@ -265,6 +265,15 @@ def init_sentry(component: str = "backend") -> bool:
             shutdown_timeout=2,
             before_send=_make_before_send(),
             integrations=integrations,
+            # Graceful-shutdown signals are NOT bugs. PM2 reload during
+            # auto-deploy sends SIGINT to each worker → KeyboardInterrupt
+            # at the top of `while True: time.sleep(...)` main loops.
+            # Without this filter, every N-commit session generates N×8
+            # KeyboardInterrupt incidents and trips the capillary scope
+            # `sentry_incidents` probe (threshold 10 in 24h). Born
+            # 2026-05-13. Inbound triage path covered by
+            # `sentry_noise_filter.is_shutdown_signal_type`.
+            ignore_errors=[KeyboardInterrupt, SystemExit],
         )
         # Component tag is process-global — every event/transaction
         # carries it. Useful for Sentry filtering: `component:agent_worker`.
