@@ -124,8 +124,21 @@ def object_to_processing(
     """GDPR Art. 21 + CCPA §1798.120. Merchant opts out of automated
     targeting, scoring, and nudge composition. Downstream systems
     check `is_merchant_opted_out(shop)` before running any such
-    logic."""
-    set_opt_out(shop, True)
+    logic.
+
+    If the underlying Redis persistence layer fails, return 503 so the
+    merchant retries instead of receiving a false 200 — the prior code
+    silently swallowed the failure and lied about the outcome, which
+    is an Art. 21 availability hole.
+    """
+    if not set_opt_out(shop, True):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "opt_out_persistence_failed: the opt-out store is "
+                "temporarily unavailable. Please retry in a few seconds."
+            ),
+        )
     try:
         write_audit_log(
             db,
@@ -162,8 +175,20 @@ def withdraw_objection(
     db: Session = Depends(get_db),
 ):
     """Reverse a prior Art. 21 objection. Merchants are free to opt
-    back in at any time."""
-    set_opt_out(shop, False)
+    back in at any time.
+
+    Mirrors the /object 503-on-persistence-failure contract so a
+    transient Redis outage doesn't leave the merchant with a stale
+    opt-out they thought they cleared.
+    """
+    if not set_opt_out(shop, False):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "opt_in_persistence_failed: the opt-out store is "
+                "temporarily unavailable. Please retry in a few seconds."
+            ),
+        )
     try:
         write_audit_log(
             db,

@@ -172,3 +172,120 @@ def test_rectify_requires_session(client):
 def test_object_requires_session(client):
     resp = client.post("/merchant/object", json={})
     assert resp.status_code in (401, 403)
+
+
+# ---------- 503 on Redis persistence failure (response-semantics fix) ----------
+#
+# Born 2026-05-13: prior code silently swallowed Redis write failures and
+# still returned 200 / "opted_out", lying to the merchant about a GDPR
+# Art. 21 outcome. set_opt_out now returns False on persistence failure;
+# the endpoint turns that into a 503 with a retryable error so the
+# merchant retries instead of believing they opted out.
+
+
+def test_set_opt_out_returns_true_on_success():
+    shop = f"sig-{uuid.uuid4().hex[:8]}.myshopify.com"
+    try:
+        assert set_opt_out(shop, True) is True
+        assert is_merchant_opted_out(shop) is True
+        assert set_opt_out(shop, False) is True
+        assert is_merchant_opted_out(shop) is False
+    finally:
+        set_opt_out(shop, False)
+
+
+def test_set_opt_out_returns_false_when_redis_client_unavailable(monkeypatch):
+    from app.services import merchant_privacy as mp
+    monkeypatch.setattr(mp, "_redis", lambda: None)
+    assert mp.set_opt_out("any-shop.myshopify.com", True) is False
+
+
+def test_set_opt_out_returns_false_when_redis_set_raises(monkeypatch):
+    from app.services import merchant_privacy as mp
+
+    class _ExplodingRedis:
+        def set(self, *_a, **_kw): raise RuntimeError("redis unavailable")
+        def delete(self, *_a, **_kw): raise RuntimeError("redis unavailable")
+        def get(self, *_a, **_kw): return None
+
+    monkeypatch.setattr(mp, "_redis", lambda: _ExplodingRedis())
+    assert mp.set_opt_out("any-shop.myshopify.com", True) is False
+    assert mp.set_opt_out("any-shop.myshopify.com", False) is False
+
+
+def test_object_returns_503_when_persistence_fails(client, db, monkeypatch):
+    """Endpoint MUST surface a 503 instead of lying about success when
+    the Redis opt-out write fails. Response body MUST carry the retry
+    hint so the dashboard can render the right error UI."""
+    shop = _make_merchant(db)
+    from app.api import merchant_privacy as api_mp
+
+    monkeypatch.setattr(api_mp, "set_opt_out", lambda *_a, **_kw: False)
+
+    resp = _with_override(shop, lambda: client.post(
+        "/merchant/object",
+        json={"reason": "test failure path"},
+    ))
+    assert resp.status_code == 503
+    body = resp.json()
+    assert "opt_out_persistence_failed" in body["detail"]
+    assert "retry" in body["detail"].lower()
+
+
+def test_object_skips_audit_log_when_persistence_fails(client, db, monkeypatch):
+    """Audit log MUST NOT record a completed gdpr_object event when the
+    underlying state never persisted — that would create a chain of
+    'completed' rows for events that never happened."""
+    shop = _make_merchant(db)
+    before = db.query(AuditLog).filter(
+        AuditLog.action_type == "gdpr_object",
+        AuditLog.target_id == shop,
+    ).count()
+
+    from app.api import merchant_privacy as api_mp
+    monkeypatch.setattr(api_mp, "set_opt_out", lambda *_a, **_kw: False)
+
+    _with_override(shop, lambda: client.post(
+        "/merchant/object",
+        json={"reason": "test"},
+    ))
+    after = db.query(AuditLog).filter(
+        AuditLog.action_type == "gdpr_object",
+        AuditLog.target_id == shop,
+    ).count()
+    assert after == before, (
+        "audit log MUST NOT record gdpr_object on persistence failure"
+    )
+
+
+def test_unobject_returns_503_when_persistence_fails(client, db, monkeypatch):
+    shop = _make_merchant(db)
+    from app.api import merchant_privacy as api_mp
+
+    monkeypatch.setattr(api_mp, "set_opt_out", lambda *_a, **_kw: False)
+
+    resp = _with_override(shop, lambda: client.post(
+        "/merchant/unobject",
+        json={},
+    ))
+    assert resp.status_code == 503
+    body = resp.json()
+    assert "opt_in_persistence_failed" in body["detail"]
+
+
+def test_unobject_skips_audit_log_when_persistence_fails(client, db, monkeypatch):
+    shop = _make_merchant(db)
+    before = db.query(AuditLog).filter(
+        AuditLog.action_type == "gdpr_unobject",
+        AuditLog.target_id == shop,
+    ).count()
+
+    from app.api import merchant_privacy as api_mp
+    monkeypatch.setattr(api_mp, "set_opt_out", lambda *_a, **_kw: False)
+
+    _with_override(shop, lambda: client.post("/merchant/unobject", json={}))
+    after = db.query(AuditLog).filter(
+        AuditLog.action_type == "gdpr_unobject",
+        AuditLog.target_id == shop,
+    ).count()
+    assert after == before

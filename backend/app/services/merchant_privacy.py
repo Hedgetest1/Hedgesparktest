@@ -69,11 +69,19 @@ def is_merchant_opted_out(shop_domain: str | None) -> bool:
         return False
 
 
-def set_opt_out(shop_domain: str, opted_out: bool) -> None:
+def set_opt_out(shop_domain: str, opted_out: bool) -> bool:
+    """Persist the GDPR Art. 21 opt-out flag in Redis.
+
+    Returns True when the flag was persisted, False when the Redis write
+    failed or the client is unavailable. The endpoint layer turns False
+    into a 503 so the merchant retries — silently swallowing the failure
+    would create an Art. 21 availability hole where the endpoint says
+    "opted_out" while the flag never actually persisted.
+    """
     rc = _redis()
     if rc is None:
         record_silent_return("merchant_privacy.opt_out_write")
-        return
+        return False
     try:
         key = _opt_out_key(shop_domain)
         if opted_out:
@@ -101,13 +109,15 @@ def set_opt_out(shop_domain: str, opted_out: bool) -> None:
                 )
         else:
             rc.delete(key)
+        return True
     except Exception as exc:
         # A Redis write failure on the opt-out flag is a GDPR Art. 21
-        # availability hole — the endpoint would return 200 but the
-        # opt-out never persisted. Surfaced via audit_silent_returns
-        # so a Redis-flake spike turns visible instead of hiding.
+        # availability hole — surface True/False so the endpoint can
+        # turn it into a 503 instead of pretending success. Also
+        # observable via record_silent_return for ops dashboards.
         record_silent_return("merchant_privacy.opt_out_write_failed")
         log.warning("merchant_privacy: set_opt_out failed: %s", exc)
+        return False
 
 
 def _purge_derived_caches_for_shop(shop_domain: str, rc) -> None:
