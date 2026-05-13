@@ -532,6 +532,230 @@ _INTENT_SIGNAL_TYPES = frozenset({
 })
 
 
+# ---------------------------------------------------------------------------
+# push_intent_signals_to_klaviyo — stage helpers
+# Refactor 2026-05-13 (A3 close): 216-LOC god function → composer + 9
+# pure stage helpers (SQL constant + signal fetch + dedup factory +
+# eligible-visitor picker + payload builder + profile resolver + HTTP
+# poster + per-signal processor). Contract preserved byte-identical.
+# ---------------------------------------------------------------------------
+
+
+_FRESH_INTENT_SIGNALS_SQL = text("""
+    SELECT product_url, signal_type, signal_strength
+    FROM opportunity_signals
+    WHERE shop_domain = :shop
+      AND signal_type = ANY(:types)
+      AND detected_at >= :cutoff
+      AND signal_strength >= 0.4
+      AND (signal_confidence IS NULL OR signal_confidence != 'low')
+    ORDER BY signal_strength DESC
+    LIMIT 10
+""")
+
+
+# Warm-top threshold: visitors in the upper warm band are included
+# alongside hot visitors for Klaviyo push. This captures genuinely
+# engaged visitors (70%+ scroll, 20s+ dwell) who fall just below the
+# conservative hot threshold — critical for early-stage stores in
+# fallback calibration mode where 0.55 is extremely hard to reach.
+_WARM_TOP_BI_THRESHOLD = 0.40
+_DEDUP_COOLDOWN_SECONDS = 12 * 3600  # 12h SETNX cooldown
+
+
+def _fetch_fresh_intent_signals(db: Session, shop_domain: str, cutoff: datetime) -> list:
+    return db.execute(_FRESH_INTENT_SIGNALS_SQL, {
+        "shop": shop_domain,
+        "types": list(_INTENT_SIGNAL_TYPES),
+        "cutoff": cutoff,
+    }).fetchall()
+
+
+def _make_dedup_check(shop_domain: str):
+    """Returns a callable(vid, purl, stype) → bool. SETNX-based atomic
+    claim — two concurrent workers can't both push the same event.
+    Fail-open on Redis errors (better to risk a dup than skip)."""
+    def _is_already_pushed(vid: str, purl: str, stype: str) -> bool:
+        try:
+            from app.core.redis_client import _client
+            from app.core.silent_fallback import record_silent_return
+            rc = _client()
+            if rc is None:
+                record_silent_return("klaviyo_export.dedup_claim")
+                return False
+            key = f"hs:kpush:{shop_domain}:{vid}:{purl}:{stype}"
+            claimed = rc.set(key, "1", nx=True, ex=_DEDUP_COOLDOWN_SECONDS)
+            return not bool(claimed)
+        except Exception:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("klaviyo_export.dedup_claim_fail_open")
+            return False  # fail open
+    return _is_already_pushed
+
+
+def _pick_eligible_visitors(segment: dict) -> list[dict]:
+    """HOT segment + WARM visitors whose behavioral_index >= 0.40."""
+    hot = segment.get("hot", {}).get("visitors", [])
+    warm = segment.get("warm", {}).get("visitors", [])
+    warm_top = [
+        v for v in warm
+        if v.get("behavioral_index", 0) >= _WARM_TOP_BI_THRESHOLD
+    ]
+    return hot + warm_top
+
+
+def _resolve_profile_attrs(
+    email: str | None, vid: str, allow_anon: bool,
+) -> tuple[dict, str] | None:
+    """Returns (profile_attrs, display_label) tuple or None when the
+    visitor is anonymous and ALLOW_INSECURE_DEV is off."""
+    if email:
+        return {"email": email}, email[:3] + "***"
+    if not allow_anon:
+        return None  # production path: skip anonymous, no synthetic profiles
+    return (
+        {
+            "email": f"{vid[:8]}@anon.hedgespark.local",
+            "external_id": vid,
+        },
+        f"anon:{vid[:8]}",
+    )
+
+
+def _build_klaviyo_event_payload(
+    *,
+    product_url: str, signal_type: str, signal_strength: float,
+    visitor: dict, profile_attrs: dict, shop_domain: str,
+) -> dict:
+    """Klaviyo v3 event payload — single visitor/product/signal triple."""
+    return {
+        "data": {
+            "type": "event",
+            "attributes": {
+                "metric": {
+                    "data": {
+                        "type": "metric",
+                        "attributes": {"name": "HedgeSpark — Intent Detected"},
+                    }
+                },
+                "profile": {
+                    "data": {
+                        "type": "profile",
+                        "attributes": profile_attrs,
+                    }
+                },
+                "properties": {
+                    "product_url":      product_url,
+                    "signal_type":      signal_type,
+                    "signal_strength":  round(signal_strength, 3),
+                    "behavioral_index": visitor["behavioral_index"],
+                    "visit_count":      visitor["visit_count"],
+                    "avg_scroll_pct":   visitor["avg_scroll"],
+                    "avg_dwell_secs":   visitor["avg_dwell_secs"],
+                    "shop_domain":      shop_domain,
+                    "source":           "hedgespark",
+                },
+                "time": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
+            },
+        }
+    }
+
+
+def _post_klaviyo_event(
+    *,
+    headers: dict, payload: dict, profile_label: str,
+    shop_domain: str, product_url: str, signal_type: str,
+) -> bool:
+    """POST one event to Klaviyo. Returns True on 2xx, False on any
+    failure (logged). Network/HTTP failures are documented operational
+    states — never raised so a single 4xx doesn't kill the whole sync."""
+    log.info(
+        "klaviyo_intent: ATTEMPT shop=%s signal=%s product=%s profile=%s",
+        shop_domain, signal_type, product_url[:60], profile_label,
+    )
+    try:
+        resp = httpx.post(
+            KLAVIYO_EVENTS_URL, headers=headers, json=payload, timeout=_REQUEST_TIMEOUT,
+        )
+        resp.raise_for_status()
+        log.info(
+            "klaviyo_intent: OK %d shop=%s profile=%s",
+            resp.status_code, shop_domain, profile_label,
+        )
+        return True
+    except httpx.HTTPStatusError as exc:
+        log.error(
+            "klaviyo_intent: HTTP %d shop=%s profile=%s product=%s: %s",
+            exc.response.status_code, shop_domain, profile_label,
+            product_url, exc.response.text[:200],
+        )
+        return False
+    except Exception as exc:
+        log.error(
+            "klaviyo_intent: FAIL shop=%s profile=%s: %s",
+            shop_domain, profile_label, type(exc).__name__,
+        )
+        return False
+
+
+def _process_intent_signal(
+    *,
+    db: Session, shop_domain: str, product_url: str, signal_type: str,
+    signal_strength: float, headers: dict, allow_anon: bool,
+    is_already_pushed,
+) -> tuple[int, int, int]:
+    """Process one (product, signal) pair. Returns
+    (pushed_count, anonymous_count, errors_count) for the signal."""
+    try:
+        segment = segment_product_visitors(db, shop_domain, product_url, hours=72)
+    except Exception as exc:
+        log.warning(
+            "klaviyo_intent: segment failed shop=%s product=%s: %s",
+            shop_domain, product_url, type(exc).__name__,
+        )
+        return 0, 0, 0
+
+    eligible = _pick_eligible_visitors(segment)
+    if not eligible:
+        return 0, 0, 0
+
+    email_map = _resolve_visitor_emails(
+        db, shop_domain, [v["visitor_id"] for v in eligible],
+    )
+
+    pushed = 0
+    anonymous = 0
+    errors = 0
+    for visitor in eligible:
+        vid = visitor["visitor_id"]
+        if is_already_pushed(vid, product_url, signal_type):
+            continue
+        email = email_map.get(vid)
+        profile = _resolve_profile_attrs(email, vid, allow_anon)
+        if profile is None:
+            # Anonymous visitor in production — skip + count
+            anonymous += 1
+            continue
+        profile_attrs, profile_label = profile
+        if not email:
+            # Dev-mode anonymous: still counts toward anonymous tally
+            anonymous += 1
+        payload = _build_klaviyo_event_payload(
+            product_url=product_url, signal_type=signal_type,
+            signal_strength=signal_strength, visitor=visitor,
+            profile_attrs=profile_attrs, shop_domain=shop_domain,
+        )
+        if _post_klaviyo_event(
+            headers=headers, payload=payload, profile_label=profile_label,
+            shop_domain=shop_domain, product_url=product_url,
+            signal_type=signal_type,
+        ):
+            pushed += 1
+        else:
+            errors += 1
+    return pushed, anonymous, errors
+
+
 def push_intent_signals_to_klaviyo(
     db: Session,
     shop_domain: str,
@@ -545,193 +769,42 @@ def push_intent_signals_to_klaviyo(
     Klaviyo event per identified visitor per product.
 
     Returns: {"pushed": int, "anonymous": int, "errors": int, "signals": int}
+
+    Refactored 2026-05-13 (A3 close): 216-LOC god function → 35-LOC
+    composer + 9 pure helpers.
     """
     import os
-    _ALLOW_ANON_PUSH = os.getenv("ALLOW_INSECURE_DEV", "").lower() == "true"
+    from app.services.klaviyo_connection import (
+        resolve_klaviyo_key, record_sync_success, record_sync_failure,
+    )
 
-    from app.services.klaviyo_connection import resolve_klaviyo_key, record_sync_success, record_sync_failure
-
-    # Resolve merchant Klaviyo key — skip silently if not connected
     api_key = resolve_klaviyo_key(db, shop_domain)
     if not api_key:
         return {"pushed": 0, "anonymous": 0, "errors": 0, "signals": 0, "skipped": "no_key"}
 
-    # Find fresh intent signals (detected in last 15 min)
-    from datetime import timedelta
     cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=15)
-
-    rows = db.execute(
-        text("""
-            SELECT product_url, signal_type, signal_strength
-            FROM opportunity_signals
-            WHERE shop_domain = :shop
-              AND signal_type = ANY(:types)
-              AND detected_at >= :cutoff
-              AND signal_strength >= 0.4
-              AND (signal_confidence IS NULL OR signal_confidence != 'low')
-            ORDER BY signal_strength DESC
-            LIMIT 10
-        """),
-        {
-            "shop": shop_domain,
-            "types": list(_INTENT_SIGNAL_TYPES),
-            "cutoff": cutoff,
-        },
-    ).fetchall()
-
+    rows = _fetch_fresh_intent_signals(db, shop_domain, cutoff)
     if not rows:
         return {"pushed": 0, "anonymous": 0, "errors": 0, "signals": 0}
 
+    allow_anon = os.getenv("ALLOW_INSECURE_DEV", "").lower() == "true"
     headers = _klaviyo_headers(api_key)
+    is_already_pushed = _make_dedup_check(shop_domain)
+
     total_pushed = 0
     total_anonymous = 0
     total_errors = 0
-
-    # Delivery dedup: prevent repeated pushes of the same event within a cooldown.
-    # Key: hs:kpush:{shop}:{visitor}:{product}:{signal} — Redis SETEX with TTL.
-    # Fail-open: if Redis is down, push proceeds (same pattern as signal cache).
-    _DEDUP_COOLDOWN_SECONDS = 12 * 3600   # 12 hours
-
-    def _is_already_pushed(vid: str, purl: str, stype: str) -> bool:
-        """
-        Atomic claim — two concurrent workers would previously both see
-        the key missing and both push the same visitor to Klaviyo. Now
-        uses SET NX so only one worker wins the claim.
-        """
-        try:
-            from app.core.redis_client import _client
-            rc = _client()
-            if rc is None:
-                from app.core.silent_fallback import record_silent_return
-                record_silent_return("klaviyo_export.dedup_claim")
-                return False
-            key = f"hs:kpush:{shop_domain}:{vid}:{purl}:{stype}"
-            claimed = rc.set(key, "1", nx=True, ex=_DEDUP_COOLDOWN_SECONDS)
-            return not bool(claimed)
-        except Exception:
-            return False  # fail open
-
-    # Warm-top threshold: visitors in the upper warm band are included
-    # alongside hot visitors for Klaviyo push.  This captures genuinely
-    # engaged visitors (70%+ scroll, 20s+ dwell) who fall just below the
-    # conservative hot threshold — critical for early-stage stores in
-    # fallback calibration mode where 0.55 is extremely hard to reach.
-    _WARM_TOP_BI_THRESHOLD = 0.40
-
     for product_url, signal_type, signal_strength in rows:
-        # Get HOT + warm-top visitors for this product
-        try:
-            segment = segment_product_visitors(db, shop_domain, product_url, hours=72)
-        except Exception as exc:
-            log.warning(
-                "klaviyo_intent: segment failed shop=%s product=%s: %s",
-                shop_domain, product_url, type(exc).__name__,
-            )
-            continue
+        pushed, anonymous, errors = _process_intent_signal(
+            db=db, shop_domain=shop_domain,
+            product_url=product_url, signal_type=signal_type,
+            signal_strength=signal_strength, headers=headers,
+            allow_anon=allow_anon, is_already_pushed=is_already_pushed,
+        )
+        total_pushed += pushed
+        total_anonymous += anonymous
+        total_errors += errors
 
-        hot_visitors = segment.get("hot", {}).get("visitors", [])
-        warm_visitors = segment.get("warm", {}).get("visitors", [])
-
-        # Include warm visitors whose behavioral_index is in the top band
-        warm_top = [v for v in warm_visitors if v.get("behavioral_index", 0) >= _WARM_TOP_BI_THRESHOLD]
-
-        eligible_visitors = hot_visitors + warm_top
-        if not eligible_visitors:
-            continue
-
-        visitor_ids = [v["visitor_id"] for v in eligible_visitors]
-        email_map = _resolve_visitor_emails(db, shop_domain, visitor_ids)
-
-        for visitor in eligible_visitors:
-            vid = visitor["visitor_id"]
-
-            # Dedup: skip if this exact (visitor, product, signal) was pushed recently
-            if _is_already_pushed(vid, product_url, signal_type):
-                continue
-
-            email = email_map.get(vid)
-
-            if not email:
-                # Production: skip anonymous visitors — no synthetic profiles
-                # Dev only: ALLOW_INSECURE_DEV enables anon fallback for local testing
-                if not _ALLOW_ANON_PUSH:
-                    total_anonymous += 1
-                    continue
-                profile_attrs = {
-                    "email": f"{vid[:8]}@anon.hedgespark.local",
-                    "external_id": vid,
-                }
-                profile_label = f"anon:{vid[:8]}"
-                total_anonymous += 1
-            else:
-                profile_attrs = {"email": email}
-                profile_label = email[:3] + "***"
-
-            payload = {
-                "data": {
-                    "type": "event",
-                    "attributes": {
-                        "metric": {
-                            "data": {
-                                "type": "metric",
-                                "attributes": {"name": "HedgeSpark — Intent Detected"},
-                            }
-                        },
-                        "profile": {
-                            "data": {
-                                "type": "profile",
-                                "attributes": profile_attrs,
-                            }
-                        },
-                        "properties": {
-                            "product_url":      product_url,
-                            "signal_type":      signal_type,
-                            "signal_strength":  round(signal_strength, 3),
-                            "behavioral_index": visitor["behavioral_index"],
-                            "visit_count":      visitor["visit_count"],
-                            "avg_scroll_pct":   visitor["avg_scroll"],
-                            "avg_dwell_secs":   visitor["avg_dwell_secs"],
-                            "shop_domain":      shop_domain,
-                            "source":           "hedgespark",
-                        },
-                        "time": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
-                    },
-                }
-            }
-
-            log.info(
-                "klaviyo_intent: ATTEMPT shop=%s signal=%s product=%s profile=%s",
-                shop_domain, signal_type, product_url[:60], profile_label,
-            )
-
-            try:
-                resp = httpx.post(
-                    KLAVIYO_EVENTS_URL,
-                    headers=headers,
-                    json=payload,
-                    timeout=_REQUEST_TIMEOUT,
-                )
-                resp.raise_for_status()
-                total_pushed += 1
-                log.info(
-                    "klaviyo_intent: OK %d shop=%s profile=%s",
-                    resp.status_code, shop_domain, profile_label,
-                )
-            except httpx.HTTPStatusError as exc:
-                log.error(
-                    "klaviyo_intent: HTTP %d shop=%s profile=%s product=%s: %s",
-                    exc.response.status_code, shop_domain, profile_label,
-                    product_url, exc.response.text[:200],
-                )
-                total_errors += 1
-            except Exception as exc:
-                log.error(
-                    "klaviyo_intent: FAIL shop=%s profile=%s: %s",
-                    shop_domain, profile_label, type(exc).__name__,
-                )
-                total_errors += 1
-
-    # Record sync outcome
     if total_errors == 0 and total_pushed > 0:
         record_sync_success(db, shop_domain)
     elif total_errors > 0:
@@ -741,7 +814,6 @@ def push_intent_signals_to_klaviyo(
         "klaviyo_intent: shop=%s signals=%d pushed=%d anonymous=%d errors=%d",
         shop_domain, len(rows), total_pushed, total_anonymous, total_errors,
     )
-
     return {
         "pushed": total_pushed,
         "anonymous": total_anonymous,
