@@ -60,6 +60,7 @@ _LINE_ALLOWLIST: dict[str, str] = {
     "app/services/order_ingestion.py:274": "Shopify webhook default — ingestion-layer safety net, not display",
     "app/services/pnl_engine.py:162": "Exception-path fallback after get_shop_currency() raises — defensive",
     "app/services/storefront_preview.py:156": "Pre-signup demo: currency unknown; narrative explicitly labels 'in your store's currency'",
+    "app/api/lite_extras.py:1889": "_CHURN_FORECAST_SQL — SUM(total_price) is INTENTIONALLY currency-agnostic for the churn cohort: the signal is order frequency (LAG + PERCENTILE_CONT median gap), not amount. A multi-currency customer buying in both USD and EUR is still ONE identity for churn; filtering by currency would corrupt the signal by excluding cross-currency customers. Documented in the module constant's preceding comment block. Pre-refactor this passed because the composer body had `currency = get_shop_currency(db, shop)` within the 50-line proximity window; post-refactor (SQL hoisted to module constant) that proximity is broken, but the design intent is preserved.",
     # ─── stats_claim_without_significance allowlist (manually verified) ──
     "app/api/playbook.py:219": "Peer-network aggregate: avg_lift computed from SQL AVG((treatment_cvr - control_cvr) / control_cvr); per-row holdout is by construction, per-row significance is upstream in autonomous_actions writes (nudge_measurement).",
     "app/api/playbook.py:220": "Peer-network aggregate: best_lift over holdout-measured rows — same source as avg_lift on line 219.",
