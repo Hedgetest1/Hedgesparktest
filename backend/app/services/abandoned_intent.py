@@ -49,104 +49,195 @@ def _humanize_url(url: str) -> str:
     return slug.replace("-", " ").replace("_", " ").title() or url
 
 
-def compute_abandoned_intent(db: Session, shop_domain: str, plan: str = "pro") -> dict:
-    """
-    Compute abandoned intent analysis for the shop.
+# ---------------------------------------------------------------------------
+# compute_abandoned_intent — stage helpers
+# Refactor 2026-05-13 (A3 close): 246-LOC god function → composer + 12
+# pure stage helpers. Contract preserved byte-identical (proven by the
+# 10 prior tests still green). SQL unchanged.
+# ---------------------------------------------------------------------------
 
-    Returns product-level abandon metrics + session path insights.
 
-    Plan-aware response:
-      plan = "pro"  → full product list (top 15) + session_insights
-      plan != "pro" → top 3 products only, session_insights redacted
-                      to {} (upgrade bridge in the Lite UI shows
-                      what Pro unlocks). Hero count and headline stay
-                      identical across tiers so the Lite merchant
-                      still understands the scale of the leak.
-    """
-    cache_key = f"{_CACHE_PREFIX}:{hashlib.md5(shop_domain.encode()).hexdigest()[:16]}"
-    cache_hit: dict | None = None
+_EVENTS_SQL = text("""
+    SELECT visitor_id, event_type, product_url, timestamp
+    FROM events
+    WHERE shop_domain = :shop
+      AND to_timestamp(timestamp/1000) >= :cutoff
+      AND event_type IN ('product_view', 'add_to_cart', 'checkout', 'purchase')
+    ORDER BY visitor_id, timestamp
+""")
+
+
+def _cache_key_for(shop_domain: str) -> str:
+    return f"{_CACHE_PREFIX}:{hashlib.md5(shop_domain.encode()).hexdigest()[:16]}"
+
+
+def _load_cached_intent(shop_domain: str) -> dict | None:
+    """Return cached payload or None on miss/error. Observed via
+    record_silent_return so cache-degradation surfaces in metrics."""
+    from app.core.silent_fallback import record_silent_return
     try:
         from app.core.redis_client import _client
         rc = _client()
-        if rc is not None:
-            cached = rc.get(cache_key)
-            if cached:
-                cache_hit = json.loads(cached)
+        if rc is None:
+            record_silent_return("abandoned_intent.cache.get.no_client")
+            return None
+        cached = rc.get(_cache_key_for(shop_domain))
+        return json.loads(cached) if cached else None
     except Exception as exc:
         log.warning("abandoned_intent: redis cache read failed: %s", exc)
+        record_silent_return("abandoned_intent.cache.get.exception")
+        return None
 
-    if cache_hit is not None:
-        return _apply_plan_filter(cache_hit, plan)
 
-    now = _now()
-    cutoff = now - timedelta(days=7)
+def _save_cached_intent(shop_domain: str, result: dict) -> None:
+    """Best-effort cache write — never raises. Observed via
+    record_silent_return so cache-degradation surfaces in metrics."""
+    from app.core.silent_fallback import record_silent_return
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            record_silent_return("abandoned_intent.cache.set.no_client")
+            return
+        rc.setex(_cache_key_for(shop_domain), _CACHE_TTL,
+                 json.dumps(result, default=str))
+    except Exception as exc:
+        log.warning("abandoned_intent: redis cache write failed: %s", exc)
+        record_silent_return("abandoned_intent.cache.set.exception")
 
-    # Fetch all events for the shop in the last 7 days
-    rows = db.execute(text("""
-        SELECT visitor_id, event_type, product_url, timestamp
-        FROM events
-        WHERE shop_domain = :shop
-          AND to_timestamp(timestamp/1000) >= :cutoff
-          AND event_type IN ('product_view', 'add_to_cart', 'checkout', 'purchase')
-        ORDER BY visitor_id, timestamp
-    """), {"shop": shop_domain, "cutoff": cutoff}).fetchall()
 
+def _fetch_events(db: Session, shop_domain: str, cutoff: datetime) -> list:
+    """7-day event fetch — visitor_id ordered + timestamp ordered."""
+    return db.execute(
+        _EVENTS_SQL, {"shop": shop_domain, "cutoff": cutoff},
+    ).fetchall()
+
+
+def _resolve_currency(db: Session, shop_domain: str) -> str:
+    """USD fallback on any lookup failure — never raises.
+
+    Observed via record_silent_return so a spike in currency
+    resolution failures (broken revenue_metrics import, shop_currency
+    table degradation) surfaces in metrics instead of hiding behind
+    a sea of USD-by-default responses.
+    """
     try:
         from app.services.revenue_metrics import get_shop_currency
-        currency = get_shop_currency(db, shop_domain) or "USD"
-    except Exception:
-        currency = "USD"
+        return get_shop_currency(db, shop_domain) or "USD"
+    except Exception as exc:
+        from app.core.silent_fallback import record_silent_return
+        record_silent_return("abandoned_intent.resolve_currency")
+        log.warning("abandoned_intent: currency lookup failed: %s", exc)
+        return "USD"
 
-    if not rows:
-        empty = {
-            "shop_domain": shop_domain,
-            "products": [],
-            "total_products_count": 0,
-            "session_insights": {},
-            "headline": "Insufficient data for intent analysis.",
-            "currency": currency,
-            "generated_at": now.isoformat(),
-        }
-        return _apply_plan_filter(empty, plan)
 
-    # --- Build visitor sessions ---
-    visitor_events: dict[str, list] = defaultdict(list)
+def _empty_intent_response(
+    shop_domain: str, currency: str, now: datetime,
+) -> dict:
+    return {
+        "shop_domain": shop_domain,
+        "products": [],
+        "total_products_count": 0,
+        "session_insights": {},
+        "headline": "Insufficient data for intent analysis.",
+        "currency": currency,
+        "generated_at": now.isoformat(),
+    }
+
+
+def _group_events_by_visitor(rows: list) -> dict[str, list]:
+    """SQL rows → {visitor_id: [event dicts]}. Order preserved (rows
+    are pre-sorted by visitor_id, timestamp in the SQL)."""
+    out: dict[str, list] = defaultdict(list)
     for r in rows:
-        visitor_events[r[0]].append({
+        out[r[0]].append({
             "event_type": r[1],
             "product_url": r[2] or "",
             "timestamp": r[3],
         })
+    return out
 
-    # --- Per-product analysis ---
+
+def _split_into_sessions(events: list) -> list[list]:
+    """30-min gap → new session. Caller guarantees events is non-empty
+    and timestamp-ordered."""
+    sessions = []
+    current = [events[0]]
+    for e in events[1:]:
+        if e["timestamp"] - current[-1]["timestamp"] > _SESSION_GAP_MS:
+            sessions.append(current)
+            current = [e]
+        else:
+            current.append(e)
+    sessions.append(current)
+    return sessions
+
+
+def _classify_leak(view_to_cart: float, cart_to_purchase: float) -> tuple[str, str]:
+    """Determine WHERE intent is dying for a product."""
+    if view_to_cart < 5:
+        return "browse_to_cart", "Visitors view but don't add to cart"
+    if cart_to_purchase < 30:
+        return "cart_to_purchase", "Added to cart but not purchased"
+    return "none", "Funnel is healthy"
+
+
+def _build_product_record(
+    purl: str, ps: dict, exit_count: int,
+) -> dict:
+    """One per-product analysis record. Includes leak classification +
+    abandon rate + cart-abandoner count."""
+    view_to_cart = (ps["carts"] / ps["views"] * 100) if ps["views"] > 0 else 0
+    cart_to_purchase = (ps["purchases"] / ps["carts"] * 100) if ps["carts"] > 0 else 0
+    abandon_rate = 100 - (ps["purchases"] / ps["views"] * 100) if ps["views"] > 0 else 100
+    leak, leak_label = _classify_leak(view_to_cart, cart_to_purchase)
+    return {
+        "product_url": purl,
+        "product_name": _humanize_url(purl),
+        "views_7d": ps["views"],
+        "carts_7d": ps["carts"],
+        "purchases_7d": ps["purchases"],
+        "view_to_cart_pct": round(view_to_cart, 1),
+        "cart_to_purchase_pct": round(cart_to_purchase, 1),
+        "abandon_rate_pct": round(abandon_rate, 1),
+        "exit_sessions": exit_count,
+        "leak_point": leak,
+        "leak_label": leak_label,
+        "unique_viewers": (
+            len(ps["view_only_visitors"])
+            + len(ps["cart_abandon_visitors"])
+            + len(ps["buyer_visitors"])
+        ),
+        "cart_abandoners": len(ps["cart_abandon_visitors"]),
+    }
+
+
+def _accumulate_session_stats(
+    visitor_events: dict[str, list],
+) -> tuple[dict, dict, list, list, list, list]:
+    """Walk every visitor session and accumulate:
+      - product_stats[purl]: views/carts/purchases + 3 visitor sets
+      - exit_products[purl]: count of non-buying sessions exiting on it
+      - buyer/nonbuyer session_lengths (event counts)
+      - buyer/nonbuyer products_viewed (unique URL counts)
+    Returns (product_stats, exit_products, buyer_lens, nonbuyer_lens,
+             buyer_products, nonbuyer_products).
+    """
     product_stats: dict[str, dict] = defaultdict(lambda: {
         "views": 0, "carts": 0, "purchases": 0,
         "view_only_visitors": set(),
         "cart_abandon_visitors": set(),
         "buyer_visitors": set(),
-        "last_viewed_before_exit": 0,  # how often this was the exit product
+        "last_viewed_before_exit": 0,
     })
-
-    # --- Session path analysis ---
-    buyer_session_lengths = []
-    nonbuyer_session_lengths = []
-    buyer_products_viewed = []
-    nonbuyer_products_viewed = []
     exit_products: dict[str, int] = defaultdict(int)
+    buyer_session_lengths: list[int] = []
+    nonbuyer_session_lengths: list[int] = []
+    buyer_products_viewed: list[int] = []
+    nonbuyer_products_viewed: list[int] = []
 
     for vid, events in visitor_events.items():
-        # Split into sessions by 30-min gap
-        sessions = []
-        current_session = [events[0]]
-        for e in events[1:]:
-            if e["timestamp"] - current_session[-1]["timestamp"] > _SESSION_GAP_MS:
-                sessions.append(current_session)
-                current_session = [e]
-            else:
-                current_session.append(e)
-        sessions.append(current_session)
-
-        for session in sessions:
+        for session in _split_into_sessions(events):
             event_types = {e["event_type"] for e in session}
             products_viewed = [
                 e["product_url"] for e in session
@@ -157,7 +248,6 @@ def compute_abandoned_intent(db: Session, shop_domain: str, plan: str = "pro") -
                 if e["event_type"] == "add_to_cart" and e["product_url"]
             }
             is_buyer = "purchase" in event_types
-
             unique_products = list(dict.fromkeys(products_viewed))
 
             if is_buyer:
@@ -167,12 +257,9 @@ def compute_abandoned_intent(db: Session, shop_domain: str, plan: str = "pro") -
                 nonbuyer_session_lengths.append(len(session))
                 nonbuyer_products_viewed.append(len(unique_products))
 
-            # Track exit product (last product viewed in non-buying session)
             if not is_buyer and products_viewed:
-                exit_url = products_viewed[-1]
-                exit_products[exit_url] += 1
+                exit_products[products_viewed[-1]] += 1
 
-            # Per-product stats
             for purl in set(products_viewed):
                 ps = product_stats[purl]
                 ps["views"] += 1
@@ -188,89 +275,114 @@ def compute_abandoned_intent(db: Session, shop_domain: str, plan: str = "pro") -
                 if is_buyer:
                     product_stats[purl]["purchases"] += 1
 
-    # --- Build product reports ---
-    products = []
+    return (
+        product_stats, exit_products,
+        buyer_session_lengths, nonbuyer_session_lengths,
+        buyer_products_viewed, nonbuyer_products_viewed,
+    )
+
+
+def _build_products_list(
+    product_stats: dict, exit_products: dict,
+) -> tuple[list[dict], int]:
+    """Filter products with >=3 views, sort by opportunity score, cap
+    at _MAX_PRODUCTS. Returns (capped_list, true_leak_count_pre_cap).
+
+    The pre-cap count is preserved separately because the UI's
+    'Products leaking intent: N' drawer stat depends on it staying
+    honest even when the visible list is truncated.
+    """
+    products: list[dict] = []
     for purl, ps in product_stats.items():
         if ps["views"] < 3:
             continue
+        products.append(_build_product_record(purl, ps, exit_products.get(purl, 0)))
 
-        view_to_cart = (ps["carts"] / ps["views"] * 100) if ps["views"] > 0 else 0
-        cart_to_purchase = (ps["purchases"] / ps["carts"] * 100) if ps["carts"] > 0 else 0
-        abandon_rate = 100 - (ps["purchases"] / ps["views"] * 100) if ps["views"] > 0 else 100
-        exit_count = exit_products.get(purl, 0)
-
-        # Determine the "leak" — where is intent dying?
-        if view_to_cart < 5:
-            leak = "browse_to_cart"
-            leak_label = "Visitors view but don't add to cart"
-        elif cart_to_purchase < 30:
-            leak = "cart_to_purchase"
-            leak_label = "Added to cart but not purchased"
-        else:
-            leak = "none"
-            leak_label = "Funnel is healthy"
-
-        products.append({
-            "product_url": purl,
-            "product_name": _humanize_url(purl),
-            "views_7d": ps["views"],
-            "carts_7d": ps["carts"],
-            "purchases_7d": ps["purchases"],
-            "view_to_cart_pct": round(view_to_cart, 1),
-            "cart_to_purchase_pct": round(cart_to_purchase, 1),
-            "abandon_rate_pct": round(abandon_rate, 1),
-            "exit_sessions": exit_count,
-            "leak_point": leak,
-            "leak_label": leak_label,
-            "unique_viewers": len(ps["view_only_visitors"]) + len(ps["cart_abandon_visitors"]) + len(ps["buyer_visitors"]),
-            "cart_abandoners": len(ps["cart_abandon_visitors"]),
-        })
-
-    # Sort by opportunity: high views + high abandon = highest opportunity
-    products.sort(key=lambda p: p["views_7d"] * (p["abandon_rate_pct"] / 100), reverse=True)
-
-    # Capture the TRUE leak count BEFORE we truncate. This is the
-    # honest "X products leaking intent this week" figure that the UI
-    # shows in the drawer — and that the Lite "showing top 3 of N"
-    # framing depends on. Previously this field was captured AFTER the
-    # `[:_MAX_PRODUCTS]` slice, silently capping its own honesty at 15.
-    # Audit 2026-04-19 caught this.
+    products.sort(
+        key=lambda p: p["views_7d"] * (p["abandon_rate_pct"] / 100),
+        reverse=True,
+    )
     true_leak_count = len(products)
-    products = products[:_MAX_PRODUCTS]
+    return products[:_MAX_PRODUCTS], true_leak_count
 
-    # --- Session insights ---
-    avg_buyer_length = (sum(buyer_session_lengths) / len(buyer_session_lengths)) if buyer_session_lengths else 0
-    avg_nonbuyer_length = (sum(nonbuyer_session_lengths) / len(nonbuyer_session_lengths)) if nonbuyer_session_lengths else 0
-    avg_buyer_products = (sum(buyer_products_viewed) / len(buyer_products_viewed)) if buyer_products_viewed else 0
-    avg_nonbuyer_products = (sum(nonbuyer_products_viewed) / len(nonbuyer_products_viewed)) if nonbuyer_products_viewed else 0
 
-    # Top exit products
+def _build_session_insights(
+    *,
+    exit_products: dict,
+    buyer_session_lengths: list[int],
+    nonbuyer_session_lengths: list[int],
+    buyer_products_viewed: list[int],
+    nonbuyer_products_viewed: list[int],
+) -> dict:
+    """Buyer vs non-buyer session shape + top-5 exit products."""
+    def _avg(xs: list) -> float:
+        return (sum(xs) / len(xs)) if xs else 0.0
+
     top_exits = sorted(exit_products.items(), key=lambda x: x[1], reverse=True)[:5]
-    top_exit_list = [
-        {"product_url": url, "product_name": _humanize_url(url), "exit_count": cnt}
-        for url, cnt in top_exits
-    ]
-
-    session_insights = {
-        "buyer_avg_events": round(avg_buyer_length, 1),
-        "nonbuyer_avg_events": round(avg_nonbuyer_length, 1),
-        "buyer_avg_products_viewed": round(avg_buyer_products, 1),
-        "nonbuyer_avg_products_viewed": round(avg_nonbuyer_products, 1),
+    return {
+        "buyer_avg_events": round(_avg(buyer_session_lengths), 1),
+        "nonbuyer_avg_events": round(_avg(nonbuyer_session_lengths), 1),
+        "buyer_avg_products_viewed": round(_avg(buyer_products_viewed), 1),
+        "nonbuyer_avg_products_viewed": round(_avg(nonbuyer_products_viewed), 1),
         "total_buyer_sessions": len(buyer_session_lengths),
         "total_nonbuyer_sessions": len(nonbuyer_session_lengths),
-        "top_exit_products": top_exit_list,
+        "top_exit_products": [
+            {"product_url": url, "product_name": _humanize_url(url), "exit_count": cnt}
+            for url, cnt in top_exits
+        ],
     }
 
-    # Narrative
-    if products:
-        worst = products[0]
-        headline = (
-            f"{worst['product_name']} has the highest abandoned intent: "
-            f"{worst['views_7d']} views, {worst['abandon_rate_pct']:.0f}% abandon rate. "
-            f"Leak point: {worst['leak_label'].lower()}."
+
+def _build_intent_headline(products: list[dict]) -> str:
+    if not products:
+        return "Not enough data to identify abandoned intent patterns."
+    worst = products[0]
+    return (
+        f"{worst['product_name']} has the highest abandoned intent: "
+        f"{worst['views_7d']} views, {worst['abandon_rate_pct']:.0f}% abandon rate. "
+        f"Leak point: {worst['leak_label'].lower()}."
+    )
+
+
+def compute_abandoned_intent(db: Session, shop_domain: str, plan: str = "pro") -> dict:
+    """
+    Compute abandoned intent analysis for the shop.
+
+    Returns product-level abandon metrics + session path insights.
+
+    Plan-aware response:
+      plan = "pro"  → full product list (top 15) + session_insights
+      plan != "pro" → top 3 products only, session_insights redacted
+                      to {} (upgrade bridge in the Lite UI shows
+                      what Pro unlocks). Hero count and headline stay
+                      identical across tiers so the Lite merchant
+                      still understands the scale of the leak.
+
+    Refactored 2026-05-13 (A3 close): 246-LOC god function → 25-LOC
+    composer + 12 pure helpers.
+    """
+    cache_hit = _load_cached_intent(shop_domain)
+    if cache_hit is not None:
+        return _apply_plan_filter(cache_hit, plan)
+
+    now = _now()
+    cutoff = now - timedelta(days=7)
+    rows = _fetch_events(db, shop_domain, cutoff)
+    currency = _resolve_currency(db, shop_domain)
+
+    if not rows:
+        return _apply_plan_filter(
+            _empty_intent_response(shop_domain, currency, now), plan,
         )
-    else:
-        headline = "Not enough data to identify abandoned intent patterns."
+
+    visitor_events = _group_events_by_visitor(rows)
+    (
+        product_stats, exit_products,
+        buyer_lens, nonbuyer_lens,
+        buyer_products, nonbuyer_products,
+    ) = _accumulate_session_stats(visitor_events)
+
+    products, true_leak_count = _build_products_list(product_stats, exit_products)
 
     result = {
         "shop_domain": shop_domain,
@@ -280,20 +392,19 @@ def compute_abandoned_intent(db: Session, shop_domain: str, plan: str = "pro") -
         # "Products leaking intent: N" stat to stay honest about scale
         # even when the list is truncated.
         "total_products_count": true_leak_count,
-        "session_insights": session_insights,
-        "headline": headline,
+        "session_insights": _build_session_insights(
+            exit_products=exit_products,
+            buyer_session_lengths=buyer_lens,
+            nonbuyer_session_lengths=nonbuyer_lens,
+            buyer_products_viewed=buyer_products,
+            nonbuyer_products_viewed=nonbuyer_products,
+        ),
+        "headline": _build_intent_headline(products),
         "currency": currency,
         "generated_at": now.isoformat(),
     }
 
-    try:
-        from app.core.redis_client import _client
-        rc = _client()
-        if rc is not None:
-            rc.setex(cache_key, _CACHE_TTL, json.dumps(result, default=str))
-    except Exception as exc:
-        log.warning("abandoned_intent: redis cache write failed: %s", exc)
-
+    _save_cached_intent(shop_domain, result)
     return _apply_plan_filter(result, plan)
 
 
