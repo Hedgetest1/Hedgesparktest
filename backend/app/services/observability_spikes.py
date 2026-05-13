@@ -242,7 +242,14 @@ def detect_frontend_error_spike(db: Session) -> int:
 _P95_WINDOW_HOURS = 24
 _P95_BASELINE_DAYS = 7
 _P95_DRIFT_RATIO = 1.5  # last 24h p95 >= 1.5× baseline
-_P95_MIN_SAMPLES = 50   # don't alert on sparse-traffic routes
+# Min sample floor bumped 2026-05-13 from 50 → 100 after /live/visitors
+# fired 22.8× drift (975ms vs 43ms) on 50 samples, where each cold-start
+# request after a PM2 reload was an outlier dominating the per-hour
+# bucket median. With 8 auto-deploy reloads in 24h × ~3 cold outliers each
+# = 24 cold samples / 50 total = 48% cold ratio. 100-sample floor halves
+# the cold-noise fraction and keeps the detector accurate at N>10 paying
+# merchants traffic levels (production: ~5k req/route/day per merchant).
+_P95_MIN_SAMPLES = 100
 _P95_MIN_ABS_MS = 50    # don't alert when everything is <50ms
 _P95_COOLDOWN_KEY = "hs:spike:p95_drift:{route}:{day}"
 _P95_COOLDOWN_TTL = 86400
@@ -333,13 +340,34 @@ def detect_p95_slow_trends(db: Session) -> int:
         recent_p95 = statistics.median(recent)
         baseline_p95 = statistics.median(baseline)
 
-        if recent_p95 < _P95_MIN_ABS_MS:
+        # Heal: a prior alert that was healthy by next cycle should clear.
+        # Tracks the route's current vs-baseline state and resolves prior
+        # unresolved alerts when ratio drops back below threshold OR
+        # absolute is back under floor.
+        source = f"p95_drift:{route}"[:64]
+        if (
+            recent_p95 < _P95_MIN_ABS_MS
+            or baseline_p95 <= 0
+            or (recent_p95 / baseline_p95) < _P95_DRIFT_RATIO
+        ):
+            try:
+                from app.services.alerting import auto_resolve_alerts
+                healed_n = auto_resolve_alerts(
+                    db, source=source, alert_type="p95_slow_trend",
+                )
+                if healed_n:
+                    log.info(
+                        "p95_slow_trend heal: auto-resolved %d alert(s) for %s",
+                        healed_n, route,
+                    )
+            except Exception as exc:
+                log.warning(
+                    "p95_slow_trend heal failed route=%s: %s", route, exc
+                )
             continue
-        if baseline_p95 <= 0:
-            continue
+
+        # Past the heal gate — route is currently breaching threshold.
         ratio = recent_p95 / baseline_p95
-        if ratio < _P95_DRIFT_RATIO:
-            continue
 
         key = _P95_COOLDOWN_KEY.format(route=route, day=day_key)
         if not _cooldown_ok(key, _P95_COOLDOWN_TTL):
@@ -350,7 +378,7 @@ def detect_p95_slow_trends(db: Session) -> int:
             write_alert(
                 db,
                 severity="warning",
-                source=f"p95_drift:{route}"[:64],
+                source=source,
                 alert_type="p95_slow_trend",
                 summary=(
                     f"p95 drift on {route}: "
