@@ -105,19 +105,29 @@ def get_cohort_retention(
             customer_orders[email] = []
         customer_orders[email].append((created_at, price))
 
-    # Step 3: Assign each customer to their first-purchase cohort week
-    # Cohort key = "YYYY-WNN" (ISO week)
+    # Step 3: Assign each customer to their first-purchase cohort week.
+    # Cohort key = "YYYY-WNN" (ISO week). We store the cohort's Monday
+    # directly instead of round-tripping through strftime("%V") →
+    # strptime("%W"): the two format codes don't share semantics
+    # (%V is ISO 8601 week-number, %W is Monday-anchored Gregorian week,
+    # which drift by a week around the new year). The direct Monday
+    # datetime is the unambiguous source of truth for retention math.
     cohort_customers: dict[str, list[str]] = {}
+    cohort_starts: dict[str, datetime] = {}
     customer_first_purchase: dict[str, datetime] = {}
 
     for email, orders in customer_orders.items():
         first_purchase = min(o[0] for o in orders)
         customer_first_purchase[email] = first_purchase
-        # ISO week: monday of the week
-        monday = first_purchase - timedelta(days=first_purchase.weekday())
+        # Monday of the cohort week, normalized to midnight so the
+        # week boundaries line up regardless of intra-day purchase time.
+        monday = (first_purchase - timedelta(days=first_purchase.weekday())).replace(
+            hour=0, minute=0, second=0, microsecond=0,
+        )
         week_key = monday.strftime("%Y-W%V")
         if week_key not in cohort_customers:
             cohort_customers[week_key] = []
+            cohort_starts[week_key] = monday
         cohort_customers[week_key].append(email)
 
     # Step 4: Build retention matrix per cohort
@@ -129,12 +139,7 @@ def get_cohort_retention(
         if cohort_size == 0:
             continue
 
-        # Monday of this cohort week
-        try:
-            year_str, week_str = week_key.split("-W")
-            cohort_start = datetime.strptime(f"{year_str}-W{week_str}-1", "%Y-W%W-%w")
-        except Exception:
-            continue
+        cohort_start = cohort_starts[week_key]
 
         # Calculate total revenue for the cohort
         revenue_total = sum(
