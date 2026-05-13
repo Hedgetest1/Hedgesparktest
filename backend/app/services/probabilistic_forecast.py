@@ -413,6 +413,303 @@ def _empty_forecast(
 from sqlalchemy import text as _sql_text_pbsku
 
 
+# ---------------------------------------------------------------------------
+# forecast_by_sku — stage helpers
+# Refactor 2026-05-13 (A3 close): 286-LOC god function → composer + 8 pure
+# stage helpers. SQL byte-identical (CTE+LATERAL pre-filter pattern
+# preserved, ANY(:pkeys) batched query preserved). Per-product math is
+# byte-identical (Holt+sigma+r2+CI+accuracy).
+# ---------------------------------------------------------------------------
+
+
+def _clamp_sku_forecast_params(
+    horizon_days: int, window_days: int, top_n: int,
+) -> tuple[int, int, int]:
+    """Param-clamping: forecast bounds are conservative on purpose so a
+    bad request can't poison the planner with absurd ranges."""
+    return (
+        max(1, min(horizon_days, 60)),
+        max(7, min(window_days, 365)),
+        max(1, min(top_n, 25)),
+    )
+
+
+_TOP_PRODUCTS_SQL = _sql_text_pbsku("""
+    WITH valid_orders AS (
+        SELECT id, line_items
+        FROM shop_orders
+        WHERE shop_domain = :shop
+          AND created_at >= :since
+          AND (:currency IS NULL OR currency = :currency)
+          AND line_items IS NOT NULL
+          AND CASE WHEN jsonb_typeof(line_items) = 'array'
+                   THEN jsonb_array_length(line_items) > 0
+                   ELSE FALSE
+              END
+    )
+    SELECT
+        COALESCE(item->>'product_id', item->>'product_url') AS product_key,
+        COALESCE(NULLIF(item->>'title', ''), '(untitled)') AS title,
+        SUM((item->>'price')::numeric * (item->>'quantity')::int) AS revenue
+    FROM valid_orders vo,
+         jsonb_array_elements(vo.line_items) AS item
+    WHERE item->>'price' IS NOT NULL
+      AND item->>'quantity' IS NOT NULL
+      AND COALESCE(item->>'product_id', item->>'product_url') IS NOT NULL
+    GROUP BY 1, 2
+    ORDER BY revenue DESC
+    LIMIT :top_n
+""")
+
+
+_DAILY_SERIES_SQL = _sql_text_pbsku("""
+    WITH valid_orders AS (
+        SELECT created_at, line_items
+        FROM shop_orders
+        WHERE shop_domain = :shop
+          AND created_at >= :since
+          AND (:currency IS NULL OR currency = :currency)
+          AND line_items IS NOT NULL
+          AND CASE WHEN jsonb_typeof(line_items) = 'array'
+                   THEN jsonb_array_length(line_items) > 0
+                   ELSE FALSE
+              END
+    )
+    SELECT
+        COALESCE(item->>'product_id', item->>'product_url') AS pkey,
+        date_trunc('day', vo.created_at AT TIME ZONE :tz)::date AS d,
+        COALESCE(SUM(
+            (item->>'price')::numeric * (item->>'quantity')::int
+        ), 0) AS rev
+    FROM valid_orders vo,
+         jsonb_array_elements(vo.line_items) AS item
+    WHERE COALESCE(item->>'product_id', item->>'product_url') = ANY(:pkeys)
+      AND item->>'price' IS NOT NULL
+      AND item->>'quantity' IS NOT NULL
+    GROUP BY pkey, date_trunc('day', vo.created_at AT TIME ZONE :tz)::date
+    ORDER BY pkey, d ASC
+""")
+
+
+def _fetch_top_products(
+    db: Session, shop_domain: str, since: datetime,
+    currency: str, top_n: int,
+) -> list[tuple]:
+    """Top-N products by window revenue. Returns [] on query failure
+    (logged as warning, NOT swallowed silently); the composer turns
+    [] into the empty-state response.
+
+    CRITICAL: the WITH valid_orders CTE pre-filters by
+    jsonb_typeof(line_items)='array' BEFORE the LATERAL
+    jsonb_array_elements join. PostgreSQL's planner can evaluate the
+    LATERAL on rows the WHERE clause would otherwise reject, which
+    panics with "cannot extract elements from a scalar". The CTE+JOIN
+    form forces strict ordering: only array-typed rows reach LATERAL.
+    Regression-pinned by test_handles_json_null_line_items.
+    """
+    try:
+        return db.execute(_TOP_PRODUCTS_SQL, {
+            "shop": shop_domain, "since": since,
+            "currency": currency, "top_n": top_n,
+        }).fetchall()
+    except Exception as exc:
+        log.warning("forecast_by_sku: top-products query failed: %s", exc)
+        return []
+
+
+def _fetch_daily_series(
+    db: Session, shop_domain: str, since: datetime,
+    currency: str, tz: str, pkeys: list[str],
+) -> dict[str, list[tuple]]:
+    """Daily revenue series for the top-N products in ONE batched query.
+
+    Was N+1: 1 outer top-products + N per-product daily queries (each
+    with its own jsonb_array_elements LATERAL pre-filter). Now: 1 outer
+    + 1 batched = 2 round-trips constant regardless of N. Uses
+    ANY(:pkeys) filter + same CTE pre-filter as the per-product form.
+
+    Returns {pkey: []} for every requested pkey when the query fails —
+    that surfaces as the per-product "insufficient" branch downstream
+    (no false zeroes injected into the forecast pipeline).
+    """
+    out: dict[str, list[tuple]] = {pkey: [] for pkey in pkeys}
+    if not pkeys:
+        return out
+    try:
+        rows = db.execute(_DAILY_SERIES_SQL, {
+            "shop": shop_domain, "since": since, "currency": currency,
+            "tz": tz, "pkeys": pkeys,
+        }).fetchall()
+        for r in rows:
+            out.setdefault(r[0], []).append((r[1], r[2]))
+    except Exception as exc:
+        log.warning("forecast_by_sku: batched daily query failed: %s", exc)
+    return out
+
+
+def _insufficient_product_record(
+    product_key: str, title: str, observed_revenue: float, n_days: int,
+) -> dict:
+    """The honest-cold-start record. Returns forecast=0 + 'insufficient'
+    confidence — no fabricated point or interval."""
+    return {
+        "product_key": str(product_key)[:128],
+        "title": title[:128],
+        "observed_revenue": observed_revenue,
+        "forecast_point": 0.0,
+        "forecast_lower_80": 0.0,
+        "forecast_upper_80": 0.0,
+        "forecast_lower_95": 0.0,
+        "forecast_upper_95": 0.0,
+        "delta_pct": 0.0,
+        "direction": "stable",
+        "confidence": "insufficient",
+        "accuracy_pct": None,
+        "n_days": n_days,
+        "r2": 0.0,
+    }
+
+
+def _classify_direction(delta_pct: float) -> str:
+    """±5% deadband → 'stable'; outside → 'rising' / 'falling'."""
+    if delta_pct > 5:
+        return "rising"
+    if delta_pct < -5:
+        return "falling"
+    return "stable"
+
+
+def _compute_accuracy_pct(
+    values: list[float], fitted: list[float],
+) -> float | None:
+    """Backtest accuracy = 100 - mean(|residual| / observed) %.
+    Returns None when there's no positive observation to anchor on
+    (mean-absolute-percentage-error needs o>0 to avoid div/0)."""
+    if len(values) < 2 or not any(v > 0 for v in values):
+        return None
+    ape_values = [
+        abs(o - f) / o * 100
+        for o, f in zip(values, fitted) if o > 0
+    ]
+    if not ape_values:
+        return None
+    return max(0.0, min(100.0, round(100.0 - (sum(ape_values) / len(ape_values)), 1)))
+
+
+def _compute_product_forecast(
+    *, product_key: str, title: str, observed_revenue: float,
+    daily_rows: list[tuple], horizon_days: int,
+) -> dict:
+    """Per-product forecast: Holt fit → CI → delta vs last 7d → direction
+    → accuracy. Falls through to _insufficient_product_record when the
+    training window is below threshold."""
+    values = [float(r[1] or 0) for r in daily_rows]
+    n_days = len(values)
+    if n_days < _MIN_POINTS_FOR_FORECAST:
+        return _insufficient_product_record(
+            product_key, title, observed_revenue, n_days,
+        )
+
+    fitted, forecast_vals = holt_forecast(values, horizon=horizon_days)
+    sigma = _residual_std(values, fitted)
+    r2 = _r_squared(values, fitted)
+    point = sum(forecast_vals) / len(forecast_vals)
+    l80, u80, l95, u95 = _prediction_interval(point, sigma, horizon_days)
+
+    last_week_mean = sum(values[-7:]) / min(7, n_days)
+    delta_pct = (
+        ((point - last_week_mean) / last_week_mean * 100)
+        if last_week_mean > 0 else 0.0
+    )
+
+    return {
+        "product_key": str(product_key)[:128],
+        "title": title[:128],
+        "observed_revenue": observed_revenue,
+        "forecast_point": round(point, 2),
+        "forecast_lower_80": round(l80, 2),
+        "forecast_upper_80": round(u80, 2),
+        "forecast_lower_95": round(l95, 2),
+        "forecast_upper_95": round(u95, 2),
+        "delta_pct": round(delta_pct, 1),
+        "direction": _classify_direction(delta_pct),
+        "confidence": _confidence_label(n_days, r2),
+        "accuracy_pct": _compute_accuracy_pct(values, fitted),
+        "n_days": n_days,
+        "r2": round(r2, 3),
+    }
+
+
+def _pick_riser_faller(
+    forecastable: list[dict],
+) -> tuple[dict | None, dict | None, dict | None, dict | None]:
+    """From the forecastable products, identify the biggest_riser
+    (delta >= +5%) and biggest_faller (delta <= -5%) by delta_pct.
+    Returns (riser, faller, best_obj, worst_obj) — best/worst always
+    returned for downstream insight wording even if they don't pass
+    the ±5% threshold."""
+    if not forecastable:
+        return None, None, None, None
+    sorted_by_delta = sorted(forecastable, key=lambda p: p["delta_pct"])
+    worst = sorted_by_delta[0]
+    best = sorted_by_delta[-1]
+    riser = None
+    faller = None
+    if best["delta_pct"] >= 5:
+        riser = {
+            "product_key": best["product_key"],
+            "title": best["title"],
+            "delta_pct": best["delta_pct"],
+        }
+    if worst["delta_pct"] <= -5:
+        faller = {
+            "product_key": worst["product_key"],
+            "title": worst["title"],
+            "delta_pct": worst["delta_pct"],
+        }
+    return riser, faller, best, worst
+
+
+def _build_forecast_insight(
+    *, riser: dict | None, faller: dict | None,
+    best: dict | None, worst: dict | None,
+    horizon_days: int, top_n: int, forecastable_count: int,
+) -> str:
+    """Plain-language insight narrative. 4 branches: both rise+fall,
+    rise-only, fall-only, all-stable. Falls back to a cold-start
+    message when there's no forecastable product."""
+    if not forecastable_count or best is None or worst is None:
+        return (
+            "Need at least one product with 7+ days of revenue history "
+            "for forecast direction to surface."
+        )
+    if riser and faller and best["product_key"] != worst["product_key"]:
+        return (
+            f"{best['title']} forecast is rising "
+            f"{best['delta_pct']:.0f}% next {horizon_days} days vs "
+            f"last week. {worst['title']} is falling "
+            f"{abs(worst['delta_pct']):.0f}%. Re-stock the riser, "
+            f"investigate the faller before inventory builds up."
+        )
+    if riser:
+        return (
+            f"{best['title']} forecast is rising {best['delta_pct']:.0f}% "
+            f"next {horizon_days} days vs last week — the strongest "
+            f"momentum in your top-{top_n}."
+        )
+    if faller:
+        return (
+            f"{worst['title']} forecast is falling "
+            f"{abs(worst['delta_pct']):.0f}% next {horizon_days} days "
+            f"vs last week — investigate before inventory builds up."
+        )
+    return (
+        f"All top-{forecastable_count} products have stable forecasts "
+        f"(within ±5% of last week's pace). No urgent re-stock or "
+        f"discount action surfaced."
+    )
+
+
 def forecast_by_sku(
     db: Session,
     shop_domain: str,
@@ -455,238 +752,43 @@ def forecast_by_sku(
     Cold-start: products with < _MIN_POINTS_FOR_FORECAST days of revenue
     in window get confidence="insufficient" and forecast_point=0 (honest,
     not fabricated).
-    """
-    horizon_days = max(1, min(horizon_days, 60))
-    window_days = max(7, min(window_days, 365))
-    top_n = max(1, min(top_n, 25))
 
+    Refactored 2026-05-13 (A3 close): 286-LOC god function → 35-LOC
+    composer + 8 pure helpers. Contract preserved byte-identical.
+    """
+    horizon_days, window_days, top_n = _clamp_sku_forecast_params(
+        horizon_days, window_days, top_n,
+    )
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     since = now - timedelta(days=window_days)
     currency = get_shop_currency(db, shop_domain) or "USD"
     tz = get_shop_timezone(db, shop_domain) or "UTC"
 
-    # 1. Pick top products by total window revenue.
-    #
-    # CRITICAL: pre-filter shop_orders in a CTE BEFORE the LATERAL
-    # jsonb_array_elements join. PostgreSQL's planner can evaluate
-    # jsonb_array_elements() on rows that the WHERE clause would
-    # otherwise reject (typeof != 'array'), which panics with
-    # "cannot extract elements from a scalar". The CTE+JOIN form
-    # forces strict ordering: only array-typed rows reach the LATERAL.
-    # Sibling fix to commit e9e00e7 (which only fixed the WHERE-clause
-    # form). Regression-pinned by test_handles_json_null_line_items.
-    try:
-        top_products = db.execute(
-            _sql_text_pbsku("""
-                WITH valid_orders AS (
-                    SELECT id, line_items
-                    FROM shop_orders
-                    WHERE shop_domain = :shop
-                      AND created_at >= :since
-                      AND (:currency IS NULL OR currency = :currency)
-                      AND line_items IS NOT NULL
-                      AND CASE WHEN jsonb_typeof(line_items) = 'array'
-                               THEN jsonb_array_length(line_items) > 0
-                               ELSE FALSE
-                          END
-                )
-                SELECT
-                    COALESCE(item->>'product_id', item->>'product_url') AS product_key,
-                    COALESCE(NULLIF(item->>'title', ''), '(untitled)') AS title,
-                    SUM((item->>'price')::numeric * (item->>'quantity')::int) AS revenue
-                FROM valid_orders vo,
-                     jsonb_array_elements(vo.line_items) AS item
-                WHERE item->>'price' IS NOT NULL
-                  AND item->>'quantity' IS NOT NULL
-                  AND COALESCE(item->>'product_id', item->>'product_url') IS NOT NULL
-                GROUP BY 1, 2
-                ORDER BY revenue DESC
-                LIMIT :top_n
-            """),
-            {"shop": shop_domain, "since": since,
-             "currency": currency, "top_n": top_n},
-        ).fetchall()
-    except Exception as exc:
-        log.warning("forecast_by_sku: top-products query failed: %s", exc)
-        return _empty_sku_forecast(shop_domain, horizon_days, window_days, currency, now)
-
+    top_products = _fetch_top_products(db, shop_domain, since, currency, top_n)
     if not top_products:
         return _empty_sku_forecast(shop_domain, horizon_days, window_days, currency, now)
 
-    # 2. Daily revenue series for ALL top products in ONE batched query.
-    # Was N+1: 1 outer top-products SELECT + N per-product daily SELECTs
-    # (each with its own jsonb_array_elements LATERAL pre-filter CTE).
-    # Now: 1 outer + 1 batched (= 2 round-trips constant regardless of N).
-    # Uses GROUP BY (pkey, day) with ANY(:pkeys) filter; same CTE pre-
-    # filter pattern as the per-product variant.
     pkeys = [str(row[0]) for row in top_products if row[0] is not None]
-    daily_by_pkey: dict[str, list[tuple]] = {pkey: [] for pkey in pkeys}
-    if pkeys:
-        try:
-            batch_rows = db.execute(
-                _sql_text_pbsku("""
-                    WITH valid_orders AS (
-                        SELECT created_at, line_items
-                        FROM shop_orders
-                        WHERE shop_domain = :shop
-                          AND created_at >= :since
-                          AND (:currency IS NULL OR currency = :currency)
-                          AND line_items IS NOT NULL
-                          AND CASE WHEN jsonb_typeof(line_items) = 'array'
-                                   THEN jsonb_array_length(line_items) > 0
-                                   ELSE FALSE
-                              END
-                    )
-                    SELECT
-                        COALESCE(item->>'product_id', item->>'product_url') AS pkey,
-                        date_trunc('day', vo.created_at AT TIME ZONE :tz)::date AS d,
-                        COALESCE(SUM(
-                            (item->>'price')::numeric * (item->>'quantity')::int
-                        ), 0) AS rev
-                    FROM valid_orders vo,
-                         jsonb_array_elements(vo.line_items) AS item
-                    WHERE COALESCE(item->>'product_id', item->>'product_url') = ANY(:pkeys)
-                      AND item->>'price' IS NOT NULL
-                      AND item->>'quantity' IS NOT NULL
-                    GROUP BY pkey, date_trunc('day', vo.created_at AT TIME ZONE :tz)::date
-                    ORDER BY pkey, d ASC
-                """),
-                {"shop": shop_domain, "since": since, "currency": currency,
-                 "tz": tz, "pkeys": pkeys},
-            ).fetchall()
-            for r in batch_rows:
-                daily_by_pkey.setdefault(r[0], []).append((r[1], r[2]))
-        except Exception as exc:
-            log.warning("forecast_by_sku: batched daily query failed: %s", exc)
-            # daily_by_pkey stays {pkey: []} → forecast falls through to
-            # "insufficient" branch per product, matching prior fallback.
+    daily_by_pkey = _fetch_daily_series(db, shop_domain, since, currency, tz, pkeys)
 
-    products_out: list[dict] = []
-    for row in top_products:
-        product_key = row[0]
-        title = str(row[1])
-        observed_revenue = round(float(row[2] or 0), 2)
-
-        daily_rows = daily_by_pkey.get(str(product_key), [])
-        values = [float(r[1] or 0) for r in daily_rows]
-        n_days = len(values)
-
-        if n_days < _MIN_POINTS_FOR_FORECAST:
-            products_out.append({
-                "product_key": str(product_key)[:128],
-                "title": title[:128],
-                "observed_revenue": observed_revenue,
-                "forecast_point": 0.0,
-                "forecast_lower_80": 0.0,
-                "forecast_upper_80": 0.0,
-                "forecast_lower_95": 0.0,
-                "forecast_upper_95": 0.0,
-                "delta_pct": 0.0,
-                "direction": "stable",
-                "confidence": "insufficient",
-                "accuracy_pct": None,
-                "n_days": n_days,
-                "r2": 0.0,
-            })
-            continue
-
-        fitted, forecast_vals = holt_forecast(values, horizon=horizon_days)
-        sigma = _residual_std(values, fitted)
-        r2 = _r_squared(values, fitted)
-        point = sum(forecast_vals) / len(forecast_vals)
-        l80, u80, l95, u95 = _prediction_interval(point, sigma, horizon_days)
-
-        last_week_mean = sum(values[-7:]) / min(7, n_days)
-        delta_pct = (
-            ((point - last_week_mean) / last_week_mean * 100)
-            if last_week_mean > 0 else 0.0
+    products_out = [
+        _compute_product_forecast(
+            product_key=row[0],
+            title=str(row[1]),
+            observed_revenue=round(float(row[2] or 0), 2),
+            daily_rows=daily_by_pkey.get(str(row[0]), []),
+            horizon_days=horizon_days,
         )
-        if delta_pct > 5:
-            direction = "rising"
-        elif delta_pct < -5:
-            direction = "falling"
-        else:
-            direction = "stable"
+        for row in top_products
+    ]
 
-        # Backtest accuracy (1 - mean abs pct error). Honest scalar.
-        if n_days >= 2 and any(v > 0 for v in values):
-            ape_values = [
-                abs(o - f) / o * 100
-                for o, f in zip(values, fitted) if o > 0
-            ]
-            accuracy_pct = round(100.0 - (sum(ape_values) / len(ape_values)), 1) if ape_values else None
-            if accuracy_pct is not None:
-                accuracy_pct = max(0.0, min(100.0, accuracy_pct))
-        else:
-            accuracy_pct = None
-
-        products_out.append({
-            "product_key": str(product_key)[:128],
-            "title": title[:128],
-            "observed_revenue": observed_revenue,
-            "forecast_point": round(point, 2),
-            "forecast_lower_80": round(l80, 2),
-            "forecast_upper_80": round(u80, 2),
-            "forecast_lower_95": round(l95, 2),
-            "forecast_upper_95": round(u95, 2),
-            "delta_pct": round(delta_pct, 1),
-            "direction": direction,
-            "confidence": _confidence_label(n_days, r2),
-            "accuracy_pct": accuracy_pct,
-            "n_days": n_days,
-            "r2": round(r2, 3),
-        })
-
-    # 3. Differentiator — biggest riser / faller plain-language insight
     forecastable = [p for p in products_out if p["confidence"] != "insufficient"]
-    biggest_riser = None
-    biggest_faller = None
-    insight = (
-        "Need at least one product with 7+ days of revenue history "
-        "for forecast direction to surface."
+    riser, faller, best, worst = _pick_riser_faller(forecastable)
+    insight = _build_forecast_insight(
+        riser=riser, faller=faller, best=best, worst=worst,
+        horizon_days=horizon_days, top_n=top_n,
+        forecastable_count=len(forecastable),
     )
-    if forecastable:
-        sorted_by_delta = sorted(forecastable, key=lambda p: p["delta_pct"])
-        worst = sorted_by_delta[0]
-        best = sorted_by_delta[-1]
-        if best["delta_pct"] >= 5:
-            biggest_riser = {
-                "product_key": best["product_key"],
-                "title": best["title"],
-                "delta_pct": best["delta_pct"],
-            }
-        if worst["delta_pct"] <= -5:
-            biggest_faller = {
-                "product_key": worst["product_key"],
-                "title": worst["title"],
-                "delta_pct": worst["delta_pct"],
-            }
-        if biggest_riser and biggest_faller and best["product_key"] != worst["product_key"]:
-            insight = (
-                f"{best['title']} forecast is rising "
-                f"{best['delta_pct']:.0f}% next {horizon_days} days vs "
-                f"last week. {worst['title']} is falling "
-                f"{abs(worst['delta_pct']):.0f}%. Re-stock the riser, "
-                f"investigate the faller before inventory builds up."
-            )
-        elif biggest_riser:
-            insight = (
-                f"{best['title']} forecast is rising {best['delta_pct']:.0f}% "
-                f"next {horizon_days} days vs last week — the strongest "
-                f"momentum in your top-{top_n}."
-            )
-        elif biggest_faller:
-            insight = (
-                f"{worst['title']} forecast is falling "
-                f"{abs(worst['delta_pct']):.0f}% next {horizon_days} days "
-                f"vs last week — investigate before inventory builds up."
-            )
-        else:
-            insight = (
-                f"All top-{len(forecastable)} products have stable forecasts "
-                f"(within ±5% of last week's pace). No urgent re-stock or "
-                f"discount action surfaced."
-            )
 
     return {
         "shop_domain": shop_domain,
@@ -695,8 +797,8 @@ def forecast_by_sku(
         "currency": currency,
         "generated_at": now.isoformat() + "Z",
         "products": products_out,
-        "biggest_riser": biggest_riser,
-        "biggest_faller": biggest_faller,
+        "biggest_riser": riser,
+        "biggest_faller": faller,
         "insight": insight,
     }
 
