@@ -316,6 +316,12 @@ def _run_aggregation(db: Session) -> dict:
     # falls below k-anonymity and must be deleted.
     surviving_signals: set[tuple[str, str, str]] = set()
 
+    # Per-tuple DELETE+INSERT upsert over an in-memory `groups` dict —
+    # NOT per-shop N+1. `groups` is built from a single batched query
+    # (`_load_brain_decisions`); iteration count is bounded by distinct
+    # (vertical, action, metric) tuples after k-anonymity (<100 even at
+    # 10k merchants). Canonical aggregator pattern.
+    # n-plus-one: ok — flagged 2026-05-13 by audit_n_plus_one static check.
     for (vertical, action_kind, metric_kind), pairs in groups.items():
         distinct_shops = {shop for shop, _ in pairs}
         n_shops = len(distinct_shops)

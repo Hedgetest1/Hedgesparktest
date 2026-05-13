@@ -80,6 +80,16 @@ _CURRENCY_FILTER_PATTERN = re.compile(
         currency\s*=\s*:currency
       | currency\s*=\s*COALESCE
       | (?:m\.|merchants\.)?primary_currency
+      |
+        # GROUP BY ... currency — the SUM result is per-currency-bucketed,
+        # so each row in the output is a single-currency sum (never mixed).
+        # Caller picks the row matching the shop's primary currency
+        # downstream. Born 2026-05-13 after data_integrity_probe.py
+        # legitimate GROUP BY (shop_domain, currency) bucketing got
+        # flagged. The bug class this audit prevents (single SUM row
+        # mixing currencies) is structurally impossible when currency
+        # is in the GROUP BY clause.
+        GROUP\s+BY\s+[^\n]*\bcurrency\b
     )""",
     re.IGNORECASE | re.VERBOSE,
 )

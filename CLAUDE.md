@@ -1077,6 +1077,8 @@ refuses to start if prior `_loadtest_` shops exist unless --force).
 | `hs:mgroup:v1:{group_id}:{lookback_days}` | Multi-store rollup cache | 5min |
 | `hs:agency:v1:{agency_id}:{lookback_days}` | Agency rollup cache | 5min |
 | `hs:action_candidates:v1:{shop}` | Pro action-candidates 60s cache (1300ms recompute eliminator) | 60s |
+| `hs:entitlement_scan:cursor` | agent_worker entitlement scan round-robin cursor (per-cycle resume position so 10k-merchant scan splits across cycles without restart-from-zero) | 24h |
+| `hs:rl:track_purchase:{ip}:{shop}` | Storefront purchase tracker rate-limit counter (60s window, fail-open per tracker doctrine) | 60s |
 
 Curated list — backend uses ~150 prefixes total; rest tracked in
 owning modules. Verified by `audit_claude_md_redis_keys.py`
