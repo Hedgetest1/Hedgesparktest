@@ -77,6 +77,278 @@ _DEFAULT_SHIPPING_PER_ORDER: float = 5.00
 _EXACT_COGS_COVERAGE_THRESHOLD = 0.80
 
 
+# ---------------------------------------------------------------------------
+# P&L pipeline helpers — each stage is a pure function consuming the prior
+# stage's output. `get_pnl_report` is the composer. Refactor 2026-05-13
+# (A3 close): 250-LOC god function → composer + 8 pure helpers + 1 DB fetch.
+# Identical contract preserved (every response key + value identical to v2).
+# ---------------------------------------------------------------------------
+
+
+def _resolve_rates(cost_cfg: dict) -> dict:
+    """Resolve per-shop cost-config row → typed rates + is_custom flags.
+    A None config value falls back to the module-level default; the
+    is_custom companion records whether the merchant has overridden."""
+    def _or(val, fallback: float) -> float:
+        return fallback if val is None else float(val)
+    return {
+        "cogs_pct_default": _or(cost_cfg.get("default_cogs_pct"), _DEFAULT_COGS_PCT),
+        "payment_pct":      _or(cost_cfg.get("payment_pct"), _DEFAULT_PAYMENT_PCT),
+        "payment_flat":     _or(cost_cfg.get("payment_flat"), _DEFAULT_PAYMENT_FLAT),
+        "shipping_per_ord": _or(cost_cfg.get("default_shipping_per_order"), _DEFAULT_SHIPPING_PER_ORDER),
+        "ad_spend_monthly": _or(cost_cfg.get("ad_spend_manual_monthly"), 0.0),
+        "cogs_pct_is_custom":     cost_cfg.get("default_cogs_pct") is not None,
+        "payment_pct_is_custom":  cost_cfg.get("payment_pct") is not None,
+        "payment_flat_is_custom": cost_cfg.get("payment_flat") is not None,
+        "shipping_is_custom":     cost_cfg.get("default_shipping_per_order") is not None,
+        "ad_spend_is_manual":     cost_cfg.get("ad_spend_manual_monthly") is not None,
+    }
+
+
+_REVENUE_SQL = text("""
+    SELECT
+        COUNT(*)::int                AS order_count,
+        COALESCE(SUM(total_price), 0) AS gross_revenue
+    FROM shop_orders
+    WHERE shop_domain = :shop
+      AND created_at >= NOW() - make_interval(days => :days)
+      AND (:currency IS NULL OR currency = :currency)
+""")
+
+
+def _fetch_revenue_summary(
+    db: Session, shop_domain: str, window_days: int, currency: str | None,
+) -> dict:
+    """Pull gross revenue + order count over the window. Returns
+    {"order_count": 0, "gross_revenue": 0.0} on DB error (logged)."""
+    try:
+        row = db.execute(
+            _REVENUE_SQL,
+            {"shop": shop_domain, "days": window_days, "currency": currency},
+        ).fetchone()
+    except Exception as exc:
+        log.error("pnl_engine: revenue query failed shop=%s: %s", shop_domain, exc)
+        return {"order_count": 0, "gross_revenue": 0.0, "error": True}
+    return {
+        "order_count":   int(row[0] or 0) if row else 0,
+        "gross_revenue": round(float(row[1] or 0), 2) if row else 0.0,
+        "error":         False,
+    }
+
+
+def _compute_cogs_summary(
+    real_cogs_amount: float, covered_revenue: float,
+    gross_revenue: float, cogs_pct_default: float,
+) -> dict:
+    """Blend real per-product COGS with percentage fallback on uncovered
+    revenue. Returns the estimate, the fallback amount, and the coverage
+    fraction (used to drive precision)."""
+    uncovered_revenue = max(0.0, gross_revenue - covered_revenue)
+    cogs_fallback = round(uncovered_revenue * cogs_pct_default, 2)
+    cogs_estimate = round(real_cogs_amount + cogs_fallback, 2)
+    cogs_coverage = (
+        round(covered_revenue / gross_revenue, 4) if gross_revenue > 0 else 0.0
+    )
+    return {
+        "cogs_estimate":     cogs_estimate,
+        "cogs_fallback":     cogs_fallback,
+        "real_cogs_amount":  real_cogs_amount,
+        "cogs_coverage":     cogs_coverage,
+    }
+
+
+def _compute_cost_stack(
+    *, rates: dict, gross_revenue: float, order_count: int, window_days: int,
+) -> dict:
+    """Deterministic non-COGS cost components: payment / shipping / ad spend.
+    Ad spend is the manual monthly figure linearly scaled to the window,
+    zero when the merchant has not entered an estimate yet."""
+    payment_fees = round(
+        gross_revenue * rates["payment_pct"] + order_count * rates["payment_flat"], 2
+    )
+    shipping_cost = round(order_count * rates["shipping_per_ord"], 2)
+    ad_spend = (
+        round(rates["ad_spend_monthly"] * (window_days / 30.0), 2)
+        if rates["ad_spend_is_manual"] else 0.0
+    )
+    return {
+        "payment_fees":  payment_fees,
+        "shipping_cost": shipping_cost,
+        "ad_spend":      ad_spend,
+    }
+
+
+def _compute_profit_lines(
+    *, gross_revenue: float, cogs_estimate: float, cost_stack: dict,
+) -> dict:
+    """Gross/net profit + margins + total costs from the prior stages.
+    All ratios are zero-safe when gross_revenue is 0."""
+    payment_fees = cost_stack["payment_fees"]
+    shipping_cost = cost_stack["shipping_cost"]
+    ad_spend = cost_stack["ad_spend"]
+    total_costs = round(cogs_estimate + payment_fees + shipping_cost + ad_spend, 2)
+    gross_profit = round(gross_revenue - cogs_estimate - payment_fees - shipping_cost, 2)
+    net_profit = round(gross_profit - ad_spend, 2)
+    gross_margin_pct = (
+        round((gross_profit / gross_revenue) * 100, 1) if gross_revenue > 0 else 0.0
+    )
+    net_margin_pct = (
+        round((net_profit / gross_revenue) * 100, 1) if gross_revenue > 0 else 0.0
+    )
+    return {
+        "total_costs":      total_costs,
+        "gross_profit":     gross_profit,
+        "net_profit":       net_profit,
+        "gross_margin_pct": gross_margin_pct,
+        "net_margin_pct":   net_margin_pct,
+    }
+
+
+def _derive_precision(
+    *, rates: dict, cogs_coverage: float, products_with_real_cogs: int,
+) -> str:
+    """3-tier precision label: rough → refined → exact.
+
+    exact:   real COGS covers ≥80% of revenue AND ad spend is entered.
+    refined: at least one shop_cost_defaults override OR product_costs row.
+    rough:   all module defaults (the un-configured baseline).
+    """
+    has_any_custom = any([
+        rates["cogs_pct_is_custom"],
+        rates["payment_pct_is_custom"],
+        rates["payment_flat_is_custom"],
+        rates["shipping_is_custom"],
+        rates["ad_spend_is_manual"],
+        products_with_real_cogs > 0,
+    ])
+    if cogs_coverage >= _EXACT_COGS_COVERAGE_THRESHOLD and rates["ad_spend_is_manual"]:
+        return "exact"
+    return "refined" if has_any_custom else "rough"
+
+
+def _build_verdict(net_margin_pct: float, currency: str) -> str:
+    """Human-readable margin verdict in 4 bands."""
+    from app.core.currency import currency_symbol
+    symbol = currency_symbol(currency)
+    if net_margin_pct >= 20:
+        return (
+            f"You keep ~{net_margin_pct:.0f}¢ of every {symbol}1 — "
+            "healthy margin range for DTC."
+        )
+    if net_margin_pct >= 10:
+        return (
+            f"You keep ~{net_margin_pct:.0f}¢ of every {symbol}1 — "
+            "tight but viable. Watch your COGS."
+        )
+    if net_margin_pct > 0:
+        return (
+            f"Only ~{net_margin_pct:.0f}¢ of every {symbol}1 stays with you "
+            "— margin is too thin to scale."
+        )
+    return (
+        "Estimated costs exceed revenue. Enter real COGS to see if this is "
+        "a true loss or a default overestimate."
+    )
+
+
+def _build_cogs_meta(
+    *, rates: dict, cogs_coverage: float, products_with_real_cogs: int,
+) -> dict:
+    """4-branch (source, estimated_flag, note) tuple for the cogs line item.
+    Drives the UI's per-line 'estimated' vs 'real' badges."""
+    cogs_pct_default = rates["cogs_pct_default"]
+    cogs_pct_is_custom = rates["cogs_pct_is_custom"]
+    if products_with_real_cogs > 0 and cogs_coverage >= 0.999:
+        source = "per_product_exact"
+        estimated = False
+    elif products_with_real_cogs > 0:
+        source = "per_product_partial"
+        estimated = True
+    elif cogs_pct_is_custom:
+        source = "shop_default_pct_custom"
+        estimated = True
+    else:
+        source = "default_40pct"
+        estimated = True
+
+    if products_with_real_cogs > 0:
+        note = (
+            f"Real per-product COGS on {products_with_real_cogs} products covers "
+            f"{int(cogs_coverage * 100)}% of revenue — remainder estimated at "
+            f"{int(cogs_pct_default * 100)}%."
+        )
+    elif cogs_pct_is_custom:
+        note = f"Using custom shop default {int(cogs_pct_default * 100)}% COGS."
+    else:
+        note = "Using module default 40% COGS — enter real cost data for precision."
+    return {"source": source, "estimated": estimated, "note": note}
+
+
+def _assemble_costs_block(
+    *, rates: dict, cost_stack: dict, cogs_summary: dict,
+    cogs_meta: dict, window_days: int, currency: str,
+) -> dict:
+    """Compose the per-line cost block: 4 sources × (amount, rate, source, note)."""
+    from app.core.currency import currency_symbol
+    symbol = currency_symbol(currency)
+
+    payment_pct = rates["payment_pct"]
+    payment_flat = rates["payment_flat"]
+    payment_is_custom = (
+        rates["payment_pct_is_custom"] or rates["payment_flat_is_custom"]
+    )
+    shipping_per_ord = rates["shipping_per_ord"]
+    shipping_is_custom = rates["shipping_is_custom"]
+    ad_spend_monthly = rates["ad_spend_monthly"]
+    ad_spend_is_manual = rates["ad_spend_is_manual"]
+
+    return {
+        "cogs": {
+            "amount":    cogs_summary["cogs_estimate"],
+            "rate":      rates["cogs_pct_default"],
+            "estimated": cogs_meta["estimated"],
+            "source":    cogs_meta["source"],
+            "note":      cogs_meta["note"],
+        },
+        "payment_fees": {
+            "amount":    cost_stack["payment_fees"],
+            "rate":      payment_pct,
+            "flat":      payment_flat,
+            "estimated": not payment_is_custom,
+            "source":    "shop_custom" if payment_is_custom else "shopify_payments_standard",
+            "note": (
+                f"Custom payment rates: {payment_pct*100:.2f}% + {payment_flat:.2f}/order."
+                if payment_is_custom
+                else f"Shopify Payments standard ({payment_pct*100:.1f}% + {payment_flat:.2f}/order)."
+            ),
+        },
+        "shipping": {
+            "amount":    cost_stack["shipping_cost"],
+            "rate":      shipping_per_ord,
+            "estimated": not shipping_is_custom,
+            "source":    "shop_custom" if shipping_is_custom else "default_5_per_order",
+            "note": (
+                f"Custom shipping estimate: {shipping_per_ord:.2f} per order."
+                if shipping_is_custom
+                else f"Default {shipping_per_ord:.2f}/order shipping estimate — configure your real rate."
+            ),
+        },
+        "ad_spend": {
+            "amount":    cost_stack["ad_spend"],
+            "estimated": True,
+            "source":    "manual_monthly_entry" if ad_spend_is_manual else "not_tracked_yet",
+            "note": (
+                f"Manual monthly ad spend ({symbol}{ad_spend_monthly:.0f}/mo) scaled to "
+                f"{window_days}-day window. Connect Meta Ads + Google Ads for real "
+                "campaign-level ROAS."
+                if ad_spend_is_manual
+                else "Ad spend not tracked yet — enter a rough monthly figure or "
+                     "connect Meta + Google Ads."
+            ),
+        },
+    }
+
+
 def get_pnl_report(
     db: Session,
     shop_domain: str,
@@ -85,247 +357,91 @@ def get_pnl_report(
     """
     Compute the full P&L waterfall for a shop over the last N days.
 
-    v2 behavior: reads shop_cost_defaults and product_costs from the DB and
-    uses them in priority order before falling back to module constants. Every
-    cost component is tagged with an "estimated" flag so the UI can honestly
-    label default-vs-real precision on a per-line basis.
+    Refactored 2026-05-13 (A3 close): 250-LOC god function → 50-LOC composer
+    + 8 pure helpers + 1 DB fetch. Identical response contract preserved.
 
-    Self-healing side effect: on the first /pro/pnl call per shop per hour,
-    kicks off a Shopify COGS sync inline so the merchant's Profit Intelligence
-    auto-upgrades from "rough" to "refined" precision without ever touching
-    the Settings UI. See _maybe_auto_sync_shopify_costs below.
+    v2 behavior: reads shop_cost_defaults + product_costs from the DB and
+    uses them in priority order before falling back to module constants.
+    Every cost component is tagged with an "estimated" flag so the UI can
+    label default-vs-real precision per line.
+
+    Self-healing side effect: on the first /pro/pnl call per shop per hour
+    kicks off a Shopify COGS sync inline so Profit Intelligence auto-
+    upgrades from "rough" to "refined" without touching the Settings UI.
     """
     window_days = max(1, min(window_days, 90))
-
-    # Auto-sync hook — fires at most once per hour per shop, idempotent, safe
-    # to fail silently. Adds ~300-500ms to the first call after the TTL
-    # expires, then is a no-op for the next hour.
     _maybe_auto_sync_shopify_costs(db, shop_domain)
 
-    # ------------------------------------------------------------------
-    # 1. Load shop cost config (nullable — may not exist).
-    # ------------------------------------------------------------------
-    cost_cfg = _load_shop_cost_defaults(db, shop_domain)
-
-    # Resolved rates (config row > module default).
-    def _or_default(val, fallback: float) -> float:
-        if val is None:
-            return fallback
-        return float(val)
-
-    cogs_pct_default = _or_default(cost_cfg.get("default_cogs_pct"),           _DEFAULT_COGS_PCT)
-    payment_pct      = _or_default(cost_cfg.get("payment_pct"),                _DEFAULT_PAYMENT_PCT)
-    payment_flat     = _or_default(cost_cfg.get("payment_flat"),               _DEFAULT_PAYMENT_FLAT)
-    shipping_per_ord = _or_default(cost_cfg.get("default_shipping_per_order"), _DEFAULT_SHIPPING_PER_ORDER)
-    ad_spend_monthly = _or_default(cost_cfg.get("ad_spend_manual_monthly"),    0.0)
-
-    # Non-default flags — each tracked so the precision calc can see what's real.
-    cogs_pct_is_custom      = cost_cfg.get("default_cogs_pct") is not None
-    payment_pct_is_custom   = cost_cfg.get("payment_pct") is not None
-    payment_flat_is_custom  = cost_cfg.get("payment_flat") is not None
-    shipping_is_custom      = cost_cfg.get("default_shipping_per_order") is not None
-    ad_spend_is_manual      = cost_cfg.get("ad_spend_manual_monthly") is not None
-
-    # ------------------------------------------------------------------
-    # 2. Pull gross revenue + order count from shop_orders.
-    # ------------------------------------------------------------------
-    currency = get_shop_currency(db, shop_domain)
-    try:
-        row = db.execute(
-            text("""
-                SELECT
-                    COUNT(*)::int                        AS order_count,
-                    COALESCE(SUM(total_price), 0) AS gross_revenue
-                FROM shop_orders
-                WHERE shop_domain = :shop
-                  AND created_at >= NOW() - make_interval(days => :days)
-                  AND (:currency IS NULL OR currency = :currency)
-            """),
-            {"shop": shop_domain, "days": window_days, "currency": currency},
-        ).fetchone()
-    except Exception as exc:
-        log.error("pnl_engine: revenue query failed shop=%s: %s", shop_domain, exc)
-        return _empty_report(window_days, currency or "USD")
-
-    order_count   = int(row[0] or 0) if row else 0
-    gross_revenue = round(float(row[1] or 0), 2) if row else 0.0
-
-    if order_count == 0:
-        return _empty_report(window_days, currency or "USD")
-
-    # ------------------------------------------------------------------
-    # 3. Resolve native currency for display.
-    # ------------------------------------------------------------------
+    rates = _resolve_rates(_load_shop_cost_defaults(db, shop_domain))
     try:
         currency = get_shop_currency(db, shop_domain) or "USD"
     except Exception:
         currency = "USD"
 
-    # ------------------------------------------------------------------
-    # 4. Per-product real COGS — join line_items against product_costs.
-    # Returns (real_cogs_amount, covered_revenue, products_with_cogs_count).
-    # ------------------------------------------------------------------
-    real_cogs_amount, covered_revenue, products_with_real_cogs = (
-        _compute_real_cogs(db, shop_domain, window_days)
+    revenue = _fetch_revenue_summary(db, shop_domain, window_days, currency)
+    if revenue.get("error") or revenue["order_count"] == 0:
+        return _empty_report(window_days, currency)
+
+    gross_revenue = revenue["gross_revenue"]
+    order_count = revenue["order_count"]
+
+    real_cogs, covered_rev, products_with_real_cogs = _compute_real_cogs(
+        db, shop_domain, window_days,
     )
-
-    # Revenue NOT covered by real per-product COGS → use percentage fallback.
-    uncovered_revenue = max(0.0, gross_revenue - covered_revenue)
-    cogs_fallback     = round(uncovered_revenue * cogs_pct_default, 2)
-    cogs_estimate     = round(real_cogs_amount + cogs_fallback, 2)
-
-    # Coverage fraction — drives the precision level calc below.
-    cogs_coverage = round(covered_revenue / gross_revenue, 4) if gross_revenue > 0 else 0.0
-
-    # ------------------------------------------------------------------
-    # 5. Remaining cost stack — deterministic from resolved rates.
-    # ------------------------------------------------------------------
-    payment_fees  = round(gross_revenue * payment_pct + order_count * payment_flat, 2)
-    shipping_cost = round(order_count * shipping_per_ord, 2)
-
-    # Manual monthly ad spend scales linearly to the window.
-    # 30d window + 30-day monthly => exactly the monthly figure.
-    ad_spend = round(ad_spend_monthly * (window_days / 30.0), 2) if ad_spend_is_manual else 0.0
-
-    total_costs_tracked = round(cogs_estimate + payment_fees + shipping_cost + ad_spend, 2)
-    gross_profit        = round(gross_revenue - cogs_estimate - payment_fees - shipping_cost, 2)
-    net_profit          = round(gross_profit - ad_spend, 2)
-
-    gross_margin_pct = round((gross_profit / gross_revenue) * 100, 1) if gross_revenue > 0 else 0.0
-    net_margin_pct   = round((net_profit   / gross_revenue) * 100, 1) if gross_revenue > 0 else 0.0
-
-    # ------------------------------------------------------------------
-    # 6. Precision level — how much of this P&L is "real" vs "estimated".
-    # ------------------------------------------------------------------
-    has_any_custom = any([
-        cogs_pct_is_custom, payment_pct_is_custom, payment_flat_is_custom,
-        shipping_is_custom, ad_spend_is_manual, products_with_real_cogs > 0,
-    ])
-
-    if (cogs_coverage >= _EXACT_COGS_COVERAGE_THRESHOLD and ad_spend_is_manual):
-        precision = "exact"
-    elif has_any_custom:
-        precision = "refined"
-    else:
-        precision = "rough"
-
-    # ------------------------------------------------------------------
-    # 7. Human-readable verdict.
-    # ------------------------------------------------------------------
-    from app.core.currency import currency_symbol
-    symbol = currency_symbol(currency)
-    if net_margin_pct >= 20:
-        verdict = (
-            f"You keep ~{net_margin_pct:.0f}¢ of every {symbol}1 — healthy margin range for DTC."
-        )
-    elif net_margin_pct >= 10:
-        verdict = (
-            f"You keep ~{net_margin_pct:.0f}¢ of every {symbol}1 — tight but viable. Watch your COGS."
-        )
-    elif net_margin_pct > 0:
-        verdict = (
-            f"Only ~{net_margin_pct:.0f}¢ of every {symbol}1 stays with you — margin is too thin to scale."
-        )
-    else:
-        verdict = (
-            "Estimated costs exceed revenue. Enter real COGS to see if this is a true loss or a default overestimate."
-        )
+    cogs_summary = _compute_cogs_summary(
+        real_cogs, covered_rev, gross_revenue, rates["cogs_pct_default"],
+    )
+    cost_stack = _compute_cost_stack(
+        rates=rates, gross_revenue=gross_revenue,
+        order_count=order_count, window_days=window_days,
+    )
+    profit = _compute_profit_lines(
+        gross_revenue=gross_revenue,
+        cogs_estimate=cogs_summary["cogs_estimate"],
+        cost_stack=cost_stack,
+    )
+    precision = _derive_precision(
+        rates=rates,
+        cogs_coverage=cogs_summary["cogs_coverage"],
+        products_with_real_cogs=products_with_real_cogs,
+    )
+    cogs_meta = _build_cogs_meta(
+        rates=rates,
+        cogs_coverage=cogs_summary["cogs_coverage"],
+        products_with_real_cogs=products_with_real_cogs,
+    )
+    costs_block = _assemble_costs_block(
+        rates=rates, cost_stack=cost_stack, cogs_summary=cogs_summary,
+        cogs_meta=cogs_meta, window_days=window_days, currency=currency,
+    )
 
     log.info(
         "pnl_engine: shop=%s window=%dd orders=%d gross=%.2f cogs=%.2f "
         "(real=%.2f, cov=%.1f%%) fees=%.2f ship=%.2f ads=%.2f net=%.2f "
         "margin=%.1f%% precision=%s",
         shop_domain, window_days, order_count, gross_revenue,
-        cogs_estimate, real_cogs_amount, cogs_coverage * 100,
-        payment_fees, shipping_cost, ad_spend,
-        net_profit, net_margin_pct, precision,
-    )
-
-    # Source labels drive the UI's per-line "estimated" vs "real" badges.
-    if products_with_real_cogs > 0 and cogs_coverage >= 0.999:
-        cogs_source = "per_product_exact"
-        cogs_estimated_flag = False
-    elif products_with_real_cogs > 0:
-        cogs_source = "per_product_partial"
-        cogs_estimated_flag = True
-    elif cogs_pct_is_custom:
-        cogs_source = "shop_default_pct_custom"
-        cogs_estimated_flag = True
-    else:
-        cogs_source = "default_40pct"
-        cogs_estimated_flag = True
-
-    cogs_note = (
-        f"Real per-product COGS on {products_with_real_cogs} products covers "
-        f"{int(cogs_coverage * 100)}% of revenue — remainder estimated at "
-        f"{int(cogs_pct_default * 100)}%."
-        if products_with_real_cogs > 0
-        else (
-            f"Using custom shop default {int(cogs_pct_default * 100)}% COGS."
-            if cogs_pct_is_custom
-            else "Using module default 40% COGS — enter real cost data for precision."
-        )
+        cogs_summary["cogs_estimate"], real_cogs, cogs_summary["cogs_coverage"] * 100,
+        cost_stack["payment_fees"], cost_stack["shipping_cost"], cost_stack["ad_spend"],
+        profit["net_profit"], profit["net_margin_pct"], precision,
     )
 
     return {
-        "window_days":   window_days,
-        "currency":      currency,
-        "precision":     precision,
-        "has_data":      True,
-        "order_count":   order_count,
-        "gross_revenue": gross_revenue,
-        "cogs_coverage_pct":   round(cogs_coverage * 100, 1),
+        "window_days":         window_days,
+        "currency":            currency,
+        "precision":           precision,
+        "has_data":            True,
+        "order_count":         order_count,
+        "gross_revenue":       gross_revenue,
+        "cogs_coverage_pct":   round(cogs_summary["cogs_coverage"] * 100, 1),
         "products_with_cogs":  products_with_real_cogs,
-        "costs": {
-            "cogs": {
-                "amount":    cogs_estimate,
-                "rate":      cogs_pct_default,
-                "estimated": cogs_estimated_flag,
-                "source":    cogs_source,
-                "note":      cogs_note,
-            },
-            "payment_fees": {
-                "amount":    payment_fees,
-                "rate":      payment_pct,
-                "flat":      payment_flat,
-                "estimated": not (payment_pct_is_custom or payment_flat_is_custom),
-                "source":    "shop_custom" if (payment_pct_is_custom or payment_flat_is_custom) else "shopify_payments_standard",
-                "note":      (
-                    f"Custom payment rates: {payment_pct*100:.2f}% + {payment_flat:.2f}/order."
-                    if (payment_pct_is_custom or payment_flat_is_custom)
-                    else f"Shopify Payments standard ({payment_pct*100:.1f}% + {payment_flat:.2f}/order)."
-                ),
-            },
-            "shipping": {
-                "amount":    shipping_cost,
-                "rate":      shipping_per_ord,
-                "estimated": not shipping_is_custom,
-                "source":    "shop_custom" if shipping_is_custom else "default_5_per_order",
-                "note":      (
-                    f"Custom shipping estimate: {shipping_per_ord:.2f} per order."
-                    if shipping_is_custom
-                    else f"Default {shipping_per_ord:.2f}/order shipping estimate — configure your real rate."
-                ),
-            },
-            "ad_spend": {
-                "amount":    ad_spend,
-                "estimated": True,  # manual entry is still not exact ROAS
-                "source":    "manual_monthly_entry" if ad_spend_is_manual else "not_tracked_yet",
-                "note":      (
-                    f"Manual monthly ad spend ({symbol}{ad_spend_monthly:.0f}/mo) scaled to {window_days}-day window. "
-                    "Connect Meta Ads + Google Ads for real campaign-level ROAS."
-                    if ad_spend_is_manual
-                    else "Ad spend not tracked yet — enter a rough monthly figure or connect Meta + Google Ads."
-                ),
-            },
-        },
-        "total_costs":       total_costs_tracked,
-        "gross_profit":      gross_profit,
-        "net_profit":        net_profit,
-        "gross_margin_pct":  gross_margin_pct,
-        "net_margin_pct":    net_margin_pct,
-        "verdict":           verdict,
-        "generated_at":      datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
+        "costs":               costs_block,
+        "total_costs":         profit["total_costs"],
+        "gross_profit":        profit["gross_profit"],
+        "net_profit":          profit["net_profit"],
+        "gross_margin_pct":    profit["gross_margin_pct"],
+        "net_margin_pct":      profit["net_margin_pct"],
+        "verdict":             _build_verdict(profit["net_margin_pct"], currency),
+        "generated_at":        datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
     }
 
 
