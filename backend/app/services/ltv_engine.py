@@ -48,6 +48,173 @@ def _customer_key(customer_id, customer_email) -> str | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# get_monthly_cohorts — stage helpers
+# Refactor 2026-05-13 (A3 close): 211-LOC god function → composer + 7
+# pure stage helpers. Contract preserved byte-identical. SQL hoisted
+# to module constant. Customer-identity resolution + repeat-rate
+# (DISTINCT-months semantics) + cumulative_revenue (month-age window)
+# are all isolated units.
+# ---------------------------------------------------------------------------
+
+
+_MONTHLY_ORDERS_SQL = text("""
+    SELECT
+        customer_id,
+        customer_email,
+        created_at,
+        CAST(total_price AS FLOAT) AS total_price
+    FROM shop_orders
+    WHERE shop_domain = :shop
+      AND created_at >= :since
+    ORDER BY created_at ASC
+""")
+
+
+def _fetch_monthly_orders(
+    db: Session, shop_domain: str, since_date: datetime,
+) -> list | None:
+    """Returns rows or None on failure. Caller turns None into
+    _empty_response — preserves prior behavior."""
+    try:
+        return db.execute(_MONTHLY_ORDERS_SQL, {
+            "shop": shop_domain, "since": since_date,
+        }).fetchall()
+    except Exception as exc:
+        log.error("ltv_engine: query failed shop=%s: %s", shop_domain, exc)
+        return None
+
+
+def _build_customer_timelines(
+    rows: list,
+) -> tuple[dict[str, list], int]:
+    """Order rows → ({customer_key: [(created_at, price)]}, identifiable_count).
+    Unidentifiable orders (no customer_id AND no email) are excluded
+    honestly — they're counted only in the total but never anchor a
+    cohort."""
+    customer_orders: dict[str, list[tuple[datetime, float]]] = defaultdict(list)
+    identifiable = 0
+    for row in rows:
+        key = _customer_key(row[0], row[1])
+        if key is None:
+            continue
+        identifiable += 1
+        customer_orders[key].append((row[2], float(row[3] or 0)))
+    return customer_orders, identifiable
+
+
+def _assign_cohorts(
+    customer_orders: dict[str, list],
+) -> dict[str, list[str]]:
+    """Each customer → cohort defined by their FIRST-order month.
+    Returns {month_str ('YYYY-MM'): [customer_key, ...]}."""
+    cohort_members: dict[str, list[str]] = defaultdict(list)
+    for cust_key, orders in customer_orders.items():
+        first_dt = min(orders, key=lambda o: o[0])[0]
+        cohort_members[first_dt.strftime("%Y-%m")].append(cust_key)
+    return cohort_members
+
+
+def _count_repeat_customers_in_cohort(
+    members: list[str], customer_orders: dict[str, list],
+) -> int:
+    """Repeat customer = order in 2+ DISTINCT months (not just 2 orders
+    in the same session). Industry-standard repeat semantics."""
+    return sum(
+        1 for ck in members
+        if len({dt.strftime("%Y-%m") for dt, _ in customer_orders[ck]}) >= 2
+    )
+
+
+def _compute_cumulative_revenue(
+    members: list[str], customer_orders: dict[str, list],
+    cohort_start: datetime, max_age: int,
+) -> list[dict]:
+    """Walk month-age windows [age_start, age_end) and accumulate
+    revenue + active-customer count. Returns list of per-age dicts."""
+    out: list[dict] = []
+    running_total = 0.0
+    for age in range(max_age + 1):
+        age_start = _add_months(cohort_start, age)
+        age_end = _add_months(cohort_start, age + 1)
+
+        month_revenue = 0.0
+        active_set: set[str] = set()
+        for cust_key in members:
+            for order_dt, order_price in customer_orders[cust_key]:
+                if age_start <= order_dt < age_end:
+                    month_revenue += order_price
+                    active_set.add(cust_key)
+
+        running_total += month_revenue
+        out.append({
+            "month_age": age,
+            "revenue": round(running_total, 2),
+            "month_revenue": round(month_revenue, 2),
+            "customers_active": len(active_set),
+        })
+    return out
+
+
+def _build_cohort_record(
+    month_str: str, members: list[str],
+    customer_orders: dict[str, list], months: int, now: datetime,
+) -> dict | None:
+    """One cohort dict. Returns None if month_str is unparseable or
+    members is empty (defensive — composer pre-filters but keep gate)."""
+    size = len(members)
+    if size == 0:
+        return None
+    try:
+        cohort_start = datetime.strptime(month_str + "-01", "%Y-%m-%d")
+    except ValueError:
+        return None
+
+    all_orders = [
+        order for cust_key in members for order in customer_orders[cust_key]
+    ]
+    revenue_total = sum(p for _, p in all_orders)
+    orders_total = len(all_orders)
+
+    repeat_count = _count_repeat_customers_in_cohort(members, customer_orders)
+    max_age = min(months, max(1, int((now - cohort_start).days // 30)))
+
+    return {
+        "cohort_month": month_str,
+        "size": size,
+        "revenue_total": round(revenue_total, 2),
+        "orders_total": orders_total,
+        "orders_per_customer": round(orders_total / size, 2),
+        "revenue_per_customer": round(revenue_total / size, 2),
+        "repeat_rate": round(repeat_count / size, 4) if size > 0 else 0.0,
+        "cumulative_revenue": _compute_cumulative_revenue(
+            members, customer_orders, cohort_start, max_age,
+        ),
+    }
+
+
+def _compute_overall_metrics(customer_orders: dict[str, list]) -> dict:
+    """LTV summary across ALL identifiable customers."""
+    total_customers = len(customer_orders)
+    if total_customers == 0:
+        return {
+            "total_customers": 0, "repeat_customers": 0, "repeat_rate": 0.0,
+            "avg_orders_per_customer": 0.0, "avg_revenue_per_customer": 0.0,
+        }
+    total_all_orders = sum(len(orders) for orders in customer_orders.values())
+    total_revenue = sum(p for orders in customer_orders.values() for _, p in orders)
+    repeat_customers = sum(
+        1 for orders in customer_orders.values() if len(orders) >= 2
+    )
+    return {
+        "total_customers": total_customers,
+        "repeat_customers": repeat_customers,
+        "repeat_rate": round(repeat_customers / total_customers, 4),
+        "avg_orders_per_customer": round(total_all_orders / total_customers, 2),
+        "avg_revenue_per_customer": round(total_revenue / total_customers, 2),
+    }
+
+
 def get_monthly_cohorts(
     db: Session,
     shop_domain: str,
@@ -83,163 +250,38 @@ def get_monthly_cohorts(
                     "orders_per_customer": float,
                     "revenue_per_customer": float,
                     "repeat_rate": float,
-                    "cumulative_revenue": [       # revenue by month age
-                        {"month_age": 0, "revenue": float, "customers_active": int},
-                        {"month_age": 1, "revenue": float, "customers_active": int},
-                        ...
-                    ],
+                    "cumulative_revenue": [...],
                 }
             ],
-            "overall": {
-                "total_customers": int,
-                "repeat_customers": int,
-                "repeat_rate": float,
-                "avg_orders_per_customer": float,
-                "avg_revenue_per_customer": float,
-            },
+            "overall": {...},
         }
+
+    Refactored 2026-05-13 (A3 close): 211-LOC god function → 30-LOC
+    composer + 7 pure helpers.
     """
     months = max(1, min(months, 12))
     since_date = _now() - timedelta(days=months * 31)
 
-    try:
-        rows = db.execute(
-            text("""
-                SELECT
-                    customer_id,
-                    customer_email,
-                    created_at,
-                    CAST(total_price AS FLOAT) AS total_price
-                FROM shop_orders
-                WHERE shop_domain = :shop
-                  AND created_at >= :since
-                ORDER BY created_at ASC
-            """),
-            {"shop": shop_domain, "since": since_date},
-        ).fetchall()
-    except Exception as exc:
-        log.error("ltv_engine: query failed shop=%s: %s", shop_domain, exc)
+    rows = _fetch_monthly_orders(db, shop_domain, since_date)
+    if rows is None or not rows:
         return _empty_response(months)
 
-    if not rows:
-        return _empty_response(months)
-
-    # Count coverage
     total_orders = len(rows)
-    identifiable_orders = 0
-
-    # Build per-customer order timeline
-    # customer_key → [(created_at, total_price)]
-    customer_orders: dict[str, list[tuple[datetime, float]]] = defaultdict(list)
-
-    for row in rows:
-        cust_id = row[0]      # customer_id (nullable)
-        cust_email = row[1]   # customer_email (nullable)
-        created_at = row[2]
-        price = float(row[3] or 0)
-
-        key = _customer_key(cust_id, cust_email)
-        if key is None:
-            continue  # unidentifiable — excluded honestly
-        identifiable_orders += 1
-        customer_orders[key].append((created_at, price))
+    customer_orders, identifiable_orders = _build_customer_timelines(rows)
 
     if not customer_orders:
         return _empty_response(months, total_orders=total_orders)
 
-    # Assign each customer to their first-order month cohort
-    # cohort_month → [customer_key, ...]
-    cohort_members: dict[str, list[str]] = defaultdict(list)
-    customer_first_month: dict[str, str] = {}
-
-    for cust_key, orders in customer_orders.items():
-        first_order = min(orders, key=lambda o: o[0])
-        month_str = first_order[0].strftime("%Y-%m")
-        customer_first_month[cust_key] = month_str
-        cohort_members[month_str].append(cust_key)
-
-    # Build cohort data
+    cohort_members = _assign_cohorts(customer_orders)
     now = _now()
-    cohorts = []
-
-    for month_str in sorted(cohort_members.keys(), reverse=True):
-        members = cohort_members[month_str]
-        size = len(members)
-        if size == 0:
-            continue
-
-        # Parse cohort month start
-        try:
-            cohort_start = datetime.strptime(month_str + "-01", "%Y-%m-%d")
-        except ValueError:
-            continue
-
-        # All orders from these customers (lifetime, not just in cohort month)
-        all_orders = []
-        for cust_key in members:
-            all_orders.extend(customer_orders[cust_key])
-
-        revenue_total = sum(p for _, p in all_orders)
-        orders_total = len(all_orders)
-        orders_per_customer = round(orders_total / size, 2)
-        revenue_per_customer = round(revenue_total / size, 2)
-
-        # Repeat rate: fraction with orders in 2+ DISTINCT months
-        # Industry standard: "repeat" means the customer returned in a
-        # different month, not just placed 2 orders in the same session.
-        repeat_count = sum(
-            1 for ck in members
-            if len({dt.strftime("%Y-%m") for dt, _ in customer_orders[ck]}) >= 2
-        )
-        repeat_rate = round(repeat_count / size, 4) if size > 0 else 0.0
-
-        # Cumulative revenue by month age
-        # Month age 0 = cohort month, age 1 = next month, etc.
-        max_age = min(months, max(1, int((now - cohort_start).days // 30)))
-        cumulative_revenue = []
-        running_total = 0.0
-
-        for age in range(max_age + 1):
-            age_start = _add_months(cohort_start, age)
-            age_end = _add_months(cohort_start, age + 1)
-
-            # Revenue from cohort members in this month
-            month_revenue = 0.0
-            customers_active = 0
-            active_set: set[str] = set()
-
-            for cust_key in members:
-                for order_dt, order_price in customer_orders[cust_key]:
-                    if age_start <= order_dt < age_end:
-                        month_revenue += order_price
-                        active_set.add(cust_key)
-
-            customers_active = len(active_set)
-            running_total += month_revenue
-
-            cumulative_revenue.append({
-                "month_age": age,
-                "revenue": round(running_total, 2),
-                "month_revenue": round(month_revenue, 2),
-                "customers_active": customers_active,
-            })
-
-        cohorts.append({
-            "cohort_month": month_str,
-            "size": size,
-            "revenue_total": round(revenue_total, 2),
-            "orders_total": orders_total,
-            "orders_per_customer": orders_per_customer,
-            "revenue_per_customer": revenue_per_customer,
-            "repeat_rate": repeat_rate,
-            "cumulative_revenue": cumulative_revenue,
-        })
-
-    # Overall metrics
-    total_customers = len(customer_orders)
-    total_all_orders = sum(len(orders) for orders in customer_orders.values())
-    total_revenue = sum(p for orders in customer_orders.values() for _, p in orders)
-    repeat_customers = sum(1 for orders in customer_orders.values() if len(orders) >= 2)
+    cohorts = [
+        record
+        for month_str in sorted(cohort_members.keys(), reverse=True)
+        if (record := _build_cohort_record(
+            month_str, cohort_members[month_str],
+            customer_orders, months, now,
+        )) is not None
+    ]
 
     return {
         "window_months": months,
@@ -251,13 +293,7 @@ def get_monthly_cohorts(
             "coverage_rate": round(identifiable_orders / total_orders, 3) if total_orders > 0 else 0.0,
         },
         "cohorts": cohorts[:months],
-        "overall": {
-            "total_customers": total_customers,
-            "repeat_customers": repeat_customers,
-            "repeat_rate": round(repeat_customers / total_customers, 4) if total_customers > 0 else 0.0,
-            "avg_orders_per_customer": round(total_all_orders / total_customers, 2) if total_customers > 0 else 0.0,
-            "avg_revenue_per_customer": round(total_revenue / total_customers, 2) if total_customers > 0 else 0.0,
-        },
+        "overall": _compute_overall_metrics(customer_orders),
     }
 
 
