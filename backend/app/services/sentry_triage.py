@@ -92,9 +92,25 @@ def ingest_email(
     # alerts, and bugfix-triage waste. Generalized 2026-05-06 via
     # app.core.sentry_noise_filter to cover ALL secret-class env vars,
     # not just OPS_API_KEY (G7 close).
-    from app.core.sentry_noise_filter import is_noise as _is_sentry_noise
+    #
+    # Parity with ingest_webhook Step 2b: also explicitly check the
+    # subject + first-line as shutdown-signal-shaped (KeyboardInterrupt,
+    # SystemExit, etc.) so the colon-suffix form "KeyboardInterrupt:
+    # <details>" — common in Sentry email titles — gets dropped before
+    # storage. Without this, an email-shaped shutdown signal slipped
+    # through (composite_text=f"{subject}\n{body}" broke the bare-
+    # equality and colon-prefix match in _matches_shutdown_signal).
+    # Born 2026-05-13 (Agent audit close).
+    from app.core.sentry_noise_filter import (
+        is_noise as _is_sentry_noise,
+        is_shutdown_signal_type as _is_shutdown_signal,
+    )
     composite_text = f"{subject or ''}\n{body or ''}"
-    if _is_sentry_noise(composite_text):
+    subject_line = (subject or "").strip()
+    if (
+        _is_sentry_noise(composite_text)
+        or _is_shutdown_signal(subject_line)
+    ):
         log.info(
             "sentry_triage: noise-denylist drop message_id=%s subject=%s",
             message_id, (subject or "")[:80],

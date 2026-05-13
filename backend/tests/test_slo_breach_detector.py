@@ -76,7 +76,9 @@ class TestSloBreachDetector:
         """p95 above 1.5× target (latency_breach) → slo_breach critical."""
         # /track has latency_p95_target_ms=200. Seed durations around 500ms
         # → p95 ≈ 500 > 300 (1.5× target) → latency_breach classification.
-        for _ in range(20):
+        # n=35 to clear the obs < 30 insufficient_data gate (bumped from
+        # 10 → 30 on 2026-05-13 per Agent audit for p95 stat-significance).
+        for _ in range(35):
             _seed("/track", "POST", 200, 500.0)
         from app.services.observability_spikes import detect_slo_breaches
         fired = detect_slo_breaches(db)
@@ -86,7 +88,7 @@ class TestSloBreachDetector:
     def test_latency_warning_fires_slo_burn_warning(self, db):
         """p95 above target but below 1.5× target → latency_warning → warning."""
         # /track target 200ms → seed around 250ms (above but not 1.5×).
-        for _ in range(20):
+        for _ in range(35):
             _seed("/track", "POST", 200, 250.0)
         from app.services.observability_spikes import detect_slo_breaches
         fired = detect_slo_breaches(db)
@@ -96,15 +98,16 @@ class TestSloBreachDetector:
 
     def test_healthy_route_no_alert(self, db):
         """Fast + all-ok observations → healthy → silent."""
-        for _ in range(20):
+        for _ in range(35):
             _seed("/track", "POST", 200, 50.0)  # well under 200ms target
         from app.services.observability_spikes import detect_slo_breaches
         fired = detect_slo_breaches(db)
         assert fired == 0
 
     def test_insufficient_data_no_alert(self, db):
-        """Fewer than 10 observations → insufficient_data → no alert even
-        if the few observations are ugly. Prevents cold-start noise."""
+        """Fewer than 30 observations → insufficient_data → no alert even
+        if the few observations are ugly. Prevents cold-start noise.
+        (obs floor bumped 10 → 30 on 2026-05-13 per Agent audit.)"""
         for _ in range(3):
             _seed("/track", "POST", 200, 5000.0)
         from app.services.observability_spikes import detect_slo_breaches
@@ -113,7 +116,7 @@ class TestSloBreachDetector:
 
     def test_cooldown_deduplicates_within_hour(self, db):
         """Same breach in back-to-back calls should fire exactly once."""
-        for _ in range(20):
+        for _ in range(35):
             _seed("/track", "POST", 200, 500.0)
         from app.services.observability_spikes import detect_slo_breaches
         first = detect_slo_breaches(db)
@@ -125,7 +128,7 @@ class TestSloBreachDetector:
 
     def test_catalogue_route_isolation(self, db):
         """Seeding /track must not create alerts for /webhooks/shopify."""
-        for _ in range(20):
+        for _ in range(35):
             _seed("/track", "POST", 200, 500.0)
         from app.services.observability_spikes import detect_slo_breaches
         detect_slo_breaches(db)

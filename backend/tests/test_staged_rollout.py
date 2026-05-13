@@ -60,9 +60,19 @@ def test_promote_if_healthy_refuses_unregistered_flag():
 
 
 def test_rollback_resets_ring(monkeypatch):
+    """staged_rollout.rollback() opens its own SessionLocal() to persist
+    the flag_rollback alert outside the caller's transaction (real
+    production semantic — alerts should survive caller rollback).
+    That nested session bypasses pytest SAVEPOINT cleanup and leaks
+    a row to ops_alerts every preflight cycle (id 137257 + 137516
+    observed). Monkeypatch the alert write — the test verifies the
+    flag-ring behavior, not the alert side-effect (which is
+    independently tested in alerting tests). Born 2026-05-13 Agent
+    audit close."""
     fake = FakeRedis()
     with patch("app.core.feature_flags._redis", return_value=fake), \
          patch("app.core.staged_rollout._record_ring_change"), \
+         patch("app.services.alerting.write_alert"), \
          patch("app.core.redis_client._client", return_value=fake):
         result = sr.rollback("night_shift_agent", "test rollback")
     assert result["rolled_back"] is True

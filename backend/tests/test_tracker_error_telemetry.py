@@ -306,13 +306,18 @@ class TestSentrySpikeDetectors:
         fired = detect_sentry_rate_spikes(db)
         assert fired == 0
 
-    def test_sentry_regression_fires_when_fixed_fp_returns(self, db):
-        # Old incident (1 hour ago) with triage_status=consumed — the fix shipped.
+    def test_sentry_regression_fires_when_silent_fp_returns(self, db):
+        """Updated 2026-05-13 to match pivot from `consumed`-state
+        precursor (dead post-Brain-Vero) to silent-period definition:
+        regression = fingerprint had prior incident >7d ago, no
+        activity in silent window, then new in last 30min."""
+        # Old incident 8 days ago — prior > 7d silent threshold
         self._seed_incidents(
             db, count=1, fingerprint="fp_regression",
-            triage_status="consumed", created_offset_sec=3600,
+            triage_status="ready", created_offset_sec=8 * 86400,
         )
-        # New incident in the last 30 min with SAME fingerprint → regression.
+        # New incident in the last 30 min with SAME fingerprint → regression
+        # (no mid-period activity proves the silence).
         self._seed_incidents(
             db, count=2, fingerprint="fp_regression",
             triage_status="pending", created_offset_sec=60,
@@ -322,8 +327,8 @@ class TestSentrySpikeDetectors:
         assert fired == 1
         assert _count_alerts(db, "sentry_regression") >= 1
 
-    def test_sentry_regression_no_alert_when_fp_never_consumed(self, db):
-        # Even with new incidents, no consumed predecessor → no regression.
+    def test_sentry_regression_no_alert_when_fp_has_no_history(self, db):
+        """Fingerprint without any prior >7d incident → not a regression."""
         self._seed_incidents(
             db, count=3, fingerprint="fp_fresh",
             triage_status="pending", created_offset_sec=60,

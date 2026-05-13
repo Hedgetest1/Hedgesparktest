@@ -332,24 +332,30 @@ def detect_p95_slow_trends(db: Session) -> int:
                     baseline.append(p95)
                     baseline_count += int(bucket.get("count") or 0)
 
-        if recent_count < _P95_MIN_SAMPLES or baseline_count < _P95_MIN_SAMPLES:
-            continue
-        if not recent or not baseline:
-            continue
-
-        recent_p95 = statistics.median(recent)
-        baseline_p95 = statistics.median(baseline)
-
-        # Heal: a prior alert that was healthy by next cycle should clear.
-        # Tracks the route's current vs-baseline state and resolves prior
-        # unresolved alerts when ratio drops back below threshold OR
-        # absolute is back under floor.
         source = f"p95_drift:{route}"[:64]
-        if (
-            recent_p95 < _P95_MIN_ABS_MS
-            or baseline_p95 <= 0
-            or (recent_p95 / baseline_p95) < _P95_DRIFT_RATIO
-        ):
+
+        # Heal path runs BEFORE the MIN_SAMPLES floor: if a route had a
+        # stale alert from when it had more traffic, but traffic has
+        # dropped to below the floor, we must STILL heal — otherwise
+        # the alert persists forever even though we can no longer
+        # statistically verify the regression. The premise is: low
+        # traffic + stale alert = no regression to alert about. Born
+        # 2026-05-13 (Agent audit) after /live/visitors required
+        # manual cleanup post-MIN_SAMPLES bump.
+        insufficient = recent_count < _P95_MIN_SAMPLES or baseline_count < _P95_MIN_SAMPLES
+        if not insufficient and recent and baseline:
+            recent_p95 = statistics.median(recent)
+            baseline_p95 = statistics.median(baseline)
+            is_healthy = (
+                recent_p95 < _P95_MIN_ABS_MS
+                or baseline_p95 <= 0
+                or (recent_p95 / baseline_p95) < _P95_DRIFT_RATIO
+            )
+        else:
+            recent_p95 = baseline_p95 = 0.0
+            is_healthy = True  # insufficient samples → can't claim regression
+
+        if is_healthy:
             try:
                 from app.services.alerting import auto_resolve_alerts
                 healed_n = auto_resolve_alerts(
@@ -366,6 +372,7 @@ def detect_p95_slow_trends(db: Session) -> int:
                 )
             continue
 
+        # If we got here we ARE NOT healthy AND we have enough samples.
         # Past the heal gate — route is currently breaching threshold.
         ratio = recent_p95 / baseline_p95
 
@@ -610,23 +617,34 @@ def detect_sentry_rate_spikes(db: Session) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Sentry fingerprint regression — a previously-resolved issue returns
+# Sentry fingerprint regression — a previously-silent issue returns
 # ---------------------------------------------------------------------------
-# When an incident's fingerprint matches one that was linked to a
-# `consumed` (= bugfix shipped) candidate, it's a regression — the
-# fix failed. This deserves an immediate ops_alert regardless of
-# recurrence threshold so ops can rollback.
+# Original 2026-05-07 design: fingerprint had a `consumed` (= bugfix
+# shipped) precursor row, and now fires NEW incidents → the fix didn't
+# hold. After Brain Vero supersession (§21.6) the bugfix_pipeline
+# stopped writing `consumed` (49 historical rows remain; no new writer).
+# Detector became structurally dead: could only re-fire against the 49
+# legacy `consumed` rows, never against new incidents.
+#
+# Re-scoped 2026-05-13 (Agent audit) to a producer-agnostic definition:
+# "regression" = a fingerprint that was active in the past, then went
+# silent for ≥ 7 days, then reappears in the last 30 min. The silent-
+# period is the proxy for "we thought this was fixed". Works regardless
+# of which pipeline (or none) acts on incidents downstream.
+_SENTRY_REGRESSION_SILENT_DAYS = 7
 
 
 def detect_sentry_regressions(db: Session) -> int:
     """Emit `sentry_regression` alert when an incident in the last 30
-    min matches a fingerprint that has a consumed bugfix candidate.
+    min matches a fingerprint that had at least one prior incident
+    AND has been silent for >= 7 days before this new fire.
 
-    `consumed` means the bugfix pipeline took action on this
-    fingerprint. If the same fingerprint fires NEW incidents after
-    that, the fix didn't hold. This is always critical."""
+    Producer-agnostic: doesn't depend on any specific triage state.
+    Useful both during pre-merchant phase (any reappearing error after
+    a quiet period is signal) and at scale (post-fix verification)."""
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     recent_cutoff = now - timedelta(minutes=30)
+    silent_cutoff = now - timedelta(days=_SENTRY_REGRESSION_SILENT_DAYS)
 
     try:
         rows = db.execute(
@@ -636,19 +654,30 @@ def detect_sentry_regressions(db: Session) -> int:
                                 COUNT(*) AS n,
                                 MAX(si_new.id) AS latest_id
                 FROM sentry_incidents si_new
-                WHERE si_new.created_at >= :cutoff
+                WHERE si_new.created_at >= :recent_cutoff
                   AND si_new.fingerprint IS NOT NULL
                   AND EXISTS (
+                      -- fingerprint had a prior incident more than
+                      -- _SENTRY_REGRESSION_SILENT_DAYS ago
                       SELECT 1
                       FROM sentry_incidents si_old
                       WHERE si_old.fingerprint = si_new.fingerprint
-                        AND si_old.ai_triage_status = 'consumed'
-                        AND si_old.created_at < si_new.created_at
+                        AND si_old.created_at < :silent_cutoff
+                  )
+                  AND NOT EXISTS (
+                      -- AND no activity for this fingerprint in the
+                      -- silent window (between silent_cutoff and
+                      -- recent_cutoff) — proves the silence
+                      SELECT 1
+                      FROM sentry_incidents si_mid
+                      WHERE si_mid.fingerprint = si_new.fingerprint
+                        AND si_mid.created_at >= :silent_cutoff
+                        AND si_mid.created_at < :recent_cutoff
                   )
                 GROUP BY si_new.fingerprint
                 """
             ),
-            {"cutoff": recent_cutoff},
+            {"recent_cutoff": recent_cutoff, "silent_cutoff": silent_cutoff},
         ).fetchall()
     except Exception as exc:
         log.warning("sentry regression scan failed: %s", exc)
@@ -673,12 +702,13 @@ def detect_sentry_regressions(db: Session) -> int:
                 summary=(
                     f"Sentry regression: fingerprint={fingerprint[:20]} "
                     f"returned ({int(n)} new incidents in 30min) after "
-                    f"bugfix was marked consumed"
+                    f">={_SENTRY_REGRESSION_SILENT_DAYS}d silent period"
                 ),
                 detail={
                     "fingerprint": fingerprint,
                     "recent_count_30min": int(n),
                     "latest_incident_id": int(latest_id),
+                    "silent_days_threshold": _SENTRY_REGRESSION_SILENT_DAYS,
                 },
             )
             fired += 1

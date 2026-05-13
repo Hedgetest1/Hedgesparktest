@@ -107,8 +107,9 @@ def test_record_timing_identical_duration_same_ms_does_not_coalesce():
     Prior implementation used `{now_ms}:{duration_ms}` as the member
     key, collapsing observations within the same millisecond into one
     entry. Under production load (10k+ merchants) or a hot-loop test,
-    this trips the `obs < 10 → insufficient_data` gate in slo_report
-    and suppresses legitimate breach alerts.
+    this trips the `obs < 30 → insufficient_data` gate in slo_report
+    (bumped from 10 → 30 on 2026-05-13) and suppresses legitimate
+    breach alerts.
 
     Fix uses nanosecond precision on the member side (score stays ms
     for cheap zremrangebyscore windowing).

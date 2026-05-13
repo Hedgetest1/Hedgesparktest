@@ -10,18 +10,12 @@ the actual `ingest_webhook` function and assert the wire-in works.
 """
 from __future__ import annotations
 
-import pytest
-
-
-@pytest.fixture
-def db():
-    from app.core.database import SessionLocal
-    s = SessionLocal()
-    try:
-        yield s
-    finally:
-        s.rollback()
-        s.close()
+# The conftest `db` fixture provides a SAVEPOINT-wrapped session against
+# _test_engine — every flush rolls back at test teardown so no row
+# leaks to production. The ad-hoc `SessionLocal()` fixture this file
+# previously declared bypassed that SAVEPOINT and left rows in prod
+# (per `feedback_test_hermeticity_prod_db.md`). Removed 2026-05-13
+# Agent audit close — use the conftest fixture by argument name.
 
 
 def _payload(

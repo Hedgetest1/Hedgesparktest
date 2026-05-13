@@ -1043,7 +1043,8 @@ refuses to start if prior `_loadtest_` shops exist unless --force).
 | `hs:spike:frontend_error:{hour}` | frontend spike cooldown | 1h |
 | `hs:spike:ux_frustration:{shop}:{day}` | UX spike cooldown | 24h |
 | `hs:spike:sentry_rate:{hour}` | Sentry rate-spike cooldown | 1h |
-| `hs:spike:sentry_regression:{fp}:{hour}` | Sentry regression cooldown | 1h |
+| `hs:spike:sentry_regression:{fp}:{hour}` | Sentry regression cooldown (silent-period definition post-2026-05-13 pivot) | 1h |
+| `hs:spike:sentry_triage_stuck:{hour}` | Sentry triage stuck-producer cooldown (watches `pending` post-Brain-Vero pivot 2026-05-13) | 1h |
 | `hs:spike:p95_drift:{route}:{day}` | p95 drift cooldown | 24h |
 | `hs:spike:dashboard_asset_drift:hour` | dashboard asset drift cooldown | 1h |
 | `hs:spike:perf_network_layer_drift:{route}:{hour}` | RUM×Lighthouse drift cooldown | 1h |

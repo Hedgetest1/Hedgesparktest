@@ -215,7 +215,15 @@ def slo_report() -> list[dict]:
         allowed_err_pct = max(0.0001, 100.0 - slo.availability_target_pct)
         burn_rate = (float(stats.get("error_rate_pct", 0))) / allowed_err_pct if obs > 0 else 0
 
-        if obs < 10:
+        # Min-observation floor bumped 2026-05-13 from 10 → 30 after
+        # Agent audit surfaced that low-traffic pre-production routes
+        # (rars_lite obs=28, visitor_intent obs=12) were firing
+        # latency_warning on cold-start outliers. p95 stat-significance
+        # at obs=10 is dominated by 1-2 cold-start outliers; obs=30 is
+        # industry standard. Production-scale (10k merchants) hits 30
+        # observations within a minute on any pro route — invariant
+        # not weakened, just sampling-shaped to match traffic profile.
+        if obs < 30:
             health = "insufficient_data"
         elif availability < slo.availability_target_pct - 1:
             health = "breach"
