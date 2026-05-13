@@ -187,8 +187,19 @@ class _CostLiteralVisitor(ast.NodeVisitor):
 
 
 def scan_file(path: Path) -> list[tuple[str, int, str, str]]:
+    # TOCTOU defense: rglob is lazy and may yield a path that gets
+    # deleted between discovery and read (concurrent pytest fixtures
+    # do this — `test_audit_data_truth_gate.py` creates+deletes
+    # `_test_hardcoded_eur_DELETE_ME.py` in `app/services/`; the
+    # invariant_monitor running in parallel crashed this audit
+    # 2026-05-13). Skip silently; the next monitor cycle re-scans
+    # cleanly. Same defense as audit_cte_missing_comma.py.
     try:
-        tree = ast.parse(path.read_text(), filename=str(path))
+        text = path.read_text()
+    except (FileNotFoundError, PermissionError):
+        return []
+    try:
+        tree = ast.parse(text, filename=str(path))
     except SyntaxError:
         return []
     v = _CostLiteralVisitor(str(path))
