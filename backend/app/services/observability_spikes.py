@@ -708,12 +708,23 @@ def detect_sentry_regressions(db: Session) -> int:
 # ---------------------------------------------------------------------------
 # Sentry triage stuck-queue detector
 # ---------------------------------------------------------------------------
-# Catches the class of silent failure we hit 2026-04-18: the sentry
-# triage consume_triage_queue filter skipped family members, leaving
-# them in `ready` state forever. A detector that alerts when
-# unlinked-ready incidents accumulate > N for > M hours catches this
-# kind of handoff breakage without requiring a specific code-path audit.
-_SENTRY_STUCK_THRESHOLD_COUNT = 20        # > 20 unlinked-ready
+# Watches the LIVE transition `pending → ready` driven by
+# `run_triage_generation` (agent_worker, every 15min). If `pending`
+# incidents accumulate > N for > M hours, the agent_worker (or its
+# DB/SQL path) is broken — the deterministic packet builder is not
+# advancing the queue.
+#
+# Original 2026-04-18 design watched `ready` (the consumer-handoff
+# stage). After Brain Vero supersession 2026-05-07 (CLAUDE.md §21.6)
+# the consumer that advanced `ready → consumed` was retired; `ready`
+# is now the terminal observability state (deterministic packet
+# surfaced via /ops/sentry-triage queue, NOT consumed downstream).
+# Watching `ready` produced a false-positive on 30 incidents that
+# correctly accumulated as terminal-observability rows.
+#
+# Re-scoped 2026-05-13 to watch `pending` instead — the live transition
+# that still has a working consumer. Same SLA semantics (6h, count 20).
+_SENTRY_STUCK_THRESHOLD_COUNT = 20        # > 20 stuck-pending
 _SENTRY_STUCK_THRESHOLD_AGE_HOURS = 6     # oldest > 6h old
 _SENTRY_STUCK_COOLDOWN_KEY = "hs:spike:sentry_triage_stuck:{hour}"
 _SENTRY_STUCK_COOLDOWN_TTL = 3600
@@ -1075,9 +1086,17 @@ def detect_perf_network_layer_drift(db: Session) -> int:
 
 
 def detect_sentry_triage_stuck(db: Session) -> int:
-    """Alert when the sentry_triage consumer queue has backed up —
-    i.e. many `ready` incidents unlinked for more than 6h. Catches
-    broken-handoff class of bugs in the triage → bugfix pipeline."""
+    """Alert when the sentry_triage producer queue has backed up —
+    i.e. many `pending` incidents unprocessed for more than 6h.
+    Catches broken-producer class of bugs: agent_worker stalled,
+    DB error in run_triage_generation, deterministic packet
+    builder failure.
+
+    Re-scoped 2026-05-13 from watching `ready` (terminal observability
+    state since Brain Vero supersession) to watching `pending` (the
+    live producer transition with a real consumer). Also heals
+    auto-resolves any unresolved alert when the backlog drops below
+    threshold."""
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     cutoff = now - timedelta(hours=_SENTRY_STUCK_THRESHOLD_AGE_HOURS)
     hour = now.strftime("%Y-%m-%dT%H")
@@ -1089,7 +1108,7 @@ def detect_sentry_triage_stuck(db: Session) -> int:
                 SELECT COUNT(*) AS stuck_count,
                        MIN(created_at) AS oldest
                 FROM sentry_incidents
-                WHERE ai_triage_status = 'ready'
+                WHERE ai_triage_status = 'pending'
                   AND created_at < :cutoff
                 """
             ),
@@ -1099,11 +1118,26 @@ def detect_sentry_triage_stuck(db: Session) -> int:
         log.warning("sentry triage stuck-queue scan failed: %s", exc)
         return 0
 
-    if not row:
-        return 0
-    count = int(row[0] or 0)
-    oldest = row[1]
+    count = int(row[0] or 0) if row else 0
+    oldest = row[1] if row else None
+
+    # Heal: if backlog drained below threshold, auto-resolve any
+    # unresolved alerts of this type. Keeps the dashboard accurate
+    # without operator action.
     if count < _SENTRY_STUCK_THRESHOLD_COUNT:
+        try:
+            from app.services.alerting import auto_resolve_alerts
+            healed = auto_resolve_alerts(
+                db,
+                alert_type="sentry_triage_stuck",
+            )
+            if healed:
+                log.info(
+                    "sentry_triage_stuck heal: auto-resolved %d alert(s)",
+                    healed,
+                )
+        except Exception as exc:
+            log.warning("sentry_triage_stuck heal failed: %s", exc)
         return 0
 
     key = _SENTRY_STUCK_COOLDOWN_KEY.format(hour=hour)
@@ -1122,15 +1156,17 @@ def detect_sentry_triage_stuck(db: Session) -> int:
             source="sentry_triage_stuck",
             alert_type="sentry_triage_stuck",
             summary=(
-                f"sentry_triage queue stuck: {count} unlinked `ready` "
+                f"sentry_triage producer stuck: {count} `pending` "
                 f"incidents older than {_SENTRY_STUCK_THRESHOLD_AGE_HOURS}h "
-                f"(oldest {age_hours}h old). Consumer handoff broken."
+                f"(oldest {age_hours}h old). agent_worker run_triage_"
+                f"generation may be broken."
             ),
             detail={
                 "stuck_count": count,
                 "oldest_age_hours": age_hours,
                 "threshold_count": _SENTRY_STUCK_THRESHOLD_COUNT,
                 "threshold_age_hours": _SENTRY_STUCK_THRESHOLD_AGE_HOURS,
+                "watched_state": "pending",
             },
         )
         return 1

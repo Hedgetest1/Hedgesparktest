@@ -141,7 +141,11 @@ _KNOWN_HEAL_BACKLOG: dict[str, str] = {
     "sentry_incident_rate_spike": _BASELINE_PREEXISTING_2026_05_06,
     "sentry_parse_failure": _BASELINE_PREEXISTING_2026_05_06,
     "sentry_regression": _BASELINE_PREEXISTING_2026_05_06,
-    "sentry_triage_stuck": _BASELINE_PREEXISTING_2026_05_06,
+    # sentry_triage_stuck removed from backlog 2026-05-13: heal coverage
+    # shipped via auto_resolve_alerts in observability_spikes.detect_sentry_
+    # triage_stuck "drained" branch (line ~1116). Re-scope from `ready`
+    # (terminal observability post-Brain-Vero) to `pending` (live producer)
+    # also shipped same commit.
     "sentry_webhook_dark": _BASELINE_PREEXISTING_2026_05_06,
     "session_anomaly": _BASELINE_PREEXISTING_2026_05_06,
     "suspicious_traffic_pattern": _BASELINE_PREEXISTING_2026_05_06,
