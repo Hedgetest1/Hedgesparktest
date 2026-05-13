@@ -1116,6 +1116,100 @@ def _compute_revenue_lift(
 # Read path — incremental lift estimation (CVR + Revenue)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# get_nudge_lift_report — stage helpers
+# Refactor 2026-05-13 (A3 close): 201-LOC god function → composer + 5
+# pure helpers (CVR-lift math + sample-state classifier + significance
+# builder + attribution-value extractor + attribution-note builder).
+# Contract preserved byte-identical.
+# ---------------------------------------------------------------------------
+
+
+def _compute_cvr_lift_pct(exposed_cvr: float, holdout_cvr: float) -> Optional[float]:
+    """CVR lift % with explicit handling of the 4 numerator/denominator
+    combinations. Returns None when the baseline is zero but the
+    exposed is positive (undefined ratio — never lie with infinity)."""
+    if exposed_cvr > 0 and holdout_cvr > 0:
+        return round((exposed_cvr - holdout_cvr) / holdout_cvr * 100, 2)
+    if exposed_cvr > 0 and holdout_cvr == 0:
+        return None  # positive but baseline is zero — undefined
+    if exposed_cvr == 0 and holdout_cvr == 0:
+        return 0.0
+    # exposed_cvr == 0 with holdout_cvr > 0 → negative lift (sign preserved)
+    return round((exposed_cvr - holdout_cvr) / holdout_cvr * 100, 2)
+
+
+def _compute_sample_state(
+    exposed_count: int, holdout_count: int,
+) -> tuple[str, list[str]]:
+    """Classify whether either group is below MIN_SAMPLE_PER_GROUP.
+    Returns (state, under_threshold_labels) where under_threshold names
+    each group that fell short (used in the significance message)."""
+    under = []
+    if exposed_count < MIN_SAMPLE_PER_GROUP:
+        under.append(f"exposed={exposed_count}")
+    if holdout_count < MIN_SAMPLE_PER_GROUP:
+        under.append(f"holdout={holdout_count}")
+    return ("insufficient" if under else "sufficient"), under
+
+
+def _build_lift_significance(
+    *, sample_state: str, under_threshold: list[str],
+    exposed_count: int, exposed_purchases: int,
+    holdout_count: int, holdout_purchases: int,
+) -> tuple[float, float, str]:
+    """Returns (z_score, p_value, significance_label).
+    'Insufficient sample' state returns (0.0, 1.0, ...) and skips the
+    z-test entirely — sample-state gate is the honest stop-condition."""
+    if sample_state != "sufficient":
+        return (
+            0.0, 1.0,
+            f"Insufficient sample — need ≥{MIN_SAMPLE_PER_GROUP} per group. "
+            f"Under threshold: {', '.join(under_threshold)}.",
+        )
+    z, p = _two_prop_z_test(
+        exposed_count, exposed_purchases,
+        holdout_count, holdout_purchases,
+    )
+    z = round(z, 4)
+    p = round(p, 4)
+    if p < 0.05:
+        return z, p, f"p={p} — >95% confidence (one-tailed, quasi-experimental)"
+    if p < 0.10:
+        return z, p, f"p={p} — >90% confidence (one-tailed, quasi-experimental)"
+    return z, p, f"p={p} — no meaningful difference yet"
+
+
+def _extract_attribution_values(
+    exposed_attr: dict, holdout_attr: dict,
+) -> tuple[int, int, float, float, float, float, str, str]:
+    """Defensive extraction with fallbacks for the 4 optional fields
+    (revenue / currency in each direction). Returns 8-tuple."""
+    return (
+        exposed_attr["post_exposure_purchases"],
+        holdout_attr["holdout_purchases"],
+        exposed_attr["post_exposure_cvr"],
+        holdout_attr["holdout_cvr"],
+        exposed_attr.get("purchase_session_revenue") or 0.0,
+        holdout_attr.get("holdout_revenue") or 0.0,
+        exposed_attr.get("revenue_currency") or "unknown",
+        holdout_attr.get("revenue_currency") or "unknown",
+    )
+
+
+def _build_lift_attribution_note(window_hours: int) -> str:
+    """Honest narrative about WHY this is quasi-experimental, not RCT."""
+    return (
+        "Quasi-experimental holdout design. Both groups passed the behavioral "
+        "eligibility gate. Assignment is deterministic via "
+        "MD5(visitor_id:holdout:nudge_id) % 100 — pseudo-random, not a true RCT. "
+        f"CVR lift is estimated directionally. Attribution window: {window_hours}h "
+        "from first qualifying event per visitor. "
+        "Revenue lift uses the same window and join chain. "
+        "Do not claim proven causation — claim 'estimated incremental lift'."
+    )
+
+
 def get_nudge_lift_report(
     db:           Session,
     shop_domain:  str,
@@ -1136,47 +1230,6 @@ def get_nudge_lift_report(
     Both attribution windows are measured from the visitor's first qualifying event.
     The only systematic difference is whether the nudge was rendered.
 
-    Returns:
-        {
-            "holdout_active":              bool,
-            "exposed_count":               int,
-            "holdout_count":               int,
-            "exposed_purchases":           int,
-            "holdout_purchases":           int,
-            "exposed_cvr":                 float,
-            "holdout_cvr":                 float,
-            "estimated_lift_pct":          float | null,   # CVR lift
-            "cvr_delta":                   float,
-            "sample_state":                str,
-            "min_sample_required":         int,
-            "z_score":                     float,
-            "p_value":                     float,
-            "significance":                str,
-            "method":                      "quasi_experimental_holdout",
-            "attribution_note":            str,
-            "window_hours":                int,
-            "revenue_lift": {              # Revenue-weighted lift block
-                "has_order_data":                bool,
-                "exposed_revenue":               float,
-                "holdout_revenue":               float,
-                "exposed_rpv":                   float,
-                "holdout_rpv":                   float,
-                "incremental_rpv":               float,
-                "revenue_lift_pct":              float | null,
-                "estimated_incremental_revenue": float | null,
-                "currency":                      str,
-                "currency_note":                 str | null,
-                "sample_state":                  str,
-                "min_sample_required":           int,
-                "revenue_note":                  str,
-                "agent_ranking_signal": {
-                    "incremental_rpv":               float | null,
-                    "estimated_incremental_revenue": float | null,
-                    "revenue_lift_pct":              float | null,
-                },
-            },
-        }
-
     Honest labeling throughout:
       - "quasi_experimental_holdout" — not "randomized_controlled_trial"
       - "estimated_lift_pct" — not "proven_lift"
@@ -1185,10 +1238,12 @@ def get_nudge_lift_report(
 
     When holdout_count = 0 (holdout not enabled or no data yet):
       returns holdout_active=False with all zeros and inactive revenue_lift.
+
+    Refactored 2026-05-13 (A3 close): 201-LOC god function → 50-LOC
+    composer + 5 pure helpers.
     """
     holdout_stats = get_holdout_stats(db=db, shop_domain=shop_domain, nudge_id=nudge_id)
     holdout_count = holdout_stats["holdout_count"]
-
     if holdout_count == 0:
         return _inactive_lift_report(nudge_id, window_hours)
 
@@ -1196,72 +1251,29 @@ def get_nudge_lift_report(
     exposed_count = exposed_stats["exposures"]
 
     holdout_attr = get_holdout_attribution(
-        db            = db,
-        shop_domain   = shop_domain,
-        nudge_id      = nudge_id,
-        window_hours  = window_hours,
-        holdout_count = holdout_count,
+        db=db, shop_domain=shop_domain, nudge_id=nudge_id,
+        window_hours=window_hours, holdout_count=holdout_count,
     )
     exposed_attr = get_nudge_attribution(
-        db               = db,
-        shop_domain      = shop_domain,
-        nudge_id         = nudge_id,
-        window_hours     = window_hours,
-        exposed_visitors = exposed_count,
+        db=db, shop_domain=shop_domain, nudge_id=nudge_id,
+        window_hours=window_hours, exposed_visitors=exposed_count,
     )
 
-    exposed_purchases = exposed_attr["post_exposure_purchases"]
-    holdout_purchases = holdout_attr["holdout_purchases"]
-    exposed_cvr       = exposed_attr["post_exposure_cvr"]
-    holdout_cvr       = holdout_attr["holdout_cvr"]
-    exposed_revenue   = exposed_attr.get("purchase_session_revenue") or 0.0
-    holdout_revenue   = holdout_attr.get("holdout_revenue") or 0.0
-    exposed_currency  = exposed_attr.get("revenue_currency") or "unknown"
-    holdout_currency  = holdout_attr.get("revenue_currency") or "unknown"
+    (
+        exposed_purchases, holdout_purchases,
+        exposed_cvr, holdout_cvr,
+        exposed_revenue, holdout_revenue,
+        exposed_currency, holdout_currency,
+    ) = _extract_attribution_values(exposed_attr, holdout_attr)
 
-    # -----------------------------------------------------------------------
-    # CVR lift
-    # -----------------------------------------------------------------------
-    under_threshold = []
-    if exposed_count < MIN_SAMPLE_PER_GROUP:
-        under_threshold.append(f"exposed={exposed_count}")
-    if holdout_count < MIN_SAMPLE_PER_GROUP:
-        under_threshold.append(f"holdout={holdout_count}")
-    sample_state = "insufficient" if under_threshold else "sufficient"
-
-    if exposed_cvr > 0 and holdout_cvr > 0:
-        estimated_lift_pct: Optional[float] = round(
-            (exposed_cvr - holdout_cvr) / holdout_cvr * 100, 2
-        )
-    elif exposed_cvr > 0 and holdout_cvr == 0:
-        estimated_lift_pct = None  # positive but baseline is zero — undefined
-    elif exposed_cvr == 0 and holdout_cvr == 0:
-        estimated_lift_pct = 0.0
-    else:
-        estimated_lift_pct = round(
-            (exposed_cvr - holdout_cvr) / holdout_cvr * 100, 2
-        )
-
+    sample_state, under_threshold = _compute_sample_state(exposed_count, holdout_count)
+    estimated_lift_pct = _compute_cvr_lift_pct(exposed_cvr, holdout_cvr)
     cvr_delta = round(exposed_cvr - holdout_cvr, 4)
-
-    if sample_state == "sufficient":
-        z, p = _two_prop_z_test(exposed_count, exposed_purchases,
-                                holdout_count, holdout_purchases)
-        z = round(z, 4)
-        p = round(p, 4)
-        if p < 0.05:
-            significance = f"p={p} — >95% confidence (one-tailed, quasi-experimental)"
-        elif p < 0.10:
-            significance = f"p={p} — >90% confidence (one-tailed, quasi-experimental)"
-        else:
-            significance = f"p={p} — no meaningful difference yet"
-    else:
-        z = 0.0
-        p = 1.0
-        significance = (
-            f"Insufficient sample — need ≥{MIN_SAMPLE_PER_GROUP} per group. "
-            f"Under threshold: {', '.join(under_threshold)}."
-        )
+    z, p, significance = _build_lift_significance(
+        sample_state=sample_state, under_threshold=under_threshold,
+        exposed_count=exposed_count, exposed_purchases=exposed_purchases,
+        holdout_count=holdout_count, holdout_purchases=holdout_purchases,
+    )
 
     log.info(
         "nudge_measurement: lift_report nudge_id=%d shop=%s window=%dh "
@@ -1274,19 +1286,12 @@ def get_nudge_lift_report(
         exposed_revenue, holdout_revenue, exposed_currency, sample_state,
     )
 
-    # -----------------------------------------------------------------------
-    # Revenue lift block
-    # -----------------------------------------------------------------------
     revenue_lift = _compute_revenue_lift(
-        exposed_count     = exposed_count,
-        holdout_count     = holdout_count,
-        exposed_revenue   = exposed_revenue,
-        holdout_revenue   = holdout_revenue,
-        exposed_purchases = exposed_purchases,
-        holdout_purchases = holdout_purchases,
-        exposed_currency  = exposed_currency,
-        holdout_currency  = holdout_currency,
-        window_hours      = window_hours,
+        exposed_count=exposed_count, holdout_count=holdout_count,
+        exposed_revenue=exposed_revenue, holdout_revenue=holdout_revenue,
+        exposed_purchases=exposed_purchases, holdout_purchases=holdout_purchases,
+        exposed_currency=exposed_currency, holdout_currency=holdout_currency,
+        window_hours=window_hours,
     )
 
     return {
@@ -1305,17 +1310,9 @@ def get_nudge_lift_report(
         "p_value":             p,
         "significance":        significance,
         "method":              "quasi_experimental_holdout",
-        "attribution_note": (
-            "Quasi-experimental holdout design. Both groups passed the behavioral "
-            "eligibility gate. Assignment is deterministic via "
-            "MD5(visitor_id:holdout:nudge_id) % 100 — pseudo-random, not a true RCT. "
-            f"CVR lift is estimated directionally. Attribution window: {window_hours}h "
-            "from first qualifying event per visitor. "
-            "Revenue lift uses the same window and join chain. "
-            "Do not claim proven causation — claim 'estimated incremental lift'."
-        ),
-        "window_hours":   window_hours,
-        "revenue_lift":   revenue_lift,
+        "attribution_note":    _build_lift_attribution_note(window_hours),
+        "window_hours":        window_hours,
+        "revenue_lift":        revenue_lift,
     }
 
 
