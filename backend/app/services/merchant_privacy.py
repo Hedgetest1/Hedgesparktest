@@ -59,6 +59,12 @@ def is_merchant_opted_out(shop_domain: str | None) -> bool:
         raw = rc.get(_opt_out_key(shop_domain))
         return bool(raw)
     except Exception as exc:
+        # Fail-safe semantics: return False on Redis failure (won't
+        # silently kill features on a transient blip). The except path
+        # was previously unobserved — surface as a silent_return so a
+        # spike in Redis errors is visible to ops instead of hiding
+        # behind silent false-negatives on the opt-out check.
+        record_silent_return("merchant_privacy.opt_out_read_failed")
         log.warning("merchant_privacy: is_merchant_opted_out failed: %s", exc)
         return False
 
@@ -96,6 +102,11 @@ def set_opt_out(shop_domain: str, opted_out: bool) -> None:
         else:
             rc.delete(key)
     except Exception as exc:
+        # A Redis write failure on the opt-out flag is a GDPR Art. 21
+        # availability hole — the endpoint would return 200 but the
+        # opt-out never persisted. Surfaced via audit_silent_returns
+        # so a Redis-flake spike turns visible instead of hiding.
+        record_silent_return("merchant_privacy.opt_out_write_failed")
         log.warning("merchant_privacy: set_opt_out failed: %s", exc)
 
 
