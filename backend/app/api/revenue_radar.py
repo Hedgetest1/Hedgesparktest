@@ -135,6 +135,175 @@ def _rows(query: str, params: dict) -> list[dict]:
 # Entire endpoint is Pro-only.  No Lite subset exists — see module docstring.
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# revenue_radar_top — stage helpers
+# Refactor 2026-05-13 (A3 close): 204-LOC endpoint → composer + 9 pure
+# stage helpers (4 SQL constants + 4 fetchers + per-shop deps loader
+# + lookup-map builder + per-product enricher + 3-tier conversion-
+# probability resolver + radar-item builder + subset filter).
+# Contract preserved byte-identical. SQL hoisted to module constants.
+# ---------------------------------------------------------------------------
+
+
+_PRODUCTS_SQL = """
+    SELECT
+        vps.product_url AS product_id,
+        vps.product_url AS product_name,
+        COALESCE(SUM(vps.total_views), 0)                                         AS total_views,
+        COALESCE(SUM(CASE WHEN COALESCE(vps.wishlist_added, FALSE) THEN 1 ELSE 0 END), 0)
+                                                                                   AS wishlist_adds,
+        COALESCE(ROUND(AVG(vps.intent_score), 2), 0)                              AS avg_intent_score
+    FROM visitor_product_state vps
+    WHERE vps.shop_domain = :shop_domain
+    GROUP BY vps.product_url
+    ORDER BY avg_intent_score DESC, total_views DESC
+    LIMIT 20
+"""
+
+
+_METRICS_SQL = """
+    SELECT
+        product_url,
+        COALESCE(views_24h, 0) AS views_24h
+    FROM product_metrics
+    WHERE shop_domain = :shop_domain
+"""
+
+
+_MARKET_LOOKUP_SQL = """
+    SELECT
+        product_url AS product_id,
+        COALESCE(lookup_confidence, 70) AS market_confidence,
+        CASE
+            WHEN UPPER(COALESCE(uniqueness_hint, 'UNCLEAR')) = 'LIKELY_UNIQUE'         THEN 80
+            WHEN UPPER(COALESCE(uniqueness_hint, 'UNCLEAR')) = 'UNCLEAR'               THEN 55
+            ELSE 35
+        END AS uniqueness_score,
+        CASE
+            WHEN UPPER(COALESCE(comparable_presence, 'REQUIRES_EXTERNAL_CHECK'))
+                 = 'LIKELY_FOUND_EXTERNALLY'                                           THEN 80
+            WHEN UPPER(COALESCE(comparable_presence, 'REQUIRES_EXTERNAL_CHECK'))
+                 = 'REQUIRES_EXTERNAL_CHECK'                                           THEN 55
+            ELSE 30
+        END AS comparability_score
+    FROM market_lookup
+    WHERE shop_domain = :shop_domain
+"""
+
+
+_PRICE_INTEL_SQL = """
+    SELECT
+        product_url AS product_id,
+        COALESCE(confidence_score, 0) AS price_confidence,
+        CASE
+            WHEN UPPER(COALESCE(price_opportunity, '')) = 'HIGH_INTENT_PRICE_OPPORTUNITY' THEN 75
+            ELSE 35
+        END AS price_pressure_score
+    FROM price_intelligence
+    WHERE shop_domain = :shop_domain
+"""
+
+
+def _fetch_per_shop_deps(shop_domain: str):
+    """Resolve aov + real_conv_map + calibration in a single DB context."""
+    _db = SessionLocal()
+    try:
+        return (
+            get_shop_aov(_db, shop_domain),
+            get_real_product_conversion_map(_db, shop_domain),
+            get_or_train_model(_db, shop_domain),
+        )
+    finally:
+        _db.close()
+
+
+def _build_radar_lookup_maps(
+    metrics_rows: list[dict],
+    market_rows: list[dict],
+    price_rows: list[dict],
+) -> tuple[dict[str, dict], dict[str, dict], dict[str, dict]]:
+    """3 row-lists → 3 maps keyed by product_id/product_url (stable
+    string keys to absorb numeric/string ID drift)."""
+    return (
+        {str(r["product_url"]): r for r in metrics_rows},
+        {str(r["product_id"]): r for r in market_rows},
+        {str(r["product_id"]): r for r in price_rows},
+    )
+
+
+def _resolve_radar_conversion_probability(
+    *,
+    pid: str, enriched: dict, metrics_row: dict, inferred_prob: float,
+    real_conv_map: dict, calibration,
+) -> float:
+    """3-tier conversion probability resolution (same hierarchy as
+    action engine):
+      Tier 1 (real):      product-level CVR from order data
+      Tier 2 (empirical): shop-level behavioral calibration
+      Tier 3 (inferred):  handcrafted model
+    """
+    real_cvr = compute_real_conversion_probability(
+        product_url=pid,
+        conv_map=real_conv_map,
+        views_24h=int(metrics_row.get("views_24h") or 0),
+        # 7d not in metrics_map scope — reuse 24h as a conservative anchor
+        views_7d=int(metrics_row.get("views_24h") or 0),
+    )
+    if real_cvr is not None:
+        return real_cvr
+    behavioral_index = compute_behavioral_index_from_features(enriched)
+    conversion_prob, _ = apply_calibration(
+        inferred_prob=inferred_prob,
+        behavioral_index=behavioral_index,
+        model=calibration,
+    )
+    return conversion_prob
+
+
+def _build_radar_item(outcome: dict, loss_result: dict) -> dict:
+    """Compose one radar response item from outcome + loss_result."""
+    return {
+        "product_id": outcome.get("product_id"),
+        "product_name": outcome.get("product_name"),
+        "revenue_opportunity_score": outcome.get("revenue_opportunity_score"),
+        "revenue_opportunity_band": outcome.get("revenue_opportunity_band"),
+        "conversion_probability": outcome.get("conversion_probability"),
+        "time_to_conversion": outcome.get("time_to_conversion"),
+        "recommended_action": outcome.get("recommended_action"),
+        "expected_uplift": outcome.get("expected_uplift"),
+        "primary_driver": outcome.get("primary_driver"),
+        "primary_barrier": outcome.get("primary_barrier"),
+        "price_pressure_score": outcome.get("price_pressure_score"),
+        "uniqueness_score": outcome.get("uniqueness_score"),
+        "comparability_score": outcome.get("comparability_score"),
+        "auto_action_candidate": outcome.get("auto_action_candidate"),
+        # Revenue loss fields
+        "expected_loss": loss_result["expected_loss"],
+        "loss_band": loss_result["loss_band"],
+        "urgency_score": loss_result["urgency_score"],
+    }
+
+
+def _filter_radar_subsets(
+    ranked: list[dict],
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """3 prescriptive categories (push_now / price_watch / auto_actions),
+    each capped at 3."""
+    push_now = [
+        item for item in ranked
+        if item.get("recommended_action") == "HIGHLIGHT_UNIQUENESS_AND_SCARCITY"
+    ][:3]
+    price_watch = [
+        item for item in ranked
+        if float(item.get("price_pressure_score") or 0) >= 60
+    ][:3]
+    auto_actions = [
+        item for item in ranked
+        if item.get("auto_action_candidate") is True
+    ][:3]
+    return push_now, price_watch, auto_actions
+
+
 @router.get("/top")
 def revenue_radar_top(
     shop: str = Depends(require_pro_session),
@@ -150,189 +319,46 @@ def revenue_radar_top(
     Backend-enforced: require_pro_plan raises HTTP 403 if the shop does not
     have an active Pro plan (merchants.plan != "pro" or billing_active == False).
     API key and shop-domain validation are composed inside require_pro_plan.
+
+    Refactored 2026-05-13 (A3 close): 204-LOC endpoint → 35-LOC
+    composer + 9 pure helpers.
     """
     params = {"shop_domain": shop}
+    aov, real_conv_map, calibration = _fetch_per_shop_deps(shop)
 
-    # Resolve real per-merchant metrics from shop_orders once per request.
-    # Both fall back gracefully when no orders are ingested yet.
-    _db = SessionLocal()
-    try:
-        aov           = get_shop_aov(_db, shop)
-        real_conv_map = get_real_product_conversion_map(_db, shop)
-        calibration   = get_or_train_model(_db, shop)
-    finally:
-        _db.close()
+    products = _rows(_PRODUCTS_SQL, params)
+    metrics_rows = _rows(_METRICS_SQL, params)
+    market_rows = _rows(_MARKET_LOOKUP_SQL, params)
+    price_rows = _rows(_PRICE_INTEL_SQL, params)
 
-    # ------------------------------------------------------------------ #
-    # 1. Behavioral signals from visitor_product_state                    #
-    # ------------------------------------------------------------------ #
-    products = _rows(
-        """
-        SELECT
-            vps.product_url AS product_id,
-            vps.product_url AS product_name,
-            COALESCE(SUM(vps.total_views), 0)                                         AS total_views,
-            COALESCE(SUM(CASE WHEN COALESCE(vps.wishlist_added, FALSE) THEN 1 ELSE 0 END), 0)
-                                                                                       AS wishlist_adds,
-            COALESCE(ROUND(AVG(vps.intent_score), 2), 0)                              AS avg_intent_score
-        FROM visitor_product_state vps
-        WHERE vps.shop_domain = :shop_domain
-        GROUP BY vps.product_url
-        ORDER BY avg_intent_score DESC, total_views DESC
-        LIMIT 20
-        """,
-        params,
+    metrics_map, market_map, price_map = _build_radar_lookup_maps(
+        metrics_rows, market_rows, price_rows,
     )
 
-    # ------------------------------------------------------------------ #
-    # 2. 24-hour view counts from product_metrics (for expected_loss)     #
-    # ------------------------------------------------------------------ #
-    metrics_rows = _rows(
-        """
-        SELECT
-            product_url,
-            COALESCE(views_24h, 0) AS views_24h
-        FROM product_metrics
-        WHERE shop_domain = :shop_domain
-        """,
-        params,
-    )
-    metrics_map: dict[str, dict] = {str(r["product_url"]): r for r in metrics_rows}
-
-    # ------------------------------------------------------------------ #
-    # 3. Market intelligence                                               #
-    # ------------------------------------------------------------------ #
-    market_lookup_rows = _rows(
-        """
-        SELECT
-            product_url AS product_id,
-            COALESCE(lookup_confidence, 70) AS market_confidence,
-            CASE
-                WHEN UPPER(COALESCE(uniqueness_hint, 'UNCLEAR')) = 'LIKELY_UNIQUE'         THEN 80
-                WHEN UPPER(COALESCE(uniqueness_hint, 'UNCLEAR')) = 'UNCLEAR'               THEN 55
-                ELSE 35
-            END AS uniqueness_score,
-            CASE
-                WHEN UPPER(COALESCE(comparable_presence, 'REQUIRES_EXTERNAL_CHECK'))
-                     = 'LIKELY_FOUND_EXTERNALLY'                                           THEN 80
-                WHEN UPPER(COALESCE(comparable_presence, 'REQUIRES_EXTERNAL_CHECK'))
-                     = 'REQUIRES_EXTERNAL_CHECK'                                           THEN 55
-                ELSE 30
-            END AS comparability_score
-        FROM market_lookup
-        WHERE shop_domain = :shop_domain
-        """,
-        params,
-    )
-
-    # ------------------------------------------------------------------ #
-    # 4. Price intelligence                                                #
-    # ------------------------------------------------------------------ #
-    price_rows = _rows(
-        """
-        SELECT
-            product_url AS product_id,
-            COALESCE(confidence_score, 0) AS price_confidence,
-            CASE
-                WHEN UPPER(COALESCE(price_opportunity, '')) = 'HIGH_INTENT_PRICE_OPPORTUNITY' THEN 75
-                ELSE 35
-            END AS price_pressure_score
-        FROM price_intelligence
-        WHERE shop_domain = :shop_domain
-        """,
-        params,
-    )
-
-    market_map: dict[str, dict] = {str(r["product_id"]): r for r in market_lookup_rows}
-    price_map: dict[str, dict] = {str(r["product_id"]): r for r in price_rows}
-
-    # ------------------------------------------------------------------ #
-    # 5. Enrich, score, and add expected_loss per product                 #
-    # ------------------------------------------------------------------ #
-    ranked = []
+    ranked: list[dict] = []
     for product in products:
         pid = str(product.get("product_id"))
-
-        enriched = {
-            **product,
-            **market_map.get(pid, {}),
-            **price_map.get(pid, {}),
-        }
-
+        enriched = {**product, **market_map.get(pid, {}), **price_map.get(pid, {})}
         outcome = infer_conversion_outcome(enriched)
 
-        # 3-tier conversion probability resolution (same hierarchy as action engine)
-        #   Tier 1 (real):      product-level CVR from order data
-        #   Tier 2 (empirical): shop-level behavioral calibration
-        #   Tier 3 (inferred):  handcrafted model
-        inferred_prob       = float(outcome.get("conversion_probability") or 0)
-        product_metrics_row = metrics_map.get(pid, {"views_24h": 0})
-
-        real_cvr = compute_real_conversion_probability(
-            product_url=pid,
-            conv_map=real_conv_map,
-            views_24h=int(product_metrics_row.get("views_24h") or 0),
-            views_7d=int(product_metrics_row.get("views_24h") or 0),  # 7d not in metrics_map scope
+        conversion_prob = _resolve_radar_conversion_probability(
+            pid=pid, enriched=enriched,
+            metrics_row=metrics_map.get(pid, {"views_24h": 0}),
+            inferred_prob=float(outcome.get("conversion_probability") or 0),
+            real_conv_map=real_conv_map, calibration=calibration,
         )
-
-        if real_cvr is not None:
-            conversion_prob = real_cvr
-        else:
-            behavioral_index = compute_behavioral_index_from_features(enriched)
-            conversion_prob, _ = apply_calibration(
-                inferred_prob    = inferred_prob,
-                behavioral_index = behavioral_index,
-                model            = calibration,
-            )
-
         loss_result = calculate_expected_loss(
-            product_metrics_row=product_metrics_row,
+            product_metrics_row=metrics_map.get(pid, {"views_24h": 0}),
             conversion_probability=conversion_prob,
             aov=aov,
         )
+        ranked.append(_build_radar_item(outcome, loss_result))
 
-        radar_item = {
-            "product_id": outcome.get("product_id"),
-            "product_name": outcome.get("product_name"),
-            "revenue_opportunity_score": outcome.get("revenue_opportunity_score"),
-            "revenue_opportunity_band": outcome.get("revenue_opportunity_band"),
-            "conversion_probability": outcome.get("conversion_probability"),
-            "time_to_conversion": outcome.get("time_to_conversion"),
-            "recommended_action": outcome.get("recommended_action"),
-            "expected_uplift": outcome.get("expected_uplift"),
-            "primary_driver": outcome.get("primary_driver"),
-            "primary_barrier": outcome.get("primary_barrier"),
-            "price_pressure_score": outcome.get("price_pressure_score"),
-            "uniqueness_score": outcome.get("uniqueness_score"),
-            "comparability_score": outcome.get("comparability_score"),
-            "auto_action_candidate": outcome.get("auto_action_candidate"),
-            # Revenue loss fields
-            "expected_loss": loss_result["expected_loss"],
-            "loss_band": loss_result["loss_band"],
-            "urgency_score": loss_result["urgency_score"],
-        }
-        ranked.append(radar_item)
-
-    # Sort by revenue_opportunity_score descending (unchanged from original)
     ranked.sort(
         key=lambda x: float(x.get("revenue_opportunity_score") or 0),
         reverse=True,
     )
-
-    push_now = [
-        item for item in ranked
-        if item.get("recommended_action") == "HIGHLIGHT_UNIQUENESS_AND_SCARCITY"
-    ][:3]
-
-    price_watch = [
-        item for item in ranked
-        if float(item.get("price_pressure_score") or 0) >= 60
-    ][:3]
-
-    auto_actions = [
-        item for item in ranked
-        if item.get("auto_action_candidate") is True
-    ][:3]
+    push_now, price_watch, auto_actions = _filter_radar_subsets(ranked)
 
     return {
         "top_revenue_opportunities": ranked[:10],
