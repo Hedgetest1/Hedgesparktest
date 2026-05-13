@@ -111,6 +111,46 @@ def test_never_observed_fires_after_grace_window(clean_telemetry, db):
     assert summary["alerts_written"] == 1
 
 
+def test_operator_only_audits_exempt_from_never_observed(clean_telemetry, db):
+    """Born 2026-05-13. Heavy operator-on-demand audits (`audit_redis_
+    footprint`, `audit_test_flake_detection`) are in WIRED_AUDITS for the
+    shim-import discipline but MUST NOT fire `never_observed` alerts —
+    they emit when an operator decides to run them, not on a schedule.
+
+    Test: simulate grace window passed + every SILENCE-MONITORED audit
+    fresh + operator-only audits NEVER observed → no alert."""
+    from app.core.wired_audits import (
+        OPERATOR_ONLY_AUDITS,
+        silence_monitored_audits,
+    )
+    # Sanity: operator-only set has at least 1 audit and is a subset
+    # of WIRED_AUDITS.
+    assert len(OPERATOR_ONLY_AUDITS) >= 1
+    assert OPERATOR_ONLY_AUDITS.issubset(WIRED_AUDITS)
+    # The silence-monitored set is the WIRED minus operator-only.
+    assert silence_monitored_audits() == WIRED_AUDITS - OPERATOR_ONLY_AUDITS
+
+    today = date.today()
+    # Seed every SILENCE-MONITORED audit with 15 days of history
+    # (passes grace + recent), but leave OPERATOR_ONLY audits with
+    # zero telemetry — that's their normal state.
+    for f in silence_monitored_audits():
+        name = f[:-3]
+        key = f"{_PREFIX}:{name}"
+        for offset in range(15):
+            day = (today - timedelta(days=offset)).isoformat()
+            clean_telemetry.hset(key, day, "1|0|info")
+
+    # Operator-only audits NEVER emit → would have fired never_observed
+    # before this fix.
+    summary = {"checked": 0, "failed": 0, "alerts_written": 0}
+    invariant_monitor._check_silent_audits(db, summary)
+    assert summary["failed"] == 0, (
+        "operator-only audits MUST be exempt from never_observed alarm"
+    )
+    assert summary["alerts_written"] == 0
+
+
 def test_handles_empty_redis_gracefully(clean_telemetry, db):
     """With zero telemetry keys, check must not crash and must not
     alert (grace window has not passed — nothing is observed yet)."""

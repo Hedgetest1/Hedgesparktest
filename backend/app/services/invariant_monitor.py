@@ -953,9 +953,14 @@ _TELEMETRY_WINDOW_DAYS = 30  # how far back we look for history
 
 def _check_silent_audits(db: Session, summary: dict) -> None:
     """Alert on wired audits that stopped (or never started) emitting
-    telemetry to the /ops/audit-telemetry rollup."""
+    telemetry to the /ops/audit-telemetry rollup.
+
+    Operator-only audits (heavy, on-demand-only; see
+    `wired_audits.OPERATOR_ONLY_AUDITS`) are excluded — silence is
+    expected for them, not a regression. Source-of-truth filter
+    lives in `wired_audits.silence_monitored_audits()`."""
     try:
-        from app.core.wired_audits import WIRED_AUDITS
+        from app.core.wired_audits import silence_monitored_audits
         from app.services.audit_telemetry import read_all_audits
     except Exception as exc:
         log.warning("invariant_monitor: silent-audits import failed: %s", exc)
@@ -975,7 +980,8 @@ def _check_silent_audits(db: Session, summary: dict) -> None:
     silent_with_history: list[tuple[str, int]] = []
     never_observed: list[str] = []
 
-    for audit_file in WIRED_AUDITS:
+    monitored_audits = silence_monitored_audits()
+    for audit_file in monitored_audits:
         audit_name = audit_file[:-3] if audit_file.endswith(".py") else audit_file
         entry = telemetry.get(audit_name)
         if entry is None:

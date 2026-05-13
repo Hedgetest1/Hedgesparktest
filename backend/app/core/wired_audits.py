@@ -89,3 +89,36 @@ def audit_names() -> frozenset[str]:
     """Return the set of audit names (filenames WITHOUT the .py suffix).
     Matches the `audit_name` key used by `audit_telemetry.record_run`."""
     return frozenset(n[:-3] for n in WIRED_AUDITS)
+
+
+# Operator-only audits — heavy, on-demand, NEVER run automatically:
+#   - audit_redis_footprint: simulates Redis memory at N=10k merchants
+#     (read-side projection, no DB writes); operator runs at scale-
+#     planning gates, not in preflight.
+#   - audit_test_flake_detection: runs the test suite N times
+#     (default 3, --runs 5+); operator runs at release-gate stability
+#     checks, not in preflight.
+#
+# These MUST still import `_audit_telemetry_shim` so that operator
+# invocations are observable (and the
+# `audit_audit_telemetry_coverage` preventer keeps the import in
+# place). But they're exempted from the `never_observed` alarm in
+# `invariant_monitor._check_silent_audits` because expecting them
+# to emit on a schedule is a category error — they emit on operator
+# decision, not on cycle.
+#
+# Born 2026-05-13 after `invariant:silent_audits` fired a warning
+# for these 2 audits being never_observed. The shim-import discipline
+# is preserved, the silence-detection alarm scope is corrected.
+OPERATOR_ONLY_AUDITS: frozenset[str] = frozenset({
+    "audit_redis_footprint.py",
+    "audit_test_flake_detection.py",
+})
+
+
+def silence_monitored_audits() -> frozenset[str]:
+    """Subset of WIRED_AUDITS that the invariant_monitor's
+    `_check_silent_audits` is expected to observe regularly.
+    Operator-only audits are excluded — they emit on demand,
+    not on a schedule, so silence != regression for them."""
+    return WIRED_AUDITS - OPERATOR_ONLY_AUDITS
