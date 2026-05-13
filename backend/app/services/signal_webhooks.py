@@ -52,7 +52,7 @@ import secrets
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import urlparse
 
 from app.core.silent_fallback import record_silent_return
@@ -495,6 +495,277 @@ def _build_slack_payload(
     return {"text": title, "blocks": blocks}
 
 
+# ---------------------------------------------------------------------------
+# emit_signal — stage helpers
+# Refactor 2026-05-13 (A3 close): 214-LOC god function → composer + 10
+# pure stage helpers. Contract preserved byte-identical. Per-webhook
+# delivery logic extracted as `_process_webhook_delivery` so each
+# branch (circuit-open / idempotency-skip / SSRF-block / 2-attempt
+# retry / outcome recording / heal-detection / dead-letter) is unit-
+# testable.
+# ---------------------------------------------------------------------------
+
+
+class _DeliveryAttempt(NamedTuple):
+    """Self-documenting return type for _attempt_http_delivery."""
+    delivered: bool
+    http_status: int | None
+    last_err: str | None
+    attempts: int
+
+
+def _claim_idempotency_key(event_id: str) -> tuple[bool, bool]:
+    """SETNX-based atomic idempotency claim.
+
+    Returns (claim_attempted_and_failed, claim_acquired):
+      (False, True)  — Redis up + claim acquired (proceed with delivery)
+      (True,  False) — Redis up + key already exists (skip with idem_skip)
+      (False, True)  — Redis down (fail-open: proceed; lock TTL handles drift)
+    """
+    from app.core.silent_fallback import record_silent_return
+    rc = _redis()
+    if rc is None:
+        record_silent_return("signal_webhooks.idempotency_no_client")
+        return False, True  # fail-open: no Redis, proceed
+    try:
+        dkey = _key_delivery(event_id)
+        claimed = rc.set(dkey, "pending", nx=True, ex=_DELIVERY_TTL_SECONDS)
+        if not claimed:
+            return True, False  # idempotency_key_exists
+        return False, True
+    except Exception as exc:
+        record_silent_return("signal_webhooks.idempotency_fail_open")
+        log.warning("signal_webhooks: idempotency claim failed: %s", exc)
+        return False, True  # fail-open on Redis error
+
+
+def _build_slack_request(
+    event_type: str, shop_domain: str, source: str, payload: dict[str, Any],
+) -> tuple[bytes, dict[str, str]]:
+    """Slack-flavored webhook body + headers (no HMAC signature)."""
+    body = json.dumps(
+        _build_slack_payload(event_type, shop_domain, source, payload),
+        default=str,
+    ).encode()
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "HedgeSpark-Webhooks/1.0",
+    }
+    return body, headers
+
+
+def _build_hedgespark_request(
+    *,
+    event_id: str, event_type: str, shop_domain: str,
+    source: str, payload: dict[str, Any], secret: str,
+) -> tuple[bytes, dict[str, str]]:
+    """HedgeSpark-flavored webhook body + HMAC-signed headers."""
+    body = json.dumps({
+        "event_id": event_id,
+        "event_type": event_type,
+        "shop_domain": shop_domain,
+        "source": source,
+        "occurred_at": _now_iso(),
+        "data": payload,
+    }, default=str).encode()
+    signature = _sign_payload(secret, body)
+    headers = {
+        "Content-Type": "application/json",
+        "X-HedgeSpark-Event-ID": event_id,
+        "X-HedgeSpark-Event-Type": event_type,
+        "X-HedgeSpark-Signature": signature,
+        "User-Agent": "HedgeSpark-Webhooks/1.0",
+    }
+    return body, headers
+
+
+def _attempt_http_delivery(
+    url: str, body: bytes, headers: dict[str, str],
+) -> _DeliveryAttempt:
+    """SSRF-guarded HTTP POST with 1 retry on 5xx. Never raises.
+
+    SSRF DNS-rebind defense: re-resolves the hostname AT delivery
+    time and aborts if it now resolves to a private/blocked IP.
+    Closes the create-time vs delivery-time TOCTOU.
+    """
+    try:
+        _resolve_and_check_at_delivery(url)
+    except ValueError as exc:
+        err = f"ssrf_blocked: {str(exc)[:160]}"
+        log.warning(
+            "signal_webhooks: SSRF block at delivery url=%s reason=%s",
+            url, err,
+        )
+        return _DeliveryAttempt(
+            delivered=False, http_status=None, last_err=err, attempts=1,
+        )
+
+    delivered = False
+    last_err: str | None = None
+    http_status: int | None = None
+    attempts = 0
+    for attempt in (1, 2):  # single retry on failure
+        attempts = attempt
+        try:
+            import httpx
+            resp = httpx.post(url, content=body, headers=headers, timeout=30.0)
+            http_status = resp.status_code
+            if 200 <= resp.status_code < 300:
+                delivered = True
+                break
+            last_err = f"http_{resp.status_code}"
+            if resp.status_code < 500:
+                # 4xx won't be fixed by retry
+                break
+        except Exception as exc:
+            last_err = f"{type(exc).__name__}: {str(exc)[:200]}"
+            continue
+    return _DeliveryAttempt(
+        delivered=delivered, http_status=http_status,
+        last_err=last_err, attempts=attempts,
+    )
+
+
+def _record_webhook_outcome(
+    shop_domain: str, webhook_id: str, delivered: bool,
+) -> None:
+    """Best-effort: update the webhook config's last_delivery_at +
+    last_delivery_status in Redis. Never raises."""
+    from app.core.silent_fallback import record_silent_return
+    try:
+        rc = _redis()
+        if rc is None:
+            record_silent_return("signal_webhooks.outcome_record_no_client")
+            return
+        existing = list_webhooks(shop_domain)
+        for w in existing:
+            if w.id == webhook_id:
+                w.last_delivery_at = _now_iso()
+                w.last_delivery_status = "delivered" if delivered else "failed"
+        rc.setex(
+            _key_webhooks(shop_domain),
+            _CONFIG_TTL_SECONDS,
+            json.dumps([w.to_dict() for w in existing]),
+        )
+    except Exception as exc:
+        log.warning("signal_webhooks: outcome record failed: %s", exc)
+
+
+def _resolve_heal_on_success(webhook_id: str) -> None:
+    """Heal-detection: success → resolve any prior failure alert
+    for this webhook id. Born 2026-05-07. Never raises."""
+    try:
+        from app.core.database import SessionLocal
+        from app.services.alerting import auto_resolve_alerts
+        _heal_db = SessionLocal()
+        try:
+            auto_resolve_alerts(
+                _heal_db,
+                source=f"signal_webhooks:{webhook_id}",
+                alert_type="webhook_delivery_failed",
+            )
+            _heal_db.commit()
+        finally:
+            _heal_db.close()
+    except Exception as exc:
+        log.debug("signal_webhooks: heal-detection failed: %s", exc)
+
+
+def _write_dead_letter_alert(
+    *,
+    shop_domain: str, webhook_id: str, event_type: str, event_id: str,
+    url: str, http_status: int | None, last_err: str | None, attempts: int,
+) -> None:
+    """Dead-letter ops_alert for failed deliveries. Never raises —
+    alert write failure must NOT bubble up to caller."""
+    try:
+        from app.core.database import SessionLocal
+        from app.services.alerting import write_alert
+        db = SessionLocal()
+        try:
+            # heal-detection: webhook signal event — per-delivery log
+            write_alert(
+                db,
+                severity="warning",
+                source=f"signal_webhooks:{webhook_id}",
+                alert_type="webhook_delivery_failed",
+                summary=(
+                    f"Outbound webhook failed for shop {shop_domain}: "
+                    f"event={event_type} url={url} err={last_err}"
+                ),
+                shop_domain=shop_domain,
+                detail={
+                    "webhook_id": webhook_id,
+                    "event_type": event_type,
+                    "event_id": event_id,
+                    "http_status": http_status,
+                    "error": last_err,
+                    "attempts": attempts,
+                },
+            )
+            db.commit()
+        finally:
+            db.close()
+    except Exception as exc:
+        log.warning("signal_webhooks: dead-letter alert failed: %s", exc)
+
+
+def _process_webhook_delivery(
+    *, wh, shop_domain: str, event_type: str, source: str,
+    payload: dict[str, Any], secret: str,
+) -> DeliveryResult:
+    """Process ONE webhook: circuit-breaker check → idempotency claim
+    → build payload → HTTP attempt → record outcome → heal-detect or
+    dead-letter. Returns the per-webhook DeliveryResult."""
+    event_id = f"hs_{uuid.uuid4().hex[:16]}"
+
+    if _is_webhook_circuit_open(wh.id):
+        return DeliveryResult(
+            webhook_id=wh.id, event_id=event_id, event_type=event_type,
+            status="skipped", error="circuit_open",
+        )
+
+    key_exists, _ = _claim_idempotency_key(event_id)
+    if key_exists:
+        return DeliveryResult(
+            webhook_id=wh.id, event_id=event_id, event_type=event_type,
+            status="skipped", error="idempotency_key_exists",
+        )
+
+    if _is_slack_url(wh.url):
+        body, headers = _build_slack_request(event_type, shop_domain, source, payload)
+    else:
+        body, headers = _build_hedgespark_request(
+            event_id=event_id, event_type=event_type, shop_domain=shop_domain,
+            source=source, payload=payload, secret=secret,
+        )
+
+    attempt = _attempt_http_delivery(wh.url, body, headers)
+    _record_webhook_outcome(shop_domain, wh.id, attempt.delivered)
+
+    if attempt.delivered:
+        _record_webhook_success(wh.id)
+        _resolve_heal_on_success(wh.id)
+    else:
+        _record_webhook_failure(wh.id)
+        _write_dead_letter_alert(
+            shop_domain=shop_domain, webhook_id=wh.id,
+            event_type=event_type, event_id=event_id, url=wh.url,
+            http_status=attempt.http_status, last_err=attempt.last_err,
+            attempts=attempt.attempts,
+        )
+
+    return DeliveryResult(
+        webhook_id=wh.id,
+        event_id=event_id,
+        event_type=event_type,
+        status="delivered" if attempt.delivered else "failed",
+        http_status=attempt.http_status,
+        attempts=attempt.attempts,
+        error=attempt.last_err,
+    )
+
+
 def emit_signal(
     shop_domain: str,
     *,
@@ -514,198 +785,26 @@ def emit_signal(
 
     Called by the signal producers: nudge_engine (high_intent_abandon),
     goals (goal_at_risk), data_integrity_probe (semantic_drift), etc.
+
+    Refactored 2026-05-13 (A3 close): 214-LOC god function → 20-LOC
+    composer + 10 pure helpers + _DeliveryAttempt NamedTuple.
     """
     if event_type not in SIGNAL_EVENTS:
         log.debug("signal_webhooks: unknown event_type %s, skipping", event_type)
         return []
 
-    webhooks = [w for w in list_webhooks(shop_domain) if w.active and event_type in w.events]
+    webhooks = [
+        w for w in list_webhooks(shop_domain)
+        if w.active and event_type in w.events
+    ]
     if not webhooks:
         return []
 
     secret = get_or_create_secret(shop_domain)
-    results: list[DeliveryResult] = []
-
-    for wh in webhooks:
-        event_id = f"hs_{uuid.uuid4().hex[:16]}"
-
-        # Circuit breaker — skip delivery if this endpoint is in cooldown
-        if _is_webhook_circuit_open(wh.id):
-            results.append(DeliveryResult(
-                webhook_id=wh.id,
-                event_id=event_id,
-                event_type=event_type,
-                status="skipped",
-                error="circuit_open",
-            ))
-            continue
-
-        # Idempotency — skip if we already attempted this event_id on this
-        # webhook. Use atomic SET NX so two concurrent workers can't both
-        # see the key as missing and double-deliver. Previously the pair
-        # exists() + setex() left a race window.
-        rc = _redis()
-        if rc is not None:
-            dkey = _key_delivery(event_id)
-            try:
-                claimed = rc.set(dkey, "pending", nx=True, ex=_DELIVERY_TTL_SECONDS)
-                if not claimed:
-                    results.append(DeliveryResult(
-                        webhook_id=wh.id, event_id=event_id,
-                        event_type=event_type, status="skipped",
-                        error="idempotency_key_exists",
-                    ))
-                    continue
-            except Exception as exc:
-                log.warning("signal_webhooks: emit_signal failed: %s", exc)
-
-        is_slack = _is_slack_url(wh.url)
-        if is_slack:
-            body = json.dumps(
-                _build_slack_payload(event_type, shop_domain, source, payload),
-                default=str,
-            ).encode()
-            headers = {
-                "Content-Type": "application/json",
-                "User-Agent": "HedgeSpark-Webhooks/1.0",
-            }
-        else:
-            body = json.dumps({
-                "event_id": event_id,
-                "event_type": event_type,
-                "shop_domain": shop_domain,
-                "source": source,
-                "occurred_at": _now_iso(),
-                "data": payload,
-            }, default=str).encode()
-            signature = _sign_payload(secret, body)
-            headers = {
-                "Content-Type": "application/json",
-                "X-HedgeSpark-Event-ID": event_id,
-                "X-HedgeSpark-Event-Type": event_type,
-                "X-HedgeSpark-Signature": signature,
-                "User-Agent": "HedgeSpark-Webhooks/1.0",
-            }
-
-        delivered = False
-        last_err: str | None = None
-        http_status: int | None = None
-        attempts = 0
-
-        # SSRF DNS-rebind defense: re-resolve the hostname every send
-        # and abort if it now resolves to a private/blocked IP. Closes
-        # the create-time vs delivery-time TOCTOU.
-        try:
-            _resolve_and_check_at_delivery(wh.url)
-        except ValueError as exc:
-            last_err = f"ssrf_blocked: {str(exc)[:160]}"
-            log.warning(
-                "signal_webhooks: SSRF block at delivery shop=%s url=%s reason=%s",
-                shop_domain, wh.url, last_err,
-            )
-            attempts = 1
-            # Fall through to outcome recording without sending.
-            for attempt in ():  # skip the retry loop
-                pass
-        else:
-            for attempt in (1, 2):  # single retry on failure
-                attempts = attempt
-                try:
-                    import httpx
-                    resp = httpx.post(wh.url, content=body, headers=headers, timeout=30.0)
-                    http_status = resp.status_code
-                    if 200 <= resp.status_code < 300:
-                        delivered = True
-                        break
-                    last_err = f"http_{resp.status_code}"
-                    if resp.status_code < 500:
-                        # 4xx won't be fixed by retry
-                        break
-                except Exception as exc:
-                    last_err = f"{type(exc).__name__}: {str(exc)[:200]}"
-                    continue
-
-        # Record outcome on the webhook config
-        try:
-            rc2 = _redis()
-            if rc2 is not None:
-                existing = list_webhooks(shop_domain)
-                for w in existing:
-                    if w.id == wh.id:
-                        w.last_delivery_at = _now_iso()
-                        w.last_delivery_status = "delivered" if delivered else "failed"
-                rc2.setex(
-                    _key_webhooks(shop_domain),
-                    _CONFIG_TTL_SECONDS,
-                    json.dumps([w.to_dict() for w in existing]),
-                )
-        except Exception as exc:
-            log.warning("signal_webhooks: emit_signal failed: %s", exc)
-
-        # Update circuit breaker based on outcome
-        if delivered:
-            _record_webhook_success(wh.id)
-            # heal-detection: success → resolve any prior failure alert
-            # for this webhook id. Born 2026-05-07.
-            try:
-                from app.core.database import SessionLocal
-                from app.services.alerting import auto_resolve_alerts
-                _heal_db = SessionLocal()
-                try:
-                    auto_resolve_alerts(
-                        _heal_db,
-                        source=f"signal_webhooks:{wh.id}",
-                        alert_type="webhook_delivery_failed",
-                    )
-                    _heal_db.commit()
-                finally:
-                    _heal_db.close()
-            except Exception as exc:
-                log.debug("signal_webhooks: heal-detection failed: %s", exc)
-        else:
-            _record_webhook_failure(wh.id)
-
-        results.append(DeliveryResult(
-            webhook_id=wh.id,
-            event_id=event_id,
-            event_type=event_type,
-            status="delivered" if delivered else "failed",
-            http_status=http_status,
-            attempts=attempts,
-            error=last_err,
-        ))
-
-        # Dead-letter alert
-        if not delivered:
-            try:
-                from app.core.database import SessionLocal
-                from app.services.alerting import write_alert
-                db = SessionLocal()
-                try:
-                    # heal-detection: webhook signal event — per-delivery log
-                    write_alert(
-                        db,
-                        severity="warning",
-                        source=f"signal_webhooks:{wh.id}",
-                        alert_type="webhook_delivery_failed",
-                        summary=(
-                            f"Outbound webhook failed for shop {shop_domain}: "
-                            f"event={event_type} url={wh.url} err={last_err}"
-                        ),
-                        shop_domain=shop_domain,
-                        detail={
-                            "webhook_id": wh.id,
-                            "event_type": event_type,
-                            "event_id": event_id,
-                            "http_status": http_status,
-                            "error": last_err,
-                            "attempts": attempts,
-                        },
-                    )
-                    db.commit()
-                finally:
-                    db.close()
-            except Exception as exc:
-                log.warning("signal_webhooks: emit_signal failed: %s", exc)
-
-    return results
+    return [
+        _process_webhook_delivery(
+            wh=wh, shop_domain=shop_domain, event_type=event_type,
+            source=source, payload=payload, secret=secret,
+        )
+        for wh in webhooks
+    ]
