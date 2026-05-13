@@ -320,6 +320,193 @@ def get_daily_revenue(
 # GET /orders/product-conversions — Per-product conversion funnel
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# get_product_conversions — stage helpers
+# Refactor 2026-05-13 (A3 close): 212-LOC endpoint → composer + 4 pure
+# helpers (SQL constant + fetch + per-row record builder + empty
+# response). Contract preserved byte-identical.
+# ---------------------------------------------------------------------------
+
+
+_PRODUCT_CONVERSIONS_SQL = text("""
+    WITH
+    -- Time boundaries.
+    -- :days * 86400000 overflows int32 for days >= 25 (max int32 = 2,147,483,647).
+    -- CAST(:days AS bigint) forces the multiplication into bigint space.
+    -- Using CAST() instead of ::bigint to avoid SQLAlchemy bind-parameter
+    -- confusion with Postgres :: cast operator.
+    -- Bug discovered 2026-04-10: without the cast, days=30 crashed the query.
+    cutoff_ms AS (
+        SELECT (EXTRACT(EPOCH FROM NOW()) * 1000 - (CAST(:days AS bigint) * 86400000))::bigint AS ts
+    ),
+    cutoff_dt AS (
+        SELECT NOW() - make_interval(days => :days) AS dt
+    ),
+
+    -- 1. Product views: unique visitors who viewed each product
+    product_views AS (
+        SELECT
+            product_url,
+            COUNT(DISTINCT visitor_id) AS view_visitors,
+            COUNT(*)                   AS total_views
+        FROM events, cutoff_ms
+        WHERE shop_domain  = :shop
+          AND product_url  IS NOT NULL
+          AND event_type   IN ('page_view', 'product_view')
+          AND timestamp    > cutoff_ms.ts
+        GROUP BY product_url
+    ),
+
+    -- 2. Add-to-cart: unique visitors per product
+    atc AS (
+        SELECT
+            product_url,
+            COUNT(DISTINCT visitor_id) AS atc_visitors
+        FROM events, cutoff_ms
+        WHERE shop_domain  = :shop
+          AND product_url  IS NOT NULL
+          AND event_type   = 'add_to_cart'
+          AND timestamp    > cutoff_ms.ts
+        GROUP BY product_url
+    ),
+
+    -- 3. Revenue + purchases from REAL orders (line_items JSONB)
+    -- Each line item is an independent product sale.
+    -- We use product_id for matching (Shopify numeric ID).
+    order_products AS (
+        SELECT
+            item->>'product_id'                              AS product_id,
+            item->>'title'                                   AS product_title,
+            SUM((item->>'quantity')::int)                    AS units_sold,
+            SUM((item->>'price')::numeric
+                * (item->>'quantity')::int)                  AS revenue,
+            COUNT(DISTINCT so.shopify_order_id)              AS order_count
+        FROM shop_orders so, cutoff_dt,
+             jsonb_array_elements(CASE WHEN jsonb_typeof(so.line_items) = 'array' THEN so.line_items ELSE '[]'::jsonb END) AS item
+        WHERE so.shop_domain = :shop
+          AND so.created_at >= cutoff_dt.dt
+          AND item->>'product_id' IS NOT NULL
+          AND item->>'price'      IS NOT NULL
+          AND item->>'quantity'    IS NOT NULL
+        GROUP BY item->>'product_id', item->>'title'
+    ),
+
+    -- 4. Map product_id → product_url from events (most recent)
+    -- This bridges order line_items (which have product_id) to
+    -- events (which have product_url).
+    pid_to_url AS (
+        SELECT DISTINCT ON (product_id)
+            product_id,
+            product_url
+        FROM events
+        WHERE shop_domain  = :shop
+          AND product_id   IS NOT NULL
+          AND product_url  IS NOT NULL
+        ORDER BY product_id, timestamp DESC
+    ),
+
+    -- 5. True converted visitors: viewers who ALSO purchased this product
+    -- Bridges events (view) → visitor_purchase_sessions → shop_orders
+    -- (line_items contain the product_id). Only counts visitors whose
+    -- purchase included the SAME product they viewed — no cross-attribution.
+    converted AS (
+        SELECT
+            e.product_url,
+            COUNT(DISTINCT e.visitor_id) AS converted_visitors
+        FROM events e
+        JOIN visitor_purchase_sessions vps
+            ON vps.shop_domain = e.shop_domain
+           AND vps.visitor_id  = e.visitor_id
+        JOIN shop_orders so
+            ON so.shop_domain      = vps.shop_domain
+           AND so.shopify_order_id = vps.shopify_order_id
+        JOIN pid_to_url pu
+            ON pu.product_url = e.product_url
+        WHERE e.shop_domain  = :shop
+          AND e.product_url  IS NOT NULL
+          AND e.event_type   IN ('page_view', 'product_view')
+          AND e.timestamp    > (SELECT ts FROM cutoff_ms)
+          AND vps.confirmed_at >= (SELECT dt FROM cutoff_dt)
+          AND EXISTS (
+              SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(so.line_items) = 'array' THEN so.line_items ELSE '[]'::jsonb END) AS item
+              WHERE item->>'product_id' = pu.product_id
+          )
+        GROUP BY e.product_url
+    )
+
+    -- Final join: combine views + ATC + real purchases + true conversions
+    SELECT
+        pv.product_url,
+        COALESCE(op.product_title, pv.product_url)  AS product_name,
+        pv.total_views,
+        pv.view_visitors,
+        COALESCE(a.atc_visitors, 0)                 AS atc_visitors,
+        COALESCE(op.order_count, 0)                 AS purchases,
+        COALESCE(op.units_sold, 0)                  AS units_sold,
+        COALESCE(op.revenue, 0)                     AS revenue,
+        COALESCE(cv.converted_visitors, 0)          AS converted_visitors
+    FROM product_views pv
+    LEFT JOIN atc a
+        ON a.product_url = pv.product_url
+    LEFT JOIN pid_to_url pu
+        ON pu.product_url = pv.product_url
+    LEFT JOIN order_products op
+        ON op.product_id = pu.product_id
+    LEFT JOIN converted cv
+        ON cv.product_url = pv.product_url
+    ORDER BY COALESCE(op.revenue, 0) DESC, pv.total_views DESC
+    LIMIT 20
+""")
+
+
+def _fetch_product_conversions(db: Session, shop: str, days: int) -> list | None:
+    """Returns rows or None on query failure. Caller turns None into
+    the empty-state response — preserves prior behavior."""
+    try:
+        return db.execute(_PRODUCT_CONVERSIONS_SQL, {
+            "shop": shop, "days": days,
+        }).fetchall()
+    except Exception as exc:
+        log.error("orders.product_conversions: shop=%s: %s", shop, exc)
+        return None
+
+
+def _build_product_conversion_record(row) -> dict:
+    """Per-row math: True CVR = converted_visitors / view_visitors
+    (not orders/views — that inflates CVR with POS/external sales).
+    ATC rate and AOV use the same view-visitor denominator + real
+    order count, never estimated."""
+    total_views = int(row[2] or 0)
+    view_visitors = int(row[3] or 0)
+    atc_visitors = int(row[4] or 0)
+    purchases = int(row[5] or 0)
+    units_sold = int(row[6] or 0)
+    revenue = round(float(row[7] or 0), 2)
+    converted_visitors = int(row[8] or 0)
+
+    cvr = round(converted_visitors / view_visitors, 4) if view_visitors > 0 else 0.0
+    atc_rate = round(atc_visitors / view_visitors, 4) if view_visitors > 0 else 0.0
+    avg_order_value = round(revenue / purchases, 2) if purchases > 0 else 0.0
+
+    return {
+        "product_url": row[0],
+        "product_name": row[1] or row[0],
+        "views": total_views,
+        "unique_viewers": view_visitors,
+        "add_to_cart": atc_visitors,
+        "purchases": purchases,
+        "units_sold": units_sold,
+        "revenue": revenue,
+        "cvr": cvr,
+        "atc_rate": atc_rate,
+        "avg_order_value": avg_order_value,
+    }
+
+
+def _build_empty_conversions_response(days: int, currency: str) -> dict:
+    return {"products": [], "days": days, "currency": currency, "has_data": False}
+
+
 @router.get(
     "/product-conversions",
     response_model=ProductConversionsResponse,
@@ -351,184 +538,24 @@ def get_product_conversions(
     Views/ATC come from events within the same time window.
 
     All numbers use the SAME time window.  No mixing of all-time vs N-day.
+
+    Refactored 2026-05-13 (A3 close): 212-LOC endpoint → 25-LOC
+    composer + 4 pure helpers.
     """
     from app.core.redis_client import cache_get, cache_set
+    from app.services.revenue_metrics import get_shop_currency
+
     cache_key = f"hs:product_conversions:{shop}:{days}"
     cached = cache_get(cache_key)
     if cached is not None:
         return cached
 
-    from app.services.revenue_metrics import get_shop_currency
     currency = get_shop_currency(db, shop) or "USD"
+    rows = _fetch_product_conversions(db, shop, days)
+    if rows is None:
+        return _build_empty_conversions_response(days, currency)
 
-    try:
-        rows = db.execute(
-            text("""
-                WITH
-                -- Time boundaries.
-                -- :days * 86400000 overflows int32 for days >= 25 (max int32 = 2,147,483,647).
-                -- CAST(:days AS bigint) forces the multiplication into bigint space.
-                -- Using CAST() instead of ::bigint to avoid SQLAlchemy bind-parameter
-                -- confusion with Postgres :: cast operator.
-                -- Bug discovered 2026-04-10: without the cast, days=30 crashed the query.
-                cutoff_ms AS (
-                    SELECT (EXTRACT(EPOCH FROM NOW()) * 1000 - (CAST(:days AS bigint) * 86400000))::bigint AS ts
-                ),
-                cutoff_dt AS (
-                    SELECT NOW() - make_interval(days => :days) AS dt
-                ),
-
-                -- 1. Product views: unique visitors who viewed each product
-                product_views AS (
-                    SELECT
-                        product_url,
-                        COUNT(DISTINCT visitor_id) AS view_visitors,
-                        COUNT(*)                   AS total_views
-                    FROM events, cutoff_ms
-                    WHERE shop_domain  = :shop
-                      AND product_url  IS NOT NULL
-                      AND event_type   IN ('page_view', 'product_view')
-                      AND timestamp    > cutoff_ms.ts
-                    GROUP BY product_url
-                ),
-
-                -- 2. Add-to-cart: unique visitors per product
-                atc AS (
-                    SELECT
-                        product_url,
-                        COUNT(DISTINCT visitor_id) AS atc_visitors
-                    FROM events, cutoff_ms
-                    WHERE shop_domain  = :shop
-                      AND product_url  IS NOT NULL
-                      AND event_type   = 'add_to_cart'
-                      AND timestamp    > cutoff_ms.ts
-                    GROUP BY product_url
-                ),
-
-                -- 3. Revenue + purchases from REAL orders (line_items JSONB)
-                -- Each line item is an independent product sale.
-                -- We use product_id for matching (Shopify numeric ID).
-                order_products AS (
-                    SELECT
-                        item->>'product_id'                              AS product_id,
-                        item->>'title'                                   AS product_title,
-                        SUM((item->>'quantity')::int)                    AS units_sold,
-                        SUM((item->>'price')::numeric
-                            * (item->>'quantity')::int)                  AS revenue,
-                        COUNT(DISTINCT so.shopify_order_id)              AS order_count
-                    FROM shop_orders so, cutoff_dt,
-                         jsonb_array_elements(CASE WHEN jsonb_typeof(so.line_items) = 'array' THEN so.line_items ELSE '[]'::jsonb END) AS item
-                    WHERE so.shop_domain = :shop
-                      AND so.created_at >= cutoff_dt.dt
-                      AND item->>'product_id' IS NOT NULL
-                      AND item->>'price'      IS NOT NULL
-                      AND item->>'quantity'    IS NOT NULL
-                    GROUP BY item->>'product_id', item->>'title'
-                ),
-
-                -- 4. Map product_id → product_url from events (most recent)
-                -- This bridges order line_items (which have product_id) to
-                -- events (which have product_url).
-                pid_to_url AS (
-                    SELECT DISTINCT ON (product_id)
-                        product_id,
-                        product_url
-                    FROM events
-                    WHERE shop_domain  = :shop
-                      AND product_id   IS NOT NULL
-                      AND product_url  IS NOT NULL
-                    ORDER BY product_id, timestamp DESC
-                ),
-
-                -- 5. True converted visitors: viewers who ALSO purchased this product
-                -- Bridges events (view) → visitor_purchase_sessions → shop_orders
-                -- (line_items contain the product_id). Only counts visitors whose
-                -- purchase included the SAME product they viewed — no cross-attribution.
-                converted AS (
-                    SELECT
-                        e.product_url,
-                        COUNT(DISTINCT e.visitor_id) AS converted_visitors
-                    FROM events e
-                    JOIN visitor_purchase_sessions vps
-                        ON vps.shop_domain = e.shop_domain
-                       AND vps.visitor_id  = e.visitor_id
-                    JOIN shop_orders so
-                        ON so.shop_domain      = vps.shop_domain
-                       AND so.shopify_order_id = vps.shopify_order_id
-                    JOIN pid_to_url pu
-                        ON pu.product_url = e.product_url
-                    WHERE e.shop_domain  = :shop
-                      AND e.product_url  IS NOT NULL
-                      AND e.event_type   IN ('page_view', 'product_view')
-                      AND e.timestamp    > (SELECT ts FROM cutoff_ms)
-                      AND vps.confirmed_at >= (SELECT dt FROM cutoff_dt)
-                      AND EXISTS (
-                          SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(so.line_items) = 'array' THEN so.line_items ELSE '[]'::jsonb END) AS item
-                          WHERE item->>'product_id' = pu.product_id
-                      )
-                    GROUP BY e.product_url
-                )
-
-                -- Final join: combine views + ATC + real purchases + true conversions
-                SELECT
-                    pv.product_url,
-                    COALESCE(op.product_title, pv.product_url)  AS product_name,
-                    pv.total_views,
-                    pv.view_visitors,
-                    COALESCE(a.atc_visitors, 0)                 AS atc_visitors,
-                    COALESCE(op.order_count, 0)                 AS purchases,
-                    COALESCE(op.units_sold, 0)                  AS units_sold,
-                    COALESCE(op.revenue, 0)                     AS revenue,
-                    COALESCE(cv.converted_visitors, 0)          AS converted_visitors
-                FROM product_views pv
-                LEFT JOIN atc a
-                    ON a.product_url = pv.product_url
-                LEFT JOIN pid_to_url pu
-                    ON pu.product_url = pv.product_url
-                LEFT JOIN order_products op
-                    ON op.product_id = pu.product_id
-                LEFT JOIN converted cv
-                    ON cv.product_url = pv.product_url
-                ORDER BY COALESCE(op.revenue, 0) DESC, pv.total_views DESC
-                LIMIT 20
-            """),
-            {"shop": shop, "days": days},
-        ).fetchall()
-
-    except Exception as exc:
-        log.error("orders.product_conversions: shop=%s: %s", shop, exc)
-        return {"products": [], "days": days, "currency": currency, "has_data": False}
-
-    products = []
-    for r in rows:
-        total_views = int(r[2] or 0)
-        view_visitors = int(r[3] or 0)
-        atc_visitors = int(r[4] or 0)
-        purchases = int(r[5] or 0)
-        units_sold = int(r[6] or 0)
-        revenue = round(float(r[7] or 0), 2)
-        converted_visitors = int(r[8] or 0)
-
-        # True CVR: visitors who viewed this product AND purchased it
-        # (not just total orders, which inflates CVR with POS/external sales)
-        cvr = round(converted_visitors / view_visitors, 4) if view_visitors > 0 else 0.0
-        atc_rate = round(atc_visitors / view_visitors, 4) if view_visitors > 0 else 0.0
-        avg_order_value = round(revenue / purchases, 2) if purchases > 0 else 0.0
-
-        products.append({
-            "product_url": r[0],
-            "product_name": r[1] or r[0],
-            "views": total_views,
-            "unique_viewers": view_visitors,
-            "add_to_cart": atc_visitors,
-            "purchases": purchases,
-            "units_sold": units_sold,
-            "revenue": revenue,
-            "cvr": cvr,
-            "atc_rate": atc_rate,
-            "avg_order_value": avg_order_value,
-        })
-
+    products = [_build_product_conversion_record(r) for r in rows]
     result = {
         "products": products,
         "days": days,
