@@ -259,20 +259,30 @@ def _render_welcome(ctx: dict) -> tuple[str, str, str]:
     return subject, _wrap_html(subject, body, show_logo=True), plain
 
 
-def _render_beta_welcome(ctx: dict) -> tuple[str, str, str]:
-    shop_name = ctx.get("shop_name", "your store")
-    merchant_name = ctx.get("merchant_name", "")
+# ---------------------------------------------------------------------------
+# _render_beta_welcome — section helpers
+# Refactor 2026-05-13 (A3 close): 273-LOC god function → composer + 9
+# section helpers + plain-text mirror. HTML output is byte-identical
+# to the prior implementation. Each section is a pure function taking
+# only the data slice it needs (intro + steps need merchant_name /
+# shop_name; the rest are constants).
+# ---------------------------------------------------------------------------
 
-    greeting = f"Hi {merchant_name}," if merchant_name else "Hi,"
 
-    body = (
-        # Intro — selection + ambition + architecture signal
-        _p(greeting, color="#f1f5f9")
+def _beta_welcome_greeting(merchant_name: str) -> str:
+    """Either 'Hi Name,' or 'Hi,' when no merchant name is present."""
+    return f"Hi {merchant_name}," if merchant_name else "Hi,"
+
+
+def _beta_welcome_intro_html(merchant_name: str) -> str:
+    """Greeting + selection narrative + ambition statement."""
+    return (
+        _p(_beta_welcome_greeting(merchant_name), color="#f1f5f9")
         + _p(
-            f"You've been <strong style='color:#e8a04e;'>carefully selected</strong> "
-            f"to join the HedgeSpark private beta. "
-            f"This is a confidential early access program — only a small number "
-            f"of merchants are participating at this stage."
+            "You've been <strong style='color:#e8a04e;'>carefully selected</strong> "
+            "to join the HedgeSpark private beta. "
+            "This is a confidential early access program — only a small number "
+            "of merchants are participating at this stage."
         )
         + _p(
             "We're building HedgeSpark to be the most technically advanced AI commerce "
@@ -281,9 +291,13 @@ def _render_beta_welcome(ctx: dict) -> tuple[str, str, str]:
             "That level of ambition only works if we build it alongside "
             "real merchants, with real stores, generating real revenue."
         )
+    )
 
-        # What HedgeSpark does — revenue-focused
-        + _section_title("What HedgeSpark does")
+
+def _beta_welcome_what_we_do_html() -> str:
+    """'What HedgeSpark does' section — revenue-focused 3 bullets + closing."""
+    return (
+        _section_title("What HedgeSpark does")
         + _p(
             "HedgeSpark is an AI intelligence layer that sits on top of your Shopify store. "
             "It continuously analyzes visitor behavior and turns it into revenue signals "
@@ -296,51 +310,58 @@ def _render_beta_welcome(ctx: dict) -> tuple[str, str, str]:
             "The goal is concrete: <strong style='color:#f1f5f9;'>more revenue from the traffic you already have</strong>.",
             color="#94a3b8",
         )
+    )
 
-        # Onboarding — concrete step-by-step sequence
-        + _section_title("What happens when you start", accent="cool")
+
+def _beta_welcome_what_happens_html(shop_name: str) -> str:
+    """6-step onboarding sequence. Step 1 interpolates shop_name."""
+    return (
+        _section_title("What happens when you start", accent="cool")
         + _step(
             1, "We connect to your store",
             f"Once you open your dashboard, HedgeSpark connects to "
             f"<strong style='color:#e2e8f0;'>{shop_name}</strong> via Shopify. "
             f"This is automatic — it takes a few seconds. "
-            f"From this point, we begin collecting visitor behavior data."
+            f"From this point, we begin collecting visitor behavior data.",
         )
         + _step(
             2, "Visitor tracking activates",
             "A lightweight tracking script loads on your storefront. "
             "It records page views, product interest, and browsing patterns — "
             "no personal data, no impact on page speed. "
-            "You'll see your first visitor data in the dashboard within minutes."
+            "You'll see your first visitor data in the dashboard within minutes.",
         )
         + _step(
             3, "You install the purchase pixel",
             "To connect visitor behavior to actual sales, you'll need to add a small "
             "tracking pixel to your order confirmation page. "
             "The dashboard will walk you through it step by step. "
-            "Without this pixel, HedgeSpark can analyze behavior but can't attribute revenue."
+            "Without this pixel, HedgeSpark can analyze behavior but can't attribute revenue.",
         )
         + _step(
             4, "Lite insights start appearing",
             "Within the first few days, HedgeSpark surfaces your initial analytics: "
             "which products attract the most attention, where visitors hesitate, "
-            "and where they leave. This is your Lite intelligence baseline."
+            "and where they leave. This is your Lite intelligence baseline.",
         )
         + _step(
             5, "Pro features unlock progressively",
             "Over weeks 2–3, we activate deeper capabilities: "
             "behavioral scoring, smart nudges, conversion signals, and revenue attribution. "
-            "We calibrate these with your specific store data — not generic defaults."
+            "We calibrate these with your specific store data — not generic defaults.",
         )
         + _step(
             6, "The system compounds",
             "HedgeSpark gets sharper every week. More data means tighter models, "
             "more accurate signals, and higher-impact nudges. "
-            "We ship improvements continuously — your feedback on Monday can be live by Friday."
+            "We ship improvements continuously — your feedback on Monday can be live by Friday.",
         )
+    )
 
-        # Architecture + team intensity
-        + _section_title("How we build")
+
+def _beta_welcome_how_we_build_html() -> str:
+    return (
+        _section_title("How we build")
         + _p(
             "HedgeSpark is built on a layered architecture — real-time event processing, "
             "behavioral modeling, and an AI engine that evolves with every data point. "
@@ -353,9 +374,12 @@ def _render_beta_welcome(ctx: dict) -> tuple[str, str, str]:
             "Beta merchants see changes in days, not months.",
             color="#94a3b8",
         )
+    )
 
-        # Chatbot as primary interface + feedback
-        + _section_title("Your command center", accent="cool")
+
+def _beta_welcome_command_center_html() -> str:
+    return (
+        _section_title("Your command center", accent="cool")
         + _p(
             "The <strong style='color:#f1f5f9;'>in-app chatbot</strong> is your primary "
             "interface to HedgeSpark. Use it to:"
@@ -376,9 +400,12 @@ def _render_beta_welcome(ctx: dict) -> tuple[str, str, str]:
             f"{_SUPPORT_EMAIL}</a>.",
             color="#94a3b8",
         )
+    )
 
-        # Deliverability — ask merchants to whitelist our senders
-        + _section_title("Make sure you receive our emails", accent="cool")
+
+def _beta_welcome_deliverability_html() -> str:
+    return (
+        _section_title("Make sure you receive our emails", accent="cool")
         + _p(
             "Your daily brief comes from "
             "<strong style='color:#e2e8f0;'>digest@hedgesparkhq.com</strong>; "
@@ -396,9 +423,12 @@ def _render_beta_welcome(ctx: dict) -> tuple[str, str, str]:
             "That's it. Every future brief will arrive cleanly.",
             color="#94a3b8",
         )
+    )
 
-        # What you get — stronger beta advantage
-        + _section_title("Your beta advantage")
+
+def _beta_welcome_advantage_html() -> str:
+    return (
+        _section_title("Your beta advantage")
         + _p(
             "Being in this early is not symbolic. "
             "Beta merchants who actively participate will receive concrete, lasting benefits:",
@@ -416,9 +446,12 @@ def _render_beta_welcome(ctx: dict) -> tuple[str, str, str]:
             "<strong style='color:#e2e8f0;'>Direct influence</strong> on the roadmap — "
             "you're not submitting feature requests into a queue, you're shaping the product with us"
         )
+    )
 
-        # Confidentiality + security
-        + _section_title("Confidentiality & security", accent="cool")
+
+def _beta_welcome_security_html() -> str:
+    return (
+        _section_title("Confidentiality & security", accent="cool")
         + _p(
             "Your store data is encrypted at rest and in transit. "
             "We follow GDPR requirements and take cybersecurity seriously — "
@@ -440,17 +473,16 @@ def _render_beta_welcome(ctx: dict) -> tuple[str, str, str]:
             "and we intend to earn it through transparency, reliability, and results.",
             color="#94a3b8",
         )
+    )
 
-        + _separator()
 
-        # CTA
+def _beta_welcome_cta_and_signature_html() -> str:
+    return (
+        _separator()
         + '<div style="text-align:center;margin:8px 0 0 0;">'
         + _button("Start your onboarding", _DASHBOARD_URL)
         + '</div>'
-
         + _separator()
-
-        # Signature
         + _p("Looking forward to building this together,", color="#94a3b8")
         + _p(
             "<strong style='color:#f1f5f9;'>Andrea</strong><br>"
@@ -459,9 +491,12 @@ def _render_beta_welcome(ctx: dict) -> tuple[str, str, str]:
         )
     )
 
-    subject = "You're in — HedgeSpark Private Beta"
 
-    plain = (
+def _beta_welcome_plain_text(merchant_name: str) -> str:
+    """Plain-text mirror of the beta-welcome email body. Byte-identical
+    to the prior implementation."""
+    greeting = _beta_welcome_greeting(merchant_name)
+    return (
         f"{greeting}\n\n"
         f"You've been carefully selected to join the HedgeSpark private beta. "
         f"This is a confidential early access program — only a small number "
@@ -531,6 +566,31 @@ def _render_beta_welcome(ctx: dict) -> tuple[str, str, str]:
         f"HedgeSpark"
     )
 
+
+def _render_beta_welcome(ctx: dict) -> tuple[str, str, str]:
+    """Beta-welcome email — composer over 9 section helpers.
+
+    Refactored 2026-05-13 (A3 close): 273-LOC god function → 20-LOC
+    composer + 9 pure section helpers + plain-text mirror. HTML output
+    is byte-identical to the prior implementation.
+    """
+    shop_name = ctx.get("shop_name", "your store")
+    merchant_name = ctx.get("merchant_name", "")
+
+    body = (
+        _beta_welcome_intro_html(merchant_name)
+        + _beta_welcome_what_we_do_html()
+        + _beta_welcome_what_happens_html(shop_name)
+        + _beta_welcome_how_we_build_html()
+        + _beta_welcome_command_center_html()
+        + _beta_welcome_deliverability_html()
+        + _beta_welcome_advantage_html()
+        + _beta_welcome_security_html()
+        + _beta_welcome_cta_and_signature_html()
+    )
+
+    subject = "You're in — HedgeSpark Private Beta"
+    plain = _beta_welcome_plain_text(merchant_name)
     return subject, _wrap_html(subject, body, show_logo=True), plain
 
 
