@@ -271,6 +271,143 @@ def _assign_holdout(
 # Public: GET /nudges/active — storefront polling endpoint
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# get_active_nudge_public — stage helpers
+# Refactor 2026-05-13 (A3 close): 207-LOC endpoint → composer + 8 pure
+# stage helpers. Contract preserved byte-identical. Storefront hot
+# path — every branch (no-visitor / ineligible / holdout / eligible)
+# now isolated + unit-testable.
+# ---------------------------------------------------------------------------
+
+
+def _normalize_product_url(product_url: str) -> str:
+    """Strip query string + enforce /products/<handle> shape. Returns
+    the original string when parsing fails or the URL is already
+    canonical."""
+    if product_url.startswith("/products/"):
+        return product_url
+    try:
+        from urllib.parse import urlparse
+        import re
+        parsed = urlparse(product_url)
+        m = re.match(r"(/products/[^/?#]+)", parsed.path)
+        return m.group(1) if m else product_url
+    except Exception as exc:
+        log.warning("nudges: product_url normalize failed: %s", exc)
+        return product_url
+
+
+def _resolve_default_variant(nudge, variants: list, is_ab: bool) -> dict:
+    """Default variant resolver — used by the no-visitor + non-AB paths.
+    is_ab=True returns variants[0] (control); otherwise the legacy
+    `copy_variant` + `copy_config` pair on the nudge model."""
+    if is_ab:
+        return variants[0]
+    return {
+        "variant_name": nudge.copy_variant,
+        "copy_config": nudge.copy_config_dict(),
+    }
+
+
+def _build_product_level_response(nudge, assigned: dict, is_ab: bool) -> dict:
+    """Product-level fallback response (no visitor_id). Identical shape
+    to the eligible response but without the gating block."""
+    copy_cfg = assigned.get("copy_config")
+    if not isinstance(copy_cfg, dict):
+        copy_cfg = nudge.copy_config_dict()
+    resp = {
+        "active": True,
+        "eligible": True,
+        "render_allowed": True,
+        "nudge_id": nudge.id,
+        "copy_variant": assigned.get("variant_name"),
+        "copy_config": copy_cfg,
+        "expires_at": nudge.expires_at.isoformat() + "Z" if nudge.expires_at else None,
+    }
+    if is_ab:
+        resp["ab_experiment"] = True
+    return resp
+
+
+def _build_gating_block(decision: dict) -> dict:
+    return {
+        "source": decision["gating_source"],
+        "visitor_behavioral_index": decision["visitor_behavioral_index"],
+        "threshold_used": decision["threshold_used"],
+        "calibration_state": decision["calibration_state"],
+        "reason": decision["reason"],
+        "data_points": decision["data_points"],
+    }
+
+
+def _commit_holdout_event(db: Session, shop: str, nudge_id: int) -> None:
+    """Commit + rollback semantics for the holdout event write. Never
+    raises — a failed commit must NOT prevent the holdout response
+    being returned to the caller (the storefront polls again next tick)."""
+    try:
+        db.commit()
+    except Exception as exc:
+        log.error(
+            "nudges/active: holdout event commit failed shop=%s nudge_id=%d: %s",
+            shop, nudge_id, exc,
+        )
+        try:
+            db.rollback()
+        except Exception as exc:
+            log.warning("nudges: holdout rollback failed: %s", exc)
+
+
+def _build_holdout_response(nudge, gating_block: dict) -> dict:
+    return {
+        "active": True,
+        "eligible": True,
+        "render_allowed": False,
+        "holdout": True,
+        "nudge_id": nudge.id,
+        "gating": gating_block,
+    }
+
+
+def _resolve_eligible_variant(
+    visitor_id: str, nudge, variants: list, is_ab: bool,
+) -> tuple[str, dict]:
+    """Deterministic variant assignment for eligible non-holdout visitors.
+    Returns (variant_name, copy_config) — both always concrete (falls
+    back to the nudge's primary variant when the AB assignment yields
+    an invalid copy_config)."""
+    if is_ab:
+        assigned = _assign_variant(visitor_id, nudge.id, variants)
+    else:
+        assigned = {
+            "variant_name": nudge.copy_variant,
+            "copy_config": nudge.copy_config_dict(),
+        }
+    variant_name = assigned.get("variant_name", nudge.copy_variant)
+    copy_config = assigned.get("copy_config")
+    if not isinstance(copy_config, dict):
+        copy_config = nudge.copy_config_dict()
+    return variant_name, copy_config
+
+
+def _build_eligible_response(
+    nudge, variant_name: str, copy_config: dict,
+    gating_block: dict, is_ab: bool,
+) -> dict:
+    resp = {
+        "active": True,
+        "eligible": True,
+        "render_allowed": True,
+        "nudge_id": nudge.id,
+        "copy_variant": variant_name,
+        "copy_config": copy_config,
+        "expires_at": nudge.expires_at.isoformat() + "Z" if nudge.expires_at else None,
+        "gating": gating_block,
+    }
+    if is_ab:
+        resp["ab_experiment"] = True
+    return resp
+
+
 @router.get("/nudges/active")
 def get_active_nudge_public(
     response:    Response,
@@ -303,182 +440,79 @@ def get_active_nudge_public(
       - Backward compatible.
 
     CORS: Access-Control-Allow-Origin: * — storefront cross-origin access.
+
+    Refactored 2026-05-13 (A3 close): 207-LOC endpoint → 40-LOC
+    composer + 8 pure helpers.
     """
     response.headers["Access-Control-Allow-Origin"] = "*"
-
     if not shop or not product_url:
         raise HTTPException(status_code=400, detail="shop and product_url are required.")
 
-    # Normalise product_url — strip query string, enforce /products/
-    if not product_url.startswith("/products/"):
-        try:
-            from urllib.parse import urlparse
-            import re
-            parsed = urlparse(product_url)
-            m = re.match(r"(/products/[^/?#]+)", parsed.path)
-            product_url = m.group(1) if m else product_url
-        except Exception as exc:
-            log.warning("nudges: get_active_nudge_public failed: %s", exc)
-
-    # 1. Check whether an active nudge exists for this (shop, product)
+    product_url = _normalize_product_url(product_url)
     nudge = get_active_nudge(db=db, shop_domain=shop, product_url=product_url)
-
     if nudge is None:
-        log.debug(
-            "nudges/active: no active nudge shop=%s product=%s",
-            shop, product_url,
-        )
+        log.debug("nudges/active: no active nudge shop=%s product=%s", shop, product_url)
         return {"active": False}
 
-    # Resolve which variant to deliver
-    variants      = nudge.copy_variants_list()
-    is_ab         = len(variants) >= 2
+    variants = nudge.copy_variants_list()
+    is_ab = len(variants) >= 2
     clean_visitor = (visitor_id or "").strip() or None
 
-    # 2. No visitor_id — product-level fallback (legacy behavior)
     if not clean_visitor:
-        # Use control variant (index 0) or the legacy primary variant
-        if is_ab:
-            assigned = variants[0]
-        else:
-            assigned = {"variant_name": nudge.copy_variant, "copy_config": nudge.copy_config_dict()}
-
+        assigned = _resolve_default_variant(nudge, variants, is_ab)
         log.info(
             "nudges/active: PRODUCT-LEVEL delivery nudge_id=%d shop=%s product=%s "
             "variant=%s ab=%s holdout=skipped (no visitor_id)",
             nudge.id, shop, product_url, assigned.get("variant_name"), is_ab,
         )
-        resp = {
-            "active":         True,
-            "eligible":       True,
-            "render_allowed": True,
-            "nudge_id":       nudge.id,
-            "copy_variant":   assigned.get("variant_name"),
-            "copy_config":    assigned.get("copy_config") if isinstance(assigned.get("copy_config"), dict)
-                              else nudge.copy_config_dict(),
-            "expires_at":     nudge.expires_at.isoformat() + "Z" if nudge.expires_at else None,
-        }
-        if is_ab:
-            resp["ab_experiment"] = True
-        return resp
+        return _build_product_level_response(nudge, assigned, is_ab)
 
-    # 3. Visitor-level behavioral gating
     decision = evaluate_visitor_nudge_eligibility(
-        db=db,
-        shop_domain=shop,
-        product_url=product_url,
-        visitor_id=clean_visitor,
-        nudge=nudge,
+        db=db, shop_domain=shop, product_url=product_url,
+        visitor_id=clean_visitor, nudge=nudge,
     )
-
-    gating_block = {
-        "source":                   decision["gating_source"],
-        "visitor_behavioral_index": decision["visitor_behavioral_index"],
-        "threshold_used":           decision["threshold_used"],
-        "calibration_state":        decision["calibration_state"],
-        "reason":                   decision["reason"],
-        "data_points":              decision["data_points"],
-    }
+    gating_block = _build_gating_block(decision)
 
     if not decision["eligible"]:
         log.info(
             "nudges/active: SUPPRESSED (ineligible) nudge_id=%d shop=%s product=%s "
             "visitor=%s bi=%s threshold=%.4f source=%s reason=%s",
-            nudge.id, shop, product_url,
-            clean_visitor[:8] + "…",
+            nudge.id, shop, product_url, clean_visitor[:8] + "…",
             f"{decision['visitor_behavioral_index']:.4f}"
             if decision["visitor_behavioral_index"] is not None else "none",
-            decision["threshold_used"],
-            decision["gating_source"],
-            decision["reason"],
+            decision["threshold_used"], decision["gating_source"], decision["reason"],
         )
         return {"active": True, "eligible": False, "gating": gating_block}
 
-    # 4. Holdout assignment — only for eligible visitors with a visitor_id
     holdout_pct = nudge.holdout_pct or 0
-    if holdout_pct > 0:
-        in_holdout = _assign_holdout(
-            visitor_id=clean_visitor,
-            nudge_id=nudge.id,
-            holdout_pct=holdout_pct,
+    if holdout_pct > 0 and _assign_holdout(
+        visitor_id=clean_visitor, nudge_id=nudge.id, holdout_pct=holdout_pct,
+    ):
+        ev = record_holdout_assignment(
+            db=db, shop_domain=shop, nudge_id=nudge.id,
+            visitor_id=clean_visitor, product_url=product_url,
         )
+        if ev is not None:
+            _commit_holdout_event(db, shop, nudge.id)
+        log.info(
+            "nudges/active: HOLDOUT nudge_id=%d shop=%s product=%s "
+            "visitor=%s holdout_pct=%d — suppressed for control group",
+            nudge.id, shop, product_url, clean_visitor[:8] + "…", holdout_pct,
+        )
+        return _build_holdout_response(nudge, gating_block)
 
-        if in_holdout:
-            # Record server-side holdout_assigned event.
-            # This is the authoritative record that this visitor was eligible
-            # but the nudge was suppressed for measurement purposes.
-            ev = record_holdout_assignment(
-                db          = db,
-                shop_domain = shop,
-                nudge_id    = nudge.id,
-                visitor_id  = clean_visitor,
-                product_url = product_url,
-            )
-            if ev is not None:
-                try:
-                    db.commit()
-                except Exception as exc:
-                    log.error(
-                        "nudges/active: holdout event commit failed shop=%s nudge_id=%d: %s",
-                        shop, nudge.id, exc,
-                    )
-                    try:
-                        db.rollback()
-                    except Exception as exc:
-                        log.warning("nudges: get_active_nudge_public failed: %s", exc)
-
-            log.info(
-                "nudges/active: HOLDOUT nudge_id=%d shop=%s product=%s "
-                "visitor=%s holdout_pct=%d — suppressed for control group",
-                nudge.id, shop, product_url,
-                clean_visitor[:8] + "…", holdout_pct,
-            )
-            return {
-                "active":         True,
-                "eligible":       True,
-                "render_allowed": False,
-                "holdout":        True,
-                "nudge_id":       nudge.id,
-                "gating":         gating_block,
-            }
-
-    # 5. Eligible and not in holdout — assign variant
-    if is_ab:
-        assigned = _assign_variant(clean_visitor, nudge.id, variants)
-    else:
-        assigned = {"variant_name": nudge.copy_variant, "copy_config": nudge.copy_config_dict()}
-
-    assigned_variant_name = assigned.get("variant_name", nudge.copy_variant)
-    assigned_copy_config  = assigned.get("copy_config")
-    if not isinstance(assigned_copy_config, dict):
-        assigned_copy_config = nudge.copy_config_dict()
-
+    variant_name, copy_config = _resolve_eligible_variant(
+        clean_visitor, nudge, variants, is_ab,
+    )
     log.info(
         "nudges/active: ELIGIBLE nudge_id=%d shop=%s product=%s "
         "visitor=%s bi=%.4f threshold=%.4f source=%s variant=%s ab=%s holdout_pct=%d",
-        nudge.id, shop, product_url,
-        clean_visitor[:8] + "…",
+        nudge.id, shop, product_url, clean_visitor[:8] + "…",
         decision.get("visitor_behavioral_index") or 0,
-        decision["threshold_used"],
-        decision["gating_source"],
-        assigned_variant_name,
-        is_ab,
-        holdout_pct,
+        decision["threshold_used"], decision["gating_source"],
+        variant_name, is_ab, holdout_pct,
     )
-
-    resp = {
-        "active":         True,
-        "eligible":       True,
-        "render_allowed": True,
-        "nudge_id":       nudge.id,
-        "copy_variant":   assigned_variant_name,
-        "copy_config":    assigned_copy_config,
-        "expires_at":     nudge.expires_at.isoformat() + "Z" if nudge.expires_at else None,
-        "gating":         gating_block,
-    }
-    if is_ab:
-        resp["ab_experiment"] = True
-    return resp
+    return _build_eligible_response(nudge, variant_name, copy_config, gating_block, is_ab)
 
 
 # ---------------------------------------------------------------------------
