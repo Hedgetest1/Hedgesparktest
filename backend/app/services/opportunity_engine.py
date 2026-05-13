@@ -183,9 +183,12 @@ def _strength_high_traffic_no_cart(views_24h: int) -> float:
 def _strength_low_conversion(conv_rate: float) -> float:
     """
     Higher signal when rate is closer to 0 %.
-    0.30 floor (evidence of some cart activity) → ~1.0 approaching 0 %.
+    0.30 floor (evidence of some cart activity) → 1.0 approaching 0 %.
+    Output bounded in [0.30, 1.0] for every input — call sites pass
+    `cart_conversions / views` (always non-negative), but the ceiling
+    clamp is defense in depth against future negative inputs.
     """
-    return round(max(0.30, 1.0 - (conv_rate / 0.02)), 2)
+    return round(min(1.0, max(0.30, 1.0 - (conv_rate / 0.02))), 2)
 
 
 def _strength_high_engagement_no_action(avg_dwell: float, avg_scroll: float) -> float:
