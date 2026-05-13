@@ -242,6 +242,32 @@ def write_alert(
         log.warning("alerting: synthetic-source guard failed: %s", exc)
         # Fail-open per the same rationale as the shop-side guard above.
 
+    # Step 0ter: operator-shop alert-type guard. Drops merchant-funnel-
+    # class alerts (slow_activation, onboarding_drift, etc.) when the
+    # target is an operator dev tenant (hedgespark-dev). The funnel-
+    # state alert is correctly detecting "stuck" on these shops because
+    # the founder uses /app to test, not to convert. Real-bug alerts
+    # (LLM failures, code errors) STILL fire — gate is narrow.
+    # Born 2026-05-13 closing 2 stale alerts (id=137153 slow_activation,
+    # id=136901 onboarding_slow_progress) on hedgespark-dev that
+    # persisted 12-50d as noise.
+    try:
+        from app.core.operator_blocklist import is_operator_silenced_alert
+        if is_operator_silenced_alert(shop_domain, alert_type):
+            log.debug(
+                "alert: operator-shop guard suppressed [%s] %s shop=%s",
+                alert_type, source, shop_domain,
+            )
+            stub = OpsAlert(
+                severity=severity, source=source, alert_type=alert_type,
+                shop_domain=shop_domain, summary=summary,
+                detail=json.dumps(detail, default=str) if detail and not isinstance(detail, str) else detail,
+            )
+            return stub  # not added to session; never persisted
+    except Exception as exc:
+        log.warning("alerting: operator-shop guard failed: %s", exc)
+        # Fail-open per the same rationale as the shop-side guard above.
+
     # Step 0a: Acute dedup — pure noise suppression within 5 minutes.
     # If an identical alert was raised in the last 5 minutes, drop this
     # one entirely. No state mutation — we don't even bump the counter,

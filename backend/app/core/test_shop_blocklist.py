@@ -79,6 +79,14 @@ _SYNTHETIC_PATTERNS: tuple[re.Pattern[str], ...] = (
     # 2026-05-07 by audit_db_table_growth (88 → 541 row spike during
     # pytest run; 542 orphan rows cleaned + guard added in same commit).
     re.compile(r"^test-trust-suite\.myshopify\.com$"),
+    # Auth-hardening test fixture — session_anomaly fires from OAuth
+    # test path that exercises record_session_creation() for synthetic
+    # placeholder `shop.myshopify.com` (Shopify's default OAuth dev URL).
+    # The auth_hardening._write_alert opens its own SessionLocal to
+    # persist outside caller transaction. Surfaced 2026-05-13 after
+    # session_anomaly alert leaked from a pytest run. Real merchants
+    # have a tenant-specific subdomain — none can collide.
+    re.compile(r"^shop\.myshopify\.com$"),
 )
 
 

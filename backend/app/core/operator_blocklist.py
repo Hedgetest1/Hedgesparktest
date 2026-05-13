@@ -83,3 +83,51 @@ def operator_dev_shops() -> frozenset[str]:
 def operator_emails() -> frozenset[str]:
     """Read-only accessor for diagnostics / audits."""
     return _OPERATOR_EMAIL_ADDRESSES
+
+
+# Alert types that describe a merchant-funnel-state problem — by
+# definition, the operator dev tenant always looks "stuck" on these
+# because the founder uses /app to test, not to convert. Firing them
+# for operator shops pollutes ops_alerts with noise.
+#
+# Pre-2026-05-13 these alerts persisted unresolved (e.g. id=137153
+# "Events flowing but 0 signals after 1195h" on hedgespark-dev). The
+# detection is correct — funnel IS stuck — but the conclusion does not
+# apply to an operator tenant.
+#
+# Real-bug alerts (LLM failures, webhook errors, etc.) STILL fire for
+# operator shops because we want to see code-level breakage during
+# testing. The set below is intentionally narrow.
+_OPERATOR_IRRELEVANT_ALERT_TYPES: frozenset[str] = frozenset({
+    "slow_activation",
+    "pixel_abandonment",
+    "onboarding_drift",
+    "onboarding_slow_progress",
+    "onboarding_confusion",
+    "onboarding_stuck",
+    "onboarding_failed",
+    "merchant_silent",
+    "low_conversion_rate",
+})
+
+
+def is_operator_silenced_alert(
+    shop_domain: str | None, alert_type: str | None
+) -> bool:
+    """Return True iff the alert is a merchant-funnel-state class AND
+    the target shop is an operator dev tenant. Used by
+    `app.services.alerting.write_alert` to drop these specific noisy
+    combinations before persistence.
+
+    Conservative: returns False if either input is missing OR the
+    alert type is outside the curated set."""
+    if not shop_domain or not alert_type:
+        return False
+    if alert_type.strip().lower() not in _OPERATOR_IRRELEVANT_ALERT_TYPES:
+        return False
+    return is_operator_dev_shop(shop_domain)
+
+
+def operator_silenced_alert_types() -> frozenset[str]:
+    """Read-only accessor for the operator-irrelevant alert type set."""
+    return _OPERATOR_IRRELEVANT_ALERT_TYPES
