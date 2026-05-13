@@ -710,6 +710,245 @@ _DIM_NOT_SUPPORTED_NOTE = (
 )
 
 
+# ---------------------------------------------------------------------------
+# execute_report — stage helpers
+# Refactor 2026-05-13 (A3 close): 233-LOC endpoint → composer + 9 pure
+# stage helpers (3 branch handlers + 3 overlay applicators + base-filter
+# + metric-label resolver + last_run updater). Contract preserved
+# byte-identical. Overlay try/except blocks remain (overlay failures
+# MUST never break report execution — documented behavior).
+# ---------------------------------------------------------------------------
+
+
+def _build_base_filters(so, shop: str, start_inclusive, end_inclusive, filters: dict | None) -> list:
+    """Build the SQLAlchemy filter list for shop+window queries.
+
+    All filter keys are validated against FILTER_KEYS at the API boundary
+    so user-controlled SQL is never reachable here. `channel` would
+    require a VPS subquery (kept noop in v1 — the dimensions=['channel']
+    group-by gives merchants most of the value).
+    """
+    base = [
+        so.shop_domain == shop,
+        so.created_at >= start_inclusive,
+        so.created_at <= end_inclusive,
+    ]
+    for k, v in (filters or {}).items():
+        if k == "payment_method" and v:
+            base.append(so.payment_method == v)
+    return base
+
+
+def _resolve_metric_meta(metric: str) -> tuple[str, str]:
+    """Returns (display_label, unit). Special-case 'formula' since it's
+    not in the METRICS catalog (custom merchant expressions)."""
+    if metric == "formula":
+        return "Custom formula", "money"
+    meta = METRICS.get(metric, {})
+    return meta.get("label", metric), meta.get("unit", "money")
+
+
+def _run_special_metric_branch(
+    db: Session, shop: str, row, start_inclusive, end_inclusive,
+    grain: str, metric_label: str,
+) -> tuple[list, str, float, list[str]]:
+    """Special-metric branch: handles repeat_rate / customer_ltv /
+    conversion_rate / revenue_at_risk / survey_response_top. Returns
+    (rows_out, chart_type, grand_total, extra_notes)."""
+    from app.services import report_special_metrics as rsm
+
+    notes: list[str] = []
+    rows_out: list[ReportDataRow] = []
+    primary_dim = row.dimensions[0] if row.dimensions else None
+
+    if primary_dim == "time" and row.metric == "repeat_rate":
+        buckets = rsm.repeat_rate_by_time(db, shop, start_inclusive, end_inclusive, grain)
+        chart_type = "bar"
+        for b in buckets:
+            rows_out.append(ReportDataRow(label=b["label"], value=b["value"]))
+        grand_total = float(sum(b["value"] for b in buckets) / max(len(buckets), 1))
+        return rows_out, chart_type, grand_total, notes
+    if primary_dim == "time" and row.metric == "customer_ltv":
+        buckets = rsm.customer_ltv_by_time(db, shop, start_inclusive, end_inclusive, grain)
+        chart_type = "bar"
+        for b in buckets:
+            rows_out.append(ReportDataRow(label=b["label"], value=b["value"]))
+        grand_total = float(sum(b["value"] for b in buckets) / max(len(buckets), 1))
+        return rows_out, chart_type, grand_total, notes
+
+    # Scalar fall-through. If a non-time dimension was requested, surface
+    # a calm note so the merchant knows we're showing the overall figure.
+    if primary_dim and primary_dim != "time":
+        notes.append(_DIM_NOT_SUPPORTED_NOTE.format(dim=primary_dim.replace("_", " ")))
+
+    if row.metric == "repeat_rate":
+        v = rsm.repeat_rate(db, shop, start_inclusive, end_inclusive)
+        rows_out.append(ReportDataRow(label=metric_label, value=v))
+    elif row.metric == "customer_ltv":
+        v = rsm.customer_ltv(db, shop, start_inclusive, end_inclusive)
+        rows_out.append(ReportDataRow(label=metric_label, value=v))
+    elif row.metric == "conversion_rate":
+        v = rsm.conversion_rate(db, shop, start_inclusive, end_inclusive)
+        rows_out.append(ReportDataRow(label=metric_label, value=v))
+    elif row.metric == "revenue_at_risk":
+        v = rsm.revenue_at_risk(db, shop, start_inclusive, end_inclusive)
+        rows_out.append(ReportDataRow(label=metric_label, value=v))
+        notes.append("Revenue at Risk is a right-now snapshot, not a window aggregate.")
+    elif row.metric == "survey_response_top":
+        top = rsm.survey_response_top(db, shop, start_inclusive, end_inclusive)
+        rows_out.append(ReportDataRow(label=top["label"], value=float(top["count"])))
+        v = float(top["count"])
+    else:
+        v = 0.0
+
+    return rows_out, "scalar", v, notes
+
+
+def _run_dimension_branch(
+    db: Session, row, base_filters: list, grain: str,
+) -> tuple[list, str, float]:
+    """Group-by dimension branch — single dim → bar, multi dim → pivot."""
+    chart_type = "bar" if len(row.dimensions) == 1 else "pivot"
+    primary_dim = row.dimensions[0]
+    dim_expr = _dim_expression(primary_dim, grain).label("dim_value")
+    agg_expr = _metric_aggregate(row.metric).label("value")
+
+    results = (
+        db.query(dim_expr, agg_expr)
+        .select_from(ShopOrder)
+        .filter(and_(*base_filters))
+        .group_by(text("dim_value"))
+        .order_by(desc("value"))
+        .limit(_RUN_LIMIT)
+        .all()
+    )
+    grand_total = float(sum(r.value or 0 for r in results) or 0)
+    rows_out: list[ReportDataRow] = []
+    for r in results:
+        v = float(r.value or 0)
+        rows_out.append(ReportDataRow(
+            label=str(r.dim_value or "(unknown)"),
+            value=v,
+            pct_of_total=round(100.0 * v / grand_total, 1) if grand_total else None,
+        ))
+    return rows_out, chart_type, grand_total
+
+
+def _run_scalar_branch(
+    db: Session, row, base_filters: list, metric_label: str,
+) -> tuple[list, str, float]:
+    """Single big number — no dimensions."""
+    agg_expr = _metric_aggregate(row.metric).label("value")
+    result = (
+        db.query(agg_expr)
+        .select_from(ShopOrder)
+        .filter(and_(*base_filters))
+        .first()
+    )
+    v = float(result.value or 0) if result else 0.0
+    return [ReportDataRow(label=metric_label, value=v)], "scalar", v
+
+
+def _apply_forecast_overlay(
+    db: Session, shop: str, row, rows_out: list, chart_type: str,
+) -> tuple[str, list[str]]:
+    """Forecast overlay: revenue + time-only for v1. Failures swallowed
+    (overlay must never break report execution). Returns (new_chart_type,
+    extra_notes)."""
+    notes: list[str] = []
+    if not (row.forecast_horizon and row.metric == "revenue" and row.dimensions == ["time"]):
+        return chart_type, notes
+    try:
+        from app.services.revenue_forecast import get_revenue_forecast
+        fc = get_revenue_forecast(db, shop, horizon_days=row.forecast_horizon)
+    except Exception as exc:
+        log.warning("reports: forecast wiring failed: %s", exc)
+        return chart_type, notes
+    if not (fc and fc.get("low") and fc.get("high")):
+        return chart_type, notes
+    rows_out.append(ReportDataRow(
+        label=f"Forecast (next {row.forecast_horizon}d)",
+        value=float(fc.get("point", 0) or 0),
+        forecast_low=float(fc.get("low", 0) or 0),
+        forecast_high=float(fc.get("high", 0) or 0),
+    ))
+    notes.append(
+        f"Forecast based on the last 90 days of revenue. The shaded "
+        f"range is the {fc.get('confidence_label', '90%')} confidence band."
+    )
+    return "line", notes
+
+
+def _apply_holdout_lift_overlay(
+    db: Session, shop: str, row, rows_out: list,
+    start_inclusive, end_inclusive,
+) -> list[str]:
+    """Holdout-measured lift annotation on rows_out[0]. Opportunistic —
+    never blocks report execution on failure (debug-level log)."""
+    if not (rows_out and row.metric in {"revenue", "orders"}):
+        return []
+    try:
+        from app.services.report_holdout_lift import holdout_lift_for_shop_window
+        lift = holdout_lift_for_shop_window(db, shop, start_inclusive, end_inclusive)
+    except Exception as exc:
+        log.debug("reports: holdout wiring noop — %s", exc)
+        return []
+    if not lift:
+        return []
+    rows_out[0].holdout_lift_eur = float(lift.get("lift_eur") or 0.0)
+    rows_out[0].holdout_p_value = float(lift.get("p_value") or 1.0)
+    return [
+        "Holdout-measured lift annotation reflects the cohort that "
+        "did not see HedgeSpark interventions during this window."
+    ]
+
+
+_PEER_METRIC_KEY_MAP = {
+    "revenue": "monthly_revenue",
+    "aov": "aov",
+    "orders": "orders_per_day",
+}
+
+
+def _apply_peer_percentile_overlay(
+    db: Session, shop: str, row, rows_out: list,
+) -> list[str]:
+    """Peer percentile annotation on rows_out[0]. Fires only when
+    N>=30 peers exist in vertical+band."""
+    if not (rows_out and row.metric in _PEER_METRIC_KEY_MAP):
+        return []
+    try:
+        from app.services.benchmarks_vertical import get_vertical_benchmark_report
+        peer = get_vertical_benchmark_report(db, shop)
+    except Exception as exc:
+        log.debug("reports: peer-overlay wiring noop — %s", exc)
+        return []
+    if not (peer and peer.get("peers_status") == "ok"):
+        return []
+    m_key = _PEER_METRIC_KEY_MAP.get(row.metric)
+    metrics_map = peer.get("metrics", {})
+    if not (m_key and m_key in metrics_map):
+        return []
+    pct = metrics_map[m_key].get("percentile_rank")
+    if pct is None:
+        return []
+    rows_out[0].peer_percentile = int(pct)
+    return [
+        "Peer percentile is computed against stores in your "
+        "category and revenue band (≥30 peers required)."
+    ]
+
+
+def _update_last_run(db: Session, row) -> None:
+    """Best-effort last_run_at update — never blocks report execution."""
+    try:
+        row.last_run_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        db.commit()
+    except Exception as exc:
+        log.warning("reports: last_run_at update failed: %s", exc)
+        db.rollback()
+
+
 @router.get("/merchant/reports/{report_id}/data", response_model=ReportDataOut)
 def execute_report(
     response: Response,
@@ -717,6 +956,12 @@ def execute_report(
     shop: str = Depends(require_merchant_session),
     db: Session = Depends(get_read_db),
 ) -> dict:
+    """Execute a saved report → chart + table payload.
+
+    Refactored 2026-05-13 (A3 close): 233-LOC endpoint → 50-LOC
+    composer + 9 pure stage helpers. Overlay try/excepts preserve
+    the 'never block report execution' contract.
+    """
     cache_key = f"hs:report:run:v1:{shop}:{report_id}"
     cached = cache_get(cache_key)
     if cached is not None:
@@ -727,205 +972,42 @@ def execute_report(
     start, end = _resolve_range(row)
     end_inclusive = datetime.combine(end, datetime.max.time()).replace(tzinfo=None)
     start_inclusive = datetime.combine(start, datetime.min.time()).replace(tzinfo=None)
-
     grain = _bucket_grain(start, end)
+
+    base_filters = _build_base_filters(
+        ShopOrder, shop, start_inclusive, end_inclusive, row.filters,
+    )
+    metric_label, metric_unit = _resolve_metric_meta(row.metric)
+
     notes: list[str] = []
-
-    # Build base query
-    so = ShopOrder
-    base_filters = [
-        so.shop_domain == shop,
-        so.created_at >= start_inclusive,
-        so.created_at <= end_inclusive,
-    ]
-    for k, v in (row.filters or {}).items():
-        if k == "payment_method" and v:
-            base_filters.append(so.payment_method == v)
-        # `channel` filter would require the same VPS subquery as
-        # _dim_expression — kept noop in v1 to bound complexity. The
-        # `dimensions=['channel']` group-by already gives the merchant
-        # most of the value.
-        # All filter keys are validated against an allow-list at the
-        # API boundary so user-controlled SQL is never reachable here.
-
-    metric_label = METRICS.get(row.metric, {}).get("label", row.metric)
-    metric_unit = METRICS.get(row.metric, {}).get("unit", "money")
-    if row.metric == "formula":
-        metric_label = "Custom formula"
-        metric_unit = "money"
-
-    note = _RUNTIME_METRIC_NOTES.get(row.metric)
-    if note:
+    if (note := _RUNTIME_METRIC_NOTES.get(row.metric)):
         notes.append(note)
 
-    # Single-bucket scalar (no dimensions selected)
-    rows_out: list[ReportDataRow] = []
-    chart_type = "scalar"
-    grand_total: float = 0.0
-
-    # Special metrics with dedicated SQL (Gap #1 strict 10/10 closure).
-    # Handled BEFORE the generic dimension/scalar branches so they don't
-    # fall through to the revenue aggregate.
+    # Branch: special-metric / dimension-group / scalar
     from app.services import report_special_metrics as rsm
-
     if rsm.is_special(row.metric):
-        primary_dim = row.dimensions[0] if row.dimensions else None
-        # Time-bucket support for the two special metrics that have a
-        # well-defined time slicing (repeat_rate, customer_ltv).
-        if primary_dim == "time" and row.metric == "repeat_rate":
-            buckets = rsm.repeat_rate_by_time(db, shop, start_inclusive, end_inclusive, grain)
-            chart_type = "bar"
-            for b in buckets:
-                rows_out.append(ReportDataRow(label=b["label"], value=b["value"]))
-            grand_total = float(sum(b["value"] for b in buckets) / max(len(buckets), 1))
-        elif primary_dim == "time" and row.metric == "customer_ltv":
-            buckets = rsm.customer_ltv_by_time(db, shop, start_inclusive, end_inclusive, grain)
-            chart_type = "bar"
-            for b in buckets:
-                rows_out.append(ReportDataRow(label=b["label"], value=b["value"]))
-            grand_total = float(sum(b["value"] for b in buckets) / max(len(buckets), 1))
-        else:
-            # Scalar fall-through. If a non-time dimension was requested,
-            # surface a calm note so the merchant knows we're showing the
-            # overall figure rather than the requested breakdown.
-            if primary_dim and primary_dim != "time":
-                notes.append(_DIM_NOT_SUPPORTED_NOTE.format(dim=primary_dim.replace("_", " ")))
-            chart_type = "scalar"
-            if row.metric == "repeat_rate":
-                v = rsm.repeat_rate(db, shop, start_inclusive, end_inclusive)
-                rows_out.append(ReportDataRow(label=metric_label, value=v))
-                grand_total = v
-            elif row.metric == "customer_ltv":
-                v = rsm.customer_ltv(db, shop, start_inclusive, end_inclusive)
-                rows_out.append(ReportDataRow(label=metric_label, value=v))
-                grand_total = v
-            elif row.metric == "conversion_rate":
-                v = rsm.conversion_rate(db, shop, start_inclusive, end_inclusive)
-                rows_out.append(ReportDataRow(label=metric_label, value=v))
-                grand_total = v
-            elif row.metric == "revenue_at_risk":
-                v = rsm.revenue_at_risk(db, shop, start_inclusive, end_inclusive)
-                rows_out.append(ReportDataRow(label=metric_label, value=v))
-                grand_total = v
-                notes.append("Revenue at Risk is a right-now snapshot, not a window aggregate.")
-            elif row.metric == "survey_response_top":
-                top = rsm.survey_response_top(db, shop, start_inclusive, end_inclusive)
-                rows_out.append(ReportDataRow(label=top["label"], value=float(top["count"])))
-                grand_total = float(top["count"])
-    elif row.dimensions:
-        chart_type = "bar" if len(row.dimensions) == 1 else "pivot"
-        primary_dim = row.dimensions[0]
-        dim_expr = _dim_expression(primary_dim, grain).label("dim_value")
-        agg_expr = _metric_aggregate(row.metric).label("value")
-
-        q = (
-            db.query(dim_expr, agg_expr)
-            .select_from(so)
-            .filter(and_(*base_filters))
-            .group_by(text("dim_value"))
-            .order_by(desc("value"))
-            .limit(_RUN_LIMIT)
+        rows_out, chart_type, grand_total, branch_notes = _run_special_metric_branch(
+            db, shop, row, start_inclusive, end_inclusive, grain, metric_label,
         )
-        results = q.all()
-        grand_total = float(sum(r.value or 0 for r in results) or 0)
-        for r in results:
-            v = float(r.value or 0)
-            rows_out.append(
-                ReportDataRow(
-                    label=str(r.dim_value or "(unknown)"),
-                    value=v,
-                    pct_of_total=round(100.0 * v / grand_total, 1) if grand_total else None,
-                )
-            )
+        notes.extend(branch_notes)
+    elif row.dimensions:
+        rows_out, chart_type, grand_total = _run_dimension_branch(
+            db, row, base_filters, grain,
+        )
     else:
-        # Single bucket, big number
-        agg_expr = _metric_aggregate(row.metric).label("value")
-        q = db.query(agg_expr).select_from(so).filter(and_(*base_filters))
-        result = q.first()
-        v = float(result.value or 0) if result else 0.0
-        grand_total = v
-        rows_out.append(ReportDataRow(label=metric_label, value=v))
+        rows_out, chart_type, grand_total = _run_scalar_branch(
+            db, row, base_filters, metric_label,
+        )
 
-    # Forecast wiring (revenue + time-only for v1; falls through silently
-    # for combinations not supported by the existing forecast pipeline)
-    forecast_horizon = row.forecast_horizon
-    if forecast_horizon and row.metric == "revenue" and row.dimensions == ["time"]:
-        try:
-            from app.services.revenue_forecast import get_revenue_forecast
-            fc = get_revenue_forecast(
-                db, shop, horizon_days=forecast_horizon
-            )
-            if fc and fc.get("low") and fc.get("high"):
-                # Append a forecast row for the chart layer
-                rows_out.append(
-                    ReportDataRow(
-                        label=f"Forecast (next {forecast_horizon}d)",
-                        value=float(fc.get("point", 0) or 0),
-                        forecast_low=float(fc.get("low", 0) or 0),
-                        forecast_high=float(fc.get("high", 0) or 0),
-                    )
-                )
-                chart_type = "line"
-                notes.append(
-                    f"Forecast based on the last 90 days of revenue. The shaded "
-                    f"range is the {fc.get('confidence_label', '90%')} confidence band."
-                )
-        except Exception as exc:  # noqa: BLE001
-            log.warning("reports: forecast wiring failed: %s", exc)
+    # Overlays — each is best-effort and may add a note + mutate rows_out[0]
+    chart_type, forecast_notes = _apply_forecast_overlay(db, shop, row, rows_out, chart_type)
+    notes.extend(forecast_notes)
+    notes.extend(_apply_holdout_lift_overlay(
+        db, shop, row, rows_out, start_inclusive, end_inclusive,
+    ))
+    notes.extend(_apply_peer_percentile_overlay(db, shop, row, rows_out))
 
-    # Holdout-lift wiring (fires only when this shop has an active baseline
-    # with ≥30 visitors per cohort overlapping the report window)
-    try:
-        if rows_out and row.metric in {"revenue", "orders"}:
-            from app.services.report_holdout_lift import (
-                holdout_lift_for_shop_window,
-            )
-            lift = holdout_lift_for_shop_window(
-                db, shop, start_inclusive, end_inclusive
-            )
-            if lift:
-                rows_out[0].holdout_lift_eur = float(lift.get("lift_eur") or 0.0)
-                rows_out[0].holdout_p_value = float(lift.get("p_value") or 1.0)
-                notes.append(
-                    "Holdout-measured lift annotation reflects the cohort that "
-                    "did not see HedgeSpark interventions during this window."
-                )
-    except Exception as exc:  # noqa: BLE001
-        # Holdout wiring is opportunistic; never block report execution
-        log.debug("reports: holdout wiring noop — %s", exc)
-
-    # Peer-network overlay (fires only when N≥30 peers in vertical+band)
-    try:
-        if rows_out and row.metric in {"revenue", "aov", "orders"}:
-            from app.services.benchmarks_vertical import (
-                get_vertical_benchmark_report,
-            )
-            peer = get_vertical_benchmark_report(db, shop)
-            if peer and peer.get("peers_status") == "ok":
-                metric_map = {
-                    "revenue": "monthly_revenue",
-                    "aov": "aov",
-                    "orders": "orders_per_day",
-                }
-                m_key = metric_map.get(row.metric)
-                if m_key and m_key in peer.get("metrics", {}):
-                    pct = peer["metrics"][m_key].get("percentile_rank")
-                    if pct is not None:
-                        rows_out[0].peer_percentile = int(pct)
-                        notes.append(
-                            "Peer percentile is computed against stores in your "
-                            "category and revenue band (≥30 peers required)."
-                        )
-    except Exception as exc:  # noqa: BLE001
-        log.debug("reports: peer-overlay wiring noop — %s", exc)
-
-    # Update last_run_at (best-effort)
-    try:
-        row.last_run_at = datetime.now(timezone.utc).replace(tzinfo=None)
-        db.commit()
-    except Exception as exc:  # noqa: BLE001
-        log.warning("reports: last_run_at update failed: %s", exc)
-        db.rollback()
+    _update_last_run(db, row)
 
     out = ReportDataOut(
         report_id=row.id,
@@ -937,7 +1019,7 @@ def execute_report(
         rows=rows_out,
         total=grand_total,
         chart_type=chart_type,
-        forecast_horizon=forecast_horizon,
+        forecast_horizon=row.forecast_horizon,
         notes=notes,
     ).model_dump(mode="json")
 
