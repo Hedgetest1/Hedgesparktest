@@ -75,9 +75,15 @@ _FLUSH_INTERVAL_SEC = 1.0
 _FLUSH_BATCH_SIZE = 200
 
 # Buffer entry: (route, method, status, duration_ms, now_ns)
+# multi-worker: accept-degrade — per-uvicorn-worker buffer is intentional.
+# Each worker holds its own observations and flushes to Redis every 1s.
+# Cross-process aggregation happens in Redis (shared) — the in-process
+# buffer is just the per-worker accumulator. Losing one worker's
+# unflushed buffer on crash drops ~1s of observations from that worker,
+# which is acceptable for SLO telemetry (observability, not load-bearing).
 _BUFFER: list[tuple[str, str, int, float, int]] = []
-_BUFFER_LOCK = threading.Lock()
-_FLUSH_LOCK = threading.Lock()  # ensures only 1 flush at a time per worker
+_BUFFER_LOCK = threading.Lock()  # multi-worker: thread-only
+_FLUSH_LOCK = threading.Lock()  # multi-worker: thread-only
 _LAST_FLUSH_MONO = [time.monotonic()]
 _BG_FLUSHER_STARTED = [False]
 
