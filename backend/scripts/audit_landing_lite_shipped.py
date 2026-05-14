@@ -110,17 +110,17 @@ def collect_dashboard_tokens() -> str:
       are loaded)"""
     chunks: list[str] = []
     for path in (DASHBOARD_PULSE, DASHBOARD_LAYOUT):
-        if path.exists():
-            try:
-                chunks.append(path.read_text())
-            except (OSError, UnicodeDecodeError):
-                pass
+        if not path.exists():
+            continue
+        text = safe_read_text(path)
+        if text is not None:
+            chunks.append(text)
     if DASHBOARD_COMPONENTS.exists():
         for p in DASHBOARD_COMPONENTS.rglob("*.tsx"):
-            try:
-                chunks.append(p.read_text())
-            except (OSError, UnicodeDecodeError):
+            text = safe_read_text(p)
+            if text is None:
                 continue
+            chunks.append(text)
     return "\n".join(chunks)
 
 

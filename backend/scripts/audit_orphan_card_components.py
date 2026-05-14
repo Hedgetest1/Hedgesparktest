@@ -61,12 +61,12 @@ def main() -> int:
         for candidate in DASHBOARD_SRC.rglob("*.tsx"):
             if candidate == tsx or candidate == test_file:
                 continue
-            try:
-                if name in candidate.read_text(encoding="utf-8", errors="ignore"):
-                    used = True
-                    break
-            except OSError:
+            text = safe_read_text(candidate)
+            if text is None:
                 continue
+            if name in text:
+                used = True
+                break
 
         if not used:
             orphans.append(name)

@@ -105,9 +105,12 @@ def find_registries() -> list[tuple[Path, str, list[str]]]:
     for py in APP.rglob("*.py"):
         if "__pycache__" in py.parts:
             continue
+        src = safe_read_text(py)
+        if src is None:
+            continue
         try:
-            tree = ast.parse(py.read_text(), filename=str(py))
-        except Exception:
+            tree = ast.parse(src, filename=str(py))
+        except SyntaxError:
             continue
         for node in ast.iter_child_nodes(tree):
             target_name: str | None = None

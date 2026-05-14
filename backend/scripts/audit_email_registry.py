@@ -89,11 +89,10 @@ def _scan_producer_literals() -> dict[str, list[str]]:
         for py in root.rglob("*.py"):
             if py in EXCLUDED_FILES:
                 continue
-            try:
-                src = py.read_text()
-                lines = src.splitlines()
-            except Exception:
+            src = safe_read_text(py)
+            if src is None:
                 continue
+            lines = src.splitlines()
             # Pass 1: literal inline references (fast regex).
             for ln, line in enumerate(lines, 1):
                 m = _LITERAL_TYPE_RE.search(line)

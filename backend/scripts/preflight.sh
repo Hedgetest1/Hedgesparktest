@@ -194,6 +194,26 @@ fi
 # superseded by Brain Vero pivot (commit 6c5ecc0 Stage 1).
 
 # ---------------------------------------------------------------------------
+# 2c-pre-bis-bis. Audit I/O safety (audit_audit_io_safety.py).
+# Every audit_*.py that does `Path.rglob → read_text/open` must defend
+# against the TOCTOU race where a concurrent test fixture deletes a
+# file between discovery and read. Born 2026-05-14 after invariant_
+# monitor fired CRITICAL twice in 24h on the same race
+# (audit_cte_missing_comma + audit_tier_cost_literals 2026-05-13).
+# Defense is either `from _audit_io import safe_read_text` (canonical)
+# OR explicit `try/except (FileNotFoundError, PermissionError)`.
+# 75 audits migrated to canonical helper in commit 60c7543; this gate
+# blocks any future audit that re-introduces the race pattern.
+# ---------------------------------------------------------------------------
+step "Audit I/O safety (audit_audit_io_safety.py)"
+if "$PY" scripts/audit_audit_io_safety.py > /tmp/preflight_audit_io.log 2>&1; then
+    ok "$(tail -1 /tmp/preflight_audit_io.log)"
+else
+    bad "audit TOCTOU regression — see /tmp/preflight_audit_io.log"
+    tail -25 /tmp/preflight_audit_io.log
+fi
+
+# ---------------------------------------------------------------------------
 # 2c-pre-ter. DB pool doctrine. Verifies code defaults
 # (POOL_SIZE / POOL_MAX_OVERFLOW in app/core/database.py) match
 # CLAUDE.md §6 doctrine AND that workers × pool fits under Postgres

@@ -52,6 +52,8 @@ from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from _audit_io import safe_read_text
+
 TASKS_ROOT = Path("/tmp/claude-0")
 MEMORY_DIR = Path("/root/.claude/projects/-opt-wishspark/memory")
 # Cross-session persistence (Phase F). One JSON file accumulates aggregate
@@ -100,9 +102,8 @@ def _scan_files(files: list[Path]) -> dict:
         "cd_before_git_hits": 0,
     }
     for f in files:
-        try:
-            text = f.read_text()
-        except Exception:
+        text = safe_read_text(f)
+        if text is None:
             continue
         if _PRE_BLOCKED_RE.search(text):
             summary["preflight_blocks"] += 1
@@ -132,9 +133,12 @@ def _load_cross_session_ledger() -> dict:
     Older keys (>30d) are pruned on each write."""
     if not CROSS_SESSION_LEDGER.is_file():
         return {}
+    text = safe_read_text(CROSS_SESSION_LEDGER)
+    if text is None:
+        return {}
     try:
-        return json.loads(CROSS_SESSION_LEDGER.read_text())
-    except Exception:
+        return json.loads(text)
+    except (json.JSONDecodeError, ValueError):
         return {}
 
 

@@ -41,6 +41,8 @@ import sys
 from collections import defaultdict
 from dataclasses import dataclass
 
+from _audit_io import safe_read_text
+
 BACKEND_ROOT = pathlib.Path("/opt/wishspark/backend")
 BACKEND_API = BACKEND_ROOT / "app" / "api"
 
@@ -246,10 +248,12 @@ def _dec_full_path(dec_info: dict) -> str:
 
 
 def scan_file(py: pathlib.Path) -> list[Proposal]:
+    text = safe_read_text(py)
+    if text is None:
+        return []
     try:
-        text = py.read_text()
         tree = ast.parse(text, filename=str(py))
-    except Exception:
+    except SyntaxError:
         return []
     router_prefixes = _parse_router_prefixes(tree)
     if not router_prefixes:
@@ -297,10 +301,12 @@ def apply_proposal(proposal: Proposal) -> bool:
     closing-paren line (multi-line-decorator safe). Returns True on
     successful mutation."""
     py = BACKEND_ROOT / proposal.file
+    text = safe_read_text(py)
+    if text is None:
+        return False
     try:
-        text = py.read_text()
         tree = ast.parse(text, filename=str(py))
-    except Exception:
+    except SyntaxError:
         return False
 
     # Re-locate the decorator at its start lineno, find its end_lineno,

@@ -198,10 +198,12 @@ def _has_hermetic_ok_marker(
 
 
 def scan_file(path: pathlib.Path) -> list[Suspicion]:
+    raw = safe_read_text(path)
+    if raw is None:
+        return []
     try:
-        raw = path.read_text()
         tree = ast.parse(raw)
-    except Exception:
+    except SyntaxError:
         return []
     source_lines = raw.splitlines()
     out: list[Suspicion] = []

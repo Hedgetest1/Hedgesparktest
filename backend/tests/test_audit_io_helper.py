@@ -90,3 +90,32 @@ def test_default_kwargs_match_pathlib_signature(tmp_path):
     p.write_bytes("café\n".encode("utf-8"))
     # default behavior — utf-8 decoding, errors ignored
     assert safe_read_text(p) == "café\n"
+
+
+def test_zero_byte_file_returns_empty_string(tmp_path):
+    """A file that exists but is empty must return '' (not None) —
+    None signals 'file disappeared', '' signals 'empty file'. Audits
+    rely on the distinction to skip vs treat-as-no-content."""
+    p = tmp_path / "empty.py"
+    p.touch()
+    assert safe_read_text(p) == ""
+
+
+def test_broken_symlink_returns_none(tmp_path):
+    """A symlink whose target was deleted is the same race class as
+    a deleted regular file — must be swallowed as None."""
+    target = tmp_path / "target.txt"
+    target.write_text("payload")
+    link = tmp_path / "link.txt"
+    link.symlink_to(target)
+    target.unlink()  # link is now dangling
+    assert safe_read_text(link) is None
+
+
+def test_non_path_argument_propagates_attributeerror(tmp_path):
+    """Contract: only Path objects are valid input. Passing a string
+    or other non-Path argument must fail loud (AttributeError) rather
+    than silently returning None — so contract violations are visible
+    in CI rather than swallowed."""
+    with pytest.raises(AttributeError):
+        safe_read_text("/tmp/some/string/path")  # type: ignore[arg-type]

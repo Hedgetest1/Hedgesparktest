@@ -225,10 +225,10 @@ def main() -> int:
 
     total_calls = 0
     for py_path in SERVICES_DIR.glob("*.py"):
-        try:
-            total_calls += py_path.read_text().count("record_usage(")
-        except Exception:
-            pass
+        text = safe_read_text(py_path)
+        if text is None:
+            continue
+        total_calls += text.count("record_usage(")
     print(f"✓ every record_usage call uses ground-truth tokens "
           f"(or documented fallback) — scanned {total_calls} call sites")
     return 0

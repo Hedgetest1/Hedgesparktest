@@ -226,10 +226,12 @@ def _extract_decorator_index(api_dir: pathlib.Path) -> dict[tuple[str, str], dic
     """
     out: dict[tuple[str, str], dict] = {}
     for py in sorted(api_dir.rglob("*.py")):
+        text = safe_read_text(py)
+        if text is None:
+            continue
         try:
-            text = py.read_text()
             tree = ast.parse(text, filename=str(py))
-        except (OSError, UnicodeDecodeError, SyntaxError):
+        except (UnicodeDecodeError, SyntaxError):
             continue
 
         router_prefixes = _parse_file_router_prefixes(tree)

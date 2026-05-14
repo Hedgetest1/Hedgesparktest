@@ -52,10 +52,10 @@ CATEGORY_KEYWORDS = {
 }
 
 def classify_audit(path: Path) -> str:
-    try:
-        head = path.read_text()[:2000].lower()
-    except OSError:
+    text = safe_read_text(path)
+    if text is None:
         return "unknown"
+    head = text[:2000].lower()
     for cat, keywords in CATEGORY_KEYWORDS.items():
         for kw in keywords:
             if kw in head:

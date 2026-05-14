@@ -343,6 +343,7 @@ _AUDITS: list[tuple[str, str, str]] = [
     # NOT run periodically (e.g. ones discovered to have side effects).
     ("audit_alembic_test_db_parity.py", "invariant_regression", "invariant:alembic_test_db_parity"),
     ("audit_analytics_date_range_coverage.py", "invariant_regression", "invariant:analytics_date_range_coverage"),
+    ("audit_audit_io_safety.py", "invariant_regression", "invariant:audit_io_safety"),
     ("audit_audit_telemetry_coverage.py", "invariant_regression", "invariant:audit_telemetry_coverage"),
     ("audit_autonomy_coverage.py", "invariant_regression", "invariant:autonomy_coverage"),
     ("audit_backend_currency_drift.py", "invariant_regression", "invariant:backend_currency_drift"),

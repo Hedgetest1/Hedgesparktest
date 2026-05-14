@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """audit_audit_io_safety.py — preventer for TOCTOU regressions in
-preflight audit scripts.
+preflight scripts that walk the source tree.
 
 Problem class
 -------------
-Audit scripts that walk the source tree with `Path.rglob(...)` followed
-by `path.read_text(...)` (or `path.open(...)`) are vulnerable to a
-classic TOCTOU race when a concurrent test fixture creates+deletes a
+Scripts that walk the source tree with `Path.rglob(...)` / `Path.glob(...)`
+followed by `path.read_text(...)` (or `path.open(...)`) are vulnerable to
+a classic TOCTOU race when a concurrent test fixture creates+deletes a
 file inside the scanned tree:
 
     test_audit_data_truth_gate writes _test_hardcoded_eur_DELETE_ME.py
-    under app/services/, deletes it at teardown.
+    under app/services/, deletes at teardown.
         → invariant_monitor cycle running in parallel
         → rglob discovers the file
         → read_text() raises FileNotFoundError
@@ -18,34 +18,43 @@ file inside the scanned tree:
         → invariant_regression CRITICAL fired
 
 The same race fired twice on 2026-05-13 (audit_cte_missing_comma,
-audit_tier_cost_literals). 70+ other audits had the latent bug — they
+audit_tier_cost_literals). 75+ other audits had the latent bug — they
 just hadn't lost the timing roulette yet.
 
-The defense
------------
-Every audit that does `rglob → read_text/open` MUST either:
+The defense (AST-precise USE-SITE check)
+-----------------------------------------
+**Born 2026-05-14 v1**: import-presence check (`from _audit_io import
+safe_read_text` OR explicit `try/except (FileNotFoundError,
+PermissionError)` mention). Independent close audit caught the gap:
+import-without-use bypassed the check (concrete victim:
+`audit_test_hermeticity.py` imported the helper, kept raw `read_text`
+call site → preventer said clean → bug latent).
 
-  (a) import the canonical helper:
-          from _audit_io import safe_read_text
-      and use it instead of `path.read_text(...)`, OR
+**v2 (this file)**: AST-walk every `Call` node where the function is
+`<receiver>.read_text(...)`, `<receiver>.read_bytes(...)`, or
+`<receiver>.open(...)`. For each such call, check:
 
-  (b) wrap the read in an explicit try/except naming both
-      `FileNotFoundError` AND `PermissionError`. (Bare
-      `except Exception` does NOT count — it's too broad and hides
-      real bugs; an explicit guard documents the race intent.)
+    (a) Is the receiver a name bound to a `glob`/`rglob` iterator
+        in any enclosing `for` loop? OR
+    (b) Is the receiver an arg of a function called from such a loop?
 
-This preventer is AST-aware: it parses each `audit_*.py`, finds rglob
-+ read sites, and verifies one of the two patterns covers them. If
-neither is present, the audit is flagged.
+If yes (call site is in a path-iterator scope), require coverage:
 
-The preventer self-excludes (no point flagging itself), and excludes
-the helper file `_audit_io.py` (which doesn't do rglob).
+    - The call is `safe_read_text(<receiver>)` itself (canonical), OR
+    - The call is enclosed in a `try / except` whose handler names
+      `FileNotFoundError` or `PermissionError` (escape-valve pattern).
+
+Scope is BOTH `scripts/audit_*.py` and other `scripts/*.py` that walk
+the source tree (e.g. `session_telemetry_harvester.py`,
+`suggest_test_exempts.py` — both surfaced as victims by the same audit).
+The preventer self-excludes (no point flagging itself) and excludes
+the helper file `_audit_io.py`.
 
 Exit codes
 ----------
-    0 — every audit covered
-    1 — one or more audits missing TOCTOU defense
-    2 — script error (e.g. malformed audit file)
+    0 — every call site covered
+    1 — one or more vulnerable call sites
+    2 — script error (e.g. malformed input file)
 """
 from __future__ import annotations
 
@@ -58,108 +67,171 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 from _audit_io import safe_read_text  # noqa: E402
 
-# Audits that legitimately don't need the defense — typically because
-# they read a *fixed* known path (no rglob discover step) or because
-# they intentionally want a hard failure on missing/unreadable files.
-# Keep this list TINY and document each entry.
+# Files in `scripts/` that don't need to be scanned. Keep this TINY
+# and document each entry — exemptions accrete drift.
 _EXEMPT: frozenset[str] = frozenset({
-    "audit_audit_io_safety.py",  # this file
+    "audit_audit_io_safety.py",  # this file (would self-flag)
+    "_audit_io.py",              # the helper itself (no scanning logic)
+    "_audit_telemetry_shim.py",  # telemetry stub, no rglob
 })
 
 _HELPER_NAME = "safe_read_text"
-_HELPER_MODULE = "_audit_io"
+_RACE_RAISERS: frozenset[str] = frozenset({"FileNotFoundError", "PermissionError"})
+_READ_METHODS: frozenset[str] = frozenset({"read_text", "read_bytes", "open"})
+_GLOB_METHODS: frozenset[str] = frozenset({"glob", "rglob"})
 
 
-def _imports_helper(tree: ast.Module) -> bool:
-    """Return True iff the audit imports `safe_read_text` from
-    `_audit_io` at any scope (module-level OR inside main())."""
+def _names_bound_by_glob_loops(tree: ast.Module) -> set[str]:
+    """Return every variable name bound by a `for X in <obj>.glob(...)`
+    or `<obj>.rglob(...)` loop anywhere in the module.
+
+    Includes both direct `for X in` and `for X in sorted(...)` /
+    `for X in <iter_func>(<obj>.rglob(...))` patterns — we walk the
+    full iterator expression and check if any sub-call is a glob.
+    """
+    bound: set[str] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            if node.module == _HELPER_MODULE:
-                for alias in node.names:
-                    if alias.name == _HELPER_NAME:
-                        return True
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name == _HELPER_MODULE:
+        if not isinstance(node, ast.For):
+            continue
+        # Does the iterator expression contain a .glob/.rglob call?
+        contains_glob = any(
+            isinstance(sub, ast.Call)
+            and isinstance(sub.func, ast.Attribute)
+            and sub.func.attr in _GLOB_METHODS
+            for sub in ast.walk(node.iter)
+        )
+        if not contains_glob:
+            continue
+        # Bind every name in the for-target tuple/name
+        for tgt in ast.walk(node.target):
+            if isinstance(tgt, ast.Name):
+                bound.add(tgt.id)
+    return bound
+
+
+def _is_in_race_handler(node: ast.AST, ancestors: dict[int, ast.AST]) -> bool:
+    """Return True iff node is lexically inside a `try` whose `except`
+    names FileNotFoundError or PermissionError (or a tuple containing
+    one). Walks ancestors via the supplied parent map."""
+    cur = ancestors.get(id(node))
+    while cur is not None:
+        if isinstance(cur, ast.Try):
+            for handler in cur.handlers:
+                exc = handler.type
+                if exc is None:
+                    continue
+                exc_names: list[str] = []
+                if isinstance(exc, ast.Name):
+                    exc_names.append(exc.id)
+                elif isinstance(exc, ast.Tuple):
+                    for elt in exc.elts:
+                        if isinstance(elt, ast.Name):
+                            exc_names.append(elt.id)
+                if any(name in _RACE_RAISERS for name in exc_names):
                     return True
+        cur = ancestors.get(id(cur))
     return False
 
 
-def _has_explicit_toctou_guard(text: str) -> bool:
-    """Return True iff the source mentions BOTH `FileNotFoundError`
-    AND `PermissionError` — the explicit-guard escape valve. We use
-    text-search rather than AST because the names appear in `except`
-    tuples, isinstance checks, and docstrings; any mention is a
-    sufficient signal that the author thought about the race."""
-    return "FileNotFoundError" in text and "PermissionError" in text
+def _build_parent_map(tree: ast.AST) -> dict[int, ast.AST]:
+    parents: dict[int, ast.AST] = {}
+    for parent in ast.walk(tree):
+        for child in ast.iter_child_nodes(parent):
+            parents[id(child)] = parent
+    return parents
 
 
-def _does_rglob_then_read(text: str, tree: ast.Module) -> bool:
-    """Return True iff the audit calls `.rglob(` (or `.glob(`) AND
-    one of `.read_text(` / `.read_bytes(` / `.open(` somewhere in
-    the source. AST walk would be more precise but text-search is
-    sufficient for a conservative gate — false positives only force
-    the author to add the import, which is the right outcome."""
-    has_glob = ".rglob(" in text or ".glob(" in text
-    has_read = (
-        ".read_text(" in text
-        or ".read_bytes(" in text
-        or ".open(" in text
-    )
-    return has_glob and has_read
+def _scan_module(text: str, filename: str) -> list[str]:
+    """Return list of human-readable findings for vulnerable call sites
+    in this module. Empty list = file is clean."""
+    try:
+        tree = ast.parse(text, filename=filename)
+    except SyntaxError as exc:
+        return [f"syntax error: {exc}"]
+
+    parents = _build_parent_map(tree)
+    glob_bound = _names_bound_by_glob_loops(tree)
+    if not glob_bound:
+        return []  # nothing iterated via glob — bug class doesn't apply
+
+    findings: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Attribute):
+            continue
+        if func.attr not in _READ_METHODS:
+            continue
+        # Only consider calls where receiver is a Name bound by a glob
+        # loop (the bug class). Receiver could be deeper (e.g.
+        # `f.read_text().splitlines()`) but the read_text call is the
+        # one that races; we look at THIS call's receiver.
+        if not isinstance(func.value, ast.Name):
+            continue
+        if func.value.id not in glob_bound:
+            continue
+        # Site found. Is it covered?
+        if _is_in_race_handler(node, parents):
+            continue  # explicit try/except (FileNotFoundError, PermissionError)
+        findings.append(
+            f"line {node.lineno}: `{func.value.id}.{func.attr}(...)` "
+            f"inside glob/rglob loop without TOCTOU defense "
+            f"(use safe_read_text({func.value.id}) OR wrap in "
+            f"try/except (FileNotFoundError, PermissionError))"
+        )
+    return findings
+
+
+def _candidate_scripts() -> list[Path]:
+    """Return every Python file under scripts/ that is NOT exempt.
+    Scope is intentionally broader than `audit_*.py` because the same
+    bug class hit two helper scripts in 2026-05-14 (session_telemetry_
+    harvester, suggest_test_exempts) — the preventer must catch them."""
+    out: list[Path] = []
+    for p in sorted(SCRIPTS_DIR.glob("*.py")):
+        if p.name in _EXEMPT:
+            continue
+        out.append(p)
+    return out
 
 
 def main() -> int:
-    findings: list[tuple[str, str]] = []
+    findings: dict[str, list[str]] = {}
     scanned = 0
-
-    for audit_path in sorted(SCRIPTS_DIR.glob("audit_*.py")):
-        if audit_path.name in _EXEMPT:
-            continue
-        text = safe_read_text(audit_path)
+    for path in _candidate_scripts():
+        text = safe_read_text(path)
         if text is None:
-            # This file disappeared between glob and read — same race
-            # we're defending against. Skip; next preflight cycle picks
-            # it up. Self-applying the doctrine.
-            continue
-        if not _does_rglob_then_read(text, ast.parse("")):
+            # File raced away — same defense we're enforcing. Skip;
+            # next preflight cycle will re-scan.
             continue
         scanned += 1
-        try:
-            tree = ast.parse(text, filename=str(audit_path))
-        except SyntaxError as exc:
-            findings.append((audit_path.name, f"syntax error: {exc}"))
-            continue
-        if _imports_helper(tree):
-            continue
-        if _has_explicit_toctou_guard(text):
-            continue
-        findings.append((
-            audit_path.name,
-            "rglob+read without TOCTOU defense "
-            "(import safe_read_text from _audit_io OR add explicit "
-            "try/except (FileNotFoundError, PermissionError))",
-        ))
+        site_findings = _scan_module(text, str(path))
+        if site_findings:
+            findings[path.name] = site_findings
 
     if findings:
+        total = sum(len(v) for v in findings.values())
         print(
-            f"audit_audit_io_safety: {len(findings)} audit(s) vulnerable "
-            f"to rglob+read TOCTOU race (out of {scanned} scanned):"
+            f"audit_audit_io_safety: {total} vulnerable call site(s) "
+            f"across {len(findings)} file(s) (out of {scanned} scanned):"
         )
-        for name, reason in findings:
-            print(f"  {name}: {reason}")
+        for fname, sites in findings.items():
+            print(f"  {fname}:")
+            for line in sites:
+                print(f"    {line}")
         print()
         print(
-            "Fix: either `from _audit_io import safe_read_text` and use "
-            "it instead of `path.read_text(...)`, OR wrap the read in an "
-            "explicit `try / except (FileNotFoundError, PermissionError)`."
+            "Fix per site: replace `<X>.read_text(...)` with "
+            "`safe_read_text(<X>)` from `_audit_io`, OR wrap the call in "
+            "`try / except (FileNotFoundError, PermissionError)`."
         )
         return 1
 
     print(
-        f"audit_audit_io_safety: clean — {scanned} audit(s) with rglob+read "
-        f"all covered by safe_read_text or explicit TOCTOU guard"
+        f"audit_audit_io_safety: clean — {scanned} script(s) scanned, "
+        f"every glob+read site covered by safe_read_text or explicit "
+        f"TOCTOU guard"
     )
     return 0
 

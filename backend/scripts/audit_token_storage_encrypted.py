@@ -149,10 +149,10 @@ def audit() -> int:
     code_blob = ""
     for d in SERVICES_DIRS:
         for f in d.rglob("*.py"):
-            try:
-                code_blob += f.read_text(encoding="utf-8", errors="replace") + "\n"
-            except OSError:
+            text = safe_read_text(f, errors="replace")
+            if text is None:
                 continue
+            code_blob += text + "\n"
 
     for col in encrypted_set:
         if col == "encrypted_klaviyo_key":

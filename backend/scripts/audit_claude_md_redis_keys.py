@@ -113,8 +113,11 @@ def _extract_code_prefixes(app_root: Path) -> dict[str, list[tuple[str, int]]]:
     for py in app_root.rglob("*.py"):
         if "__pycache__" in py.parts:
             continue
+        src = safe_read_text(py)
+        if src is None:
+            continue
         try:
-            tree = ast.parse(py.read_text(), filename=str(py))
+            tree = ast.parse(src, filename=str(py))
         except SyntaxError:
             continue
 

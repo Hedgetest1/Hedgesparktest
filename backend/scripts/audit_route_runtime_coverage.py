@@ -95,10 +95,12 @@ def _parse_router_prefixes(tree: ast.Module) -> dict[str, str]:
 def _collect_handlers() -> list[HandlerRecord]:
     out: list[HandlerRecord] = []
     for py in sorted(BACKEND_API.rglob("*.py")):
+        text = safe_read_text(py)
+        if text is None:
+            continue
         try:
-            text = py.read_text()
             tree = ast.parse(text, filename=str(py))
-        except Exception:
+        except SyntaxError:
             continue
         prefixes = _parse_router_prefixes(tree)
         if not prefixes:

@@ -124,12 +124,11 @@ def main() -> int:
                 violations.append((py_path, desc))
             has_llm += 1
         else:
-            try:
-                src = py_path.read_text()
-                if "api.anthropic.com" in src or "api.openai.com" in src:
-                    has_llm += 1
-            except Exception:
-                pass
+            src = safe_read_text(py_path)
+            if src is not None and (
+                "api.anthropic.com" in src or "api.openai.com" in src
+            ):
+                has_llm += 1
 
     if violations:
         print(f"✗ LLM truncation rejection — {len(violations)} violations:")
